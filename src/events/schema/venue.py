@@ -4,19 +4,36 @@ import typing as t
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
+from ninja.schema import DjangoGetter
 from pydantic import Field, StringConstraints, model_validator
 
 from common.schema import OneToOneFiftyString, StrippedString
-from events.models import Venue, VenueSeat, VenueSector
+from events.models import PriceCategory, Venue, VenueSeat, VenueSector
 
 from .mixins import CityEditMixin, CityRetrieveMixin
 
 
 class Coordinate2D(Schema):
-    """A 2D coordinate point with x and y values."""
+    """A 2D coordinate point with x and y values.
+
+    Canonical form is an ``{"x": .., "y": ..}`` mapping; legacy 2-element
+    ``[x, y]`` pairs (older DB rows) are coerced on validation.
+    """
 
     x: float
     y: float
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_pair(cls, value: t.Any) -> t.Any:
+        """Coerce a legacy 2-element ``[x, y]`` sequence into an ``{x, y}`` mapping."""
+        # Ninja's Schema wrap-validator hands nested values to us as DjangoGetter.
+        raw = value._obj if isinstance(value, DjangoGetter) else value
+        if isinstance(raw, (list, tuple)):
+            if len(raw) != 2:
+                raise ValueError("Coordinate must be an {'x': .., 'y': ..} mapping or a 2-element [x, y] pair.")
+            return {"x": raw[0], "y": raw[1]}
+        return value
 
 
 # A polygon is a list of at least 3 coordinate points
@@ -49,6 +66,14 @@ def point_in_polygon(point: Coordinate2D, polygon: list[Coordinate2D]) -> bool:
     return inside
 
 
+class PriceCategorySchema(ModelSchema):
+    """Venue price category (map color + name)."""
+
+    class Meta:
+        model = PriceCategory
+        fields = ["id", "name", "color", "display_order"]
+
+
 class VenueSeatSchema(ModelSchema):
     """Schema for venue seat response.
 
@@ -57,14 +82,16 @@ class VenueSeatSchema(ModelSchema):
     """
 
     position: Coordinate2D | None = None
-    available: bool = True  # For availability endpoints: False if taken by PENDING/ACTIVE ticket
+    available: bool = True  # For availability endpoints: False if taken by any non-cancelled ticket
+    row_label: str | None = None
+    # Transitional alias so the deployed FE (reads `row`) keeps working until Phase 2 regen.
+    row: str | None = None
 
     class Meta:
         model = VenueSeat
         fields = [
             "id",
             "label",
-            "row",
             "number",
             "position",
             "is_accessible",
@@ -72,13 +99,27 @@ class VenueSeatSchema(ModelSchema):
             "is_active",
         ]
 
+    @staticmethod
+    def resolve_row(obj: VenueSeat) -> str | None:
+        """Transitional alias exposing `row_label` under the legacy `row` key."""
+        return obj.row_label
+
 
 class MinimalSeatSchema(ModelSchema):
     """Minimal seat schema for ticket responses."""
 
+    row_label: str | None = None
+    # Transitional alias so the deployed FE (reads `row`) keeps working until Phase 2 regen.
+    row: str | None = None
+
     class Meta:
         model = VenueSeat
-        fields = ["id", "label", "row", "number", "is_accessible", "is_obstructed_view"]
+        fields = ["id", "label", "number", "is_accessible", "is_obstructed_view"]
+
+    @staticmethod
+    def resolve_row(obj: VenueSeat) -> str | None:
+        """Transitional alias exposing `row_label` under the legacy `row` key."""
+        return obj.row_label
 
 
 class VenueSectorSchema(ModelSchema):

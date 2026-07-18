@@ -47,7 +47,7 @@ def create_venues(state: BootstrapState) -> None:
                 events_models.VenueSeat(
                     sector=main_floor,
                     label=f"{row_label}{seat_num}",
-                    row=row_label,
+                    row_label=row_label,
                     number=seat_num,
                     position={"x": col_idx, "y": row_idx},
                     is_accessible=(row_label == "A"),  # First row is accessible

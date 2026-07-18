@@ -12,9 +12,19 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitation, OrganizationMember, Ticket, TicketTier, VenueSeat, WaitlistOffer
+from events.models import (
+    Event,
+    EventInvitation,
+    EventSeatOverride,
+    OrganizationMember,
+    Ticket,
+    TicketTier,
+    VenueSeat,
+    WaitlistOffer,
+)
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
+from events.service.seating import holds as holds_service
 from events.tasks import build_attendee_visibility_flags
 from notifications.signals.ticket import send_batch_ticket_created_notifications
 from notifications.signals.waitlist import remove_user_from_waitlist
@@ -26,12 +36,21 @@ if t.TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+class _SeatConflictError(Exception):
+    """Internal retry signal: an optimistically picked seat block was invalidated after locking.
+
+    Raised inside the per-attempt savepoint in ``_resolve_seats_best_available`` so the
+    savepoint rollback releases that attempt's row locks; never escapes the retry loop.
+    Deliberately not an HttpError — it must be caught locally, not rendered.
+    """
+
+
 class BatchTicketService:
     """Service for creating multiple tickets in a single transaction.
 
     Handles:
     - Batch size validation against max_tickets_per_user limits
-    - Seat resolution (NONE, RANDOM, USER_CHOICE modes)
+    - Seat resolution (NONE, BEST_AVAILABLE, USER_CHOICE modes)
     - Atomic ticket creation
     - Payment flow delegation (online, offline, free)
     """
@@ -42,6 +61,8 @@ class BatchTicketService:
         tier: TicketTier,
         user: RevelUser,
         discount_code: DiscountCode | None = None,
+        *,
+        guest_session: str | None = None,
     ) -> None:
         """Initialize the batch ticket service.
 
@@ -50,11 +71,14 @@ class BatchTicketService:
             tier: The ticket tier being purchased.
             user: The user purchasing the tickets.
             discount_code: Optional validated discount code to apply.
+            guest_session: Guest-hold session id for guest checkout — the browser
+                held seats under this identity, not under the guest RevelUser.
         """
         self.event = event
         self.tier = tier
         self.user = user
         self.discount_code = discount_code
+        self.guest_session = guest_session
         self._reserve_buyer_vat: "BuyerVATContext | None" = None
 
     def _assert_purchasable_by(self) -> None:
@@ -169,89 +193,9 @@ class BatchTicketService:
                 str(_("You can only purchase {remaining} more ticket(s) for this tier.")).format(remaining=remaining),
             )
 
-    def _get_available_seats(self) -> list[VenueSeat]:
-        """Get available seats in the tier's sector.
-
-        Returns:
-            List of available VenueSeat objects.
-        """
-        if not self.tier.sector_id:
-            return []
-
-        taken_ids = Ticket.objects.filter(
-            event=self.event,
-            seat__isnull=False,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-        ).values_list("seat_id", flat=True)
-
-        return list(
-            VenueSeat.objects.filter(
-                sector_id=self.tier.sector_id,
-                is_active=True,
-            ).exclude(id__in=taken_ids)
-        )
-
     def _resolve_seats_none(self, count: int) -> list[VenueSeat | None]:
         """No seat assignment (GA/standing)."""
         return [None] * count
-
-    def _resolve_seats_random(self, count: int) -> list[VenueSeat]:
-        """Auto-assign random available seats.
-
-        Args:
-            count: Number of seats to assign.
-
-        Returns:
-            List of assigned VenueSeat objects.
-
-        Raises:
-            HttpError: If not enough seats are available.
-        """
-        # Lock seats to prevent race conditions
-        available = list(
-            VenueSeat.objects.filter(
-                sector_id=self.tier.sector_id,
-                is_active=True,
-            )
-            .exclude(
-                id__in=Ticket.objects.filter(
-                    event=self.event,
-                    seat__isnull=False,
-                    status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-                ).values_list("seat_id", flat=True)
-            )
-            .select_for_update()[:count]
-        )
-
-        if len(available) < count:
-            raise HttpError(
-                400,
-                str(_("Not enough seats available. Only {available} seat(s) remaining.")).format(
-                    available=len(available)
-                ),
-            )
-
-        # Post-lock re-check (#632): two RANDOM-assignment tiers on the same sector
-        # don't serialize on this tier's lock, and Postgres EvalPlanQual won't
-        # re-run the exclude(taken) subquery above against a ticket that committed
-        # on an already-locked seat row between our SELECT and our lock. Mirrors
-        # _resolve_seats_user_choice's re-check below, which exists for the same
-        # reason.
-        taken_ids = set(
-            Ticket.objects.filter(
-                event=self.event,
-                seat_id__in=[seat.id for seat in available],
-                status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-            ).values_list("seat_id", flat=True)
-        )
-        if taken_ids:
-            raise HttpError(
-                400,
-                str(_("Not enough seats available. Only {available} seat(s) remaining.")).format(
-                    available=max(len(available) - len(taken_ids), 0)
-                ),
-            )
-        return available
 
     def _resolve_seats_user_choice(self, items: list[TicketPurchaseItem]) -> list[VenueSeat]:
         """Validate and resolve user-selected seats.
@@ -274,13 +218,16 @@ class BatchTicketService:
                 str(_("Seat selection is required for this ticket tier.")),
             )
 
-        # Lock and fetch the requested seats
+        # Lock and fetch the requested seats, in PK order to match the global
+        # seat-lock protocol (holds/overrides), avoiding cross-path deadlocks.
         seats = list(
             VenueSeat.objects.filter(
                 id__in=seat_ids,
                 sector_id=self.tier.sector_id,
                 is_active=True,
-            ).select_for_update()
+            )
+            .order_by("pk")
+            .select_for_update()
         )
 
         if len(seats) != len(seat_ids):
@@ -289,22 +236,122 @@ class BatchTicketService:
                 str(_("One or more selected seats are invalid or not in the correct sector.")),
             )
 
-        # Check none are already taken
-        taken = Ticket.objects.filter(
-            event=self.event,
-            seat_id__in=seat_ids,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-        ).exists()
+        # Check none are already taken or under a box-office override (held/killed).
+        # Occupancy matches the unique_ticket_event_seat constraint predicate:
+        # any non-cancelled ticket (incl. CHECKED_IN) occupies the seat.
+        taken = (
+            Ticket.objects.filter(event=self.event, seat_id__in=seat_ids)
+            .exclude(status=Ticket.TicketStatus.CANCELLED)
+            .exists()
+        )
+        overridden = EventSeatOverride.objects.filter(event=self.event, seat_id__in=seat_ids).exists()
 
-        if taken:
+        if taken or overridden:
             raise HttpError(
                 400,
                 str(_("One or more selected seats are no longer available.")),
             )
 
+        # Holds are advisory: reject seats live-held by ANOTHER identity, consume our own
+        try:
+            self._verify_and_consume_holds([s.id for s in seats])
+        except holds_service.SeatHoldConflictError:
+            raise HttpError(409, str(_("One or more selected seats are held by another buyer."))) from None
+
         # Return seats in the same order as requested
         seat_map = {s.id: s for s in seats}
         return [seat_map[sid] for sid in seat_ids if sid is not None]
+
+    def _verify_and_consume_holds(self, seat_ids: list[UUID]) -> None:
+        """Reject seats live-held by another identity; delete the buyer's own holds.
+
+        Guest checkout runs as a guest RevelUser, but the browser held its seats
+        under the guest session — when one is present it IS the hold identity
+        (a RevelUser instance always reads as authenticated to owner_q).
+
+        Raises:
+            holds_service.SeatHoldConflictError: If a seat is live-held by another identity.
+        """
+        holds_service.verify_and_consume_holds(
+            self.event,
+            seat_ids,
+            user=None if self.guest_session else self.user,
+            guest_session=self.guest_session,
+        )
+
+    def _resolve_seats_best_available(self, count: int) -> list[VenueSeat]:
+        """Adjacency-aware assignment: optimistic pick, then lock + verify the chosen seats only.
+
+        Retries with a fresh read when a picked seat got ticketed, overridden,
+        deactivated, or foreign-held between the unlocked pick and the lock.
+        Each attempt's lock + re-check runs inside its own savepoint (a nested
+        ``transaction.atomic()`` under the request transaction): a conflicted
+        attempt raises ``_SeatConflictError`` inside the block, and the savepoint
+        rollback releases that attempt's seat locks before the next attempt locks
+        a possibly different block. Without this, locks from a failed attempt
+        persist to end of transaction, breaking the global PK lock-ordering
+        protocol and deadlocking against concurrent purchases. A successful
+        attempt exits the block normally (savepoint released, not rolled back),
+        so the outer create_batch transaction keeps the locks and consumed holds.
+
+        Args:
+            count: Number of seats to assign.
+
+        Returns:
+            List of assigned VenueSeat objects in picked (adjacent) order.
+
+        Raises:
+            HttpError: 409 when no adjacent block of `count` seats can be secured.
+        """
+        from events.service.seating.best_available import pick_best_available
+        from events.service.seating.pick import load_candidates
+
+        for _attempt in range(3):
+            # Same identity rule as _verify_and_consume_holds: a guest session, when
+            # present, IS the hold identity — the buyer's own holds stay candidates.
+            candidates = load_candidates(
+                self.event,
+                self.tier,
+                exclude=set(),
+                hold_owner_user=None if self.guest_session else self.user,
+                hold_owner_guest_session=self.guest_session,
+            )
+            picked_ids = pick_best_available(candidates, count)
+            if not picked_ids:
+                raise HttpError(409, str(_("Not enough adjacent seats available for this tier.")))
+            try:
+                with transaction.atomic():  # savepoint per attempt (see docstring)
+                    # Locked in PK order per the global seat-lock protocol
+                    # (holds/overrides). is_active is re-evaluated against the
+                    # locked row version (EvalPlanQual), so a just-deactivated
+                    # seat drops out here as a length mismatch.
+                    seats = list(
+                        VenueSeat.objects.filter(id__in=picked_ids, is_active=True).order_by("pk").select_for_update()
+                    )
+                    if len(seats) != len(picked_ids):  # a picked seat vanished/deactivated — re-pick
+                        raise _SeatConflictError
+                    # Non-cancelled = occupied, matching unique_ticket_event_seat.
+                    taken = (
+                        Ticket.objects.filter(event=self.event, seat_id__in=picked_ids)
+                        .exclude(status=Ticket.TicketStatus.CANCELLED)
+                        .exists()
+                    )
+                    if taken:
+                        raise _SeatConflictError
+                    # Post-lock override re-check: load_candidates read overrides
+                    # unlocked, so a seat killed/held by box office in between must
+                    # be caught here (mirrors _resolve_seats_user_choice).
+                    if EventSeatOverride.objects.filter(event=self.event, seat_id__in=picked_ids).exists():
+                        raise _SeatConflictError
+                    try:
+                        self._verify_and_consume_holds(picked_ids)
+                    except holds_service.SeatHoldConflictError:
+                        raise _SeatConflictError from None
+                    id_order = {sid: i for i, sid in enumerate(picked_ids)}
+                    return sorted(seats, key=lambda s: id_order[s.id])
+            except _SeatConflictError:
+                continue
+        raise HttpError(409, str(_("Could not secure adjacent seats — please try again.")))
 
     def resolve_seats(self, items: list[TicketPurchaseItem]) -> list[VenueSeat | None]:
         """Resolve seats based on the tier's seat assignment mode.
@@ -323,10 +370,9 @@ class BatchTicketService:
         if mode == TicketTier.SeatAssignmentMode.NONE:
             return self._resolve_seats_none(len(items))
 
-        if mode == TicketTier.SeatAssignmentMode.RANDOM:
-            # Cast to satisfy mypy - RANDOM returns list[VenueSeat], which is a subtype
-            seats: list[VenueSeat | None] = list(self._resolve_seats_random(len(items)))
-            return seats
+        if mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
+            best: list[VenueSeat | None] = list(self._resolve_seats_best_available(len(items)))
+            return best
 
         if mode == TicketTier.SeatAssignmentMode.USER_CHOICE:
             # Cast to satisfy mypy - USER_CHOICE returns list[VenueSeat], which is a subtype

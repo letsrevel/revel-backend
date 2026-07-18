@@ -203,8 +203,8 @@ class VenueSectorInline(TabularInline):  # type: ignore[misc]
 class VenueSeatInline(TabularInline):  # type: ignore[misc]
     model = models.VenueSeat
     extra = 1
-    fields = ["label", "row", "number", "is_accessible", "is_obstructed_view", "is_active"]
-    ordering = ["row", "number", "label"]
+    fields = ["label", "row_label", "number", "is_accessible", "is_obstructed_view", "is_active"]
+    ordering = ["row_order", "adjacency_index", "label"]
 
 
 class TicketTierInline(TabularInline):  # type: ignore[misc]

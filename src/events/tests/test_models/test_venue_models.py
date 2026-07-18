@@ -326,13 +326,13 @@ def test_venue_seat_creation(organization: Organization) -> None:
     seat = VenueSeat.objects.create(
         sector=sector,
         label="A1",
-        row="A",
+        row_label="A",
         number=1,
         is_accessible=True,
         is_active=True,
     )
     assert seat.label == "A1"
-    assert seat.row == "A"
+    assert seat.row_label == "A"
     assert seat.number == 1
     assert seat.sector == sector
     assert seat.is_accessible is True
@@ -386,11 +386,11 @@ def test_venue_seat_optional_fields(organization: Organization) -> None:
     seat = VenueSeat.objects.create(
         sector=sector,
         label="SPOT-1",
-        row=None,
+        row_label=None,
         number=None,
         position=None,
     )
-    assert seat.row is None
+    assert seat.row_label is None
     assert seat.number is None
     assert seat.position is None
 
@@ -417,10 +417,10 @@ def test_venue_seat_ordering(organization: Organization) -> None:
     sector = VenueSector.objects.create(venue=venue, name="Orchestra")
 
     # Create seats in random order
-    seat_b2 = VenueSeat.objects.create(sector=sector, label="B2", row="B", number=2)
-    seat_a1 = VenueSeat.objects.create(sector=sector, label="A1", row="A", number=1)
-    seat_a2 = VenueSeat.objects.create(sector=sector, label="A2", row="A", number=2)
-    seat_b1 = VenueSeat.objects.create(sector=sector, label="B1", row="B", number=1)
+    seat_b2 = VenueSeat.objects.create(sector=sector, label="B2", row_label="B", number=2)
+    seat_a1 = VenueSeat.objects.create(sector=sector, label="A1", row_label="A", number=1)
+    seat_a2 = VenueSeat.objects.create(sector=sector, label="A2", row_label="A", number=2)
+    seat_b1 = VenueSeat.objects.create(sector=sector, label="B1", row_label="B", number=1)
 
     # Query seats
     seats = list(VenueSeat.objects.filter(sector=sector))

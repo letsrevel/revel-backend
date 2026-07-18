@@ -909,6 +909,11 @@ msgstr "Questo endpoint è solo per biglietti a offerta libera"
 msgid "No pending reservation found."
 msgstr "Nessuna prenotazione in sospeso trovata."
 
+msgid "Not enough adjacent seats — pick manually or reduce quantity."
+msgstr ""
+"Non ci sono abbastanza posti adiacenti — scegli manualmente o riduci la "
+"quantità."
+
 msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
 msgstr "Usa l'endpoint /checkout/pwyc per i biglietti a offerta libera"
 
@@ -1135,10 +1140,6 @@ msgid "You can only purchase {remaining} more ticket(s) for this tier."
 msgstr ""
 "Puoi acquistare solo {remaining} altro/i biglietto/i per questo livello."
 
-#, python-brace-format
-msgid "Not enough seats available. Only {available} seat(s) remaining."
-msgstr "Posti non sufficienti disponibili. Restano solo {available} posto/i."
-
 msgid "Seat selection is required for this ticket tier."
 msgstr "La selezione del posto è obbligatoria per questo livello di biglietto."
 
@@ -1149,6 +1150,17 @@ msgstr ""
 
 msgid "One or more selected seats are no longer available."
 msgstr "Uno o più posti selezionati non sono più disponibili."
+
+msgid "One or more selected seats are held by another buyer."
+msgstr "Uno o più posti selezionati sono riservati da un altro acquirente."
+
+msgid "Not enough adjacent seats available for this tier."
+msgstr ""
+"Non ci sono abbastanza posti adiacenti disponibili per questo livello di "
+"biglietto."
+
+msgid "Could not secure adjacent seats — please try again."
+msgstr "Impossibile assicurare posti adiacenti — riprova."
 
 msgid "Unknown seat assignment mode."
 msgstr "Modalità di assegnazione posti sconosciuta."
@@ -1764,20 +1776,21 @@ msgid "Seat position is outside the sector shape."
 msgstr "La posizione del posto è al di fuori della forma del settore."
 
 msgid ""
-"Cannot delete seat '{}' because it has active or pending tickets for future "
-"events."
+"Seat '{}' is referenced by tickets or an active hold and cannot be deleted. "
+"Decommission it instead (set inactive)."
 msgstr ""
-"Impossibile eliminare il posto '{}' perché ha biglietti attivi o in sospeso "
-"per eventi futuri."
+"Il posto '{}' è referenziato da biglietti o da una prenotazione attiva e non "
+"può essere eliminato. Disattivalo invece (imposta come inattivo)."
 
 msgid "Seats not found in this sector: {}"
 msgstr "Posti non trovati in questo settore: {}"
 
 msgid ""
-"Cannot delete seats with active or pending tickets for future events: {}"
+"Seats referenced by tickets or active holds cannot be deleted: {}. "
+"Decommission them instead (set inactive)."
 msgstr ""
-"Impossibile eliminare posti con biglietti attivi o in sospeso per eventi "
-"futuri: {}"
+"I posti referenziati da biglietti o prenotazioni attive non possono essere "
+"eliminati: {}. Disattivali invece (imposta come inattivi)."
 
 msgid "This tier does not have seat assignment."
 msgstr "Questo livello non prevede l'assegnazione dei posti."

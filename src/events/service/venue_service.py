@@ -1,24 +1,37 @@
 """Service layer for venue management operations."""
 
+import typing as t
+
 from django.db import transaction
 from django.db.models import Case, Exists, OuterRef, Value, When
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events import models, schema
 
 
-def _convert_shape_to_coordinates(shape: list[dict[str, float]]) -> list[schema.Coordinate2D]:
+def _seat_model_kwargs(data: dict[str, t.Any]) -> dict[str, t.Any]:
+    """Map the transitional API field ``row`` onto the model field ``row_label``.
+
+    The deployed FE still sends/reads ``row``; the model column is ``row_label``.
+    Rename is conditional so ``exclude_unset`` update payloads stay untouched.
+    """
+    if "row" in data:
+        data["row_label"] = data.pop("row")
+    return data
+
+
+def _convert_shape_to_coordinates(shape: list[t.Any]) -> list[schema.Coordinate2D]:
     """Convert a JSON shape from DB to list of Coordinate2D objects.
 
     Args:
-        shape: Shape data from database (list of dicts with x,y keys)
+        shape: Shape data from database — canonical ``{"x": .., "y": ..}`` dicts,
+            or legacy ``[x, y]`` pairs (coerced by Coordinate2D validation).
 
     Returns:
         List of Coordinate2D objects
     """
-    return [schema.Coordinate2D(x=point["x"], y=point["y"]) for point in shape]
+    return [schema.Coordinate2D.model_validate(point) for point in shape]
 
 
 def create_venue(
@@ -88,7 +101,9 @@ def create_sector(
 
     # Create seats if provided
     if payload.seats:
-        seats_to_create = [models.VenueSeat(sector=sector, **seat.model_dump()) for seat in payload.seats]
+        seats_to_create = [
+            models.VenueSeat(sector=sector, **_seat_model_kwargs(seat.model_dump())) for seat in payload.seats
+        ]
         models.VenueSeat.objects.bulk_create(seats_to_create)
 
     return sector
@@ -169,7 +184,7 @@ def bulk_create_seats(
         shape_coords = _convert_shape_to_coordinates(sector.shape)
         _validate_seats_in_shape(seats, shape_coords)
 
-    seats_to_create = [models.VenueSeat(sector=sector, **seat.model_dump()) for seat in seats]
+    seats_to_create = [models.VenueSeat(sector=sector, **_seat_model_kwargs(seat.model_dump())) for seat in seats]
     return list(models.VenueSeat.objects.bulk_create(seats_to_create))
 
 
@@ -207,7 +222,7 @@ def update_seat(
     Returns:
         The updated seat
     """
-    update_data = payload.model_dump(exclude_unset=True)
+    update_data = _seat_model_kwargs(payload.model_dump(exclude_unset=True))
     if not update_data:
         return seat
 
@@ -231,22 +246,21 @@ def delete_seat(seat: models.VenueSeat) -> None:
         seat: The seat to delete
 
     Raises:
-        HttpError: If the seat has active or pending tickets for future events
+        HttpError: If the seat is referenced by any ticket (any status/event, ever)
+            or has an unexpired hold
     """
-    # Check for active/pending tickets on future events
-    blocking_ticket_exists = models.Ticket.objects.filter(
-        seat=seat,
-        status__in=[models.Ticket.TicketStatus.ACTIVE, models.Ticket.TicketStatus.PENDING],
-        event__end__gt=timezone.now(),
-    ).exists()
+    # A seat referenced by any ticket, ever, or held right now, is never hard-deleted.
+    blocking_ticket_exists = models.Ticket.objects.filter(seat=seat).exists()
+    blocking_hold_exists = models.SeatHold.objects.active().filter(seat=seat).exists()
 
-    if blocking_ticket_exists:
+    if blocking_ticket_exists or blocking_hold_exists:
         raise HttpError(
             400,
             str(
-                _("Cannot delete seat '{}' because it has active or pending tickets for future events.").format(
-                    seat.label
-                )
+                _(
+                    "Seat '{}' is referenced by tickets or an active hold and cannot be deleted. "
+                    "Decommission it instead (set inactive)."
+                ).format(seat.label)
             ),
         )
 
@@ -257,8 +271,8 @@ def delete_seat(seat: models.VenueSeat) -> None:
 def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
     """Bulk delete seats by their labels.
 
-    This operation is atomic - if any seat cannot be deleted (due to having
-    active/pending tickets for future events), no seats will be deleted.
+    This operation is atomic - if any seat cannot be deleted (because it is
+    referenced by any ticket, ever, or has an unexpired hold), no seats will be deleted.
 
     Args:
         sector: The sector containing the seats
@@ -268,7 +282,7 @@ def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
         The number of seats deleted
 
     Raises:
-        HttpError: If any seat is not found or has blocking tickets
+        HttpError: If any seat is not found or is referenced by tickets/holds
     """
     if not labels:
         return 0
@@ -284,25 +298,23 @@ def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
             str(_("Seats not found in this sector: {}").format(", ".join(sorted(missing_labels)))),
         )
 
-    # Check for blocking tickets on any of the seats
-    blocking_seats = (
-        models.Ticket.objects.filter(
-            seat__in=seats,
-            status__in=[models.Ticket.TicketStatus.ACTIVE, models.Ticket.TicketStatus.PENDING],
-            event__end__gt=timezone.now(),
-        )
-        .values_list("seat__label", flat=True)
-        .distinct()
+    # A seat referenced by any ticket, ever, or held right now, is never hard-deleted.
+    blocking_ticket_labels = set(
+        models.Ticket.objects.filter(seat__in=seats).values_list("seat__label", flat=True).distinct()
     )
-    blocking_labels = list(blocking_seats)
+    blocking_hold_labels = set(
+        models.SeatHold.objects.active().filter(seat__in=seats).values_list("seat__label", flat=True).distinct()
+    )
+    blocking_labels = blocking_ticket_labels | blocking_hold_labels
 
     if blocking_labels:
         raise HttpError(
             400,
             str(
-                _("Cannot delete seats with active or pending tickets for future events: {}").format(
-                    ", ".join(sorted(blocking_labels))
-                )
+                _(
+                    "Seats referenced by tickets or active holds cannot be deleted: {}. "
+                    "Decommission them instead (set inactive)."
+                ).format(", ".join(sorted(blocking_labels)))
             ),
         )
 
@@ -358,7 +370,7 @@ def bulk_update_seats(
 
     for update in updates:
         seat = seats_by_label[update.label]
-        update_data = update.model_dump(exclude={"label"}, exclude_unset=True)
+        update_data = _seat_model_kwargs(update.model_dump(exclude={"label"}, exclude_unset=True))
 
         if not update_data:
             updated_seats.append(seat)
@@ -392,7 +404,9 @@ def get_tier_seat_availability(
     """Get seat availability for a ticket tier with seat assignment.
 
     Returns sector info with all seats and their availability status.
-    Seats taken by PENDING or ACTIVE tickets are marked as available=False.
+    Seats taken by any non-cancelled ticket are marked as available=False.
+    Serves any seat-assigned mode (USER_CHOICE or BEST_AVAILABLE),
+    provided the tier has a sector assigned.
 
     Args:
         event: The event to check availability for
@@ -414,12 +428,13 @@ def get_tier_seat_availability(
     # Get sector
     sector = models.VenueSector.objects.get(pk=tier.sector_id)
 
-    # Subquery to check if a seat is taken
+    # Subquery to check if a seat is taken. Occupancy matches the
+    # unique_ticket_event_seat constraint: any non-cancelled ticket
+    # (incl. CHECKED_IN) occupies the seat.
     taken_ticket_exists = models.Ticket.objects.filter(
         event=event,
         seat_id=OuterRef("pk"),
-        status__in=[models.Ticket.TicketStatus.PENDING, models.Ticket.TicketStatus.ACTIVE],
-    )
+    ).exclude(status=models.Ticket.TicketStatus.CANCELLED)
 
     # Annotate seats with availability status
     seats_with_availability = (
@@ -430,7 +445,7 @@ def get_tier_seat_availability(
                 default=Value(True),
             )
         )
-        .order_by("row", "number", "label")
+        .order_by("row_label", "number", "label")
     )
 
     # Build response with availability counts

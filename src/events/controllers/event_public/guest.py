@@ -13,6 +13,7 @@ from common.schema import ResponseMessage
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.service import guest as guest_service
+from events.service.guest_hold_session import GUEST_HOLD_COOKIE, resolve_guest_session
 
 from .base import EventPublicBaseController
 
@@ -20,6 +21,10 @@ from .base import EventPublicBaseController
 @api_controller("/events", auth=OptionalAuth(), tags=["Events"])
 class EventPublicGuestController(EventPublicBaseController):
     """Handles guest user (unauthenticated) checkout and RSVP operations."""
+
+    def _resolve_guest_session(self) -> str | None:
+        """Resolve the guest-hold cookie, if present and valid (seat holds are owned by it)."""
+        return resolve_guest_session(self.context.request.COOKIES.get(GUEST_HOLD_COOKIE))  # type: ignore[union-attr]
 
     @route.post(
         "/{uuid:event_id}/rsvp/{answer}/public",
@@ -72,7 +77,7 @@ class EventPublicGuestController(EventPublicBaseController):
 
         **Seat Assignment Modes:**
         - `NONE`: No seat assigned (general admission)
-        - `RANDOM`: System auto-assigns available seats
+        - `BEST_AVAILABLE`: System auto-assigns the best adjacent block of seats
         - `USER_CHOICE`: User must provide seat_id for each ticket
 
         **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
@@ -98,6 +103,7 @@ class EventPublicGuestController(EventPublicBaseController):
             payload.tickets,
             discount_code=payload.discount_code,
             billing_info=payload.billing_info,
+            guest_session=self._resolve_guest_session(),
         )
 
     @route.post(
@@ -129,7 +135,7 @@ class EventPublicGuestController(EventPublicBaseController):
 
         **Seat Assignment Modes:**
         - `NONE`: No seat assigned (general admission)
-        - `RANDOM`: System auto-assigns available seats
+        - `BEST_AVAILABLE`: System auto-assigns the best adjacent block of seats
         - `USER_CHOICE`: User must provide seat_id for each ticket
 
         **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
@@ -155,6 +161,7 @@ class EventPublicGuestController(EventPublicBaseController):
             payload.tickets,
             pwyc_amount=payload.price_per_ticket,
             billing_info=payload.billing_info,
+            guest_session=self._resolve_guest_session(),
         )
 
     @route.post(

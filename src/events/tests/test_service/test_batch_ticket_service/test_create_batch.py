@@ -446,7 +446,7 @@ class TestCreateBatchWithVenue:
             VenueSeat.objects.create(
                 sector=sector,
                 label=f"A{i}",
-                row="A",
+                row_label="A",
                 number=i,
                 position={"x": i * 10, "y": 10},
                 is_active=True,

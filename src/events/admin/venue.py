@@ -111,14 +111,14 @@ class VenueSectorAdmin(ModelAdmin, VenueLinkMixin):  # type: ignore[misc]
 class VenueSeatAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for VenueSeat model."""
 
-    list_display = ["label", "sector_link", "row", "number", "is_accessible", "is_obstructed_view", "is_active"]
+    list_display = ["label", "sector_link", "row_label", "number", "is_accessible", "is_obstructed_view", "is_active"]
     list_select_related = ["sector", "sector__venue"]
     list_filter = [("sector", AutocompleteSelectFilter), "is_accessible", "is_obstructed_view", "is_active"]
     list_filter_submit = True
-    search_fields = ["label", "row", "sector__name", "sector__venue__name"]
+    search_fields = ["label", "row_label", "sector__name", "sector__venue__name"]
     autocomplete_fields = ["sector"]
     readonly_fields = ["created_at", "updated_at"]
-    ordering = ["sector", "row", "number", "label"]
+    ordering = ["sector", "row_order", "adjacency_index", "label"]
 
     fieldsets = [
         (
@@ -127,7 +127,7 @@ class VenueSeatAdmin(ModelAdmin):  # type: ignore[misc]
                 "fields": (
                     "sector",
                     "label",
-                    ("row", "number"),
+                    ("row_label", "number"),
                 )
             },
         ),

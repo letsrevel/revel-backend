@@ -244,6 +244,22 @@ from .rsvp import (
     WaitlistEntrySchema,
 )
 
+# Seating schemas
+from .seating import (
+    BestAvailableHoldRequest,
+    ChartSeatSchema,
+    ChartSectorSchema,
+    HoldResponseSchema,
+    HoldSeatsRequest,
+    ReleaseSeatsRequest,
+    SeatingAvailabilitySchema,
+    SeatOverrideItemSchema,
+    SeatOverridesRequest,
+    SeatOverridesResponse,
+    StandingAvailabilitySchema,
+    VenueChartSchema,
+)
+
 # Series pass schemas
 from .series_pass import (
     HeldSeriesPassAdminSchema,
@@ -334,6 +350,7 @@ from .venue import (
     Coordinate2D,
     MinimalSeatSchema,
     PolygonShape,
+    PriceCategorySchema,
     SectorAvailabilitySchema,
     VenueAvailabilitySchema,
     VenueCreateSchema,
@@ -408,6 +425,7 @@ __all__ = [
     "Coordinate2D",
     "MinimalSeatSchema",
     "PolygonShape",
+    "PriceCategorySchema",
     "SectorAvailabilitySchema",
     "VenueAvailabilitySchema",
     "VenueCreateSchema",
@@ -514,6 +532,19 @@ __all__ = [
     "TierRemainingTicketsSchema",
     "UserRSVPSchema",
     "WaitlistEntrySchema",
+    # Seating
+    "BestAvailableHoldRequest",
+    "ChartSeatSchema",
+    "ChartSectorSchema",
+    "HoldResponseSchema",
+    "HoldSeatsRequest",
+    "ReleaseSeatsRequest",
+    "SeatOverrideItemSchema",
+    "SeatOverridesRequest",
+    "SeatOverridesResponse",
+    "SeatingAvailabilitySchema",
+    "StandingAvailabilitySchema",
+    "VenueChartSchema",
     # Invitation
     "CombinedInvitationListSchema",
     "DirectInvitationCreateSchema",

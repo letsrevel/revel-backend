@@ -86,7 +86,8 @@ class EventPublicTicketsController(EventPublicBaseController):
     def get_tier_seat_availability(self, event_id: UUID, tier_id: UUID) -> schema.SectorAvailabilitySchema:
         """Get available seats for a ticket tier with seat assignment.
 
-        Returns seat availability for tiers that have seat assignment (RANDOM or USER_CHOICE mode).
+        Returns seat availability for tiers that have seat assignment (USER_CHOICE
+        or BEST_AVAILABLE mode).
         Useful for displaying a seat map where users can select seats.
 
         **Returns:**
@@ -96,7 +97,7 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         **Seat Status:**
         - `available=True`: Seat can be selected
-        - `available=False`: Already taken by PENDING or ACTIVE ticket
+        - `available=False`: Already taken by a non-cancelled ticket
 
         Returns 404 if the tier doesn't have seat assignment (NONE mode) or no sector is assigned.
         """
@@ -140,7 +141,7 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         **Seat Assignment Modes:**
         - `NONE`: No seat assigned (general admission)
-        - `RANDOM`: System auto-assigns available seats
+        - `BEST_AVAILABLE`: System auto-assigns the best adjacent block of seats
         - `USER_CHOICE`: User must provide seat_id for each ticket
 
         On eligibility failure, returns 400 with eligibility details explaining what's blocking
