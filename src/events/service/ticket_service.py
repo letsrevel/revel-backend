@@ -499,7 +499,8 @@ def check_in_ticket(
     """
     # Get the ticket
     ticket = get_object_or_404(
-        Ticket.objects.select_related("user", "tier", "held_pass__series_pass"),
+        # seat/sector feed the check-in response payload (door staff see "Row C seat 12").
+        Ticket.objects.select_related("user", "tier", "held_pass__series_pass", "seat", "sector"),
         pk=ticket_id,
         event=event,
     )

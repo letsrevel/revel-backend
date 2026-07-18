@@ -1552,6 +1552,42 @@ msgstr "Nur ausstehende Zahlungen können storniert werden."
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "Eine Datei muss bereitgestellt werden, wenn resource_type 'file' ist."
 
+msgid "This seat is not available for this event."
+msgstr "Dieser Sitzplatz ist für dieses Event nicht verfügbar."
+
+msgid "This seat already has a ticket."
+msgstr "Für diesen Sitzplatz existiert bereits ein Ticket."
+
+msgid "This seat is blocked for this event."
+msgstr "Dieser Sitzplatz ist für dieses Event gesperrt."
+
+msgid "This seat is currently held by another buyer."
+msgstr "Dieser Sitzplatz ist derzeit von einem anderen Käufer reserviert."
+
+msgid "Only pending or active tickets can be reseated."
+msgstr "Nur ausstehende oder aktive Tickets können umgesetzt werden."
+
+msgid "This ticket has no seat assigned."
+msgstr "Diesem Ticket ist kein Sitzplatz zugewiesen."
+
+msgid "The ticket is already on this seat."
+msgstr "Das Ticket ist bereits auf diesem Sitzplatz."
+
+msgid "The target seat is not available for this event."
+msgstr "Der Zielsitzplatz ist für dieses Event nicht verfügbar."
+
+msgid "Reseat is limited to seats in the same price category."
+msgstr "Umsetzen ist nur auf Sitzplätze derselben Preiskategorie möglich."
+
+msgid "The target seat already has a ticket."
+msgstr "Für den Zielsitzplatz existiert bereits ein Ticket."
+
+msgid "The target seat is blocked for this event."
+msgstr "Der Zielsitzplatz ist für dieses Event gesperrt."
+
+msgid "The target seat is currently held by another buyer."
+msgstr "Der Zielsitzplatz ist derzeit von einem anderen Käufer reserviert."
+
 msgid "You cannot purchase from this organization."
 msgstr "Du kannst bei dieser Organisation nichts kaufen."
 
