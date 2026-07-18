@@ -1809,6 +1809,9 @@ msgstr ""
 "Le montant du remboursement doit être compris entre 0 et le montant payé "
 "(%(amount)s)."
 
+msgid "Price category must belong to the same venue as the seats."
+msgstr "La catégorie tarifaire doit appartenir au même lieu que les sièges."
+
 msgid ""
 "This price category is used by one or more ticket tiers and cannot be "
 "deleted. Reassign or remove those tiers first."
@@ -1819,6 +1822,13 @@ msgstr ""
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La position du siège « {} » est en dehors de la forme du secteur."
+
+msgid ""
+"Sector kind can only be changed while the sector has no seats. Delete its "
+"seats first."
+msgstr ""
+"Le type de secteur ne peut être modifié que lorsque le secteur n'a aucun "
+"siège. Supprimez d'abord ses sièges."
 
 msgid "Seat with label '{}' not found in this sector."
 msgstr "Siège avec l'étiquette « {} » introuvable dans ce secteur."
@@ -1842,6 +1852,9 @@ msgid ""
 msgstr ""
 "Les sièges référencés par des tickets ou des réservations actives ne peuvent "
 "pas être supprimés : {}. Désactivez-les plutôt (mettez-les en inactif)."
+
+msgid "Some seats were not found in this venue."
+msgstr "Certains sièges sont introuvables dans ce lieu."
 
 msgid "This tier does not have seat assignment."
 msgstr "Cette catégorie n'a pas d'attribution de siège."
