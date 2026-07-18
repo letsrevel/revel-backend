@@ -1803,6 +1803,14 @@ msgstr ""
 "Der Erstattungsbetrag muss zwischen 0 und dem gezahlten Betrag liegen "
 "(%(amount)s)."
 
+msgid ""
+"This price category is used by one or more ticket tiers and cannot be "
+"deleted. Reassign or remove those tiers first."
+msgstr ""
+"Diese Preiskategorie wird von einer oder mehreren Ticketkategorien verwendet "
+"und kann nicht gelöscht werden. Weisen Sie diese Ticketkategorien zunächst "
+"neu zu oder entfernen Sie sie."
+
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "Die Position des Sitzplatzes '{}' liegt außerhalb der Sektorform."
 
