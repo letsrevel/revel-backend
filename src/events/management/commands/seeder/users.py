@@ -147,8 +147,8 @@ class UserSeeder(BaseSeeder):
             email_verified = self.random_bool(0.6)
 
         return RevelUser(
-            username=f"{username_base}@seed.test",
-            email=f"{username_base}@seed.test",
+            username=f"{username_base}@seed.letsrevel.io",
+            email=f"{username_base}@seed.letsrevel.io",
             password=self.state.hashed_password,
             first_name=first_name,
             last_name=last_name,
