@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Last updated**: 2026-07-07 (v1.67.1)
+> **Last updated**: 2026-07-19 (seating phase-4: paint, box office, guest accessible)
 
 ---
 
@@ -411,6 +411,7 @@ See [Journey 19: Venue & Seating](#journey-19-venue--seating) for the full chart
 - The check-in code is a string: a plain ticket UUID **or** a `series:<uuid>` series-pass QR, resolved to that event's pass ticket (see [Journey 26](#journey-26-series-passes-season-tickets))
 - Ticket status: ACTIVE → CHECKED_IN
 - For PWYC offline tickets: price_paid recorded at check-in
+- The scan / search response (`CheckInResponseSchema`) carries the resolved `seat` (label, row, number, accessibility flags) and `sector_name`, so door staff can direct the attendee (e.g. "Stalls, Row C seat 12")
 - Check-in window enforced (check_in_starts_at to check_in_ends_at)
 
 ### 6.11 Apply Discount Code
@@ -460,6 +461,7 @@ Opt-in per tier via `allow_user_cancellation`, `cancellation_deadline_hours`, an
 - A guest can hold seats **before** identifying themselves: the first anonymous hold mints a server-signed `revel_guest_hold` cookie (httpOnly, `SameSite=Lax`, 24h) — guest hold identities are never client-minted
 - The guest picks seats (USER_CHOICE) or requests a best-available block, exactly as a logged-in user does (see [Journey 19](#journey-19-venue--seating))
 - On "Buy as Guest", the held seats are **carried into checkout**: the guest-session cookie is the hold identity, so the buyer's own live holds are consumed rather than treated as foreign conflicts
+- A best-available guest checkout may pass `accessible_required`; that flag and the guest-hold session are bound into the signed email-confirm token, so accessible-pool assignment happens at confirm time even on another device (see [Journey 19.6](#196-guest-best-available--holds))
 - Everything else follows the guest ticket checkout flow (see [Journey 7.2](#72-guest-ticket-checkout))
 
 ---
@@ -652,7 +654,7 @@ DRAFT → OPEN → CLOSED
 - Check in tickets (mark CHECKED_IN)
 - Cancel / mark-refunded tickets — admin actions record `cancelled_at`, `cancelled_by`, `cancellation_source=ORGANIZER`, optional reason, and (on refund) `refund_amount` / `refund_status` / `refunded_at`
 - View payment details
-- **Box-office seat control** (with `manage_tickets`): bulk-hold/kill individual seats with a reason, or release them, for this event — see [Journey 19.7](#197-box-office-seat-control-event-admin)
+- **Box-office seat control** (with `manage_tickets`): bulk-hold/kill individual seats with a reason or release them; **door-sell / comp** a ticket straight onto a seat; and **reseat** a ticket within its price category — all for this event, see [Journey 19.7](#197-box-office-seat-control-event-admin)
 
 ### 10.6 Manage RSVPs
 - View all RSVPs with status
@@ -1112,7 +1114,7 @@ First-class recurring series with rolling-window materialization:
 
 ## Journey 19: Venue & Seating
 
-> **Enterprise seating — Phase 1.** Reusable venue layouts (sectors, seats, price categories) drive three per-tier assignment modes (GA, user-choice, best-available), TTL cart holds, and per-event box-office seat control. The seating chart is served render-ready straight from live tables (no versioning in v1).
+> **Enterprise seating.** Reusable venue layouts (sectors of kind seated/standing, seats, painted price categories) drive three per-tier assignment modes (GA, user-choice, best-available), TTL cart holds, guest (incl. accessible) seating, and per-event box-office control (overrides, door sales/comps, reseat). Seat row/adjacency order is derived server-side; the seating chart is served render-ready straight from live tables (no versioning in v1).
 
 ### 19.1 Venue & Layout Setup (Organizer)
 - Navigate to `/org/[slug]/admin/venues`; requires `edit_organization` (list/read also allowed for org staff)
@@ -1121,8 +1123,10 @@ First-class recurring series with rolling-window materialization:
   - `seated`: holds individual seats; capacity is implied by its seat count
   - `standing`: no seats; a hard `capacity` acts as the ceiling for GA (`NONE`-mode) tiers linked to it
   - Optional `shape` polygon + `display_order` for the visual map
+  - A sector's `kind` can only be changed while it has **zero seats** (delete its seats first); otherwise **400**
 - **Seats** (in a seated sector) via the grid editor — bulk create / bulk-update / bulk-delete (by label) plus single seat update/delete:
-  - Attributes: `label`, `row_label` / `row_order`, `number`, `adjacency_index` (left→right order within a row), `position`, `is_accessible`, `is_obstructed_view`, `is_active`
+  - Attributes: `label`, `row_label` / `row_order`, `number`, `adjacency_index` (left→right order within a row), `position`, `is_accessible`, `is_obstructed_view`, `is_active`, `price_category_id` (paint)
+  - **Row/adjacency order is derived server-side**: leave `row_order` / `adjacency_index` unset and the server re-ranks the whole sector — rows front-to-back from `row_label` in *natural* order (numeric `2` before `10`; theatre `Z` before `AA`), seats left-to-right within a row by `number` then `label`. Passing an explicit `row_order`/`adjacency_index` on **any** seat in the request wins wholesale (no derivation for that call). Ranks are re-derived on create / bulk-create / bulk-update whenever a `row`/`number` changes
   - When the sector has a shape, every seat `position` must fall inside the polygon
   - Seat labels are immutable (rename = delete + recreate); a seat with active/pending tickets for a **future** event cannot be deleted (past/checked-in/cancelled don't block)
 
@@ -1130,12 +1134,14 @@ First-class recurring series with rolling-window materialization:
 - Venue-scoped categories: `name` + `color` (hex, for map rendering) + `display_order`
 - CRUD under `/organization-admin/{slug}/venues/{venue_id}/price-categories`; a duplicate `(venue, name)` is rejected with **400**
 - A category is **painted** onto seats as each seat's `default_price_category` — this is the pool a best-available tier draws from
+- **Paint endpoint**: `PUT /organization-admin/{slug}/venues/{venue_id}/seats/paint` bulk-paints the given `seat_ids` in a single UPDATE and returns `{"painted": n}`; `price_category_id: null` **unpaints**. Every seat id must belong to the venue (else **404**) and the category, when given, must belong to the venue (else **400**)
+- **Paint round-trip**: seat reads (`VenueSeatSchema` — e.g. the sector / seat-list endpoints) carry `price_category_id` plus a nested `price_category` (name + color), so the grid editor re-hydrates existing paint on reload
 - **Delete guard**: deleting a category referenced by any ticket tier is refused with **400** (the tier FK is `SET_NULL`, so a silent delete would leave best-available tiers unsellable). Seats painted with the category are unaffected — on delete their `default_price_category` simply becomes NULL and can be repainted
 
 ### 19.3 Tier Seating Configuration (Organizer)
 Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the model validates each mode:
 - **`NONE`** (general admission): no seat/sector/category required. Optionally link a **standing sector** — its `capacity` is then a hard limit enforced atomically at sale time (429 "This sector is full")
-- **`USER_CHOICE`**: **requires a sector**; buyers pick specific seats from that sector
+- **`USER_CHOICE`**: **requires a seated sector**; buyers pick specific seats from it. Pointing a user-choice tier at a **standing** sector is rejected (model validation — a standing sector has no seats to choose from)
 - **`BEST_AVAILABLE`**: **requires a price category**; the server assigns an adjacent block from that category's seat pool
 - Cross-checks: a tier's sector, price category, and venue must all belong to the same venue/organization, and must match the event's venue when one is set
 
@@ -1156,11 +1162,12 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - **Scoring** (lower is better): front rows first (`row_order`) → centrality (closer to the row midpoint) → fragmentation penalty (avoid stranding a single leftover seat) → sector order. Only genuinely-equivalent placements are tie-broken by a seeded shuffle
 - **Accessible seats are protected**: they are excluded from the general assignment pool, so an ordinary best-available request never consumes them
 - **`accessible_required=true`** flips to the accessible-only pool and relaxes contiguity, taking the nearest-row accessible seats
-- Returns **409** ("Not enough adjacent seats — pick manually or reduce quantity.") when no block of `quantity` fits; retries internally when a picked seat is taken between the unlocked pick and the lock
-- The same adjacency-aware assignment runs server-side at purchase for a `BEST_AVAILABLE` tier even without a prior hold
+- When no block of `quantity` fits, the hold route returns **409** in the same `HoldResponseSchema` shape with `conflict_reason` `"no_block"` (empty `held_seat_ids`/`conflicts`, not an `HttpError` detail body); it retries internally when a picked seat is taken between the unlocked pick and the lock
+- The same adjacency-aware assignment runs server-side at purchase for a `BEST_AVAILABLE` tier even without a prior hold; a shortfall at purchase is a **409** detail — "Not enough adjacent seats available for this tier." (general pool) or, when `accessible_required`, the distinct "Not enough accessible seats available — please contact the organizer."
 
 ### 19.6 Guest Best-Available & Holds
 - Anonymous users get the same chart / availability / hold / best-available flow; the first hold mints the signed `revel_guest_hold` cookie (see [Journey 7.4](#74-guest-seated-checkout)), and those holds carry into guest checkout
+- **Guest accessible seating**: guest checkout accepts `accessible_required`; the flag **and** the guest-hold session id are bound into the signed email-confirm token, so best-available assignment at confirm time draws from the accessible pool and still consumes the buyer's own holds even when the link is opened on a different device. Too few accessible seats at confirm is the same distinct **409** ("Not enough accessible seats available — please contact the organizer.")
 
 ### 19.7 Box Office Seat Control (Event Admin)
 - `PUT /event-admin/{event_id}/seating/overrides` — requires the `manage_tickets` permission
@@ -1168,6 +1175,16 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - **Per-seat rejection**, never whole-batch: a seat holding a non-cancelled ticket on this event is rejected as `"ticketed"`, and an id not on the venue as `"unknown_seat"`; the rest still apply. If a seat is in both set and release, the release wins
 - **Effect**: an overridden seat reads as `blocked` in availability and is unpurchasable — user-choice rejects it and best-available skips it. Releasing the override restores it to the pool
 - Response reports `applied` / `released` counts and the per-seat `rejected` map
+
+**Door sales & comps** — `POST /event-admin/{event_id}/seating/sell` (also `manage_tickets`):
+- Issues an **ACTIVE** ticket directly on a seat. `payment_method` is `at_the_door` or `free` only — `free` records `price_paid = 0` (a comp: no tier-price revenue), `at_the_door` leaves it null so fixed-price reporting falls back to the tier price
+- **Recipient** is exactly one of `email` or `user_id`: `user_id` wins; an `email` matching **any** existing account (guest or not) reuses it — unlike self-service guest checkout, a staff door-sale onto a registered account is intended; an unknown email mints a guest user
+- A box-office **HELD** override on the seat is **released** as part of the sale; a **KILLED** seat is rejected (**400**)
+- Enforces tier capacity (**429** sold out / **400** "N remaining") and event capacity, but **bypasses the buyer-side gates** — `purchasable_by`, per-user caps, and sales windows — as a staff exemption. Seat conflicts are **400** (unknown / inactive / wrong-venue) or **409** (already ticketed / held by another buyer)
+
+**Reseat** — `POST /event-admin/{event_id}/seating/reseat` (also `manage_tickets`):
+- Moves a **PENDING/ACTIVE** ticket to another free seat in the **same price category** (cross-category reseat is not supported in v1). Both seat rows are locked PK-ordered before re-checking
+- The target must be active, in the same venue, share the current seat's `default_price_category`, and be free of tickets / overrides / foreign holds. **400** for an invalid ticket state or target; **409** for an occupied or foreign-held target
 
 ### 19.8 Seat Attributes (Reference)
 - `is_accessible` — accessible seat (protected from general best-available assignment)
