@@ -187,6 +187,8 @@ class VenueSectorWithSeatsSchema(VenueSectorSchema):
 class VenueSchema(ModelSchema, CityRetrieveMixin):
     """Schema for venue response."""
 
+    metadata: dict[str, t.Any] | None = None
+
     class Meta:
         model = Venue
         fields = [
@@ -198,6 +200,7 @@ class VenueSchema(ModelSchema, CityRetrieveMixin):
             "address",
             "location_maps_url",
             "location_maps_embed",
+            "metadata",
         ]
 
 
@@ -251,6 +254,10 @@ class VenueCreateSchema(CityEditMixin):
     name: OneToOneFiftyString
     description: StrippedString | None = None
     capacity: int | None = Field(None, ge=0)
+    metadata: dict[str, t.Any] | None = Field(
+        default=None,
+        description="Arbitrary JSON for venue-level layout config (e.g. stage position/shape).",
+    )
 
 
 class VenueUpdateSchema(CityEditMixin):
@@ -259,6 +266,10 @@ class VenueUpdateSchema(CityEditMixin):
     name: OneToOneFiftyString | None = None
     description: StrippedString | None = None
     capacity: int | None = Field(None, ge=0)
+    metadata: dict[str, t.Any] | None = Field(
+        default=None,
+        description="Arbitrary JSON for venue-level layout config (e.g. stage position/shape).",
+    )
 
 
 class VenueSeatInputSchema(Schema):
