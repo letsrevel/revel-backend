@@ -104,7 +104,16 @@ def pick_best_available(
     accessible_required: bool = False,
     seed: int | None = None,
 ) -> list[uuid.UUID]:
-    """Return the best contiguous block of `quantity` seat ids, or [] if none exists."""
+    """Return the best contiguous block of `quantity` seat ids, or [] if none exists.
+
+    Accessible seats are protected unconditionally: a general request
+    (``accessible_required=False``) is scored over non-accessible seats ONLY and
+    never falls back to accessible seats even when the non-accessible pool is
+    exhausted — a general party that can't be seated returns ``[]`` (surfaced as
+    "not enough adjacent seats") rather than being handed a wheelchair space. This
+    is deliberate; do not add an exhaustion fallback. Accessible seats are reachable
+    only via ``accessible_required=True``.
+    """
     if quantity <= 0:
         return []
     if accessible_required:
