@@ -14,7 +14,7 @@ This page answers both.
 
 Everything here requires the `manage_tickets` staff permission on the event's
 organization (check-in itself uses the narrower `check_in_attendees` permission —
-see [Check-in with the seat](#check-in-with-the-seat)). It only applies to seated
+see [Check in and see the seat](#7-check-in-and-see-the-seat)). It only applies to seated
 venues — see [`venue-and-layout.md`](venue-and-layout.md) for how a venue gets seats
 in the first place, and [`tiers-and-pricing.md`](tiers-and-pricing.md) for how tiers
 draw from price categories.
@@ -216,7 +216,7 @@ tomorrow. Overrides never touch the venue's permanent layout — see
 
 ## Under the hood
 
-Full journey narrative: [`../../../USER_JOURNEYS.md`](../../../USER_JOURNEYS.md)
+Full journey narrative: [`https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md`](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md)
 §19.7 (Box Office Seat Control), plus §6.10 and §10.5 for the surrounding event-admin
 and ticket-management context.
 

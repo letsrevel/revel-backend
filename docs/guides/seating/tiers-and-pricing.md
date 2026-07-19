@@ -245,5 +245,5 @@ For the technically-curious rep or a prospect's technical evaluator:
   `PUT/DELETE /event-admin/{event_id}/ticket-tier/{tier_id}` (organizer side, in
   `src/events/controllers/event_admin/tickets.py`).
 - **Full journey narrative**: see [`USER_JOURNEYS.md` §19, "Venue &
-  Seating"](../../../USER_JOURNEYS.md#journey-19-venue--seating), particularly §19.3
+  Seating"](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md#journey-19-venue--seating), particularly §19.3
   (tier seating configuration) and §19.5 (best-available buying flow).
