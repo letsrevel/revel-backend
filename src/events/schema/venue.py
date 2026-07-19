@@ -106,6 +106,11 @@ class VenueSeatSchema(ModelSchema):
     row_label: str | None = None
     # Transitional alias so the deployed FE (reads `row`) keeps working until Phase 2 regen.
     row: str | None = None
+    # Paint round-trip: expose the seat's category so the admin grid editor can re-hydrate
+    # existing paint on reload. `price_category_id` mirrors ChartSeatSchema; `price_category`
+    # carries the color/name for rendering. The model field is `default_price_category`.
+    price_category_id: UUID | None = None
+    price_category: PriceCategorySchema | None = None
 
     class Meta:
         model = VenueSeat
@@ -123,6 +128,16 @@ class VenueSeatSchema(ModelSchema):
     def resolve_row(obj: VenueSeat) -> str | None:
         """Transitional alias exposing `row_label` under the legacy `row` key."""
         return obj.row_label
+
+    @staticmethod
+    def resolve_price_category_id(obj: VenueSeat) -> UUID | None:
+        """Expose the seat's `default_price_category` FK id under `price_category_id`."""
+        return obj.default_price_category_id
+
+    @staticmethod
+    def resolve_price_category(obj: VenueSeat) -> PriceCategory | None:
+        """Expose the resolved category object (color/name) for grid rendering."""
+        return obj.default_price_category
 
 
 class MinimalSeatSchema(ModelSchema):
@@ -147,6 +162,8 @@ class VenueSectorSchema(ModelSchema):
 
     shape: list[Coordinate2D] | None = None
     metadata: dict[str, t.Any] | None = None
+    # Exposed so the admin SectorModal can prefill the current kind on edit.
+    kind: VenueSector.Kind = VenueSector.Kind.SEATED
 
     class Meta:
         model = VenueSector

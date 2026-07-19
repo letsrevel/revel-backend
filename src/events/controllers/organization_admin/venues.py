@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -13,6 +13,9 @@ from events.controllers.permissions import IsOrganizationStaff, OrganizationPerm
 from events.service import venue_service
 
 from .base import OrganizationAdminBaseController
+
+# Prefetch a sector's seats with their painted category (avoids an N+1 in VenueSeatSchema, #733).
+_SEATS_PREFETCH = Prefetch("seats", queryset=models.VenueSeat.objects.select_related("default_price_category"))
 
 
 @api_controller(
@@ -224,7 +227,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         """
         organization = self.get_one(slug)
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
-        return models.VenueSector.objects.filter(venue=venue).prefetch_related("seats")
+        return models.VenueSector.objects.filter(venue=venue).prefetch_related(_SEATS_PREFETCH)
 
     @route.post(
         "/venues/{venue_id}/sectors",
@@ -244,7 +247,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
         sector = venue_service.create_sector(venue, payload)
         # Refresh to get prefetched seats
-        return 201, models.VenueSector.objects.prefetch_related("seats").get(pk=sector.pk)
+        return 201, models.VenueSector.objects.prefetch_related(_SEATS_PREFETCH).get(pk=sector.pk)
 
     @route.get(
         "/venues/{venue_id}/sectors/{sector_id}",
@@ -258,7 +261,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         organization = self.get_one(slug)
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
         return get_object_or_404(
-            models.VenueSector.objects.prefetch_related("seats"),
+            models.VenueSector.objects.prefetch_related(_SEATS_PREFETCH),
             pk=sector_id,
             venue=venue,
         )
@@ -279,7 +282,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
         sector = get_object_or_404(models.VenueSector, pk=sector_id, venue=venue)
         venue_service.update_sector(sector, payload)
-        return models.VenueSector.objects.prefetch_related("seats").get(pk=sector.pk)
+        return models.VenueSector.objects.prefetch_related(_SEATS_PREFETCH).get(pk=sector.pk)
 
     @route.delete(
         "/venues/{venue_id}/sectors/{sector_id}",
