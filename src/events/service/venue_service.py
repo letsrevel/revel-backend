@@ -377,9 +377,10 @@ def bulk_create_seats(
     created = list(models.VenueSeat.objects.bulk_create(seats_to_create))
     if not _has_explicit_ranks(seats):
         derive_sector_seat_ranks(sector)
-        ranked = {s.id: s for s in models.VenueSeat.objects.filter(id__in=[s.id for s in created])}
-        created = [ranked[s.id] for s in created]
-    return created
+    # Refetch with the painted category so the VenueSeatSchema response has it without an N+1
+    # (also picks up any derived row_order/adjacency_index). Order preserved via `created`.
+    by_id = models.VenueSeat.objects.select_related("default_price_category").in_bulk([s.id for s in created])
+    return [by_id[s.id] for s in created]
 
 
 def get_seat_by_label(sector: models.VenueSector, label: str) -> models.VenueSeat:
@@ -621,10 +622,11 @@ def bulk_update_seats(
 
     if not _has_explicit_ranks(updates) and ({"row_label", "number"} & update_fields):
         derive_sector_seat_ranks(sector)
-        ranked = {s.id: s for s in models.VenueSeat.objects.filter(id__in=[s.id for s in updated_seats])}
-        updated_seats = [ranked[s.id] for s in updated_seats]
 
-    return updated_seats
+    # Refetch with the painted category so the VenueSeatSchema response has it without an N+1
+    # (also picks up any derived row_order/adjacency_index). Order preserved via `updated_seats`.
+    by_id = models.VenueSeat.objects.select_related("default_price_category").in_bulk([s.id for s in updated_seats])
+    return [by_id[s.id] for s in updated_seats]
 
 
 @transaction.atomic

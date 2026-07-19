@@ -2,7 +2,9 @@
 
 import orjson
 import pytest
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from events.models import Organization, PriceCategory, Venue, VenueSeat, VenueSector
@@ -108,6 +110,62 @@ class TestPaintSeatsEndpoint:
         assert response.status_code == 404, response.content
         foreign_seat.refresh_from_db()
         assert foreign_seat.default_price_category_id is None
+
+    def test_painted_seat_round_trips_category_on_sector_read(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        venue: Venue,
+        sector: VenueSector,
+        category: PriceCategory,
+    ) -> None:
+        """After painting, the admin sector-detail read serializes the seat's category (#733)."""
+        painted = VenueSeat.objects.create(sector=sector, label="A1")
+        VenueSeat.objects.create(sector=sector, label="A2")  # left unpainted
+
+        paint = organization_owner_client.put(
+            _url(organization, venue),
+            data=orjson.dumps({"seat_ids": [str(painted.id)], "price_category_id": str(category.id)}),
+            content_type="application/json",
+        )
+        assert paint.status_code == 200, paint.content
+
+        detail_url = reverse(
+            "api:get_venue_sector",
+            kwargs={"slug": organization.slug, "venue_id": venue.id, "sector_id": sector.id},
+        )
+        detail = organization_owner_client.get(detail_url)
+        assert detail.status_code == 200, detail.content
+        seats = {s["label"]: s for s in detail.json()["seats"]}
+
+        assert seats["A1"]["price_category_id"] == str(category.id)
+        assert seats["A1"]["price_category"]["name"] == category.name
+        assert seats["A1"]["price_category"]["color"] == category.color
+
+        assert seats["A2"]["price_category_id"] is None
+        assert seats["A2"]["price_category"] is None
+
+    def test_sector_read_category_is_not_n_plus_one(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """The sector list query count is constant regardless of painted-seat count (#733)."""
+
+        def count_queries_for(n_seats: int) -> int:
+            venue = Venue.objects.create(organization=organization, name=f"Hall {n_seats}")
+            sector = VenueSector.objects.create(venue=venue, name="Main")
+            cat = PriceCategory.objects.create(venue=venue, name="P", color="#123456")
+            VenueSeat.objects.bulk_create(
+                [VenueSeat(sector=sector, label=f"S{i}", default_price_category=cat) for i in range(n_seats)]
+            )
+            url = reverse("api:list_venue_sectors", kwargs={"slug": organization.slug, "venue_id": venue.id})
+            with CaptureQueriesContext(connection) as ctx:
+                response = organization_owner_client.get(url)
+                assert response.status_code == 200, response.content
+            return len(ctx.captured_queries)
+
+        assert count_queries_for(2) == count_queries_for(12)
 
     def test_nonmember_gets_403(
         self,

@@ -29,6 +29,20 @@ class TestVenueSectorManagement:
         assert data[0]["name"] == "Balcony"
         assert len(data[0]["seats"]) == 2
 
+    def test_sector_read_serializes_kind(self, organization_owner_client: Client, organization: Organization) -> None:
+        """The admin sector read exposes `kind` so SectorModal can prefill it (#733)."""
+        venue = Venue.objects.create(organization=organization, name="Arena")
+        sector = VenueSector.objects.create(venue=venue, name="Pit", kind=VenueSector.Kind.STANDING)
+
+        url = reverse(
+            "api:get_venue_sector",
+            kwargs={"slug": organization.slug, "venue_id": venue.id, "sector_id": sector.id},
+        )
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200, response.content
+        assert response.json()["kind"] == "standing"
+
     def test_create_sector_without_seats(self, organization_owner_client: Client, organization: Organization) -> None:
         """Test creating a sector without any seats."""
         venue = Venue.objects.create(organization=organization, name="Theater")
