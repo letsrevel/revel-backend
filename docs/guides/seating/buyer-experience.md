@@ -227,13 +227,13 @@ to render.
 
 ## Under the hood
 
-Full behavioral spec: [`USER_JOURNEYS.md` §19](../../../USER_JOURNEYS.md#journey-19-venue--seating),
+Full behavioral spec: [`USER_JOURNEYS.md` §19](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md#journey-19-venue--seating),
 particularly:
-- [§19.4 — Buy Seated Tickets, User Choice](../../../USER_JOURNEYS.md#194-buy-seated-tickets--user-choice-attendee)
-- [§19.5 — Buy Seated Tickets, Best Available](../../../USER_JOURNEYS.md#195-buy-seated-tickets--best-available-attendee)
-- [§19.6 — Guest Best-Available & Holds](../../../USER_JOURNEYS.md#196-guest-best-available--holds)
-- [§6.7 — Seat Selection](../../../USER_JOURNEYS.md#67-seat-selection) and
-  [§7.4 — Guest Seated Checkout](../../../USER_JOURNEYS.md#74-guest-seated-checkout)
+- [§19.4 — Buy Seated Tickets, User Choice](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md#194-buy-seated-tickets--user-choice-attendee)
+- [§19.5 — Buy Seated Tickets, Best Available](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md#195-buy-seated-tickets--best-available-attendee)
+- [§19.6 — Guest Best-Available & Holds](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md#196-guest-best-available--holds)
+- [§6.7 — Seat Selection](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md#67-seat-selection) and
+  [§7.4 — Guest Seated Checkout](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md#74-guest-seated-checkout)
 
 Key endpoints (all under `/events`):
 

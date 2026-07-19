@@ -235,5 +235,5 @@ thin and just wire requests through. The natural-order derivation is the
 numbers change unless a request supplies explicit ranks. Paint is a single bulk `UPDATE` via
 `paint_seats()`. For the full technical narrative — including how this setup step feeds tier
 configuration, buyer seat selection, and box-office control — see
-[../../../USER_JOURNEYS.md](../../../USER_JOURNEYS.md) §19.1 (Venue & Layout Setup) and §19.2
+[https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md) §19.1 (Venue & Layout Setup) and §19.2
 (Price Categories).

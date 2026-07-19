@@ -84,6 +84,6 @@ To show the whole loop on the seeded demo data:
 ## The canonical reference
 
 These guides are the narrative layer. The step-by-step, endpoint-level flows live in
-the platform's [User Journeys](../../../USER_JOURNEYS.md) document, **Journey 19 —
+the platform's [User Journeys](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md) document, **Journey 19 —
 Venue & Seating** (each guide links to the relevant sub-sections). When a detail here
 and the journeys ever disagree, the journeys and the code win.
