@@ -83,6 +83,16 @@ class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
         ),
     )
 
+    # Arbitrary metadata for FE layout config (mirrors VenueSector.metadata)
+    metadata = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Arbitrary JSON for venue-level layout config (e.g. stage position/shape) written by the frontend designer."
+        ),
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(

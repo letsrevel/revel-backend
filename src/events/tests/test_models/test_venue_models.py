@@ -22,6 +22,29 @@ def test_venue_creation(organization: Organization) -> None:
 
 
 @pytest.mark.django_db
+def test_venue_metadata_defaults_to_none(organization: Organization) -> None:
+    """A venue's metadata defaults to None when not provided."""
+    venue = Venue.objects.create(organization=organization, name="No Metadata")
+    venue.refresh_from_db()
+    assert venue.metadata is None
+
+
+@pytest.mark.django_db
+def test_venue_metadata_stores_nested_stage(organization: Organization) -> None:
+    """Venue metadata round-trips a nested stage (position + shape) dict."""
+    stage = {
+        "stage": {
+            "position": {"x": 10.5, "y": -3.0},
+            "shape": [{"x": 0.0, "y": 0.0}, {"x": 5.0, "y": 0.0}, {"x": 5.0, "y": 5.0}],
+            "label": "Main Stage",
+        }
+    }
+    venue = Venue.objects.create(organization=organization, name="Staged", metadata=stage)
+    venue.refresh_from_db()
+    assert venue.metadata == stage
+
+
+@pytest.mark.django_db
 def test_venue_slug_auto_generated(organization: Organization) -> None:
     """Test that slug is auto-generated from name."""
     venue = Venue.objects.create(
