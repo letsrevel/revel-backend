@@ -419,31 +419,32 @@ class TestGuestOnlineParity:
             discount_amount=expected_discount,
         )
 
-    def test_guest_online_full_discount_500s_today(
+    def test_guest_online_full_discount_completes_without_payment(
         self, parity_event: Event, online_tier: TicketTier, fix_full: DiscountCode
     ) -> None:
-        """Pinning a **pre-existing** defect, so the refactor is provably neutral on it.
+        """A whole-ticket code makes an ONLINE guest batch free — and that must be a 200 (#740).
 
-        A whole-ticket code makes an ONLINE batch free, so ``create_batch`` reroutes
-        to the free checkout and returns a *list*. The guest ONLINE branch
-        (``guest.py``) only knows how to handle the ``(tickets, reservation_id)``
-        tuple and raises 500 — after the ACTIVE tickets were created and the code's
-        usage counter incremented. The authenticated controller handles the same
-        case correctly. Out of scope for Task 5 (unchanged before and after); worth
-        fixing separately.
+        ``create_batch`` reroutes a zeroed ONLINE cart to the free checkout and
+        returns a bare *list*. The guest ONLINE branch used to treat that as
+        impossible and raise 500 — **after** the ACTIVE tickets were created and
+        the code's usage counter incremented, so the buyer saw an error for a
+        purchase that had succeeded and burned another ``times_used`` on retry.
+        It now branches on the returned shape, exactly like ``ticket_checkout``.
         """
-        with pytest.raises(HttpError) as exc:
-            handle_guest_ticket_checkout(
-                parity_event,
-                online_tier,
-                email="guest-free@example.com",
-                first_name="Gina",
-                last_name="Guest",
-                tickets=_guest_items(),
-                discount_code=fix_full.code,
-            )
+        response = handle_guest_ticket_checkout(
+            parity_event,
+            online_tier,
+            email="guest-free@example.com",
+            first_name="Gina",
+            last_name="Guest",
+            tickets=_guest_items(),
+            discount_code=fix_full.code,
+        )
 
-        assert exc.value.status_code == 500
+        assert response.requires_payment is False
+        assert response.reservation_id is None
+        assert len(response.tickets) == 2
+
         tickets = list(Ticket.objects.filter(tier=online_tier))
         assert len(tickets) == 2
         _assert_tickets(
@@ -453,6 +454,32 @@ class TestGuestOnlineParity:
             discount_amount=Decimal("25.00"),
         )
         assert not Payment.objects.filter(ticket__tier=online_tier).exists()
+        fix_full.refresh_from_db()
+        assert fix_full.times_used == 2
+
+    def test_guest_online_free_tier_price_zero_is_rejected(self, parity_event: Event, online_tier: TicketTier) -> None:
+        """A 0.00 ONLINE tier with no buyer input is a misconfiguration, not a free checkout.
+
+        The zero-price shortcut only fires when the *buyer* moved the price
+        (PWYC or a discount code); otherwise the cart keeps falling through to
+        the paid path and its 400. Pinned here so the #740 fix isn't mistaken
+        for a licence to silently issue free tickets.
+        """
+        online_tier.price = Decimal("0.00")
+        online_tier.save(update_fields=["price"])
+
+        with pytest.raises(HttpError) as exc:
+            handle_guest_ticket_checkout(
+                parity_event,
+                online_tier,
+                email="guest-zero@example.com",
+                first_name="Gina",
+                last_name="Guest",
+                tickets=_guest_items(),
+            )
+
+        assert exc.value.status_code == 400
+        assert not Ticket.objects.filter(tier=online_tier).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -580,3 +607,55 @@ class TestGuestConfirmParity:
             price_paid=Decimal("17.30"),
             discount_amount=None,
         )
+
+    def test_guest_confirmation_of_a_tier_now_online_returns_the_reservation(
+        self, parity_event: Event, offline_tier: TicketTier
+    ) -> None:
+        """The mirror of #740 on the second guest call site.
+
+        A token is minted for a non-online tier; before the buyer clicks the
+        email link the organizer flips the tier to ONLINE. ``create_batch`` then
+        returns the ``(tickets, reservation_id)`` tuple, which this site used to
+        treat as impossible and answer with a 500 — after the PENDING tickets
+        and their Payment rows were committed. It must hand back the reservation
+        so the buyer can still reach Stripe.
+        """
+        from events.service.guest import create_guest_ticket_token, get_or_create_guest_user
+
+        user = get_or_create_guest_user("guest-flip@example.com", "Gina", "Flip")
+        token = create_guest_ticket_token(user, parity_event.id, offline_tier.id, _guest_items(), None, None)
+
+        offline_tier.payment_method = TicketTier.PaymentMethod.ONLINE
+        offline_tier.save(update_fields=["payment_method"])
+
+        result = confirm_guest_action(token)
+        assert isinstance(result, schema.BatchCheckoutResponse)
+        assert result.requires_payment is True
+        assert result.reservation_id is not None
+        assert result.tickets == []
+
+        payments = list(Payment.objects.filter(reservation_id=result.reservation_id))
+        assert len(payments) == 2
+        tickets = list(Ticket.objects.filter(tier=offline_tier))
+        assert len(tickets) == 2
+        _assert_tickets(
+            tickets,
+            status=Ticket.TicketStatus.PENDING,
+            price_paid=None,
+            discount_amount=None,
+        )
+
+    def test_guest_confirmation_of_a_fully_discounted_offline_tier_is_free(
+        self, parity_event: Event, offline_tier: TicketTier, fix_full: DiscountCode
+    ) -> None:
+        """A zeroed cart on the confirmation site still returns a list — and stays a 200."""
+        from events.service.guest import create_guest_ticket_token, get_or_create_guest_user
+
+        user = get_or_create_guest_user("guest-freeconfirm@example.com", "Gina", "Free")
+        token = create_guest_ticket_token(user, parity_event.id, offline_tier.id, _guest_items(), None, fix_full.code)
+
+        result = confirm_guest_action(token)
+        assert isinstance(result, schema.BatchCheckoutResponse)
+        assert result.requires_payment is False
+        assert len(result.tickets) == 2
+        assert not Payment.objects.filter(ticket__tier=offline_tier).exists()

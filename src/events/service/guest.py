@@ -320,6 +320,12 @@ def handle_guest_ticket_checkout(
         )
         result = service.create_batch(tickets, pwyc_amount=pwyc_amount, billing_info=billing_info)
 
+        # Branch on the returned SHAPE, never on the tier's payment method (#740):
+        # a PWYC/discount input that zeroes every unit reroutes an ONLINE cart to
+        # the free checkout, which returns a bare list of ACTIVE tickets.
+        # ponytail: create_batch's dual return type is what invites this at every
+        # call site; a single result object carrying an optional reservation_id
+        # would make it unrepresentable (~104 call sites, mostly tests — see #740).
         if isinstance(result, tuple):
             _tickets, reservation_id = result
             return schema.GuestCheckoutResponseSchema(
@@ -330,15 +336,12 @@ def handle_guest_ticket_checkout(
                 requires_payment=True,
             )
 
-        # This shouldn't happen for ONLINE payment; log and raise an error
-        logger.error(
-            "batch_service_returned_tickets_for_online_payment",
-            event_id=str(event.id),
-            tier_id=str(tier.id),
-            user_id=str(user.id),
-            result_type=str(type(result)),
+        return schema.GuestCheckoutResponseSchema(
+            message=None,
+            checkout_url=None,
+            tickets=[schema.UserTicketSchema.from_orm(ticket) for ticket in result],
+            requires_payment=False,
         )
-        raise HttpError(500, str(_("Internal server error: Unexpected ticket result for online payment.")))
     else:
         # Non-online payment: require email confirmation
         # Store ticket info in JWT token for later creation
@@ -453,15 +456,24 @@ def confirm_guest_action(
         # Blacklist token after successful creation
         blacklist_token(token)
 
-        # Should always return tickets for non-online payment (what email confirmation is used for)
-        if isinstance(result, list):
-            # Always return BatchCheckoutResponse for consistency
+        # Branch on the returned SHAPE, as at the first call site (#740). The token
+        # is only minted for non-online tiers, but the tier can be flipped to ONLINE
+        # between the email being sent and the buyer clicking it — then create_batch
+        # reserves and returns (tickets, reservation_id), and the buyer must get the
+        # reservation handle rather than a 500 for work already committed.
+        if isinstance(result, tuple):
+            _tickets, reservation_id = result
             return schema.BatchCheckoutResponse(
                 checkout_url=None,
-                tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+                tickets=[],
+                reservation_id=reservation_id,
+                requires_payment=True,
             )
 
-        raise HttpError(500, str(_("Unexpected response from ticket creation")))
+        return schema.BatchCheckoutResponse(
+            checkout_url=None,
+            tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+        )
 
     # This should never happen with proper discriminated union, but satisfy mypy
     raise HttpError(400, str(_("Invalid token type")))
