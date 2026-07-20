@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import stripe
 
-from events.models import Payment, Ticket
+from events.models import Payment, Ticket, TicketTier
 from events.models.ticket import CancellationSource
 from events.service.stripe_webhooks import StripeEventHandler
 
@@ -89,13 +89,15 @@ class TestChargeRefundedMatching:
             assert other.status == Payment.PaymentStatus.SUCCEEDED
 
     def test_branch_3_exact_amount_unambiguous(self, batch_of_4_online_payments: list[Payment]) -> None:
+        """Uniform batch, one unrefunded row left: the amount match is the only reading."""
         payments = batch_of_4_online_payments
-        # Mix amounts so exactly one matches.
-        payments[0].amount = Decimal("50.00")
-        payments[0].save(update_fields=["amount"])
         _batch(payments, "pi_batch")
+        # Three of the four are already refunded, so only one row can match.
+        Payment.objects.filter(pk__in=[p.pk for p in payments[1:]]).update(
+            refund_status=Payment.RefundStatus.SUCCEEDED, status=Payment.PaymentStatus.REFUNDED
+        )
 
-        refund: dict[str, t.Any] = {"id": "re_new", "amount": 5000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_new", "amount": 4000, "metadata": {}}
         event = _charge_event("pi_batch", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
         payments[0].refresh_from_db()
@@ -209,3 +211,46 @@ class TestRefundsFetchedOutbound:
             StripeEventHandler(event).handle_charge_refunded(event)
 
         list_mock.assert_not_called()
+
+
+class TestNonUniformBatchRefunds:
+    """A partial refund on a mixed-price batch must never be guessed by amount.
+
+    Cart = Premium 50.00 (ticket A) + Standard 30.00 (ticket B) on one intent. A
+    Stripe-Dashboard refund carries no ``ticket_id`` metadata, so a 30.00 partial
+    refund issued *on A* looks exactly like a full refund of B. Auto-cancelling B
+    frees a seat its buyer still occupies — a double-sold seat.
+    """
+
+    def test_partial_refund_on_mixed_price_batch_does_not_cancel_the_cheap_ticket(
+        self,
+        payment_factory: t.Callable[..., Payment],
+        ticket_factory: t.Callable[..., Ticket],
+        tier_online_with_cancellation_enabled: TicketTier,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        tier = tier_online_with_cancellation_enabled
+        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=2)
+        ticket_a = ticket_factory(tier=tier)
+        ticket_b = ticket_factory(tier=tier)
+        payment_a = payment_factory(ticket=ticket_a, amount=Decimal("50.00"))
+        payment_b = payment_factory(ticket=ticket_b, amount=Decimal("30.00"))
+        _batch([payment_a, payment_b], "pi_mixed")
+
+        # Goodwill refund of 30.00 issued on ticket A from the Stripe Dashboard.
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        event = _charge_event("pi_mixed", [refund])
+        with caplog.at_level("WARNING", logger="events.service.stripe_webhooks"):
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        for payment in (payment_a, payment_b):
+            payment.refresh_from_db()
+            assert payment.refund_status is None
+            assert payment.status == Payment.PaymentStatus.SUCCEEDED
+            payment.ticket.refresh_from_db()
+            assert payment.ticket.status == Ticket.TicketStatus.ACTIVE
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 2, "no seat may be freed by an ambiguous refund"
+        assert any("stripe_refund_non_uniform_batch" in record.message for record in caplog.records)
+        assert any("stripe_refund_ambiguous_match" in record.message for record in caplog.records)

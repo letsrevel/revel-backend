@@ -378,7 +378,8 @@ class StripeEventHandler:
         Five-branch matching strategy (first match wins):
           1. existing stripe_refund_id on a Payment
           2. refund.metadata["ticket_id"]
-          3. exactly one unrefunded Payment with matching amount
+          3. exactly one unrefunded Payment with matching amount, *and* the intent's
+             Payments are uniform in amount (otherwise the match is a guess)
           4. refund.amount equals sum of unrefunded-payment amounts (full remaining batch)
           5. ambiguous → logged, no mutation
         """
@@ -481,6 +482,7 @@ class StripeEventHandler:
                     refund_id=refund.get("id"),
                     refund_amount=refund.get("amount"),
                     candidate_payment_ids=[str(c.id) for c in candidates if c.refund_status is None],
+                    candidate_amounts=[f"{c.amount}{c.currency}" for c in candidates if c.refund_status is None],
                 )
                 continue
             # Branch 4 fans out a single refund across N Payments — each gets its
@@ -616,10 +618,26 @@ class StripeEventHandler:
         if not unrefunded:
             return []
 
-        # Branch 3: exactly-one exact-amount match among unrefunded rows.
+        # Branch 3: exactly-one exact-amount match among unrefunded rows — but only
+        # when every Payment on the intent costs the same. On a mixed-price batch a
+        # partial refund on the expensive ticket is indistinguishable from a full
+        # refund of the cheap one, and guessing wrong cancels a ticket whose buyer
+        # still occupies the seat. Dashboard refunds carry no ticket_id metadata, so
+        # there is nothing else to disambiguate with: refuse and let Branch 5 log it.
         exact = [p for p in unrefunded if to_stripe_amount(p.amount, p.currency) == refund_amount]
         if len(exact) == 1:
-            return exact
+            amounts = {(to_stripe_amount(p.amount, p.currency), p.currency) for p in candidates}
+            if len(amounts) == 1:
+                return exact
+            logger.warning(
+                "stripe_refund_non_uniform_batch",
+                payment_intent_id=candidates[0].stripe_payment_intent_id,
+                refund_id=refund_id,
+                refund_amount=refund_amount,
+                would_have_matched_payment_id=str(exact[0].id),
+                would_have_matched_ticket_id=str(exact[0].ticket_id),
+                candidate_amounts=sorted(f"{amount}{currency}" for amount, currency in amounts),
+            )
 
         # Branch 4: full-remaining-batch refund.
         remaining_total = sum(to_stripe_amount(p.amount, p.currency) for p in unrefunded)
