@@ -4,6 +4,7 @@ import re
 import typing as t
 from uuid import UUID
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Case, Exists, OuterRef, Q, Value, When
 from django.utils import timezone
@@ -11,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events import models, schema
+from events.utils import tier_pricing
 
 
 def _seat_model_kwargs(data: dict[str, t.Any]) -> dict[str, t.Any]:
@@ -652,15 +654,20 @@ def bulk_update_seats(
 
 
 @transaction.atomic
-def paint_seats(venue: models.Venue, payload: schema.VenueSeatPaintSchema) -> int:
+def paint_seats(venue: models.Venue, payload: schema.VenueSeatPaintSchema) -> schema.SeatPaintResultSchema:
     """Bulk paint (or unpaint) seats with a price category in a single UPDATE.
+
+    Painting always succeeds (spec §4.3): a venue-wide map operation must never be
+    blocked by one event's pricing config. The consequence is reported instead —
+    see :func:`under_covered_tiers`.
 
     Args:
         venue: The venue the seats and the category must belong to
         payload: Seat ids and the category to paint (null = unpaint)
 
     Returns:
-        The number of seats painted
+        The number of seats painted, plus the tiers left under-covered on the
+        sectors that were touched.
 
     Raises:
         HttpError: 400 if the category belongs to another venue, 404 if any seat
@@ -671,13 +678,93 @@ def paint_seats(venue: models.Venue, payload: schema.VenueSeatPaintSchema) -> in
 
     seat_ids = set(payload.seat_ids)
     seats = models.VenueSeat.objects.filter(id__in=seat_ids, sector__venue=venue)
+    sector_ids = set(seats.values_list("sector_id", flat=True).distinct())
     if seats.count() != len(seat_ids):
         raise HttpError(404, str(_("Some seats were not found in this venue.")))
 
     # A queryset .update() bypasses auto_now, which would leave the chart version unchanged
     # after a repaint — and a repaint now changes what buyers are charged, so the poller has
     # to see it.
-    return seats.update(default_price_category_id=payload.price_category_id, updated_at=timezone.now())
+    painted = seats.update(default_price_category_id=payload.price_category_id, updated_at=timezone.now())
+    return schema.SeatPaintResultSchema(painted=painted, under_covered_tiers=under_covered_tiers(sector_ids))
+
+
+def under_covered_tiers(sector_ids: t.Collection[UUID]) -> list[schema.UnderCoveredTierSchema]:
+    """The category-priced tiers on these sectors that do not price everything painted there.
+
+    Reports the **current** gap of every affected tier, not the delta of one paint: a tier
+    that was already under-covered still has unsellable seats, and the admin standing in the
+    grid editor needs the whole picture — telling them "all clear" while checkout keeps
+    refusing seats is worse than saying nothing.
+
+    Scope is deliberately narrow, because a warning that cries wolf gets ignored:
+
+    - only ``USER_CHOICE`` tiers with a non-empty price map can be under-covered at all;
+    - only events that have not ended and are not cancelled — nobody can sell those seats
+      anyway, so reporting them is pure noise.
+
+    Query cost is constant in the number of seats painted: one query for the tiers, one for
+    what is painted on the sectors, one to name the missing categories.
+
+    Args:
+        sector_ids: The sectors that were touched.
+
+    Returns:
+        One entry per affected tier, ordered by event start then tier name. Empty when
+        nothing is affected — the common case.
+    """
+    if not sector_ids:
+        return []
+
+    tiers = list(
+        models.TicketTier.objects.filter(
+            seat_assignment_mode=models.TicketTier.SeatAssignmentMode.USER_CHOICE,
+            sector_id__in=sector_ids,
+            event__end__gte=timezone.now(),
+        )
+        .exclude(event__status=models.Event.EventStatus.CANCELLED)
+        .exclude(category_prices={})
+        .select_related("event")
+        .order_by("event__start", "name")
+    )
+    if not tiers:
+        return []
+
+    painted = tier_pricing.painted_categories_by_sector(sector_ids)
+    missing_per_tier: list[tuple[models.TicketTier, set[UUID]]] = []
+    for tier in tiers:
+        try:
+            priced = tier_pricing.parse_price_map(tier.category_prices)
+        except DjangoValidationError:
+            # A malformed legacy map must never turn a paint into an error (spec §4.3).
+            continue
+        # sector_id is non-null by the filter above; the guard is for the type checker.
+        missing = (painted.get(tier.sector_id, set()) if tier.sector_id else set()) - priced.keys()
+        if missing:
+            missing_per_tier.append((tier, missing))
+    if not missing_per_tier:
+        return []
+
+    categories = {
+        c.id: c
+        for c in models.PriceCategory.objects.filter(
+            id__in={cid for _tier, missing in missing_per_tier for cid in missing}
+        ).order_by("display_order", "name")
+    }
+    return [
+        schema.UnderCoveredTierSchema(
+            tier_id=tier.id,
+            tier_name=tier.name,
+            event_id=tier.event_id,
+            event_name=tier.event.name,
+            missing_categories=[
+                schema.TierPricingGapSchema(id=c.id, name=c.name, color=c.color)
+                for cid, c in categories.items()
+                if cid in missing
+            ],
+        )
+        for tier, missing in missing_per_tier
+    ]
 
 
 def get_tier_seat_availability(

@@ -16,7 +16,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 if t.TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from events.models import PriceCategory, TicketTier
+    from events.models import PriceCategory, TicketTier, VenueSeat
 
 FIELD = "category_prices"
 ONLINE_MINIMUM = Decimal("1")
@@ -84,12 +84,23 @@ def effective_category_price(price_map: dict[UUID, Decimal], category_id: UUID |
     return price_map.get(category_id, flat_price)
 
 
+def _painted_seats(sector_ids: t.Collection[t.Any]) -> "QuerySet[VenueSeat]":
+    """The seats that count as "painted" — the single definition of the rule.
+
+    Active seats of the given sectors carrying a price category. Everything that
+    asks "what is painted here?" goes through this.
+    """
+    from events.models import VenueSeat
+
+    return VenueSeat.objects.filter(sector_id__in=sector_ids, is_active=True, default_price_category__isnull=False)
+
+
 def painted_categories(sector_id: t.Any) -> "QuerySet[PriceCategory]":
     """The price categories painted on at least one active seat of a sector.
 
-    The single definition of "painted", shared by write-time validation and by the
-    read paths that surface a tier's pricing gaps. A ``None`` sector yields an empty
-    queryset (an unseated tier has nothing painted).
+    Shared by write-time validation and by the read paths that surface a tier's
+    pricing gaps. A ``None`` sector yields an empty queryset (an unseated tier has
+    nothing painted).
 
     Args:
         sector_id: The sector to inspect.
@@ -101,7 +112,30 @@ def painted_categories(sector_id: t.Any) -> "QuerySet[PriceCategory]":
 
     if sector_id is None:
         return PriceCategory.objects.none()
-    return PriceCategory.objects.filter(seats__sector_id=sector_id, seats__is_active=True).distinct()
+    return PriceCategory.objects.filter(
+        id__in=_painted_seats([sector_id]).values("default_price_category_id")
+    ).distinct()
+
+
+def painted_categories_by_sector(sector_ids: t.Collection[t.Any]) -> dict[UUID, set[UUID]]:
+    """The multi-sector, grouped form of :func:`painted_categories`, in one query.
+
+    Same rule, batched: used when several sectors must be inspected at once (a paint
+    can span sectors) and a query per sector would be wasteful.
+
+    Args:
+        sector_ids: The sectors to inspect.
+
+    Returns:
+        ``{sector_id: {category_id, ...}}``. Sectors with nothing painted are absent.
+    """
+    grouped: dict[UUID, set[UUID]] = {}
+    if not sector_ids:
+        return grouped
+    rows = _painted_seats(sector_ids).values_list("sector_id", "default_price_category_id").distinct()
+    for sector_id, category_id in rows:
+        grouped.setdefault(sector_id, set()).add(category_id)
+    return grouped
 
 
 def validate_category_prices(tier: "TicketTier") -> None:

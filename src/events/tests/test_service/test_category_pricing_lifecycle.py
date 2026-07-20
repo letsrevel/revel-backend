@@ -247,11 +247,12 @@ class TestRepaintLifecycle:
     ) -> None:
         """Moving a seat between two priced categories just reprices it."""
         standard_seat = seats[1]
-        painted = venue_service.paint_seats(
+        result = venue_service.paint_seats(
             venue, schema.VenueSeatPaintSchema(seat_ids=[standard_seat.id], price_category_id=premium.id)
         )
 
-        assert painted == 1
+        assert result.painted == 1
+        assert result.under_covered_tiers == []
         standard_seat.refresh_from_db()
         price_map = parse_price_map(tier.category_prices)
         assert pricing.resolve_seat_price(tier, standard_seat, price_map) == PREMIUM
@@ -264,10 +265,10 @@ class TestRepaintLifecycle:
         balcony = PriceCategory.objects.create(venue=venue, name="Balcony", color="#00aa00", display_order=2)
         premium_seat, standard_seat = seats
 
-        painted = venue_service.paint_seats(
+        result = venue_service.paint_seats(
             venue, schema.VenueSeatPaintSchema(seat_ids=[standard_seat.id], price_category_id=balcony.id)
         )
-        assert painted == 1
+        assert result.painted == 1
 
         standard_seat.refresh_from_db()
         price_map = parse_price_map(tier.category_prices)

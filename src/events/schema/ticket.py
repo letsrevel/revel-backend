@@ -18,7 +18,7 @@ from events.utils.tier_pricing import painted_categories, parse_price_map
 
 from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
-from .venue import MinimalSeatSchema, PriceCategorySchema, VenueSchema, VenueSectorSchema
+from .venue import MinimalSeatSchema, PriceCategorySchema, TierPricingGapSchema, VenueSchema, VenueSectorSchema
 
 # RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
 # events.utils.refund_policy so services, models, and schemas share one source
@@ -587,14 +587,6 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
         if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.USER_CHOICE and self.sector_id is None:
             raise ValueError("A sector is required when seat assignment mode is USER_CHOICE.")
         return self
-
-
-class TierPricingGapSchema(Schema):
-    """A price category painted in the tier's sector that the tier does not price."""
-
-    id: UUID
-    name: str
-    color: str
 
 
 class TicketTierDetailSchema(ModelSchema):
