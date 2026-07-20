@@ -743,6 +743,22 @@ class VATPreviewItemSchema(Schema):
 
     tier_id: UUID
     count: int = Field(..., ge=1)
+    seat_ids: list[UUID] = Field(
+        default_factory=list,
+        description=(
+            "Seats chosen for this line, in cart order. Required to preview a tier that prices "
+            "seats per category — without it the preview charges the tier's flat price for every "
+            "ticket and will disagree with checkout. Omit for general admission. When present it "
+            "must hold exactly `count` ids."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_seat_ids_cover_the_line(self) -> "VATPreviewItemSchema":
+        """Partial seat context is refused: it would silently under-price the uncovered tickets."""
+        if self.seat_ids and len(self.seat_ids) != self.count:
+            raise ValueError("seat_ids must contain exactly `count` entries when provided.")
+        return self
 
 
 class VATPreviewRequestSchema(Schema):
@@ -755,9 +771,22 @@ class VATPreviewRequestSchema(Schema):
 
 
 class VATPreviewLineItemSchema(Schema):
-    """Line item in a VAT preview response."""
+    """Line item in a VAT preview response.
+
+    **One line per distinct unit price**, not per requested tier: a cart mixing price
+    categories has no single ``unit_price_gross``, and collapsing it to one would be the
+    exact number the buyer is not charged. A tier whose seats all cost the same — every
+    tier without a category map — still yields exactly one line, unchanged.
+    """
 
     tier_name: str
+    price_category_name: str | None = Field(
+        default=None,
+        description=(
+            "The price category this line's seats are painted with. Null for general admission, "
+            "unpainted seats, and any tier without a category map."
+        ),
+    )
     ticket_count: int
     unit_price_gross: Decimal
     unit_price_net: Decimal
