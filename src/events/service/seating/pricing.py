@@ -19,7 +19,7 @@ from uuid import UUID
 import structlog
 
 from events.service.discount_code_service import calculate_discounted_unit_price
-from events.utils.tier_pricing import parse_price_map
+from events.utils.tier_pricing import effective_category_price, parse_price_map
 
 if t.TYPE_CHECKING:
     from events.models import DiscountCode, TicketTier, VenueSeat
@@ -88,11 +88,7 @@ def resolve_seat_price(
         return tier.price
 
     category_id = seat.default_price_category_id
-    if category_id is None:
-        return tier.price
-
-    price = price_map.get(category_id)
-    if price is None:
+    if category_id is not None and category_id not in price_map:
         logger.warning(
             "seat_price_category_unpriced",
             tier_id=str(tier.pk),
@@ -100,8 +96,7 @@ def resolve_seat_price(
             price_category_id=str(category_id),
             fallback_price=str(tier.price),
         )
-        return tier.price
-    return price
+    return effective_category_price(price_map, category_id, tier.price)
 
 
 def cart_is_certainly_free(

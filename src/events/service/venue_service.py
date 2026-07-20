@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Case, Exists, OuterRef, Value, When
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -616,9 +617,14 @@ def bulk_update_seats(
         _apply_seat_update(seat, update, shape_coords, update_fields)
         updated_seats.append(seat)
 
-    # Bulk update if there are fields to update
+    # Bulk update if there are fields to update. bulk_update bypasses auto_now, so stamp
+    # updated_at by hand — it is what the chart version (and therefore the buyer's poller)
+    # is derived from.
     if update_fields:
-        models.VenueSeat.objects.bulk_update(updated_seats, list(update_fields))
+        now = timezone.now()
+        for seat in updated_seats:
+            seat.updated_at = now
+        models.VenueSeat.objects.bulk_update(updated_seats, [*update_fields, "updated_at"])
 
     if not _has_explicit_ranks(updates) and ({"row_label", "number"} & update_fields):
         derive_sector_seat_ranks(sector)
@@ -652,7 +658,10 @@ def paint_seats(venue: models.Venue, payload: schema.VenueSeatPaintSchema) -> in
     if seats.count() != len(seat_ids):
         raise HttpError(404, str(_("Some seats were not found in this venue.")))
 
-    return seats.update(default_price_category_id=payload.price_category_id)
+    # A queryset .update() bypasses auto_now, which would leave the chart version unchanged
+    # after a repaint — and a repaint now changes what buyers are charged, so the poller has
+    # to see it.
+    return seats.update(default_price_category_id=payload.price_category_id, updated_at=timezone.now())
 
 
 def get_tier_seat_availability(

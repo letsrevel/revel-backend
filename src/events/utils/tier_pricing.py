@@ -61,6 +61,27 @@ def parse_price_map(raw: t.Any) -> dict[UUID, Decimal]:
     return parsed
 
 
+def effective_category_price(price_map: dict[UUID, Decimal], category_id: UUID | None, flat_price: Decimal) -> Decimal:
+    """Resolve what one price category costs on a tier (spec §4.3).
+
+    The single authority for the category → price fallback chain, shared by the
+    checkout resolver (:func:`events.service.seating.pricing.resolve_seat_price`)
+    and by the buyer-facing tier payload. They must never drift: a displayed price
+    that disagrees with the charged price is worse than no price at all.
+
+    Args:
+        price_map: The tier's parsed ``{category_id: price}`` map.
+        category_id: The seat's painted category, or ``None`` for an unpainted seat.
+        flat_price: The tier's flat ``price``, used as the fallback.
+
+    Returns:
+        The pre-discount price for a seat in that category.
+    """
+    if category_id is None:
+        return flat_price
+    return price_map.get(category_id, flat_price)
+
+
 def validate_category_prices(tier: "TicketTier") -> None:
     """Validate a tier's category price map (spec §4.2 and §4.3).
 

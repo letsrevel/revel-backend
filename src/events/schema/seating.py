@@ -55,6 +55,10 @@ class SeatingAvailabilitySchema(Schema):
     standing: dict[UUID, StandingAvailabilitySchema] = Field(default_factory=dict)
     my_holds: list[UUID] = Field(default_factory=list)
     my_holds_expire_at: AwareDatetime | None = None
+    # Mirrors VenueChartSchema.updated_at. The poller compares it against the chart it
+    # holds and refetches on change: a stale chart used to mean wrong seat colours, but
+    # now that prices depend on paint it means wrong prices.
+    chart_updated_at: AwareDatetime | None = None
 
     # UUID dict keys aren't JSON-serializable (json.dumps rejects non-str keys) and Ninja
     # dumps responses in python mode, so stringify the keys at serialization time. The stored

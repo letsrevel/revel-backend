@@ -4,6 +4,7 @@ import typing as t
 from decimal import Decimal
 from uuid import UUID
 
+from django.db.models import Q
 from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_validator, model_validator
 
@@ -13,6 +14,7 @@ from common.signing import get_file_url
 from events import models
 from events.models import DiscountCode, Payment, Ticket, TicketTier
 from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
+from events.utils.tier_pricing import effective_category_price, parse_price_map
 
 from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
@@ -59,6 +61,34 @@ Currencies = t.Literal[
 ]
 
 
+class TierCategoryPriceSchema(Schema):
+    """The effective price of one price category on one tier."""
+
+    id: UUID
+    name: str
+    color: str
+    price: Decimal
+
+
+class TierSeatPricingSchema(Schema):
+    """Server-resolved seat prices for a category-priced tier (spec §7).
+
+    Deliberately *not* the raw ``category_prices`` map: handing the frontend raw rows
+    would force it to reimplement the fallback chain, and any drift means the price a
+    buyer is shown is not the price they are charged.
+
+    Attributes:
+        categories: Every category painted on an active seat of the tier's sector, plus
+            any extra category the tier prices, each with its effective price. A category
+            painted *after* the tier was saved is included at the ``unpainted`` fallback
+            price — the same number checkout will charge for it.
+        unpainted: What a seat with no category costs. The one legitimate fallback.
+    """
+
+    categories: list[TierCategoryPriceSchema] = Field(default_factory=list)
+    unpainted: Decimal
+
+
 class TicketTierSchema(ModelSchema):
     id: UUID
     event_id: UUID
@@ -74,6 +104,7 @@ class TicketTierSchema(ModelSchema):
     can_purchase: bool = True
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
+    seat_pricing: TierSeatPricingSchema | None = None
 
     class Meta:
         model = TicketTier
@@ -112,6 +143,41 @@ class TicketTierSchema(ModelSchema):
         return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
             models.Organization.InvoicingMode.HYBRID,
             models.Organization.InvoicingMode.AUTO,
+        )
+
+    @staticmethod
+    def resolve_seat_pricing(obj: TicketTier) -> TierSeatPricingSchema | None:
+        """Resolve the per-category prices a buyer will actually be charged.
+
+        ``None`` for a flat tier — that is the signal the frontend uses to decide whether
+        to render a price legend at all, and it keeps the hot tier-list path at zero extra
+        queries for the (overwhelmingly common) flat case. A category-priced tier costs
+        exactly one query, and an event has a handful of tiers at most.
+        """
+        price_map = parse_price_map(obj.category_prices)
+        # A priced map without a venue cannot exist — tier validation rejects categories
+        # that don't belong to the tier's venue — so the venue guard is only for mypy.
+        if not price_map or obj.venue_id is None:
+            return None
+        categories = (
+            models.PriceCategory.objects.filter(
+                Q(seats__sector_id=obj.sector_id, seats__is_active=True) | Q(id__in=list(price_map)),
+                venue_id=obj.venue_id,
+            )
+            .distinct()
+            .order_by("display_order", "name")
+        )
+        return TierSeatPricingSchema(
+            categories=[
+                TierCategoryPriceSchema(
+                    id=category.id,
+                    name=category.name,
+                    color=category.color,
+                    price=effective_category_price(price_map, category.id, obj.price),
+                )
+                for category in categories
+            ],
+            unpainted=obj.price,
         )
 
 

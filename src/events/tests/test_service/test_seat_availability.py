@@ -7,8 +7,19 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
-from events.models import Event, EventSeatOverride, SeatHold, Ticket, TicketTier, VenueSeat, VenueSector
-from events.service.seating import availability
+from events import schema
+from events.models import (
+    Event,
+    EventSeatOverride,
+    PriceCategory,
+    SeatHold,
+    Ticket,
+    TicketTier,
+    VenueSeat,
+    VenueSector,
+)
+from events.service import venue_service
+from events.service.seating import availability, chart
 
 pytestmark = pytest.mark.django_db
 
@@ -147,3 +158,33 @@ def test_standing_counts(
     payload = availability.build_availability(event, user=None, guest_session=None)
     assert payload.standing[standing.id].capacity == 300
     assert payload.standing[standing.id].taken == 1
+
+
+def test_chart_version_matches_the_chart_and_moves_on_repaint(
+    seated_event: tuple[Event, list[VenueSeat]],
+) -> None:
+    """The echoed version must equal the chart's own ``updated_at`` and react to paint.
+
+    Once prices depend on paint, a poller that never sees a repaint quotes prices the
+    checkout will not honour.
+    """
+    event, seats = seated_event
+    venue = event.venue
+    assert venue is not None
+
+    payload = availability.build_availability(event, user=None, guest_session=None)
+    assert payload.chart_updated_at == chart.build_chart(venue).updated_at
+
+    category = PriceCategory.objects.create(venue=venue, name="Premium", color="#aa0000")
+    venue_service.paint_seats(venue, schema.VenueSeatPaintSchema(seat_ids=[seats[0].id], price_category_id=category.id))
+
+    repainted = availability.build_availability(event, user=None, guest_session=None)
+    assert repainted.chart_updated_at is not None
+    assert payload.chart_updated_at is not None
+    assert repainted.chart_updated_at > payload.chart_updated_at
+    assert repainted.chart_updated_at == chart.build_chart(venue).updated_at
+
+
+def test_chart_version_is_null_without_a_venue(event: Event) -> None:
+    payload = availability.build_availability(event, user=None, guest_session=None)
+    assert payload.chart_updated_at is None
