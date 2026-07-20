@@ -663,24 +663,40 @@ class PriorPaint(t.NamedTuple):
 
 
 @transaction.atomic
-def paint_seats(venue: models.Venue, payload: schema.VenueSeatPaintSchema) -> schema.SeatPaintResultSchema:
+def paint_seats(
+    venue: models.Venue,
+    payload: schema.VenueSeatPaintSchema,
+    *,
+    preview: bool = False,
+) -> schema.SeatPaintResultSchema:
     """Bulk paint (or unpaint) seats with a price category in a single UPDATE.
 
     Painting always succeeds (spec §4.3): a venue-wide map operation must never be
     blocked by one event's pricing config. The consequence is reported instead —
     see :func:`affected_tiers`.
 
+    Every input to the report is UPDATE-independent: the prior categories are captured
+    before it (the UPDATE overwrites them), and the coverage state is *derived* rather
+    than re-read — see ``painted_seat_ids`` on :func:`affected_tiers`. So ``preview``
+    needs no second code path: it skips the one statement that writes, and everything
+    else — validation, the 404, ``painted``, the report — is the same line of code
+    producing the same value. A dry run that disagreed with the paint would have to be
+    a different function.
+
     Args:
         venue: The venue the seats and the category must belong to
         payload: Seat ids and the category to paint (null = unpaint)
+        preview: Dry run — compute and return the identical report, write nothing.
 
     Returns:
-        The number of seats painted, plus every live category-priced tier whose seat
-        prices this changed or whose sector it left partly unsellable.
+        The number of seats painted (or that *would* be, under ``preview``), plus every
+        live category-priced tier whose seat prices this changed or whose sector it left
+        partly unsellable.
 
     Raises:
         HttpError: 400 if the category belongs to another venue, 404 if any seat
-            does not belong to this venue
+            does not belong to this venue — in preview too, because an admin
+            confirming a paint that would fail is worse than no preview at all
     """
     if payload.price_category_id is not None:
         _validate_seat_categories(venue.id, {payload.price_category_id})
@@ -695,7 +711,10 @@ def paint_seats(venue: models.Venue, payload: schema.VenueSeatPaintSchema) -> sc
     prior_rows = list(
         seats.values("sector_id", "default_price_category_id", "is_active").order_by().annotate(seat_count=Count("id"))
     )
-    if sum(row["seat_count"] for row in prior_rows) != len(seat_ids):
+    # Every requested seat matched, so this is exactly what the UPDATE below reports back —
+    # which is why the preview can report it without running the UPDATE.
+    painted = sum(row["seat_count"] for row in prior_rows)
+    if painted != len(seat_ids):
         raise HttpError(404, str(_("Some seats were not found in this venue.")))
     sector_ids = {row["sector_id"] for row in prior_rows}
     # Only active seats can be sold, so only they can be repriced — the same rule
@@ -706,13 +725,15 @@ def paint_seats(venue: models.Venue, payload: schema.VenueSeatPaintSchema) -> sc
         if row["is_active"]
     ]
 
+    # The single conditional step, and the only statement in this function that writes.
     # A queryset .update() bypasses auto_now, which would leave the chart version unchanged
     # after a repaint — and a repaint now changes what buyers are charged, so the poller has
-    # to see it.
-    painted = seats.update(default_price_category_id=payload.price_category_id, updated_at=timezone.now())
+    # to see it. Under `preview` nothing is written, so nothing bumps the version either.
+    if not preview:
+        seats.update(default_price_category_id=payload.price_category_id, updated_at=timezone.now())
     return schema.SeatPaintResultSchema(
         painted=painted,
-        affected_tiers=affected_tiers(sector_ids, prior, payload.price_category_id),
+        affected_tiers=affected_tiers(sector_ids, prior, payload.price_category_id, seat_ids),
     )
 
 
@@ -758,10 +779,33 @@ def _price_changes(
     ]
 
 
+def _painted_after(
+    sector_ids: t.Collection[UUID],
+    prior: t.Sequence[PriorPaint],
+    new_category_id: UUID | None,
+    painted_seat_ids: t.Collection[UUID],
+) -> dict[UUID, set[UUID]]:
+    """Which categories each touched sector carries once this paint has landed.
+
+    Derived, not re-read: everything painted on the sector's *other* seats, plus the
+    category this paint writes wherever it touches an active seat. That equals what a
+    plain post-UPDATE read returns — and it equals it just as well before the UPDATE,
+    which is what lets the dry run and the real paint share this line instead of each
+    computing coverage its own way.
+    """
+    painted = tier_pricing.painted_categories_by_sector(sector_ids, exclude_seat_ids=painted_seat_ids)
+    if new_category_id is not None:
+        # `prior` holds active seats only, and only active seats count as painted.
+        for row in prior:
+            painted.setdefault(row.sector_id, set()).add(new_category_id)
+    return painted
+
+
 def affected_tiers(
     sector_ids: t.Collection[UUID],
     prior: t.Sequence[PriorPaint],
     new_category_id: UUID | None,
+    painted_seat_ids: t.Collection[UUID],
 ) -> list[schema.AffectedTierSchema]:
     """The live category-priced tiers a paint repriced, under-covered, or both.
 
@@ -791,6 +835,10 @@ def affected_tiers(
         sector_ids: The sectors that were touched.
         prior: The active seats' categories as captured *before* the UPDATE.
         new_category_id: The category just painted, or ``None`` for an unpaint.
+        painted_seat_ids: The seats this paint writes. Excluded from the coverage read
+            and replaced by ``new_category_id``, so the gap is computed the same way
+            whether or not the UPDATE has run — which is what makes the dry run's
+            answer identical to the real one rather than merely similar.
 
     Returns:
         One entry per affected tier, ordered by event start then tier name. Empty when
@@ -813,7 +861,7 @@ def affected_tiers(
     if not tiers:
         return []
 
-    painted = tier_pricing.painted_categories_by_sector(sector_ids)
+    painted = _painted_after(sector_ids, prior, new_category_id, painted_seat_ids)
     prior_by_sector: dict[UUID, list[PriorPaint]] = {}
     for row in prior:
         prior_by_sector.setdefault(row.sector_id, []).append(row)

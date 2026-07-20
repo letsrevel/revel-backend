@@ -242,13 +242,16 @@ def balcony(venue: Venue) -> PriceCategory:
     return PriceCategory.objects.create(venue=venue, name="Balcony", color="#00aa00", display_order=2)
 
 
-def _paint(venue: Venue, seats: list[VenueSeat], category: PriceCategory | None) -> schema.SeatPaintResultSchema:
+def _paint(
+    venue: Venue, seats: list[VenueSeat], category: PriceCategory | None, *, preview: bool = False
+) -> schema.SeatPaintResultSchema:
     return venue_service.paint_seats(
         venue,
         schema.VenueSeatPaintSchema(
             seat_ids=[s.id for s in seats],
             price_category_id=category.id if category else None,
         ),
+        preview=preview,
     )
 
 
@@ -268,6 +271,24 @@ PREMIUM_PRICE = Decimal("80.00")
 STANDARD_PRICE = Decimal("30.00")
 
 
+@pytest.fixture
+def priced_tier(
+    seated_venue_event: Event,
+    venue: Venue,
+    sector: VenueSector,
+    category: PriceCategory,
+    standard: PriceCategory,
+    matching: PriceCategory,
+) -> TicketTier:
+    """Premium 80, Standard 30, Matching 50 (== flat). Balcony/Gallery unpriced."""
+    return _make_tier(
+        seated_venue_event,
+        venue,
+        sector,
+        prices={category: str(PREMIUM_PRICE), standard: str(STANDARD_PRICE), matching: str(FLAT)},
+    )
+
+
 class TestPaintAffectedTierReport:
     """Paint always succeeds; what it did to the money comes back in the response.
 
@@ -278,24 +299,6 @@ class TestPaintAffectedTierReport:
     report is advisory and deliberately quiet: it must stay empty when nothing moved, or
     the frontend warning it feeds becomes noise the admin learns to dismiss.
     """
-
-    @pytest.fixture
-    def priced_tier(
-        self,
-        seated_venue_event: Event,
-        venue: Venue,
-        sector: VenueSector,
-        category: PriceCategory,
-        standard: PriceCategory,
-        matching: PriceCategory,
-    ) -> TicketTier:
-        """Premium 80, Standard 30, Matching 50 (== flat). Balcony/Gallery unpriced."""
-        return _make_tier(
-            seated_venue_event,
-            venue,
-            sector,
-            prices={category: str(PREMIUM_PRICE), standard: str(STANDARD_PRICE), matching: str(FLAT)},
-        )
 
     @pytest.fixture
     def categories(
@@ -576,3 +579,168 @@ class TestPaintAffectedTierReport:
             (200, PREMIUM_PRICE, None)
         ]
         assert [c.name for c in large_result.affected_tiers[0].missing_categories] == ["Balcony"]
+
+
+class TestPaintPreview:
+    """``preview=True``: the same answer, in advance, with nothing written.
+
+    The report has to be computed before the UPDATE anyway (the UPDATE overwrites the
+    categories it reports on), so the preview is the same code path with the write
+    skipped. These tests exist to keep it that way: a preview that could disagree with
+    the paint would let an admin confirm one repricing and get another.
+    """
+
+    def test_preview_payload_is_identical_to_the_real_paint(
+        self,
+        venue: Venue,
+        sector: VenueSector,
+        priced_tier: TicketTier,
+        category: PriceCategory,
+        balcony: PriceCategory,
+    ) -> None:
+        """Whole-payload equality, not spot checks: this is the promise the button makes.
+
+        The paint deliberately *opens* a coverage gap, because that is the half of the
+        report that reads the sector's current state — a preview that simply skipped the
+        UPDATE and re-read would report the pre-paint gap and be wrong here.
+        """
+        seats = [
+            VenueSeat.objects.create(sector=sector, label=f"A{i}", default_price_category=category) for i in range(3)
+        ]
+
+        previewed = _paint(venue, seats, balcony, preview=True)
+        real = _paint(venue, seats, balcony)
+
+        assert previewed.model_dump() == real.model_dump()
+        assert [c.name for c in previewed.affected_tiers[0].missing_categories] == ["Balcony"]
+        assert previewed.affected_tiers[0].price_changes, "the case must be non-trivial, or this proves nothing"
+
+    def test_preview_of_a_paint_that_closes_the_last_gap_reports_it_closed(
+        self,
+        venue: Venue,
+        sector: VenueSector,
+        priced_tier: TicketTier,
+        balcony: PriceCategory,
+        standard: PriceCategory,
+    ) -> None:
+        """The other direction: the gap the paint removes must be gone in the preview too."""
+        seats = [
+            VenueSeat.objects.create(sector=sector, label=f"A{i}", default_price_category=balcony) for i in range(2)
+        ]
+
+        previewed = _paint(venue, seats, standard, preview=True)
+        real = _paint(venue, seats, standard)
+
+        assert previewed.model_dump() == real.model_dump()
+        assert previewed.affected_tiers[0].missing_categories == []
+
+    def test_preview_then_real_reports_the_same_thing_twice_and_only_then_paints(
+        self,
+        venue: Venue,
+        sector: VenueSector,
+        priced_tier: TicketTier,
+        category: PriceCategory,
+        standard: PriceCategory,
+    ) -> None:
+        """The actual flow: preview, admin confirms, paint. The confirmation must hold."""
+        seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
+
+        previewed = _paint(venue, [seat], standard, preview=True)
+        seat.refresh_from_db()
+        assert seat.default_price_category_id == category.id
+
+        real = _paint(venue, [seat], standard)
+
+        assert previewed.model_dump() == real.model_dump()
+        assert [(c.seat_count, c.from_price, c.to_price) for c in real.affected_tiers[0].price_changes] == [
+            (1, PREMIUM_PRICE, STANDARD_PRICE)
+        ]
+        seat.refresh_from_db()
+        assert seat.default_price_category_id == standard.id
+
+    def test_preview_writes_nothing_not_even_updated_at(
+        self,
+        venue: Venue,
+        sector: VenueSector,
+        priced_tier: TicketTier,
+        category: PriceCategory,
+        balcony: PriceCategory,
+    ) -> None:
+        """``paint_seats`` stamps ``updated_at`` on purpose (the chart version, and therefore
+        the buyer's poller, is derived from it). A preview must not move it — a dry run that
+        invalidated every open seat chart would be a write in all the ways that matter."""
+        seats = [
+            VenueSeat.objects.create(sector=sector, label=f"A{i}", default_price_category=category) for i in range(3)
+        ]
+        before = {s.id: (s.default_price_category_id, s.updated_at) for s in VenueSeat.objects.all()}
+
+        _paint(venue, seats, balcony, preview=True)
+
+        after = {s.id: (s.default_price_category_id, s.updated_at) for s in VenueSeat.objects.all()}
+        assert after == before
+
+    def test_preview_still_404s_on_a_foreign_seat_and_writes_nothing(
+        self, venue: Venue, sector: VenueSector, organization: Organization, category: PriceCategory
+    ) -> None:
+        """Previewing a paint that would fail must fail — the alternative is a confirmed lie."""
+        other = Venue.objects.create(organization=organization, name="Other Hall")
+        other_sector = VenueSector.objects.create(venue=other, name="Foreign")
+        foreign_seat = VenueSeat.objects.create(sector=other_sector, label="X1")
+        mine = VenueSeat.objects.create(sector=sector, label="A1")
+
+        with pytest.raises(HttpError) as exc_info:
+            _paint(venue, [mine, foreign_seat], category, preview=True)
+
+        assert exc_info.value.status_code == 404
+        for seat in (mine, foreign_seat):
+            seat.refresh_from_db()
+            assert seat.default_price_category_id is None
+
+    def test_preview_still_400s_on_a_foreign_category_and_writes_nothing(
+        self, venue: Venue, sector: VenueSector, other_venue_category: PriceCategory
+    ) -> None:
+        seat = VenueSeat.objects.create(sector=sector, label="A1")
+
+        with pytest.raises(HttpError) as exc_info:
+            _paint(venue, [seat], other_venue_category, preview=True)
+
+        assert exc_info.value.status_code == 400
+        seat.refresh_from_db()
+        assert seat.default_price_category_id is None
+
+    def test_preview_is_one_query_cheaper_and_does_not_scale_with_seats(
+        self,
+        venue: Venue,
+        sector: VenueSector,
+        priced_tier: TicketTier,
+        category: PriceCategory,
+        balcony: PriceCategory,
+        django_assert_num_queries: t.Any,
+    ) -> None:
+        """Preview = the real paint (9) minus the UPDATE, at any size.
+
+        Flat in the number of seats for the same reason the paint is: the prior-state read
+        is grouped by (sector × category × is_active), never per seat.
+        """
+        VenueSeat.objects.create(sector=sector, label="anchor", default_price_category=category)
+
+        def make(n: int, prefix: str) -> list[UUID]:
+            seats = VenueSeat.objects.bulk_create(
+                [VenueSeat(sector=sector, label=f"{prefix}-{i}", default_price_category=category) for i in range(n)]
+            )
+            return [s.id for s in seats]
+
+        small = make(2, "small")
+        with django_assert_num_queries(8):
+            small_result = venue_service.paint_seats(
+                venue, schema.VenueSeatPaintSchema(seat_ids=small, price_category_id=balcony.id), preview=True
+            )
+
+        large = make(200, "large")
+        with django_assert_num_queries(8):
+            large_result = venue_service.paint_seats(
+                venue, schema.VenueSeatPaintSchema(seat_ids=large, price_category_id=balcony.id), preview=True
+            )
+
+        assert (small_result.painted, large_result.painted) == (2, 200)
+        assert VenueSeat.objects.filter(default_price_category=balcony).count() == 0
