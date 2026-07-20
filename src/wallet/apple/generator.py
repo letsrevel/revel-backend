@@ -22,6 +22,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from events.models import HeldSeriesPass, Ticket
+from events.service.seating.pricing import recorded_or_resolved_price
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import (
     PassColors,
@@ -238,7 +239,7 @@ class ApplePassGenerator:
         # Resolve actual price paid:
         # 1. ticket.price_paid (offline/at_the_door PWYC)
         # 2. ticket.payment.amount (online Stripe payment)
-        # 3. tier.price (fixed-price fallback)
+        # 3. the seat's category price, else tier.price (see _resolve_price)
         price, currency = self._resolve_price(ticket)
         ticket_price = format_price(price, currency) if price > 0 else "Free"
 
@@ -291,7 +292,23 @@ class ApplePassGenerator:
         Priority:
         1. ticket.price_paid — explicitly recorded for offline/at_the_door PWYC
         2. ticket.payment.amount — online Stripe payment amount
-        3. tier.price — fixed-price fallback
+        3. ``recorded_or_resolved_price`` — the seat's price-category price on a
+           category-priced tier, else the tier's flat price.
+
+        Step 3 is the same helper the refund ceiling
+        (``ticket_service._resolve_offline_refund_amount``) and the revenue report
+        (``revenue_aggregation._process_ticket``) use, so the number on the attendee's
+        phone cannot disagree with the number they get refunded (#754). It matters for
+        exactly one shape: a ticket with no ``price_paid`` and no payment row on a tier
+        that is *now* category-priced — reachable when a flat tier opted into category
+        pricing after the ticket was sold. Neither branch is purchase-time truth there
+        (``tier.price`` is the tier's *current* flat price, not the one in force at the
+        sale), so the tie is broken in favour of agreeing with the money-bearing paths.
+
+        Both inputs are already loaded on the paths that generate passes
+        (``Ticket.objects.full()`` selects ``seat`` and ``tier``, and the generator
+        reads ``ticket.seat.label`` regardless), and the helper is a pure function over
+        them — no extra query per pass.
 
         Returns:
             Tuple of (price, currency).
@@ -308,7 +325,7 @@ class ApplePassGenerator:
         except Ticket.payment.RelatedObjectDoesNotExist:
             pass
 
-        return (tier.price if tier else Decimal(0)), currency
+        return recorded_or_resolved_price(tier, ticket.seat, None), currency
 
     def _generate_files(self, pass_data: PassData) -> dict[str, bytes]:
         """Generate all files needed for a pass."""
