@@ -306,12 +306,11 @@ def handle_guest_ticket_checkout(
         if tier.pwyc_max and pwyc_amount > tier.pwyc_max:
             raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
 
-    # Validate discount code if provided
+    # Validate discount code if provided. Only the code travels onward — the
+    # per-ticket discounted price is the pricing service's job, not ours.
     dc = None
-    price_override = pwyc_amount
     if discount_code:
         dc = discount_code_service.validate_discount_code(discount_code, event.organization, tier, user, len(tickets))
-        price_override = discount_code_service.calculate_discounted_price(tier, dc)
 
     # Branch by payment method
     if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
@@ -319,7 +318,7 @@ def handle_guest_ticket_checkout(
         service = BatchTicketService(
             event, tier, user, discount_code=dc, guest_session=guest_session, accessible_required=accessible_required
         )
-        result = service.create_batch(tickets, price_override=price_override, billing_info=billing_info)
+        result = service.create_batch(tickets, pwyc_amount=pwyc_amount, billing_info=billing_info)
 
         if isinstance(result, tuple):
             _tickets, reservation_id = result
@@ -429,14 +428,13 @@ def confirm_guest_action(
             # Legacy token without tickets list - create single ticket with user's name
             ticket_items = [schema.TicketPurchaseItem(guest_name=user.get_display_name())]
 
-        # Re-validate discount code if one was stored in the token
+        # Re-validate discount code if one was stored in the token. As at checkout,
+        # only the code is threaded through; pricing happens per ticket downstream.
         dc = None
-        price_override = payload.pwyc_amount
         if payload.discount_code:
             dc = discount_code_service.validate_discount_code(
                 payload.discount_code, event.organization, tier, user, len(ticket_items)
             )
-            price_override = discount_code_service.calculate_discounted_price(tier, dc)
 
         # Use BatchTicketService for proper seat handling
         service = BatchTicketService(
@@ -450,7 +448,7 @@ def confirm_guest_action(
             guest_session=payload.guest_session or guest_session,
             accessible_required=payload.accessible_required,
         )
-        result = service.create_batch(ticket_items, price_override=price_override)
+        result = service.create_batch(ticket_items, pwyc_amount=payload.pwyc_amount)
 
         # Blacklist token after successful creation
         blacklist_token(token)

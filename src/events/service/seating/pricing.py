@@ -104,6 +104,37 @@ def resolve_seat_price(
     return price
 
 
+def cart_is_certainly_free(
+    tier: "TicketTier",
+    *,
+    pwyc_amount: Decimal | None = None,
+    discount_code: "DiscountCode | None" = None,
+) -> bool:
+    """Could any ticket on this tier cost something, before the seats are known?
+
+    Checkout needs this answer *before* it resolves seats, to skip work that a
+    free cart doesn't need (the pre-lock VIES round-trip in ``create_batch``).
+    Without seats the only safe answer is an **upper bound**: every price the
+    tier can charge — its flat price and each category price — must discount to
+    zero. Erring toward "not free" costs one avoidable network call; erring the
+    other way would silently drop the buyer's VAT context.
+
+    Args:
+        tier: The tier being purchased.
+        pwyc_amount: The buyer's pay-what-you-can amount, if any.
+        discount_code: An already-validated discount code, if any.
+
+    Returns:
+        True when no ticket on this tier can cost anything.
+    """
+    if pwyc_amount is not None:
+        return pwyc_amount <= ZERO
+    if discount_code is None:
+        return False
+    candidates = [tier.price, *parse_price_map(tier.category_prices).values()]
+    return all(calculate_discounted_unit_price(price, discount_code) <= ZERO for price in candidates)
+
+
 def build_batch_pricing(
     tier: "TicketTier",
     seats: "t.Sequence[VenueSeat | None]",
