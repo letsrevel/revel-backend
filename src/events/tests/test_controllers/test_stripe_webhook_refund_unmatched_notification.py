@@ -220,7 +220,13 @@ class TestResolveLink:
         html_body = template.get_email_html_body(notification)
         assert html_body is not None, "the HTML email template must exist"
 
-        assert url in template.get_in_app_body(notification)
+        # Telegram and email have no CTA affordance, so the link has to live in the body.
         assert url in template.get_telegram_body(notification)
         assert url in template.get_email_text_body(notification)
         assert url in html_body
+
+        # In-app deliberately does NOT repeat it: the client renders its own "Review tickets"
+        # button from context.resolve_url, so an in-body copy is a second link to the same
+        # place in the same card. The context still carries it — that is what the button uses.
+        assert url not in template.get_in_app_body(notification)
+        assert notification.context["resolve_url"] == url
