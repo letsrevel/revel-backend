@@ -154,19 +154,20 @@ class TestBackwardCompatibility:
         assert result.total_vat == Decimal("27.06")
         assert result.reverse_charge is False
 
-    def test_category_priced_tier_without_seats_still_quotes_the_flat_price(
-        self, seated_event: Event, online_tier: TicketTier
-    ) -> None:
-        """No seat context → no per-seat resolution. The old behaviour, byte for byte.
+    def test_category_priced_tier_without_seats_is_refused(self, seated_event: Event, online_tier: TicketTier) -> None:
+        """Backward compatibility does not extend to tiers that could not previously exist.
 
-        This is the compatibility contract, not an endorsement: a client that omits
-        ``seat_ids`` on a category-priced tier gets the flat price, which is why the
-        field's description tells it not to.
+        Quoting ``tier.price`` here would promise a total checkout will not honour — the
+        exact disagreement this endpoint exists to prevent, and silent for precisely the
+        buyers paying premium prices. ``category_prices`` ships with this feature, so no
+        pre-existing client can be previewing such a tier: refusing breaks nobody, and it
+        stops a client shipping the wrong call.
         """
-        result = _preview(seated_event, online_tier, count=3)
+        with pytest.raises(HttpError) as exc_info:
+            _preview(seated_event, online_tier, count=3)
 
-        assert _quote(result.line_items) == [(None, 3, FLAT)]
-        assert result.total_gross == Decimal("150.00")
+        assert exc_info.value.status_code == 400
+        assert "seat_ids are required" in str(exc_info.value)
 
     def test_pwyc_override_still_wins_over_everything(
         self, seated_event: Event, online_tier: TicketTier, seats: list[VenueSeat], pct10: DiscountCode

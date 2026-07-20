@@ -1148,6 +1148,17 @@ msgstr "Stornierte Rechnungen können nicht ausgestellt werden."
 msgid "Only draft invoices can be deleted."
 msgstr "Nur Rechnungsentwürfe können gelöscht werden."
 
+msgid ""
+"This ticket tier prices seats by category — seat_ids are required to preview "
+"it."
+msgstr "Bei diesem Ticket-Typ richtet sich der Preis nach der Sitzplatzkategorie – für "
+"eine Vorschau sind seat_ids erforderlich."
+
+msgid "One or more selected seats are invalid or not in the correct sector."
+msgstr ""
+"Ein oder mehrere ausgewählte Sitzplätze sind ungültig oder befinden sich "
+"nicht im richtigen Sektor."
+
 msgid "You are not allowed to purchase from this tier."
 msgstr "Du darfst Tickets dieser Kategorie nicht kaufen."
 
@@ -1161,11 +1172,6 @@ msgstr ""
 
 msgid "Seat selection is required for this ticket tier."
 msgstr "Für diese Ticketkategorie ist eine Sitzplatzauswahl erforderlich."
-
-msgid "One or more selected seats are invalid or not in the correct sector."
-msgstr ""
-"Ein oder mehrere ausgewählte Sitzplätze sind ungültig oder befinden sich "
-"nicht im richtigen Sektor."
 
 msgid "One or more selected seats are no longer available."
 msgstr "Ein oder mehrere ausgewählte Sitzplätze sind nicht mehr verfügbar."

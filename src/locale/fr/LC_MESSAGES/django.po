@@ -1155,6 +1155,17 @@ msgstr "Les factures annulées ne peuvent pas être émises."
 msgid "Only draft invoices can be deleted."
 msgstr "Seules les factures au statut de brouillon peuvent être supprimées."
 
+msgid ""
+"This ticket tier prices seats by category — seat_ids are required to preview "
+"it."
+msgstr "Ce type de billet applique un tarif par catégorie de place : les seat_ids sont "
+"requis pour l'aperçu."
+
+msgid "One or more selected seats are invalid or not in the correct sector."
+msgstr ""
+"Un ou plusieurs sièges sélectionnés sont invalides ou ne se trouvent pas "
+"dans le bon secteur."
+
 msgid "You are not allowed to purchase from this tier."
 msgstr "Tu n'es pas autorisé·e à acheter des tickets de cette catégorie."
 
@@ -1169,11 +1180,6 @@ msgstr ""
 
 msgid "Seat selection is required for this ticket tier."
 msgstr "Le choix du siège est requis pour cette catégorie de tickets."
-
-msgid "One or more selected seats are invalid or not in the correct sector."
-msgstr ""
-"Un ou plusieurs sièges sélectionnés sont invalides ou ne se trouvent pas "
-"dans le bon secteur."
 
 msgid "One or more selected seats are no longer available."
 msgstr "Un ou plusieurs sièges sélectionnés ne sont plus disponibles."

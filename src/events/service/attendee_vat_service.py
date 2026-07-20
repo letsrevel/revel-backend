@@ -271,6 +271,15 @@ def _resolve_preview_seats(tier: "TicketTier", seat_ids: "list[UUID]", count: in
     from events.models import VenueSeat
 
     if not seat_ids:
+        # A category-priced tier has no meaningful flat price, so quoting one would hand the
+        # buyer a total checkout will not honour — the exact disagreement this endpoint exists
+        # to prevent. Refusing costs no backward compatibility: `category_prices` ships with
+        # this feature, so no existing client can be previewing such a tier.
+        if tier.category_prices:
+            raise HttpError(
+                400,
+                str(_("This ticket tier prices seats by category — seat_ids are required to preview it.")),
+            )
         return [None] * count
 
     seats = VenueSeat.objects.filter(id__in=seat_ids, sector_id=tier.sector_id, is_active=True).select_related(
