@@ -96,9 +96,14 @@ def validate_category_prices(tier: "TicketTier") -> None:
         if tier.venue_id
         else []
     )
-    unknown = sorted(str(cid) for cid in prices if cid not in known)
+    unknown = {cid for cid in prices if cid not in known}
     if unknown:
-        _fail(f"These price categories do not belong to the tier's venue: {', '.join(unknown)}.")
+        # Name whatever resolves — a category from another venue still has a name the admin
+        # recognises, and a bare UUID is unrenderable in the tier form. Ids that match nothing
+        # at all fall back to the raw value.
+        elsewhere = dict(PriceCategory.objects.filter(id__in=unknown).values_list("id", "name"))
+        labels = sorted(elsewhere.get(cid, str(cid)) for cid in unknown)
+        _fail(f"These price categories do not belong to the tier's venue: {', '.join(labels)}.")
 
     painted = set(
         VenueSeat.objects.filter(sector_id=tier.sector_id, is_active=True, default_price_category__isnull=False)

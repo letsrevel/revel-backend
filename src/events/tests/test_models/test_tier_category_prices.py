@@ -149,13 +149,15 @@ def test_foreign_venue_category_rejected(
 ) -> None:
     """A category from another venue is not addressable by this tier."""
     other_venue = Venue.objects.create(organization=organization, name="Annex")
-    foreign = PriceCategory.objects.create(venue=other_venue, name="Premium", color="#aa0000")
+    foreign = PriceCategory.objects.create(venue=other_venue, name="Annex Balcony", color="#aa0000")
     paint(sector, "A1", premium)
     tier = make_tier(event, sector, category_prices={str(premium.id): "50.00", str(foreign.id): "20.00"})
     with pytest.raises(ValidationError) as exc_info:
         tier.full_clean()
     assert "category_prices" in exc_info.value.message_dict
-    assert str(foreign.id) in exc_info.value.message_dict["category_prices"][0]
+    # Named, not a bare UUID — the tier form has to render this to an admin.
+    assert "Annex Balcony" in exc_info.value.message_dict["category_prices"][0]
+    assert str(foreign.id) not in exc_info.value.message_dict["category_prices"][0]
 
 
 def test_unknown_category_id_rejected(event: Event, sector: VenueSector) -> None:
