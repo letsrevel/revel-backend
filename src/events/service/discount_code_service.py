@@ -364,6 +364,43 @@ def preview_discount_code(
     )
 
 
+def calculate_discounted_unit_price(base_price: Decimal, discount_code: DiscountCode) -> Decimal:
+    """Apply a discount code to one unit price.
+
+    The per-unit primitive. ``calculate_discounted_price`` is the flat-tier
+    special case (``base_price = tier.price``); per-seat category pricing feeds
+    each seat's own resolved price in here instead.
+
+    Args:
+        base_price: The pre-discount unit price.
+        discount_code: The validated discount code.
+
+    Returns:
+        The discounted unit price (2 decimal places, non-negative).
+    """
+    if discount_code.discount_type == DiscountCode.DiscountType.PERCENTAGE:
+        discounted = (base_price * (Decimal("100") - discount_code.discount_value) / Decimal("100")).quantize(
+            Decimal("0.01")
+        )
+        return max(discounted, Decimal("0.00"))
+
+    # FIXED_AMOUNT
+    return max((base_price - discount_code.discount_value).quantize(Decimal("0.01")), Decimal("0.00"))
+
+
+def calculate_unit_discount_amount(base_price: Decimal, discount_code: DiscountCode) -> Decimal:
+    """Calculate how much a discount code subtracts from one unit price.
+
+    Args:
+        base_price: The pre-discount unit price.
+        discount_code: The validated discount code.
+
+    Returns:
+        The discount amount for that unit (never negative, never above ``base_price``).
+    """
+    return base_price - calculate_discounted_unit_price(base_price, discount_code)
+
+
 def calculate_discounted_price(tier: TicketTier, discount_code: DiscountCode) -> Decimal:
     """Calculate the discounted price for a tier.
 
@@ -374,14 +411,7 @@ def calculate_discounted_price(tier: TicketTier, discount_code: DiscountCode) ->
     Returns:
         The discounted unit price (2 decimal places, non-negative).
     """
-    if discount_code.discount_type == DiscountCode.DiscountType.PERCENTAGE:
-        discounted = (tier.price * (Decimal("100") - discount_code.discount_value) / Decimal("100")).quantize(
-            Decimal("0.01")
-        )
-        return max(discounted, Decimal("0.00"))
-
-    # FIXED_AMOUNT
-    return max((tier.price - discount_code.discount_value).quantize(Decimal("0.01")), Decimal("0.00"))
+    return calculate_discounted_unit_price(tier.price, discount_code)
 
 
 def calculate_discount_amount(tier: TicketTier, discount_code: DiscountCode) -> Decimal:
@@ -394,7 +424,7 @@ def calculate_discount_amount(tier: TicketTier, discount_code: DiscountCode) -> 
     Returns:
         The discount amount per ticket.
     """
-    return tier.price - calculate_discounted_price(tier, discount_code)
+    return calculate_unit_discount_amount(tier.price, discount_code)
 
 
 def apply_discount(discount_code: DiscountCode, user: RevelUser, batch_size: int) -> None:
