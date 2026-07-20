@@ -256,7 +256,14 @@ class TestAuthenticatedOnlineParity:
         online_tier: TicketTier,
         fix_full: DiscountCode,
     ) -> None:
-        """A code worth the whole ticket makes the online batch free: ACTIVE tickets, no Payments."""
+        """A code worth the whole ticket makes the online batch free: ACTIVE tickets, no Payments.
+
+        ``price_paid`` is ``0.00``, not NULL. The reroute drops the batch on the free
+        checkout, which creates no ``Payment`` row, so this column is the only record
+        of the amount — and a NULL there claims ``tier.price`` (25.00) reconstructs the
+        sale. Previously NULL; corrected with the stamp fix (spec §5.5). Every other
+        parity expectation in this module is the pre-refactor value, untouched.
+        """
         response = _checkout(buyer_client, parity_event, online_tier, code=fix_full.code)
 
         assert response.status_code == 200, response.content
@@ -270,7 +277,7 @@ class TestAuthenticatedOnlineParity:
         _assert_tickets(
             tickets,
             status=Ticket.TicketStatus.ACTIVE,
-            price_paid=None,
+            price_paid=Decimal("0.00"),
             discount_amount=Decimal("25.00"),
         )
         assert not Payment.objects.filter(ticket__tier=online_tier).exists()
@@ -435,6 +442,10 @@ class TestGuestOnlineParity:
         the code's usage counter incremented, so the buyer saw an error for a
         purchase that had succeeded and burned another ``times_used`` on retry.
         It now branches on the returned shape, exactly like ``ticket_checkout``.
+
+        ``price_paid`` is ``0.00`` for the same reason as the authenticated case above:
+        no ``Payment`` row exists on this path, so the free checkout must record the
+        amount itself. Previously NULL.
         """
         response = handle_guest_ticket_checkout(
             parity_event,
@@ -455,7 +466,7 @@ class TestGuestOnlineParity:
         _assert_tickets(
             tickets,
             status=Ticket.TicketStatus.ACTIVE,
-            price_paid=None,
+            price_paid=Decimal("0.00"),
             discount_amount=Decimal("25.00"),
         )
         assert not Payment.objects.filter(ticket__tier=online_tier).exists()

@@ -149,6 +149,7 @@ class CheckoutMixin(TicketWriterMixin):
         seats: list[VenueSeat | None],
         locked_tier: TicketTier,
         pricing: BatchPricing,
+        stamp_price_paid: bool = False,
     ) -> list[Ticket]:
         """Handle free checkout for batch tickets.
 
@@ -159,11 +160,20 @@ class CheckoutMixin(TicketWriterMixin):
             seats: List of seats corresponding to items.
             locked_tier: The locked tier.
             pricing: The per-ticket price vector (all zero, or a zeroing discount).
+            stamp_price_paid: Whether the unit price is written to ``price_paid``.
+                Defaults to False for the FREE **payment method**: it collects nothing,
+                so a NULL is the truthful "``tier.price`` reconstructs this" claim, and
+                the price vector there can still carry category prices that were never
+                charged. An ONLINE cart that the buyer's PWYC amount or discount code
+                zeroed passes the real decision through instead — its price genuinely is
+                not ``tier.price``, so it must be recorded (spec §5.5).
 
         Returns:
             List of created ACTIVE tickets.
         """
-        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.ACTIVE, pricing.lines)
+        tickets = self.create_tickets(
+            items, seats, Ticket.TicketStatus.ACTIVE, pricing.lines, stamp_price_paid=stamp_price_paid
+        )
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))

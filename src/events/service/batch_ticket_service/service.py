@@ -112,7 +112,9 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # is the cart's real total known (spec §5.6).
         if self.discount_code is not None:
             assert_min_purchase_amount(self.discount_code, pricing.gross_total)
-        # One authority for every writer (spec §5.5); the online/free branches never stamp.
+        # One authority for every writer (spec §5.5). The ONLINE branch never stamps
+        # (Payment.amount is authoritative there) and neither does a FREE-payment-method
+        # tier, but an ONLINE cart the buyer zeroed does — see the reroute below.
         stamp_price_paid = should_stamp_price_paid(
             locked_tier, pwyc_amount=pwyc_amount, has_discount=self.discount_code is not None
         )
@@ -135,6 +137,11 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # row (the refund matcher relies on that pairing). A zero-priced ONLINE tier
         # with no PWYC/discount input is still a misconfiguration, not a free tier —
         # it keeps falling through to the 400 in reserve_batch_payments.
+        #
+        # ``stamp_price_paid`` is carried into the reroute: getting here means the buyer
+        # moved the price, so it is always True, and there is no Payment row to hold the
+        # amount instead. Dropping it left ``price_paid`` NULL — the positive claim that
+        # ``tier.price`` reconstructs the sale — on a ticket that cost 0.00 (spec §5.5).
         buyer_reduced_price = pwyc_amount is not None or self.discount_code is not None
         if (
             locked_tier.payment_method == TicketTier.PaymentMethod.ONLINE
@@ -142,7 +149,7 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
             and pricing.lines
             and all(line.unit_price <= 0 for line in pricing.lines)
         ):
-            return self._free_checkout(items, seats, locked_tier, pricing)
+            return self._free_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
 
         # Delegate to payment-specific method
         match locked_tier.payment_method:
