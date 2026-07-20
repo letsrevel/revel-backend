@@ -1,6 +1,7 @@
 """Signal handlers for payment and refund notifications."""
 
 import typing as t
+from decimal import Decimal
 
 import structlog
 from django.db import transaction
@@ -8,7 +9,8 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from common.models import SiteSettings
-from events.models import Payment
+from events.models import Payment, Ticket
+from notifications.context_schemas import RefundUnmatchedCandidate
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
 from notifications.service.notification_helpers import format_event_datetime
@@ -163,4 +165,90 @@ def _send_refund_notifications(payment: Payment) -> None:
         payment_id=str(payment.id),
         ticket_id=str(ticket.id),
         user_id=str(payment.user_id),
+    )
+
+
+def send_refund_unmatched(
+    *,
+    payment_intent_id: str,
+    refund_id: str,
+    refund_amount: Decimal,
+    currency: str,
+    reason: str,
+    candidates: list[Payment],
+) -> None:
+    """Notify org staff that an inbound refund could not be matched to a ticket.
+
+    Unlike the receivers above this is a plain function, called explicitly from
+    the ``charge.refunded`` webhook handler when the matcher declines to guess
+    (see ``StripeEventHandler._match_refund_to_payments``): nothing was
+    cancelled and no seat was freed, so the only trace would otherwise be a log
+    line. Refunds carrying ``metadata.ticket_id`` — every refund issued through
+    Revel — match exactly and never reach here.
+
+    Call from *inside* the webhook's atomic block: the Notification rows are
+    written in the same transaction (so a rolled-back webhook leaves no false
+    alarm) while the dispatcher defers the Celery ``.delay()`` to ``on_commit``.
+
+    Args:
+        payment_intent_id: The Stripe payment intent the refund arrived on.
+        refund_id: The Stripe refund object id.
+        refund_amount: The refunded amount in major currency units.
+        currency: ISO currency code of the refund.
+        reason: ``non_uniform`` or ``ambiguous`` — why the match was declined.
+        candidates: The unrefunded Payments the refund could have applied to.
+    """
+    amount_by_ticket = {p.ticket_id: p.amount for p in candidates}
+    tickets = list(
+        Ticket.objects.filter(pk__in=amount_by_ticket)
+        .select_related("event__organization", "seat", "user")
+        .order_by("event__name", "seat__label")
+    )
+    if not tickets:  # pragma: no cover - candidates always carry a ticket (OneToOne, cascade)
+        return
+
+    organization = tickets[0].event.organization
+    candidate_contexts: list[RefundUnmatchedCandidate] = [
+        {
+            "ticket_id": str(ticket.id),
+            "event_name": ticket.event.name,
+            "seat_label": ticket.seat.label if ticket.seat else "",
+            "amount": str(amount_by_ticket[ticket.id]),
+            "holder_email": ticket.user.email,
+        }
+        for ticket in tickets
+    ]
+    context: dict[str, t.Any] = {
+        "organization_id": str(organization.id),
+        "organization_name": organization.name,
+        "payment_intent_id": payment_intent_id,
+        "refund_id": refund_id,
+        # Two decimals like every Payment.amount rendered above — from_stripe_amount
+        # returns an unpadded Decimal (3000 cents -> Decimal("30")).
+        "refund_amount": f"{refund_amount:.2f}",
+        "currency": currency,
+        "reason": reason,
+        "candidates": candidate_contexts,
+    }
+
+    recipients = get_staff_for_notification(organization.id, NotificationType.REFUND_UNMATCHED)
+    notified = 0
+    for staff_user in recipients:
+        prefs = getattr(staff_user, "notification_preferences", None)
+        if prefs and prefs.is_notification_type_enabled(NotificationType.REFUND_UNMATCHED):
+            notification_requested.send(
+                sender=send_refund_unmatched,
+                user=staff_user,
+                notification_type=NotificationType.REFUND_UNMATCHED,
+                context=context,
+            )
+            notified += 1
+
+    logger.info(
+        "refund_unmatched_notifications_sent",
+        payment_intent_id=payment_intent_id,
+        refund_id=refund_id,
+        reason=reason,
+        candidate_count=len(candidate_contexts),
+        recipient_count=notified,
     )

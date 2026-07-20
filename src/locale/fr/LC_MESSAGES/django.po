@@ -1158,8 +1158,9 @@ msgstr "Seules les factures au statut de brouillon peuvent être supprimées."
 msgid ""
 "This ticket tier prices seats by category — seat_ids are required to preview "
 "it."
-msgstr "Ce type de billet applique un tarif par catégorie de place : les seat_ids sont "
-"requis pour l'aperçu."
+msgstr ""
+"Ce type de billet applique un tarif par catégorie de place : les seat_ids "
+"sont requis pour l'aperçu."
 
 msgid "One or more selected seats are invalid or not in the correct sector."
 msgstr ""
@@ -2403,6 +2404,13 @@ msgstr "Enregistré·e pour %(event)s"
 msgid "Checked in - %(event)s"
 msgstr "Enregistré·e - %(event)s"
 
+msgid "Refund could not be matched to a ticket"
+msgstr "Le remboursement n'a pas pu être associé à un billet"
+
+#, python-format
+msgid "Action needed: unmatched refund - %(org)s"
+msgstr "Action requise : remboursement non associé - %(org)s"
+
 #, python-format
 msgid "Spot available for %(event)s!"
 msgstr "Place disponible pour %(event)s !"
@@ -3143,6 +3151,28 @@ msgstr "Détails de la soumission :"
 
 msgid "Review the submission:"
 msgstr "Examiner la soumission :"
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s arrived from Stripe on payment "
+"%(intent)s, but Revel could not tell which ticket it belongs to. No ticket "
+"was cancelled and no seat was freed."
+msgstr "Un remboursement de %(amount)s %(currency)s a été reçu de Stripe pour le paiement %(intent)s, mais Revel n'a pas pu déterminer à quel billet il correspond. Aucun billet n'a été annulé et aucune place n'a été libérée."
+
+msgid "It could apply to any of these tickets:"
+msgstr "Il pourrait correspondre à l'un de ces billets :"
+
+#, python-format
+msgid "seat %(seat)s"
+msgstr "place %(seat)s"
+
+msgid ""
+"Check the refund in Stripe, then cancel the matching ticket in Revel. "
+"Refunds issued through Revel are always applied automatically."
+msgstr "Vérifie le remboursement dans Stripe, puis annule le billet correspondant dans Revel. Les remboursements effectués via Revel sont toujours appliqués automatiquement."
+
+msgid "Refund ID:"
+msgstr "ID du remboursement :"
 
 #, python-format
 msgid ""

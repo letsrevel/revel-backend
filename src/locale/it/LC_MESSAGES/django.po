@@ -1130,8 +1130,9 @@ msgstr "Solo le fatture in bozza possono essere eliminate."
 msgid ""
 "This ticket tier prices seats by category — seat_ids are required to preview "
 "it."
-msgstr "Questo tipo di biglietto applica prezzi per categoria di posto: per una stima "
-"servono i seat_ids."
+msgstr ""
+"Questo tipo di biglietto applica prezzi per categoria di posto: per una "
+"stima servono i seat_ids."
 
 msgid "One or more selected seats are invalid or not in the correct sector."
 msgstr ""
@@ -2358,6 +2359,13 @@ msgstr "Check-in effettuato per %(event)s"
 msgid "Checked in - %(event)s"
 msgstr "Check-in effettuato - %(event)s"
 
+msgid "Refund could not be matched to a ticket"
+msgstr "Non è stato possibile associare il rimborso a un biglietto"
+
+#, python-format
+msgid "Action needed: unmatched refund - %(org)s"
+msgstr "Azione richiesta: rimborso non associato - %(org)s"
+
 #, python-format
 msgid "Spot available for %(event)s!"
 msgstr "Posto disponibile per %(event)s!"
@@ -3094,6 +3102,28 @@ msgstr "Dettagli:"
 
 msgid "Review the submission:"
 msgstr "Valuta il questionario:"
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s arrived from Stripe on payment "
+"%(intent)s, but Revel could not tell which ticket it belongs to. No ticket "
+"was cancelled and no seat was freed."
+msgstr "È arrivato da Stripe un rimborso di %(amount)s %(currency)s sul pagamento %(intent)s, ma Revel non è riuscito a capire a quale biglietto appartiene. Nessun biglietto è stato annullato e nessun posto è stato liberato."
+
+msgid "It could apply to any of these tickets:"
+msgstr "Potrebbe riguardare uno di questi biglietti:"
+
+#, python-format
+msgid "seat %(seat)s"
+msgstr "posto %(seat)s"
+
+msgid ""
+"Check the refund in Stripe, then cancel the matching ticket in Revel. "
+"Refunds issued through Revel are always applied automatically."
+msgstr "Controlla il rimborso su Stripe, poi annulla il biglietto corretto su Revel. I rimborsi emessi tramite Revel vengono sempre applicati automaticamente."
+
+msgid "Refund ID:"
+msgstr "ID rimborso:"
 
 #, python-format
 msgid ""
