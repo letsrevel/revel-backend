@@ -340,6 +340,7 @@ class EventPublicTicketsController(EventPublicBaseController):
             line_items=[
                 schema.VATPreviewLineItemSchema(
                     tier_name=li.tier_name,
+                    price_category_name=li.price_category_name,
                     ticket_count=li.ticket_count,
                     unit_price_gross=li.unit_price_gross,
                     unit_price_net=li.unit_price_net,
