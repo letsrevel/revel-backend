@@ -132,9 +132,23 @@ they pay. Either way, painting is what tells the platform which seats are which.
 > (with a message naming the category) until the organizer prices it. Sales in priced categories
 > are unaffected.
 >
-> Practical advice for organizers running live on-sales: repaint before a show goes on sale, or
-> check the affected events' tiers straight after. The tier admin screen flags any category it
-> doesn't price.
+> Moving seats between two categories a tier **does** price is the quieter hazard: coverage stays
+> complete, nothing errors, and the seats simply start selling at the other price. So the save
+> itself reports back — it names every live tier whose seat prices it just changed, the event each
+> belongs to, and how many seats moved from which price to which. That's the only place the
+> venue-wide blast radius is visible, since the change spans events the organizer isn't looking at.
+>
+> **And the editor can ask first.** The same report is available *before* anything is written:
+> the grid can check "what would this repaint do?" and get back the identical answer — the tiers,
+> the events, the seat counts, the old and new prices — with not a single seat touched. So a
+> repaint on a venue with live shows can be a confirmation ("this moves 400 seats from €80 to €30
+> across 3 events — continue?") instead of an apology. Asking is exactly as strict as doing: if
+> the real repaint would be rejected, the question is rejected the same way, so nobody confirms
+> a change that then fails.
+>
+> Practical advice for organizers running live on-sales: repaint before a show goes on sale, check
+> before you save, and read what the save reports back. The tier admin screen also flags any
+> category it doesn't price.
 
 ## Demo it
 

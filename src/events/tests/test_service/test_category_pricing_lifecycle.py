@@ -245,14 +245,20 @@ class TestRepaintLifecycle:
     def test_repaint_into_a_priced_category_keeps_everything_consistent(
         self, tier: TicketTier, venue: Venue, seats: list[VenueSeat], premium: PriceCategory
     ) -> None:
-        """Moving a seat between two priced categories just reprices it."""
+        """Moving a seat between two priced categories just reprices it — loudly (#747)."""
         standard_seat = seats[1]
         result = venue_service.paint_seats(
             venue, schema.VenueSeatPaintSchema(seat_ids=[standard_seat.id], price_category_id=premium.id)
         )
 
         assert result.painted == 1
-        assert result.under_covered_tiers == []
+        # Coverage stays complete, so there is no gap — but the money moved, and that is
+        # the whole point of the report: nothing else in the system would have said so.
+        assert len(result.affected_tiers) == 1
+        assert result.affected_tiers[0].missing_categories == []
+        assert [(c.seat_count, c.from_price, c.to_price) for c in result.affected_tiers[0].price_changes] == [
+            (1, STANDARD, PREMIUM)
+        ]
         standard_seat.refresh_from_db()
         price_map = parse_price_map(tier.category_prices)
         assert pricing.resolve_seat_price(tier, standard_seat, price_map) == PREMIUM

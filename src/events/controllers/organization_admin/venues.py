@@ -1,7 +1,9 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
+from ninja import Query
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -199,20 +201,37 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         response=schema.SeatPaintResultSchema,
     )
     def paint_seats(
-        self, slug: str, venue_id: UUID, payload: schema.VenueSeatPaintSchema
+        self,
+        slug: str,
+        venue_id: UUID,
+        payload: schema.VenueSeatPaintSchema,
+        preview: t.Annotated[
+            bool,
+            Query(
+                description=(
+                    "Dry run: validate the request and return the identical response, "
+                    "without painting anything. Use it to confirm a repricing before it happens."
+                )
+            ),
+        ] = False,
     ) -> schema.SeatPaintResultSchema:
         """Bulk paint seats with a price category (null = unpaint).
 
         All seats must belong to this venue (across any of its sectors) and the
         category, when given, must belong to this venue. Executes a single UPDATE.
 
-        Painting always succeeds, but it can leave a user-choice tier pricing that
-        sector without a price for a category now painted there — checkout refuses
-        those seats. Such tiers come back in ``under_covered_tiers`` (advisory).
+        Painting always succeeds, but it is venue-scoped and takes effect immediately:
+        it can change what buyers are charged on every event at this venue, or leave a
+        user-choice tier without a price for a category now painted in its sector (checkout
+        refuses those seats). Both come back in ``affected_tiers`` (advisory).
+
+        Because that report is computed before the write, ``?preview=true`` returns exactly
+        the same payload with nothing written — the same request, answered in advance.
+        Validation is unchanged: a preview of a paint that would 404 or 400 still does.
         """
         organization = self.get_one(slug)
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
-        return venue_service.paint_seats(venue, payload)
+        return venue_service.paint_seats(venue, payload, preview=preview)
 
     # ---- Venue Sector Management ----
 
