@@ -64,6 +64,7 @@ from events.service.vat_service import (
     calculate_platform_fee_vat,
     calculate_vat_inclusive,
     distribute_amount_across_items,
+    distribute_amount_pro_rata,
     get_effective_vat_rate,
 )
 from events.utils.currency import to_stripe_amount
@@ -435,12 +436,16 @@ def _create_payment_records(
     and 30.00, and a ticket a discount drove to zero still gets its 0.00 row so
     the 1:1 ticket↔Payment pairing (which the refund matcher relies on) holds.
     """
-    # Distribute gross and vat independently; derive net = gross - vat.
-    # This guarantees non-negative per-ticket VAT (unlike distributing gross + net
+    # Distribute gross and vat pro-rata by each ticket's price, so a row carries the
+    # share of the fee its own revenue earned (#753). Splitting evenly would misbill
+    # the org after a partial refund: both fee consumers aggregate over SUCCEEDED
+    # rows only, so a refunded row takes its share out of the total with it.
+    # Gross and vat are distributed independently and net is derived as gross - vat,
+    # which guarantees non-negative per-ticket VAT (unlike distributing gross + net
     # independently, where remainder pennies could land on different indices).
-    ticket_count = len(tickets)
-    per_ticket_gross = distribute_amount_across_items(total_fee_vat.fee_gross, ticket_count)
-    per_ticket_vat = distribute_amount_across_items(total_fee_vat.fee_vat, ticket_count)
+    fee_weights = [amount.effective_price for amount in amounts]
+    per_ticket_gross = distribute_amount_pro_rata(total_fee_vat.fee_gross, fee_weights)
+    per_ticket_vat = distribute_amount_pro_rata(total_fee_vat.fee_vat, fee_weights)
 
     # Build buyer billing snapshot if billing info was provided. Reverse charge is
     # decided by countries and VAT-ID validity, never by price, so it is uniform.
