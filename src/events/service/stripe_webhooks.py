@@ -18,9 +18,11 @@ from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMi
 from events.models import HeldSeriesPass, Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
+from notifications.signals.payment import send_refund_unmatched
 from notifications.signals.series_pass import send_series_pass_purchased
 
 logger = structlog.get_logger(__name__)
+
 
 # Pin both credentials and API version at import time (mirrors stripe_service).
 # This module makes its own outbound call (Refund.list in _resolve_refunds), so
@@ -30,6 +32,11 @@ stripe.api_version = settings.STRIPE_API_VERSION
 
 # Placeholder values that must never be treated as real signing secrets.
 _PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})
+
+
+def _distinct_amounts(payments: list[Payment]) -> set[tuple[int, str]]:
+    """Return the distinct (smallest-unit amount, currency) pairs across payments."""
+    return {(to_stripe_amount(p.amount, p.currency), p.currency) for p in payments}
 
 
 def verify_webhook(payload: bytes, signature_header: str) -> stripe.Event:
@@ -522,6 +529,7 @@ class StripeEventHandler:
                     candidate_payment_ids=[str(c.id) for c in candidates if c.refund_status is None],
                     candidate_amounts=[f"{c.amount}{c.currency}" for c in candidates if c.refund_status is None],
                 )
+                self._notify_unmatched_refund(refund, candidates, payment_intent_id)
                 continue
             # Branch 4 fans out a single refund across N Payments — each gets its
             # own amount, not the aggregate. Branches 1-3 always return one row.
@@ -541,6 +549,41 @@ class StripeEventHandler:
                     affected_event_ids.add(cancelled_event_id)
 
         return newly_refunded_ids, touched_session_id, affected_event_ids
+
+    def _notify_unmatched_refund(
+        self, refund: dict[str, t.Any], candidates: list[Payment], payment_intent_id: str
+    ) -> None:
+        """Raise a durable staff notification for a refund the matcher declined.
+
+        Covers both decline paths — the non-uniform-batch refusal in Branch 3
+        and the genuinely ambiguous Branch 5 — because both end the match with
+        an empty result. Money moved in Stripe but nothing changed in Revel, so
+        the log line alone leaves the organizer believing a ticket was refunded.
+
+        Runs inside the webhook's atomic block on purpose: the Notification rows
+        commit with the rest of the handler (and vanish with it if the handler
+        raises), while the notification dispatcher defers its Celery ``.delay()``
+        to ``on_commit``. Redelivery can't double-notify because the
+        ``StripeWebhookEvent`` dedup row in :func:`handle_event` stops the whole
+        handler from re-running.
+
+        Args:
+            refund: The Stripe refund object dict that could not be matched.
+            candidates: All Payment rows on the intent.
+            payment_intent_id: The Stripe payment intent id.
+        """
+        unrefunded = [p for p in candidates if p.refund_status is None]
+        if not unrefunded:
+            return  # every Payment on the intent is already refunded — nothing to reconcile
+        currency = unrefunded[0].currency
+        send_refund_unmatched(
+            payment_intent_id=payment_intent_id,
+            refund_id=refund.get("id") or "",
+            refund_amount=from_stripe_amount(int(refund.get("amount", 0)), currency),
+            currency=currency,
+            reason="non_uniform" if len(_distinct_amounts(candidates)) > 1 else "ambiguous",
+            candidates=unrefunded,
+        )
 
     def _resolve_refunds(self, charge_data: dict[str, t.Any]) -> list[dict[str, t.Any]]:
         """Return the charge's refunds, from the payload or the Stripe API.
@@ -664,7 +707,7 @@ class StripeEventHandler:
         # there is nothing else to disambiguate with: refuse and let Branch 5 log it.
         exact = [p for p in unrefunded if to_stripe_amount(p.amount, p.currency) == refund_amount]
         if len(exact) == 1:
-            amounts = {(to_stripe_amount(p.amount, p.currency), p.currency) for p in candidates}
+            amounts = _distinct_amounts(candidates)
             if len(amounts) == 1:
                 return exact
             logger.warning(

@@ -1151,8 +1151,9 @@ msgstr "Nur Rechnungsentwürfe können gelöscht werden."
 msgid ""
 "This ticket tier prices seats by category — seat_ids are required to preview "
 "it."
-msgstr "Bei diesem Ticket-Typ richtet sich der Preis nach der Sitzplatzkategorie – für "
-"eine Vorschau sind seat_ids erforderlich."
+msgstr ""
+"Bei diesem Ticket-Typ richtet sich der Preis nach der Sitzplatzkategorie – "
+"für eine Vorschau sind seat_ids erforderlich."
 
 msgid "One or more selected seats are invalid or not in the correct sector."
 msgstr ""
@@ -2403,6 +2404,13 @@ msgstr "Eingecheckt für %(event)s"
 msgid "Checked in - %(event)s"
 msgstr "Eingecheckt - %(event)s"
 
+msgid "Refund could not be matched to a ticket"
+msgstr "Rückerstattung konnte keinem Ticket zugeordnet werden"
+
+#, python-format
+msgid "Action needed: unmatched refund - %(org)s"
+msgstr "Handlungsbedarf: nicht zugeordnete Rückerstattung - %(org)s"
+
 #, python-format
 msgid "Spot available for %(event)s!"
 msgstr "Freier Platz für %(event)s!"
@@ -3141,6 +3149,28 @@ msgstr "Details:"
 
 msgid "Review the submission:"
 msgstr "Fragebogen prüfen:"
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s arrived from Stripe on payment "
+"%(intent)s, but Revel could not tell which ticket it belongs to. No ticket "
+"was cancelled and no seat was freed."
+msgstr "Eine Rückerstattung über %(amount)s %(currency)s ist von Stripe zur Zahlung %(intent)s eingegangen, aber Revel konnte nicht feststellen, zu welchem Ticket sie gehört. Es wurde kein Ticket storniert und kein Sitzplatz freigegeben."
+
+msgid "It could apply to any of these tickets:"
+msgstr "Sie könnte zu einem dieser Tickets gehören:"
+
+#, python-format
+msgid "seat %(seat)s"
+msgstr "Platz %(seat)s"
+
+msgid ""
+"Check the refund in Stripe, then cancel the matching ticket in Revel. "
+"Refunds issued through Revel are always applied automatically."
+msgstr "Prüfe die Rückerstattung in Stripe und storniere anschließend das passende Ticket in Revel. Über Revel ausgelöste Rückerstattungen werden immer automatisch angewendet."
+
+msgid "Refund ID:"
+msgstr "Rückerstattungs-ID:"
 
 #, python-format
 msgid ""
