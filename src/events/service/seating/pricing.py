@@ -176,6 +176,82 @@ def recorded_or_resolved_price(
     return effective_category_price(price_map, category_id, tier.price)
 
 
+def should_stamp_price_paid(
+    tier: "TicketTier",
+    *,
+    pwyc_amount: Decimal | None = None,
+    has_discount: bool = False,
+    is_comp: bool = False,
+) -> bool:
+    """Does this sale have to record its own ``price_paid``? (spec §5.5).
+
+    The write-side counterpart of :func:`recorded_or_resolved_price`, and the single
+    authority every ticket-creating path asks. A NULL ``price_paid`` is not "unknown" —
+    it is a positive claim that ``tier.price`` still reconstructs the amount, which both
+    the revenue report and the refund ceiling lean on. So stamp exactly when that claim
+    is false:
+
+    - **PWYC** — the buyer chose the amount; ``tier.price`` is not it.
+    - **Discount code** — the amount is per ticket, and a mixed cart differs row to row.
+    - **Comp** — a giveaway is ``0.00``, whatever the seat is worth.
+    - **Category-priced tier** — the seat's price, not the tier's flat one, and it must
+      survive a later repricing.
+
+    Otherwise leave it NULL: a plain purchase on a flat tier (``tier.price`` stands) and
+    every online row (``Payment.amount`` is authoritative there, and is *net* for a
+    reverse-charge buyer — two "price paid" numbers on one row is worse than none). The
+    online and free-checkout paths therefore never ask this question; they simply do not
+    stamp.
+
+    The invariant is **time-scoped** — tickets sold before a tier opted into category
+    pricing legitimately carry NULL — so it can never be a DB constraint or a raise, and
+    a shared function is the only enforcement available. Amend the rule *here* when a new
+    ticket-writing path lands.
+
+    Not covered: series-pass tickets (``series_pass_service.materialize_tickets``,
+    ``series_pass_purchase``), whose ``price_paid`` is a share of the pass price. No tier
+    can reconstruct that, so they always stamp and have no decision to make.
+
+    Args:
+        tier: The tier being sold (the *locked* tier wherever one is held).
+        pwyc_amount: The buyer's pay-what-you-can amount, if any.
+        has_discount: Whether a discount code applies to this purchase.
+        is_comp: Whether this is a giveaway priced ``0.00`` regardless of the tier.
+
+    Returns:
+        True when the created ticket must carry an explicit ``price_paid``.
+    """
+    # Truthiness, not parse_price_map: identical on every value the field can legally
+    # hold, and this must not start raising on a legacy malformed map at checkout time.
+    return pwyc_amount is not None or has_discount or is_comp or bool(tier.category_prices)
+
+
+def price_paid_is_admin_entered(tier: "TicketTier") -> bool:
+    """Is this tier's ``price_paid`` an admin's input rather than a resolved fact? (spec §5.5).
+
+    The mutation-side reading of :func:`should_stamp_price_paid`, asked by the flows that
+    write or clear ``price_paid`` on an *existing* ticket — confirm, unconfirm, check-in.
+
+    On a PWYC tier the amount is typed in by staff when they take the money, so those flows
+    own it: they may require it, overwrite it, and — on unconfirm — clear it, because
+    confirming again asks for it afresh. On every other tier a non-null ``price_paid`` is a
+    *resolved* fact of the sale (a category price, a per-ticket discount, a comp) that
+    nothing downstream can rebuild from ``tier.price``; clearing it mis-reports revenue and
+    caps refunds at the wrong number, and ``confirm_ticket_payment`` refuses to accept a
+    price for a non-PWYC tier, so nothing could ever put it back. That gap was a real bug.
+
+    Callers may narrow further (check-in also excludes pass tickets and online payment
+    methods) but must never widen.
+
+    Args:
+        tier: The ticket's tier.
+
+    Returns:
+        True when confirm/unconfirm/check-in may write or clear ``price_paid``.
+    """
+    return bool(tier.price_type == tier.PriceType.PWYC)
+
+
 def cart_is_certainly_free(
     tier: "TicketTier",
     *,

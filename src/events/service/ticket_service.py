@@ -36,7 +36,7 @@ from events.models import (
 )
 from events.models.mixins import VisibilityMixin
 from events.models.ticket import CancellationSource
-from events.service.seating.pricing import recorded_or_resolved_price
+from events.service.seating.pricing import price_paid_is_admin_entered, recorded_or_resolved_price
 from events.service.waitlist_service import enqueue_waitlist_processing
 
 if t.TYPE_CHECKING:
@@ -367,7 +367,9 @@ def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) ->
     """
     _reject_series_pass_ticket(ticket)
 
-    is_pwyc = ticket.tier.price_type == TicketTier.PriceType.PWYC
+    # Only an admin-entered price (PWYC) may be supplied or overwritten here; a resolved
+    # one belongs to the sale (spec §5.5).
+    is_pwyc = price_paid_is_admin_entered(ticket.tier)
 
     if not is_pwyc and price_paid is not None:
         raise HttpError(400, str(_("Price paid is not allowed for fixed-price tiers.")))
@@ -393,14 +395,12 @@ def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) ->
 def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
     """Revert a confirmed offline ticket back to pending status.
 
-    ``price_paid`` is cleared **only for PWYC tiers**, which is the case the clearing
-    was written for: there the amount is admin-entered at confirmation time and is
-    meaningless once that confirmation is reverted — ``confirm_ticket_payment`` asks
-    for it again. Every other non-null ``price_paid`` is a *resolved* fact of the sale
-    (a per-category price, a per-ticket discount, a comp) that nothing downstream can
-    reconstruct from ``tier.price``; clearing it silently mis-reported revenue and
-    capped refunds at the wrong number, because ``confirm_ticket_payment`` refuses to
-    accept a price for non-PWYC tiers and so could never put it back (spec §5.5).
+    ``price_paid`` is cleared only where it is admin-entered — the mirror of the rule
+    ``confirm_ticket_payment`` applies, asked of the same helper
+    (:func:`events.service.seating.pricing.price_paid_is_admin_entered`). Clearing a
+    *resolved* price instead silently mis-reported revenue and capped refunds at the
+    wrong number, because confirm refuses to accept a price for a non-PWYC tier and so
+    could never put it back (spec §5.5).
 
     Args:
         ticket: The ticket to unconfirm. Must be ACTIVE with OFFLINE payment method,
@@ -416,7 +416,7 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
 
     ticket.status = Ticket.TicketStatus.PENDING
     update_fields = ["status"]
-    if ticket.tier.price_type == TicketTier.PriceType.PWYC:
+    if price_paid_is_admin_entered(ticket.tier):
         ticket.price_paid = None
         update_fields.append("price_paid")
     ticket.save(update_fields=update_fields)
@@ -541,11 +541,14 @@ def check_in_ticket(
     if not event.is_check_in_open():
         raise HttpError(400, _check_in_closed_message(event))
 
-    # PWYC price_paid handling. Pass tickets never carry a per-ticket price (the pass
-    # itself was paid), so the mapped tier's PWYC semantics don't apply to them.
+    # May door staff type a price onto this ticket? Same authority as confirm/unconfirm
+    # (spec §5.5), narrowed twice: pass tickets never carry a per-ticket price (the pass
+    # itself was paid), and online tickets are settled by Payment.amount. Narrowing is
+    # allowed; widening is not — a resolved price_paid must never be typed over here, and
+    # any future undo-check-in must clear only what this predicate owns.
     is_pwyc_offsite = (
         ticket.held_pass_id is None
-        and ticket.tier.price_type == TicketTier.PriceType.PWYC
+        and price_paid_is_admin_entered(ticket.tier)
         and ticket.tier.payment_method
         in (
             TicketTier.PaymentMethod.OFFLINE,
