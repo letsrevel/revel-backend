@@ -16,7 +16,7 @@ including the honest limits, so you never overpromise.
 | Guide | What it covers | Best for pitching to |
 |-------|----------------|----------------------|
 | [Venue & Layout Setup](venue-and-layout.md) | Venues, seated/standing sectors, the grid editor, natural row ordering, price categories, seat painting | The organizer who sets things up once and reuses it |
-| [Tickets, Pricing & Seat Assignment](tiers-and-pricing.md) | The pricing model (category on the map, price on the event), the three assignment modes, how "best available" picks seats | Anyone who asks "can I do student/senior prices?" or "can it seat a family together?" |
+| [Tickets, Pricing & Seat Assignment](tiers-and-pricing.md) | The pricing model (zones on the map, prices on the event), per-seat pricing, the three assignment modes, how "best available" picks seats | Anyone who asks "can the price depend on the seat?", "can I do student/senior prices?" or "can it seat a family together?" |
 | [The Buyer Experience](buyer-experience.md) | The live availability map, seat holds, checkout, guest checkout, accessible seating | The prospect worried about the buyer's experience and double-sells |
 | [Box Office & Event-Day Operations](box-office.md) | Holds/kills, door sales, comps, reseats, seat-on-check-in | The actual box-office manager — the person who decides |
 
@@ -29,9 +29,11 @@ If you have one prospect and five minutes, tell this story:
    numbering. Paint price zones with colors (Stalls, Balcony, Boxes). See
    [Venue & Layout Setup](venue-and-layout.md).
 2. **"Price it however you sell it."** Price lives on the *event*, not the map, so the
-   same seats can be premium on Saturday and half-price midweek. And because multiple
-   ticket types can share one price zone, you get **adult / student / child prices on
-   the same seats** out of the box. See [Tickets & Pricing](tiers-and-pricing.md).
+   same seats can be premium on Saturday and half-price midweek. Sell the classic theatre
+   way — **the buyer picks a seat and pays what that seat costs**, front stalls €80,
+   balcony €30, all on one map and one checkout. And because multiple ticket types can
+   share one price zone, you also get **adult / student / child prices on the same seats**
+   out of the box. See [Tickets & Pricing](tiers-and-pricing.md).
 3. **"Buyers get a real seat map."** They see what's open live, tap to hold seats (so
    nobody grabs them mid-checkout), and buy. Or they hit **"best available"** and Revel
    seats their whole party together, up front and center — and never quietly hands a
@@ -60,8 +62,12 @@ right, holds for production/press, and reseating. Lead with **price categories +
 concession pricing** (tiers guide), **best-available with accessibility protection**
 (buyer guide), and the **hold/kill/reseat** box-office toolkit. Teatro Grande (1,352
 seats across Platea, Galleria, and four Palco boxes, with painted price zones) is your
-prop. Be honest about the two current limits: reseating is **same-price-zone only** for
-now, and there's **no season-subscription / fixed-subscriber-seat** feature yet.
+prop. Also lead with **per-seat prices** — pick your seat, pay what that seat costs — which
+is the model they already run today. Be honest about the current limits: reseating is
+**same-price-zone only** (a move across zones is a refund plus a new sale, because it's a
+change of price); repainting the map is **venue-wide and immediate**, so it moves prices at
+every event in that building at once; and there's **no season-subscription /
+fixed-subscriber-seat** feature yet.
 
 ## Run a full demo (end to end)
 
@@ -72,8 +78,9 @@ To show the whole loop on the seeded demo data:
    repaint a seat to prove the round-trip (paint persists and shows on reload).
 2. **Configure a tier** ([Tickets & Pricing](tiers-and-pricing.md#demo-it)) — create a
    `best_available` tier on the Galleria category and a `user_choice` tier on a stalls
-   sector; try to misconfigure one (e.g. best-available with no category) to show the
-   guardrail.
+   sector; give the user-choice tier a price per zone, then try to misconfigure one (e.g.
+   best-available with no category, or a price map with a zone left out) to show the
+   guardrails.
 3. **Buy** ([The Buyer Experience](buyer-experience.md#demo-it)) — pull the availability
    map, hold two adjacent seats, and check out; then do a **best-available** buy and
    show that the seats you were shown are exactly what you get.

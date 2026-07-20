@@ -1133,21 +1133,29 @@ First-class recurring series with rolling-window materialization:
 ### 19.2 Price Categories (Organizer)
 - Venue-scoped categories: `name` + `color` (hex, for map rendering) + `display_order`
 - CRUD under `/organization-admin/{slug}/venues/{venue_id}/price-categories`; a duplicate `(venue, name)` is rejected with **400**
-- A category is **painted** onto seats as each seat's `default_price_category` — this is the pool a best-available tier draws from
+- A category is **painted** onto seats as each seat's `default_price_category` — the pool a best-available tier draws from, and the key a user-choice tier prices seats by (§19.3)
 - **Paint endpoint**: `PUT /organization-admin/{slug}/venues/{venue_id}/seats/paint` bulk-paints the given `seat_ids` in a single UPDATE and returns `{"painted": n}`; `price_category_id: null` **unpaints**. Every seat id must belong to the venue (else **404**) and the category, when given, must belong to the venue (else **400**)
 - **Paint round-trip**: seat reads (`VenueSeatSchema` — e.g. the sector / seat-list endpoints) carry `price_category_id` plus a nested `price_category` (name + color), so the grid editor re-hydrates existing paint on reload
-- **Delete guard**: deleting a category referenced by any ticket tier is refused with **400** (the tier FK is `SET_NULL`, so a silent delete would leave best-available tiers unsellable). Seats painted with the category are unaffected — on delete their `default_price_category` simply becomes NULL and can be repainted
+- **Delete guard**: deleting a category referenced by any ticket tier is refused with **400** naming the blocking `event — tier` pairs. "Referenced" covers both the `price_category` FK (best-available pools; `SET_NULL`, so a silent delete would leave the tier unsellable) **and** membership of a tier's `category_prices` map (user-choice per-seat pricing; invisible to the DB, so this guard is the only line of defence — a silent delete would collapse a premium zone back to the tier's flat price). Seats painted with the category are unaffected — on delete their `default_price_category` simply becomes NULL and can be repainted
+- **Repaint blast radius**: paint is venue-scoped and takes effect immediately for **every** event at that venue. Since §19.3 lets paint decide price, a repaint can move live prices across many events at once. Paint **always succeeds** — it never hard-fails on a tier it leaves under-covered, because one event's pricing config must not block venue-wide map work; the gap surfaces at checkout instead (§19.4) and on the tier's `pricing_gaps` (§19.3)
 
 ### 19.3 Tier Seating Configuration (Organizer)
 Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the model validates each mode:
 - **`NONE`** (general admission): no seat/sector/category required. Optionally link a **standing sector** — its `capacity` is then a hard limit enforced atomically at sale time (429 "This sector is full")
 - **`USER_CHOICE`**: **requires a seated sector**; buyers pick specific seats from it. Pointing a user-choice tier at a **standing** sector is rejected (model validation — a standing sector has no seats to choose from)
-- **`BEST_AVAILABLE`**: **requires a price category**; the server assigns an adjacent block from that category's seat pool
+- **`BEST_AVAILABLE`**: **requires a price category**; the server assigns an adjacent block from that category's seat pool, all at the tier's flat `price`
 - Cross-checks: a tier's sector, price category, and venue must all belong to the same venue/organization, and must match the event's venue when one is set
 
+**Per-seat-category pricing** (`USER_CHOICE` only) — `TicketTier.category_prices`, a `{price_category_id: decimal-string}` map. Empty = flat pricing; non-empty = the tier is *category-priced*, no separate flag:
+- **Write API**: nested on tier create/update. Omitted/`null` leaves the map untouched, `{}` clears it, a non-empty object replaces it wholesale. JSON floats are rejected (binary floats cannot represent money) — decimal strings or integers only
+- **Validation** at `clean()` time, all **400**: `USER_CHOICE` only (and the mode cannot be flipped away while the map is non-empty); mutually exclusive with `PWYC`; every category must belong to the tier's venue; on an `ONLINE` tier every category price must be ≥ 1; and **full coverage** — every category painted on ≥1 **active** seat of the tier's sector must be priced, with the error naming the missing categories
+- **Reads**: `TicketTierDetailSchema` (admin) carries the raw `category_prices` plus computed `pricing_gaps` (painted-but-unpriced categories, so the tier form can warn); `TicketTierSchema` (buyer) carries `seat_pricing` — **server-resolved** effective prices per category (`available: false`, no price, for a gap) plus the `unpainted` fallback, so the client never re-derives the fallback chain
+- **Resolution** (`events/service/seating/pricing.py`): painted + priced → the mapped price; painted + unpriced → **400 naming the category** (checkout and box office alike — the fallback would be exactly the silent mispricing the feature prevents); **unpainted → `tier.price`**, the one legitimate fallback; no seat or empty map → `tier.price`
+- **Lifecycle**: `category_prices` is a concrete field, so `duplicate_event` (and therefore every generated recurring occurrence) carries it automatically. Duplicating a reserved-seating event previously failed outright — tier duplication cleared `venue`/`sector`, which `USER_CHOICE` validation requires — and now works
+
 ### 19.4 Buy Seated Tickets — User Choice (Attendee)
-- **Chart**: `GET /events/{event_id}/seating/chart` returns the render-ready layout (sectors, seats, price categories) for the event's venue
-- **Availability**: `GET /events/{event_id}/seating/availability` returns a **sparse** map — only non-available seats appear (anything absent is available), plus standing sector counts (`capacity` / `taken`) and the caller's own holds + earliest expiry. Per-seat state precedence is `sold` > `blocked` > `held`:
+- **Chart**: `GET /events/{event_id}/seating/chart` returns the render-ready layout (sectors, seats, price categories) for the event's venue. The chart is venue-scoped and price-free by design (cacheable, event-agnostic); **prices live on the tier** (`seat_pricing`, §19.3) because two tiers may sell the same sector at different prices
+- **Availability**: `GET /events/{event_id}/seating/availability` returns a **sparse** map — only non-available seats appear (anything absent is available), plus standing sector counts (`capacity` / `taken`), the caller's own holds + earliest expiry, and `chart_updated_at` echoing the chart's version (a stale chart used to mean wrong colours; with per-seat pricing it means wrong prices). Per-seat state precedence is `sold` > `blocked` > `held`:
   - `sold`: any non-cancelled ticket (incl. checked-in) occupies the seat
   - `blocked`: a box-office override (held/killed) **or** a decommissioned (`is_active=False`) seat
   - `held`: a live TTL hold owned by someone else
@@ -1156,6 +1164,9 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   - **Auto-refresh**: re-requesting seats you already hold live refreshes their TTL, bounded by an absolute **30-minute** lifetime from first acquisition
   - `DELETE /events/{event_id}/seating/holds` releases the caller's holds (a subset when `seat_ids` given, else all)
 - **Purchase** consumes the buyer's own holds: at checkout, a seat live-held by **another** identity is a 409 conflict, while the buyer's own holds on the requested seats are deleted as they convert to tickets
+- **Pricing a mixed cart** (category-priced tier, §19.3): each seat is priced independently under the tier lock, so one cart can span price zones in a single checkout. Per ticket, `price_paid` and `discount_amount` record that ticket's own numbers; one Stripe line item per ticket carries its own amount and the session total is reconciled against `sum(Payment.amount)`; VAT and the platform fee are computed on the true total. A discount code's `min_purchase_amount` is checked post-resolution against the cart's real (pre-discount) total. A seat painted into a category the tier does not price is a **400 naming the category** — only that seat is refused
+- **Price shown vs price charged**: holds reserve a seat, not a price — the price is resolved at checkout under the tier lock. Card buyers see per-seat amounts on Stripe before paying; instant-issue paths (free/offline/door) return the per-ticket `price_paid` on the ticket
+- **VAT preview**: `VATPreviewItemSchema` accepts `seat_ids` (exactly `count` entries, in cart order) — **required** to preview a category-priced tier, else the preview would quote the flat price and disagree with checkout. The response emits **one line per distinct unit price** (with `price_category_name`), not one per tier. The preview deliberately does **not** check seat availability: it is a quote, not a reservation
 
 ### 19.5 Buy Seated Tickets — Best Available (Attendee)
 - `POST /events/{event_id}/seating/holds/best-available` with `tier_id`, `quantity`, and optional `accessible_required` optimistically holds the best adjacent block from the tier's price category
@@ -1177,13 +1188,14 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - Response reports `applied` / `released` counts and the per-seat `rejected` map
 
 **Door sales & comps** — `POST /event-admin/{event_id}/seating/sell` (also `manage_tickets`):
-- Issues an **ACTIVE** ticket directly on a seat. `payment_method` is `at_the_door` or `free` only — `free` records `price_paid = 0` (a comp: no tier-price revenue), `at_the_door` leaves it null so fixed-price reporting falls back to the tier price
+- Issues an **ACTIVE** ticket directly on a seat. `payment_method` is `at_the_door` or `free` only — `free` always records `price_paid = 0.00` (a comp: no tier-price revenue, whatever the seat is worth). `at_the_door` **on a category-priced tier stamps the seat's resolved price** (purchase-time truth: a null used to mean "report at the tier's *current* price", so a later reprice rewrote history); on a flat tier it still leaves `price_paid` null, since `tier.price` reconstructs it exactly. Door staff UI must display the amount to collect, or the cash drawer diverges from the record. A seat in a category the tier does not price is a **400** — no staff override, since a forced sale at the flat price is indistinguishable in the books from the bug (comp it, or price the category)
+- **Refunds must be issued through Revel to be reflected on the ticket.** A Stripe-Dashboard refund carries no `ticket_id` metadata; on a **non-uniform** batch (mixed prices in one payment intent) a partial refund on the expensive ticket is indistinguishable from a full refund of the cheap one, so the matcher **refuses to guess**: no Payment is marked refunded, no ticket cancelled, no seat freed. Instead a `REFUND_UNMATCHED` notification goes to staff with `manage_tickets`, naming the intent, the amount and the candidate tickets. Refunds carrying `metadata.ticket_id` (i.e. organizer-initiated through Revel) are matched exactly and unaffected
 - **Recipient** is exactly one of `email` or `user_id`: `user_id` wins; an `email` matching **any** existing account (guest or not) reuses it — unlike self-service guest checkout, a staff door-sale onto a registered account is intended; an unknown email mints a guest user
 - A box-office **HELD** override on the seat is **released** as part of the sale; a **KILLED** seat is rejected (**400**)
 - Enforces tier capacity (**429** sold out / **400** "N remaining") and event capacity, but **bypasses the buyer-side gates** — `purchasable_by`, per-user caps, and sales windows — as a staff exemption. Seat conflicts are **400** (unknown / inactive / wrong-venue) or **409** (already ticketed / held by another buyer)
 
 **Reseat** — `POST /event-admin/{event_id}/seating/reseat` (also `manage_tickets`):
-- Moves a **PENDING/ACTIVE** ticket to another free seat in the **same price category** (cross-category reseat is not supported in v1). Both seat rows are locked PK-ordered before re-checking
+- Moves a **PENDING/ACTIVE** ticket to another free seat in the **same price category**. Once a tier can price seats per category this is a **money-correctness rule, not a scope cut**: a cross-category move changes what the ticket should have cost, so it owes a refund or an upcharge and goes through refund + rebook. Both seat rows are locked PK-ordered before re-checking
 - The target must be active, in the same venue, share the current seat's `default_price_category`, and be free of tickets / overrides / foreign holds. **400** for an invalid ticket state or target; **409** for an occupied or foreign-held target
 
 ### 19.8 Seat Attributes (Reference)
@@ -1191,7 +1203,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - `is_obstructed_view` — obstructed-view flag (display only)
 - `is_active` — decommissioned seats read as `blocked` and are never holdable/assignable
 - `row_label` / `row_order` / `number` / `adjacency_index` — labeling and adjacency ordering
-- `default_price_category` — the painted price category driving best-available pools
+- `default_price_category` — the painted price category: the pool a best-available tier draws from, **and** the key a user-choice tier's `category_prices` map prices the seat by (§19.3). Unpainted (`NULL`) seats fall back to the tier's flat `price`
 
 ---
 
