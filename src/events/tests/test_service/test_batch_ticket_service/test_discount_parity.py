@@ -6,8 +6,13 @@ Task 5 narrows ``create_batch``'s scalar to PWYC and moves discount math into
 and every ``Payment`` row a discounted purchase produces must be unchanged.
 
 These tests are written against the **pre-refactor** behaviour and are expected
-to pass before and after. The expected values are hand-computed from the code
-that produced them:
+to pass before and after — with one deliberate exception. The guest-checkout
+cases at the end of this module originally *pinned* a pre-existing 500 (issue
+#740) so the refactor could be shown neutral on it; Task 16 fixed that bug, so
+those now assert the corrected behaviour. Every parity assertion above them is
+untouched.
+
+The expected values are hand-computed from the code that produced them:
 
 - ``Ticket.price_paid`` — ``price_override`` for offline/at-the-door
   (``batch_ticket_service.py:884,915``), ``None`` for online (price lives on
