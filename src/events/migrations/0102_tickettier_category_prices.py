@@ -15,4 +15,9 @@ class Migration(migrations.Migration):
             name='category_prices',
             field=models.JSONField(blank=True, default=dict, help_text='{price_category_id: price} for user-choice tiers. Empty = flat pricing.'),
         ),
+        migrations.AlterField(
+            model_name='ticket',
+            name='price_paid',
+            field=models.DecimalField(blank=True, decimal_places=2, help_text="Amount paid for THIS ticket, when tier.price alone cannot reconstruct it: PWYC, a discount code, or a tier that prices seats per category. Null for online payments (Payment.amount is authoritative there — it is net for a reverse-charge buyer, so stamping it here would put two different 'price paid' numbers on one row) and null for a plain purchase on a flat tier (use tier.price).", max_digits=10, null=True),
+        ),
     ]

@@ -23,6 +23,7 @@ from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.guest import get_or_create_guest_user
 from events.service.seating import holds as holds_service
+from events.service.seating.pricing import TicketPrice, build_batch_pricing
 
 
 def resolve_recipient(
@@ -124,8 +125,19 @@ def sell(
     seat = _lock_seat_for_sale(event, seat_id, recipient)
 
     item = TicketPurchaseItem(guest_name=guest_name or recipient.get_display_name())
-    price_paid = Decimal("0.00") if payment_method == TicketTier.PaymentMethod.FREE else None
-    tickets = service.create_tickets([item], [seat], Ticket.TicketStatus.ACTIVE, price_paid=price_paid)
+    if payment_method == TicketTier.PaymentMethod.FREE:
+        # A comp must not report tier-price revenue.
+        lines = [TicketPrice(unit_price=Decimal("0.00"), discount_amount=Decimal("0.00"))]
+        stamp_price_paid = True
+    else:
+        # AT_THE_DOOR: stamp the seat's resolved price when the tier prices per
+        # category (tier.price cannot reconstruct it), else leave it null so
+        # fixed-price reporting falls back to the tier price.
+        lines = build_batch_pricing(locked_tier, [seat]).lines
+        stamp_price_paid = bool(locked_tier.category_prices)
+    tickets = service.create_tickets(
+        [item], [seat], Ticket.TicketStatus.ACTIVE, lines, stamp_price_paid=stamp_price_paid
+    )
     TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + 1)
     service.trigger_bulk_create_side_effects(tickets)
     return tickets[0]

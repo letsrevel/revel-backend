@@ -683,8 +683,11 @@ class Ticket(TimeStampedModel):
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Amount paid per ticket for PWYC offline/at_the_door purchases. "
-        "Null for online payments (stored in Payment.amount) or fixed-price tiers (use tier.price).",
+        help_text="Amount paid for THIS ticket, when tier.price alone cannot reconstruct it: "
+        "PWYC, a discount code, or a tier that prices seats per category. "
+        "Null for online payments (Payment.amount is authoritative there — it is net for a "
+        "reverse-charge buyer, so stamping it here would put two different 'price paid' numbers "
+        "on one row) and null for a plain purchase on a flat tier (use tier.price).",
     )
 
     # Venue/seating (denormalized for fast access, validated for consistency)
