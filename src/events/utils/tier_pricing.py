@@ -169,6 +169,10 @@ def validate_category_prices(tier: "TicketTier") -> None:
         return
 
     if tier.seat_assignment_mode != tier.SeatAssignmentMode.USER_CHOICE:
+        # ponytail: best-available prices painted seats the other way — one tier per category
+        # with a flat price — so a map is rejected here. Converging the two mechanisms is #749;
+        # it is blocked on per-category capacity, which one-tier-per-zone provides for free via
+        # total_quantity. Until then, this is deliberate, not an oversight.
         _fail("Category prices are only supported for user-choice tiers. Clear them to change the seating mode.")
     if tier.price_type == tier.PriceType.PWYC:
         _fail("A tier is either pay-what-you-can or category-priced, never both.")
