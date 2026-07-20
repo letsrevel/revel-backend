@@ -47,7 +47,7 @@ def parse_price_map(raw: t.Any) -> dict[UUID, Decimal]:
     for key, value in raw.items():
         try:
             category_id = UUID(str(key))
-        except ValueError, AttributeError, TypeError:
+        except (ValueError, AttributeError, TypeError):
             _fail(f"'{key}' is not a valid price category id.")
         if isinstance(value, (float, bool)) or value is None:
             _fail(f"Price for category {category_id} must be a decimal string.")
