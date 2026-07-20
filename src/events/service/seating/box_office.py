@@ -23,6 +23,8 @@ from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.guest import get_or_create_guest_user
 from events.service.seating import holds as holds_service
+from events.service.seating.pricing import TicketPrice, build_batch_pricing
+from events.utils.tier_pricing import parse_price_map
 
 
 def resolve_recipient(
@@ -96,9 +98,21 @@ def sell(
 
     Reuses the purchase path's invariants via ``BatchTicketService``: tier/event
     capacity gates, denormalized venue/sector/seat, ``quantity_sold`` accounting,
-    and bulk-create side effects. ``payment_method`` FREE records ``price_paid=0``
-    (a comp must not report tier-price revenue); AT_THE_DOOR leaves it null so
-    fixed-price reporting falls back to the tier price.
+    and bulk-create side effects.
+
+    Pricing (spec §5.8):
+
+    - **FREE** records ``price_paid=0.00``. A comp must never report tier-price
+      revenue, whatever the seat is worth.
+    - **AT_THE_DOOR on a category-priced tier** stamps the seat's *resolved*
+      category price. This is a deliberate semantic shift: a null ``price_paid``
+      means "report at the tier's **current** list price", so the sale used to
+      track later repricing; stamping records purchase-time truth instead. The
+      door-staff UI must display the amount to collect, or the cash in the drawer
+      diverges from the recorded number.
+    - **AT_THE_DOOR on a flat tier** still leaves ``price_paid`` null — one price
+      exists, ``tier.price`` reconstructs it, and keeping the null confines the
+      shift above to the tiers that actually need it.
 
     Args:
         event: The event being sold.
@@ -113,7 +127,8 @@ def sell(
         The created ACTIVE ticket.
 
     Raises:
-        HttpError: On capacity (429/400), seat conflicts (400/409).
+        HttpError: On capacity (429/400), seat conflicts (400/409), or a door sale
+            of a seat whose category the tier does not price (400).
     """
     service = BatchTicketService(event, tier, recipient)
     # Coarse locks first (tier → event), matching create_batch's order.
@@ -124,8 +139,27 @@ def sell(
     seat = _lock_seat_for_sale(event, seat_id, recipient)
 
     item = TicketPurchaseItem(guest_name=guest_name or recipient.get_display_name())
-    price_paid = Decimal("0.00") if payment_method == TicketTier.PaymentMethod.FREE else None
-    tickets = service.create_tickets([item], [seat], Ticket.TicketStatus.ACTIVE, price_paid=price_paid)
+    if payment_method == TicketTier.PaymentMethod.FREE:
+        # A comp must not report tier-price revenue.
+        lines = [TicketPrice(unit_price=Decimal("0.00"), discount_amount=Decimal("0.00"))]
+        stamp_price_paid = True
+    else:
+        # AT_THE_DOOR: stamp the seat's resolved price when the tier prices per
+        # category (tier.price cannot reconstruct it), else leave it null so
+        # fixed-price reporting falls back to the tier price. Semantic shift:
+        # null tracked *later* repricing, stamping is purchase-time truth.
+        # An unpriced painted category is refused by build_batch_pricing itself (spec §4.3) —
+        # a door sale at the wrong price is exactly as bad as a web sale at the wrong price.
+        # Deliberately no staff override: an override selling at tier.price is indistinguishable
+        # in the books from the bug. The escape hatches are a comp (honestly 0.00, and the FREE
+        # branch above never reaches this code) or pricing the category, which takes seconds and
+        # fixes every future sale.
+        price_map = parse_price_map(locked_tier.category_prices)
+        lines = build_batch_pricing(locked_tier, [seat]).lines
+        stamp_price_paid = bool(price_map)
+    tickets = service.create_tickets(
+        [item], [seat], Ticket.TicketStatus.ACTIVE, lines, stamp_price_paid=stamp_price_paid
+    )
     TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + 1)
     service.trigger_bulk_create_side_effects(tickets)
     return tickets[0]
@@ -138,6 +172,14 @@ def reseat(event: Event, *, ticket_id: uuid.UUID, target_seat_id: uuid.UUID) -> 
     v1 restricts reseat to seats whose ``default_price_category`` equals the
     current seat's (cross-category reseat has an unresolved money question —
     spec §8). Both seat rows are locked PK-ordered before re-checking.
+
+    **That constraint is load-bearing since category pricing (spec §5.8).** It
+    used to be cosmetic; now it is the only thing keeping the ticket's already
+    stamped ``price_paid`` truthful after a move — moving a €30 Standard ticket
+    onto an €80 Premium seat would leave the buyer sitting in Premium having paid
+    Standard, with the books saying Standard. Do not relax it without deciding
+    what happens to the money (pinned by ``test_reseat_cross_category_rejected``
+    and ``test_reseat_same_category_preserves_price_paid``).
 
     Args:
         event: The event the ticket belongs to.

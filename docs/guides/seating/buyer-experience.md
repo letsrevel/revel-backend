@@ -15,6 +15,8 @@ Three ways a tier can sell seats, set by the organizer per tier:
 - **General admission (`NONE`)** — no seat map, just a quantity. Optionally capped by a standing
   sector's hard capacity (e.g. "300 people on the floor, no seats").
 - **User-choice** — the buyer picks their own seats from the map, like buying cinema tickets.
+  One price for the whole tier, or a price per painted zone so the seat the buyer clicks decides
+  what they pay.
 - **Best-available** — the buyer just says "2 tickets," and the system finds them the best pair
   together. No map-reading required.
 
@@ -51,7 +53,50 @@ returned separately, along with the earliest expiry across all of them, so the U
 countdown.
 
 This is a **live, refresh-on-poll view** — not a permanent snapshot. The buyer's app re-fetches
-it periodically (and after every hold/release) so the map stays honest as other buyers act.
+it periodically (and after every hold/release) so the map stays honest as other buyers act. The
+availability response also echoes the layout's version, so an app polling for hours notices when
+the organizer has redrawn or repainted the room and pulls a fresh map — which matters more now
+that paint can decide price, not just colour.
+
+### Prices on the map
+
+When a tier prices seats by zone (see [`tiers-and-pricing.md`](tiers-and-pricing.md)), the map
+stops being a colour-coded picture and becomes a price list:
+
+- **A price legend per zone.** Each painted category comes back with its name, its colour and
+  **the price a buyer will actually be charged** for a seat in it — plus the price of an
+  unpainted seat, if the room has any. The buyer reads "Premium €80 / Stalls €50 / Balcony €30"
+  next to the same colours they see on the seats.
+- **A running total as they pick.** Because every seat's price is known up front, a cart of
+  "A-7 (Premium) + M-22 (Stalls)" shows €130 before the buyer commits — no "prices calculated at
+  checkout" surprise.
+- **Unsellable seats are greyed out, not mispriced.** If the organizer painted a zone the tier
+  doesn't price yet, that zone comes back in the legend flagged unavailable and with no price —
+  so the app greys out its seats instead of inventing a number. Checkout refuses them anyway,
+  with a message naming the zone. Seats in priced zones sell normally.
+
+The prices in the legend are **computed by the server**, not assembled by the app from raw
+configuration. That is deliberate: it is the only way to guarantee the number a buyer is shown is
+the number they are charged.
+
+### What the buyer is charged, and when
+
+The price is settled **at checkout**, not when the seat is held. Holds reserve a seat, not a
+price.
+
+In practice this is invisible — an organizer repricing a zone in the ninety seconds a buyer
+spends choosing is a rare event — but be honest about it if a prospect asks:
+
+- **Card buyers** see the real amounts on Stripe's checkout page, itemised per seat, before they
+  pay anything.
+- **Free, offline and at-the-door tickets** are issued instantly with no confirmation screen, so
+  the ticket itself carries the per-seat price the buyer was charged; the buyer's app shows it on
+  the ticket.
+- Everything downstream agrees: each ticket records its own price, a discount code is applied
+  per ticket rather than as one blended figure, and the VAT preview (for buyers who need a
+  business-shaped number before paying) takes the chosen seats into account. That preview is a
+  quote, not a reservation — it deliberately doesn't check whether the seats are still free, so
+  a buyer can price a cart without holding the room hostage.
 
 ### Seat holds (the cart)
 
@@ -146,7 +191,10 @@ buyer's screen would show at each step:
 
 1. **Buyer opens the seat map.**
    `GET /events/{event_id}/seating/chart` — the full venue layout: sectors, every seat, and the
-   price categories (colors) painted onto them. This is what draws the picture.
+   price categories (colors) painted onto them. This is what draws the picture. The prices come
+   from the event's tiers: a tier that prices seats by zone returns a `seat_pricing` block — the
+   effective price of each zone plus the unpainted fallback — which is what the legend renders.
+   A flat tier returns nothing there, and the app shows one price, exactly as before.
 
 2. **Buyer sees what's taken.**
    `GET /events/{event_id}/seating/availability` — the sparse sold/held/blocked map, standing
@@ -194,6 +242,11 @@ buyers' holds somehow raced, only one purchase can ever succeed on a given seat.
 **"Buyers get the exact seats they saw, not a surprise."** Best-available shows the real seats
 before the buyer pays, and checkout locks in precisely that block — never a different
 "equally good" substitute picked behind the scenes.
+
+**"The price on the map is the price they pay."** Zone prices are resolved by the server and
+handed to the app ready to display, so the legend, the running total, the Stripe page and the
+ticket are all the same number. Nothing is recomputed client-side, which is where price drift
+usually comes from.
 
 **"No account required to browse or hold seats."** A prospect worried about checkout friction can
 let anonymous visitors explore the map and even hold seats — login/email is only needed at the

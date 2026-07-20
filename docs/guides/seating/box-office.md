@@ -105,9 +105,29 @@ POST /event-admin/{event_id}/seating/sell
 }
 ```
 
-The ticket comes back **ACTIVE** immediately — no payment link, no waiting. Point
-out `price_paid` is left null: it reports against the tier's list price, because a
-door sale is a real, full-price sale.
+The ticket comes back **ACTIVE** immediately — no payment link, no waiting. A door
+sale is a real, full-price sale and reports as one.
+
+**How much did they pay?** It depends on how the tier is priced:
+
+- **Flat-price tier** — the ticket reports at the tier's list price. Nothing to think
+  about.
+- **Tier priced per seat category** — the ticket records **the price of that seat, at the
+  moment of sale**. Sell an €80 Premium seat at the door tonight and it is booked as €80
+  forever, even if the zone goes to €95 next week. That's the point: takings for a night
+  that has already happened can't be rewritten by a later price change.
+
+The operational consequence, worth saying to a box-office manager rather than letting
+them find it: **the amount to collect is per seat now, so the door screen has to show
+it.** If your staff are working from a printed price list instead, cash in the drawer and
+the number in the report will drift.
+
+One refusal to know about: if a seat has been painted into a price category the tier
+doesn't price, the door sale is rejected with a message naming the category — the same
+rule buyers hit online. There's deliberately no staff override, because a sale forced
+through at the flat price is indistinguishable in the books from the bug. The escape
+hatches are honest ones: comp the seat (recorded as 0.00), or have someone price the
+category, which takes seconds and fixes every subsequent sale.
 
 ### 4. Comp the critic — press night
 
@@ -153,12 +173,17 @@ POST /event-admin/{event_id}/seating/reseat
 { "ticket_id": "<ticket-id>", "target_seat_id": "<free-seat-in-same-category>" }
 ```
 
-Be upfront about the v1 limit: the target seat must be in the **same price
-category** as the current seat. Moving someone from a Stalls seat to a Balcony seat
-(a different category) isn't supported yet — that's a deliberate scope cut, because
-it opens a refund/upcharge question we haven't built pricing logic for. Frame it
-honestly: "today, reseat is same-price-tier only; cross-category moves go through a
-refund + rebook."
+The target seat must be in the **same price category** as the current seat. Frame
+this as what it is — a money rule, not a missing feature. A seat's category can now
+decide what its ticket cost, so moving a guest from Stalls to Balcony isn't a
+courtesy shuffle; it's a change of price on a sale that already happened, and it
+owes somebody a refund or an upcharge. Revel would rather make you do that
+explicitly than move the guest and quietly leave the books wrong.
+
+So: "reseat is same-zone only — a move to a different price zone is a refund plus a
+new sale." Within a zone, reseat freely; that's the case that comes up at the door
+ninety-nine times out of a hundred (broken seat, sightline, a family that wants to
+sit together).
 
 ### 7. Check in and see the seat
 
@@ -201,13 +226,37 @@ No — a box-office hold (`held`) is not the same as a buyer's 10-minute checkou
 until a staff member explicitly releases it or sells the seat.
 
 **"What happens to comps in the revenue report?"**
-They record `price_paid = 0` and stay that way — a comp never inflates the night's
-revenue number. `at_the_door` sales record `price_paid = null` and report at the
-tier's list price, same as an online sale.
+They record 0.00 and stay that way — a comp never inflates the night's revenue number,
+whatever the seat is worth. Paid door sales report at the seat's price: the tier's list
+price on a flat tier, and the seat's own category price on a tier that prices by zone.
+
+**"If we put prices up next month, does that change what tonight's door sales are
+worth?"**
+No. A door sale on a zone-priced tier records the amount at the time of sale, so
+repricing later never rewrites tonight's takings.
 
 **"Can I move someone to a totally different section?"**
-Not yet, in v1 — reseat is same-price-category only. Tell the guest you'll sort it
-manually (refund + new sale) if they need a different tier of seat entirely.
+Not with reseat — it's same-price-zone only, because a different zone can mean a
+different price and that's a refund or an upcharge, not a seat move. Do it as a refund
+plus a new sale so the money is right.
+
+**"An organizer refunded a ticket from the Stripe Dashboard and Revel still shows it as
+valid. Why?"**
+Because **refunds have to be issued through Revel to be reflected on the ticket.** A
+refund made in the Stripe Dashboard carries no reference to which ticket it was for. When
+everything in the order cost the same, Revel can still work it out. When an order mixes
+prices — the normal case on a zone-priced tier — it genuinely can't: a €30 refund on a
+€50 + €30 order could be a partial refund on the expensive seat or a full refund on the
+cheap one, and guessing wrong cancels the wrong ticket and puts a seat back on sale while
+its owner is still sitting in it.
+
+So Revel refuses to guess. Nothing is cancelled, no seat is freed, and staff with
+`manage_tickets` get a notification naming the refund, the amount, and the candidate
+tickets so a human can finish the job. The notification links straight to that event's
+ticket list, filtered to the buyer, so the two candidates are side by side. Say it
+plainly on a demo: **"issue refunds from
+Revel and the ticket follows automatically; issue them from Stripe and you'll have to
+cancel the ticket by hand."**
 
 **"Do overrides work across our whole venue, or just tonight's show?"**
 Per event, always. The same physical seat can be held for tonight and open for
@@ -228,9 +277,13 @@ unless noted):
   appears in both `set` and `release_seat_ids`.
 - `POST /seating/sell` — door sale/comp. `payment_method` is `at_the_door` or
   `free` only. Recipient is exactly one of `email` (existing account reused, or new
-  guest minted) or `user_id`.
+  guest minted) or `user_id`. `free` always records `price_paid = 0.00`;
+  `at_the_door` stamps the seat's resolved category price on a tier with a category
+  price map, and leaves `price_paid` null on a flat tier (where the tier price
+  reconstructs it exactly). A seat in a category the tier doesn't price is a 400.
 - `POST /seating/reseat` — move a PENDING/ACTIVE ticket to a free seat in the same
-  `default_price_category`.
+  `default_price_category`. Same-category is a money-correctness rule: the target
+  seat must cost what the guest already paid.
 - `POST /tickets/{code}/check-in` — **`check_in_attendees` permission**, not
   `manage_tickets`. Response (`CheckInResponseSchema`) includes `seat` and
   `sector_name`.

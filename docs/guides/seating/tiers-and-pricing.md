@@ -31,7 +31,7 @@ This is the single idea that makes the whole system click for a prospect:
 A **price category** (e.g. "Platea Premium", "Galleria", "Balcony") is a named, colored
 label an organizer paints onto seats when they set up the venue — it lives on the
 `Venue`, not the event. A **ticket tier** lives on one specific event and carries the
-actual `price`. A tier points *at* a price category; it doesn't own one.
+actual money. A tier points *at* the painted categories; it never owns them.
 
 Splitting the two this way buys the organizer two things:
 
@@ -53,6 +53,92 @@ painted purple) and one best-available tier per event drawing from it. Nothing s
 organizer from adding a second, cheaper "Galleria Restricted View" tier against that same
 category for a different event.
 
+### Per-seat pricing — "pick your seat, the seat sets the price"
+
+This is the standard theatre model, and it's the thing a theatre manager will ask for in
+the first two minutes: **one ticket type, one seat map, and the price depends on where
+the buyer clicks.** Front stalls €80, rear stalls €50, balcony €30 — but the buyer sees a
+single "Buy tickets" button and one map, not three products.
+
+A `user_choice` tier does this with a **category price map**: a price per painted category,
+set on the tier, alongside its flat `price`. Concretely, for one night at Teatro Grande:
+
+| Painted category | Price on this tier |
+|---|---|
+| Platea Premium | €80.00 |
+| Platea | €50.00 |
+| Galleria | €30.00 |
+| *unpainted seats* | the tier's flat `price` |
+
+The buyer opens the map, picks seat A-7 (Platea Premium) and seat M-22 (Platea), and pays
+**€130** — one cart, one checkout, one order. Every downstream number follows: each ticket
+records what *it* cost, a discount code applies per ticket (10% off that cart is €8 + €5,
+not 2 × the same figure), the Stripe receipt shows two different line amounts, and the
+revenue report reads back exactly what was collected.
+
+Four rules to have at your fingertips when you demo this:
+
+1. **Every painted category must be priced.** If Platea Premium, Platea and Galleria are
+   painted on live seats in the tier's sector, all three need a price. Saving a tier with
+   a gap is rejected, and the error **names the missing categories** ("Every painted
+   category in the sector must be priced. Missing: Galleria."). There is no silent
+   default — the whole point of the feature is that nobody discovers a mispriced seat in
+   the revenue report.
+2. **Unpainted seats fall back to the flat price.** That's the one legitimate fallback,
+   and it's deliberate: a sector where only the front rows are painted works fine.
+3. **Painting a new category later never breaks the map — but it does stop those seats
+   selling.** See the box below; this is the single most important honest caveat.
+4. **Category pricing and pay-what-you-can are mutually exclusive.** A tier is one or the
+   other. PWYC means the buyer names the price, which is the opposite of the seat naming
+   it.
+
+> **The one gap to be honest about.** Painting is venue-wide and always succeeds — it must,
+> or one event's pricing setup would block routine map work for every other event in that
+> building. So an organizer *can* paint a new category onto seats after a tier was saved,
+> and that tier now has a category it doesn't price. Revel does **not** quietly sell those
+> seats at the flat price (an €80 seat for €50 is exactly the mistake this feature exists
+> to prevent). Instead:
+>
+> - **Only the affected seats stop selling.** Everything in a priced category keeps selling
+>   normally.
+> - Buyers see those seats greyed out on the map, and checkout returns a clear message
+>   naming the category if they get that far. The box office gets the same refusal on a door
+>   sale — a wrong price at the door is as bad as a wrong price on the web.
+> - The tier's admin screen flags the gap (`pricing_gaps`), so the organizer sees it before a
+>   buyer does.
+> - **The fix takes seconds**: add a price for that category and every future sale is right.
+
+**Duplicate and repeat freely.** Duplicating a seated event — and therefore generating
+every occurrence of a recurring one — carries the venue, the sector and the price map
+across with the rest of the tier. A theatre configures opening night and gets the other
+nineteen dates fully priced, without touching a tier again. (If a prospect tried this on
+an older build and hit an error duplicating a seated event: that's fixed.)
+
+### Two ways to price painted seats — pick one per tier
+
+After this feature there are genuinely **two mechanisms**, and a rep who doesn't know the
+difference will paint themselves into a corner on a demo:
+
+| | `best_available` | `user_choice` + category prices |
+|---|---|---|
+| How pricing is expressed | **One tier per category**, each with its own flat price | **One tier**, one price map |
+| Who picks the seat | The system (front and center, party kept together) | The buyer, from the map |
+| Buyer sees | "2 tickets, Galleria — €25 each" | A map with a price legend |
+| Best for | Buyers who don't want to read a map; simple 2–3 zone rooms | Theatres, "I want row F, seat 12" audiences, many zones |
+
+Use `best_available` when the audience wants speed and the organizer is happy managing one
+tier per zone. Use `user_choice` with a price map when the organizer thinks in terms of
+*one show, one seat map, prices painted on it* — which is what a theatre or opera house
+means by "seating."
+
+**The demo trap:** nothing stops an organizer running both on the same seats. A
+`best_available` "Galleria" tier at €25 alongside a `user_choice` tier that prices Galleria
+at €30 sells **the same physical seat at two prices**, depending on which button the buyer
+clicks. Structurally that's just the concession model (two products, one seat pool), and
+it's sometimes what an organizer wants — but if you set it up carelessly mid-demo, a sharp
+prospect will spot it. Configure one mechanism per sector unless you're deliberately
+showing concession pricing.
+
 ### The three seat-assignment modes
 
 Every ticket tier has a `seat_assignment_mode`. The backend validates each mode's
@@ -62,8 +148,8 @@ on sale:
 | Mode | What the buyer experiences | Server requirement |
 |---|---|---|
 | **`none`** | General admission — no assigned seat. Optionally tied to a standing sector with a hard head-count. | Nothing required. A sector is optional; if given, it must not be a seated one used for `user_choice`. |
-| **`user_choice`** | Buyer sees the chart and clicks their own seat(s). | **Requires a seated sector.** Pointing this mode at a standing sector is rejected outright — a standing sector has no individual seats to choose from. |
-| **`best_available`** | Buyer requests a quantity; the system finds and holds the best block automatically. | **Requires a price category.** That category's painted seats are the pool the algorithm draws from. |
+| **`user_choice`** | Buyer sees the chart and clicks their own seat(s) — at one flat price, or at a price per painted category. | **Requires a seated sector.** Pointing this mode at a standing sector is rejected outright — a standing sector has no individual seats to choose from. A category price map is optional, and only this mode can carry one. |
+| **`best_available`** | Buyer requests a quantity; the system finds and holds the best block automatically. | **Requires a price category.** That category's painted seats are the pool the algorithm draws from, at the tier's one flat price. |
 
 A few knock-on rules worth knowing when demoing:
 
@@ -126,7 +212,11 @@ other tier feature organizers already rely on keeps working unchanged:
   mode.
 - **Pay-what-you-can (PWYC)** pricing with a min/max range works the same on a seated
   tier as on a GA one — the seat is assigned or chosen independently of what the buyer
-  actually pays.
+  actually pays. The one exclusion: a tier can be PWYC **or** category-priced, never both
+  (the buyer names the price or the seat does).
+- **Discount codes** apply per ticket, so a percentage code on a mixed-price cart takes
+  the right amount off each seat rather than one blended figure — and a code's
+  minimum-spend threshold is measured against the cart's real total.
 - **Visibility and purchasability** rules (public / members-only / invited, and the
   invitation-linked-tier restrictions) apply identically.
 
@@ -148,6 +238,12 @@ A clean live-demo path using the seeded showcase venues (bootstrapped with
    `best_available`, price category = Galleria, price = €25 on *this* event. Point out
    that the same Galleria category, on the New Year's Gala event, could carry a
    completely different price.
+2b. **Price one tier by category — the money shot.** Open the Platea `user_choice` tier
+   and give it a price per painted category (Platea Premium €80, Platea €50). Save, and
+   the tier form reads the map back. Then delete one category from the map and try to
+   save again: the error names the category you left out. That thirty-second loop is the
+   whole pitch — *"the map isn't decoration, it's the price list, and the platform won't
+   let you leave a hole in it."*
 3. **Contrast the modes on one venue.** Still on Teatro Grande: the Platea tier is
    `user_choice` (a seated sector, buyer picks their own seat); the Palco 1 tier is also
    `user_choice` against a private box sector; Galleria is `best_available`. Same venue,
@@ -168,11 +264,29 @@ A clean live-demo path using the seeded showcase venues (bootstrapped with
 
 ## Talking points & FAQs
 
+**"Can the buyer pick their exact seat and pay a price that depends on where it is?"**
+Yes — that's a `user_choice` tier with a category price map. One tier, one map, a price
+per painted zone. A cart mixing zones is a single checkout with the correct total, and
+every ticket records its own price.
+
 **"Can we charge students less for the same seats as everyone else?"**
-Yes — that's exactly what shared price categories are for. Create a second tier (e.g.
-"Platea Student") pointing at the same Platea category as the adult tier, at a lower
-price. Both tiers draw from the identical seat pool; there's no seat duplication and no
-separate map to maintain.
+Yes — that's what shared price categories are for. Create a second tier (e.g. "Platea
+Student") pointing at the same Platea category as the adult tier, at a lower price. Both
+tiers draw from the identical seat pool; there's no seat duplication and no separate map
+to maintain. Concession pricing works on category-priced tiers too: the student tier gets
+its own map, priced lower across the board.
+
+**"We repriced a zone mid-run. What happens to tickets already sold?"**
+Nothing — they keep the price they were sold at. Each ticket records what was actually
+paid at the moment of sale, so a reprice changes future sales only and never rewrites the
+revenue report for past ones.
+
+**"What if we paint a new price zone after the tier is live?"**
+Painting always works — it's venue-wide and never blocked by one event's setup. But seats
+in a zone the tier doesn't price stop selling (a clear message naming the zone, on the web
+and at the door) rather than quietly selling at the flat price. The tier's admin screen
+flags the gap; adding a price fixes every future sale. Worth saying out loud in a demo:
+"we'd rather refuse the sale than charge the wrong price."
 
 **"What happens if two people try to buy the last two adjacent seats at once?"**
 Best-available holds are acquired optimistically and re-checked at lock time — if a seat
@@ -194,7 +308,8 @@ at different sectors of the same venue (e.g. GA floor + reserved balcony).
 **"Does seating support pay-what-you-can, membership pricing, per-user limits?"**
 Yes — those are existing tier features and none of them are seat-assignment-specific.
 A seated tier can be PWYC, members-only, capped at N per buyer, or all three, exactly
-like a GA tier.
+like a GA tier. The single exception is PWYC + per-category pricing, which are mutually
+exclusive by design.
 
 **Honest limits:**
 - `best_available` cannot split a party across rows — if the party doesn't fit in one
@@ -202,6 +317,18 @@ like a GA tier.
   best-effort placement.
 - `user_choice` cannot be pointed at a standing sector — there's nothing to click on.
   Standing sectors are `none`-mode only, gated by a head-count cap.
+- **Per-category prices are a `user_choice` feature only.** `best_available` still prices
+  a category with one tier per category at a flat price. Both work; they're just different
+  ways to say the same thing, and converging them is a known follow-up.
+- **There's no per-category capacity cap.** A tier's `total_quantity` spans all of its
+  categories — you can't say "50 Premium and 200 Standard" inside one tier. If a zone
+  needs its own cap, give it its own tier.
+- **Reseating stays inside one price category.** Moving a guest from Stalls to Balcony is
+  a refund plus a new sale, not a reseat — see [`box-office.md`](box-office.md).
+- **A price is quoted at checkout, not locked at hold time.** If an organizer repriced a
+  zone in the seconds between a buyer opening the map and paying, the buyer is charged the
+  new price. Card buyers see the amount on Stripe's page before paying; instant-issue
+  paths return the per-ticket price on the ticket itself.
 - Best-available assignment (both hold and purchase) has no manual "prefer this exact
   row" override for the buyer — it optimizes automatically. Manual seat control at that
   level of precision is a box-office (staff) action, not a buyer self-service one — see
@@ -218,6 +345,18 @@ For the technically-curious rep or a prospect's technical evaluator:
   its own docstring states the split plainly: *"Category lives on the map; price lives on
   the event via TicketTier. Multiple tiers MAY reference the same category (shared seat
   pool)."*
+- **Per-category prices**: `TicketTier.category_prices` is a JSON map of
+  `{price_category_id: price}` on the tier itself (money stored as decimal strings —
+  never floats). Being a plain field is why it survives event duplication and recurring
+  occurrence generation for free. Parsing and write-time validation live in
+  `src/events/utils/tier_pricing.py`; the checkout-side resolver is
+  `src/events/service/seating/pricing.py` (`resolve_seat_price` /
+  `build_batch_pricing`), which is also the single authority for per-ticket discount
+  math and for refusing a seat in an unpriced category.
+- **What the buyer's app reads**: tiers expose `seat_pricing` — *server-resolved*
+  effective prices per category plus the `unpainted` fallback, with `available: false` on
+  any category the tier doesn't price. The frontend never re-derives prices from the raw
+  map, so the price shown and the price charged cannot drift.
 - **Validation**: `TicketTier._validate_venue_sector` and
   `_validate_seat_assignment_mode` (same file) enforce the per-mode requirements
   server-side at `clean()` time — `BEST_AVAILABLE` without a `price_category_id`, or

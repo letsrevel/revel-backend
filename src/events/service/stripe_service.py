@@ -1,3 +1,4 @@
+import dataclasses
 import typing as t
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -28,6 +29,9 @@ from common.service.stripe_connect_service import (
 from common.service.stripe_connect_service import (
     sync_account_status,
 )
+
+# Re-exported: the confirm path (stripe_webhooks) raises the same money invariant.
+from events.exceptions import SessionTotalMismatchError as SessionTotalMismatchError
 from events.models import Event, HeldSeriesPass, Organization, Payment, Ticket, TicketTier
 from events.models.attendee_invoice import BuyerBillingSnapshot
 
@@ -54,6 +58,7 @@ from events.service.pending_checkout import (
 from events.service.pending_checkout import (
     resume_pending_checkout as resume_pending_checkout,
 )
+from events.service.seating.pricing import TicketPrice
 from events.service.vat_service import (
     calculate_platform_fee_vat,
     calculate_vat_inclusive,
@@ -187,27 +192,168 @@ def _attendee_vat_from_context(
     return vat_result, context.buyer_vat_validated
 
 
+@dataclasses.dataclass(frozen=True)
+class TicketAmounts:
+    """What one ticket costs the buyer, with its VAT split.
+
+    Attributes:
+        effective_price: What the buyer is charged for this ticket — the gross
+            price, or the net one when the sale is reverse-charged.
+        net_amount: The net (ex-VAT) part of ``effective_price``.
+        vat_amount: The VAT part of ``effective_price``.
+        vat_rate: The rate that produced ``vat_amount``.
+        reverse_charge: Whether the sale is reverse-charged to the buyer.
+    """
+
+    effective_price: Decimal
+    net_amount: Decimal
+    vat_amount: Decimal
+    vat_rate: Decimal
+    reverse_charge: bool
+
+
+def _resolve_ticket_amounts(
+    prices: list[Decimal],
+    *,
+    tier: TicketTier,
+    org: Organization,
+    buyer_vat_context: "BuyerVATContext | None",
+) -> tuple[list[TicketAmounts], bool]:
+    """Split every ticket's price into its VAT components — memoised by price.
+
+    **No network I/O.** The only network step in attendee VAT is the VIES lookup,
+    and it already happened in ``resolve_attendee_vat_for_reserve`` before the
+    caller took the TicketTier lock; what is left here is arithmetic over
+    ``buyer_vat_context`` (see ``_attendee_vat_from_context``). Memoising by unit
+    price bounds the work at one computation per *distinct* price rather than one
+    per ticket, and makes it structurally obvious that a per-ticket lookup is not
+    being introduced under the lock (#632).
+
+    Args:
+        prices: Pre-VAT unit price per ticket, in cart order.
+        tier: The locked tier being purchased.
+        org: The selling organization.
+        buyer_vat_context: The pre-resolved buyer VAT context, if any.
+
+    Returns:
+        The per-ticket amounts in cart order, and whether the buyer's VAT ID
+        validated (price-independent, so it is the same for every ticket).
+    """
+    fallback_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
+    cache: dict[Decimal, TicketAmounts] = {}
+    buyer_vat_validated = False
+    for price in prices:
+        if price in cache:
+            continue
+        attendee_vat_result = None
+        if buyer_vat_context is not None:
+            # Arithmetic only — recomputed from the locked tier's fresh price, so a
+            # repricing during the pre-lock VIES round-trip can't go stale.
+            attendee_vat_result, buyer_vat_validated = _attendee_vat_from_context(buyer_vat_context, tier, org, price)
+        if attendee_vat_result is not None:
+            cache[price] = TicketAmounts(
+                effective_price=attendee_vat_result.effective_price,
+                net_amount=attendee_vat_result.net_amount,
+                vat_amount=attendee_vat_result.vat_amount,
+                vat_rate=attendee_vat_result.vat_rate,
+                reverse_charge=attendee_vat_result.reverse_charge,
+            )
+        else:
+            breakdown = calculate_vat_inclusive(price, fallback_vat_rate)
+            cache[price] = TicketAmounts(
+                effective_price=price,
+                net_amount=breakdown.net_amount,
+                vat_amount=breakdown.vat_amount,
+                vat_rate=breakdown.vat_rate,
+                reverse_charge=False,
+            )
+    return [cache[price] for price in prices], buyer_vat_validated
+
+
+class StripeLineItem(t.TypedDict):
+    """One Stripe Checkout line item, built from exactly one ``Payment`` row."""
+
+    price_data: dict[str, t.Any]
+    quantity: int
+
+
 def _build_line_items(
-    tickets: list[Ticket],
+    payments: list[Payment],
     event: Event,
     tier: TicketTier,
-    effective_price: Decimal,
-) -> list[dict[str, object]]:
-    """Build Stripe line items — one per ticket with guest name."""
+) -> list[StripeLineItem]:
+    """Build Stripe line items — one per ``Payment`` row, at that row's own amount.
+
+    Derived per row rather than from a scalar unit price: since #739 a batch's
+    Payment rows can legitimately hold different amounts (a mixed seat-category
+    cart), and this runs in a *later request* than the reservation, where the row
+    order is unspecified. Taking both the amount and the guest name off the same
+    row makes ordering irrelevant. A ``0.00`` row (a fixed-amount discount floored
+    a ticket to zero) still gets its own line item — the ticket↔Payment pairing is
+    1:1 and the refund matcher depends on it.
+
+    ``payments`` must carry ``ticket`` (the caller's ``select_related``) — this
+    walks ``p.ticket`` per row and would otherwise be an N+1.
+    """
     return [
-        {
-            "price_data": {
+        StripeLineItem(
+            price_data={
                 "currency": tier.currency.lower(),
                 "product_data": {
                     "name": f"Ticket: {event.name} ({tier.name})",
-                    "description": f"Ticket for {ticket.guest_name}",
+                    "description": f"Ticket for {payment.ticket.guest_name}",
                 },
-                "unit_amount": to_stripe_amount(effective_price, tier.currency),
+                "unit_amount": to_stripe_amount(payment.amount, tier.currency),
             },
-            "quantity": 1,
-        }
-        for ticket in tickets
+            quantity=1,
+        )
+        for payment in payments
     ]
+
+
+def _reconcile_line_items(line_items: list[StripeLineItem], payments: list[Payment], currency: str) -> None:
+    """Refuse to hand Stripe a total our own books disagree with.
+
+    Pre-flight money invariant (#739): what the session will charge
+    (``sum(unit_amount × quantity)``) must equal what we recorded
+    (``sum(Payment.amount)``), both in minor units. Until per-ticket prices
+    existed this was tautological — one scalar × N. Now it is the guard that
+    catches a dropped row, a duplicated row, a scalar sneaking back in, or
+    per-row rounding drift, *before* a payable session exists.
+
+    Raises:
+        SessionTotalMismatchError: If the two totals differ.
+    """
+    charged = sum(item["price_data"]["unit_amount"] * item["quantity"] for item in line_items)
+    # Compare against the sum of PER-ROW conversions, not the conversion of the sum. Stripe
+    # bills whole minor units per line item, so on a zero-decimal currency (JPY et al.,
+    # see currency._is_zero_decimal) N rows of 10.50 charge N*11 while the aggregate rounds
+    # to 10.5*N — a structurally unavoidable gap, not a bug in our books. Raising on it
+    # would 500 real reverse-charge carts, whose effective_price is a computed net.
+    per_row = sum(to_stripe_amount(p.amount, currency) for p in payments)
+    if charged != per_row:
+        logger.error(
+            "stripe_session_total_mismatch",
+            charged_minor_units=charged,
+            recorded_minor_units=per_row,
+            currency=currency,
+            payment_ids=[str(p.id) for p in payments],
+        )
+        raise SessionTotalMismatchError(
+            f"Stripe session total {charged} != recorded Payment total {per_row} ({currency})"
+        )
+
+    # The residual aggregate drift is worth seeing but must never block a checkout: it is
+    # rounding, and it is what the buyer is genuinely charged over the recorded decimals.
+    aggregate = to_stripe_amount(sum((p.amount for p in payments), Decimal("0")), currency)
+    if charged != aggregate:
+        logger.warning(
+            "stripe_session_rounding_drift",
+            charged_minor_units=charged,
+            aggregate_minor_units=aggregate,
+            currency=currency,
+            payment_ids=[str(p.id) for p in payments],
+        )
 
 
 def _create_stripe_session(
@@ -216,7 +362,7 @@ def _create_stripe_session(
     tier: TicketTier,
     user: RevelUser,
     tickets: list[Ticket],
-    effective_price: Decimal,
+    line_items: list[StripeLineItem],
     application_fee_amount: int,
     expires_at: datetime,
     site: SiteSettings,
@@ -234,7 +380,6 @@ def _create_stripe_session(
     Raises:
         HttpError: If Stripe API call fails.
     """
-    line_items = _build_line_items(tickets, event, tier, effective_price)
     ticket_ids = ",".join(str(_t.id) for _t in tickets)
 
     frontend_base_url = site.frontend_base_url
@@ -276,16 +421,19 @@ def _create_payment_records(
     user: RevelUser,
     session_id: str,
     tier: TicketTier,
-    effective_price: Decimal,
+    amounts: list[TicketAmounts],
     total_fee_vat: "PlatformFeeVATResult",
-    attendee_vat_result: "AttendeeVATResult | None",
     billing_info: "BuyerBillingInfoSchema | None",
     buyer_vat_validated: bool,
     expires_at: datetime,
-    org: Organization,
     reservation_id: UUID,
 ) -> None:
-    """Build and bulk-create Payment records for a batch checkout."""
+    """Build and bulk-create Payment records for a batch checkout.
+
+    One row per ticket at that ticket's own amount — a mixed cart records 50.00
+    and 30.00, and a ticket a discount drove to zero still gets its 0.00 row so
+    the 1:1 ticket↔Payment pairing (which the refund matcher relies on) holds.
+    """
     # Distribute gross and vat independently; derive net = gross - vat.
     # This guarantees non-negative per-ticket VAT (unlike distributing gross + net
     # independently, where remainder pennies could land on different indices).
@@ -293,22 +441,11 @@ def _create_payment_records(
     per_ticket_gross = distribute_amount_across_items(total_fee_vat.fee_gross, ticket_count)
     per_ticket_vat = distribute_amount_across_items(total_fee_vat.fee_vat, ticket_count)
 
-    # Ticket sale VAT breakdown
-    if attendee_vat_result:
-        ticket_net = attendee_vat_result.net_amount
-        ticket_vat_amount = attendee_vat_result.vat_amount
-        ticket_vat_rate = attendee_vat_result.vat_rate
-    else:
-        effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
-        ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
-        ticket_net = ticket_vat.net_amount
-        ticket_vat_amount = ticket_vat.vat_amount
-        ticket_vat_rate = ticket_vat.vat_rate
-
-    # Build buyer billing snapshot if billing info was provided
+    # Build buyer billing snapshot if billing info was provided. Reverse charge is
+    # decided by countries and VAT-ID validity, never by price, so it is uniform.
     billing_snapshot: BuyerBillingSnapshot | None = None
     if billing_info:
-        is_reverse_charge = attendee_vat_result.reverse_charge if attendee_vat_result else False
+        is_reverse_charge = amounts[0].reverse_charge if amounts else False
         billing_snapshot = _build_billing_snapshot(billing_info, buyer_vat_validated, is_reverse_charge)
 
     payments = [
@@ -317,16 +454,16 @@ def _create_payment_records(
             user=user,
             stripe_session_id=session_id,
             reservation_id=reservation_id,
-            amount=effective_price,
+            amount=amounts[i].effective_price,
             platform_fee=per_ticket_gross[i],
             currency=tier.currency,
             status=Payment.PaymentStatus.PENDING,
             raw_response={},
             expires_at=expires_at,
             # Ticket sale VAT breakdown
-            net_amount=ticket_net,
-            vat_amount=ticket_vat_amount,
-            vat_rate=ticket_vat_rate,
+            net_amount=amounts[i].net_amount,
+            vat_amount=amounts[i].vat_amount,
+            vat_rate=amounts[i].vat_rate,
             # Platform fee VAT breakdown (distributed to avoid penny errors)
             platform_fee_net=per_ticket_gross[i] - per_ticket_vat[i],
             platform_fee_vat=per_ticket_vat[i],
@@ -374,7 +511,7 @@ def reserve_batch_payments(
     user: RevelUser,
     tickets: list[Ticket],
     reservation_id: UUID,
-    price_override: Decimal | None = None,
+    lines: "list[TicketPrice] | None" = None,
     billing_info: "BuyerBillingInfoSchema | None" = None,
     buyer_vat_context: "BuyerVATContext | None" = None,
 ) -> None:
@@ -388,11 +525,18 @@ def reserve_batch_payments(
     tier's fresh price. The Stripe session is created later by create_batch_session, which
     stamps stripe_session_id onto these rows. Because the Payment rows already
     exist, "paid session with no Payment row" (Window B) is unreachable.
+
+    ``lines`` is the per-ticket price vector from ``seating.pricing`` — a mixed
+    cart bills each ticket at its own price, and the platform fee is derived from
+    the true total, not ``unit × n``. Omitting it prices every ticket at
+    ``tier.price``.
     """
     if not event.organization.is_stripe_connected:
         raise HttpError(400, str(_("This organization is not configured to accept payments.")))
-    base_price = price_override if price_override is not None else tier.price
-    if base_price <= 0:
+    prices = [line.unit_price for line in lines] if lines is not None else [tier.price] * len(tickets)
+    # A cart where nothing can be charged is a misconfigured tier; a *mixed* cart
+    # with some zero-priced tickets is legitimate and stays on the paid path.
+    if max(prices, default=tier.price) <= 0:
         raise HttpError(400, str(_("This ticket tier cannot be purchased online.")))
 
     org = event.organization
@@ -401,15 +545,13 @@ def reserve_batch_payments(
     # self-contained, at the cost of VIES under that caller's lock).
     if buyer_vat_context is None:
         buyer_vat_context = resolve_attendee_vat_for_reserve(billing_info=billing_info)
-    if buyer_vat_context is not None:
-        # Arithmetic only — no network. Recomputed from the locked tier's price,
-        # so a repricing during the pre-lock VIES round-trip can't go stale.
-        attendee_vat_result, buyer_vat_validated = _attendee_vat_from_context(buyer_vat_context, tier, org, base_price)
-    else:
-        attendee_vat_result, buyer_vat_validated = None, False
-    effective_price = attendee_vat_result.effective_price if attendee_vat_result else base_price
+    amounts, buyer_vat_validated = _resolve_ticket_amounts(
+        prices, tier=tier, org=org, buyer_vat_context=buyer_vat_context
+    )
 
-    total_amount = effective_price * len(tickets)
+    # Round per ticket, then sum (seating.pricing pins that ordering); the fee then
+    # rounds ROUND_HALF_UP on the resulting true total.
+    total_amount = sum((amount.effective_price for amount in amounts), Decimal("0"))
     net_fee = (total_amount * org.platform_fee_percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
     net_fee_total = net_fee + fixed_fee
@@ -424,13 +566,11 @@ def reserve_batch_payments(
         user=user,
         session_id="",
         tier=tier,
-        effective_price=effective_price,
+        amounts=amounts,
         total_fee_vat=total_fee_vat,
-        attendee_vat_result=attendee_vat_result,
         billing_info=billing_info,
         buyer_vat_validated=buyer_vat_validated,
         expires_at=expires_at,
-        org=org,
         reservation_id=reservation_id,
     )
 
@@ -479,8 +619,15 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     tier = tickets[0].tier
     event = tickets[0].event
     user = payments[0].user
-    effective_price = payments[0].amount
 
+    # Per-row line items, then the total invariant — both derived from the Payment
+    # rows themselves, so a mixed-price cart (#739) bills each ticket at its own
+    # amount regardless of the order this later request read them back in.
+    line_items = _build_line_items(payments, event, tier)
+    _reconcile_line_items(line_items, payments, tier.currency)
+
+    # Already per-row: the batch's platform fee is the sum of each Payment's own
+    # platform_fee, never a scalar × N, so a mixed cart's fee follows the true total.
     total_fee_gross = sum((p.platform_fee for p in payments), Decimal("0"))
     application_fee_amount = to_stripe_amount(total_fee_gross, tier.currency)
     site = SiteSettings.get_solo()
@@ -491,7 +638,7 @@ def create_batch_session(*, reservation_id: UUID) -> str:
         tier=tier,
         user=user,
         tickets=tickets,
-        effective_price=effective_price,
+        line_items=line_items,
         application_fee_amount=application_fee_amount,
         expires_at=expires_at,
         site=site,

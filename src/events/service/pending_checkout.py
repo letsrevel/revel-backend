@@ -176,15 +176,25 @@ def _live_reservation_payments(reservation_id: UUID, *related: str) -> list[Paym
     would capture money for a void ticket, so it must reach neither the Stripe
     line items nor the stamp; the expiry sweep reclaims it instead.
 
+    Totally ordered on purpose. Each Stripe line item now carries its own row's
+    amount (#739), so correctness no longer depends on row order — but Stripe
+    replays an idempotency key only for byte-identical params, and an unordered
+    query could hand a retry the same line items in a different sequence and turn
+    it into an idempotency conflict (-> 500). ``created_at`` alone is not a total
+    order: a batch's rows are bulk-created and share a timestamp, hence the ``id``
+    tiebreak.
+
     Raises:
         HttpError: 404 when no live rows remain for the reservation.
     """
     payments = list(
-        Payment.objects.select_related(*related).filter(
+        Payment.objects.select_related(*related)
+        .filter(
             reservation_id=reservation_id,
             status=Payment.PaymentStatus.PENDING,
             ticket__status=Ticket.TicketStatus.PENDING,
         )
+        .order_by("created_at", "id")
     )
     if not payments:
         raise HttpError(404, str(_("No pending reservation found.")))
