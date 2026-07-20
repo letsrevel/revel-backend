@@ -8,21 +8,29 @@ Payments SUCCEEDED at 50/30 without ever comparing the session total to our book
 """
 
 import typing as t
+from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 from uuid import uuid4
 
 import pytest
+from django.utils import timezone
 from ninja.errors import HttpError
+from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 
 from accounts.models import RevelUser
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.service import stripe_service
 from events.service.seating.pricing import TicketPrice
 from events.service.stripe_webhooks import StripeEventHandler
+from events.tasks.payments import cleanup_expired_payments
 from events.utils.currency import to_stripe_amount
 
 pytestmark = pytest.mark.django_db
+
+MISMATCH_METRIC = "revel_stripe_session_total_mismatch_total"
+MISSING_PAYMENTS_METRIC = "revel_stripe_session_paid_without_payments_total"
 
 
 @pytest.fixture
@@ -239,6 +247,147 @@ class TestApplicationFeeIsSummedPerRow:
         with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
             stripe_service.create_batch_session(reservation_id=rid)
         assert create.call_args.kwargs["payment_intent_data"]["application_fee_amount"] == expected
+
+
+def _counter(name: str, labels: dict[str, str] | None = None) -> float:
+    """Read a counter off the default registry, treating an untouched series as zero."""
+    return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
+def _completed_event(session: dict[str, t.Any]) -> t.Any:
+    """A ``checkout.session.completed`` event wrapping ``session``."""
+    payload = {"id": "evt_alert", "type": "checkout.session.completed", "data": {"object": session}}
+    stripe_event = mock.MagicMock()
+    stripe_event.__iter__.return_value = iter(payload.items())
+    stripe_event.type = payload["type"]
+    stripe_event.data = mock.MagicMock()
+    stripe_event.data.object = session
+    return stripe_event
+
+
+class TestMismatchIsImpossibleToMiss:
+    """A money-correctness breach must leave a signal someone is actually watching (#750).
+
+    The rollback that makes the refusal correct also destroys its own evidence, and
+    ``cleanup_expired_payments`` deletes the rows minutes later — so everything the
+    incident needs is emitted at detection time or not at all.
+    """
+
+    @pytest.fixture
+    def sessioned_batch(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> list[Payment]:
+        """A 50.00 + 30.00 cart already stamped with a Stripe session id."""
+        rid = _reserve_mixed(event, paid_ticket_tier, organization_owner_user, [("A", "50.00"), ("B", "30.00")])
+        Payment.objects.filter(reservation_id=rid).update(stripe_session_id="cs_alert")
+        return list(Payment.objects.filter(reservation_id=rid))
+
+    def test_webhook_mismatch_counts_and_records_everything_needed_to_recover(
+        self, sessioned_batch: list[Payment], event: Event, organization_owner_user: RevelUser
+    ) -> None:
+        """Charged 100.00 against books of 80.00: one counter tick, one self-contained line."""
+        before = _counter(MISMATCH_METRIC, {"call_site": "webhook"})
+        stripe_event = _completed_event(
+            {"id": "cs_alert", "payment_status": "paid", "payment_intent": "pi_alert", "amount_total": 10000}
+        )
+
+        with capture_logs() as logs:
+            with pytest.raises(stripe_service.SessionTotalMismatchError):
+                StripeEventHandler(stripe_event).handle_checkout_session_completed(stripe_event)
+
+        assert _counter(MISMATCH_METRIC, {"call_site": "webhook"}) == before + 1
+        (entry,) = [line for line in logs if line["event"] == "stripe_session_total_mismatch"]
+        assert entry["log_level"] == "error"
+        # What an operator needs at 3am: what to refund, who to refund, and what to re-issue.
+        assert entry["session_id"] == "cs_alert"
+        assert entry["payment_intent_id"] == "pi_alert"
+        assert entry["charged_minor_units"] == 10000
+        assert entry["recorded_minor_units"] == 8000
+        assert entry["user_email"] == organization_owner_user.email
+        assert {row["guest_name"]: row["amount"] for row in entry["payments"]} == {"A": "50.00", "B": "30.00"}
+        assert {row["event_id"] for row in entry["payments"]} == {str(event.id)}
+
+    def test_preflight_mismatch_counts_under_its_own_call_site(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        """The pre-charge half is a distinct label: same bug, no money to chase."""
+        rid = _reserve_mixed(event, paid_ticket_tier, organization_owner_user, [("A", "50.00"), ("B", "30.00")])
+        before = _counter(MISMATCH_METRIC, {"call_site": "preflight"})
+        build = stripe_service._build_line_items
+
+        def drop_a_row(payments: list[Payment], ev: Event, tier: TicketTier) -> list[t.Any]:
+            return list(build(payments, ev, tier))[:1]
+
+        with mock.patch.object(stripe_service, "_build_line_items", side_effect=drop_a_row):
+            with mock.patch("stripe.checkout.Session.create"):
+                with capture_logs() as logs:
+                    with pytest.raises(stripe_service.SessionTotalMismatchError):
+                        stripe_service.create_batch_session(reservation_id=rid)
+
+        assert _counter(MISMATCH_METRIC, {"call_site": "preflight"}) == before + 1
+        (entry,) = [line for line in logs if line["event"] == "stripe_session_total_mismatch"]
+        assert entry["call_site"] == "preflight"
+        assert entry["session_id"] is None  # no session exists yet — nobody has been charged
+
+    def test_a_matching_session_emits_nothing(
+        self, sessioned_batch: list[Payment], django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        """A false positive here would be worse than the silence it replaces."""
+        before = {
+            "webhook": _counter(MISMATCH_METRIC, {"call_site": "webhook"}),
+            "preflight": _counter(MISMATCH_METRIC, {"call_site": "preflight"}),
+            "missing": _counter(MISSING_PAYMENTS_METRIC),
+        }
+        stripe_event = _completed_event(
+            {"id": "cs_alert", "payment_status": "paid", "payment_intent": "pi_alert", "amount_total": 8000}
+        )
+
+        with mock.patch("notifications.signals.notification_requested.send"):
+            with django_capture_on_commit_callbacks(execute=False):
+                with capture_logs() as logs:
+                    StripeEventHandler(stripe_event).handle_checkout_session_completed(stripe_event)
+
+        assert _counter(MISMATCH_METRIC, {"call_site": "webhook"}) == before["webhook"]
+        assert _counter(MISMATCH_METRIC, {"call_site": "preflight"}) == before["preflight"]
+        assert _counter(MISSING_PAYMENTS_METRIC) == before["missing"]
+        assert not [line for line in logs if line["log_level"] == "error"]
+
+    def test_a_charged_session_whose_rows_the_sweep_deleted_still_alarms(self, sessioned_batch: list[Payment]) -> None:
+        """The full incident: refuse, lose the evidence to cleanup, then redeliver.
+
+        This is the sequence that used to end in a 200 and permanent silence — the
+        buyer charged, the seat back on sale, and nothing left to notice.
+        """
+        stripe_event = _completed_event(
+            {"id": "cs_alert", "payment_status": "paid", "payment_intent": "pi_alert", "amount_total": 10000}
+        )
+        with pytest.raises(stripe_service.SessionTotalMismatchError):
+            StripeEventHandler(stripe_event).handle_checkout_session_completed(stripe_event)
+
+        Payment.objects.filter(stripe_session_id="cs_alert").update(expires_at=timezone.now() - timedelta(minutes=1))
+        assert cleanup_expired_payments() == len(sessioned_batch)
+        assert not Payment.objects.filter(stripe_session_id="cs_alert").exists()
+
+        before = _counter(MISSING_PAYMENTS_METRIC)
+        with capture_logs() as logs:
+            StripeEventHandler(stripe_event).handle_checkout_session_completed(stripe_event)
+
+        assert _counter(MISSING_PAYMENTS_METRIC) == before + 1
+        (entry,) = [line for line in logs if line["event"] == "stripe_session_paid_without_payments"]
+        assert entry["log_level"] == "error"
+        assert (entry["session_id"], entry["payment_intent_id"]) == ("cs_alert", "pi_alert")
+
+    def test_a_zero_total_session_without_payments_stays_a_warning(self) -> None:
+        """Free/fully-discounted and Stripe-expired sessions are benign — do not page on them."""
+        before = _counter(MISSING_PAYMENTS_METRIC)
+        stripe_event = _completed_event({"id": "cs_free", "payment_status": "no_payment_required", "amount_total": 0})
+
+        with capture_logs() as logs:
+            StripeEventHandler(stripe_event).handle_checkout_session_completed(stripe_event)
+
+        assert _counter(MISSING_PAYMENTS_METRIC) == before
+        (entry,) = [line for line in logs if line["event"] == "stripe_session_no_payments"]
+        assert entry["log_level"] == "warning"
 
 
 class TestHttpErrorStillRaisedForUnpurchasableCart:
