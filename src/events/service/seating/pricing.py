@@ -99,6 +99,48 @@ def resolve_seat_price(
     return effective_category_price(price_map, category_id, tier.price)
 
 
+def recorded_or_resolved_price(
+    tier: "TicketTier",
+    seat: "VenueSeat | None",
+    price_paid: Decimal | None,
+) -> Decimal:
+    """What an already-sold ticket actually cost, for the money-bearing read paths (spec §5.5).
+
+    ``Ticket.price_paid`` is purchase-time truth and always wins. When it is NULL the
+    historical fallback was ``tier.price``, which is only correct while the tier charges
+    one price. On a category-priced tier that silently under- or over-states every
+    non-flat seat — capping refunds at the wrong number and mis-reporting revenue — so
+    the seat's own category price is resolved instead.
+
+    **Never raises.** The ``price_paid`` invariant is time-scoped: tickets sold *before*
+    a tier opted into category pricing legitimately carry NULL (``ticket.py:674-681``),
+    and refunding them must keep working. A NULL on a category-priced tier is logged as
+    an anomaly, priced from the seat, and allowed through.
+
+    Callers pass ``ticket.tier``/``ticket.seat`` — pre-fetch both (``select_related``)
+    when calling this in a loop.
+
+    Args:
+        tier: The ticket's tier.
+        seat: The ticket's seat, or ``None`` for general admission.
+        price_paid: The recorded amount, if any.
+
+    Returns:
+        The amount this ticket is treated as having cost.
+    """
+    if price_paid is not None:
+        return price_paid
+    price_map = parse_price_map(tier.category_prices)
+    if not price_map:
+        return tier.price
+    logger.warning(
+        "ticket_price_paid_missing_on_category_priced_tier",
+        tier_id=str(tier.pk),
+        seat_id=str(seat.pk) if seat is not None else None,
+    )
+    return resolve_seat_price(tier, seat, price_map)
+
+
 def cart_is_certainly_free(
     tier: "TicketTier",
     *,
