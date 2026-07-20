@@ -2,6 +2,7 @@
 
 import typing as t
 from decimal import Decimal
+from urllib.parse import quote
 
 import structlog
 from django.db import transaction
@@ -208,6 +209,15 @@ def send_refund_unmatched(
         return
 
     organization = tickets[0].event.organization
+    # Deep-link to the event's ticket admin filtered to the buyer (#744). Every Payment on
+    # one intent belongs to one buyer, so their email narrows the list to exactly the
+    # candidates below. `?search=` is already read by that page and `list_tickets`' search
+    # covers `user__email` — no new surface invented for a notification.
+    resolve_url = (
+        f"{SiteSettings.get_solo().frontend_base_url}"
+        f"/org/{organization.slug}/admin/events/{tickets[0].event_id}/tickets"
+        f"?search={quote(tickets[0].user.email)}"
+    )
     candidate_contexts: list[RefundUnmatchedCandidate] = [
         {
             "ticket_id": str(ticket.id),
@@ -229,6 +239,7 @@ def send_refund_unmatched(
         "currency": currency,
         "reason": reason,
         "candidates": candidate_contexts,
+        "resolve_url": resolve_url,
     }
 
     recipients = get_staff_for_notification(organization.id, NotificationType.REFUND_UNMATCHED)

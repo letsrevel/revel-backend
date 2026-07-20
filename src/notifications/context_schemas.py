@@ -134,6 +134,9 @@ class RefundUnmatchedContext(BaseNotificationContext):
     currency: str
     reason: str
     candidates: list[RefundUnmatchedCandidate]
+    # Event ticket admin, pre-filtered to the buyer (#744). Every Payment on one intent
+    # belongs to one buyer, so this lands on exactly the candidates above.
+    resolve_url: str
 
 
 class TicketCheckedInContext(BaseNotificationContext):

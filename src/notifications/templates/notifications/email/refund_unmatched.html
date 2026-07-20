@@ -16,5 +16,7 @@
 
 <p>{% trans "Check the refund in Stripe, then cancel the matching ticket in Revel. Refunds issued through Revel are always applied automatically." %}</p>
 
+<p><a href="{{ context.resolve_url }}">{% trans "Review these tickets in Revel" %}</a></p>
+
 <p style="color: #666; font-size: 12px;">{% trans "Refund ID:" %} {{ context.refund_id }}</p>
 {% endblock %}

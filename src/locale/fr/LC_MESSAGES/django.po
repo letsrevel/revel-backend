@@ -3169,6 +3169,9 @@ msgstr ""
 "dans Revel. Les remboursements effectués via Revel sont toujours appliqués "
 "automatiquement."
 
+msgid "Review these tickets in Revel"
+msgstr "Vérifier ces billets dans Revel"
+
 msgid "Refund ID:"
 msgstr "ID du remboursement :"
 

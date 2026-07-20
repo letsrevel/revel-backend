@@ -6,4 +6,6 @@
 
 {% trans "Check the refund in Stripe, then cancel the matching ticket in Revel. Refunds issued through Revel are always applied automatically." %}
 
+[{% trans "Review these tickets in Revel" %}]({{ context.resolve_url }})
+
 {% trans "Refund ID:" %} {{ context.refund_id }}

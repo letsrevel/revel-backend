@@ -9,10 +9,12 @@ refusal must leave a durable, operator-visible record — issue #741.
 import typing as t
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
+from urllib.parse import quote
 
 import pytest
 import stripe
 
+from common.models import SiteSettings
 from events.models import Event, Payment, Ticket, TicketTier
 from events.models.venue import VenueSeat
 from events.service.stripe_webhooks import StripeEventHandler, handle_event
@@ -180,3 +182,45 @@ class TestUnmatchedRefundNotification:
         assert template.get_email_text_body(notification)
         assert template.get_email_html_body(notification)
         assert template.get_telegram_body(notification)
+
+
+class TestResolveLink:
+    """The notification must be actionable, not merely informative (#744).
+
+    It deep-links to the event's ticket admin filtered to the buyer: every Payment on
+    one intent belongs to one buyer, so their email narrows that page to exactly the
+    candidates the message lists. No new surface was invented — the route and its
+    ``?search=`` handling already exist.
+    """
+
+    def test_context_carries_a_link_to_the_filtered_ticket_admin(self, mixed_price_batch: list[Payment]) -> None:
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        StripeEventHandler(_charge_event("pi_mixed", [refund])).handle_charge_refunded(
+            _charge_event("pi_mixed", [refund])
+        )
+
+        url = _unmatched_notifications()[0].context["resolve_url"]
+        ticket = mixed_price_batch[0].ticket
+
+        assert url.startswith(SiteSettings.get_solo().frontend_base_url)
+        assert f"/org/{ticket.event.organization.slug}/admin/events/{ticket.event_id}/tickets" in url
+        assert f"search={quote(ticket.user.email)}" in url
+
+    def test_every_channel_renders_the_link(self, mixed_price_batch: list[Payment]) -> None:
+        """A channel that drops the link leaves that operator with nowhere to go."""
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        StripeEventHandler(_charge_event("pi_mixed", [refund])).handle_charge_refunded(
+            _charge_event("pi_mixed", [refund])
+        )
+
+        notification = _unmatched_notifications()[0]
+        url = notification.context["resolve_url"]
+        template = get_template(NotificationType.REFUND_UNMATCHED)
+
+        html_body = template.get_email_html_body(notification)
+        assert html_body is not None, "the HTML email template must exist"
+
+        assert url in template.get_in_app_body(notification)
+        assert url in template.get_telegram_body(notification)
+        assert url in template.get_email_text_body(notification)
+        assert url in html_body

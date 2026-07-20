@@ -3119,6 +3119,9 @@ msgstr ""
 "Controlla il rimborso su Stripe, poi annulla il biglietto corretto su Revel. "
 "I rimborsi emessi tramite Revel vengono sempre applicati automaticamente."
 
+msgid "Review these tickets in Revel"
+msgstr "Rivedi questi biglietti su Revel"
+
 msgid "Refund ID:"
 msgstr "ID rimborso:"
 
