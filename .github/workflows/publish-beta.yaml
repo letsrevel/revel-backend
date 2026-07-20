@@ -15,7 +15,7 @@ name: Publish Beta
 # only so removing the label produces a cleanly-skipped run rather than nothing.
 on:
   pull_request:
-    types: [labeled, unlabeled, synchronize]
+    types: [opened, reopened, labeled, unlabeled, synchronize]
 
 permissions:
   contents: read
@@ -23,16 +23,13 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # A rapid series of pushes should not race to overwrite the :beta tag.
-  #
-  # cancel-in-progress is deliberately FALSE. Concurrency is workflow-scoped,
-  # so any new trigger — including an unrelated label change while `beta`
-  # stays on — would cancel the whole in-progress run. Cancelling a docker
-  # push is harmless; cancelling the deploy job between `up -d` and `migrate`,
-  # or midway through reset.sh, leaves beta half-migrated or destroyed. A
-  # job-level concurrency block does NOT prevent workflow-level cancellation,
-  # so the guard has to live here. Runs queue instead; the last one wins.
-  group: publish-beta
+  # Scoped to the PR: a static group would be shared by every pull_request event
+  # in the repo, and GitHub keeps only ONE pending run per group — so unrelated
+  # PR activity could silently cancel a QUEUED beta deploy.
+  # cancel-in-progress stays false: this workflow SSHes to the box and runs
+  # migrations, and cancelling mid-deploy can leave beta half-migrated or, if it
+  # lands inside reset.sh, destroyed and offline.
+  group: publish-beta-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
@@ -75,6 +72,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - name: Compute short SHA
         id: sha
@@ -131,6 +129,7 @@ jobs:
     needs: publish-beta
     runs-on: ubuntu-latest
     name: Deploy Beta
+    timeout-minutes: 10
     steps:
       # Handing a server SSH key to a `pull_request`-triggered workflow is a
       # real escalation — a same-repo PR can edit this file and the edited
@@ -159,5 +158,10 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/beta_deploy
           chmod 600 ~/.ssh/beta_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          ssh -i ~/.ssh/beta_deploy -o IdentitiesOnly=yes -p "$SSH_PORT" \
+          # BatchMode=yes forbids interactive prompts (host-key confirmation,
+          # passphrase) so a hung prompt fails fast instead of burning the
+          # job timeout. Host-key verification still runs — BatchMode just
+          # stops it from falling back to a prompt.
+          ssh -i ~/.ssh/beta_deploy -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o ConnectTimeout=15 -p "$SSH_PORT" \
               "$SSH_USER@$SSH_HOST" backend
