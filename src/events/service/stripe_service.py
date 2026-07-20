@@ -325,17 +325,34 @@ def _reconcile_line_items(line_items: list[StripeLineItem], payments: list[Payme
         SessionTotalMismatchError: If the two totals differ.
     """
     charged = sum(item["price_data"]["unit_amount"] * item["quantity"] for item in line_items)
-    recorded = to_stripe_amount(sum((p.amount for p in payments), Decimal("0")), currency)
-    if charged != recorded:
+    # Compare against the sum of PER-ROW conversions, not the conversion of the sum. Stripe
+    # bills whole minor units per line item, so on a zero-decimal currency (JPY et al.,
+    # see currency._is_zero_decimal) N rows of 10.50 charge N*11 while the aggregate rounds
+    # to 10.5*N — a structurally unavoidable gap, not a bug in our books. Raising on it
+    # would 500 real reverse-charge carts, whose effective_price is a computed net.
+    per_row = sum(to_stripe_amount(p.amount, currency) for p in payments)
+    if charged != per_row:
         logger.error(
             "stripe_session_total_mismatch",
             charged_minor_units=charged,
-            recorded_minor_units=recorded,
+            recorded_minor_units=per_row,
             currency=currency,
             payment_ids=[str(p.id) for p in payments],
         )
         raise SessionTotalMismatchError(
-            f"Stripe session total {charged} != recorded Payment total {recorded} ({currency})"
+            f"Stripe session total {charged} != recorded Payment total {per_row} ({currency})"
+        )
+
+    # The residual aggregate drift is worth seeing but must never block a checkout: it is
+    # rounding, and it is what the buyer is genuinely charged over the recorded decimals.
+    aggregate = to_stripe_amount(sum((p.amount for p in payments), Decimal("0")), currency)
+    if charged != aggregate:
+        logger.warning(
+            "stripe_session_rounding_drift",
+            charged_minor_units=charged,
+            aggregate_minor_units=aggregate,
+            currency=currency,
+            payment_ids=[str(p.id) for p in payments],
         )
 
 
