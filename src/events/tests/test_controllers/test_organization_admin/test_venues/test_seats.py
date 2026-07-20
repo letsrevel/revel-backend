@@ -9,7 +9,18 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, OrganizationStaff, Ticket, TicketTier, Venue, VenueSeat, VenueSector
+from events.models import (
+    Event,
+    Organization,
+    OrganizationStaff,
+    PriceCategory,
+    Ticket,
+    TicketTier,
+    Venue,
+    VenueSeat,
+    VenueSector,
+)
+from events.service.seating import availability
 
 pytestmark = pytest.mark.django_db
 
@@ -628,3 +639,32 @@ class TestVenueSeatManagement:
         response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 422  # Pydantic validation error (min_length=1)
+
+    def test_single_seat_repaint_moves_the_chart_version(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """The seat PATCH can reprice a seat, so the buyer's poller must see it (#752).
+
+        This endpoint changes ``price_category_id`` — the same money-affecting field the bulk
+        paint endpoint guards with #747's report — and used to leave the chart version frozen,
+        so an open seat map kept rendering the old colour *and* the old price indefinitely.
+        """
+        venue = Venue.objects.create(organization=organization, name="Theater")
+        sector = VenueSector.objects.create(venue=venue, name="Orchestra")
+        premium = PriceCategory.objects.create(venue=venue, name="Premium", color="#aa0000")
+        standard = PriceCategory.objects.create(venue=venue, name="Standard", color="#0000aa")
+        VenueSeat.objects.create(sector=sector, label="A1", default_price_category=premium)
+        before = availability.resolve_chart_version(venue.id)
+
+        url = reverse(
+            "api:update_venue_seat",
+            kwargs={"slug": organization.slug, "venue_id": venue.id, "sector_id": sector.id, "label": "A1"},
+        )
+        response = organization_owner_client.put(
+            url, data=orjson.dumps({"price_category_id": str(standard.id)}), content_type="application/json"
+        )
+
+        assert response.status_code == 200
+        after = availability.resolve_chart_version(venue.id)
+        assert before is not None and after is not None
+        assert after > before

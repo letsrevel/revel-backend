@@ -1,6 +1,7 @@
 import typing as t
 
 from django.db import models
+from django.utils import timezone
 
 from common.models import TimeStampedModel
 
@@ -91,6 +92,19 @@ class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
         help_text=(
             "Arbitrary JSON for venue-level layout config (e.g. stage position/shape) written by the frontend designer."
         ),
+    )
+
+    # The seating chart's cache key. Explicit rather than derived from
+    # max(venue/sector/seat.updated_at): a derived version cannot see a DELETE (no row left to
+    # stamp), cannot see a price-category rename (categories are on the chart but were never in
+    # the max), and silently misses every writer that uses save(update_fields=...), bulk_update()
+    # or queryset.update() — all three bypass auto_now. Only
+    # `events.service.seating.chart.bump_chart_version` writes this; every venue mutation that
+    # changes what the chart renders must call it.
+    chart_version = models.DateTimeField(
+        default=timezone.now,
+        editable=False,
+        help_text="Version stamp of the seating chart; bumped by every chart-visible venue write.",
     )
 
     class Meta:

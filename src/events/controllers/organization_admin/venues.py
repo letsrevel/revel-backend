@@ -321,7 +321,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         organization = self.get_one(slug)
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
         sector = get_object_or_404(models.VenueSector, pk=sector_id, venue=venue)
-        sector.delete()
+        venue_service.delete_sector(sector)
         return 204, None
 
     # ---- Venue Seat Management ----
