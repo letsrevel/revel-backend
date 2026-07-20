@@ -196,19 +196,23 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
     @route.put(
         "/venues/{venue_id}/seats/paint",
         url_name="paint_venue_seats",
-        response=dict[str, int],
+        response=schema.SeatPaintResultSchema,
     )
-    def paint_seats(self, slug: str, venue_id: UUID, payload: schema.VenueSeatPaintSchema) -> dict[str, int]:
+    def paint_seats(
+        self, slug: str, venue_id: UUID, payload: schema.VenueSeatPaintSchema
+    ) -> schema.SeatPaintResultSchema:
         """Bulk paint seats with a price category (null = unpaint).
 
         All seats must belong to this venue (across any of its sectors) and the
-        category, when given, must belong to this venue. Executes a single UPDATE
-        and returns the painted count.
+        category, when given, must belong to this venue. Executes a single UPDATE.
+
+        Painting always succeeds, but it can leave a user-choice tier pricing that
+        sector without a price for a category now painted there — checkout refuses
+        those seats. Such tiers come back in ``under_covered_tiers`` (advisory).
         """
         organization = self.get_one(slug)
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
-        painted = venue_service.paint_seats(venue, payload)
-        return {"painted": painted}
+        return venue_service.paint_seats(venue, payload)
 
     # ---- Venue Sector Management ----
 

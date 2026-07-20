@@ -25,7 +25,9 @@ from events.models import (
 )
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
+from events.service.discount_code_service import assert_min_purchase_amount
 from events.service.seating import holds as holds_service
+from events.service.seating.pricing import BatchPricing, TicketPrice, build_batch_pricing, cart_is_certainly_free
 from events.tasks import build_attendee_visibility_flags
 from notifications.signals.ticket import send_batch_ticket_created_notifications
 from notifications.signals.waitlist import remove_user_from_waitlist
@@ -585,11 +587,15 @@ class BatchTicketService:
                 str(_("Only {available} spot(s) remaining in this sector.")).format(available=available),
             )
 
+    def _cart_is_certainly_free(self, pwyc_amount: Decimal | None) -> bool:
+        """Whether no ticket in this cart can cost anything — see ``pricing.cart_is_certainly_free``."""
+        return cart_is_certainly_free(self.tier, pwyc_amount=pwyc_amount, discount_code=self.discount_code)
+
     @transaction.atomic
     def create_batch(
         self,
         items: list[TicketPurchaseItem],
-        price_override: Decimal | None = None,
+        pwyc_amount: Decimal | None = None,
         billing_info: "BuyerBillingInfoSchema | None" = None,
     ) -> list[Ticket] | tuple[list[Ticket], UUID]:
         """Create a batch of tickets.
@@ -600,7 +606,10 @@ class BatchTicketService:
 
         Args:
             items: List of ticket purchase items with guest_name and optional seat_id.
-            price_override: Price override for PWYC or discounted tiers.
+            pwyc_amount: The buyer's pay-what-you-can amount. **PWYC only** — a
+                discount is no longer pre-computed into this parameter by callers;
+                pass the validated code as ``discount_code`` to the constructor and
+                the pricing service applies it per ticket.
             billing_info: Optional buyer billing info for attendee invoicing.
 
         Returns:
@@ -622,8 +631,8 @@ class BatchTicketService:
         # locked tier's fresh price. Only the paid-online path creates Stripe
         # Payment rows; other methods skip it.
         buyer_vat = None
-        if self.tier.payment_method == TicketTier.PaymentMethod.ONLINE and not (
-            price_override is not None and price_override <= 0
+        if self.tier.payment_method == TicketTier.PaymentMethod.ONLINE and not self._cart_is_certainly_free(
+            pwyc_amount
         ):
             from events.service import stripe_service
 
@@ -645,6 +654,22 @@ class BatchTicketService:
         # Resolve seats
         seats = self.resolve_seats(items)
 
+        # Price every ticket. Single source of truth for PWYC *and* discounts, and
+        # the only place that reads the tier's category map. Priced off the LOCKED
+        # tier, so a concurrent repricing can't be undercut by a stale pre-lock read.
+        pricing = build_batch_pricing(locked_tier, seats, pwyc_amount=pwyc_amount, discount_code=self.discount_code)
+        # min_purchase_amount is enforced HERE, not in validate_discount_code: only now
+        # is the cart's real total known (spec §5.6).
+        if self.discount_code is not None:
+            assert_min_purchase_amount(self.discount_code, pricing.gross_total)
+        # A NULL price_paid means "tier.price still reconstructs it", and the revenue
+        # report leans on that NULL (revenue_aggregation.py:346). Stamp an explicit
+        # amount only when the buyer moved the price (PWYC/discount) or the tier
+        # prices seats per category (spec §5.5).
+        stamp_price_paid = (
+            pwyc_amount is not None or self.discount_code is not None or bool(locked_tier.category_prices)
+        )
+
         # Log the batch purchase attempt for audit trail
         logger.info(
             "batch_ticket_purchase_started",
@@ -657,24 +682,31 @@ class BatchTicketService:
             has_seats=any(s is not None for s in seats),
         )
 
-        # If discount makes price zero for an ONLINE tier, treat as free checkout
+        # If the buyer's input drives EVERY ticket to zero, an ONLINE tier becomes a
+        # free checkout. All-or-nothing over the vector: a cart mixing 0.00 and
+        # positive units stays on the paid path so each ticket keeps its 1:1 Payment
+        # row (the refund matcher relies on that pairing). A zero-priced ONLINE tier
+        # with no PWYC/discount input is still a misconfiguration, not a free tier —
+        # it keeps falling through to the 400 in reserve_batch_payments.
+        buyer_reduced_price = pwyc_amount is not None or self.discount_code is not None
         if (
             locked_tier.payment_method == TicketTier.PaymentMethod.ONLINE
-            and price_override is not None
-            and price_override <= 0
+            and buyer_reduced_price
+            and pricing.lines
+            and all(line.unit_price <= 0 for line in pricing.lines)
         ):
-            return self._free_checkout(items, seats, locked_tier)
+            return self._free_checkout(items, seats, locked_tier, pricing)
 
         # Delegate to payment-specific method
         match locked_tier.payment_method:
             case TicketTier.PaymentMethod.ONLINE:
-                return self._online_checkout(items, seats, locked_tier, price_override, billing_info)
+                return self._online_checkout(items, seats, locked_tier, pricing, billing_info)
             case TicketTier.PaymentMethod.OFFLINE:
-                return self._offline_checkout(items, seats, locked_tier, price_override)
+                return self._offline_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
             case TicketTier.PaymentMethod.AT_THE_DOOR:
-                return self._at_the_door_checkout(items, seats, locked_tier, price_override)
+                return self._at_the_door_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
             case TicketTier.PaymentMethod.FREE:
-                return self._free_checkout(items, seats, locked_tier)
+                return self._free_checkout(items, seats, locked_tier, pricing)
             case _:
                 raise HttpError(400, str(_("Unknown payment method.")))
 
@@ -683,38 +715,43 @@ class BatchTicketService:
         items: list[TicketPurchaseItem],
         seats: list[VenueSeat | None],
         status: Ticket.TicketStatus,
-        price_paid: Decimal | None = None,
+        lines: list[TicketPrice],
+        *,
+        stamp_price_paid: bool = False,
     ) -> list[Ticket]:
         """Create ticket objects with the specified status.
+
+        ``price_paid`` and ``discount_amount`` are stamped **per ticket** from the
+        price vector; on a mixed cart both legitimately differ row to row.
+        ``discount_amount`` stays NULL when there is no discount code — the vector
+        carries ``0.00`` there, but the column's "no code was applied" meaning is
+        what the revenue detail sheet reads.
 
         Args:
             items: List of ticket purchase items.
             seats: List of seats (or None) corresponding to items.
             status: The status to set on created tickets.
-            price_paid: Price paid per ticket for PWYC offline/at_the_door purchases.
+            lines: Per-ticket prices, positionally aligned with ``items``.
+            stamp_price_paid: Whether to write the unit price to ``price_paid``.
+                False online (``Payment.amount`` is authoritative — spec §5.5) and
+                for a plain flat-tier purchase (NULL means "``tier.price`` stands").
 
         Returns:
             List of created Ticket objects.
         """
-        # Calculate discount amount if a discount code is applied
         dc = self.discount_code
-        discount_amount: Decimal | None = None
-        if dc is not None:
-            from events.service import discount_code_service
-
-            discount_amount = discount_code_service.calculate_discount_amount(self.tier, dc)
 
         tickets = []
-        for item, seat in zip(items, seats, strict=True):
+        for item, seat, line in zip(items, seats, lines, strict=True):
             ticket = Ticket(
                 event=self.event,
                 tier=self.tier,
                 user=self.user,
                 status=status,
                 guest_name=item.guest_name,
-                price_paid=price_paid,
+                price_paid=line.unit_price if stamp_price_paid else None,
                 discount_code=dc,
-                discount_amount=discount_amount,
+                discount_amount=line.discount_amount if dc is not None else None,
                 # Deep-copy the JSON snapshot so the ticket row doesn't share a dict
                 # reference with the live tier. Protects the "immutable snapshot"
                 # contract against future in-place mutation of tier.refund_policy.
@@ -789,7 +826,7 @@ class BatchTicketService:
         items: list[TicketPurchaseItem],
         seats: list[VenueSeat | None],
         locked_tier: TicketTier,
-        price_override: Decimal | None,
+        pricing: BatchPricing,
         billing_info: "BuyerBillingInfoSchema | None" = None,
     ) -> tuple[list[Ticket], UUID]:
         """Reserve an online batch: PENDING tickets + PENDING Payment rows (#632).
@@ -804,7 +841,7 @@ class BatchTicketService:
             items: List of ticket purchase items.
             seats: List of seats corresponding to items.
             locked_tier: The locked tier.
-            price_override: Price override for PWYC.
+            pricing: The per-ticket price vector for this cart.
             billing_info: Optional buyer billing info for attendee invoicing.
 
         Returns:
@@ -816,8 +853,9 @@ class BatchTicketService:
 
         reservation_id = uuid4()
 
-        # Create PENDING tickets
-        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.PENDING)
+        # Create PENDING tickets. price_paid stays NULL online — Payment.amount is
+        # the authoritative number there (spec §5.5).
+        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.PENDING, pricing.lines)
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
@@ -829,7 +867,7 @@ class BatchTicketService:
             user=self.user,
             tickets=tickets,
             reservation_id=reservation_id,
-            price_override=price_override,
+            lines=pricing.lines,
             billing_info=billing_info,
             buyer_vat_context=self._reserve_buyer_vat,
         )
@@ -866,7 +904,8 @@ class BatchTicketService:
         items: list[TicketPurchaseItem],
         seats: list[VenueSeat | None],
         locked_tier: TicketTier,
-        price_override: Decimal | None = None,
+        pricing: BatchPricing,
+        stamp_price_paid: bool,
     ) -> list[Ticket]:
         """Handle offline checkout for batch tickets.
 
@@ -876,12 +915,15 @@ class BatchTicketService:
             items: List of ticket purchase items.
             seats: List of seats corresponding to items.
             locked_tier: The locked tier.
-            price_override: Price override for PWYC tiers.
+            pricing: The per-ticket price vector for this cart.
+            stamp_price_paid: Whether the unit price is written to ``price_paid``.
 
         Returns:
             List of created PENDING tickets.
         """
-        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.PENDING, price_paid=price_override)
+        tickets = self.create_tickets(
+            items, seats, Ticket.TicketStatus.PENDING, pricing.lines, stamp_price_paid=stamp_price_paid
+        )
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
@@ -896,7 +938,8 @@ class BatchTicketService:
         items: list[TicketPurchaseItem],
         seats: list[VenueSeat | None],
         locked_tier: TicketTier,
-        price_override: Decimal | None = None,
+        pricing: BatchPricing,
+        stamp_price_paid: bool,
     ) -> list[Ticket]:
         """Handle at-the-door checkout for batch tickets.
 
@@ -907,12 +950,15 @@ class BatchTicketService:
             items: List of ticket purchase items.
             seats: List of seats corresponding to items.
             locked_tier: The locked tier.
-            price_override: Price override for PWYC tiers.
+            pricing: The per-ticket price vector for this cart.
+            stamp_price_paid: Whether the unit price is written to ``price_paid``.
 
         Returns:
             List of created ACTIVE tickets.
         """
-        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.ACTIVE, price_paid=price_override)
+        tickets = self.create_tickets(
+            items, seats, Ticket.TicketStatus.ACTIVE, pricing.lines, stamp_price_paid=stamp_price_paid
+        )
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
@@ -927,6 +973,7 @@ class BatchTicketService:
         items: list[TicketPurchaseItem],
         seats: list[VenueSeat | None],
         locked_tier: TicketTier,
+        pricing: BatchPricing,
     ) -> list[Ticket]:
         """Handle free checkout for batch tickets.
 
@@ -936,11 +983,12 @@ class BatchTicketService:
             items: List of ticket purchase items.
             seats: List of seats corresponding to items.
             locked_tier: The locked tier.
+            pricing: The per-ticket price vector (all zero, or a zeroing discount).
 
         Returns:
             List of created ACTIVE tickets.
         """
-        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.ACTIVE)
+        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.ACTIVE, pricing.lines)
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))

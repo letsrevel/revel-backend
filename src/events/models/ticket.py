@@ -14,6 +14,7 @@ from django.utils.functional import cached_property
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from events.utils import apple_wallet_configured
+from events.utils.tier_pricing import validate_category_prices
 
 from .mixins import VisibilityMixin
 from .organization import MembershipTier, OrganizationMember
@@ -331,6 +332,11 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         related_name="ticket_tiers",
         help_text="Seated tiers draw seats from this category. Multiple tiers may share one category.",
     )
+    category_prices = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="{price_category_id: price} for user-choice tiers. Empty = flat pricing.",
+    )
     seat_assignment_mode = models.CharField(
         choices=SeatAssignmentMode.choices,
         default=SeatAssignmentMode.NONE,
@@ -511,12 +517,13 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
             )
 
     def clean(self) -> None:
-        """Validate sales window, PWYC, membership tier, venue/sector, and invitation restriction constraints."""
+        """Validate sales window, PWYC, membership tier, venue/sector, category prices and invitation restrictions."""
         super().clean()
         self._validate_sales_window()
         self._validate_pwyc()
         self._validate_membership_tiers()
         self._validate_venue_sector()
+        validate_category_prices(self)
         self._validate_invitation_restrictions()
 
     def can_purchase(self) -> bool:
@@ -676,8 +683,11 @@ class Ticket(TimeStampedModel):
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Amount paid per ticket for PWYC offline/at_the_door purchases. "
-        "Null for online payments (stored in Payment.amount) or fixed-price tiers (use tier.price).",
+        help_text="Amount paid for THIS ticket, when tier.price alone cannot reconstruct it: "
+        "PWYC, a discount code, or a tier that prices seats per category. "
+        "Null for online payments (Payment.amount is authoritative there — it is net for a "
+        "reverse-charge buyer, so stamping it here would put two different 'price paid' numbers "
+        "on one row) and null for a plain purchase on a flat tier (use tier.price).",
     )
 
     # Venue/seating (denormalized for fast access, validated for consistency)

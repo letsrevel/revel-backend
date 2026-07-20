@@ -97,10 +97,15 @@ manual override for the rare venue that needs it; every other venue never touche
 ### Price categories: named, colored, painted onto seats
 
 A **price category** is a small, venue-scoped object: a `name`, a hex `color` (for the seat map),
-and a `display_order`. It is *not* a price — the actual ticket price lives on the event's ticket
-tier (see [tiers-and-pricing.md](tiers-and-pricing.md)). The category is the shared **pool** a
-best-available tier draws seats from — think "Orchestra," "Premium," "Balcony" as buckets of
-similarly-desirable seats, independent of which event or tier is selling them today.
+and a `display_order`. It carries **no number of its own** — the money always lives on the event's
+ticket tier (see [tiers-and-pricing.md](tiers-and-pricing.md)). What the category *is* is the
+label a tier prices: "Orchestra," "Premium," "Balcony" as buckets of similarly-desirable seats,
+independent of which event is selling them today.
+
+Two ways a tier turns that label into money, both covered in the tiers guide: a
+`best_available` tier draws its seat pool from one category at one flat price, and a
+`user_choice` tier can carry a **price per category**, so the buyer's own click decides what
+they pay. Either way, painting is what tells the platform which seats are which.
 
 - Full CRUD lives under the venue. A duplicate category name on the same venue is rejected (400).
 - **Painting** is how a category gets attached to seats: `PUT .../venues/{id}/seats/paint` takes
@@ -110,10 +115,26 @@ similarly-desirable seats, independent of which event or tier is selling them to
   with its current `price_category_id` and the category's name/color already attached, so the map
   redraws with the right colors — no re-painting on every visit.
 - **Delete guard**: a category currently used by a ticket tier cannot be deleted — the API refuses
-  with a clear 400 explaining that tiers reference it and must be reassigned first. This protects
-  organizers from silently breaking a best-available tier's seat pool. Seats that were merely
-  *painted* with the category are unaffected by a delete: their paint just clears to "unpainted"
-  and can be repainted with something else.
+  with a clear 400 that **names the events and tiers** still using it, whether they use it as a
+  best-available seat pool or price it in a category map. Reassign or reprice those tiers first.
+  Seats that were merely *painted* with the category are unaffected by a delete: their paint just
+  clears to "unpainted" and can be repainted with something else.
+
+> **Repainting is venue-wide and takes effect immediately — for every event at this venue.**
+> This used to be a cosmetic change: repaint a block and its outline colour changed on every
+> map. Now that a `user_choice` tier can price seats by category, **repainting can change what
+> buyers are charged**, at every event in that building, the moment it's saved. There is no
+> per-event paint and no scheduled paint.
+>
+> Painting deliberately never fails, even when it leaves an event's tier with a category it
+> doesn't price — blocking a venue-wide edit because of one show's pricing setup would be worse.
+> The consequence lands elsewhere: seats in an unpriced category **stop selling** on that tier
+> (with a message naming the category) until the organizer prices it. Sales in priced categories
+> are unaffected.
+>
+> Practical advice for organizers running live on-sales: repaint before a show goes on sale, or
+> check the affected events' tiers straight after. The tier admin screen flags any category it
+> doesn't price.
 
 ## Demo it
 
@@ -191,13 +212,23 @@ layout is genuinely irregular, an explicit override is available — but it's th
 the default workflow.
 
 **"What happens if we delete a price category that's actually being sold?"**
-It's blocked. If any ticket tier currently references the category, deletion is refused with a
-clear message telling the organizer to reassign or remove that tier first. This prevents a
-best-available tier from silently losing its seat pool mid-sale.
+It's blocked, and the error lists the events and tiers standing in the way. That covers both
+uses: a best-available tier whose seat pool is that category, and a user-choice tier that puts a
+price on it. Either would otherwise break silently mid-sale — the second one by collapsing an
+€80 zone back to the tier's flat price with nothing anywhere reporting it.
 
 **"What happens to seats when we do successfully delete a category?"**
 The seats that were painted with it simply become unpainted (no category) — they aren't deleted
-or broken, and can be repainted with a different category any time.
+or broken, and can be repainted with a different category any time. Unpainted seats sell at the
+tier's flat price.
+
+**"If we repaint the map, does it affect shows that are already on sale?"**
+Yes, immediately and everywhere — the map belongs to the venue, not to one event. When a
+`user_choice` tier prices seats per category, a repaint moves seats between price zones for
+every event at that venue at once. Painting itself always succeeds (we won't let one show's
+pricing block your map work), but seats painted into a zone a live tier doesn't price stop
+selling until it's priced, rather than quietly selling at the wrong price. Repaint between
+on-sales where you can.
 
 **"Can we rename a seat, like fixing a typo in its label?"**
 Not directly — seat labels are permanent once created. The fix is delete-and-recreate. This is a

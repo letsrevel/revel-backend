@@ -36,6 +36,7 @@ from events.models import (
 )
 from events.models.mixins import VisibilityMixin
 from events.models.ticket import CancellationSource
+from events.service.seating.pricing import recorded_or_resolved_price
 from events.service.waitlist_service import enqueue_waitlist_processing
 
 if t.TYPE_CHECKING:
@@ -390,10 +391,20 @@ def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) ->
 
 @transaction.atomic
 def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
-    """Revert a confirmed offline ticket back to pending status, clearing price_paid.
+    """Revert a confirmed offline ticket back to pending status.
+
+    ``price_paid`` is cleared **only for PWYC tiers**, which is the case the clearing
+    was written for: there the amount is admin-entered at confirmation time and is
+    meaningless once that confirmation is reverted — ``confirm_ticket_payment`` asks
+    for it again. Every other non-null ``price_paid`` is a *resolved* fact of the sale
+    (a per-category price, a per-ticket discount, a comp) that nothing downstream can
+    reconstruct from ``tier.price``; clearing it silently mis-reported revenue and
+    capped refunds at the wrong number, because ``confirm_ticket_payment`` refuses to
+    accept a price for non-PWYC tiers and so could never put it back (spec §5.5).
 
     Args:
-        ticket: The ticket to unconfirm. Must be ACTIVE with OFFLINE payment method.
+        ticket: The ticket to unconfirm. Must be ACTIVE with OFFLINE payment method,
+            with ``tier`` prefetched via select_related.
 
     Returns:
         The re-fetched ticket with full() relations for serialization.
@@ -404,8 +415,11 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
     _reject_series_pass_ticket(ticket)
 
     ticket.status = Ticket.TicketStatus.PENDING
-    ticket.price_paid = None
-    ticket.save(update_fields=["status", "price_paid"])
+    update_fields = ["status"]
+    if ticket.tier.price_type == TicketTier.PriceType.PWYC:
+        ticket.price_paid = None
+        update_fields.append("price_paid")
+    ticket.save(update_fields=update_fields)
 
     # Re-fetch with full() to include all related objects for serialization
     return Ticket.objects.full().get(pk=ticket.pk)
@@ -577,6 +591,10 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
         HttpError 404: If any provided membership tier ID is invalid or belongs to another org.
 
     Note:
+        ``category_prices`` semantics mirror ``update_ticket_tier``: null/omitted leaves the
+        field at its model default (an empty map), an empty object is the same thing, and a
+        non-empty object is stored as-is for ``TicketTier.clean()`` to validate.
+
         ``mode="json"`` is used when dumping the payload so nested Pydantic models
         (e.g. ``refund_policy``) and ``Decimal`` are coerced to JSON-serializable primitives;
         the JSONField's default encoder relies on this during ``full_clean()``.
@@ -585,6 +603,7 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
 
     payload_dict = payload.model_dump(exclude_unset=True, mode="json")
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+    _drop_null_category_prices(payload_dict)
 
     # Append new tiers at the bottom of the list unless the caller pinned an explicit
     # position. Model ordering is ["event", "display_order", "name"], so a new tier left
@@ -604,6 +623,21 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
         _set_tier_membership_restrictions(tier, restricted_to_membership_tiers_ids, event.organization)
 
     return TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
+
+
+def _drop_null_category_prices(payload_dict: dict[str, t.Any]) -> None:
+    """Remove an explicit-null ``category_prices`` from a dumped tier payload, in place.
+
+    ``category_prices`` is a real model field, so leaving it in the dict would let the generic
+    ``setattr``/``create`` path write it directly — erasing the None-vs-omitted distinction and,
+    since the column is NOT NULL, blowing up on a null. Dropping the null here means null and
+    omitted both mean "leave it alone", while ``{}`` survives and clears the map.
+
+    Args:
+        payload_dict: The ``model_dump(exclude_unset=True)`` output, mutated in place.
+    """
+    if payload_dict.get("category_prices") is None:
+        payload_dict.pop("category_prices", None)
 
 
 @transaction.atomic
@@ -653,10 +687,16 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
             - empty list     -> clear all restrictions
             - omitted (None) -> preserve existing restrictions
 
+        ``category_prices`` follows the same three-way contract:
+            - non-empty map  -> replace the whole map
+            - empty map      -> clear all category prices
+            - omitted (None) -> preserve the existing map
+
         ``mode="json"`` see ``create_ticket_tier`` above.
     """
     payload_dict = payload.model_dump(exclude_unset=True, mode="json")
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+    _drop_null_category_prices(payload_dict)
 
     if payload.payment_method is not None:
         check_online_tier_prerequisites(tier.event.organization, payload.payment_method)
@@ -825,9 +865,10 @@ def _resolve_offline_refund_amount(ticket: Ticket, refund_amount: Decimal | None
     """Resolve the amount to record as refunded for a manual offline/at-the-door refund.
 
     A never-paid ticket has nothing to refund (omitted -> ``None``; explicit non-zero ->
-    rejected). A paid ticket defaults to the collected amount (``price_paid`` or tier price);
-    an explicit amount enables partial refunds and must be in [0, collected]. Call before
-    cancelling (reads pre-cancel status).
+    rejected). A paid ticket defaults to the collected amount (``price_paid``, else the
+    seat's resolved price — see ``recorded_or_resolved_price``); an explicit amount enables
+    partial refunds and must be in [0, collected]. Call before cancelling (reads pre-cancel
+    status).
 
     Raises:
         HttpError 400: Explicit ``refund_amount`` out of range, or non-zero for a never-paid ticket.
@@ -837,7 +878,7 @@ def _resolve_offline_refund_amount(ticket: Ticket, refund_amount: Decimal | None
         if refund_amount:
             raise HttpError(400, str(_("Cannot refund a ticket that was never paid.")))
         return None
-    collected = ticket.price_paid if ticket.price_paid is not None else ticket.tier.price
+    collected = recorded_or_resolved_price(ticket.tier, ticket.seat, ticket.price_paid)
     if refund_amount is None:
         return collected
     if refund_amount < Decimal("0") or refund_amount > collected:
@@ -882,6 +923,10 @@ def mark_offline_ticket_refunded(
     """
     _reject_series_pass_ticket(ticket)
 
+    # ``seat`` is deliberately *not* joined here: it is nullable, so select_related would
+    # make it the nullable side of an outer join and Postgres rejects FOR UPDATE on that.
+    # _resolve_offline_refund_amount lazy-loads it instead — at most one extra query, and
+    # only for a seated ticket, on a single-row request path.
     locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
     if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError

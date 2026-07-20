@@ -1,5 +1,7 @@
 """Tests for the bulk seat painting endpoint (PUT /venues/{venue_id}/seats/paint)."""
 
+from decimal import Decimal
+
 import orjson
 import pytest
 from django.db import connection
@@ -7,7 +9,7 @@ from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
-from events.models import Organization, PriceCategory, Venue, VenueSeat, VenueSector
+from events.models import Event, Organization, PriceCategory, TicketTier, Venue, VenueSeat, VenueSector
 
 pytestmark = pytest.mark.django_db
 
@@ -48,7 +50,7 @@ class TestPaintSeatsEndpoint:
         )
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"painted": 2}
+        assert response.json() == {"painted": 2, "under_covered_tiers": []}
         assert VenueSeat.objects.filter(default_price_category=category).count() == 2
 
     def test_unpaint_with_null(
@@ -67,7 +69,7 @@ class TestPaintSeatsEndpoint:
         )
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"painted": 1}
+        assert response.json() == {"painted": 1, "under_covered_tiers": []}
         seat.refresh_from_db()
         assert seat.default_price_category_id is None
 
@@ -166,6 +168,51 @@ class TestPaintSeatsEndpoint:
             return len(ctx.captured_queries)
 
         assert count_queries_for(2) == count_queries_for(12)
+
+    def test_response_reports_the_tier_left_under_covered(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        venue: Venue,
+        sector: VenueSector,
+        category: PriceCategory,
+    ) -> None:
+        """The advisory the grid editor renders after a paint (#746)."""
+        event.venue = venue
+        event.save(update_fields=["venue"])
+        seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
+        tier = TicketTier.objects.create(
+            event=event,
+            name="Stalls",
+            price=Decimal("50.00"),
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+            category_prices={str(category.id): "80.00"},
+        )
+        balcony = PriceCategory.objects.create(venue=venue, name="Balcony", color="#00aa00")
+
+        response = organization_owner_client.put(
+            _url(organization, venue),
+            data=orjson.dumps({"seat_ids": [str(seat.id)], "price_category_id": str(balcony.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json() == {
+            "painted": 1,
+            "under_covered_tiers": [
+                {
+                    "tier_id": str(tier.id),
+                    "tier_name": "Stalls",
+                    "event_id": str(event.id),
+                    "event_name": event.name,
+                    "missing_categories": [{"id": str(balcony.id), "name": "Balcony", "color": "#00aa00"}],
+                }
+            ],
+        }
 
     def test_nonmember_gets_403(
         self,

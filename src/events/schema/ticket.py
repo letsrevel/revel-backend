@@ -4,6 +4,7 @@ import typing as t
 from decimal import Decimal
 from uuid import UUID
 
+from django.db.models import Q
 from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_validator, model_validator
 
@@ -13,10 +14,11 @@ from common.signing import get_file_url
 from events import models
 from events.models import DiscountCode, Payment, Ticket, TicketTier
 from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
+from events.utils.tier_pricing import painted_categories, parse_price_map
 
 from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
-from .venue import MinimalSeatSchema, PriceCategorySchema, VenueSchema, VenueSectorSchema
+from .venue import MinimalSeatSchema, PriceCategorySchema, TierPricingGapSchema, VenueSchema, VenueSectorSchema
 
 # RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
 # events.utils.refund_policy so services, models, and schemas share one source
@@ -59,6 +61,48 @@ Currencies = t.Literal[
 ]
 
 
+class TierCategoryPriceSchema(Schema):
+    """The effective price of one price category on one tier.
+
+    Attributes:
+        price: What a seat in this category costs, or ``None`` when the tier does not
+            price the category — there is no honest number to show, and checkout will
+            refuse the seat.
+        available: False when the category is painted in the tier's sector but absent
+            from the tier's price map. Seats in it must be rendered unselectable: the
+            organizer has a configuration gap to fix, and buying is impossible until
+            they do.
+    """
+
+    id: UUID
+    name: str
+    color: str
+    price: Decimal | None = None
+    available: bool = True
+
+
+class TierSeatPricingSchema(Schema):
+    """Server-resolved seat prices for a category-priced tier (spec §7).
+
+    Deliberately *not* the raw ``category_prices`` map: handing the frontend raw rows
+    would force it to reimplement the fallback chain, and any drift means the price a
+    buyer is shown is not the price they are charged.
+
+    Attributes:
+        categories: Every category painted on an active seat of the tier's sector, plus
+            any extra category the tier prices. A category painted *after* the tier was
+            saved carries ``available=False`` and no price — checkout refuses those seats
+            (spec §4.3), so quoting them a price would sell the buyer a 400. They are
+            listed rather than omitted so the frontend can grey the seats out; silently
+            dropping them would leave those seats unexplained and, worse, indistinguishable
+            from unpainted ones.
+        unpainted: What a seat with no category costs. The one legitimate fallback.
+    """
+
+    categories: list[TierCategoryPriceSchema] = Field(default_factory=list)
+    unpainted: Decimal
+
+
 class TicketTierSchema(ModelSchema):
     id: UUID
     event_id: UUID
@@ -74,6 +118,7 @@ class TicketTierSchema(ModelSchema):
     can_purchase: bool = True
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
+    seat_pricing: TierSeatPricingSchema | None = None
 
     class Meta:
         model = TicketTier
@@ -112,6 +157,44 @@ class TicketTierSchema(ModelSchema):
         return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
             models.Organization.InvoicingMode.HYBRID,
             models.Organization.InvoicingMode.AUTO,
+        )
+
+    @staticmethod
+    def resolve_seat_pricing(obj: TicketTier) -> TierSeatPricingSchema | None:
+        """Resolve the per-category prices a buyer will actually be charged.
+
+        ``None`` for a flat tier — that is the signal the frontend uses to decide whether
+        to render a price legend at all, and it keeps the hot tier-list path at zero extra
+        queries for the (overwhelmingly common) flat case. A category-priced tier costs
+        exactly one query, and an event has a handful of tiers at most.
+        """
+        price_map = parse_price_map(obj.category_prices)
+        # A priced map without a venue cannot exist — tier validation rejects categories
+        # that don't belong to the tier's venue — so the venue guard is only for mypy.
+        if not price_map or obj.venue_id is None:
+            return None
+        categories = (
+            models.PriceCategory.objects.filter(
+                Q(seats__sector_id=obj.sector_id, seats__is_active=True) | Q(id__in=list(price_map)),
+                venue_id=obj.venue_id,
+            )
+            .distinct()
+            .order_by("display_order", "name")
+        )
+        return TierSeatPricingSchema(
+            categories=[
+                TierCategoryPriceSchema(
+                    id=category.id,
+                    name=category.name,
+                    color=category.color,
+                    # Everything in this queryset is either priced or painted, so "absent from
+                    # the map" is exactly "painted but unpriced" — the case checkout refuses.
+                    price=price_map.get(category.id),
+                    available=category.id in price_map,
+                )
+                for category in categories
+            ],
+            unpainted=obj.price,
         )
 
 
@@ -364,6 +447,17 @@ class AdminRefundTicketSchema(AdminCancelTicketSchema):
 
 # ---- TicketTier Schemas for Admin CRUD ----
 
+# The per-seat-category price map (``{price_category_id: decimal-string}``).
+#
+# Deliberately typed as an opaque JSON object rather than ``dict[UUID4, Decimal]``:
+# pydantic would coerce a JSON float such as ``50.0`` into a Decimal and silently
+# persist binary-float money. The map is passed through untouched and validated in
+# exactly one place — ``events.utils.tier_pricing.parse_price_map``, reached from
+# ``TicketTier.clean()`` — which rejects floats and bools outright. Malformed input
+# therefore surfaces as a Django ``ValidationError`` mapped to HTTP 400, never a 500
+# and never a silent coercion.
+CategoryPriceMap = dict[str, t.Any]
+
 
 class TicketTierPriceValidationMixin(Schema):
     payment_method: TicketTier.PaymentMethod = TicketTier.PaymentMethod.OFFLINE
@@ -402,6 +496,15 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     venue_id: UUID | None = None
     sector_id: UUID | None = None
     price_category_id: UUID | None = Field(default=None)
+    category_prices: CategoryPriceMap | None = Field(
+        default=None,
+        description=(
+            "Per-seat-category prices for user-choice tiers: {price_category_id: decimal-string}. "
+            "Omitted or null leaves the map at its default (empty); an empty object clears it; a "
+            "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
+            "JSON floats are rejected, because binary floats cannot represent money."
+        ),
+    )
 
     # None (or omitted) means "append at the bottom"; an explicit value pins the position (#514).
     display_order: int | None = None
@@ -452,6 +555,15 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     venue_id: UUID | None = None
     sector_id: UUID | None = None
     price_category_id: UUID | None = Field(default=None)
+    category_prices: CategoryPriceMap | None = Field(
+        default=None,
+        description=(
+            "Per-seat-category prices for user-choice tiers: {price_category_id: decimal-string}. "
+            "Omitted or null leaves the existing map untouched; an empty object clears it; a "
+            "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
+            "JSON floats are rejected, because binary floats cannot represent money."
+        ),
+    )
 
     display_order: int | None = None
 
@@ -489,6 +601,8 @@ class TicketTierDetailSchema(ModelSchema):
     vat_rate: Decimal | None = None
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
+    category_prices: CategoryPriceMap = Field(default_factory=dict)
+    pricing_gaps: list[TierPricingGapSchema] = Field(default_factory=list)
 
     class Meta:
         model = TicketTier
@@ -532,6 +646,29 @@ class TicketTierDetailSchema(ModelSchema):
             models.Organization.InvoicingMode.HYBRID,
             models.Organization.InvoicingMode.AUTO,
         )
+
+    @staticmethod
+    def resolve_pricing_gaps(obj: TicketTier) -> list[TierPricingGapSchema]:
+        """Categories painted in the tier's sector that the map does not price.
+
+        A configuration error only the organizer can fix: write-time validation demands
+        full coverage, but ``paint_seats`` is venue-scoped and deliberately never fails
+        (spec §4.3), so a repaint at the venue level can leave an already-saved tier
+        under-covered. Checkout then refuses those seats. Nothing else tells the admin,
+        so the tier form warns from this field.
+
+        Computed, never stored — a stored flag would desync on the next repaint.
+
+        # ponytail: one query per *category-priced* tier on the admin tier list (flat
+        # tiers cost nothing). An event has a handful of tiers, so this is well under
+        # the noise floor; if that ever changes, prefetch the sectors' painted
+        # categories once in ``list_ticket_tiers`` and resolve from that map.
+        """
+        price_map = parse_price_map(obj.category_prices)
+        if not price_map:
+            return []
+        gaps = painted_categories(obj.sector_id).exclude(id__in=list(price_map)).order_by("display_order", "name")
+        return [TierPricingGapSchema(id=c.id, name=c.name, color=c.color) for c in gaps]
 
 
 class ReorderSchema(Schema):
@@ -598,6 +735,22 @@ class VATPreviewItemSchema(Schema):
 
     tier_id: UUID
     count: int = Field(..., ge=1)
+    seat_ids: list[UUID] = Field(
+        default_factory=list,
+        description=(
+            "Seats chosen for this line, in cart order. Required to preview a tier that prices "
+            "seats per category — without it the preview charges the tier's flat price for every "
+            "ticket and will disagree with checkout. Omit for general admission. When present it "
+            "must hold exactly `count` ids."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_seat_ids_cover_the_line(self) -> "VATPreviewItemSchema":
+        """Partial seat context is refused: it would silently under-price the uncovered tickets."""
+        if self.seat_ids and len(self.seat_ids) != self.count:
+            raise ValueError("seat_ids must contain exactly `count` entries when provided.")
+        return self
 
 
 class VATPreviewRequestSchema(Schema):
@@ -610,9 +763,22 @@ class VATPreviewRequestSchema(Schema):
 
 
 class VATPreviewLineItemSchema(Schema):
-    """Line item in a VAT preview response."""
+    """Line item in a VAT preview response.
+
+    **One line per distinct unit price**, not per requested tier: a cart mixing price
+    categories has no single ``unit_price_gross``, and collapsing it to one would be the
+    exact number the buyer is not charged. A tier whose seats all cost the same — every
+    tier without a category map — still yields exactly one line, unchanged.
+    """
 
     tier_name: str
+    price_category_name: str | None = Field(
+        default=None,
+        description=(
+            "The price category this line's seats are painted with. Null for general admission, "
+            "unpainted seats, and any tier without a category map."
+        ),
+    )
     ticket_count: int
     unit_price_gross: Decimal
     unit_price_net: Decimal

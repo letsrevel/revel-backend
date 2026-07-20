@@ -168,18 +168,18 @@ class EventPublicTicketsController(EventPublicBaseController):
         manager = EventManager(user, event)
         manager.check_eligibility(raise_on_false=True)
 
-        # Validate discount code if provided
+        # Validate discount code if provided. The code itself is threaded into the
+        # service — the discounted price is computed per ticket by the pricing
+        # service, never pre-collapsed into a scalar here.
         dc = None
-        price_override = None
         if payload.discount_code:
             dc = discount_code_service.validate_discount_code(
                 payload.discount_code, event.organization, tier, user, len(payload.tickets)
             )
-            price_override = discount_code_service.calculate_discounted_price(tier, dc)
 
         # Create batch of tickets
         service = BatchTicketService(event, tier, user, discount_code=dc)
-        result = service.create_batch(payload.tickets, price_override=price_override, billing_info=payload.billing_info)
+        result = service.create_batch(payload.tickets, billing_info=payload.billing_info)
 
         if isinstance(result, tuple):
             tickets, reservation_id = result
@@ -262,7 +262,7 @@ class EventPublicTicketsController(EventPublicBaseController):
         # Create batch of tickets
         service = BatchTicketService(event, tier, user)
         result = service.create_batch(
-            payload.tickets, price_override=payload.price_per_ticket, billing_info=payload.billing_info
+            payload.tickets, pwyc_amount=payload.price_per_ticket, billing_info=payload.billing_info
         )
 
         if isinstance(result, tuple):
@@ -340,6 +340,7 @@ class EventPublicTicketsController(EventPublicBaseController):
             line_items=[
                 schema.VATPreviewLineItemSchema(
                     tier_name=li.tier_name,
+                    price_category_name=li.price_category_name,
                     ticket_count=li.ticket_count,
                     unit_price_gross=li.unit_price_gross,
                     unit_price_net=li.unit_price_net,

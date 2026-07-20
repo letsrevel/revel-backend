@@ -459,3 +459,38 @@ class VenueSeatPaintSchema(Schema):
         ...,
         description="Price category to paint the seats with (must belong to the venue). Null = unpaint.",
     )
+
+
+class TierPricingGapSchema(Schema):
+    """A price category painted in the tier's sector that the tier does not price."""
+
+    id: UUID
+    name: str
+    color: str
+
+
+class UnderCoveredTierSchema(Schema):
+    """A category-priced tier left with painted-but-unpriced categories in its sector."""
+
+    tier_id: UUID
+    tier_name: str
+    event_id: UUID
+    event_name: str
+    missing_categories: list[TierPricingGapSchema] = Field(
+        default_factory=list,
+        description="Categories painted in the tier's sector that the tier does not price.",
+    )
+
+
+class SeatPaintResultSchema(Schema):
+    """Result of a bulk paint: what changed, and what it left unsellable."""
+
+    painted: int = Field(..., description="Number of seats updated.")
+    under_covered_tiers: list[UnderCoveredTierSchema] = Field(
+        default_factory=list,
+        description=(
+            "User-choice, category-priced tiers on the painted sectors whose price map does not "
+            "cover every painted category. Their seats in those categories are refused at checkout "
+            "until the tier prices them. Advisory only — the paint itself always succeeds."
+        ),
+    )

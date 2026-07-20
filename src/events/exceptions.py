@@ -53,6 +53,17 @@ class InvalidStripeWebhookSignatureError(Exception):
     """Raised when no configured webhook secret verifies the Stripe-Signature header."""
 
 
+class SessionTotalMismatchError(Exception):
+    """Raised when a Stripe checkout session's total disagrees with ``sum(Payment.amount)``.
+
+    A money invariant, not a warning: since a batch's Payment rows can carry
+    different amounts (#739), "what Stripe charges" and "what our books record" are
+    two independently-computed numbers. If they diverge, the books permanently
+    disagree with the charge and the platform fee lands on the wrong total, so both
+    the session-creation and the webhook-confirm path refuse to proceed.
+    """
+
+
 class DuplicateDiscountCodeError(Exception):
     """Raised when creating a discount code whose ``(organization, code)`` pair already exists."""
 

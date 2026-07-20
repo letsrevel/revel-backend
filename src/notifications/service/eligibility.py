@@ -219,6 +219,7 @@ NOTIFICATION_REQUIRED_PERMISSIONS: dict[NotificationType, str] = {
     NotificationType.TICKET_CREATED: "manage_tickets",
     NotificationType.TICKET_CANCELLED: "manage_tickets",
     NotificationType.TICKET_REFUNDED: "manage_tickets",
+    NotificationType.REFUND_UNMATCHED: "manage_tickets",
     NotificationType.SERIES_PASS_PURCHASED: "manage_tickets",
     NotificationType.SERIES_PASS_CANCELLED: "manage_tickets",
     NotificationType.INVITATION_REQUEST_CREATED: "invite_to_event",

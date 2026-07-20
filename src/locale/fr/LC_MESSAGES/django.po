@@ -992,6 +992,9 @@ msgstr "Signature Stripe invalide"
 msgid "A discount code with this code already exists."
 msgstr "Un code de réduction avec ce code existe déjà."
 
+msgid "Payment processing failed. Please try again later."
+msgstr "Le traitement du paiement a échoué. Réessaie plus tard."
+
 msgid "Draft"
 msgstr "Brouillon"
 
@@ -1152,6 +1155,18 @@ msgstr "Les factures annulées ne peuvent pas être émises."
 msgid "Only draft invoices can be deleted."
 msgstr "Seules les factures au statut de brouillon peuvent être supprimées."
 
+msgid ""
+"This ticket tier prices seats by category — seat_ids are required to preview "
+"it."
+msgstr ""
+"Ce type de billet applique un tarif par catégorie de place : les seat_ids "
+"sont requis pour l'aperçu."
+
+msgid "One or more selected seats are invalid or not in the correct sector."
+msgstr ""
+"Un ou plusieurs sièges sélectionnés sont invalides ou ne se trouvent pas "
+"dans le bon secteur."
+
 msgid "You are not allowed to purchase from this tier."
 msgstr "Tu n'es pas autorisé·e à acheter des tickets de cette catégorie."
 
@@ -1166,11 +1181,6 @@ msgstr ""
 
 msgid "Seat selection is required for this ticket tier."
 msgstr "Le choix du siège est requis pour cette catégorie de tickets."
-
-msgid "One or more selected seats are invalid or not in the correct sector."
-msgstr ""
-"Un ou plusieurs sièges sélectionnés sont invalides ou ne se trouvent pas "
-"dans le bon secteur."
 
 msgid "One or more selected seats are no longer available."
 msgstr "Un ou plusieurs sièges sélectionnés ne sont plus disponibles."
@@ -1444,16 +1454,8 @@ msgstr "Consulte tes e-mails pour confirmer ta réponse à l'invitation"
 msgid "This event requires login to purchase tickets."
 msgstr "Cet événement nécessite de se connecter pour acheter des tickets."
 
-msgid "Internal server error: Unexpected ticket result for online payment."
-msgstr ""
-"Erreur interne du serveur : résultat de ticket inattendu pour le paiement en "
-"ligne."
-
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Consulte tes e-mails pour confirmer ton achat de ticket"
-
-msgid "Unexpected response from ticket creation"
-msgstr "Réponse inattendue lors de la création du ticket"
 
 msgid "Invalid token type"
 msgstr "Type de jeton invalide"
@@ -1596,6 +1598,14 @@ msgstr "Le siège cible est bloqué pour cet événement."
 msgid "The target seat is currently held by another buyer."
 msgstr "Le siège cible est actuellement réservé par un autre acheteur."
 
+#, python-brace-format
+msgid ""
+"Seat {seat} is in the \"{category}\" price category, which this ticket tier "
+"does not price yet."
+msgstr ""
+"Le siège {seat} appartient à la catégorie tarifaire \"{category}\", pour "
+"laquelle ce type de billet n'a pas encore de prix."
+
 msgid "You cannot purchase from this organization."
 msgstr "Tu ne peux pas acheter auprès de cette organisation."
 
@@ -1689,9 +1699,6 @@ msgstr "Ce pass de série n'est pas payé hors ligne."
 
 msgid "This held pass is not pending."
 msgstr "Ce pass détenu n'est pas en attente."
-
-msgid "Payment processing failed. Please try again later."
-msgstr "Le traitement du paiement a échoué. Réessaie plus tard."
 
 msgid "This organization is not configured to accept payments."
 msgstr "Cette organisation n'est pas configurée pour accepter les paiements."
@@ -1847,13 +1854,15 @@ msgstr ""
 msgid "Price category must belong to the same venue as the seats."
 msgstr "La catégorie tarifaire doit appartenir au même lieu que les sièges."
 
+#, python-brace-format
 msgid ""
 "This price category is used by one or more ticket tiers and cannot be "
-"deleted. Reassign or remove those tiers first."
+"deleted: {tiers}. Reassign those tiers, or remove the category from their "
+"category prices, first."
 msgstr ""
 "Cette catégorie de prix est utilisée par un ou plusieurs types de billets et "
-"ne peut pas être supprimée. Réattribuez ou supprimez d'abord ces types de "
-"billets."
+"ne peut pas être supprimée : {tiers}. Réattribuez ces types de billets, ou "
+"retirez d'abord la catégorie de leurs prix par catégorie."
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La position du siège « {} » est en dehors de la forme du secteur."
@@ -2386,6 +2395,13 @@ msgstr "Enregistré·e pour %(event)s"
 #, python-format
 msgid "Checked in - %(event)s"
 msgstr "Enregistré·e - %(event)s"
+
+msgid "Refund could not be matched to a ticket"
+msgstr "Le remboursement n'a pas pu être associé à un billet"
+
+#, python-format
+msgid "Action needed: unmatched refund - %(org)s"
+msgstr "Action requise : remboursement non associé - %(org)s"
 
 #, python-format
 msgid "Spot available for %(event)s!"
@@ -3127,6 +3143,37 @@ msgstr "Détails de la soumission :"
 
 msgid "Review the submission:"
 msgstr "Examiner la soumission :"
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s arrived from Stripe on payment "
+"%(intent)s, but Revel could not tell which ticket it belongs to. No ticket "
+"was cancelled and no seat was freed."
+msgstr ""
+"Un remboursement de %(amount)s %(currency)s a été reçu de Stripe pour le "
+"paiement %(intent)s, mais Revel n'a pas pu déterminer à quel billet il "
+"correspond. Aucun billet n'a été annulé et aucune place n'a été libérée."
+
+msgid "It could apply to any of these tickets:"
+msgstr "Il pourrait correspondre à l'un de ces billets :"
+
+#, python-format
+msgid "seat %(seat)s"
+msgstr "place %(seat)s"
+
+msgid ""
+"Check the refund in Stripe, then cancel the matching ticket in Revel. "
+"Refunds issued through Revel are always applied automatically."
+msgstr ""
+"Vérifie le remboursement dans Stripe, puis annule le billet correspondant "
+"dans Revel. Les remboursements effectués via Revel sont toujours appliqués "
+"automatiquement."
+
+msgid "Review these tickets in Revel"
+msgstr "Vérifier ces billets dans Revel"
+
+msgid "Refund ID:"
+msgstr "ID du remboursement :"
 
 #, python-format
 msgid ""
