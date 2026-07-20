@@ -553,6 +553,9 @@ class TestPaintAffectedTierReport:
         #747, and it must not become a per-seat read: one grouped query bounded by
         (sector × category × is_active) serves the 404 check, the touched sectors, and the
         prior paint state all at once — one query fewer than #746 needed for the first two.
+
+        The tenth query is the chart-version bump (#752): one UPDATE on one venue row,
+        flat in the number of seats painted like everything else here.
         """
         VenueSeat.objects.create(sector=sector, label="anchor", default_price_category=category)
 
@@ -563,13 +566,13 @@ class TestPaintAffectedTierReport:
             return [s.id for s in seats]
 
         small = make(2, "small")
-        with django_assert_num_queries(9):
+        with django_assert_num_queries(10):
             small_result = venue_service.paint_seats(
                 venue, schema.VenueSeatPaintSchema(seat_ids=small, price_category_id=balcony.id)
             )
 
         large = make(200, "large")
-        with django_assert_num_queries(9):
+        with django_assert_num_queries(10):
             large_result = venue_service.paint_seats(
                 venue, schema.VenueSeatPaintSchema(seat_ids=large, price_category_id=balcony.id)
             )

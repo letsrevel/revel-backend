@@ -2,24 +2,53 @@
 
 Self-sufficient prefetch (sectors, seats, price categories) keeps this at a constant
 query count regardless of how the caller fetched the venue.
+
+This module also owns *the chart version* — the single ``Venue.chart_version`` column that
+:func:`build_chart` emits, :func:`events.service.seating.availability.resolve_chart_version`
+polls, and :func:`bump_chart_version` is the only writer of.
 """
+
+import datetime
+import uuid
+
+from django.utils import timezone
 
 from events.models import Venue, VenueSector
 from events.schema.seating import ChartSeatSchema, ChartSectorSchema, VenueChartSchema
 from events.schema.venue import PriceCategorySchema
 
 
+def bump_chart_version(venue_id: uuid.UUID) -> datetime.datetime:
+    """Move a venue's chart version so open buyer charts refetch.
+
+    Call this from **every** venue write that changes what the chart renders — including
+    deletes, which is precisely what the old derived ``max(updated_at)`` could not express.
+    One targeted UPDATE on one row; writes are not a hot path.
+
+    Args:
+        venue_id: The venue whose chart changed.
+
+    Returns:
+        The new version, so a caller holding the ``Venue`` instance can keep it in sync
+        (``venue.chart_version = bump_chart_version(venue.id)``) instead of refetching.
+    """
+    now = timezone.now()
+    Venue.objects.filter(pk=venue_id).update(chart_version=now)
+    return now
+
+
 def build_chart(venue: Venue) -> VenueChartSchema:
-    """Serialize a venue's full seating layout into a single render-ready chart payload."""
+    """Serialize a venue's full seating layout into a single render-ready chart payload.
+
+    ``updated_at`` is read straight off the passed instance's ``chart_version``, so the
+    caller must pass a freshly-read venue — the same requirement the prefetches already imply.
+    """
     sectors = venue.sectors.prefetch_related("seats").all()
     categories = list(venue.price_categories.all())
-    updated_candidates = [venue.updated_at]
     sector_schemas: list[ChartSectorSchema] = []
     for sector in sectors:
-        updated_candidates.append(sector.updated_at)
         seat_schemas: list[ChartSeatSchema] = []
         for seat in sector.seats.all():
-            updated_candidates.append(seat.updated_at)
             seat_schemas.append(
                 ChartSeatSchema(
                     id=seat.id,
@@ -51,7 +80,7 @@ def build_chart(venue: Venue) -> VenueChartSchema:
     return VenueChartSchema(
         venue_id=venue.id,
         venue_name=venue.name,
-        updated_at=max(updated_candidates),
+        updated_at=venue.chart_version,
         price_categories=[PriceCategorySchema.from_orm(c) for c in categories],
         sectors=sector_schemas,
     )
