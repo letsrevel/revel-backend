@@ -10,7 +10,7 @@ events-specific wrappers and re-exports.
 """
 
 import typing as t
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
 from common.service.vat_utils import (
     TWO_PLACES,
@@ -99,5 +99,53 @@ def distribute_amount_across_items(total: Decimal, count: int) -> list[Decimal]:
 
     for i in range(int(adjustments)):
         result[i] += penny
+
+    return result
+
+
+def distribute_amount_pro_rata(total: Decimal, weights: list[Decimal]) -> list[Decimal]:
+    """Split a total in proportion to ``weights``, summing exactly to ``total``.
+
+    Largest-remainder apportionment: every item floors to a whole penny, then the
+    leftover pennies go to the items with the biggest fractional parts (ties broken
+    by index). Because the fractional parts sum to exactly the number of leftover
+    pennies, an item with a zero fractional part — in particular a zero weight —
+    never receives one, so a 0.00-priced ticket always gets 0.00.
+
+    Degenerate weights fall back to :func:`distribute_amount_across_items`:
+
+    - **All weights equal** (the uniform cart every batch had before #739): the even
+      split *is* the pro-rata split, and delegating keeps the output byte-identical
+      to what that helper produced before this function existed.
+    - **All weights zero** (a discount drove the whole cart to 0.00): there is no
+      proportion to honour, and a fixed platform fee still has to land somewhere.
+
+    Args:
+        total: The total amount to distribute.
+        weights: One non-negative weight per item (e.g. each ticket's price).
+
+    Returns:
+        List of Decimal amounts, one per weight, summing exactly to ``total``.
+
+    Example:
+        >>> distribute_amount_pro_rata(Decimal("5.00"), [Decimal("80"), Decimal("20")])
+        [Decimal('4.00'), Decimal('1.00')]
+    """
+    count = len(weights)
+    if count == 0:
+        return []
+    total_weight = sum(weights, Decimal("0"))
+    if total_weight <= 0 or len(set(weights)) == 1:
+        return distribute_amount_across_items(total, count)
+
+    # ROUND_FLOOR (not ROUND_DOWN) keeps every fractional part in [0, 1), so the
+    # leftover penny count is non-negative even for a negative total.
+    exact = [total * weight / total_weight for weight in weights]
+    result = [amount.quantize(TWO_PLACES, rounding=ROUND_FLOOR) for amount in exact]
+    leftover = int((total - sum(result, Decimal("0"))) / Decimal("0.01"))
+
+    order = sorted(range(count), key=lambda i: (result[i] - exact[i], i))
+    for i in order[:leftover]:
+        result[i] += Decimal("0.01")
 
     return result
