@@ -43,9 +43,16 @@ jobs:
         run: |
           # $THIS_PR comes from github.event.pull_request.number, a
           # GitHub-controlled integer — safe to splice into the jq filter.
-          OTHERS=$(gh pr list --repo "$GITHUB_REPOSITORY" --label beta \
-                     --state open --json number \
-                     --jq "[.[] | select(.number != $THIS_PR)] | length")
+          #
+          # Deliberately NOT `gh pr list --label beta`: that flag resolves
+          # through GitHub's issues search index, which is eventually
+          # consistent and was observed to keep returning a PR whose actual
+          # `labels` array was empty (survived even a delete+recreate of the
+          # label). Reading labels off the PR objects themselves is strongly
+          # consistent, so we filter client-side instead.
+          OTHERS=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 100 \
+                     --json number,labels \
+                     --jq "[.[] | select(.number != $THIS_PR) | select(any(.labels[]; .name == \"beta\"))] | length")
           if ! [[ "$OTHERS" =~ ^[0-9]+$ ]]; then
             echo "::error::Could not determine the beta claimant count (got '$OTHERS')"
             exit 1
