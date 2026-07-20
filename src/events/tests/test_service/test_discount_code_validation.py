@@ -565,14 +565,20 @@ class TestValidateDiscountCode:
         assert exc_info.value.status_code == 400
         assert "not valid for this currency" in str(exc_info.value.message)
 
-    def test_min_purchase_amount_not_met_raises_400(
+    def test_min_purchase_amount_is_deferred_to_checkout(
         self,
         dc_org: Organization,
         dc_paid_tier: TicketTier,
         dc_buyer: RevelUser,
     ) -> None:
-        """Should raise 400 when total purchase is below min_purchase_amount."""
-        DiscountCode.objects.create(
+        """Validation no longer rejects on ``min_purchase_amount`` — checkout does (spec §5.6).
+
+        This ran against ``tier.price * batch_size``, which cannot be the cart total on a
+        category-priced tier (and which the anonymous path computed with a hardcoded
+        ``batch_size=1``). It now runs post-resolution in ``BatchTicketService`` — see
+        ``test_batch_ticket_service/test_category_pricing_checkout.py``.
+        """
+        dc_min = DiscountCode.objects.create(
             code="BIGORDER",
             organization=dc_org,
             discount_type=DiscountCode.DiscountType.PERCENTAGE,
@@ -581,26 +587,22 @@ class TestValidateDiscountCode:
             is_active=True,
         )
 
-        # Tier price is 50 EUR, batch_size=1, so total = 50 < 200
-        with pytest.raises(HttpError) as exc_info:
-            discount_code_service.validate_discount_code(
-                code="BIGORDER",
-                organization=dc_org,
-                tier=dc_paid_tier,
-                user=dc_buyer,
-                batch_size=1,
-            )
+        # Tier price is 50 EUR, batch_size=1 — well below the 200 minimum, and yet valid here.
+        result = discount_code_service.validate_discount_code(
+            code="BIGORDER",
+            organization=dc_org,
+            tier=dc_paid_tier,
+            user=dc_buyer,
+            batch_size=1,
+        )
 
-        assert exc_info.value.status_code == 400
-        assert "Minimum purchase amount" in str(exc_info.value.message)
+        assert result.pk == dc_min.pk
 
-    def test_min_purchase_amount_met_with_larger_batch(
+    def test_assert_min_purchase_amount_compares_against_the_cart_total(
         self,
         dc_org: Organization,
-        dc_paid_tier: TicketTier,
-        dc_buyer: RevelUser,
     ) -> None:
-        """Should pass when batch_size * price meets min_purchase_amount."""
+        """The extracted check itself: below the minimum raises 400, at the minimum passes."""
         dc_min = DiscountCode.objects.create(
             code="BIGBATCH",
             organization=dc_org,
@@ -611,16 +613,12 @@ class TestValidateDiscountCode:
             is_active=True,
         )
 
-        # Tier price is 50 EUR, batch_size=2, so total = 100 >= 100
-        result = discount_code_service.validate_discount_code(
-            code="BIGBATCH",
-            organization=dc_org,
-            tier=dc_paid_tier,
-            user=dc_buyer,
-            batch_size=2,
-        )
+        with pytest.raises(HttpError) as exc_info:
+            discount_code_service.assert_min_purchase_amount(dc_min, Decimal("99.99"))
 
-        assert result.pk == dc_min.pk
+        assert exc_info.value.status_code == 400
+        assert "Minimum purchase amount" in str(exc_info.value.message)
+        discount_code_service.assert_min_purchase_amount(dc_min, Decimal("100.00"))  # exactly at the minimum
 
 
 # ===========================================================================

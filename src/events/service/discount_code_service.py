@@ -185,18 +185,17 @@ def _validate_core(
     code: str,
     organization: Organization,
     tier: TicketTier,
-    batch_size: int = 1,
 ) -> DiscountCode:
     """Core validation shared by authenticated and anonymous flows.
 
     Checks: lookup, dates, global usage limit (optimistic), tier type,
-    scope applicability, currency match, and minimum purchase amount.
+    scope applicability and currency match. ``min_purchase_amount`` is **not**
+    checked here — see :func:`assert_min_purchase_amount`.
 
     Args:
         code: The discount code string.
         organization: The organization owning the event.
         tier: The ticket tier being purchased.
-        batch_size: Number of tickets in the purchase.
 
     Returns:
         The validated DiscountCode instance.
@@ -233,17 +232,34 @@ def _validate_core(
     if dc.discount_type == DiscountCode.DiscountType.FIXED_AMOUNT and dc.currency != tier.currency:
         raise HttpError(400, str(_("This discount code is not valid for this currency.")))
 
-    # Minimum purchase amount
-    total_amount = tier.price * batch_size
-    if total_amount < dc.min_purchase_amount:
+    return dc
+
+
+def assert_min_purchase_amount(discount_code: DiscountCode, total_amount: Decimal) -> None:
+    """Enforce ``min_purchase_amount`` against a cart's real pre-discount total (spec §5.6).
+
+    Deferred out of :func:`_validate_core` deliberately. That runs before seats are
+    resolved, so the only total it could compute was ``tier.price * batch_size`` —
+    which is simply the wrong number on a category-priced tier, and which
+    :func:`validate_discount_code_anonymous` computed with a hardcoded
+    ``batch_size=1``. Checkout knows the real total and calls this under the tier lock.
+    A "conservative" pre-check off the cheapest category was considered and struck: it
+    *underestimates* the total, so it would falsely reject valid carts.
+
+    Args:
+        discount_code: The validated discount code.
+        total_amount: The cart's pre-discount total (sum of the resolved seat prices).
+
+    Raises:
+        HttpError: 400, if the cart is below the code's minimum.
+    """
+    if total_amount < discount_code.min_purchase_amount:
         raise HttpError(
             400,
             str(_("Minimum purchase amount of {amount} required to use this discount code.")).format(
-                amount=dc.min_purchase_amount,
+                amount=discount_code.min_purchase_amount,
             ),
         )
-
-    return dc
 
 
 def _check_per_user_usage(dc: DiscountCode, user: RevelUser, batch_size: int) -> None:
@@ -286,7 +302,7 @@ def validate_discount_code(
     Raises:
         HttpError: If the discount code is invalid or not applicable.
     """
-    dc = _validate_core(code, organization, tier, batch_size)
+    dc = _validate_core(code, organization, tier)
 
     # Per-user usage limit (optimistic — definitive check under lock in apply_discount)
     _check_per_user_usage(dc, user, batch_size)
@@ -323,7 +339,7 @@ def validate_discount_code_anonymous(
     Raises:
         HttpError: If the discount code is invalid or not applicable.
     """
-    return _validate_core(code, organization, tier, batch_size=1)
+    return _validate_core(code, organization, tier)
 
 
 def preview_discount_code(

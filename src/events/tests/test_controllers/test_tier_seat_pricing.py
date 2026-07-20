@@ -12,6 +12,7 @@ import pytest
 from django.db import connection
 from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
+from ninja.errors import HttpError
 
 from events.models import Event, PriceCategory, TicketTier, VenueSeat
 from events.service.seating.pricing import resolve_seat_price
@@ -79,13 +80,16 @@ def test_category_priced_tier_resolves_every_painted_category(
     }
 
 
-def test_painted_but_unpriced_category_is_reported_at_the_fallback_price(
+def test_painted_but_unpriced_category_is_still_listed(
     client: Client, seated_event: tuple[Event, list[VenueSeat]]
 ) -> None:
-    """Paint mutates after tier validation (spec §4.3): the drifted category must still be quoted.
+    """Paint mutates after tier validation (spec §4.3): the drifted category is still listed.
 
-    Checkout falls back to ``tier.price`` for it and logs a warning. The payload has to
-    say the same number, or the buyer is shown a price nobody will charge.
+    The quoted number is the tier's flat price, which is what ``effective_category_price``
+    resolves — but **checkout now refuses** such a seat rather than charging it
+    (decision 2026-07-20), so this quote is a pricing *gap*, not an offer. Surfacing
+    the gap in the payload is plan Task 12; this test pins that the category does not
+    silently vanish from the list in the meantime.
     """
     event, seats = seated_event
     venue = event.venue
@@ -104,11 +108,15 @@ def test_painted_but_unpriced_category_is_reported_at_the_fallback_price(
         {"id": str(late.id), "name": "Zone C", "color": "#0000aa", "price": "50.00"},
     ]
 
-    # ...and that quoted price is exactly what the checkout resolver would charge.
+    # The unpainted quote is a real offer — the resolver charges exactly it.
     tier.refresh_from_db()
     price_map = parse_price_map(tier.category_prices)
-    assert resolve_seat_price(tier, seats[2], price_map) == Decimal("50.00")
     assert resolve_seat_price(tier, seats[4], price_map) == Decimal("50.00")  # unpainted
+    # The drifted category is not: buying that seat is refused, naming the category.
+    with pytest.raises(HttpError) as exc_info:
+        resolve_seat_price(tier, seats[2], price_map)
+    assert exc_info.value.status_code == 400
+    assert "Zone C" in str(exc_info.value.message)
 
 
 def test_flat_tiers_cost_no_extra_queries(

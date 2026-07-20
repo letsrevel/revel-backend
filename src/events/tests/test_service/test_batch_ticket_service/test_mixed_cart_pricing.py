@@ -16,12 +16,10 @@ What is pinned:
   ``ROUND_HALF_UP``.
 """
 
-from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 
 import pytest
-from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
@@ -32,7 +30,6 @@ from events.models import (
     PriceCategory,
     Ticket,
     TicketTier,
-    Venue,
     VenueSeat,
     VenueSector,
 )
@@ -40,103 +37,16 @@ from events.schema import TicketPurchaseItem
 from events.service import stripe_service
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.seating.pricing import TicketPrice
+from events.tests.test_service.test_batch_ticket_service.conftest import (
+    FLAT,
+    PREMIUM,
+    STANDARD,
+)
+from events.tests.test_service.test_batch_ticket_service.conftest import (
+    make_category_tier as _make_tier,
+)
 
 pytestmark = pytest.mark.django_db
-
-PREMIUM = Decimal("80.00")
-STANDARD = Decimal("30.00")
-FLAT = Decimal("50.00")
-
-
-@pytest.fixture
-def seated_org(organization: Organization) -> Organization:
-    """Stripe-connected org with a 3% + 0.50 platform fee."""
-    organization.stripe_account_id = "acct_seated"
-    organization.stripe_charges_enabled = True
-    organization.stripe_details_submitted = True
-    organization.platform_fee_percent = Decimal("3.00")
-    organization.platform_fee_fixed = Decimal("0.50")
-    organization.save()
-    return organization
-
-
-@pytest.fixture
-def seated_event(seated_org: Organization) -> Event:
-    """Open public event with room for the whole cart."""
-    return Event.objects.create(
-        organization=seated_org,
-        name="Seated Event",
-        slug="seated-event",
-        event_type=Event.EventType.PUBLIC,
-        visibility=Event.Visibility.PUBLIC,
-        start=timezone.now() + timedelta(days=7),
-        status=Event.EventStatus.OPEN,
-        max_attendees=100,
-        max_tickets_per_user=5,
-    )
-
-
-@pytest.fixture
-def sector(seated_org: Organization) -> VenueSector:
-    """A sector in a venue that has Premium and Standard categories."""
-    venue = Venue.objects.create(organization=seated_org, name="Theatre", capacity=100)
-    return VenueSector.objects.create(
-        venue=venue,
-        name="Stalls",
-        shape=[{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}, {"x": 0, "y": 10}],
-    )
-
-
-@pytest.fixture
-def categories(sector: VenueSector) -> tuple[PriceCategory, PriceCategory]:
-    """Premium and Standard, painted onto the sector's seats below."""
-    premium = PriceCategory.objects.create(venue=sector.venue, name="Premium", color="#aa0000")
-    standard = PriceCategory.objects.create(venue=sector.venue, name="Standard", color="#00aa00")
-    return premium, standard
-
-
-@pytest.fixture
-def seats(sector: VenueSector, categories: tuple[PriceCategory, PriceCategory]) -> list[VenueSeat]:
-    """A1 Premium, A2 Standard, A3 unpainted (falls back to the flat tier price)."""
-    premium, standard = categories
-    painted: list[PriceCategory | None] = [premium, standard, None]
-    return [
-        VenueSeat.objects.create(
-            sector=sector,
-            label=f"A{i + 1}",
-            row_label="A",
-            number=i + 1,
-            position={"x": i, "y": 0},
-            is_active=True,
-            default_price_category=category,
-        )
-        for i, category in enumerate(painted)
-    ]
-
-
-def _make_tier(
-    event: Event,
-    sector: VenueSector,
-    categories: tuple[PriceCategory, PriceCategory],
-    method: TicketTier.PaymentMethod,
-    *,
-    prices: tuple[Decimal, Decimal] = (PREMIUM, STANDARD),
-    flat: Decimal = FLAT,
-) -> TicketTier:
-    premium, standard = categories
-    return TicketTier.objects.create(
-        event=event,
-        name=f"Stalls {method}",
-        price=flat,
-        currency="EUR",
-        payment_method=method,
-        total_quantity=50,
-        max_tickets_per_user=5,
-        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
-        venue=sector.venue,
-        sector=sector,
-        category_prices={str(premium.pk): str(prices[0]), str(standard.pk): str(prices[1])},
-    )
 
 
 @pytest.fixture

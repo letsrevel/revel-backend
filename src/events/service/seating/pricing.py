@@ -17,6 +17,8 @@ from decimal import Decimal
 from uuid import UUID
 
 import structlog
+from django.utils.translation import gettext as _
+from ninja.errors import HttpError
 
 from events.service.discount_code_service import calculate_discounted_unit_price
 from events.utils.tier_pricing import effective_category_price, parse_price_map
@@ -58,6 +60,16 @@ class BatchPricing:
     lines: list[TicketPrice]
     total: Decimal
 
+    @property
+    def gross_total(self) -> Decimal:
+        """The cart's **pre-discount** total.
+
+        What a discount code's ``min_purchase_amount`` threshold compares against
+        (spec §5.6): ``tier.price`` was always a list price, so measuring the
+        threshold post-discount would silently tighten every existing code.
+        """
+        return sum((line.unit_price + line.discount_amount for line in self.lines), ZERO)
+
 
 def resolve_seat_price(
     tier: "TicketTier",
@@ -69,12 +81,18 @@ def resolve_seat_price(
     Resolution order:
 
     - Seat painted with a category present in the map → the mapped price.
-    - Seat painted with a category **absent** from the map → ``tier.price`` plus a
-      structured warning. Write-time validation normally prevents this, but paint
-      can change after a tier is saved; a config drift must never 500 a buyer.
+    - Seat painted with a category **absent** from the map → **refuse the sale**.
     - Unpainted seat → ``tier.price``, no warning. This is the one legitimate,
       documented fallback.
     - No seat (general admission) or an empty map → ``tier.price``, no warning.
+
+    Why refusing beats falling back (decision 2026-07-20): ``paint_seats`` is
+    venue-scoped, so it deliberately does **not** hard-fail when it leaves a tier
+    under-covered — one event's pricing config must not block routine map work for
+    every other event at that venue. The gap therefore has to bite here instead;
+    the alternative is charging the flat price for a premium seat, which is exactly
+    the silent mispricing this feature exists to prevent. Only the affected seats
+    are refused — seats in priced categories still sell normally.
 
     Args:
         tier: The tier being purchased (already locked by the caller, if relevant).
@@ -83,6 +101,11 @@ def resolve_seat_price(
 
     Returns:
         The pre-discount unit price for this seat.
+
+    Raises:
+        HttpError: 400, when the seat is painted into a category the tier does not
+            price. The message names the category so the buyer (and the organizer
+            reading the support ticket) knows which one is unconfigured.
     """
     if seat is None or not price_map:
         return tier.price
@@ -94,7 +117,14 @@ def resolve_seat_price(
             tier_id=str(tier.pk),
             seat_id=str(seat.pk),
             price_category_id=str(category_id),
-            fallback_price=str(tier.price),
+        )
+        # Lazy FK load on the error path only — one query, never on the happy path.
+        category_name = getattr(seat.default_price_category, "name", str(category_id))
+        raise HttpError(
+            400,
+            str(
+                _('Seat {seat} is in the "{category}" price category, which this ticket tier does not price yet.')
+            ).format(seat=seat.label, category=category_name),
         )
     return effective_category_price(price_map, category_id, tier.price)
 
@@ -112,10 +142,14 @@ def recorded_or_resolved_price(
     non-flat seat — capping refunds at the wrong number and mis-reporting revenue — so
     the seat's own category price is resolved instead.
 
-    **Never raises.** The ``price_paid`` invariant is time-scoped: tickets sold *before*
+    **Never raises** — deliberately *not* routed through :func:`resolve_seat_price`, which
+    refuses an unpriced category at checkout. This is a read path for money that has already
+    changed hands; refusing here would break refunding a ticket whose category was unpriced
+    after the sale. The ``price_paid`` invariant is also time-scoped: tickets sold *before*
     a tier opted into category pricing legitimately carry NULL (``ticket.py:674-681``),
     and refunding them must keep working. A NULL on a category-priced tier is logged as
-    an anomaly, priced from the seat, and allowed through.
+    an anomaly, priced from the seat (flat price if its category is unpriced), and
+    allowed through.
 
     Callers pass ``ticket.tier``/``ticket.seat`` — pre-fetch both (``select_related``)
     when calling this in a loop.
@@ -138,7 +172,8 @@ def recorded_or_resolved_price(
         tier_id=str(tier.pk),
         seat_id=str(seat.pk) if seat is not None else None,
     )
-    return resolve_seat_price(tier, seat, price_map)
+    category_id = seat.default_price_category_id if seat is not None else None
+    return effective_category_price(price_map, category_id, tier.price)
 
 
 def cart_is_certainly_free(
@@ -196,6 +231,10 @@ def build_batch_pricing(
 
     Returns:
         The per-ticket vector and its total.
+
+    Raises:
+        HttpError: 400, when any seat is painted into a category the tier does not
+            price — see :func:`resolve_seat_price`.
     """
     if pwyc_amount is not None:
         lines = [TicketPrice(unit_price=pwyc_amount, discount_amount=ZERO) for _ in seats]

@@ -980,6 +980,9 @@ msgstr "Ungültige Stripe-Signatur"
 msgid "A discount code with this code already exists."
 msgstr "Ein Rabattcode mit diesem Code existiert bereits."
 
+msgid "Payment processing failed. Please try again later."
+msgstr "Zahlung fehlgeschlagen. Bitte versuche es später erneut."
+
 msgid "Draft"
 msgstr "Entwurf"
 
@@ -1588,6 +1591,14 @@ msgstr "Der Zielsitzplatz ist für dieses Event gesperrt."
 msgid "The target seat is currently held by another buyer."
 msgstr "Der Zielsitzplatz ist derzeit von einem anderen Käufer reserviert."
 
+#, python-brace-format
+msgid ""
+"Seat {seat} is in the \"{category}\" price category, which this ticket tier "
+"does not price yet."
+msgstr ""
+"Der Platz {seat} gehört zur Preiskategorie \"{category}\", für die dieses "
+"Ticket-Level noch keinen Preis festgelegt hat."
+
 msgid "You cannot purchase from this organization."
 msgstr "Du kannst bei dieser Organisation nichts kaufen."
 
@@ -1680,9 +1691,6 @@ msgstr "Dieser Serienpass wird nicht offline bezahlt."
 
 msgid "This held pass is not pending."
 msgstr "Dieser gehaltene Pass ist nicht ausstehend."
-
-msgid "Payment processing failed. Please try again later."
-msgstr "Zahlung fehlgeschlagen. Bitte versuche es später erneut."
 
 msgid "This organization is not configured to accept payments."
 msgstr ""

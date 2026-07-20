@@ -30,8 +30,9 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from ninja.errors import HttpError
 
-from events.models import DiscountCode, TicketTier, VenueSeat
+from events.models import DiscountCode, PriceCategory, TicketTier, VenueSeat
 from events.service import discount_code_service
 from events.service.seating import pricing
 from events.utils.tier_pricing import parse_price_map
@@ -54,10 +55,18 @@ def make_tier(price: str = "50.00", category_prices: dict[str, str] | None = Non
     )
 
 
-def make_seat(category_id: uuid.UUID | None) -> VenueSeat:
-    """Build an unsaved seat, optionally painted with a price category."""
+def make_seat(category_id: uuid.UUID | None, category_name: str = "Painted") -> VenueSeat:
+    """Build an unsaved seat, optionally painted with a price category.
+
+    The category is attached as an unsaved instance (not just its id) so the FK is
+    already cached — the refusal path reads ``.name`` for the error message and this
+    file must never touch the database.
+    """
     seat = VenueSeat(id=uuid.uuid4(), label="A1", row_label="A", number=1, adjacency_index=0)
-    seat.default_price_category_id = category_id
+    if category_id is None:
+        seat.default_price_category = None
+    else:
+        seat.default_price_category = PriceCategory(id=category_id, name=category_name)
     return seat
 
 
@@ -106,18 +115,25 @@ class TestResolveSeatPrice:
         assert resolved == Decimal("50.00")
         assert caplog.records == []
 
-    def test_painted_but_unpriced_seat_falls_back_and_warns(
+    def test_painted_but_unpriced_seat_is_refused(
         self, premium_map: dict[str, str], caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Config drift (paint changed after the tier was saved) logs, never raises."""
+        """Config drift (paint moved after the tier was saved) refuses the seat, naming the category.
+
+        Falling back to ``tier.price`` here would charge the flat price for what the
+        venue map calls a premium seat — the exact silent mispricing this feature
+        exists to prevent. Paint is venue-scoped and deliberately never hard-fails,
+        so the gap has to bite at checkout instead (decision 2026-07-20).
+        """
         tier = make_tier(category_prices=premium_map)
         price_map = parse_price_map(tier.category_prices)
-        seat = make_seat(UNPRICED_ID)
+        seat = make_seat(UNPRICED_ID, category_name="Balcony")
 
-        with caplog.at_level("WARNING", logger=LOGGER):
-            resolved = pricing.resolve_seat_price(tier, seat, price_map)
+        with caplog.at_level("WARNING", logger=LOGGER), pytest.raises(HttpError) as exc_info:
+            pricing.resolve_seat_price(tier, seat, price_map)
 
-        assert resolved == Decimal("50.00")
+        assert exc_info.value.status_code == 400
+        assert "Balcony" in str(exc_info.value.message)
         assert any("seat_price_category_unpriced" in record.message for record in caplog.records)
         assert any(str(UNPRICED_ID) in record.message for record in caplog.records)
 
@@ -303,18 +319,22 @@ class TestCategoryPricing:
         assert [line.discount_amount for line in result.lines] == [Decimal("40.00"), Decimal("30.00")]
         assert result.total == Decimal("10.00")
 
-    def test_unpriced_category_in_a_batch_falls_back_and_warns(
+    def test_unpriced_category_in_a_batch_refuses_the_whole_cart(
         self, premium_map: dict[str, str], caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Runtime drift degrades to the flat price for that seat only."""
+        """One unpriced seat in the cart refuses that cart — it is never quietly flat-priced.
+
+        The refusal is seat-scoped in the sense that seats in priced categories stay
+        sellable; the *buyer* just has to drop the offending one from this cart.
+        """
         tier = make_tier("50.00", premium_map)
-        seats: list[VenueSeat | None] = [make_seat(PREMIUM_ID), make_seat(UNPRICED_ID)]
+        seats: list[VenueSeat | None] = [make_seat(PREMIUM_ID), make_seat(UNPRICED_ID, category_name="Balcony")]
 
-        with caplog.at_level("WARNING", logger=LOGGER):
-            result = pricing.build_batch_pricing(tier, seats)
+        with caplog.at_level("WARNING", logger=LOGGER), pytest.raises(HttpError) as exc_info:
+            pricing.build_batch_pricing(tier, seats)
 
-        assert [line.unit_price for line in result.lines] == [Decimal("80.00"), Decimal("50.00")]
-        assert result.total == Decimal("130.00")
+        assert exc_info.value.status_code == 400
+        assert "Balcony" in str(exc_info.value.message)
         assert sum("seat_price_category_unpriced" in record.message for record in caplog.records) == 1
 
     def test_rounds_per_ticket_then_sums(self) -> None:

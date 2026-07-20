@@ -25,6 +25,7 @@ from events.models import (
 )
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
+from events.service.discount_code_service import assert_min_purchase_amount
 from events.service.seating import holds as holds_service
 from events.service.seating.pricing import BatchPricing, TicketPrice, build_batch_pricing, cart_is_certainly_free
 from events.tasks import build_attendee_visibility_flags
@@ -657,6 +658,10 @@ class BatchTicketService:
         # the only place that reads the tier's category map. Priced off the LOCKED
         # tier, so a concurrent repricing can't be undercut by a stale pre-lock read.
         pricing = build_batch_pricing(locked_tier, seats, pwyc_amount=pwyc_amount, discount_code=self.discount_code)
+        # min_purchase_amount is enforced HERE, not in validate_discount_code: only now
+        # is the cart's real total known (spec §5.6).
+        if self.discount_code is not None:
+            assert_min_purchase_amount(self.discount_code, pricing.gross_total)
         # A NULL price_paid means "tier.price still reconstructs it", and the revenue
         # report leans on that NULL (revenue_aggregation.py:346). Stamp an explicit
         # amount only when the buyer moved the price (PWYC/discount) or the tier
