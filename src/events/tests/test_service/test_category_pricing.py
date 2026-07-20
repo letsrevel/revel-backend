@@ -368,6 +368,53 @@ class TestCategoryPricing:
         assert all(isinstance(value, Decimal) for value in values)
 
 
+class TestCartIsCertainlyFree:
+    """The seat-blind upper bound checkout uses to skip pre-lock work (plan Task 5)."""
+
+    def test_pwyc_zero_is_free_and_pwyc_positive_is_not(self) -> None:
+        """PWYC prices the whole cart uniformly, so the amount alone decides."""
+        tier = make_tier("50.00")
+
+        assert pricing.cart_is_certainly_free(tier, pwyc_amount=Decimal("0.00")) is True
+        assert pricing.cart_is_certainly_free(tier, pwyc_amount=Decimal("0.01")) is False
+
+    def test_no_discount_is_never_certainly_free(self) -> None:
+        """Without buyer input the tier price stands — even a 0.00 tier stays on the paid path."""
+        assert pricing.cart_is_certainly_free(make_tier("0.00")) is False
+
+    def test_code_covering_the_flat_price_is_free(self) -> None:
+        """A FIXED_AMOUNT code worth the whole ticket zeroes a flat tier."""
+        tier = make_tier("25.00")
+        dc = make_discount(DiscountCode.DiscountType.FIXED_AMOUNT, "25.00")
+
+        assert pricing.cart_is_certainly_free(tier, discount_code=dc) is True
+
+    def test_partial_code_is_not_free(self) -> None:
+        """A code that leaves anything on any price is not certainly free."""
+        tier = make_tier("25.00")
+        dc = make_discount(DiscountCode.DiscountType.PERCENTAGE, "99.00")
+
+        assert pricing.cart_is_certainly_free(tier, discount_code=dc) is False
+
+    def test_a_dearer_category_keeps_the_cart_payable(self, premium_map: dict[str, str]) -> None:
+        """The bound is over EVERY price the tier can charge, not just ``tier.price``.
+
+        A code covering the flat 50.00 leaves 30.00 on a Premium seat, so the
+        buyer's VAT context must still be resolved.
+        """
+        tier = make_tier("50.00", premium_map)
+        dc = make_discount(DiscountCode.DiscountType.FIXED_AMOUNT, "50.00")
+
+        assert pricing.cart_is_certainly_free(tier, discount_code=dc) is False
+
+    def test_code_covering_every_category_is_free(self, premium_map: dict[str, str]) -> None:
+        """When the code covers the dearest category too, nothing can be charged."""
+        tier = make_tier("50.00", premium_map)
+        dc = make_discount(DiscountCode.DiscountType.PERCENTAGE, "100.00")
+
+        assert pricing.cart_is_certainly_free(tier, discount_code=dc) is True
+
+
 def test_module_is_pure_and_needs_no_database(premium_map: dict[str, str]) -> None:
     """No ``django_db`` marker anywhere in this file — a query here would error out."""
     tier = make_tier("50.00", premium_map)
