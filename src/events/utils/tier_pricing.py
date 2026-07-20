@@ -14,7 +14,9 @@ from uuid import UUID
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 if t.TYPE_CHECKING:
-    from events.models import TicketTier
+    from django.db.models import QuerySet
+
+    from events.models import PriceCategory, TicketTier
 
 FIELD = "category_prices"
 ONLINE_MINIMUM = Decimal("1")
@@ -82,6 +84,26 @@ def effective_category_price(price_map: dict[UUID, Decimal], category_id: UUID |
     return price_map.get(category_id, flat_price)
 
 
+def painted_categories(sector_id: t.Any) -> "QuerySet[PriceCategory]":
+    """The price categories painted on at least one active seat of a sector.
+
+    The single definition of "painted", shared by write-time validation and by the
+    read paths that surface a tier's pricing gaps. A ``None`` sector yields an empty
+    queryset (an unseated tier has nothing painted).
+
+    Args:
+        sector_id: The sector to inspect.
+
+    Returns:
+        A distinct queryset of the categories in use, unordered.
+    """
+    from events.models import PriceCategory
+
+    if sector_id is None:
+        return PriceCategory.objects.none()
+    return PriceCategory.objects.filter(seats__sector_id=sector_id, seats__is_active=True).distinct()
+
+
 def validate_category_prices(tier: "TicketTier") -> None:
     """Validate a tier's category price map (spec §4.2 and §4.3).
 
@@ -97,7 +119,7 @@ def validate_category_prices(tier: "TicketTier") -> None:
     Raises:
         DjangoValidationError: If any rule is violated.
     """
-    from events.models import PriceCategory, VenueSeat
+    from events.models import PriceCategory
 
     prices = parse_price_map(tier.category_prices)
     if not prices:
@@ -126,11 +148,7 @@ def validate_category_prices(tier: "TicketTier") -> None:
         labels = sorted(elsewhere.get(cid, str(cid)) for cid in unknown)
         _fail(f"These price categories do not belong to the tier's venue: {', '.join(labels)}.")
 
-    painted = set(
-        VenueSeat.objects.filter(sector_id=tier.sector_id, is_active=True, default_price_category__isnull=False)
-        .values_list("default_price_category_id", flat=True)
-        .distinct()
-    )
+    painted = set(painted_categories(tier.sector_id).values_list("id", flat=True))
     missing = painted - prices.keys()
     if missing:
         names = sorted(PriceCategory.objects.filter(id__in=missing).values_list("name", flat=True))

@@ -14,7 +14,7 @@ from common.signing import get_file_url
 from events import models
 from events.models import DiscountCode, Payment, Ticket, TicketTier
 from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
-from events.utils.tier_pricing import effective_category_price, parse_price_map
+from events.utils.tier_pricing import painted_categories, parse_price_map
 
 from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
@@ -62,12 +62,23 @@ Currencies = t.Literal[
 
 
 class TierCategoryPriceSchema(Schema):
-    """The effective price of one price category on one tier."""
+    """The effective price of one price category on one tier.
+
+    Attributes:
+        price: What a seat in this category costs, or ``None`` when the tier does not
+            price the category — there is no honest number to show, and checkout will
+            refuse the seat.
+        available: False when the category is painted in the tier's sector but absent
+            from the tier's price map. Seats in it must be rendered unselectable: the
+            organizer has a configuration gap to fix, and buying is impossible until
+            they do.
+    """
 
     id: UUID
     name: str
     color: str
-    price: Decimal
+    price: Decimal | None = None
+    available: bool = True
 
 
 class TierSeatPricingSchema(Schema):
@@ -79,9 +90,12 @@ class TierSeatPricingSchema(Schema):
 
     Attributes:
         categories: Every category painted on an active seat of the tier's sector, plus
-            any extra category the tier prices, each with its effective price. A category
-            painted *after* the tier was saved is included at the ``unpainted`` fallback
-            price — the same number checkout will charge for it.
+            any extra category the tier prices. A category painted *after* the tier was
+            saved carries ``available=False`` and no price — checkout refuses those seats
+            (spec §4.3), so quoting them a price would sell the buyer a 400. They are
+            listed rather than omitted so the frontend can grey the seats out; silently
+            dropping them would leave those seats unexplained and, worse, indistinguishable
+            from unpainted ones.
         unpainted: What a seat with no category costs. The one legitimate fallback.
     """
 
@@ -173,7 +187,10 @@ class TicketTierSchema(ModelSchema):
                     id=category.id,
                     name=category.name,
                     color=category.color,
-                    price=effective_category_price(price_map, category.id, obj.price),
+                    # Everything in this queryset is either priced or painted, so "absent from
+                    # the map" is exactly "painted but unpriced" — the case checkout refuses.
+                    price=price_map.get(category.id),
+                    available=category.id in price_map,
                 )
                 for category in categories
             ],
@@ -572,6 +589,14 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
         return self
 
 
+class TierPricingGapSchema(Schema):
+    """A price category painted in the tier's sector that the tier does not price."""
+
+    id: UUID
+    name: str
+    color: str
+
+
 class TicketTierDetailSchema(ModelSchema):
     event_id: UUID
     total_available: int | None = None
@@ -585,6 +610,7 @@ class TicketTierDetailSchema(ModelSchema):
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
     category_prices: CategoryPriceMap = Field(default_factory=dict)
+    pricing_gaps: list[TierPricingGapSchema] = Field(default_factory=list)
 
     class Meta:
         model = TicketTier
@@ -628,6 +654,29 @@ class TicketTierDetailSchema(ModelSchema):
             models.Organization.InvoicingMode.HYBRID,
             models.Organization.InvoicingMode.AUTO,
         )
+
+    @staticmethod
+    def resolve_pricing_gaps(obj: TicketTier) -> list[TierPricingGapSchema]:
+        """Categories painted in the tier's sector that the map does not price.
+
+        A configuration error only the organizer can fix: write-time validation demands
+        full coverage, but ``paint_seats`` is venue-scoped and deliberately never fails
+        (spec §4.3), so a repaint at the venue level can leave an already-saved tier
+        under-covered. Checkout then refuses those seats. Nothing else tells the admin,
+        so the tier form warns from this field.
+
+        Computed, never stored — a stored flag would desync on the next repaint.
+
+        # ponytail: one query per *category-priced* tier on the admin tier list (flat
+        # tiers cost nothing). An event has a handful of tiers, so this is well under
+        # the noise floor; if that ever changes, prefetch the sectors' painted
+        # categories once in ``list_ticket_tiers`` and resolve from that map.
+        """
+        price_map = parse_price_map(obj.category_prices)
+        if not price_map:
+            return []
+        gaps = painted_categories(obj.sector_id).exclude(id__in=list(price_map)).order_by("display_order", "name")
+        return [TierPricingGapSchema(id=c.id, name=c.name, color=c.color) for c in gaps]
 
 
 class ReorderSchema(Schema):

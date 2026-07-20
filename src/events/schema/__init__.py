@@ -338,6 +338,7 @@ from .ticket import (
     TicketSeriesPassSchema,
     TicketTierCreateSchema,
     TierCategoryPriceSchema,
+    TierPricingGapSchema,
     TierSeatPricingSchema,
     TicketTierDetailSchema,
     TicketTierSchema,
@@ -518,6 +519,7 @@ __all__ = [
     "TicketTierSchema",
     "TicketTierUpdateSchema",
     "TierCategoryPriceSchema",
+    "TierPricingGapSchema",
     "TierSeatPricingSchema",
     "UserTicketSchema",
     # Series pass

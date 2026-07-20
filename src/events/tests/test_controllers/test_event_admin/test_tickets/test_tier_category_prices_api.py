@@ -222,6 +222,46 @@ def test_list_ticket_tiers_exposes_the_map(
     assert tiers[str(priced_tier.pk)]["category_prices"] == priced_tier.category_prices
 
 
+def test_list_ticket_tiers_reports_no_gaps_while_the_map_is_complete(
+    organization_owner_client: Client, event: Event, priced_tier: TicketTier
+) -> None:
+    """A fully-covered tier must not cry wolf — the form only warns on a real gap."""
+    url = reverse("api:list_ticket_tiers", kwargs={"event_id": event.pk})
+    response = organization_owner_client.get(url)
+
+    assert response.status_code == 200
+    tiers = {r["id"]: r for r in response.json()["results"]}
+    assert tiers[str(priced_tier.pk)]["pricing_gaps"] == []
+
+
+def test_a_late_repaint_surfaces_as_a_pricing_gap(
+    organization_owner_client: Client,
+    event: Event,
+    venue: Venue,
+    sector: VenueSector,
+    priced_tier: TicketTier,
+) -> None:
+    """Painting a new category after the tier was saved leaves a gap only the admin can fix.
+
+    ``paint_seats`` is venue-scoped and never fails (spec §4.3), so the tier silently
+    stops covering its sector and checkout starts refusing those seats. This payload is
+    the admin's only warning.
+    """
+    balcony = PriceCategory.objects.create(venue=venue, name="Balcony", color="#00aa00")
+    seat = sector.seats.get(label="A3")  # the unpainted one
+    seat.default_price_category = balcony
+    seat.save(update_fields=["default_price_category"])
+
+    url = reverse("api:list_ticket_tiers", kwargs={"event_id": event.pk})
+    response = organization_owner_client.get(url)
+
+    assert response.status_code == 200
+    tiers = {r["id"]: r for r in response.json()["results"]}
+    assert tiers[str(priced_tier.pk)]["pricing_gaps"] == [
+        {"id": str(balcony.pk), "name": "Balcony", "color": "#00aa00"}
+    ]
+
+
 # ---- Validation: clean 400s, never 500s, never silent coercion ----
 
 

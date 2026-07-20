@@ -72,8 +72,8 @@ def test_category_priced_tier_resolves_every_painted_category(
     pricing = _tier_payload(client, event, tier)["seat_pricing"]
     assert pricing == {
         "categories": [
-            {"id": str(premium.id), "name": "Premium", "color": "#aa0000", "price": "80.00"},
-            {"id": str(standard.id), "name": "Standard", "color": "#00aa00", "price": "40.00"},
+            {"id": str(premium.id), "name": "Premium", "color": "#aa0000", "price": "80.00", "available": True},
+            {"id": str(standard.id), "name": "Standard", "color": "#00aa00", "price": "40.00", "available": True},
         ],
         # Seats 5 and 6 are unpainted: they cost the tier's flat price.
         "unpainted": "50.00",
@@ -83,13 +83,13 @@ def test_category_priced_tier_resolves_every_painted_category(
 def test_painted_but_unpriced_category_is_still_listed(
     client: Client, seated_event: tuple[Event, list[VenueSeat]]
 ) -> None:
-    """Paint mutates after tier validation (spec §4.3): the drifted category is still listed.
+    """Paint mutates after tier validation (spec §4.3): the drifted category is listed, unpriced.
 
-    The quoted number is the tier's flat price, which is what ``effective_category_price``
-    resolves — but **checkout now refuses** such a seat rather than charging it
-    (decision 2026-07-20), so this quote is a pricing *gap*, not an offer. Surfacing
-    the gap in the payload is plan Task 12; this test pins that the category does not
-    silently vanish from the list in the meantime.
+    It is listed rather than omitted so the frontend can render those seats greyed out —
+    a category that silently vanished would leave its seats unexplained and
+    indistinguishable from unpainted ones. It carries **no price**: checkout refuses such
+    a seat (decision 2026-07-20), so any number here would be an offer the platform will
+    not honour.
     """
     event, seats = seated_event
     venue = event.venue
@@ -104,8 +104,8 @@ def test_painted_but_unpriced_category_is_still_listed(
 
     pricing = _tier_payload(client, event, tier)["seat_pricing"]
     assert pricing["categories"] == [
-        {"id": str(premium.id), "name": "Premium", "color": "#aa0000", "price": "80.00"},
-        {"id": str(late.id), "name": "Zone C", "color": "#0000aa", "price": "50.00"},
+        {"id": str(premium.id), "name": "Premium", "color": "#aa0000", "price": "80.00", "available": True},
+        {"id": str(late.id), "name": "Zone C", "color": "#0000aa", "price": None, "available": False},
     ]
 
     # The unpainted quote is a real offer — the resolver charges exactly it.

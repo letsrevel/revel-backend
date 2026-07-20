@@ -1855,13 +1855,15 @@ msgstr ""
 msgid "Price category must belong to the same venue as the seats."
 msgstr "La catégorie tarifaire doit appartenir au même lieu que les sièges."
 
+#, python-brace-format
 msgid ""
 "This price category is used by one or more ticket tiers and cannot be "
-"deleted. Reassign or remove those tiers first."
+"deleted: {tiers}. Reassign those tiers, or remove the category from their "
+"category prices, first."
 msgstr ""
 "Cette catégorie de prix est utilisée par un ou plusieurs types de billets et "
-"ne peut pas être supprimée. Réattribuez ou supprimez d'abord ces types de "
-"billets."
+"ne peut pas être supprimée : {tiers}. Réattribuez ces types de billets, ou "
+"retirez d'abord la catégorie de leurs prix par catégorie."
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La position du siège « {} » est en dehors de la forme du secteur."
