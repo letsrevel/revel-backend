@@ -364,6 +364,17 @@ class AdminRefundTicketSchema(AdminCancelTicketSchema):
 
 # ---- TicketTier Schemas for Admin CRUD ----
 
+# The per-seat-category price map (``{price_category_id: decimal-string}``).
+#
+# Deliberately typed as an opaque JSON object rather than ``dict[UUID4, Decimal]``:
+# pydantic would coerce a JSON float such as ``50.0`` into a Decimal and silently
+# persist binary-float money. The map is passed through untouched and validated in
+# exactly one place — ``events.utils.tier_pricing.parse_price_map``, reached from
+# ``TicketTier.clean()`` — which rejects floats and bools outright. Malformed input
+# therefore surfaces as a Django ``ValidationError`` mapped to HTTP 400, never a 500
+# and never a silent coercion.
+CategoryPriceMap = dict[str, t.Any]
+
 
 class TicketTierPriceValidationMixin(Schema):
     payment_method: TicketTier.PaymentMethod = TicketTier.PaymentMethod.OFFLINE
@@ -402,6 +413,15 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     venue_id: UUID | None = None
     sector_id: UUID | None = None
     price_category_id: UUID | None = Field(default=None)
+    category_prices: CategoryPriceMap | None = Field(
+        default=None,
+        description=(
+            "Per-seat-category prices for user-choice tiers: {price_category_id: decimal-string}. "
+            "Omitted or null leaves the map at its default (empty); an empty object clears it; a "
+            "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
+            "JSON floats are rejected, because binary floats cannot represent money."
+        ),
+    )
 
     # None (or omitted) means "append at the bottom"; an explicit value pins the position (#514).
     display_order: int | None = None
@@ -452,6 +472,15 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     venue_id: UUID | None = None
     sector_id: UUID | None = None
     price_category_id: UUID | None = Field(default=None)
+    category_prices: CategoryPriceMap | None = Field(
+        default=None,
+        description=(
+            "Per-seat-category prices for user-choice tiers: {price_category_id: decimal-string}. "
+            "Omitted or null leaves the existing map untouched; an empty object clears it; a "
+            "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
+            "JSON floats are rejected, because binary floats cannot represent money."
+        ),
+    )
 
     display_order: int | None = None
 
@@ -489,6 +518,7 @@ class TicketTierDetailSchema(ModelSchema):
     vat_rate: Decimal | None = None
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
+    category_prices: CategoryPriceMap = Field(default_factory=dict)
 
     class Meta:
         model = TicketTier
