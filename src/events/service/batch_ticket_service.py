@@ -27,7 +27,13 @@ from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 from events.service.discount_code_service import assert_min_purchase_amount
 from events.service.seating import holds as holds_service
-from events.service.seating.pricing import BatchPricing, TicketPrice, build_batch_pricing, cart_is_certainly_free
+from events.service.seating.pricing import (
+    BatchPricing,
+    TicketPrice,
+    build_batch_pricing,
+    cart_is_certainly_free,
+    should_stamp_price_paid,
+)
 from events.tasks import build_attendee_visibility_flags
 from notifications.signals.ticket import send_batch_ticket_created_notifications
 from notifications.signals.waitlist import remove_user_from_waitlist
@@ -662,12 +668,9 @@ class BatchTicketService:
         # is the cart's real total known (spec §5.6).
         if self.discount_code is not None:
             assert_min_purchase_amount(self.discount_code, pricing.gross_total)
-        # A NULL price_paid means "tier.price still reconstructs it", and the revenue
-        # report leans on that NULL (revenue_aggregation.py:346). Stamp an explicit
-        # amount only when the buyer moved the price (PWYC/discount) or the tier
-        # prices seats per category (spec §5.5).
-        stamp_price_paid = (
-            pwyc_amount is not None or self.discount_code is not None or bool(locked_tier.category_prices)
+        # One authority for every writer (spec §5.5); the online/free branches never stamp.
+        stamp_price_paid = should_stamp_price_paid(
+            locked_tier, pwyc_amount=pwyc_amount, has_discount=self.discount_code is not None
         )
 
         # Log the batch purchase attempt for audit trail
@@ -732,9 +735,8 @@ class BatchTicketService:
             seats: List of seats (or None) corresponding to items.
             status: The status to set on created tickets.
             lines: Per-ticket prices, positionally aligned with ``items``.
-            stamp_price_paid: Whether to write the unit price to ``price_paid``.
-                False online (``Payment.amount`` is authoritative — spec §5.5) and
-                for a plain flat-tier purchase (NULL means "``tier.price`` stands").
+            stamp_price_paid: Whether to write the unit price to ``price_paid``. Never
+                decided here — ask ``pricing.should_stamp_price_paid`` (spec §5.5).
 
         Returns:
             List of created Ticket objects.
@@ -853,8 +855,7 @@ class BatchTicketService:
 
         reservation_id = uuid4()
 
-        # Create PENDING tickets. price_paid stays NULL online — Payment.amount is
-        # the authoritative number there (spec §5.5).
+        # PENDING tickets; price_paid stays NULL online — Payment.amount is authoritative (spec §5.5).
         tickets = self.create_tickets(items, seats, Ticket.TicketStatus.PENDING, pricing.lines)
 
         # Update quantity sold

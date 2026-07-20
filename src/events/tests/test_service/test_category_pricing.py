@@ -435,6 +435,78 @@ class TestCartIsCertainlyFree:
         assert pricing.cart_is_certainly_free(tier, discount_code=dc) is True
 
 
+class TestShouldStampPricePaid:
+    """Spec §5.5 — the one write-side authority, over every combination it distinguishes.
+
+    NULL ``price_paid`` is a positive claim that ``tier.price`` reconstructs the amount,
+    so False is the answer that carries risk: it is only correct for a plain purchase on
+    a flat tier. Each row below is one way that claim can become false.
+    """
+
+    @pytest.mark.parametrize(
+        ("category_prices", "pwyc_amount", "has_discount", "is_comp", "expected"),
+        [
+            pytest.param(None, None, False, False, False, id="flat-plain-purchase-stays-null"),
+            pytest.param(None, Decimal("0.00"), False, False, True, id="pwyc-zero-still-stamps"),
+            pytest.param(None, Decimal("12.50"), False, False, True, id="pwyc-amount"),
+            pytest.param(None, None, True, False, True, id="discount-code"),
+            pytest.param(None, None, False, True, True, id="comp"),
+            pytest.param({}, None, False, False, False, id="empty-map-is-a-flat-tier"),
+            pytest.param("MAP", None, False, False, True, id="category-priced-tier"),
+            pytest.param("MAP", Decimal("5.00"), False, False, True, id="category-priced-and-pwyc"),
+            pytest.param("MAP", None, True, False, True, id="category-priced-and-discount"),
+            pytest.param("MAP", None, False, True, True, id="category-priced-comp"),
+        ],
+    )
+    def test_decision_table(
+        self,
+        category_prices: dict[str, str] | str | None,
+        pwyc_amount: Decimal | None,
+        has_discount: bool,
+        is_comp: bool,
+        expected: bool,
+        premium_map: dict[str, str],
+    ) -> None:
+        """Every distinguished combination, asserted against the contract."""
+        raw = premium_map if category_prices == "MAP" else t.cast("dict[str, str] | None", category_prices)
+        tier = make_tier("50.00", raw)
+
+        assert (
+            pricing.should_stamp_price_paid(tier, pwyc_amount=pwyc_amount, has_discount=has_discount, is_comp=is_comp)
+            is expected
+        )
+
+    def test_defaults_are_the_plain_purchase(self, premium_map: dict[str, str]) -> None:
+        """With no purchase context at all only the tier's map can force a stamp."""
+        assert pricing.should_stamp_price_paid(make_tier("50.00")) is False
+        assert pricing.should_stamp_price_paid(make_tier("50.00", premium_map)) is True
+
+
+class TestPricePaidIsAdminEntered:
+    """Spec §5.5 — the mutation-side mirror: who may write *or clear* ``price_paid``."""
+
+    @pytest.mark.parametrize(
+        ("price_type", "expected"),
+        [
+            pytest.param(TicketTier.PriceType.PWYC, True, id="pwyc-is-admin-entered"),
+            pytest.param(TicketTier.PriceType.FIXED, False, id="fixed-is-resolved"),
+        ],
+    )
+    def test_only_pwyc_is_admin_entered(self, price_type: TicketTier.PriceType, expected: bool) -> None:
+        """The predicate is exactly "PWYC" — nothing else may be typed over or cleared."""
+        tier = make_tier("50.00")
+        tier.price_type = price_type
+
+        assert pricing.price_paid_is_admin_entered(tier) is expected
+
+    def test_a_category_priced_tier_is_never_admin_entered(self, premium_map: dict[str, str]) -> None:
+        """The bug this predicate exists to prevent: unconfirm must not clear a resolved price."""
+        tier = make_tier("50.00", premium_map)
+
+        assert pricing.should_stamp_price_paid(tier) is True
+        assert pricing.price_paid_is_admin_entered(tier) is False
+
+
 def test_module_is_pure_and_needs_no_database(premium_map: dict[str, str]) -> None:
     """No ``django_db`` marker anywhere in this file — a query here would error out."""
     tier = make_tier("50.00", premium_map)
