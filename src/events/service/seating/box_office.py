@@ -23,8 +23,7 @@ from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.guest import get_or_create_guest_user
 from events.service.seating import holds as holds_service
-from events.service.seating.pricing import TicketPrice, build_batch_pricing
-from events.utils.tier_pricing import parse_price_map
+from events.service.seating.pricing import TicketPrice, build_batch_pricing, should_stamp_price_paid
 
 
 def resolve_recipient(
@@ -139,24 +138,23 @@ def sell(
     seat = _lock_seat_for_sale(event, seat_id, recipient)
 
     item = TicketPurchaseItem(guest_name=guest_name or recipient.get_display_name())
-    if payment_method == TicketTier.PaymentMethod.FREE:
+    is_comp = payment_method == TicketTier.PaymentMethod.FREE
+    if is_comp:
         # A comp must not report tier-price revenue.
         lines = [TicketPrice(unit_price=Decimal("0.00"), discount_amount=Decimal("0.00"))]
-        stamp_price_paid = True
     else:
-        # AT_THE_DOOR: stamp the seat's resolved price when the tier prices per
-        # category (tier.price cannot reconstruct it), else leave it null so
-        # fixed-price reporting falls back to the tier price. Semantic shift:
-        # null tracked *later* repricing, stamping is purchase-time truth.
-        # An unpriced painted category is refused by build_batch_pricing itself (spec §4.3) —
-        # a door sale at the wrong price is exactly as bad as a web sale at the wrong price.
-        # Deliberately no staff override: an override selling at tier.price is indistinguishable
-        # in the books from the bug. The escape hatches are a comp (honestly 0.00, and the FREE
-        # branch above never reaches this code) or pricing the category, which takes seconds and
-        # fixes every future sale.
-        price_map = parse_price_map(locked_tier.category_prices)
+        # AT_THE_DOOR: the seat's resolved price. An unpriced painted category is refused by
+        # build_batch_pricing itself (spec §4.3) — a door sale at the wrong price is exactly as
+        # bad as a web sale at the wrong price. Deliberately no staff override: an override
+        # selling at tier.price is indistinguishable in the books from the bug. The escape
+        # hatches are a comp (honestly 0.00, the branch above) or pricing the category, which
+        # takes seconds and fixes every future sale.
         lines = build_batch_pricing(locked_tier, [seat]).lines
-        stamp_price_paid = bool(price_map)
+    # One authority for the stamp, shared with checkout (spec §5.5): a comp always records its
+    # 0.00, a category-priced door sale records the seat's price (semantic shift — null tracked
+    # *later* repricing, stamping is purchase-time truth), a flat-tier door sale stays null so
+    # fixed-price reporting keeps falling back to tier.price.
+    stamp_price_paid = should_stamp_price_paid(locked_tier, is_comp=is_comp)
     tickets = service.create_tickets(
         [item], [seat], Ticket.TicketStatus.ACTIVE, lines, stamp_price_paid=stamp_price_paid
     )
