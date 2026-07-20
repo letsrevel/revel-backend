@@ -158,8 +158,34 @@ http://localhost:8000/metrics
 
 Exposes Prometheus-format metrics from the Django application.
 
-!!! note "Custom Business Metrics"
-    Custom business metrics (ticket sales, payment volumes, evaluation throughput) are planned but not yet implemented.
+### Custom Business Metrics
+
+Custom metrics live in `common/observability/metrics.py`, on the default
+`prometheus_client` registry that `django_prometheus` already exposes at `/metrics` — no
+extra wiring. **Only add one if someone is going to alert on it**, and keep labels
+low-cardinality (never a session id, user id, or event id — those belong on the log line).
+
+| Metric | Meaning |
+|---|---|
+| `revel_stripe_session_total_mismatch_total{call_site}` | Stripe's session total disagreed with `sum(Payment.amount)`. `call_site="preflight"`: caught before the session existed, nobody charged. `call_site="webhook"`: **the buyer has been charged**. |
+| `revel_stripe_session_paid_without_payments_total` | A session that captured money was confirmed with no `Payment` rows to confirm — charged buyer, no record. |
+
+Both are **one-occurrence incidents**, so they alert with no `for:` delay:
+
+```promql
+increase(revel_stripe_session_total_mismatch_total[5m]) > 0
+increase(revel_stripe_session_paid_without_payments_total[5m]) > 0
+```
+
+Each increment is paired with a self-contained `ERROR` log line carrying the identifiers to
+act on — see [the money-correctness runbook](#money-correctness-stripe-session-total-mismatch).
+
+!!! warning "Counters are per gunicorn worker"
+    Production runs several gunicorn workers with no `PROMETHEUS_MULTIPROC_DIR`, so each
+    worker keeps its own counters and a scrape reaches one of them. That is fine for
+    "did this ever happen" alerting — the incremented worker holds its non-zero value and is
+    eventually scraped — but these values are **not** exact rates. Only define
+    alert-on-any-occurrence metrics here until multiprocess mode is configured.
 
 ---
 
@@ -180,6 +206,8 @@ Grafana provides the alerting layer, replacing the previous database-based error
 
 | Alert | Trigger |
 |---|---|
+| Stripe session total mismatch | `revel_stripe_session_total_mismatch_total` increases (see [runbook](#money-correctness-stripe-session-total-mismatch)) |
+| Paid session with no payments | `revel_stripe_session_paid_without_payments_total` increases |
 | High error rate | 5xx responses exceed threshold |
 | Auth failures | Repeated failed login attempts |
 | Database errors | Connection pool exhaustion, slow queries |
@@ -196,6 +224,45 @@ Grafana supports multiple notification channels:
 - Slack
 - Discord
 - PagerDuty
+
+### Money-correctness: Stripe session total mismatch
+
+`severity: critical`, **no `for:` delay — one occurrence is the incident.**
+
+The checkout path refuses to write a ledger entry it cannot reconcile: if Stripe's session
+total disagrees with `sum(Payment.amount)`, the webhook raises, the whole transaction rolls
+back, and Stripe redelivers. That is the correct failure mode, but it is also **evidence-
+destroying**: the rollback discards every database trace of the attempt, and
+`events.cleanup_expired_payments` deletes the still-`PENDING` `Payment`/`Ticket` rows within
+minutes of the hold expiring. Once that has happened, a redelivery finds no payments at all.
+
+Everything needed to recover the buyer is therefore emitted **at the moment of detection**, on
+one log line, and nowhere else:
+
+```logql
+{service_name="web", level="error"} |= "stripe_session_total_mismatch"
+{service_name="web", level="error"} |= "stripe_session_paid_without_payments"
+```
+
+The line carries `session_id`, `payment_intent_id`, `user_id`, `user_email`,
+`charged_minor_units` vs `recorded_minor_units`, and a `payments[]` breakdown of
+`ticket_id` / `event_id` / `tier_id` / `guest_name` / `amount`.
+
+**Remediation** (`call_site="webhook"` — the buyer *has* been charged):
+
+1. Find the session/PaymentIntent in Stripe and confirm the captured amount.
+2. Refund it.
+3. Re-issue the tickets manually from the `payments[]` breakdown on the log line — the rows
+   themselves are likely already gone.
+4. Diff `charged_minor_units` against `recorded_minor_units` to find the pricing bug.
+
+`call_site="preflight"` is the safe half: it fires before a payable session exists, so nobody
+has been charged. Still critical — it means a pricing bug shipped — but there is no money to
+chase, only a 500 the buyer saw.
+
+!!! note "Do not alert on `stripe_session_rounding_drift`"
+    That `WARNING` is structurally unavoidable rounding on zero-decimal currencies, and paging
+    on it would page on every reverse-charge cart.
 
 ---
 

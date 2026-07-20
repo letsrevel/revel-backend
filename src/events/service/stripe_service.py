@@ -59,6 +59,7 @@ from events.service.pending_checkout import (
     resume_pending_checkout as resume_pending_checkout,
 )
 from events.service.seating.pricing import TicketPrice
+from events.service.stripe_incidents import record_session_total_mismatch
 from events.service.vat_service import (
     calculate_platform_fee_vat,
     calculate_vat_inclusive,
@@ -332,12 +333,12 @@ def _reconcile_line_items(line_items: list[StripeLineItem], payments: list[Payme
     # would 500 real reverse-charge carts, whose effective_price is a computed net.
     per_row = sum(to_stripe_amount(p.amount, currency) for p in payments)
     if charged != per_row:
-        logger.error(
-            "stripe_session_total_mismatch",
+        record_session_total_mismatch(
+            call_site="preflight",
+            payments=payments,
             charged_minor_units=charged,
             recorded_minor_units=per_row,
             currency=currency,
-            payment_ids=[str(p.id) for p in payments],
         )
         raise SessionTotalMismatchError(
             f"Stripe session total {charged} != recorded Payment total {per_row} ({currency})"
