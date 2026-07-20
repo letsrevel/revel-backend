@@ -36,6 +36,7 @@ from events.models import (
 )
 from events.models.mixins import VisibilityMixin
 from events.models.ticket import CancellationSource
+from events.service.seating.pricing import recorded_or_resolved_price
 from events.service.waitlist_service import enqueue_waitlist_processing
 
 if t.TYPE_CHECKING:
@@ -390,10 +391,20 @@ def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) ->
 
 @transaction.atomic
 def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
-    """Revert a confirmed offline ticket back to pending status, clearing price_paid.
+    """Revert a confirmed offline ticket back to pending status.
+
+    ``price_paid`` is cleared **only for PWYC tiers**, which is the case the clearing
+    was written for: there the amount is admin-entered at confirmation time and is
+    meaningless once that confirmation is reverted — ``confirm_ticket_payment`` asks
+    for it again. Every other non-null ``price_paid`` is a *resolved* fact of the sale
+    (a per-category price, a per-ticket discount, a comp) that nothing downstream can
+    reconstruct from ``tier.price``; clearing it silently mis-reported revenue and
+    capped refunds at the wrong number, because ``confirm_ticket_payment`` refuses to
+    accept a price for non-PWYC tiers and so could never put it back (spec §5.5).
 
     Args:
-        ticket: The ticket to unconfirm. Must be ACTIVE with OFFLINE payment method.
+        ticket: The ticket to unconfirm. Must be ACTIVE with OFFLINE payment method,
+            with ``tier`` prefetched via select_related.
 
     Returns:
         The re-fetched ticket with full() relations for serialization.
@@ -404,8 +415,11 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
     _reject_series_pass_ticket(ticket)
 
     ticket.status = Ticket.TicketStatus.PENDING
-    ticket.price_paid = None
-    ticket.save(update_fields=["status", "price_paid"])
+    update_fields = ["status"]
+    if ticket.tier.price_type == TicketTier.PriceType.PWYC:
+        ticket.price_paid = None
+        update_fields.append("price_paid")
+    ticket.save(update_fields=update_fields)
 
     # Re-fetch with full() to include all related objects for serialization
     return Ticket.objects.full().get(pk=ticket.pk)
@@ -851,9 +865,10 @@ def _resolve_offline_refund_amount(ticket: Ticket, refund_amount: Decimal | None
     """Resolve the amount to record as refunded for a manual offline/at-the-door refund.
 
     A never-paid ticket has nothing to refund (omitted -> ``None``; explicit non-zero ->
-    rejected). A paid ticket defaults to the collected amount (``price_paid`` or tier price);
-    an explicit amount enables partial refunds and must be in [0, collected]. Call before
-    cancelling (reads pre-cancel status).
+    rejected). A paid ticket defaults to the collected amount (``price_paid``, else the
+    seat's resolved price — see ``recorded_or_resolved_price``); an explicit amount enables
+    partial refunds and must be in [0, collected]. Call before cancelling (reads pre-cancel
+    status).
 
     Raises:
         HttpError 400: Explicit ``refund_amount`` out of range, or non-zero for a never-paid ticket.
@@ -863,7 +878,7 @@ def _resolve_offline_refund_amount(ticket: Ticket, refund_amount: Decimal | None
         if refund_amount:
             raise HttpError(400, str(_("Cannot refund a ticket that was never paid.")))
         return None
-    collected = ticket.price_paid if ticket.price_paid is not None else ticket.tier.price
+    collected = recorded_or_resolved_price(ticket.tier, ticket.seat, ticket.price_paid)
     if refund_amount is None:
         return collected
     if refund_amount < Decimal("0") or refund_amount > collected:
@@ -908,6 +923,10 @@ def mark_offline_ticket_refunded(
     """
     _reject_series_pass_ticket(ticket)
 
+    # ``seat`` is deliberately *not* joined here: it is nullable, so select_related would
+    # make it the nullable side of an outer join and Postgres rejects FOR UPDATE on that.
+    # _resolve_offline_refund_amount lazy-loads it instead — at most one extra query, and
+    # only for a seated ticket, on a single-row request path.
     locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
     if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError
