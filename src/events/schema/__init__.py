@@ -351,6 +351,7 @@ from .ticket import (
 
 # Venue schemas
 from .venue import (
+    AffectedTierSchema,
     Coordinate2D,
     MinimalSeatSchema,
     PolygonShape,
@@ -358,9 +359,9 @@ from .venue import (
     PriceCategorySchema,
     PriceCategoryUpdateSchema,
     SeatPaintResultSchema,
+    SeatPriceChangeSchema,
     SectorAvailabilitySchema,
     TierPricingGapSchema,
-    UnderCoveredTierSchema,
     VenueAvailabilitySchema,
     VenueCreateSchema,
     VenueDetailSchema,
@@ -432,6 +433,7 @@ __all__ = [
     "EventSeriesRetrieveSchema",
     "MinimalEventSeriesSchema",
     # Venue
+    "AffectedTierSchema",
     "Coordinate2D",
     "MinimalSeatSchema",
     "PolygonShape",
@@ -439,9 +441,9 @@ __all__ = [
     "PriceCategorySchema",
     "PriceCategoryUpdateSchema",
     "SeatPaintResultSchema",
+    "SeatPriceChangeSchema",
     "SectorAvailabilitySchema",
     "TierPricingGapSchema",
-    "UnderCoveredTierSchema",
     "VenueAvailabilitySchema",
     "VenueCreateSchema",
     "VenueDetailSchema",

@@ -50,7 +50,7 @@ class TestPaintSeatsEndpoint:
         )
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"painted": 2, "under_covered_tiers": []}
+        assert response.json() == {"painted": 2, "affected_tiers": []}
         assert VenueSeat.objects.filter(default_price_category=category).count() == 2
 
     def test_unpaint_with_null(
@@ -69,7 +69,7 @@ class TestPaintSeatsEndpoint:
         )
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"painted": 1, "under_covered_tiers": []}
+        assert response.json() == {"painted": 1, "affected_tiers": []}
         seat.refresh_from_db()
         assert seat.default_price_category_id is None
 
@@ -169,7 +169,7 @@ class TestPaintSeatsEndpoint:
 
         assert count_queries_for(2) == count_queries_for(12)
 
-    def test_response_reports_the_tier_left_under_covered(
+    def test_response_reports_the_tier_it_repriced_and_under_covered(
         self,
         organization_owner_client: Client,
         organization: Organization,
@@ -178,7 +178,7 @@ class TestPaintSeatsEndpoint:
         sector: VenueSector,
         category: PriceCategory,
     ) -> None:
-        """The advisory the grid editor renders after a paint (#746)."""
+        """The advisory the grid editor renders after a paint (#746, #747)."""
         event.venue = venue
         event.save(update_fields=["venue"])
         seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
@@ -203,16 +203,179 @@ class TestPaintSeatsEndpoint:
         assert response.status_code == 200, response.content
         assert response.json() == {
             "painted": 1,
-            "under_covered_tiers": [
+            "affected_tiers": [
                 {
                     "tier_id": str(tier.id),
                     "tier_name": "Stalls",
                     "event_id": str(event.id),
                     "event_name": event.name,
+                    "event_status": event.status,
+                    # An 80.00 seat now has no price at all on this tier: checkout refuses it.
+                    "price_changes": [{"seat_count": 1, "from_price": "80.00", "to_price": None}],
                     "missing_categories": [{"id": str(balcony.id), "name": "Balcony", "color": "#00aa00"}],
                 }
             ],
         }
+
+    def test_response_reports_a_repricing_with_no_coverage_gap(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        venue: Venue,
+        sector: VenueSector,
+        category: PriceCategory,
+    ) -> None:
+        """The silent case (#747): both categories priced, so every other signal stays quiet."""
+        event.venue = venue
+        event.save(update_fields=["venue"])
+        seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
+        standard = PriceCategory.objects.create(venue=venue, name="Standard", color="#0000aa")
+        tier = TicketTier.objects.create(
+            event=event,
+            name="Stalls",
+            price=Decimal("50.00"),
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+            category_prices={str(category.id): "80.00", str(standard.id): "30.00"},
+        )
+
+        response = organization_owner_client.put(
+            _url(organization, venue),
+            data=orjson.dumps({"seat_ids": [str(seat.id)], "price_category_id": str(standard.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json() == {
+            "painted": 1,
+            "affected_tiers": [
+                {
+                    "tier_id": str(tier.id),
+                    "tier_name": "Stalls",
+                    "event_id": str(event.id),
+                    "event_name": event.name,
+                    "event_status": event.status,
+                    "price_changes": [{"seat_count": 1, "from_price": "80.00", "to_price": "30.00"}],
+                    "missing_categories": [],
+                }
+            ],
+        }
+
+    def test_preview_returns_the_same_body_as_the_paint_and_writes_nothing(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        venue: Venue,
+        sector: VenueSector,
+        category: PriceCategory,
+    ) -> None:
+        """``?preview=true``: the admin sees the repricing before the money moves (#747)."""
+        event.venue = venue
+        event.save(update_fields=["venue"])
+        seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
+        standard = PriceCategory.objects.create(venue=venue, name="Standard", color="#0000aa")
+        TicketTier.objects.create(
+            event=event,
+            name="Stalls",
+            price=Decimal("50.00"),
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+            category_prices={str(category.id): "80.00", str(standard.id): "30.00"},
+        )
+        body = orjson.dumps({"seat_ids": [str(seat.id)], "price_category_id": str(standard.id)})
+        before = VenueSeat.objects.values_list("id", "default_price_category_id", "updated_at").get()
+
+        preview = organization_owner_client.put(
+            f"{_url(organization, venue)}?preview=true", data=body, content_type="application/json"
+        )
+
+        assert preview.status_code == 200, preview.content
+        assert VenueSeat.objects.values_list("id", "default_price_category_id", "updated_at").get() == before
+
+        real = organization_owner_client.put(_url(organization, venue), data=body, content_type="application/json")
+
+        assert real.status_code == 200, real.content
+        assert preview.json() == real.json()
+        assert preview.json()["affected_tiers"][0]["price_changes"] == [
+            {"seat_count": 1, "from_price": "80.00", "to_price": "30.00"}
+        ]
+        seat.refresh_from_db()
+        assert seat.default_price_category_id == standard.id
+
+    @pytest.mark.parametrize("preview", ["true", "false"])
+    def test_preview_rejects_a_foreign_seat_exactly_like_the_paint(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        venue: Venue,
+        category: PriceCategory,
+        preview: str,
+    ) -> None:
+        """A preview of a paint that would 404 must 404 — confirming an impossible paint is worse."""
+        other = Venue.objects.create(organization=organization, name="Other Hall")
+        other_sector = VenueSector.objects.create(venue=other, name="Foreign")
+        foreign_seat = VenueSeat.objects.create(sector=other_sector, label="X1")
+        payload = {"seat_ids": [str(foreign_seat.id)], "price_category_id": str(category.id)}
+
+        response = organization_owner_client.put(
+            f"{_url(organization, venue)}?preview={preview}",
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404, response.content
+        foreign_seat.refresh_from_db()
+        assert foreign_seat.default_price_category_id is None
+
+    @pytest.mark.parametrize("preview", ["true", "false"])
+    def test_preview_rejects_a_foreign_category_exactly_like_the_paint(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        venue: Venue,
+        sector: VenueSector,
+        preview: str,
+    ) -> None:
+        other = Venue.objects.create(organization=organization, name="Other Hall")
+        foreign_category = PriceCategory.objects.create(venue=other, name="Foreign", color="#00aa00")
+        seat = VenueSeat.objects.create(sector=sector, label="A1")
+        payload = {"seat_ids": [str(seat.id)], "price_category_id": str(foreign_category.id)}
+
+        response = organization_owner_client.put(
+            f"{_url(organization, venue)}?preview={preview}",
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400, response.content
+        seat.refresh_from_db()
+        assert seat.default_price_category_id is None
+
+    def test_preview_needs_the_same_permission_as_the_paint(
+        self,
+        nonmember_client: Client,
+        organization: Organization,
+        venue: Venue,
+        sector: VenueSector,
+        category: PriceCategory,
+    ) -> None:
+        """The dry run reads pricing across every event at the venue: same gate, no shortcut."""
+        seat = VenueSeat.objects.create(sector=sector, label="A1")
+        payload = {"seat_ids": [str(seat.id)], "price_category_id": str(category.id)}
+
+        response = nonmember_client.put(
+            f"{_url(organization, venue)}?preview=true",
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        assert response.status_code in (403, 404)
 
     def test_nonmember_gets_403(
         self,

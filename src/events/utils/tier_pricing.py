@@ -117,7 +117,10 @@ def painted_categories(sector_id: t.Any) -> "QuerySet[PriceCategory]":
     ).distinct()
 
 
-def painted_categories_by_sector(sector_ids: t.Collection[t.Any]) -> dict[UUID, set[UUID]]:
+def painted_categories_by_sector(
+    sector_ids: t.Collection[t.Any],
+    exclude_seat_ids: t.Collection[t.Any] = (),
+) -> dict[UUID, set[UUID]]:
     """The multi-sector, grouped form of :func:`painted_categories`, in one query.
 
     Same rule, batched: used when several sectors must be inspected at once (a paint
@@ -125,6 +128,9 @@ def painted_categories_by_sector(sector_ids: t.Collection[t.Any]) -> dict[UUID, 
 
     Args:
         sector_ids: The sectors to inspect.
+        exclude_seat_ids: Seats to leave out. Used by the paint report to read "what
+            everything *else* carries", so the answer does not depend on whether the
+            paint's UPDATE has run yet.
 
     Returns:
         ``{sector_id: {category_id, ...}}``. Sectors with nothing painted are absent.
@@ -132,7 +138,10 @@ def painted_categories_by_sector(sector_ids: t.Collection[t.Any]) -> dict[UUID, 
     grouped: dict[UUID, set[UUID]] = {}
     if not sector_ids:
         return grouped
-    rows = _painted_seats(sector_ids).values_list("sector_id", "default_price_category_id").distinct()
+    seats = _painted_seats(sector_ids)
+    if exclude_seat_ids:
+        seats = seats.exclude(id__in=exclude_seat_ids)
+    rows = seats.values_list("sector_id", "default_price_category_id").distinct()
     for sector_id, category_id in rows:
         grouped.setdefault(sector_id, set()).add(category_id)
     return grouped

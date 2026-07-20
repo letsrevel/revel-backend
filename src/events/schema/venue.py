@@ -1,6 +1,7 @@
 """Venue-related schemas."""
 
 import typing as t
+from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
@@ -8,7 +9,7 @@ from ninja.schema import DjangoGetter
 from pydantic import Field, StringConstraints, model_validator
 
 from common.schema import OneToOneFiftyString, StrippedString
-from events.models import PriceCategory, Venue, VenueSeat, VenueSector
+from events.models import Event, PriceCategory, Venue, VenueSeat, VenueSector
 
 from .mixins import CityEditMixin, CityRetrieveMixin
 
@@ -469,28 +470,61 @@ class TierPricingGapSchema(Schema):
     color: str
 
 
-class UnderCoveredTierSchema(Schema):
-    """A category-priced tier left with painted-but-unpriced categories in its sector."""
+class SeatPriceChangeSchema(Schema):
+    """One before→after price move a paint caused on a tier, and how many seats made it.
+
+    A single paint writes one category, but the seats it overwrites can have come from
+    several different ones, so a tier can report more than one move.
+
+    Attributes:
+        seat_count: Active seats in this paint that moved from ``from_price`` to ``to_price``.
+        from_price: What each of those seats cost on this tier **before** the paint.
+            ``None`` means the seat was in a category the tier does not price, so checkout
+            was refusing it (spec §4.3) and there was no honest number.
+        to_price: What each now costs. ``None`` means checkout now refuses it — the paint
+            moved the seats into a category this tier has no price for.
+    """
+
+    seat_count: int
+    from_price: Decimal | None = None
+    to_price: Decimal | None = None
+
+
+class AffectedTierSchema(Schema):
+    """A live, category-priced tier this paint changed the economics of.
+
+    A tier is reported when the paint moved the price of at least one of its seats
+    (``price_changes``), or when it is left unable to sell some of its sector
+    (``missing_categories``), or both.
+
+    Attributes:
+        event_status: So the frontend can rank a live on-sale above the draft the admin
+            is currently configuring — both are worth reporting, but only one is urgent.
+        price_changes: Empty when the paint moved nothing on this tier.
+        missing_categories: The tier's **current** coverage gap, not this paint's delta —
+            a category painted in its sector that it does not price. Non-empty means seats
+            in those categories are refused at checkout until the tier prices them.
+    """
 
     tier_id: UUID
     tier_name: str
     event_id: UUID
     event_name: str
-    missing_categories: list[TierPricingGapSchema] = Field(
-        default_factory=list,
-        description="Categories painted in the tier's sector that the tier does not price.",
-    )
+    event_status: Event.EventStatus
+    price_changes: list[SeatPriceChangeSchema] = Field(default_factory=list)
+    missing_categories: list[TierPricingGapSchema] = Field(default_factory=list)
 
 
 class SeatPaintResultSchema(Schema):
-    """Result of a bulk paint: what changed, and what it left unsellable."""
+    """Result of a bulk paint: what changed, and what it cost or left unsellable."""
 
     painted: int = Field(..., description="Number of seats updated.")
-    under_covered_tiers: list[UnderCoveredTierSchema] = Field(
+    affected_tiers: list[AffectedTierSchema] = Field(
         default_factory=list,
         description=(
-            "User-choice, category-priced tiers on the painted sectors whose price map does not "
-            "cover every painted category. Their seats in those categories are refused at checkout "
-            "until the tier prices them. Advisory only — the paint itself always succeeds."
+            "User-choice, category-priced tiers on the painted sectors whose seat prices this "
+            "paint changed, and/or whose price map no longer covers every category painted in "
+            "their sector. Painting is venue-scoped, so this is the only place the blast radius "
+            "across other events is visible. Advisory only — the paint itself always succeeds."
         ),
     )
