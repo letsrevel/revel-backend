@@ -29,6 +29,9 @@ from common.service.stripe_connect_service import (
 from common.service.stripe_connect_service import (
     sync_account_status,
 )
+
+# Re-exported: the confirm path (stripe_webhooks) raises the same money invariant.
+from events.exceptions import SessionTotalMismatchError as SessionTotalMismatchError
 from events.models import Event, HeldSeriesPass, Organization, Payment, Ticket, TicketTier
 from events.models.attendee_invoice import BuyerBillingSnapshot
 
@@ -267,27 +270,73 @@ def _resolve_ticket_amounts(
     return [cache[price] for price in prices], buyer_vat_validated
 
 
+class StripeLineItem(t.TypedDict):
+    """One Stripe Checkout line item, built from exactly one ``Payment`` row."""
+
+    price_data: dict[str, t.Any]
+    quantity: int
+
+
 def _build_line_items(
-    tickets: list[Ticket],
+    payments: list[Payment],
     event: Event,
     tier: TicketTier,
-    effective_price: Decimal,
-) -> list[dict[str, object]]:
-    """Build Stripe line items — one per ticket with guest name."""
+) -> list[StripeLineItem]:
+    """Build Stripe line items — one per ``Payment`` row, at that row's own amount.
+
+    Derived per row rather than from a scalar unit price: since #739 a batch's
+    Payment rows can legitimately hold different amounts (a mixed seat-category
+    cart), and this runs in a *later request* than the reservation, where the row
+    order is unspecified. Taking both the amount and the guest name off the same
+    row makes ordering irrelevant. A ``0.00`` row (a fixed-amount discount floored
+    a ticket to zero) still gets its own line item — the ticket↔Payment pairing is
+    1:1 and the refund matcher depends on it.
+
+    ``payments`` must carry ``ticket`` (the caller's ``select_related``) — this
+    walks ``p.ticket`` per row and would otherwise be an N+1.
+    """
     return [
-        {
-            "price_data": {
+        StripeLineItem(
+            price_data={
                 "currency": tier.currency.lower(),
                 "product_data": {
                     "name": f"Ticket: {event.name} ({tier.name})",
-                    "description": f"Ticket for {ticket.guest_name}",
+                    "description": f"Ticket for {payment.ticket.guest_name}",
                 },
-                "unit_amount": to_stripe_amount(effective_price, tier.currency),
+                "unit_amount": to_stripe_amount(payment.amount, tier.currency),
             },
-            "quantity": 1,
-        }
-        for ticket in tickets
+            quantity=1,
+        )
+        for payment in payments
     ]
+
+
+def _reconcile_line_items(line_items: list[StripeLineItem], payments: list[Payment], currency: str) -> None:
+    """Refuse to hand Stripe a total our own books disagree with.
+
+    Pre-flight money invariant (#739): what the session will charge
+    (``sum(unit_amount × quantity)``) must equal what we recorded
+    (``sum(Payment.amount)``), both in minor units. Until per-ticket prices
+    existed this was tautological — one scalar × N. Now it is the guard that
+    catches a dropped row, a duplicated row, a scalar sneaking back in, or
+    per-row rounding drift, *before* a payable session exists.
+
+    Raises:
+        SessionTotalMismatchError: If the two totals differ.
+    """
+    charged = sum(item["price_data"]["unit_amount"] * item["quantity"] for item in line_items)
+    recorded = to_stripe_amount(sum((p.amount for p in payments), Decimal("0")), currency)
+    if charged != recorded:
+        logger.error(
+            "stripe_session_total_mismatch",
+            charged_minor_units=charged,
+            recorded_minor_units=recorded,
+            currency=currency,
+            payment_ids=[str(p.id) for p in payments],
+        )
+        raise SessionTotalMismatchError(
+            f"Stripe session total {charged} != recorded Payment total {recorded} ({currency})"
+        )
 
 
 def _create_stripe_session(
@@ -296,7 +345,7 @@ def _create_stripe_session(
     tier: TicketTier,
     user: RevelUser,
     tickets: list[Ticket],
-    effective_price: Decimal,
+    line_items: list[StripeLineItem],
     application_fee_amount: int,
     expires_at: datetime,
     site: SiteSettings,
@@ -314,7 +363,6 @@ def _create_stripe_session(
     Raises:
         HttpError: If Stripe API call fails.
     """
-    line_items = _build_line_items(tickets, event, tier, effective_price)
     ticket_ids = ",".join(str(_t.id) for _t in tickets)
 
     frontend_base_url = site.frontend_base_url
@@ -554,8 +602,15 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     tier = tickets[0].tier
     event = tickets[0].event
     user = payments[0].user
-    effective_price = payments[0].amount
 
+    # Per-row line items, then the total invariant — both derived from the Payment
+    # rows themselves, so a mixed-price cart (#739) bills each ticket at its own
+    # amount regardless of the order this later request read them back in.
+    line_items = _build_line_items(payments, event, tier)
+    _reconcile_line_items(line_items, payments, tier.currency)
+
+    # Already per-row: the batch's platform fee is the sum of each Payment's own
+    # platform_fee, never a scalar × N, so a mixed cart's fee follows the true total.
     total_fee_gross = sum((p.platform_fee for p in payments), Decimal("0"))
     application_fee_amount = to_stripe_amount(total_fee_gross, tier.currency)
     site = SiteSettings.get_solo()
@@ -566,7 +621,7 @@ def create_batch_session(*, reservation_id: UUID) -> str:
         tier=tier,
         user=user,
         tickets=tickets,
-        effective_price=effective_price,
+        line_items=line_items,
         application_fee_amount=application_fee_amount,
         expires_at=expires_at,
         site=site,

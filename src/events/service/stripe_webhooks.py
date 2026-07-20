@@ -14,7 +14,7 @@ from django.db.models import F
 
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
-from events.exceptions import InvalidStripeWebhookSignatureError
+from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMismatchError
 from events.models import HeldSeriesPass, Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
@@ -223,6 +223,8 @@ class StripeEventHandler:
             logger.warning("stripe_session_no_payments", session_id=session_id)
             return
 
+        self._reconcile_session_total(session, payments)
+
         # Always enqueue invoice generation (idempotent downstream).
         # This must run even on duplicate webhooks so that a previously failed
         # .delay() call gets retried when Stripe re-delivers the event.
@@ -281,6 +283,42 @@ class StripeEventHandler:
             total_amount=float(sum(p.amount for p in payments)),
             currency=payments[0].currency,
         )
+
+    @staticmethod
+    def _reconcile_session_total(session: t.Any, payments: list[Payment]) -> None:
+        """Refuse to confirm a session whose total disagrees with our Payment rows (#739).
+
+        The books-vs-charge check nothing in this path used to do: before per-ticket
+        prices, every Payment in a batch held the same amount and the session was
+        built from that one scalar, so the two could not diverge. They can now, and a
+        divergence means the captured amount, the recorded revenue and the platform
+        fee are all computed off different totals — permanently, and silently.
+
+        Raising rolls the whole webhook transaction back (including the dedup row and
+        the queued invoice ``on_commit``), so Stripe redelivers and the discrepancy
+        stays visible instead of being written into the ledger. ``amount_total`` is
+        optional in the payload: absent, there is nothing to reconcile against.
+
+        Raises:
+            SessionTotalMismatchError: If Stripe's total differs from ``sum(Payment.amount)``.
+        """
+        amount_total = session.get("amount_total")
+        if amount_total is None:
+            return
+        currency = payments[0].currency
+        recorded = to_stripe_amount(sum((p.amount for p in payments), Decimal("0")), currency)
+        if int(amount_total) != recorded:
+            logger.error(
+                "stripe_session_total_mismatch",
+                session_id=session["id"],
+                charged_minor_units=int(amount_total),
+                recorded_minor_units=recorded,
+                currency=currency,
+                payment_ids=[str(p.id) for p in payments],
+            )
+            raise SessionTotalMismatchError(
+                f"Stripe charged {amount_total} but recorded Payment total is {recorded} ({currency})"
+            )
 
     @staticmethod
     def _activate_series_passes(session_id: str) -> None:
