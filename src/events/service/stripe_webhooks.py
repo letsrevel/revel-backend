@@ -16,6 +16,7 @@ from accounts.models import RevelUser
 from common.models import StripeConnectMixin
 from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMismatchError
 from events.models import HeldSeriesPass, Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
+from events.service.stripe_incidents import record_paid_session_without_payments, record_session_total_mismatch
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
 from notifications.signals.payment import send_refund_unmatched
@@ -227,7 +228,7 @@ class StripeEventHandler:
         payments = list(Payment.objects.filter(stripe_session_id=session_id).select_related("ticket"))
 
         if not payments:
-            logger.warning("stripe_session_no_payments", session_id=session_id)
+            self._report_missing_payments(session, session_id)
             return
 
         self._reconcile_session_total(session, payments)
@@ -292,6 +293,31 @@ class StripeEventHandler:
         )
 
     @staticmethod
+    def _report_missing_payments(session: t.Any, session_id: str) -> None:
+        """Grade a session that has no Payment rows to confirm (#750).
+
+        A zero-total session (a free ticket, a fully-discounted cart, a session
+        Stripe expired and re-delivered) is benign noise and stays a warning.
+
+        A session that captured *money* is not: whatever the cause — the expiry
+        sweep having deleted the rows of a checkout whose confirmation kept
+        failing, a reservation reclaimed mid-flight — the buyer has been charged
+        and we hold no record to confirm, refund against, or re-issue from. The
+        handler still returns 200 because a redelivery would find exactly the same
+        nothing; the alert, not the retry, is what recovers the buyer.
+        """
+        amount_total = session.get("amount_total")
+        if not amount_total:
+            logger.warning("stripe_session_no_payments", session_id=session_id)
+            return
+        record_paid_session_without_payments(
+            session_id=session_id,
+            amount_total=int(amount_total),
+            currency=session.get("currency"),
+            payment_intent_id=session.get("payment_intent"),
+        )
+
+    @staticmethod
     def _reconcile_session_total(session: t.Any, payments: list[Payment]) -> None:
         """Refuse to confirm a session whose total disagrees with our Payment rows (#739).
 
@@ -315,13 +341,17 @@ class StripeEventHandler:
         currency = payments[0].currency
         recorded = to_stripe_amount(sum((p.amount for p in payments), Decimal("0")), currency)
         if int(amount_total) != recorded:
-            logger.error(
-                "stripe_session_total_mismatch",
-                session_id=session["id"],
+            # Emitted *before* the raise: the rollback takes every database trace of
+            # this attempt with it, and the expiry sweep deletes the rows within
+            # minutes, so this is the only surviving record of the incident (#750).
+            record_session_total_mismatch(
+                call_site="webhook",
+                payments=payments,
                 charged_minor_units=int(amount_total),
                 recorded_minor_units=recorded,
                 currency=currency,
-                payment_ids=[str(p.id) for p in payments],
+                session_id=session["id"],
+                payment_intent_id=session.get("payment_intent"),
             )
             raise SessionTotalMismatchError(
                 f"Stripe charged {amount_total} but recorded Payment total is {recorded} ({currency})"
