@@ -50,7 +50,7 @@ class TestPaintSeatsEndpoint:
         )
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"painted": 2, "under_covered_tiers": []}
+        assert response.json() == {"painted": 2, "affected_tiers": []}
         assert VenueSeat.objects.filter(default_price_category=category).count() == 2
 
     def test_unpaint_with_null(
@@ -69,7 +69,7 @@ class TestPaintSeatsEndpoint:
         )
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"painted": 1, "under_covered_tiers": []}
+        assert response.json() == {"painted": 1, "affected_tiers": []}
         seat.refresh_from_db()
         assert seat.default_price_category_id is None
 
@@ -169,7 +169,7 @@ class TestPaintSeatsEndpoint:
 
         assert count_queries_for(2) == count_queries_for(12)
 
-    def test_response_reports_the_tier_left_under_covered(
+    def test_response_reports_the_tier_it_repriced_and_under_covered(
         self,
         organization_owner_client: Client,
         organization: Organization,
@@ -178,7 +178,7 @@ class TestPaintSeatsEndpoint:
         sector: VenueSector,
         category: PriceCategory,
     ) -> None:
-        """The advisory the grid editor renders after a paint (#746)."""
+        """The advisory the grid editor renders after a paint (#746, #747)."""
         event.venue = venue
         event.save(update_fields=["venue"])
         seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
@@ -203,13 +203,63 @@ class TestPaintSeatsEndpoint:
         assert response.status_code == 200, response.content
         assert response.json() == {
             "painted": 1,
-            "under_covered_tiers": [
+            "affected_tiers": [
                 {
                     "tier_id": str(tier.id),
                     "tier_name": "Stalls",
                     "event_id": str(event.id),
                     "event_name": event.name,
+                    "event_status": event.status,
+                    # An 80.00 seat now has no price at all on this tier: checkout refuses it.
+                    "price_changes": [{"seat_count": 1, "from_price": "80.00", "to_price": None}],
                     "missing_categories": [{"id": str(balcony.id), "name": "Balcony", "color": "#00aa00"}],
+                }
+            ],
+        }
+
+    def test_response_reports_a_repricing_with_no_coverage_gap(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        venue: Venue,
+        sector: VenueSector,
+        category: PriceCategory,
+    ) -> None:
+        """The silent case (#747): both categories priced, so every other signal stays quiet."""
+        event.venue = venue
+        event.save(update_fields=["venue"])
+        seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
+        standard = PriceCategory.objects.create(venue=venue, name="Standard", color="#0000aa")
+        tier = TicketTier.objects.create(
+            event=event,
+            name="Stalls",
+            price=Decimal("50.00"),
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+            category_prices={str(category.id): "80.00", str(standard.id): "30.00"},
+        )
+
+        response = organization_owner_client.put(
+            _url(organization, venue),
+            data=orjson.dumps({"seat_ids": [str(seat.id)], "price_category_id": str(standard.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json() == {
+            "painted": 1,
+            "affected_tiers": [
+                {
+                    "tier_id": str(tier.id),
+                    "tier_name": "Stalls",
+                    "event_id": str(event.id),
+                    "event_name": event.name,
+                    "event_status": event.status,
+                    "price_changes": [{"seat_count": 1, "from_price": "80.00", "to_price": "30.00"}],
+                    "missing_categories": [],
                 }
             ],
         }

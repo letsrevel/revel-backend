@@ -206,9 +206,10 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         All seats must belong to this venue (across any of its sectors) and the
         category, when given, must belong to this venue. Executes a single UPDATE.
 
-        Painting always succeeds, but it can leave a user-choice tier pricing that
-        sector without a price for a category now painted there — checkout refuses
-        those seats. Such tiers come back in ``under_covered_tiers`` (advisory).
+        Painting always succeeds, but it is venue-scoped and takes effect immediately:
+        it can change what buyers are charged on every event at this venue, or leave a
+        user-choice tier without a price for a category now painted in its sector (checkout
+        refuses those seats). Both come back in ``affected_tiers`` (advisory).
         """
         organization = self.get_one(slug)
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
