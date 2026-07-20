@@ -1,7 +1,9 @@
 name: Publish Beta
 
-# Label-triggered, single-slot beta publishing. See
-# docs/superpowers/specs/2026-07-20-beta-environment-design.md
+# Label-triggered, single-slot beta publishing: labelling a PR "beta" builds
+# its Docker image and pushes it to GHCR as a mutable :beta tag. Only one open
+# PR may hold the label at a time — a guard step enforces this, since two
+# claimants would silently overwrite each other's image.
 #
 # `pull_request` (NOT pull_request_target) is deliberate: this repo holds the
 # revel-release-bot App private key, so no workflow may run PR-authored code
@@ -18,6 +20,7 @@ on:
 permissions:
   contents: read
   packages: write
+  pull-requests: read
 
 concurrency:
   # A rapid series of pushes should not race to overwrite the :beta tag.
@@ -38,9 +41,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           THIS_PR: ${{ github.event.pull_request.number }}
         run: |
+          # $THIS_PR comes from github.event.pull_request.number, a
+          # GitHub-controlled integer — safe to splice into the jq filter.
           OTHERS=$(gh pr list --repo "$GITHUB_REPOSITORY" --label beta \
                      --state open --json number \
                      --jq "[.[] | select(.number != $THIS_PR)] | length")
+          if ! [[ "$OTHERS" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not determine the beta claimant count (got '$OTHERS')"
+            exit 1
+          fi
           if [ "$OTHERS" -gt 0 ]; then
             echo "::error::Another open PR already holds the 'beta' label. One slot, one claimant — remove it there first."
             exit 1
