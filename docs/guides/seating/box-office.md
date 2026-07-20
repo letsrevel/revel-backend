@@ -252,7 +252,9 @@ its owner is still sitting in it.
 
 So Revel refuses to guess. Nothing is cancelled, no seat is freed, and staff with
 `manage_tickets` get a notification naming the refund, the amount, and the candidate
-tickets so a human can finish the job. Say it plainly on a demo: **"issue refunds from
+tickets so a human can finish the job. The notification links straight to that event's
+ticket list, filtered to the buyer, so the two candidates are side by side. Say it
+plainly on a demo: **"issue refunds from
 Revel and the ticket follows automatically; issue them from Stripe and you'll have to
 cancel the ticket by hand."**
 
