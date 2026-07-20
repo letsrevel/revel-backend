@@ -24,8 +24,16 @@ permissions:
 
 concurrency:
   # A rapid series of pushes should not race to overwrite the :beta tag.
+  #
+  # cancel-in-progress is deliberately FALSE. Concurrency is workflow-scoped,
+  # so any new trigger — including an unrelated label change while `beta`
+  # stays on — would cancel the whole in-progress run. Cancelling a docker
+  # push is harmless; cancelling the deploy job between `up -d` and `migrate`,
+  # or midway through reset.sh, leaves beta half-migrated or destroyed. A
+  # job-level concurrency block does NOT prevent workflow-level cancellation,
+  # so the guard has to live here. Runs queue instead; the last one wins.
   group: publish-beta
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   publish-beta:
@@ -114,5 +122,40 @@ jobs:
             echo ""
             echo '`ghcr.io/letsrevel/revel:beta` → `beta-${{ steps.sha.outputs.short }}`'
             echo ""
-            echo 'Deploy: `ssh personal "cd infra/revel-beta && ./deploy.sh"`'
+            echo 'Deploying automatically — see the **Deploy Beta** job.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Separate job on purpose: a deploy failure must be distinguishable from a
+  # build failure in the checks list.
+  deploy-beta:
+    needs: publish-beta
+    runs-on: ubuntu-latest
+    name: Deploy Beta
+    steps:
+      # Handing a server SSH key to a `pull_request`-triggered workflow is a
+      # real escalation — a same-repo PR can edit this file and the edited
+      # version is what runs. Two things make it tolerable:
+      #
+      #   1. The key is pinned to a FORCED COMMAND in the server's
+      #      authorized_keys: it can only exec ci-deploy.sh, and ci-deploy.sh
+      #      only accepts backend|frontend|both. It cannot get a shell, read
+      #      .env, port-forward, or reach demo/nozze. Verified, not assumed.
+      #   2. It is a dedicated key used nowhere else, so revoking it costs
+      #      nothing.
+      #
+      # If you ever need this job to do more, add it to ci-deploy.sh on the
+      # server — never by loosening the forced command.
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.BETA_SSH_KEY }}
+          SSH_HOST: ${{ secrets.BETA_SSH_HOST }}
+          SSH_USER: ${{ secrets.BETA_SSH_USER }}
+          SSH_PORT: ${{ secrets.BETA_SSH_PORT }}
+          KNOWN_HOSTS: ${{ secrets.BETA_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "$SSH_KEY" > ~/.ssh/beta_deploy
+          chmod 600 ~/.ssh/beta_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/beta_deploy -o IdentitiesOnly=yes -p "$SSH_PORT" \
+              "$SSH_USER@$SSH_HOST" backend
