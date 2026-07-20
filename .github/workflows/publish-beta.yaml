@@ -1,0 +1,102 @@
+name: Publish Beta
+
+# Label-triggered, single-slot beta publishing. See
+# docs/superpowers/specs/2026-07-20-beta-environment-design.md
+#
+# `pull_request` (NOT pull_request_target) is deliberate: this repo holds the
+# revel-release-bot App private key, so no workflow may run PR-authored code
+# with access to secrets. A fork PR therefore gets a read-only GITHUB_TOKEN and
+# the GHCR push fails — that is the intended posture, not a bug to work around.
+#
+# `synchronize` means every push to a labelled PR rebuilds :beta, so the slot
+# tracks the branch. Remove the label to stop building. `unlabeled` is listed
+# only so removing the label produces a cleanly-skipped run rather than nothing.
+on:
+  pull_request:
+    types: [labeled, unlabeled, synchronize]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  # A rapid series of pushes should not race to overwrite the :beta tag.
+  group: publish-beta
+  cancel-in-progress: true
+
+jobs:
+  publish-beta:
+    if: contains(github.event.pull_request.labels.*.name, 'beta')
+    runs-on: ubuntu-latest
+    name: Publish Beta Image
+
+    steps:
+      # One slot, one claimant. Two labelled PRs would silently overwrite each
+      # other's :beta tag and produce a nonsense environment.
+      - name: Enforce a single beta claimant
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          THIS_PR: ${{ github.event.pull_request.number }}
+        run: |
+          OTHERS=$(gh pr list --repo "$GITHUB_REPOSITORY" --label beta \
+                     --state open --json number \
+                     --jq "[.[] | select(.number != $THIS_PR)] | length")
+          if [ "$OTHERS" -gt 0 ]; then
+            echo "::error::Another open PR already holds the 'beta' label. One slot, one claimant — remove it there first."
+            exit 1
+          fi
+          echo "✅ This PR is the sole beta claimant"
+
+      - name: Checkout PR head
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=$(echo '${{ github.event.pull_request.head.sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      # The backend image is large enough that the default runner disk is tight.
+      # Same cleanup publish.yaml does.
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android \
+                      /opt/hostedtoolcache \
+                      /usr/share/dotnet \
+                      /usr/share/swift \
+                      /usr/share/miniconda \
+                      /usr/local/share/boost
+          docker system prune -af
+          df -h
+
+      # No sbom/provenance attestations: those exist for released artifacts and
+      # materially slow this loop. Release publishing keeps them.
+      - name: Build and push image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/letsrevel/revel:beta
+            ghcr.io/letsrevel/revel:beta-${{ steps.sha.outputs.short }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### 🧪 Beta image published"
+            echo ""
+            echo '`ghcr.io/letsrevel/revel:beta` → `beta-${{ steps.sha.outputs.short }}`'
+            echo ""
+            echo 'Deploy: `ssh personal "cd infra/revel-beta && ./deploy.sh"`'
+          } >> "$GITHUB_STEP_SUMMARY"
