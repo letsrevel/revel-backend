@@ -265,6 +265,130 @@ def test_sell_event_without_venue_rejected(event: Event, tier: TicketTier, recip
     assert exc.value.status_code == 400
 
 
+# ---- category-priced tiers (spec §5.8) ----
+
+
+@pytest.fixture
+def premium(seated_event: tuple[Event, list[VenueSeat]]) -> PriceCategory:
+    """A Premium category painted on A1 (seats[0]), leaving the rest unpainted."""
+    event, seats = seated_event
+    assert event.venue is not None
+    category = PriceCategory.objects.create(venue=event.venue, name="Premium", color="#ffd700")
+    seats[0].default_price_category = category
+    seats[0].save(update_fields=["default_price_category"])
+    return category
+
+
+@pytest.fixture
+def category_tier(seated_event: tuple[Event, list[VenueSeat]], premium: PriceCategory) -> TicketTier:
+    """A user-choice tier pricing Premium at 80.00, with a 25.00 flat fallback for unpainted seats."""
+    event, seats = seated_event
+    return TicketTier.objects.create(
+        event=event,
+        name="Stalls",
+        price=Decimal("25.00"),
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        sector=seats[0].sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+        category_prices={str(premium.id): "80.00"},
+    )
+
+
+def _drift_unpriced_category(event: Event, seat: VenueSeat) -> PriceCategory:
+    """Paint ``seat`` with a category no tier prices, bypassing write-time validation.
+
+    Reproduces the runtime drift spec §4.3 describes: paint is venue-wide and
+    mutates after a tier was validated.
+    """
+    assert event.venue is not None
+    category = PriceCategory.objects.create(venue=event.venue, name="Balcony", color="#00ffff")
+    VenueSeat.objects.filter(pk=seat.pk).update(default_price_category=category)
+    return category
+
+
+def test_sell_at_the_door_stamps_resolved_category_price(
+    seated_event: tuple[Event, list[VenueSeat]], category_tier: TicketTier, recipient: RevelUser
+) -> None:
+    """A door sale on a category-priced tier records the seat's price, not the flat tier price."""
+    event, seats = seated_event
+    ticket = box_office.sell(
+        event,
+        category_tier,
+        seat_id=seats[0].id,
+        payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+        recipient=recipient,
+    )
+    assert ticket.price_paid == Decimal("80.00")
+
+
+def test_sell_at_the_door_stamps_flat_price_for_unpainted_seat(
+    seated_event: tuple[Event, list[VenueSeat]], category_tier: TicketTier, recipient: RevelUser
+) -> None:
+    """The unpainted-seat fallback to ``tier.price`` is legitimate — and still stamped."""
+    event, seats = seated_event
+    ticket = box_office.sell(
+        event,
+        category_tier,
+        seat_id=seats[1].id,
+        payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+        recipient=recipient,
+    )
+    assert ticket.price_paid == Decimal("25.00")
+
+
+def test_sell_comp_on_category_priced_tier_stays_zero(
+    seated_event: tuple[Event, list[VenueSeat]], category_tier: TicketTier, recipient: RevelUser
+) -> None:
+    """A comp never inflates revenue, however expensive the seat."""
+    event, seats = seated_event
+    ticket = box_office.sell(
+        event, category_tier, seat_id=seats[0].id, payment_method=TicketTier.PaymentMethod.FREE, recipient=recipient
+    )
+    assert ticket.price_paid == Decimal("0.00")
+
+
+def test_sell_at_the_door_refuses_unpriced_category(
+    seated_event: tuple[Event, list[VenueSeat]], category_tier: TicketTier, recipient: RevelUser
+) -> None:
+    """A seat painted into a category the tier does not price must not sell at the flat price."""
+    event, seats = seated_event
+    category = _drift_unpriced_category(event, seats[1])
+    with pytest.raises(HttpError) as exc:
+        box_office.sell(
+            event,
+            category_tier,
+            seat_id=seats[1].id,
+            payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+            recipient=recipient,
+        )
+    assert exc.value.status_code == 400
+    assert category.name in str(exc.value)
+    assert not Ticket.objects.filter(event=event, seat=seats[1]).exists()
+
+
+def test_sell_comp_on_unpriced_category_allowed(
+    seated_event: tuple[Event, list[VenueSeat]], category_tier: TicketTier, recipient: RevelUser
+) -> None:
+    """A comp on an unpriced-category seat is honest at 0.00, so it stays the escape hatch."""
+    event, seats = seated_event
+    _drift_unpriced_category(event, seats[1])
+    ticket = box_office.sell(
+        event, category_tier, seat_id=seats[1].id, payment_method=TicketTier.PaymentMethod.FREE, recipient=recipient
+    )
+    assert ticket.price_paid == Decimal("0.00")
+
+
+def test_sell_at_the_door_on_flat_tier_still_defers_to_tier_price(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, recipient: RevelUser, premium: PriceCategory
+) -> None:
+    """A painted seat on a tier with no map is not category-priced — the null stays."""
+    event, seats = seated_event
+    ticket = box_office.sell(
+        event, tier, seat_id=seats[0].id, payment_method=TicketTier.PaymentMethod.AT_THE_DOOR, recipient=recipient
+    )
+    assert ticket.price_paid is None
+
+
 # ---- reseat ----
 
 
@@ -309,6 +433,38 @@ def test_reseat_cross_category_rejected(seated_event: tuple[Event, list[VenueSea
     with pytest.raises(HttpError) as exc:
         box_office.reseat(event, ticket_id=seated_ticket.id, target_seat_id=seats[3].id)
     assert exc.value.status_code == 400
+
+
+def test_reseat_same_category_preserves_price_paid(
+    seated_event: tuple[Event, list[VenueSeat]],
+    category_tier: TicketTier,
+    premium: PriceCategory,
+    recipient: RevelUser,
+) -> None:
+    """The same-category constraint is what keeps a stamped ``price_paid`` truthful.
+
+    Since category pricing the constraint carries money semantics: within one
+    category every seat costs the same, so the stamped price still describes the
+    seat the ticket now sits on. Cross-category is refused
+    (``test_reseat_cross_category_rejected``) precisely because it would not.
+    """
+    event, seats = seated_event
+    seats[3].default_price_category = premium
+    seats[3].save(update_fields=["default_price_category"])
+    sold = box_office.sell(
+        event,
+        category_tier,
+        seat_id=seats[0].id,
+        payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+        recipient=recipient,
+    )
+    assert sold.price_paid == Decimal("80.00")
+
+    moved = box_office.reseat(event, ticket_id=sold.id, target_seat_id=seats[3].id)
+    assert moved.seat == seats[3]
+    assert moved.price_paid == Decimal("80.00")
+    assert moved.seat is not None
+    assert moved.seat.default_price_category_id == premium.id
 
 
 def test_reseat_occupied_target_conflicts(
