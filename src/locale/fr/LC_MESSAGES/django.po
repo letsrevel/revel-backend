@@ -1575,13 +1575,6 @@ msgstr "Ce siège est bloqué pour cet événement."
 msgid "This seat is currently held by another buyer."
 msgstr "Ce siège est actuellement réservé par un autre acheteur."
 
-#, python-format
-msgid ""
-"This seat's price category (%(category)s) has no price on the tier %(tier)s."
-msgstr ""
-"La catégorie tarifaire de cette place (%(category)s) n'a pas de prix dans la "
-"catégorie de billets %(tier)s."
-
 msgid "Only pending or active tickets can be reseated."
 msgstr "Seuls les tickets en attente ou actifs peuvent être replacés."
 

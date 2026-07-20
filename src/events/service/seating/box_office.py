@@ -84,36 +84,6 @@ def _lock_seat_for_sale(event: Event, seat_id: uuid.UUID, recipient: RevelUser) 
     return seat
 
 
-def _assert_seat_is_priced(tier: TicketTier, seat: VenueSeat, price_map: dict[uuid.UUID, Decimal]) -> None:
-    """Refuse a door sale of a seat whose category the tier does not price (spec §4.3).
-
-    Write-time validation requires a category-priced tier to price every painted
-    category, but paint mutates afterwards, venue-wide. Checkout refuses such a
-    seat rather than quietly charging ``tier.price``; the box office refuses it
-    too — a door sale at the wrong price is exactly as bad as a web sale at the
-    wrong price, and staff standing at the venue are the people best placed to
-    fix the map. There is deliberately no override: the escape hatch is a comp
-    (which is honestly 0.00) or pricing the category, not a silent mis-charge.
-
-    Args:
-        tier: The locked tier being sold.
-        seat: The seat being sold.
-        price_map: The tier's parsed category price map.
-
-    Raises:
-        HttpError: 400 naming the unpriced category.
-    """
-    category_id = seat.default_price_category_id
-    if not price_map or category_id is None or category_id in price_map:
-        return
-    name = seat.default_price_category.name if seat.default_price_category is not None else str(category_id)
-    raise HttpError(
-        400,
-        str(_("This seat's price category (%(category)s) has no price on the tier %(tier)s."))
-        % {"category": name, "tier": tier.name},
-    )
-
-
 @transaction.atomic
 def sell(
     event: Event,
@@ -178,8 +148,13 @@ def sell(
         # category (tier.price cannot reconstruct it), else leave it null so
         # fixed-price reporting falls back to the tier price. Semantic shift:
         # null tracked *later* repricing, stamping is purchase-time truth.
+        # An unpriced painted category is refused by build_batch_pricing itself (spec §4.3) —
+        # a door sale at the wrong price is exactly as bad as a web sale at the wrong price.
+        # Deliberately no staff override: an override selling at tier.price is indistinguishable
+        # in the books from the bug. The escape hatches are a comp (honestly 0.00, and the FREE
+        # branch above never reaches this code) or pricing the category, which takes seconds and
+        # fixes every future sale.
         price_map = parse_price_map(locked_tier.category_prices)
-        _assert_seat_is_priced(locked_tier, seat, price_map)
         lines = build_batch_pricing(locked_tier, [seat]).lines
         stamp_price_paid = bool(price_map)
     tickets = service.create_tickets(
