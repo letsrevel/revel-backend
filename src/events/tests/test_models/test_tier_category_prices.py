@@ -12,6 +12,7 @@ import uuid
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.utils import translation
 
 from events.models import (
     Event,
@@ -422,3 +423,43 @@ def test_best_available_partial_map_over_a_painted_sector_still_saves(
     paint(sector, "A2", standard)
     tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00"})
     tier.full_clean()
+
+
+# --- i18n: the messages are organizer-facing, so they must actually translate ---
+
+
+def test_validation_messages_render_in_the_active_language(
+    event: Event, venue: Venue, sector: VenueSector, premium: PriceCategory
+) -> None:
+    """The messages are wrapped for translation *and* the catalog resolves them.
+
+    Guards two regressions at once: dropping the ``gettext`` wrapper (English leaks
+    to an Italian organizer) and letting a msgid drift out of the catalog. Both the
+    plain and the ``.format()``-interpolated form are checked — interpolation is
+    applied to the *translated* string, so a positional placeholder would break here.
+    """
+    unseated = TicketTier(event=event, name="GA", venue=venue, category_prices={str(premium.id): "10.00"})
+    with translation.override("it"):
+        with pytest.raises(ValidationError) as exc_info:
+            unseated.full_clean()
+        assert exc_info.value.message_dict["category_prices"] == [
+            "I prezzi per categoria richiedono un livello di biglietto con posti assegnati. "
+            "Cancellali per cambiare la modalità di assegnazione dei posti."
+        ]
+
+        bad_key = make_tier(event, sector, category_prices={"premium": "50.00"})
+        with pytest.raises(ValidationError) as exc_info:
+            bad_key.full_clean()
+        assert exc_info.value.message_dict["category_prices"] == [
+            "'premium' non è un id di categoria di prezzo valido."
+        ]
+
+
+def test_validation_messages_stay_english_by_default(event: Event, venue: Venue, premium: PriceCategory) -> None:
+    """The default active language is English — the wrapping must not change the wording."""
+    tier = TicketTier(event=event, name="GA", venue=venue, category_prices={str(premium.id): "10.00"})
+    with pytest.raises(ValidationError) as exc_info:
+        tier.full_clean()
+    assert exc_info.value.message_dict["category_prices"] == [
+        "Category prices require a seated tier. Clear them to change the seating mode."
+    ]
