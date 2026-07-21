@@ -12,7 +12,7 @@ from common.schema import OneToOneFiftyString, StrippedString
 from events import models
 from events.models import TicketTier
 from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
-from events.utils.tier_pricing import painted_categories, parse_price_map
+from events.utils.tier_pricing import painted_categories, parse_price_map, unsellable_zone_ids
 
 from .organization import MembershipTierSchema
 from .venue import TierPricingGapSchema, TierUnsellableZoneSchema, VenueSchema, VenueSectorSchema
@@ -477,13 +477,12 @@ class TicketTierDetailSchema(ModelSchema):
         deliberate scoping, and reported by nothing. This is priced-but-unpainted, which is
         never deliberate: the tier is publishing a zone it cannot fill.
 
-        Silent in the two states where it would cry wolf:
-
-        - **Any other mode.** On ``user_choice`` the buyer picks seats, not zones, so an
-          unpainted key is inert — it prices nothing and costs nobody a 409. Pricing the
-          venue's categories once and painting incrementally stays a supported ordering.
-        - **A sector carrying no paint at all.** Mid-setup (prices first, paint second);
-          nothing contradicts the keys yet.
+        The condition itself — including the two states where it stays silent (any other
+        mode; a sector carrying no paint at all) — is
+        :func:`events.utils.tier_pricing.unsellable_zone_ids`, shared verbatim with the
+        seat-paint advisory (``SeatPaintResultSchema.unsellable_zone_tiers``) so the tier
+        screen and the venue screen can never disagree about what is unsellable. This
+        method only supplies the painted set (read from the database) and renders the names.
 
         Advisory only, like every other coverage signal — paint is venue-wide state a tier
         save does not control, so it can be reported but never enforced.
@@ -495,10 +494,10 @@ class TicketTierDetailSchema(ModelSchema):
         if obj.seat_assignment_mode != TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
             return []
         price_map = parse_price_map(obj.category_prices)
+        # Skip the read entirely on a flat tier — `unsellable_zone_ids` would answer
+        # "nothing" for an empty map whatever the sector carries.
         painted = set(painted_categories(obj.sector_id).values_list("id", flat=True)) if price_map else set()
-        if not painted:
-            return []
-        unpainted = price_map.keys() - painted
+        unpainted = unsellable_zone_ids(obj.seat_assignment_mode, price_map, painted)
         if not unpainted:
             return []
         zones = models.PriceCategory.objects.filter(id__in=unpainted).order_by("display_order", "name")

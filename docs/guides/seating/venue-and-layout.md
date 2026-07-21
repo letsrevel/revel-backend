@@ -153,9 +153,24 @@ platform which seats are which.
 > the real repaint would be rejected, the question is rejected the same way, so nobody confirms
 > a change that then fails.
 >
+> **Erasing paint has its own hazard, and the save reports that too.** A best-available buyer
+> picks a *zone*, not a seat, and the tier's price map is what publishes the list of zones they
+> can pick. So if you unpaint (or repaint away) the **last** seat carrying a category that a
+> best-available tier still prices, the tier goes on offering that zone and the seat-picker can
+> never fill it: every buyer who chooses it gets "not enough adjacent seats" and no explanation.
+> Nothing about that is deliberate, and the action that causes it happens on this screen — so the
+> paint response names it, listing each affected tier, its event, and the zones now impossible to
+> fill. It reports the tier's *current* unfillable zones, not just the ones this paint broke, so
+> a problem you left behind last week doesn't go quiet on you. Fix it either way round: repaint
+> some seats into that category, or drop the category from the tier's price map.
+>
+> This is the exact mirror image of the unpriced-category warning above, and only the mirror
+> image. A best-available tier that *doesn't* price a painted category is perfectly normal — that
+> is precisely how you scope a tier to part of a sector — so it is never reported as a problem.
+>
 > Practical advice for organizers running live on-sales: repaint before a show goes on sale, check
 > before you save, and read what the save reports back. The tier admin screen also flags any
-> category it doesn't price.
+> category it doesn't price, and any zone it prices that nothing carries.
 
 ## Demo it
 

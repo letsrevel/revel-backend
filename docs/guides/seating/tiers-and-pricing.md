@@ -128,13 +128,16 @@ Four rules to have at your fingertips when you demo this:
 > unpainted the last of those seats, or picked a category from the wrong sector). Buyers
 > can select that zone and the picker will never find a seat for it, so the tier's admin
 > screen lists it as an **unsellable zone**. Same fix, same seconds: repaint the seats, or
-> drop the zone from the map.
+> drop the zone from the map. And because the *cause* is almost always an unpaint on the
+> venue screen, the paint response reports it there too, at the moment it happens — the
+> organizer no longer has to think to open the tier to find out.
 
 **Repainting can move money on a best-available tier too.** Because both modes read the
 paint, a repaint that moves seats between two zones a tier prices changes what those seats
 cost — silently, at every event in the building. The paint screen's advisory therefore
 reports **both** seated modes: it names each live tier whose prices this paint would move,
-before you commit it. See [`venue-and-layout.md`](venue-and-layout.md).
+before you commit it — and, separately, each best-available tier the paint leaves pricing a
+zone the sector can no longer fill. See [`venue-and-layout.md`](venue-and-layout.md).
 
 **Duplicate and repeat freely.** Duplicating a seated event — and therefore generating
 every occurrence of a recurring one — carries the venue, the sector and the zone price map
@@ -447,8 +450,11 @@ For the technically-curious rep or a prospect's technical evaluator:
   reported instead: `pricing_gaps` and the seat-paint advisory's `missing_categories` for
   painted-but-unpriced (user-choice only — flagging it on a deliberately-scoped
   best-available tier would be a permanent false alarm), and `unsellable_zones` for the
-  converse, priced-but-unpainted (best-available only, where a zone is selectable). The
-  money guard is `resolve_seat_price`'s 400 at the till.
+  converse, priced-but-unpainted (best-available only, where a zone is selectable). That
+  converse is surfaced in two places off **one** rule — `tier_pricing.unsellable_zone_ids`,
+  which both `resolve_unsellable_zones` (tier screen) and the paint advisory's
+  `unsellable_zone_tiers` (venue screen, where the unpaint that causes it happens) call —
+  so the two can never disagree. The money guard is `resolve_seat_price`'s 400 at the till.
 - **Best-available scoring**: the pure scoring function lives in
   `src/events/service/seating/best_available.py` (`pick_best_available` /
   `_pick_general` / `_pick_accessible`) — row order, centrality, fragmentation penalty,
