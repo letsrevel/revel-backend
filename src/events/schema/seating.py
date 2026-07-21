@@ -25,6 +25,17 @@ class ChartSeatSchema(Schema):
     price_category_id: UUID | None = None
 
 
+# The anonymous chart serves a whitelisted PROJECTION of organizer-written metadata, not
+# the verbatim blob (#761) — exactly the keys the shipped buyer renderer consumes:
+# frontend `events/venue-overview.ts` parses venue `metadata.stage`; `tickets/seat-map-layout.ts`
+# and `tickets/sector-transform.ts` parse sector `metadata.aisles` / `metadata.transform`.
+# Admin/designer endpoints keep serving the full blob. Applied in
+# ``events.service.seating.chart.build_chart``; ``null`` stays ``null``, an object is reduced
+# to its whitelisted keys (possibly ``{}``).
+CHART_VENUE_METADATA_KEYS: t.Final = frozenset({"stage"})
+CHART_SECTOR_METADATA_KEYS: t.Final = frozenset({"transform", "aisles"})
+
+
 class ChartSectorSchema(Schema):
     id: UUID
     name: str
@@ -33,6 +44,7 @@ class ChartSectorSchema(Schema):
     shape: list[Coordinate2D] | None = None
     capacity: int | None = None
     display_order: int = 0
+    # Projection of the sector's metadata: only CHART_SECTOR_METADATA_KEYS survive.
     metadata: dict[str, t.Any] | None = None
     seats: list[ChartSeatSchema] = Field(default_factory=list)
 
@@ -42,8 +54,8 @@ class VenueChartSchema(Schema):
     venue_name: str
     updated_at: AwareDatetime
     # Venue-level counterpart of ChartSectorSchema.metadata: the layout designer's whole-venue
-    # config (stage position/shape, the `floors` list). Verbatim organizer-written JSON, `null`
-    # when the designer never wrote any — never `{}`.
+    # config, projected to CHART_VENUE_METADATA_KEYS (the stage position/shape). `null` when
+    # the designer never wrote any — never `{}`.
     metadata: dict[str, t.Any] | None = None
     price_categories: list[PriceCategorySchema] = Field(default_factory=list)
     sectors: list[ChartSectorSchema] = Field(default_factory=list)

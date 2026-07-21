@@ -67,16 +67,47 @@ def test_chart_serializes_legacy_pair_shape(client: Client, seated_event: tuple[
     ]
 
 
-def test_chart_exposes_venue_metadata(client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
-    """The designer's venue-level config (stage, floors) round-trips verbatim to the buyer's map."""
+def test_chart_projects_metadata_to_whitelisted_keys(
+    client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    """The anonymous chart serves a whitelisted projection, not the verbatim blob (#761).
+
+    Venue level keeps only ``stage``; sector level only ``transform``/``aisles`` —
+    exactly the keys the shipped buyer renderer reads. Whitelisted values pass
+    through verbatim; everything else the designer wrote is stripped.
+    """
     event, seats = seated_event
     venue = event.venue
     assert venue is not None
-    metadata = {
-        "stage": {"shape": [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], "label": "Stage"},
+    stage = {"shape": [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], "label": "Stage"}
+    venue.metadata = {
+        "stage": stage,
         "floors": [{"id": "ground", "name": "Ground", "order": 0}],
+        "designer_note": "loading dock code 4711",
     }
-    venue.metadata = metadata
+    venue.save(update_fields=["metadata"])
+    sector = seats[0].sector
+    transform = {"x": 0.0, "y": 120.0, "rotation": 90.0}
+    aisles = {"verticalAisles": [4], "horizontalAisles": [2], "invertRowOrder": False}
+    sector.metadata = {"transform": transform, "aisles": aisles, "floor": "ground"}
+    sector.save(update_fields=["metadata"])
+
+    resp = client.get(f"/api/events/{event.id}/seating/chart")
+
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["metadata"] == {"stage": stage}
+    assert body["sectors"][0]["metadata"] == {"transform": transform, "aisles": aisles}
+
+
+def test_chart_projects_non_whitelisted_metadata_to_empty_object(
+    client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    """An object with no whitelisted keys projects to ``{}`` — not ``null`` (#761)."""
+    event, seats = seated_event
+    venue = event.venue
+    assert venue is not None
+    venue.metadata = {"scratch": "not for buyers"}
     venue.save(update_fields=["metadata"])
     sector = seats[0].sector
     sector.metadata = {"floor": "ground"}
@@ -86,9 +117,8 @@ def test_chart_exposes_venue_metadata(client: Client, seated_event: tuple[Event,
 
     assert resp.status_code == 200, resp.content
     body = resp.json()
-    assert body["metadata"] == metadata
-    # Same shape at both levels: sector metadata carries the floor id the venue list declares.
-    assert body["sectors"][0]["metadata"] == {"floor": "ground"}
+    assert body["metadata"] == {}
+    assert body["sectors"][0]["metadata"] == {}
 
 
 def test_chart_metadata_is_null_when_unset(client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
@@ -99,6 +129,8 @@ def test_chart_metadata_is_null_when_unset(client: Client, seated_event: tuple[E
     body = resp.json()
     assert "metadata" in body
     assert body["metadata"] is None
+    # Same rule at sector level: the projection must not turn null into {}.
+    assert body["sectors"][0]["metadata"] is None
 
 
 def test_chart_query_count_is_unaffected_by_venue_metadata(
