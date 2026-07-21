@@ -27,6 +27,7 @@ import pytest
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.exceptions import InvalidZoneSelectionError
 from events.models import (
     DiscountCode,
     Event,
@@ -559,41 +560,51 @@ class TestBestAvailableZonePreview:
 
 
 class TestZoneValidation:
-    """The refusals, which must match checkout's zone resolution exactly (Task B, #749)."""
+    """The refusals, which come from checkout's own authority (Task B, #749).
+
+    The preview does not implement these rules — it calls
+    ``events.service.seating.pick.resolve_requested_zone``, the single authority the
+    charge uses. These tests therefore pin the *wording the buyer sees* as identical in
+    both places: a preview that refuses differently from the charge is the same drift
+    that having two resolvers would have caused.
+    """
 
     def test_mapped_best_available_tier_without_a_zone_is_refused(
         self, seated_event: Event, ba_tier: TicketTier
     ) -> None:
         """Quoting the flat 50.00 for a tier that sells at 80/30 would be a lie; name the zones."""
-        with pytest.raises(HttpError) as exc:
+        with pytest.raises(InvalidZoneSelectionError) as exc:
             _preview(seated_event, ba_tier, count=2)
 
-        assert exc.value.status_code == 400
-        assert "Premium" in str(exc.value.message)
-        assert "Standard" in str(exc.value.message)
+        assert "Select one of this ticket tier's zones" in str(exc.value)
+        assert "Premium" in str(exc.value)
+        assert "Standard" in str(exc.value)
 
     def test_zone_outside_the_tiers_map_is_refused(
         self, seated_event: Event, ba_tier: TicketTier, unpriced_zone: PriceCategory
     ) -> None:
         """A category the tier does not price is not a sellable zone — same message."""
-        with pytest.raises(HttpError) as exc:
+        with pytest.raises(InvalidZoneSelectionError) as exc:
             _preview(seated_event, ba_tier, count=2, zone=unpriced_zone)
 
-        assert exc.value.status_code == 400
-        assert "Premium" in str(exc.value.message)
-        assert "Standard" in str(exc.value.message)
+        assert "Select one of this ticket tier's zones" in str(exc.value)
+        assert "Premium" in str(exc.value)
+        assert "Standard" in str(exc.value)
 
     def test_zone_on_an_unmapped_tier_is_refused(
         self, seated_event: Event, ba_unmapped_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
     ) -> None:
-        """The tier sells one flat price; honouring a zone would quote a price it has not set."""
+        """The tier sells one flat price; honouring a zone would quote a price it has not set.
+
+        Refused, never ignored: a parameter the buyer believes selected a zone, silently
+        dropped, quotes a number they did not ask for.
+        """
         premium, _standard = categories
 
-        with pytest.raises(HttpError) as exc:
+        with pytest.raises(InvalidZoneSelectionError) as exc:
             _preview(seated_event, ba_unmapped_tier, count=2, zone=premium)
 
-        assert exc.value.status_code == 400
-        assert "does not sell by zone" in str(exc.value.message)
+        assert "single price for its whole sector" in str(exc.value)
 
     def test_zone_on_a_user_choice_tier_is_refused(
         self, seated_event: Event, online_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
@@ -601,11 +612,10 @@ class TestZoneValidation:
         """A user-choice line prices from its seats; a zone would quote seats it never checked."""
         premium, _standard = categories
 
-        with pytest.raises(HttpError) as exc:
+        with pytest.raises(InvalidZoneSelectionError) as exc:
             _preview(seated_event, online_tier, count=2, zone=premium)
 
-        assert exc.value.status_code == 400
-        assert "does not sell by zone" in str(exc.value.message)
+        assert "can only be selected on a best-available ticket tier" in str(exc.value)
 
     def test_seats_and_a_zone_together_are_refused(
         self,

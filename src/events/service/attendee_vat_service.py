@@ -26,7 +26,7 @@ if t.TYPE_CHECKING:
     from events.models.event import Event
     from events.models.organization import Organization
     from events.models.ticket import TicketTier
-    from events.models.venue import PriceCategory, VenueSeat
+    from events.models.venue import VenueSeat
     from events.schema.ticket import BuyerBillingInfoSchema, VATPreviewItemSchema
     from events.service.seating.pricing import BatchPricing
 
@@ -246,65 +246,6 @@ def _validate_buyer_vat(
     return vat_id_valid, vat_id_validation_error, buyer_country
 
 
-def _resolve_requested_zone(tier: "TicketTier", price_category_id: "UUID | None") -> "PriceCategory | None":
-    """Resolve the zone a best-available preview line draws from (spec §4.3).
-
-    A best-available buyer picks no seats — the picker assigns them at hold/checkout
-    time — so the only thing that fixes their price is the *zone*: one price category
-    of the tier's ``category_prices`` map, supplied per request. One zone per request
-    is what makes a seatless line uniformly priced, and therefore quotable at all.
-
-    ``None`` means "no zone applies": an unmapped tier (flat ``tier.price``), or a
-    user-choice line, which prices from its seats instead.
-
-    # ponytail: THIS IS A TEMPORARY SECOND AUTHORITY FOR ONE RULE.
-    # Task B (#749) is landing ``events.service.seating.pick.resolve_requested_zone`` as the
-    # single zone-resolution authority for checkout, in a worktree this branch cannot import
-    # from yet. The validation table below is written to agree with it exactly. **At merge
-    # time this function must be deleted and its call site pointed at
-    # ``pick.resolve_requested_zone``** — two authorities for one rule is precisely the defect
-    # class this convergence exists to remove, and a preview that validates differently from
-    # the charge is the same drift in a new place.
-
-    Args:
-        tier: The tier this line buys into.
-        price_category_id: The zone the buyer asked for, if any.
-
-    Returns:
-        The requested zone, or ``None`` when the line is not zone-priced.
-
-    Raises:
-        HttpError: 400, if a zone is supplied where none applies, or if a
-            best-available line on a mapped tier names no zone (or an unpriced one).
-    """
-    from ninja.errors import HttpError
-
-    from events.models import PriceCategory
-    from events.utils.tier_pricing import parse_price_map
-
-    is_best_available = tier.seat_assignment_mode == tier.SeatAssignmentMode.BEST_AVAILABLE
-    price_map = parse_price_map(tier.category_prices)
-
-    if not (is_best_available and price_map):
-        # No zone can apply: a user-choice line prices from its seats, and an unmapped
-        # tier charges one flat price. Accepting the parameter anyway would quote a
-        # number the buyer never asked for.
-        if price_category_id is not None:
-            raise HttpError(400, str(_("This ticket tier does not sell by zone — price_category_id is not accepted.")))
-        return None
-
-    zone = PriceCategory.objects.filter(pk=price_category_id).first() if price_category_id in price_map else None
-    if zone is None:
-        names = sorted(PriceCategory.objects.filter(id__in=price_map).values_list("name", flat=True))
-        raise HttpError(
-            400,
-            str(_("Choose a zone to preview this tier's best-available seats: {zones}.")).format(
-                zones=", ".join(names)
-            ),
-        )
-    return zone
-
-
 def _resolve_preview_seats(tier: "TicketTier", item: "VATPreviewItemSchema") -> "list[VenueSeat | None]":
     """Resolve what each ticket of a preview line is priced from, in cart order.
 
@@ -331,20 +272,29 @@ def _resolve_preview_seats(tier: "TicketTier", item: "VATPreviewItemSchema") -> 
         ``item.count`` entries; ``None`` for general admission / unzoned lines.
 
     Raises:
-        HttpError: 400, if both selectors are supplied, if any seat id is unknown or
-            outside the tier's sector, or if the zone rules of
-            :func:`_resolve_requested_zone` are violated.
+        HttpError: 400, if both selectors are supplied, or if any seat id is unknown or
+            outside the tier's sector.
+        InvalidZoneSelectionError: 400 (rendered by ``events/exception_handlers.py``), if
+            the requested zone is unusable on this tier — see
+            :func:`~events.service.seating.pick.resolve_requested_zone`, the single
+            authority the preview and checkout share so a quote can never be validated
+            differently from the charge it predicts.
     """
     from ninja.errors import HttpError
 
-    from events.models import VenueSeat
+    from events.models import PriceCategory, VenueSeat
+    from events.service.seating.pick import resolve_requested_zone
 
     if item.seat_ids and item.price_category_id is not None:
         raise HttpError(400, str(_("Provide either seat_ids or price_category_id, not both.")))
 
     if not item.seat_ids:
-        zone = _resolve_requested_zone(tier, item.price_category_id)
-        if zone is not None:
+        zone_id = resolve_requested_zone(tier, item.price_category_id)
+        if zone_id is not None:
+            # The preview needs the category itself for the line name; the authority
+            # returns only the id, and has already proven it is one of the tier's zones
+            # (a zone in the map cannot be deleted — see `delete_price_category`).
+            zone = PriceCategory.objects.get(pk=zone_id)
             # One shared read-only stand-in: `resolve_seat_price` reads only the category.
             return [VenueSeat(default_price_category=zone)] * item.count
         # A category-priced user-choice tier has no meaningful flat price, so quoting one would
@@ -505,9 +455,12 @@ def calculate_vat_preview(
 
     Raises:
         HttpError 404: If a tier is not found for the event.
-        HttpError 400: On a currency mismatch, an unknown seat, a missing/unpriced or
-            inapplicable zone, a PWYC amount out of bounds, or a seat whose price
-            category the tier does not price.
+        HttpError 400: On a currency mismatch, an unknown seat, a PWYC amount out of
+            bounds, or a seat whose price category the tier does not price.
+        InvalidZoneSelectionError: 400, on a missing/unpriced or inapplicable zone —
+            raised by the shared authority
+            :func:`~events.service.seating.pick.resolve_requested_zone`, so the preview
+            refuses a zone in exactly the words checkout would.
     """
     from ninja.errors import HttpError
 
