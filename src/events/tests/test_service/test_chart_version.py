@@ -57,6 +57,15 @@ class TestVersionMovesOnEveryWriter:
         venue_service.update_venue(venue, schema.VenueUpdateSchema(name="Renamed Hall"))  # type: ignore[call-arg]
         assert version(venue.id) > before
 
+    def test_update_venue_metadata(self, venue: Venue) -> None:
+        """Venue metadata is on the chart (stage/floors), so editing it must move the poller's version."""
+        before = version(venue.id)
+        venue_service.update_venue(
+            venue,
+            schema.VenueUpdateSchema(metadata={"stage": {"label": "Stage"}}),  # type: ignore[call-arg]
+        )
+        assert version(venue.id) > before
+
     def test_create_price_category(self, venue: Venue) -> None:
         before = version(venue.id)
         venue_service.create_price_category(
