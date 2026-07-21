@@ -1166,6 +1166,12 @@ msgstr "Ein inaktiver Sitzplatz kann nicht zugewiesen werden."
 msgid "Seat must belong to the specified sector."
 msgstr "Der Sitzplatz muss zum angegebenen Sektor gehören."
 
+msgid "Seated"
+msgstr "Sitzplätze"
+
+msgid "Standing"
+msgstr "Stehplätze"
+
 msgid "Address visible to invited guests only"
 msgstr "Adresse nur für eingeladene Gäste sichtbar"
 
@@ -1180,6 +1186,10 @@ msgstr "Adresse nur für Teilnehmer:innen sichtbar"
 
 msgid "Only draft invoices can be edited."
 msgstr "Nur Rechnungsentwürfe können bearbeitet werden."
+
+#, python-brace-format
+msgid "Cannot edit fields: {fields}"
+msgstr "Diese Felder können nicht bearbeitet werden: {fields}"
 
 msgid "Cancelled invoices cannot be issued."
 msgstr "Stornierte Rechnungen können nicht ausgestellt werden."

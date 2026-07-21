@@ -1168,6 +1168,12 @@ msgstr "Impossible d'attribuer un siège inactif."
 msgid "Seat must belong to the specified sector."
 msgstr "Le siège doit appartenir au secteur spécifié."
 
+msgid "Seated"
+msgstr "Places assises"
+
+msgid "Standing"
+msgstr "Places debout"
+
 msgid "Address visible to invited guests only"
 msgstr "Adresse visible uniquement par les personnes invité·e·s"
 
@@ -1182,6 +1188,10 @@ msgstr "Adresse visible uniquement par les participant·e·s"
 
 msgid "Only draft invoices can be edited."
 msgstr "Seules les factures au statut de brouillon peuvent être modifiées."
+
+#, python-brace-format
+msgid "Cannot edit fields: {fields}"
+msgstr "Impossible de modifier les champs : {fields}"
 
 msgid "Cancelled invoices cannot be issued."
 msgstr "Les factures annulées ne peuvent pas être émises."

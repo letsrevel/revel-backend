@@ -2,6 +2,7 @@ import typing as t
 
 from django.db import models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from common.models import TimeStampedModel
 
@@ -156,8 +157,8 @@ class VenueSector(TimeStampedModel):
     """
 
     class Kind(models.TextChoices):
-        SEATED = "seated", "Seated"
-        STANDING = "standing", "Standing"
+        SEATED = "seated", _("Seated")
+        STANDING = "standing", _("Standing")
 
     venue = models.ForeignKey(
         Venue,
