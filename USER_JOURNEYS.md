@@ -388,7 +388,7 @@ When the event opts in via `waitlist_time_window`:
 ### 6.7 Seat Selection
 Depends on the tier's `seat_assignment_mode`:
 - **NONE**: No seat assigned — general admission (optionally capped by a standing sector's hard capacity)
-- **BEST_AVAILABLE**: Server assigns the best adjacent block from the tier's price category on purchase
+- **BEST_AVAILABLE**: Server assigns the best adjacent block from the tier's sector, narrowed to the zone (`price_category_id`) the request names, on purchase
 - **USER_CHOICE**: Buyer picks seats from the interactive seat map, backed by 10-minute TTL holds
 
 See [Journey 19: Venue & Seating](#journey-19-venue--seating) for the full chart / availability / hold / best-available flow. (The old `RANDOM` mode has been removed.)
@@ -555,7 +555,7 @@ Opt-in per tier via `allow_user_cancellation`, `cancellation_deadline_hours`, an
 - Create seats within sectors: label, row/number, position, accessibility flags
 - Bulk create / update / delete seats (the seat grid editor)
 - Define venue-scoped **price categories** (name + hex color) painted onto seats
-- Link venues, sectors, and price categories to events and ticket tiers
+- Link venues and sectors to events and ticket tiers, and price the painted categories on each tier
 - Full enterprise seating setup + per-mode tier configuration is detailed in [Journey 19: Venue & Seating](#journey-19-venue--seating)
 
 ### 8.11 Resource Management
@@ -640,8 +640,8 @@ DRAFT → OPEN → CLOSED
   - Restricted to specific membership tiers
   - Restrict visibility to invitation-linked tiers (`restrict_visibility_to_linked_invitations`)
   - Restrict purchase to invitation-linked tiers (`restrict_purchase_to_linked_invitations`)
-  - Linked venue / sector / price category
-  - Seat assignment mode: NONE, USER_CHOICE, BEST_AVAILABLE — validated per mode: USER_CHOICE requires a sector, BEST_AVAILABLE requires a price category, NONE requires neither (see [Journey 19.3](#193-tier-seating-configuration-organizer))
+  - Linked venue / sector, plus the `category_prices` zone price map
+  - Seat assignment mode: NONE, USER_CHOICE, BEST_AVAILABLE — validated per mode: both seated modes require a seated sector, NONE requires neither; pricing is the `category_prices` zone map in both (see [Journey 19.3](#193-tier-seating-configuration-organizer))
   - VAT rate
 - Reorder tiers (display_order)
 
@@ -1133,25 +1133,29 @@ First-class recurring series with rolling-window materialization:
 ### 19.2 Price Categories (Organizer)
 - Venue-scoped categories: `name` + `color` (hex, for map rendering) + `display_order`
 - CRUD under `/organization-admin/{slug}/venues/{venue_id}/price-categories`; a duplicate `(venue, name)` is rejected with **400**
-- A category is **painted** onto seats as each seat's `default_price_category` — the pool a best-available tier draws from, and the key a user-choice tier prices seats by (§19.3)
+- A category is **painted** onto seats as each seat's `default_price_category` — the key a tier prices seats by in **either** seated mode, and (for best-available) the zone a buyer's request narrows the pool to (§19.3)
 - **Paint endpoint**: `PUT /organization-admin/{slug}/venues/{venue_id}/seats/paint` bulk-paints the given `seat_ids` in a single UPDATE and returns `{"painted": n}`; `price_category_id: null` **unpaints**. Every seat id must belong to the venue (else **404**) and the category, when given, must belong to the venue (else **400**)
 - **Paint round-trip**: seat reads (`VenueSeatSchema` — e.g. the sector / seat-list endpoints) carry `price_category_id` plus a nested `price_category` (name + color), so the grid editor re-hydrates existing paint on reload
-- **Delete guard**: deleting a category referenced by any ticket tier is refused with **400** naming the blocking `event — tier` pairs. "Referenced" covers both the `price_category` FK (best-available pools; `SET_NULL`, so a silent delete would leave the tier unsellable) **and** membership of a tier's `category_prices` map (user-choice per-seat pricing; invisible to the DB, so this guard is the only line of defence — a silent delete would collapse a premium zone back to the tier's flat price). Seats painted with the category are unaffected — on delete their `default_price_category` simply becomes NULL and can be repainted
+- **Delete guard**: deleting a category priced by any ticket tier is refused with **400** naming the blocking `event — tier` pairs. "Priced by" means membership of a tier's `category_prices` map, in either seated mode — invisible to the DB, so this guard is the only line of defence: a silent delete would collapse a premium zone back to the tier's flat price, or strip a best-available tier of a zone it sells. (There is no longer a `price_category` FK to guard.) Seats painted with the category are unaffected — on delete their `default_price_category` simply becomes NULL and can be repainted
 - **Repaint blast radius**: paint is venue-scoped and takes effect immediately for **every** event at that venue. Since §19.3 lets paint decide price, a repaint can move live prices across many events at once. Paint **always succeeds** — it never hard-fails on a tier it leaves under-covered, because one event's pricing config must not block venue-wide map work; the gap surfaces at checkout instead (§19.4) and on the tier's `pricing_gaps` (§19.3)
+- **Seat-paint advisory** (`events/service/seating/paint_report.py`): before/with a paint, the affected live zone-priced tiers are reported. `price_changes` (what this paint does to the money) covers **both** seated modes — since `category_prices` became the sole mechanism a best-available tier reads the paint identically, so a repaint reprices its sales just as silently. `missing_categories` (the tier's current gap) stays **user-choice only**, matching `pricing_gaps` and write-time validation. A dry run returns the same answer as the real paint
 
 ### 19.3 Tier Seating Configuration (Organizer)
 Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the model validates each mode:
 - **`NONE`** (general admission): no seat/sector/category required. Optionally link a **standing sector** — its `capacity` is then a hard limit enforced atomically at sale time (429 "This sector is full")
 - **`USER_CHOICE`**: **requires a seated sector**; buyers pick specific seats from it. Pointing a user-choice tier at a **standing** sector is rejected (model validation — a standing sector has no seats to choose from)
-- **`BEST_AVAILABLE`**: **requires a price category**; the server assigns an adjacent block from that category's seat pool, all at the tier's flat `price`
-- Cross-checks: a tier's sector, price category, and venue must all belong to the same venue/organization, and must match the event's venue when one is set
+- **`BEST_AVAILABLE`**: **requires a seated sector** too; the server assigns an adjacent block from that sector, narrowed to the **zone the request names** (below). Pointing it at a **standing** sector is likewise rejected
+- Cross-checks: a tier's sector, priced categories, and venue must all belong to the same venue/organization, and must match the event's venue when one is set
 
-**Per-seat-category pricing** (`USER_CHOICE` only) — `TicketTier.category_prices`, a `{price_category_id: decimal-string}` map. Empty = flat pricing; non-empty = the tier is *category-priced*, no separate flag:
+**Per-seat-category pricing — the single pricing mechanism for both seated modes.** `TicketTier.category_prices`, a `{price_category_id: decimal-string}` map. Empty = flat pricing at `tier.price` across the whole sector (legal and normal in either mode); non-empty = the tier is *zone-priced*, no separate flag. There is no `TicketTier.price_category` FK — it was dropped when the map became the sole mechanism:
 - **Write API**: nested on tier create/update. Omitted/`null` leaves the map untouched, `{}` clears it, a non-empty object replaces it wholesale. JSON floats are rejected (binary floats cannot represent money) — decimal strings or integers only
-- **Validation** at `clean()` time, all **400**: `USER_CHOICE` only (and the mode cannot be flipped away while the map is non-empty); mutually exclusive with `PWYC`; every category must belong to the tier's venue; on an `ONLINE` tier every category price must be ≥ 1; and **full coverage** — every category painted on ≥1 **active** seat of the tier's sector must be priced, with the error naming the missing categories
-- **Reads**: `TicketTierDetailSchema` (admin) carries the raw `category_prices` plus computed `pricing_gaps` (painted-but-unpriced categories, so the tier form can warn); `TicketTierSchema` (buyer) carries `seat_pricing` — **server-resolved** effective prices per category (`available: false`, no price, for a gap) plus the `unpainted` fallback, so the client never re-derives the fallback chain
+- **Validation** at `clean()` time, all **400** (`events/utils/tier_pricing.py`): a non-empty map requires a **seated** mode (the mode cannot be flipped to `NONE` while the map is non-empty); mutually exclusive with `PWYC`; every category must belong to the tier's venue; on an `ONLINE` tier every category price must be ≥ 1. **Coverage differs by mode**:
+  - `USER_CHOICE` → **full coverage**: every category painted on ≥1 **active** seat of the tier's sector must be priced, error naming the missing ones. The buyer can click any seat, so an unpriced one is a hole
+  - `BEST_AVAILABLE` → **partial coverage is legal and is the feature**: the keys *define the tier's sellable zones*. A painted category absent from the map is structurally unsellable through this tier — not a gap, and deliberately **not** reported by `pricing_gaps` or the seat-paint advisory's `missing_categories` (it would be a permanent false alarm)
+- **Reads**: `TicketTierDetailSchema` (admin) carries the raw `category_prices` plus computed `pricing_gaps` (**user-choice only**, per above); `TicketTierSchema` (buyer) carries `seat_pricing` — **server-resolved** effective prices per category (`available: false`, no price, for a gap) plus the `unpainted` fallback, so the client never re-derives the fallback chain
+- **Per-zone capacity**: a tier's `total_quantity` spans all of its zones; there is no per-category counter inside a tier (explicitly out of scope). The supported pattern is **one tier per capped zone** — a single-entry map plus its own `total_quantity` (and, if wanted, its own sales window / membership restriction). Before v3 a `BEST_AVAILABLE` tier got a per-zone cap for free, because one tier could only ever sell one category
 - **Resolution** (`events/service/seating/pricing.py`): painted + priced → the mapped price; painted + unpriced → **400 naming the category** (checkout and box office alike — the fallback would be exactly the silent mispricing the feature prevents); **unpainted → `tier.price`**, the one legitimate fallback; no seat or empty map → `tier.price`
-- **Lifecycle**: `category_prices` is a concrete field, so `duplicate_event` (and therefore every generated recurring occurrence) carries it automatically. Duplicating a reserved-seating event previously failed outright — tier duplication cleared `venue`/`sector`, which `USER_CHOICE` validation requires — and now works
+- **Lifecycle**: `category_prices` is a concrete field, so `duplicate_event` (and therefore every generated recurring occurrence) carries it automatically. Duplicating a reserved-seating event previously failed outright — tier duplication cleared `venue`/`sector`, which seated-mode validation requires — and now works
 
 ### 19.4 Buy Seated Tickets — User Choice (Attendee)
 - **Chart**: `GET /events/{event_id}/seating/chart` returns the render-ready layout (sectors, seats, price categories) for the event's venue. The chart is venue-scoped and price-free by design (cacheable, event-agnostic); **prices live on the tier** (`seat_pricing`, §19.3) because two tiers may sell the same sector at different prices
@@ -1169,7 +1173,12 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - **VAT preview**: `VATPreviewItemSchema` accepts `seat_ids` (exactly `count` entries, in cart order) — **required** to preview a category-priced tier, else the preview would quote the flat price and disagree with checkout. The response emits **one line per distinct unit price** (with `price_category_name`), not one per tier. The preview deliberately does **not** check seat availability: it is a quote, not a reservation
 
 ### 19.5 Buy Seated Tickets — Best Available (Attendee)
-- `POST /events/{event_id}/seating/holds/best-available` with `tier_id`, `quantity`, and optional `accessible_required` optimistically holds the best adjacent block from the tier's price category
+- `POST /events/{event_id}/seating/holds/best-available` with `tier_id`, `quantity`, optional `accessible_required`, and `price_category_id` (the **zone**) optimistically holds the best adjacent block
+- **Zone selection is a request parameter, not a tier attribute** — `resolve_requested_zone` (`events/service/seating/pick.py`) is the single authority, called identically by the hold route, authenticated checkout and guest checkout. All **400** (`InvalidZoneSelectionError`):
+  - tier has a non-empty map and `price_category_id` is **missing**, unknown, or not one of the map's keys → 400 naming the tier's zones. **This holds for a single-zone map too**: the client must send the zone explicitly, never rely on a "there's only one" inference
+  - tier has an **empty** map, or is not `BEST_AVAILABLE`, and a `price_category_id` is supplied → 400. A supplied-but-unusable zone is never a silent no-op — a parameter the buyer believes selected a zone, ignored, is a money bug
+- **Pool** = `tier.sector_id` **∩** the resolved zone (`load_candidates` filters `default_price_category_id`). Pre-v3 the pool was venue-wide by category, so a category painted in two sectors produced a cross-sector block — that is fixed by the sector confinement
+- **Zone mismatch at checkout**: seats held under one zone and bought naming another is a **409**, never a silent substitution
 - **Scoring** (lower is better): front rows first (`row_order`) → centrality (closer to the row midpoint) → fragmentation penalty (avoid stranding a single leftover seat) → sector order. Only genuinely-equivalent placements are tie-broken by a seeded shuffle
 - **Accessible seats are protected**: they are excluded from the general assignment pool, so an ordinary best-available request never consumes them — and this protection is **unconditional** (there is no exhaustion fallback: when only accessible seats remain, a general request returns "not enough adjacent seats" rather than being handed one). Accessible seats are reachable only via `accessible_required=true`
 - **`accessible_required=true`** flips to the accessible-only pool and relaxes contiguity, taking the nearest-row accessible seats
@@ -1178,6 +1187,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 
 ### 19.6 Guest Best-Available & Holds
 - Anonymous users get the same chart / availability / hold / best-available flow; the first hold mints the signed `revel_guest_hold` cookie (see [Journey 7.4](#74-guest-seated-checkout)), and those holds carry into guest checkout
+- **Guest zone selection**: guest hold and guest checkout carry `price_category_id` and run it through the same `resolve_requested_zone` authority as the authenticated paths (§19.5) — no guest-only leniency. The zone claim is bound into the signed email-confirm token alongside `accessible_required`, so the same zone is used at confirm time on another device; it is optional-with-default so pre-v3 tokens keep validating
 - **Guest accessible seating**: guest checkout accepts `accessible_required`; the flag **and** the guest-hold session id are bound into the signed email-confirm token, so best-available assignment at confirm time draws from the accessible pool and still consumes the buyer's own holds even when the link is opened on a different device. Too few accessible seats at confirm is the same distinct **409** ("Not enough accessible seats available — please contact the organizer.")
 
 ### 19.7 Box Office Seat Control (Event Admin)
@@ -1203,7 +1213,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - `is_obstructed_view` — obstructed-view flag (display only)
 - `is_active` — decommissioned seats read as `blocked` and are never holdable/assignable
 - `row_label` / `row_order` / `number` / `adjacency_index` — labeling and adjacency ordering
-- `default_price_category` — the painted price category: the pool a best-available tier draws from, **and** the key a user-choice tier's `category_prices` map prices the seat by (§19.3). Unpainted (`NULL`) seats fall back to the tier's flat `price`
+- `default_price_category` — the painted price category: the key a tier's `category_prices` map prices the seat by in **either** seated mode, and the zone a best-available request narrows its sector pool to (§19.3). Unpainted (`NULL`) seats fall back to the tier's flat `price`
 
 ---
 

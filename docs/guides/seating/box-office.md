@@ -16,8 +16,8 @@ Everything here requires the `manage_tickets` staff permission on the event's
 organization (check-in itself uses the narrower `check_in_attendees` permission —
 see [Check in and see the seat](#7-check-in-and-see-the-seat)). It only applies to seated
 venues — see [`venue-and-layout.md`](venue-and-layout.md) for how a venue gets seats
-in the first place, and [`tiers-and-pricing.md`](tiers-and-pricing.md) for how tiers
-draw from price categories.
+in the first place, and [`tiers-and-pricing.md`](tiers-and-pricing.md) for how a tier
+prices painted zones.
 
 ## How it works
 
@@ -110,9 +110,10 @@ sale is a real, full-price sale and reports as one.
 
 **How much did they pay?** It depends on how the tier is priced:
 
-- **Flat-price tier** — the ticket reports at the tier's list price. Nothing to think
-  about.
-- **Tier priced per seat category** — the ticket records **the price of that seat, at the
+- **Flat-price tier** (no zone map) — the ticket reports at the tier's list price. Nothing
+  to think about.
+- **Tier with a zone price map** (either seat-assignment mode) — the ticket records **the
+  price of that seat, at the
   moment of sale**. Sell an €80 Premium seat at the door tonight and it is booked as €80
   forever, even if the zone goes to €95 next week. That's the point: takings for a night
   that has already happened can't be rewritten by a later price change.
@@ -122,12 +123,14 @@ them find it: **the amount to collect is per seat now, so the door screen has to
 it.** If your staff are working from a printed price list instead, cash in the drawer and
 the number in the report will drift.
 
-One refusal to know about: if a seat has been painted into a price category the tier
-doesn't price, the door sale is rejected with a message naming the category — the same
-rule buyers hit online. There's deliberately no staff override, because a sale forced
-through at the flat price is indistinguishable in the books from the bug. The escape
-hatches are honest ones: comp the seat (recorded as 0.00), or have someone price the
-category, which takes seconds and fixes every subsequent sale.
+One refusal to know about: if a seat has been painted into a price zone the tier's map
+doesn't price, the door sale is **rejected** with a message naming the zone — the same
+rule buyers hit online, and it applies to both seated modes. It is **never** quietly sold
+at the tier's flat `price`: that fallback is exactly the silent mispricing the zone map
+exists to prevent, and in the books a forced sale is indistinguishable from the bug. So
+there's deliberately no staff override. The escape hatches are honest ones: comp the seat
+(recorded as 0.00), price the zone on this tier (seconds, and fixes every subsequent
+sale), or sell it on the tier that *does* cover that zone.
 
 ### 4. Comp the critic — press night
 
@@ -278,9 +281,10 @@ unless noted):
 - `POST /seating/sell` — door sale/comp. `payment_method` is `at_the_door` or
   `free` only. Recipient is exactly one of `email` (existing account reused, or new
   guest minted) or `user_id`. `free` always records `price_paid = 0.00`;
-  `at_the_door` stamps the seat's resolved category price on a tier with a category
-  price map, and leaves `price_paid` null on a flat tier (where the tier price
-  reconstructs it exactly). A seat in a category the tier doesn't price is a 400.
+  `at_the_door` stamps the seat's resolved zone price on a tier with a zone price map,
+  and leaves `price_paid` null on a flat tier (where the tier price reconstructs it
+  exactly). A seat in a zone the tier's map doesn't price is a 400 — never a fallback to
+  `tier.price`.
 - `POST /seating/reseat` — move a PENDING/ACTIVE ticket to a free seat in the same
   `default_price_category`. Same-category is a money-correctness rule: the target
   seat must cost what the guest already paid.

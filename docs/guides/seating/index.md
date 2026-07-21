@@ -28,16 +28,18 @@ If you have one prospect and five minutes, tell this story:
    figures out the front-to-back, left-to-right order automatically — no manual seat
    numbering. Paint price zones with colors (Stalls, Balcony, Boxes). See
    [Venue & Layout Setup](venue-and-layout.md).
-2. **"Price it however you sell it."** Price lives on the *event*, not the map, so the
-   same seats can be premium on Saturday and half-price midweek. Sell the classic theatre
-   way — **the buyer picks a seat and pays what that seat costs**, front stalls €80,
-   balcony €30, all on one map and one checkout. And because multiple ticket types can
-   share one price zone, you also get **adult / student / child prices on the same seats**
-   out of the box. See [Tickets & Pricing](tiers-and-pricing.md).
+2. **"Price it however you sell it."** Paint zones on the venue, price zones on the
+   event's ticket tier — one mechanism, so the same seats can be premium on Saturday and
+   half-price midweek. Sell the classic theatre way — **the buyer picks a seat and pays
+   what that seat costs**, front stalls €80, balcony €30, all on one map and one checkout.
+   And because multiple ticket types can share one price zone, you also get **adult /
+   student / child prices on the same seats** out of the box. Need a zone to have its own
+   cap or its own on-sale date? Give that zone its own tier. See
+   [Tickets & Pricing](tiers-and-pricing.md).
 3. **"Buyers get a real seat map."** They see what's open live, tap to hold seats (so
-   nobody grabs them mid-checkout), and buy. Or they hit **"best available"** and Revel
-   seats their whole party together, up front and center — and never quietly hands a
-   wheelchair space to someone who didn't ask for it. See
+   nobody grabs them mid-checkout), and buy. Or they pick a zone, hit **"best available"**,
+   and Revel seats their whole party together in that zone, up front and center — and
+   never quietly hands a wheelchair space to someone who didn't ask for it. See
    [The Buyer Experience](buyer-experience.md).
 4. **"And on the night, it's a box office."** Hold the house seats for the crew, kill
    the broken one, sell cash at the door, comp the press, move a guest who complains —
@@ -77,10 +79,10 @@ To show the whole loop on the seeded demo data:
    Grande, show the sectors, the painted Galleria/Platea/Palco categories, and add or
    repaint a seat to prove the round-trip (paint persists and shows on reload).
 2. **Configure a tier** ([Tickets & Pricing](tiers-and-pricing.md#demo-it)) — create a
-   `best_available` tier on the Galleria category and a `user_choice` tier on a stalls
-   sector; give the user-choice tier a price per zone, then try to misconfigure one (e.g.
-   best-available with no category, or a price map with a zone left out) to show the
-   guardrails.
+   `best_available` tier on the Galleria sector and a `user_choice` tier on a stalls
+   sector; give each a price per zone, then try to misconfigure one (e.g. a user-choice
+   price map with a painted zone left out, or a best-available hold that names no zone) to
+   show the guardrails.
 3. **Buy** ([The Buyer Experience](buyer-experience.md#demo-it)) — pull the availability
    map, hold two adjacent seats, and check out; then do a **best-available** buy and
    show that the seats you were shown are exactly what you get.

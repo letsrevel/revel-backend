@@ -17,8 +17,9 @@ Three ways a tier can sell seats, set by the organizer per tier:
 - **User-choice** — the buyer picks their own seats from the map, like buying cinema tickets.
   One price for the whole tier, or a price per painted zone so the seat the buyer clicks decides
   what they pay.
-- **Best-available** — the buyer just says "2 tickets," and the system finds them the best pair
-  together. No map-reading required.
+- **Best-available** — the buyer says "2 tickets" (and, when the tier sells more than one price
+  zone, *which zone*), and the system finds them the best pair together in that zone. No
+  map-reading required.
 
 This page is about the last two — anywhere a buyer interacts with actual seats. It is not a
 walkthrough of the organizer-side venue/tier setup (see `venue-and-layout.md` and
@@ -70,10 +71,14 @@ stops being a colour-coded picture and becomes a price list:
 - **A running total as they pick.** Because every seat's price is known up front, a cart of
   "A-7 (Premium) + M-22 (Stalls)" shows €130 before the buyer commits — no "prices calculated at
   checkout" surprise.
-- **Unsellable seats are greyed out, not mispriced.** If the organizer painted a zone the tier
-  doesn't price yet, that zone comes back in the legend flagged unavailable and with no price —
-  so the app greys out its seats instead of inventing a number. Checkout refuses them anyway,
-  with a message naming the zone. Seats in priced zones sell normally.
+- **Unsellable seats are greyed out, not mispriced.** If the organizer painted a zone a
+  *user-choice* tier doesn't price yet, that zone comes back in the legend flagged unavailable
+  and with no price — so the app greys out its seats instead of inventing a number. Checkout
+  refuses them anyway, with a message naming the zone. Seats in priced zones sell normally.
+- **On a best-available tier the same legend is the zone chooser.** The zones it lists are
+  exactly what that tier sells; a painted zone missing from the list isn't broken, it just isn't
+  part of this product (it may well be sold by a different tier, at a different price, with its
+  own capacity).
 
 The prices in the legend are **computed by the server**, not assembled by the app from raw
 configuration. That is deliberate: it is the only way to guarantee the number a buyer is shown is
@@ -137,19 +142,27 @@ them to a seat between holding and paying, checkout rejects just that seat with 
 
 ### Best-available checkout
 
-The buyer doesn't pick seats at all — they say how many tickets they want (and, optionally, that
-they need accessible seating), and Revel finds them the best block together:
+The buyer doesn't pick seats at all — they say how many tickets they want, **which zone** they
+want them in, and (optionally) that they need accessible seating. Revel finds them the best block
+together inside that zone:
 
-- **Front rows first**, then seats closest to the middle of the row, then a check that it doesn't
-  leave a single stray empty seat stranded next to the block (so the room stays sellable as it
-  fills up).
+- **Picking the zone comes first.** When the tier sells more than one price zone, the buyer's
+  screen is a short price list — "Premium €80 / Stalls €45" — and tapping one is what starts the
+  request. The zone travels with the hold, so it is settled *before* any seat is reserved, not
+  discovered at payment. On a tier that sells one price for its whole sector there is no zone
+  step at all: quantity is the only question.
+- **Front rows first** within the chosen zone, then seats closest to the middle of the row, then
+  a check that it doesn't leave a single stray empty seat stranded next to the block (so the room
+  stays sellable as it fills up).
 - The system holds that exact block and shows the buyer the real seats it picked — row and seat
   numbers, not just "2 tickets" — *before* they pay.
 - **What you saw held is what you buy.** Checkout consumes the exact seats that were held for
   best-available — it does not silently re-run the picker and potentially hand the buyer a
-  different (if equally good) block. A best-available purchase also works even without a prior
-  hold step (the same picker runs at the moment of purchase), which matters for any checkout path
-  that skips the map screen.
+  different (if equally good) block. The zone is checked too: if checkout arrives naming a
+  different zone than the one the seats were held under, it's a conflict the buyer is told about,
+  never a quiet swap onto other seats at another price. A best-available purchase also works
+  without a prior hold step (the same picker runs at the moment of purchase, with the zone on the
+  purchase request), which matters for any checkout path that skips the map screen.
 
 ### Guest checkout (no account)
 
@@ -206,9 +219,12 @@ buyer's screen would show at each step:
    with an `expires_at` for the countdown; a 409 means a conflict, with the reason table above.
 
 3b. **Or buyer says "just get me good seats" (best-available).**
-   `POST /events/{event_id}/seating/holds/best-available` with the tier, a quantity, and an
-   optional accessible flag. 200 returns the exact seats picked (show them on the map); 409 with
-   `no_block` means that party size doesn't fit anywhere right now.
+   `POST /events/{event_id}/seating/holds/best-available` with the tier, a quantity, an optional
+   accessible flag, and — on a tier that prices zones — a `price_category_id` naming the zone.
+   200 returns the exact seats picked (show them on the map); 409 with `no_block` means that
+   party size doesn't fit in that zone right now. Omitting the zone on a zone-priced tier (or
+   sending one to a flat tier) is a 400 that names the tier's zones — the request is never
+   silently reinterpreted.
 
 4. **Buyer changes their mind.**
    `DELETE /events/{event_id}/seating/holds` releases their holds (all, or a subset by seat id)
@@ -241,7 +257,8 @@ buyers' holds somehow raced, only one purchase can ever succeed on a given seat.
 
 **"Buyers get the exact seats they saw, not a surprise."** Best-available shows the real seats
 before the buyer pays, and checkout locks in precisely that block — never a different
-"equally good" substitute picked behind the scenes.
+"equally good" substitute picked behind the scenes, and never a block from a different price
+zone than the one they chose.
 
 **"The price on the map is the price they pay."** Zone prices are resolved by the server and
 handed to the app ready to display, so the legend, the running total, the Stripe page and the
