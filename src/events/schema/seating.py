@@ -41,6 +41,10 @@ class VenueChartSchema(Schema):
     venue_id: UUID
     venue_name: str
     updated_at: AwareDatetime
+    # Venue-level counterpart of ChartSectorSchema.metadata: the layout designer's whole-venue
+    # config (stage position/shape, the `floors` list). Verbatim organizer-written JSON, `null`
+    # when the designer never wrote any — never `{}`.
+    metadata: dict[str, t.Any] | None = None
     price_categories: list[PriceCategorySchema] = Field(default_factory=list)
     sectors: list[ChartSectorSchema] = Field(default_factory=list)
 

@@ -81,6 +81,7 @@ def build_chart(venue: Venue) -> VenueChartSchema:
         venue_id=venue.id,
         venue_name=venue.name,
         updated_at=venue.chart_version,
+        metadata=venue.metadata,
         price_categories=[PriceCategorySchema.from_orm(c) for c in categories],
         sectors=sector_schemas,
     )

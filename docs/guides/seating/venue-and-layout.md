@@ -282,6 +282,21 @@ constraint, not a future promise.
 The seed data includes a ~1,350-seat theatre with three sector types (open floor, tiered balcony,
 private boxes) as a working reference point. There is no seat-count ceiling in the design.
 
+**"Can we show the stage, or a venue with several floors?"**
+Yes — both live in the venue's free-form `metadata`, written by the layout designer and now
+carried on the buyer-facing chart alongside the per-sector `metadata` that was already there, so
+the buyer's map draws the same picture the designer laid out. Two conventions the designer and the
+buyer map agree on:
+
+- `metadata.stage` — the stage's position/shape, drawn as-is on the map.
+- `metadata.floors` — `[{"id": ..., "name": ..., "order": ...}]`, the venue's floors; a sector says
+  which one it sits on with `metadata.floor = <floor id>`.
+
+Floors are **pure presentation**: they group sectors for display and nothing else. Pricing, zones,
+capacity and holds never look at them. The convention is a shared agreement, not an enforced
+schema — nothing rejects a sector pointing at a floor id the venue doesn't list, and such a sector
+simply has no floor to render under.
+
 **"Is there version history if we redraw the map?"**
 No — this is a known v1 limitation, worth saying plainly rather than glossing over: the seating
 chart is served straight from the live tables, with no snapshot/versioning layer yet. Changing a
