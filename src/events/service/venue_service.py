@@ -236,6 +236,10 @@ def delete_price_category(category: models.PriceCategory) -> None:
     seats (``SET_NULL``) and silently collapse those seats back to the tier's flat
     ``price``: an €80 premium seat sold at €50, with nothing anywhere reporting it.
 
+    The map is the sole pricing mechanism for **both** seated modes since v3, so a
+    ``best_available`` tier blocks the delete exactly like a ``user_choice`` one — there
+    is no longer any other way for a tier to reference a category.
+
     Seats painted with a category no tier prices are fine — their
     ``default_price_category`` becomes NULL and they can simply be repainted.
 
@@ -259,7 +263,7 @@ def delete_price_category(category: models.PriceCategory) -> None:
             str(
                 _(
                     "This price category is used by one or more ticket tiers and cannot be deleted: {tiers}. "
-                    "Reassign those tiers, or remove the category from their category prices, first."
+                    "Remove it from those tiers' category prices first."
                 )
             ).format(tiers="; ".join(labels)),
         )

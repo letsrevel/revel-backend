@@ -89,18 +89,29 @@ class TestDeletePriceCategory:
         seat.refresh_from_db()
         assert seat.default_price_category_id is None
 
-    def test_delete_price_category_blocked_by_tier(self, organization: Organization, event: Event) -> None:
-        """Deleting a category priced by a ticket tier is refused with 400."""
+    @pytest.mark.parametrize(
+        "mode",
+        [TicketTier.SeatAssignmentMode.BEST_AVAILABLE, TicketTier.SeatAssignmentMode.USER_CHOICE],
+    )
+    def test_delete_price_category_blocked_by_tier(
+        self, organization: Organization, event: Event, mode: TicketTier.SeatAssignmentMode
+    ) -> None:
+        """Deleting a category priced by a ticket tier is refused with 400, in either seated mode.
+
+        Since v3 the map is the sole pricing mechanism, so a best-available tier references
+        the category exactly like a user-choice one and must block the delete identically.
+        """
         venue = Venue.objects.create(organization=organization, name="Venue")
         event.venue = venue
         event.save(update_fields=["venue"])
         sector = VenueSector.objects.create(venue=venue, name="Stalls")
         category = PriceCategory.objects.create(venue=venue, name="Gold", color="#ffaa00")
+        VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
         TicketTier.objects.create(
             event=event,
             name="Gold",
             sector=sector,
-            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            seat_assignment_mode=mode,
             category_prices={str(category.id): "10.00"},
         )
 
@@ -109,4 +120,6 @@ class TestDeletePriceCategory:
 
         assert exc_info.value.status_code == 400
         assert "ticket tiers" in str(exc_info.value)
+        # The FK that "reassigning a tier" once meant is gone: the map is the only fix.
+        assert "category prices" in str(exc_info.value)
         assert PriceCategory.objects.filter(id=category.id).exists()
