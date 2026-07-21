@@ -23,7 +23,8 @@ def _seated_tier(event: Event, seats: list[VenueSeat], *, paint: bool = True) ->
     return TicketTier.objects.create(
         event=event,
         name="Std",
-        price_category=cat,
+        sector=seats[0].sector,
+        category_prices={str(cat.id): "0"},
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
 

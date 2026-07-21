@@ -113,7 +113,8 @@ def best_available_tier(
         payment_method=TicketTier.PaymentMethod.FREE,  # Free for easier testing
         price_type=TicketTier.PriceType.FIXED,
         venue=venue,
-        price_category=category,
+        sector=sector,
+        category_prices={str(category.id): "20.00"},
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
 
@@ -599,7 +600,8 @@ class TestGuestAccessibleSeating:
             payment_method=TicketTier.PaymentMethod.ONLINE,
             price_type=TicketTier.PriceType.FIXED,
             venue=venue,
-            price_category=best_available_tier.price_category,
+            sector=best_available_tier.sector,
+            category_prices=dict(best_available_tier.category_prices),
             seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
         )
         client = Client()

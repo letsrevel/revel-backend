@@ -152,16 +152,18 @@ class TestPriceCategoryManagement:
     def test_delete_price_category_blocked_by_tier(
         self, organization_owner_client: Client, organization: Organization, event: Event
     ) -> None:
-        """Test that deleting a tier-referenced category is refused with 400."""
+        """Test that deleting a tier-priced category is refused with 400."""
         venue = Venue.objects.create(organization=organization, name="Hall")
         event.venue = venue
         event.save(update_fields=["venue"])
+        sector = VenueSector.objects.create(venue=venue, name="Stalls")
         category = PriceCategory.objects.create(venue=venue, name="Gold", color="#ffaa00")
         TicketTier.objects.create(
             event=event,
             name="Gold",
-            price_category=category,
+            sector=sector,
             seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(category.id): "10.00"},
         )
 
         url = reverse(

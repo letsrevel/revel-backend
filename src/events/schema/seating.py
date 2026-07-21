@@ -80,6 +80,13 @@ class BestAvailableHoldRequest(Schema):
     tier_id: UUID
     quantity: int = Field(..., ge=1, le=20)
     accessible_required: bool = False
+    price_category_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Zone to draw from: a price category painted in the tier's sector and priced by its "
+            "`category_prices` map. Null = the tier's whole pool."
+        ),
+    )
 
 
 class ReleaseSeatsRequest(Schema):

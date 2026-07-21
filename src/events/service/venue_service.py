@@ -5,7 +5,7 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Case, Count, Exists, OuterRef, Q, Value, When
+from django.db.models import Case, Count, Exists, OuterRef, Value, When
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -230,16 +230,11 @@ def update_price_category(
 def delete_price_category(category: models.PriceCategory) -> None:
     """Delete a price category.
 
-    Refuses deletion when any ticket tier references the category, in either of the
-    two ways a tier can:
-
-    - the direct ``price_category`` FK (BEST_AVAILABLE tiers) — ``SET_NULL``, so a
-      delete would silently strip the category and leave the tier unsellable;
-    - the ``category_prices`` JSON map (USER_CHOICE tiers) — invisible to the
-      database, so **this guard is the only line of defence**. Deleting a category
-      priced by a live tier would unpaint its seats (``SET_NULL``) and silently
-      collapse those seats back to the tier's flat ``price``: an €80 premium seat
-      sold at €50, with nothing anywhere reporting it.
+    Refuses deletion when any ticket tier prices the category in its
+    ``category_prices`` map — invisible to the database, so **this guard is the only
+    line of defence**. Deleting a category priced by a live tier would unpaint its
+    seats (``SET_NULL``) and silently collapse those seats back to the tier's flat
+    ``price``: an €80 premium seat sold at €50, with nothing anywhere reporting it.
 
     Seats painted with a category no tier prices are fine — their
     ``default_price_category`` becomes NULL and they can simply be repainted.
@@ -251,7 +246,7 @@ def delete_price_category(category: models.PriceCategory) -> None:
         HttpError: If any ticket tier references the category
     """
     blocking = (
-        models.TicketTier.objects.filter(Q(price_category=category) | Q(category_prices__has_key=str(category.id)))
+        models.TicketTier.objects.filter(category_prices__has_key=str(category.id))
         .select_related("event")
         .order_by("event__name", "name")
     )

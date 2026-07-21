@@ -497,8 +497,9 @@ class ShowcaseVenueSeeder(BaseSeeder):
         """Create a ticket tier bound to a venue sector.
 
         Free tiers use the FREE payment method; priced tiers use OFFLINE so no
-        Stripe involvement is needed. Best-available tiers must pass the price
-        category whose seat pool they draw from.
+        Stripe involvement is needed. Best-available tiers pass the price category
+        whose seat pool they draw from; it becomes the tier's single-zone
+        ``category_prices`` map.
         """
         is_free = price == 0
         return TicketTier.objects.create(
@@ -511,7 +512,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
             manual_payment_instructions=None if is_free else "Please transfer to IBAN: XX1234567890",
             venue=sector.venue,
             sector=sector,
-            price_category=price_category,
+            category_prices={str(price_category.id): str(price)} if price_category else {},
             seat_assignment_mode=mode,
         )
 
