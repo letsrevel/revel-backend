@@ -935,12 +935,36 @@ class Payment(TimeStampedModel):
 
     raw_response = models.JSONField(blank=True, default=dict)  # To store the full webhook event for auditing
     expires_at = models.DateTimeField(default=_get_payment_default_expiry, db_index=True, editable=False)
+    # Incident hold (#756): stamped by events.hold_mismatch_payments when this row is
+    # implicated in a recorded stripe_session_total_mismatch — the PENDING rows ARE the
+    # incident evidence. Non-null exempts the row from cleanup_expired_payments until
+    # the retention window (INCIDENT_HOLD_RETENTION in events/tasks/payments.py) lapses;
+    # an operator resolves earlier by clearing the field in the Payment admin.
+    incident_hold_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Evidence hold for a recorded money-correctness incident. While set, the payment "
+            "expiry sweep retains this row; clear it once the incident is resolved to release "
+            "the row back to the normal cleanup schedule."
+        ),
+    )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["stripe_session_id", "ticket"],
                 name="unique_payment_per_session_ticket",
+            ),
+        ]
+        indexes = [
+            # Partial index: near-empty in practice (holds are one-occurrence incidents),
+            # so the sweep's retention-lapse branch (incident_hold_at < cutoff, which
+            # implies NOT NULL) stays an index scan without taxing every Payment write.
+            models.Index(
+                fields=["incident_hold_at"],
+                name="payment_incident_hold_idx",
+                condition=models.Q(incident_hold_at__isnull=False),
             ),
         ]
 

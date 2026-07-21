@@ -2,10 +2,10 @@
 
 A reconciliation breach is the loudest money signal the ticketing system has, and
 its evidence is perishable: ``events.cleanup_expired_payments`` sweeps every 5
-minutes and *deletes* the PENDING ``Payment``/``Ticket`` rows of an unconfirmed
+minutes and would delete the PENDING ``Payment``/``Ticket`` rows of an unconfirmed
 checkout, while the webhook's rollback means nothing about the failure can be
-written to the database either. Whatever the operator will need at 3am has to be
-emitted at the moment of detection, in full, or it is gone.
+written to the database from the request itself. Whatever the operator will need
+at 3am has to be emitted at the moment of detection, in full, or it is gone.
 
 So each incident emits two halves, together, from one place:
 
@@ -15,6 +15,19 @@ So each incident emits two halves, together, from one place:
 * a **structured ERROR log** carrying every identifier needed to act without the
   database: the Stripe session and PaymentIntent to refund, the buyer, and the
   per-ticket breakdown to re-issue from.
+
+For a session-total mismatch, the implicated rows themselves are additionally
+placed under an **incident hold** (#756): ``record_session_total_mismatch``
+dispatches ``events.hold_mismatch_payments`` with a bare ``.delay()`` — the
+dispatch-then-raise exception in docs/engineering-notes.md, since the broker
+message survives the webhook's deliberate rollback and the rows pre-exist the
+request — which stamps ``Payment.incident_hold_at``. The expiry sweep retains
+held rows so the operator finds real rows to reconcile, bounded in two ways:
+clearing the field in the Payment admin resolves the incident (the next sweep
+reclaims the rows normally), and an unresolved hold lapses after
+``INCIDENT_HOLD_RETENTION`` (events/tasks/payments.py) so no row is immortal.
+The log line stays self-contained regardless: in the rare race where the sweep
+locked the rows before the hold landed, it remains the only record.
 """
 
 import typing as t
@@ -82,7 +95,17 @@ def record_session_total_mismatch(
         session_id: The Stripe checkout session, when one exists.
         payment_intent_id: The PaymentIntent to refund, when one exists.
     """
+    # Imported here to avoid a cycle (events.tasks -> services -> this module).
+    from events.tasks.payments import hold_mismatch_payments
+
     STRIPE_SESSION_TOTAL_MISMATCH.labels(call_site=call_site).inc()
+    if payments:
+        # Bare .delay(), NOT on_commit: both call sites raise right after this
+        # returns, rolling the request back — an on_commit callback would be
+        # discarded and a synchronous UPDATE undone. The broker message is the
+        # half that survives; the rows it targets pre-exist this request. See
+        # "Dispatch-then-raise" in docs/engineering-notes.md (#756).
+        hold_mismatch_payments.delay([str(p.id) for p in payments])
     buyer = payments[0].user if payments else None
     logger.error(
         "stripe_session_total_mismatch",
