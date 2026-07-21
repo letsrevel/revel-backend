@@ -1,5 +1,6 @@
 """DB-facing best-available: load candidates, score (pure core), hold winners optimistically."""
 
+import dataclasses
 import typing as t
 from uuid import UUID
 
@@ -67,6 +68,58 @@ def resolve_requested_zone(tier: TicketTier, price_category_id: UUID | None) -> 
     return price_category_id
 
 
+@dataclasses.dataclass(frozen=True)
+class TakenSeats:
+    """The seats a pick may not touch, split by *why* so callers can label them.
+
+    Deliberately one type with three members rather than three call sites: the availability
+    payload needs the reasons (sold > blocked > held precedence) while the picker needs only
+    the union, and the two must never disagree about *which* seats are unavailable — a zone
+    counter that says "3 free" where a hold finds none is worse than no counter at all.
+
+    Inactive (decommissioned) seats are NOT included: the pool query already filters on
+    ``is_active=True``, so they can never be candidates in the first place.
+    """
+
+    sold: set[UUID]
+    blocked: set[UUID]  # event-level seat overrides
+    held: set[UUID]
+
+    def union(self) -> set[UUID]:
+        """All unavailable seat ids, regardless of reason."""
+        return self.sold | self.blocked | self.held
+
+
+def load_taken_seats(
+    event: Event,
+    *,
+    hold_owner_user: RevelUser | None = None,
+    hold_owner_guest_session: str | None = None,
+) -> TakenSeats:
+    """Load the unavailable-seat sets for one event in three queries.
+
+    When a hold-owner identity is given (purchase path), only FOREIGN active holds are
+    reported — the owner's own held seats stay usable, to be consumed post-lock by
+    ``verify_and_consume_holds``. With no identity (hold-acquisition path, and the
+    availability payload), ALL active holds are reported.
+    """
+    # Non-cancelled = occupied, matching the unique_ticket_event_seat constraint
+    # (a CHECKED_IN seat is just as taken as an ACTIVE one).
+    sold = set(
+        Ticket.objects.filter(event=event, seat__isnull=False)
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .values_list("seat_id", flat=True)
+    )
+    holds_qs = SeatHold.objects.active().filter(event=event)
+    if hold_owner_user is not None or hold_owner_guest_session is not None:
+        holds_qs = holds_qs.exclude(SeatHold.owner_q(hold_owner_user, hold_owner_guest_session))
+    return TakenSeats(
+        sold=sold,
+        blocked=set(EventSeatOverride.objects.filter(event=event).values_list("seat_id", flat=True)),
+        held=set(holds_qs.values_list("seat_id", flat=True)),
+    )
+
+
 def load_candidates(
     event: Event,
     tier: TicketTier,
@@ -92,18 +145,14 @@ def load_candidates(
     """
     if not tier.sector_id or event.venue_id is None:
         return []
-    # Non-cancelled = occupied, matching the unique_ticket_event_seat constraint.
-    taken = set(
-        Ticket.objects.filter(event=event, seat__isnull=False)
-        .exclude(status=Ticket.TicketStatus.CANCELLED)
-        .values_list("seat_id", flat=True)
+    taken = (
+        load_taken_seats(
+            event,
+            hold_owner_user=hold_owner_user,
+            hold_owner_guest_session=hold_owner_guest_session,
+        ).union()
+        | exclude
     )
-    holds_qs = SeatHold.objects.active().filter(event=event)
-    if hold_owner_user is not None or hold_owner_guest_session is not None:
-        holds_qs = holds_qs.exclude(SeatHold.owner_q(hold_owner_user, hold_owner_guest_session))
-    taken |= set(holds_qs.values_list("seat_id", flat=True))
-    taken |= set(EventSeatOverride.objects.filter(event=event).values_list("seat_id", flat=True))
-    taken |= exclude
     # Full-row bounds over ALL active seats of the pool's sector (sold/held included)
     # so centrality is scored against the real row midpoint, not the shrinking
     # available pool — and against the same sector the pool is drawn from.

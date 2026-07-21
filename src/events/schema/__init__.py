@@ -260,6 +260,7 @@ from .seating import (
     SeatOverridesResponse,
     StandingAvailabilitySchema,
     VenueChartSchema,
+    ZoneAvailabilitySchema,
 )
 
 # Series pass schemas
@@ -567,6 +568,7 @@ __all__ = [
     "SeatingAvailabilitySchema",
     "StandingAvailabilitySchema",
     "VenueChartSchema",
+    "ZoneAvailabilitySchema",
     # Invitation
     "CombinedInvitationListSchema",
     "DirectInvitationCreateSchema",
