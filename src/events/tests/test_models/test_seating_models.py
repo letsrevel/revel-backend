@@ -157,6 +157,20 @@ def test_user_choice_on_standing_sector_rejected(event: Event, venue: Venue) -> 
         )
 
 
+def test_best_available_on_standing_sector_rejected(event: Event, venue: Venue) -> None:
+    """Same rule as USER_CHOICE: a standing sector has no seats for the picker to draw."""
+    event.venue = venue
+    event.save(update_fields=["venue"])
+    standing = VenueSector.objects.create(venue=venue, name="Pit", kind=VenueSector.Kind.STANDING)
+    with pytest.raises(DjangoValidationError, match="seated sector"):
+        TicketTier.objects.create(
+            event=event,
+            name="Bad BA",
+            sector=standing,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        )
+
+
 def test_none_mode_on_standing_sector_still_valid(event: Event, venue: Venue) -> None:
     """GA tiers may point at a standing sector (that is their whole purpose)."""
     event.venue = venue

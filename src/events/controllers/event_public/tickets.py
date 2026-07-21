@@ -178,7 +178,7 @@ class EventPublicTicketsController(EventPublicBaseController):
             )
 
         # Create batch of tickets
-        service = BatchTicketService(event, tier, user, discount_code=dc)
+        service = BatchTicketService(event, tier, user, discount_code=dc, price_category_id=payload.price_category_id)
         result = service.create_batch(payload.tickets, billing_info=payload.billing_info)
 
         if isinstance(result, tuple):
@@ -260,7 +260,7 @@ class EventPublicTicketsController(EventPublicBaseController):
         manager.check_eligibility(raise_on_false=True)
 
         # Create batch of tickets
-        service = BatchTicketService(event, tier, user)
+        service = BatchTicketService(event, tier, user, price_category_id=payload.price_category_id)
         result = service.create_batch(
             payload.tickets, pwyc_amount=payload.price_per_ticket, billing_info=payload.billing_info
         )

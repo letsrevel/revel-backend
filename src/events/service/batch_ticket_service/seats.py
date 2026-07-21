@@ -15,7 +15,7 @@ from events.models import EventSeatOverride, SeatHold, Ticket, TicketTier, Venue
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.context import BatchTicketContext
 from events.service.seating import holds as holds_service
-from events.utils.tier_pricing import parse_price_map
+from events.service.seating.pick import resolve_requested_zone
 
 
 class _SeatConflictError(Exception):
@@ -160,7 +160,7 @@ class SeatResolutionMixin(BatchTicketContext):
         id_order = {sid: i for i, sid in enumerate(picked_ids)}
         return sorted(seats, key=lambda s: id_order[s.id])
 
-    def _try_consume_held_block(self, count: int) -> list[VenueSeat] | None:
+    def _try_consume_held_block(self, count: int, zone_id: UUID | None) -> list[VenueSeat] | None:
         """Consume the buyer's own held seats directly instead of re-running the picker.
 
         A buyer who pre-held a block (e.g. via POST /seating/holds/best-available)
@@ -169,34 +169,49 @@ class SeatResolutionMixin(BatchTicketContext):
         the original holds until TTL, and an accessible held block would be
         skipped entirely when checkout doesn't set ``accessible_required``.
 
-        The buyer's ACTIVE holds on seats in the tier's pool — its sector, narrowed
-        to the price categories its ``category_prices`` map names (same identity rule
-        as ``_verify_and_consume_holds``) — are taken in deterministic
-        adjacency order — (sector display_order, row_order, adjacency_index) —
-        first ``count`` of them. Contiguity is deliberately NOT enforced: the
-        buyer explicitly holds these exact seats (a best-available hold block is
-        already adjacent) and gets exactly what they held. Accessible held seats
-        are likewise consumed without ``accessible_required`` at checkout.
+        The buyer's ACTIVE holds on seats in this tier's sector (same identity rule
+        as ``_verify_and_consume_holds``) are taken in deterministic adjacency order —
+        (sector display_order, row_order, adjacency_index) — first ``count`` of them.
+        Contiguity is deliberately NOT enforced: the buyer explicitly holds these exact
+        seats (a best-available hold block is already adjacent) and gets exactly what
+        they held. Accessible held seats are likewise consumed without
+        ``accessible_required`` at checkout.
+
+        When the request selected a zone, EVERY held seat in the sector must be in it:
+        a held block from another zone must never be silently swapped for picker output
+        at this zone's price — the buyer guide promises "what you saw held is what you
+        buy", and the instant-issue paths have no confirmation screen where a
+        substitution would show up. So a zone mismatch is a 409, not a fall-through.
+
+        Args:
+            count: Number of seats the cart needs.
+            zone_id: The resolved request zone, or None for the whole sector.
 
         Returns:
             The seats to assign, or None to fall through to the normal picker:
             when the buyer holds fewer than ``count`` matching seats, or a held
             seat conflicts post-lock (ticketed/overridden/deactivated/sniped) —
             the savepoint rollback releases the locks and restores the holds.
+
+        Raises:
+            HttpError: 409 when the buyer's held block sits in a different zone
+                than the one requested.
         """
         if not self.tier.sector_id:
             return None
         owner_q = SeatHold.owner_q(None if self.guest_session else self.user, self.guest_session)
-        holds = SeatHold.objects.active().filter(owner_q, event=self.event, seat__sector_id=self.tier.sector_id)
-        # ponytail: zone derived from the tier's map; the per-request zone is Task B (#749).
-        zone_ids = list(parse_price_map(self.tier.category_prices))
-        if zone_ids:
-            holds = holds.filter(seat__default_price_category_id__in=zone_ids)
-        held_ids = list(
-            holds.order_by("seat__sector__display_order", "seat__row_order", "seat__adjacency_index").values_list(
-                "seat_id", flat=True
-            )
+        held = list(
+            SeatHold.objects.active()
+            .filter(owner_q, event=self.event, seat__sector_id=self.tier.sector_id)
+            .order_by("seat__sector__display_order", "seat__row_order", "seat__adjacency_index")
+            .values_list("seat_id", "seat__default_price_category_id")
         )
+        if zone_id is not None and any(category_id != zone_id for _seat_id, category_id in held):
+            raise HttpError(
+                409,
+                str(_("Your held seats are in a different zone — release them before buying this zone.")),
+            )
+        held_ids = [seat_id for seat_id, _category_id in held]
         if len(held_ids) < count:
             return None
         try:
@@ -205,11 +220,11 @@ class SeatResolutionMixin(BatchTicketContext):
         except _SeatConflictError:
             return None
 
-    def _resolve_seats_best_available(self, count: int) -> list[VenueSeat]:
+    def _resolve_seats_best_available(self, count: int, zone_id: UUID | None) -> list[VenueSeat]:
         """Adjacency-aware assignment: optimistic pick, then lock + verify the chosen seats only.
 
-        When the buyer already holds enough seats for this tier's price category,
-        the exact held block is consumed instead of re-running the picker (see
+        When the buyer already holds enough seats in the requested zone, the exact
+        held block is consumed instead of re-running the picker (see
         ``_try_consume_held_block``); the picker below only runs when there is no
         (sufficient, still-valid) own hold.
 
@@ -227,6 +242,7 @@ class SeatResolutionMixin(BatchTicketContext):
 
         Args:
             count: Number of seats to assign.
+            zone_id: The resolved request zone, or None for the tier's whole sector.
 
         Returns:
             List of assigned VenueSeat objects in picked (adjacent) order.
@@ -237,7 +253,7 @@ class SeatResolutionMixin(BatchTicketContext):
         from events.service.seating.best_available import pick_best_available
         from events.service.seating.pick import load_candidates
 
-        if (held := self._try_consume_held_block(count)) is not None:
+        if (held := self._try_consume_held_block(count, zone_id)) is not None:
             return held
 
         for _attempt in range(3):
@@ -247,6 +263,7 @@ class SeatResolutionMixin(BatchTicketContext):
                 self.event,
                 self.tier,
                 exclude=set(),
+                zone_id=zone_id,
                 hold_owner_user=None if self.guest_session else self.user,
                 hold_owner_guest_session=self.guest_session,
             )
@@ -275,14 +292,18 @@ class SeatResolutionMixin(BatchTicketContext):
 
         Raises:
             HttpError: If seat resolution fails.
+            InvalidZoneSelectionError: 400 if the requested zone is unusable on this
+                tier — validated for EVERY mode, so a zone silently ignored by a
+                non-best-available tier is impossible.
         """
         mode = self.tier.seat_assignment_mode
+        zone_id = resolve_requested_zone(self.tier, self.price_category_id)
 
         if mode == TicketTier.SeatAssignmentMode.NONE:
             return self._resolve_seats_none(len(items))
 
         if mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
-            best: list[VenueSeat | None] = list(self._resolve_seats_best_available(len(items)))
+            best: list[VenueSeat | None] = list(self._resolve_seats_best_available(len(items), zone_id))
             return best
 
         if mode == TicketTier.SeatAssignmentMode.USER_CHOICE:

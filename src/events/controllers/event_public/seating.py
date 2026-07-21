@@ -140,6 +140,7 @@ class EventPublicSeatingController(EventPublicBaseController):
             user=user,
             guest_session=guest,
             accessible_required=payload.accessible_required,
+            price_category_id=payload.price_category_id,
         )
         if not result.held and not result.conflicts:
             # Same HoldResponseSchema shape as every other hold 409 (not an HttpError
