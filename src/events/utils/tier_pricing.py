@@ -150,10 +150,19 @@ def painted_categories_by_sector(
 def validate_category_prices(tier: "TicketTier") -> None:
     """Validate a tier's category price map (spec §4.2 and §4.3).
 
-    A non-empty map requires a ``user_choice`` tier whose categories all belong to
-    the tier's venue, is mutually exclusive with PWYC, respects the ONLINE price
-    floor, and must price every category painted on an active seat of the tier's
-    sector.
+    The map is the single pricing mechanism for both seated modes. A non-empty map
+    requires a seated tier whose categories all belong to the tier's venue, is
+    mutually exclusive with PWYC, and respects the ONLINE price floor. Coverage of
+    the sector's painted categories differs by mode:
+
+    - ``user_choice``: every painted category must be priced — the buyer can click
+      any seat in the sector, so an unpriced one is a hole checkout refuses.
+    - ``best_available``: partial coverage is legal. The keys *define the sellable
+      zones* of the tier; a painted category absent from the map is simply not part
+      of this tier's pool.
+
+    An empty map is always legal — it means flat ``tier.price`` pricing — except
+    that it is the *only* legal state for a non-seated (``none``) tier.
 
     Args:
         tier: The tier being cleaned. ``venue_id``/``sector_id`` are expected to
@@ -168,12 +177,8 @@ def validate_category_prices(tier: "TicketTier") -> None:
     if not prices:
         return
 
-    if tier.seat_assignment_mode != tier.SeatAssignmentMode.USER_CHOICE:
-        # ponytail: best-available prices painted seats the other way — one tier per category
-        # with a flat price — so a map is rejected here. Converging the two mechanisms is #749;
-        # it is blocked on per-category capacity, which one-tier-per-zone provides for free via
-        # total_quantity. Until then, this is deliberate, not an oversight.
-        _fail("Category prices are only supported for user-choice tiers. Clear them to change the seating mode.")
+    if tier.seat_assignment_mode == tier.SeatAssignmentMode.NONE:
+        _fail("Category prices require a seated tier. Clear them to change the seating mode.")
     if tier.price_type == tier.PriceType.PWYC:
         _fail("A tier is either pay-what-you-can or category-priced, never both.")
     if tier.payment_method == tier.PaymentMethod.ONLINE:
@@ -194,6 +199,10 @@ def validate_category_prices(tier: "TicketTier") -> None:
         elsewhere = dict(PriceCategory.objects.filter(id__in=unknown).values_list("id", "name"))
         labels = sorted(elsewhere.get(cid, str(cid)) for cid in unknown)
         _fail(f"These price categories do not belong to the tier's venue: {', '.join(labels)}.")
+
+    if tier.seat_assignment_mode != tier.SeatAssignmentMode.USER_CHOICE:
+        # best_available: the map is a zone selection, not a coverage contract.
+        return
 
     painted = set(painted_categories(tier.sector_id).values_list("id", flat=True))
     missing = painted - prices.keys()

@@ -18,7 +18,7 @@ from events.utils.tier_pricing import painted_categories, parse_price_map
 
 from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
-from .venue import MinimalSeatSchema, PriceCategorySchema, TierPricingGapSchema, VenueSchema, VenueSectorSchema
+from .venue import MinimalSeatSchema, TierPricingGapSchema, VenueSchema, VenueSectorSchema
 
 # RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
 # events.utils.refund_policy so services, models, and schemas share one source
@@ -114,7 +114,6 @@ class TicketTierSchema(ModelSchema):
     max_tickets_per_user: int | None = None
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
-    price_category: PriceCategorySchema | None = None
     can_purchase: bool = True
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
@@ -167,17 +166,24 @@ class TicketTierSchema(ModelSchema):
         to render a price legend at all, and it keeps the hot tier-list path at zero extra
         queries for the (overwhelmingly common) flat case. A category-priced tier costs
         exactly one query, and an event has a handful of tiers at most.
+
+        Both seated modes are served. For ``user_choice`` the legend covers every
+        category *painted* in the sector as well as every priced one, so a painted-but-
+        unpriced category shows up as unavailable — the buyer can click that seat and
+        must be told it cannot be sold. For ``best_available`` the buyer never picks a
+        seat, only a zone, and the map keys *are* the zones: unpriced painted categories
+        are not part of this tier and are omitted rather than shown as unavailable.
         """
         price_map = parse_price_map(obj.category_prices)
         # A priced map without a venue cannot exist — tier validation rejects categories
         # that don't belong to the tier's venue — so the venue guard is only for mypy.
         if not price_map or obj.venue_id is None:
             return None
+        in_scope = Q(id__in=list(price_map))
+        if obj.seat_assignment_mode == TicketTier.SeatAssignmentMode.USER_CHOICE:
+            in_scope |= Q(seats__sector_id=obj.sector_id, seats__is_active=True)
         categories = (
-            models.PriceCategory.objects.filter(
-                Q(seats__sector_id=obj.sector_id, seats__is_active=True) | Q(id__in=list(price_map)),
-                venue_id=obj.venue_id,
-            )
+            models.PriceCategory.objects.filter(in_scope, venue_id=obj.venue_id)
             .distinct()
             .order_by("display_order", "name")
         )
@@ -495,11 +501,12 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     max_tickets_per_user: int | None = None
     venue_id: UUID | None = None
     sector_id: UUID | None = None
-    price_category_id: UUID | None = Field(default=None)
     category_prices: CategoryPriceMap | None = Field(
         default=None,
         description=(
-            "Per-seat-category prices for user-choice tiers: {price_category_id: decimal-string}. "
+            "Per-seat-category prices for seated tiers: {price_category_id: decimal-string}. "
+            "For user-choice tiers every painted category must be priced; for best-available the "
+            "keys define the tier's sellable zones (partial coverage is allowed). "
             "Omitted or null leaves the map at its default (empty); an empty object clears it; a "
             "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
             "JSON floats are rejected, because binary floats cannot represent money."
@@ -524,8 +531,8 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     @model_validator(mode="after")
     def validate_seat_assignment_requires_sector(self) -> t.Self:
         """Validate that each seat assignment mode comes with the field it reads."""
-        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE and self.price_category_id is None:
-            raise ValueError("A price category is required when seat assignment mode is BEST_AVAILABLE.")
+        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE and self.sector_id is None:
+            raise ValueError("A sector is required when seat assignment mode is BEST_AVAILABLE.")
         if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.USER_CHOICE and self.sector_id is None:
             raise ValueError("A sector is required when seat assignment mode is USER_CHOICE.")
         return self
@@ -554,11 +561,12 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     max_tickets_per_user: int | None = None
     venue_id: UUID | None = None
     sector_id: UUID | None = None
-    price_category_id: UUID | None = Field(default=None)
     category_prices: CategoryPriceMap | None = Field(
         default=None,
         description=(
-            "Per-seat-category prices for user-choice tiers: {price_category_id: decimal-string}. "
+            "Per-seat-category prices for seated tiers: {price_category_id: decimal-string}. "
+            "For user-choice tiers every painted category must be priced; for best-available the "
+            "keys define the tier's sellable zones (partial coverage is allowed). "
             "Omitted or null leaves the existing map untouched; an empty object clears it; a "
             "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
             "JSON floats are rejected, because binary floats cannot represent money."
@@ -582,8 +590,8 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     @model_validator(mode="after")
     def validate_seat_assignment_requires_sector(self) -> t.Self:
         """Validate that a mode being explicitly set comes with the field it reads."""
-        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE and self.price_category_id is None:
-            raise ValueError("A price category is required when seat assignment mode is BEST_AVAILABLE.")
+        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE and self.sector_id is None:
+            raise ValueError("A sector is required when seat assignment mode is BEST_AVAILABLE.")
         if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.USER_CHOICE and self.sector_id is None:
             raise ValueError("A sector is required when seat assignment mode is USER_CHOICE.")
         return self
@@ -597,7 +605,6 @@ class TicketTierDetailSchema(ModelSchema):
     max_tickets_per_user: int | None = None
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
-    price_category: PriceCategorySchema | None = None
     vat_rate: Decimal | None = None
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
@@ -651,6 +658,10 @@ class TicketTierDetailSchema(ModelSchema):
     def resolve_pricing_gaps(obj: TicketTier) -> list[TierPricingGapSchema]:
         """Categories painted in the tier's sector that the map does not price.
 
+        **User-choice tiers only.** For best-available the map keys define the tier's
+        sellable zones, so a painted category the map omits is not a gap — it is simply
+        not a zone of this tier, and reporting it would be a permanent false alarm.
+
         A configuration error only the organizer can fix: write-time validation demands
         full coverage, but ``paint_seats`` is venue-scoped and deliberately never fails
         (spec §4.3), so a repaint at the venue level can leave an already-saved tier
@@ -664,6 +675,8 @@ class TicketTierDetailSchema(ModelSchema):
         # the noise floor; if that ever changes, prefetch the sectors' painted
         # categories once in ``list_ticket_tiers`` and resolve from that map.
         """
+        if obj.seat_assignment_mode != TicketTier.SeatAssignmentMode.USER_CHOICE:
+            return []
         price_map = parse_price_map(obj.category_prices)
         if not price_map:
             return []
@@ -735,6 +748,13 @@ class VATPreviewItemSchema(Schema):
 
     tier_id: UUID
     count: int = Field(..., ge=1)
+    price_category_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Zone the best-available picker draws from: a price category painted in the tier's "
+            "sector and priced by its `category_prices` map. Null = the tier's whole pool."
+        ),
+    )
     seat_ids: list[UUID] = Field(
         default_factory=list,
         description=(
@@ -808,6 +828,13 @@ class BatchCheckoutPayload(Schema):
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
     billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
+    price_category_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Zone the best-available picker draws from: a price category painted in the tier's "
+            "sector and priced by its `category_prices` map. Null = the tier's whole pool."
+        ),
+    )
 
 
 class BatchCheckoutPWYCPayload(BatchCheckoutPayload):
@@ -865,6 +892,13 @@ class GuestBatchCheckoutPayload(GuestUserDataSchema):
         default=False,
         description="Request accessible seating for the whole checkout (BEST_AVAILABLE assignment "
         "picks from the accessible pool)",
+    )
+    price_category_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Zone the best-available picker draws from: a price category painted in the tier's "
+            "sector and priced by its `category_prices` map. Null = the tier's whole pool."
+        ),
     )
 
 
@@ -940,6 +974,8 @@ class GuestTicketJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     tickets: list[GuestTicketItemPayload] = Field(default_factory=list)
     # Optional with default so legacy tokens minted before #726 keep validating.
     accessible_required: bool = False
+    # Same reason: the best-available zone claim is absent from pre-v3 tokens.
+    price_category_id: UUID4 | None = None
     # Hold-owner session captured at checkout; legacy/no-hold tokens carry None
     # and the confirm-time request cookie is used as a fallback.
     guest_session: str | None = None

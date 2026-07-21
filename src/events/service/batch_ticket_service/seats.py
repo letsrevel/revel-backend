@@ -15,6 +15,7 @@ from events.models import EventSeatOverride, SeatHold, Ticket, TicketTier, Venue
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.context import BatchTicketContext
 from events.service.seating import holds as holds_service
+from events.utils.tier_pricing import parse_price_map
 
 
 class _SeatConflictError(Exception):
@@ -168,8 +169,9 @@ class SeatResolutionMixin(BatchTicketContext):
         the original holds until TTL, and an accessible held block would be
         skipped entirely when checkout doesn't set ``accessible_required``.
 
-        The buyer's ACTIVE holds on seats in the tier's price category (same
-        identity rule as ``_verify_and_consume_holds``) are taken in deterministic
+        The buyer's ACTIVE holds on seats in the tier's pool — its sector, narrowed
+        to the price categories its ``category_prices`` map names (same identity rule
+        as ``_verify_and_consume_holds``) — are taken in deterministic
         adjacency order — (sector display_order, row_order, adjacency_index) —
         first ``count`` of them. Contiguity is deliberately NOT enforced: the
         buyer explicitly holds these exact seats (a best-available hold block is
@@ -182,14 +184,18 @@ class SeatResolutionMixin(BatchTicketContext):
             seat conflicts post-lock (ticketed/overridden/deactivated/sniped) —
             the savepoint rollback releases the locks and restores the holds.
         """
-        if not self.tier.price_category_id:
+        if not self.tier.sector_id:
             return None
         owner_q = SeatHold.owner_q(None if self.guest_session else self.user, self.guest_session)
+        holds = SeatHold.objects.active().filter(owner_q, event=self.event, seat__sector_id=self.tier.sector_id)
+        # ponytail: zone derived from the tier's map; the per-request zone is Task B (#749).
+        zone_ids = list(parse_price_map(self.tier.category_prices))
+        if zone_ids:
+            holds = holds.filter(seat__default_price_category_id__in=zone_ids)
         held_ids = list(
-            SeatHold.objects.active()
-            .filter(owner_q, event=self.event, seat__default_price_category_id=self.tier.price_category_id)
-            .order_by("seat__sector__display_order", "seat__row_order", "seat__adjacency_index")
-            .values_list("seat_id", flat=True)
+            holds.order_by("seat__sector__display_order", "seat__row_order", "seat__adjacency_index").values_list(
+                "seat_id", flat=True
+            )
         )
         if len(held_ids) < count:
             return None

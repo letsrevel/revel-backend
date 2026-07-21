@@ -45,7 +45,8 @@ def test_editor_built_sector_gets_adjacent_pair_from_best_available(
     tier = TicketTier.objects.create(
         event=event,
         name="Standard",
-        price_category=category,
+        sector=sector,
+        category_prices={str(category.id): "0"},
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
 

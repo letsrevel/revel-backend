@@ -102,7 +102,7 @@ class TestCategoryDeleteGuard:
         self, tier: TicketTier, premium: PriceCategory, seats: list[VenueSeat]
     ) -> None:
         """A category priced by a user-choice tier is not deletable, despite having no FK."""
-        assert tier.price_category_id is None  # referenced *only* through the JSON map
+        assert str(premium.id) in tier.category_prices  # referenced *only* through the JSON map
 
         with pytest.raises(HttpError) as exc_info:
             venue_service.delete_price_category(premium)
@@ -298,6 +298,26 @@ class TestRepaintLifecycle:
 
         assert [g.name for g in gaps] == ["Balcony"]
         assert gaps[0].id == balcony.id
+
+    def test_partial_map_best_available_tier_reports_no_gaps(
+        self, seated_event: Event, venue: Venue, sector: VenueSector, seats: list[VenueSeat]
+    ) -> None:
+        """v3: a best-available map names the tier's zones, so an unpriced painted category is no gap."""
+        premium_seat, _standard_seat = seats
+        premium_category_id = premium_seat.default_price_category_id
+        assert premium_category_id is not None
+        ba = TicketTier.objects.create(
+            event=seated_event,
+            name="Premium Only",
+            price=FLAT,
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(premium_category_id): str(PREMIUM)},
+        )
+
+        assert schema.TicketTierDetailSchema.resolve_pricing_gaps(ba) == []
 
     def test_flat_tier_reports_no_gaps(self, seated_event: Event, venue: Venue, sector: VenueSector) -> None:
         """A tier with no map is not under-covered — it is flat-priced, which is legal."""

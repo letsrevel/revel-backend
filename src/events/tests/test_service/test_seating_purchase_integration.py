@@ -55,7 +55,8 @@ def _best_available_tier(event: Event, seats: list[VenueSeat]) -> TicketTier:
     return TicketTier.objects.create(
         event=event,
         name="BA",
-        price_category=category,
+        sector=seats[0].sector,
+        category_prices={str(category.id): "0"},
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
         payment_method=TicketTier.PaymentMethod.FREE,
     )

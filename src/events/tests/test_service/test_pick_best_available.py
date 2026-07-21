@@ -5,7 +5,7 @@ import typing as t
 import pytest
 
 from accounts.models import RevelUser
-from events.models import Event, PriceCategory, TicketTier, VenueSeat
+from events.models import Event, PriceCategory, TicketTier, VenueSeat, VenueSector
 from events.service.seating import holds as holds_service
 from events.service.seating import pick
 from events.service.seating.holds import HoldResult
@@ -27,10 +27,14 @@ def _paint(seats: list[VenueSeat], cat: PriceCategory) -> None:
 
 
 def _tier(event: Event, cat: PriceCategory) -> TicketTier:
+    """A best-available tier whose single sellable zone is ``cat`` (v3: zone = map key)."""
+    sector = VenueSector.objects.filter(venue=event.venue).first()
+    assert sector is not None
     return TicketTier.objects.create(
         event=event,
         name="Std",
-        price_category=cat,
+        sector=sector,
+        category_prices={str(cat.id): "0"},
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
 

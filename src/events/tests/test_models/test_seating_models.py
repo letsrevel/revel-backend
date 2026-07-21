@@ -74,48 +74,75 @@ def test_seat_label_composition_unchanged(sector: VenueSector) -> None:
     assert str(seat) == f"{sector.name} / C-12"
 
 
-def test_tier_accepts_price_category_without_sector(event: Event, venue: Venue) -> None:
+def test_tier_venue_is_derived_from_sector_only(event: Event, venue: Venue, sector: VenueSector) -> None:
+    """The tier's venue comes from its sector — the price-category FK is gone (v3)."""
     event.venue = venue
     event.save(update_fields=["venue"])
-    cat = PriceCategory.objects.create(venue=venue, name="Gold", color="#ffaa00")
     tier = TicketTier.objects.create(
         event=event,
         name="Gold",
-        price_category=cat,
+        sector=sector,
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
-    assert tier.venue_id == venue.id  # auto-filled from category's venue
+    assert tier.venue_id == venue.id  # auto-filled from the sector's venue
 
 
-def test_tier_price_category_wrong_venue_rejected(event: Event, venue: Venue, organization: Organization) -> None:
+def test_tier_category_price_from_wrong_venue_rejected(event: Event, venue: Venue, organization: Organization) -> None:
+    """The venue-scope rule now lives on the price map, not on a FK."""
     other = Venue.objects.create(organization=organization, name="Other Hall")
     cat = PriceCategory.objects.create(venue=other, name="Gold", color="#ffaa00")
+    other_sector = VenueSector.objects.create(venue=venue, name="Stalls X")
     with pytest.raises(DjangoValidationError):
-        # Tier pinned to `venue`, but the category lives on `other` → venue mismatch.
-        TicketTier.objects.create(event=event, name="Gold", venue=venue, price_category=cat)
+        TicketTier.objects.create(
+            event=event,
+            name="Gold",
+            venue=venue,
+            sector=other_sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(cat.id): "10.00"},
+        )
 
 
-def test_seated_mode_requires_sector_or_category(event: Event) -> None:
+def test_seated_mode_requires_sector(event: Event) -> None:
     with pytest.raises(DjangoValidationError):
         TicketTier.objects.create(
             event=event, name="Bad", seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE
         )
 
 
-def test_best_available_with_only_sector_rejected(event: Event, sector: VenueSector) -> None:
-    """BEST_AVAILABLE picks from the price category's pool — a sector alone is unsellable."""
-    with pytest.raises(DjangoValidationError):
-        TicketTier.objects.create(
-            event=event, name="Bad", sector=sector, seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE
-        )
+def test_best_available_with_only_sector_is_valid(event: Event, venue: Venue, sector: VenueSector) -> None:
+    """v3: BEST_AVAILABLE is sector-confined; an empty map means flat pricing over it."""
+    event.venue = venue
+    event.save(update_fields=["venue"])
+    tier = TicketTier.objects.create(
+        event=event, name="OK", sector=sector, seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE
+    )
+    assert tier.sector_id == sector.id
 
 
-def test_user_choice_with_only_price_category_rejected(event: Event, venue: Venue) -> None:
-    """USER_CHOICE assigns within a sector — a price category alone is unsellable."""
+def test_best_available_without_sector_rejected(event: Event, venue: Venue) -> None:
+    """A category may be painted across sectors — without a sector the pool is unbounded."""
     cat = PriceCategory.objects.create(venue=venue, name="Gold", color="#ffaa00")
     with pytest.raises(DjangoValidationError):
         TicketTier.objects.create(
-            event=event, name="Bad", price_category=cat, seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE
+            event=event,
+            name="Bad",
+            venue=venue,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(cat.id): "10.00"},
+        )
+
+
+def test_user_choice_without_sector_rejected(event: Event, venue: Venue) -> None:
+    """USER_CHOICE assigns within a sector — a price map alone is unsellable."""
+    cat = PriceCategory.objects.create(venue=venue, name="Gold", color="#ffaa00")
+    with pytest.raises(DjangoValidationError):
+        TicketTier.objects.create(
+            event=event,
+            name="Bad",
+            venue=venue,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+            category_prices={str(cat.id): "10.00"},
         )
 
 
@@ -150,14 +177,19 @@ def test_user_choice_with_sector_still_valid(event: Event, venue: Venue, sector:
     assert tier.sector_id == sector.id
 
 
-def test_two_tiers_may_share_one_category(event: Event, venue: Venue) -> None:
-    """Spec §1: concession pricing — adult/student on the same seat pool."""
+def test_two_tiers_may_share_one_category(event: Event, venue: Venue, sector: VenueSector) -> None:
+    """Spec §1: concession pricing — adult/student on the same seat pool, different prices."""
     event.venue = venue
     event.save(update_fields=["venue"])
     cat = PriceCategory.objects.create(venue=venue, name="Stalls", color="#00aaff")
-    a = TicketTier.objects.create(event=event, name="Adult", price_category=cat)
-    b = TicketTier.objects.create(event=event, name="Student", price_category=cat)
-    assert a.price_category_id == b.price_category_id
+    mode = TicketTier.SeatAssignmentMode.BEST_AVAILABLE
+    a = TicketTier.objects.create(
+        event=event, name="Adult", sector=sector, seat_assignment_mode=mode, category_prices={str(cat.id): "50.00"}
+    )
+    b = TicketTier.objects.create(
+        event=event, name="Student", sector=sector, seat_assignment_mode=mode, category_prices={str(cat.id): "30.00"}
+    )
+    assert list(a.category_prices) == list(b.category_prices) == [str(cat.id)]
 
 
 @pytest.fixture

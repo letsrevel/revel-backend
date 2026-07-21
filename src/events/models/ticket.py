@@ -53,7 +53,7 @@ class CancellationBlockReason(models.TextChoices):
 class TicketTierQuerySet(models.QuerySet["TicketTier"]):
     def with_venue_and_sector(self) -> t.Self:
         """Select venue and sector for serialization (not for transactional queries)."""
-        return self.select_related("venue", "sector", "price_category")
+        return self.select_related("venue", "sector")
 
     def for_user(self, user: "RevelUser | AnonymousUser") -> t.Self:
         """Return ticket tiers visible to a given user, combining event and tier-level access.
@@ -324,18 +324,10 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         related_name="ticket_tiers",
         help_text="Specific sector for this tier.",
     )
-    price_category = models.ForeignKey(
-        "events.PriceCategory",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="ticket_tiers",
-        help_text="Seated tiers draw seats from this category. Multiple tiers may share one category.",
-    )
     category_prices = models.JSONField(
         default=dict,
         blank=True,
-        help_text="{price_category_id: price} for user-choice tiers. Empty = flat pricing.",
+        help_text="{price_category_id: price}. Empty = flat pricing.",
     )
     seat_assignment_mode = models.CharField(
         choices=SeatAssignmentMode.choices,
@@ -448,16 +440,6 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         if sector and self.venue_id and sector.venue_id != self.venue_id:
             raise DjangoValidationError({"sector": "Sector must belong to the specified venue."})
 
-        # Auto-fill venue from price category (or validate it matches an already-set venue).
-        price_category = self.price_category  # Fetch once to satisfy mypy
-        if price_category:
-            category_venue_id = price_category.venue_id
-            if not self.venue_id:
-                self.venue_id = category_venue_id
-                venue = price_category.venue
-            elif category_venue_id != self.venue_id:
-                raise DjangoValidationError({"price_category": "Price category must belong to the tier's venue."})
-
         # Validate venue belongs to the same organization as the event
         if venue and venue.organization_id != self.event.organization_id:
             raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
@@ -470,12 +452,14 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     def _validate_seat_assignment_mode(self, sector: "VenueSector | None") -> None:
         """Validate that each seat-assigned mode comes with the field it reads.
 
-        BEST_AVAILABLE picks from the price category's seat pool; USER_CHOICE
-        assigns within the sector.
+        Both seated modes are confined to a sector: USER_CHOICE assigns within it,
+        and BEST_AVAILABLE draws its pool from it (narrowed to the zones named by
+        ``category_prices``). A category painted across two sectors must never
+        yield a cross-sector pool.
         """
-        if self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE and not self.price_category_id:
+        if self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE and not self.sector_id:
             raise DjangoValidationError(
-                {"seat_assignment_mode": "A price category is required for best-available tiers."}
+                {"seat_assignment_mode": "A sector is required for best-available seat assignment."}
             )
         if self.seat_assignment_mode == self.SeatAssignmentMode.USER_CHOICE and not self.sector_id:
             raise DjangoValidationError(

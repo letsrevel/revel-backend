@@ -363,10 +363,10 @@ def test_malformed_category_key_is_rejected_with_400(
     assert "not a valid price category id" in response.json()["errors"]["category_prices"][0]
 
 
-def test_non_user_choice_tier_cannot_be_category_priced(
+def test_unseated_tier_cannot_be_category_priced(
     organization_owner_client: Client, event: Event, sector: VenueSector, premium: PriceCategory
 ) -> None:
-    """Category pricing is user-choice only (spec §4.2 rule 1)."""
+    """Category pricing needs seats: seat_assignment_mode=none has none (spec §4.2 rule 1)."""
     response = post_tier(
         organization_owner_client,
         event,
@@ -379,7 +379,31 @@ def test_non_user_choice_tier_cannot_be_category_priced(
     )
 
     assert response.status_code == 400, response.json()
-    assert "user-choice" in response.json()["errors"]["category_prices"][0]
+    assert "seated tier" in response.json()["errors"]["category_prices"][0]
+
+
+def test_best_available_tier_can_be_category_priced(
+    organization_owner_client: Client, event: Event, sector: VenueSector, premium: PriceCategory
+) -> None:
+    """v3: the map is the single pricing mechanism, so best-available uses it too."""
+    response = post_tier(
+        organization_owner_client,
+        event,
+        {
+            "name": "Premium Zone",
+            "price": "30.00",
+            "payment_method": "offline",
+            "seat_assignment_mode": "best_available",
+            "sector_id": str(sector.pk),
+            "category_prices": {str(premium.pk): "50.00"},
+        },
+    )
+
+    assert response.status_code == 200, response.json()
+    tier = TicketTier.objects.get(pk=response.json()["id"])
+    assert tier.category_prices == {str(premium.pk): "50.00"}
+    # Partial coverage: Standard is painted in the sector but is simply not a zone of this tier.
+    assert response.json()["pricing_gaps"] == []
 
 
 def test_switching_a_priced_tier_to_pwyc_is_rejected(

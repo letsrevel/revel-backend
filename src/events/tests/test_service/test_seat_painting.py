@@ -445,7 +445,13 @@ class TestPaintAffectedTierReport:
 
         assert _paint(venue, [seat], standard).affected_tiers == []
 
-    def test_best_available_tier_is_not_reported(
+    @pytest.mark.xfail(
+        reason="v3 Task A removed TicketTier.price_category: a best-available tier now prices "
+        "through category_prices, so a repaint CAN reprice it and the report must widen to "
+        "cover it. Widening affected_tiers to both seated modes is Task C (paint report).",
+        strict=True,
+    )
+    def test_best_available_tier_is_reported(
         self,
         venue: Venue,
         sector: VenueSector,
@@ -453,7 +459,7 @@ class TestPaintAffectedTierReport:
         balcony: PriceCategory,
         seated_venue_event: Event,
     ) -> None:
-        """Only user-choice tiers read the category map; the rest cannot be repriced by a paint."""
+        """v3 inverts this: both seated modes read the map, so both are repriceable by a paint."""
         seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=standard)
         TicketTier.objects.create(
             event=seated_venue_event,
@@ -462,11 +468,11 @@ class TestPaintAffectedTierReport:
             payment_method=TicketTier.PaymentMethod.OFFLINE,
             venue=venue,
             sector=sector,
-            price_category=standard,
+            category_prices={str(standard.id): str(FLAT)},
             seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
         )
 
-        assert _paint(venue, [seat], balcony).affected_tiers == []
+        assert _paint(venue, [seat], balcony).affected_tiers != []
 
     def test_past_event_is_not_reported(
         self,
