@@ -113,17 +113,23 @@ def affected_tiers(
       ``user_choice`` one, so a repaint reprices its sales just as silently.
     - ``missing_categories`` is the tier's **current** gap, not the delta. A gap this paint
       did not open still leaves seats unsellable, and telling the admin "all clear" while
-      checkout keeps refusing seats is worse than saying nothing. **User-choice only**, for
-      the same reason ``TicketTierDetailSchema.resolve_pricing_gaps`` and
+      checkout keeps refusing seats is worse than saying nothing. Reported for a *mapped*
+      tier **only in user-choice**, for the same reason
+      ``TicketTierDetailSchema.resolve_pricing_gaps`` and
       ``tier_pricing.validate_category_prices`` treat it that way: on a best-available tier
       the map keys *define* the sellable zones, so a painted category the map omits is not
       a gap — it is deliberately not part of this tier, and reporting it would be a
-      permanent false alarm on every paint.
+      permanent false alarm on every paint. An **empty-map** tier is a third case, reported
+      in **both** modes: it charges its flat price for every seat in the sector, so a paint
+      that leaves categories on that sector means premium seats sell at the flat price with
+      nothing else to warn about it. Flat pricing on a painted sector stays legal (an
+      organizer may paint for colour-coding alone), so this is advice, never a refusal.
 
     Scope is otherwise deliberately narrow, because a warning that cries wolf gets ignored:
-    only seated tiers with a non-empty price map read the paint at all, and only events
-    that have not ended and are not cancelled — nobody can sell those seats anyway. DRAFT
-    events stay in: the event being configured right now is the most valuable warning.
+    only seated tiers read the paint at all, and only events that have not ended and are
+    not cancelled — nobody can sell those seats anyway. DRAFT events stay in: the event
+    being configured right now is the most valuable warning. A tier whose sector ends up
+    with nothing painted reports nothing, in either mode.
 
     Query cost is constant in the number of seats painted: one query for the tiers, one for
     what is painted on the sectors, one to name the missing categories.
@@ -154,7 +160,6 @@ def affected_tiers(
             event__end__gte=timezone.now(),
         )
         .exclude(event__status=models.Event.EventStatus.CANCELLED)
-        .exclude(category_prices={})
         .select_related("event")
         .order_by("event__start", "name")
     )
@@ -173,24 +178,30 @@ def affected_tiers(
         except DjangoValidationError:
             # A malformed legacy map must never turn a paint into an error (spec §4.3).
             continue
-        if not price_map:
-            # A map that parses to nothing is flat-priced at checkout; paint cannot move it.
-            continue
         # sector_id is non-null by the filter above; the guard is for the type checker.
         sector_id = tier.sector_id
-        # Best-available: the map keys are the tier's zones, so an unpriced painted
-        # category is not a gap (same rule as `resolve_pricing_gaps`) — only user-choice
-        # tiers can be under-covered.
-        if tier.seat_assignment_mode == models.TicketTier.SeatAssignmentMode.USER_CHOICE:
-            missing = (painted.get(sector_id, set()) if sector_id else set()) - price_map.keys()
+        sector_painted: set[UUID] = painted.get(sector_id, set()) if sector_id else set()
+        missing: set[UUID]
+        changes: list[schema.SeatPriceChangeSchema]
+        if not price_map:
+            # Flat pricing over a painted sector: no seat's price moved (paint cannot move
+            # a flat tier), but every painted category is being sold at `tier.price`.
+            missing, changes = sector_painted, []
         else:
-            missing = set()
-        changes = _price_changes(
-            prior_by_sector.get(sector_id, []) if sector_id else [],
-            price_map,
-            new_category_id,
-            tier.price,
-        )
+            # Best-available: the map keys are the tier's zones, so an unpriced painted
+            # category is not a gap (same rule as `resolve_pricing_gaps`) — only user-choice
+            # tiers can be under-covered.
+            missing = (
+                sector_painted - price_map.keys()
+                if tier.seat_assignment_mode == models.TicketTier.SeatAssignmentMode.USER_CHOICE
+                else set()
+            )
+            changes = _price_changes(
+                prior_by_sector.get(sector_id, []) if sector_id else [],
+                price_map,
+                new_category_id,
+                tier.price,
+            )
         if changes or missing:
             entries.append((tier, changes, missing))
     if not entries:

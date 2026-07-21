@@ -17,12 +17,20 @@ _MAX_ATTEMPTS = 3
 
 
 def _zone_names(zone_ids: t.Iterable[UUID]) -> str:
-    """Render a tier's sellable zones as a human list, for the 400 message."""
-    return ", ".join(
+    """Render a tier's sellable zones as a human list, for the 400 message.
+
+    Falls back to a sentence when nothing resolves: a map key whose ``PriceCategory`` row
+    was deleted leaves the tier with zones it cannot name, and "Select one of this ticket
+    tier's zones: ." tells the buyer nothing and the support ticket even less.
+    """
+    names = list(
         PriceCategory.objects.filter(id__in=list(zone_ids))
         .order_by("display_order", "name")
         .values_list("name", flat=True)
     )
+    if not names:
+        return str(_("none are configured — please contact the organizer"))
+    return ", ".join(names)
 
 
 def resolve_requested_zone(tier: TicketTier, price_category_id: UUID | None) -> UUID | None:

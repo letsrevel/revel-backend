@@ -436,14 +436,33 @@ class TestPaintAffectedTierReport:
 
         assert _paint(venue, [seat], standard).affected_tiers == []
 
-    def test_flat_tier_is_not_reported(
+    def test_flat_tier_is_advised_that_it_now_flattens_a_painted_category(
         self, venue: Venue, sector: VenueSector, seated_venue_event: Event, standard: PriceCategory
     ) -> None:
-        """The common case: a tier with no price map charges its flat price whatever is painted."""
-        _make_tier(seated_venue_event, venue, sector, name="General")
+        """A tier with no map charges its flat price for premium seats — legal, but worth saying.
+
+        Nothing else can say it: write-time validation lets an empty map through by design
+        (flat pricing on a painted sector is a real choice), and checkout charges the flat
+        price without complaint. Advisory only — the paint still lands.
+        """
+        tier = _make_tier(seated_venue_event, venue, sector, name="General")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
 
-        assert _paint(venue, [seat], standard).affected_tiers == []
+        reported = _paint(venue, [seat], standard).affected_tiers
+
+        assert [r.tier_id for r in reported] == [tier.id]
+        assert [c.name for c in reported[0].missing_categories] == [standard.name]
+        # A flat tier's money did not move: paint cannot reprice what is not mapped.
+        assert reported[0].price_changes == []
+
+    def test_flat_tier_over_an_unpainted_sector_is_not_reported(
+        self, venue: Venue, sector: VenueSector, seated_venue_event: Event, standard: PriceCategory
+    ) -> None:
+        """The common case stays silent — an advisory that always fires is one nobody reads."""
+        _make_tier(seated_venue_event, venue, sector, name="General")
+        seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=standard)
+
+        assert _paint(venue, [seat], None).affected_tiers == []
 
     def test_best_available_tier_is_reported(
         self,
@@ -476,6 +495,9 @@ class TestPaintAffectedTierReport:
     ) -> None:
         """A move between two zones the map prices is the silent case the report exists for."""
         seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
+        # Both zones must exist in the sector before the tier can price them: a
+        # best-available key painted nowhere is a zone that sells nothing (write-time rule).
+        VenueSeat.objects.create(sector=sector, label="A2", default_price_category=standard)
         tier = _make_tier(
             seated_venue_event,
             venue,
