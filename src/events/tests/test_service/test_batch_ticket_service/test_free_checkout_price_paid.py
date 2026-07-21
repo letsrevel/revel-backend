@@ -6,8 +6,15 @@ floor, leaving ``price_paid`` NULL on a ticket that cost 0.00 — and a NULL is 
 positive claim that ``tier.price`` reconstructs the sale, which for a
 fully-discounted ticket is a false 25.00.
 
-The FREE **payment method** is deliberately unchanged: it collects nothing, so the
-NULL claim is true there and the price vector it carries was never charged.
+The ``case FREE:`` branch dropped it too, which bit a *category-priced* free tier:
+``should_stamp_price_paid`` says True there (no tier price reconstructs a seat price),
+the branch passed nothing, and the row landed NULL — the very state the function's
+contract says must not exist. What gets recorded on this path is ``0.00``, never the
+price vector's list price, mirroring the box-office comp: a giveaway must not report
+tier-price revenue whatever the seat is worth.
+
+A plain free tier is deliberately unchanged: no map, no buyer input, so
+``should_stamp_price_paid`` says False and the NULL claim is true.
 """
 
 from datetime import timedelta
@@ -17,10 +24,13 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.models import Event, Organization, Payment, PriceCategory, Ticket, TicketTier, VenueSeat, VenueSector
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
+from events.service.seating.pricing import recorded_or_resolved_price
+from events.tests.test_service.test_batch_ticket_service.conftest import PREMIUM, make_category_tier
+from wallet.apple.generator import ApplePassGenerator
 
 pytestmark = pytest.mark.django_db
 
@@ -108,3 +118,37 @@ def test_genuinely_free_tier_leaves_price_paid_null(zero_cart_event: Event, memb
         assert ticket.status == Ticket.TicketStatus.ACTIVE
         assert ticket.price_paid is None
         assert ticket.discount_amount is None
+
+
+def test_free_comp_on_a_category_priced_tier_records_zero_not_null(
+    seated_event: Event,
+    sector: VenueSector,
+    categories: tuple[PriceCategory, PriceCategory],
+    seats: list[VenueSeat],
+    member_user: RevelUser,
+) -> None:
+    """A free ticket for an 80.00 Premium seat is 0.00 everywhere, not "€80.00" on a phone.
+
+    ``should_stamp_price_paid`` returns True for a category-priced tier, but the
+    ``case FREE:`` branch dropped the argument, so the row landed ``price_paid IS NULL``.
+    ``recorded_or_resolved_price`` then logged the anomaly and priced the ticket **from
+    the seat** — which is how the Apple Wallet pass came to print ``€80.00`` on a
+    giveaway. Both readers must now say 0.00, and they must say the *same* 0.00.
+    """
+    tier = make_category_tier(seated_event, sector, categories, TicketTier.PaymentMethod.FREE)
+    premium_seat = seats[0]
+
+    result = BatchTicketService(seated_event, tier, member_user).create_batch(
+        [TicketPurchaseItem(guest_name="Comped Guest", seat_id=premium_seat.pk)]
+    )
+
+    assert isinstance(result, list)
+    ticket = Ticket.objects.select_related("tier", "seat").get(pk=result[0].pk)
+    assert ticket.seat_id == premium_seat.pk
+    assert ticket.price_paid == Decimal("0.00"), "a comp must not carry the seat's list price, nor a NULL"
+
+    # The two money-bearing readers the NULL used to mislead.
+    assert recorded_or_resolved_price(ticket.tier, ticket.seat, ticket.price_paid) == Decimal("0.00")
+    price, currency = ApplePassGenerator._resolve_price(ticket)
+    assert (price, currency) == (Decimal("0.00"), "EUR")
+    assert price != PREMIUM, "the wallet pass printed the seat's 80.00 before the fix"
