@@ -84,7 +84,13 @@ This project uses a comprehensive Makefile.
 - `make format` — ruff auto-format · `make lint` — ruff lint (auto-fix) · `make mypy` — strict type check.
 
 ### i18n
-- `make makemessages` — extract/update `.po` · `make compilemessages` — compile to `.mo` (**commit after!**) · `make i18n-check` — verify `.mo` up-to-date.
+- `make makemessages` — extract/update `.po` · `make compilemessages` — compile to `.mo` · `make i18n-check` — verify every code string is in the catalog and translated.
+- **Commit the `.po` sources only — never the `.mo` files.** They are gitignored (ADR-0011, which
+  reverted ADR-0006) and built during the Docker image build, so review lands on `.po` rather than
+  on binary diffs. Still run `compilemessages` locally so `i18n-check` is honest.
+- **Discard gettext's fuzzy suggestions**; on this repo they have mapped semantically unrelated
+  strings onto each other. Translate fresh and leave zero fuzzy entries. Regenerate **once**, at the
+  end of a change — regenerating from divergent bases is what caused a past `.po` merge conflict.
 
 ### Database
 - `make migrations` / `make migrate` — create / apply migrations.
