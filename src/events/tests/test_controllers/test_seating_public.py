@@ -15,7 +15,7 @@ def _seated_tier(event: Event, seats: list[VenueSeat], *, paint: bool = True) ->
     """Create a best-available tier; paint the seats with its category unless paint=False."""
     venue = event.venue
     assert venue is not None
-    cat = PriceCategory.objects.create(venue=venue, name="Std", color="#00aa00")
+    cat = PriceCategory.objects.create(venue=venue, name="Orchestra", color="#00aa00")
     if paint:
         for s in seats:
             s.default_price_category = cat
@@ -23,9 +23,15 @@ def _seated_tier(event: Event, seats: list[VenueSeat], *, paint: bool = True) ->
     return TicketTier.objects.create(
         event=event,
         name="Std",
-        price_category=cat,
+        sector=seats[0].sector,
+        category_prices={str(cat.id): "0"},
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
+
+
+def _zone(tier: TicketTier) -> str:
+    """The single zone of a ``_seated_tier``: v3 makes the buyer name it per request."""
+    return str(next(iter(tier.category_prices)))
 
 
 def test_chart_returns_sectors_and_seats(client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
@@ -149,7 +155,7 @@ def test_best_available_hold_returns_adjacent_seats(
     tier = _seated_tier(event, seats)
     resp = member_client.post(
         f"/api/events/{event.id}/seating/holds/best-available",
-        data={"tier_id": str(tier.id), "quantity": 2},
+        data={"tier_id": str(tier.id), "quantity": 2, "price_category_id": _zone(tier)},
         content_type="application/json",
     )
     assert resp.status_code == 200, resp.content
@@ -167,7 +173,7 @@ def test_best_available_hold_409_when_no_block_fits(
     tier = _seated_tier(event, seats, paint=False)  # category has no seats
     resp = member_client.post(
         f"/api/events/{event.id}/seating/holds/best-available",
-        data={"tier_id": str(tier.id), "quantity": 2},
+        data={"tier_id": str(tier.id), "quantity": 2, "price_category_id": _zone(tier)},
         content_type="application/json",
     )
     assert resp.status_code == 409, resp.content
@@ -186,9 +192,45 @@ def test_anonymous_best_available_hold_sets_guest_cookie(
     tier = _seated_tier(event, seats)
     resp = client.post(
         f"/api/events/{event.id}/seating/holds/best-available",
-        data={"tier_id": str(tier.id), "quantity": 2},
+        data={"tier_id": str(tier.id), "quantity": 2, "price_category_id": _zone(tier)},
         content_type="application/json",
     )
     assert resp.status_code == 200, resp.content
     assert GUEST_HOLD_COOKIE in resp.cookies
     assert resp.cookies[GUEST_HOLD_COOKIE]["httponly"]
+
+
+def test_best_available_hold_400_without_a_zone(
+    member_client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    """A tier that prices zones cannot guess which one the buyer meant (#749)."""
+    event, seats = seated_event
+    tier = _seated_tier(event, seats)
+
+    resp = member_client.post(
+        f"/api/events/{event.id}/seating/holds/best-available",
+        data={"tier_id": str(tier.id), "quantity": 2},
+        content_type="application/json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert "Orchestra" in resp.json()["detail"]  # the ZONE name, distinct from the tier name "Std"
+
+
+def test_best_available_hold_400_for_a_zone_the_tier_does_not_price(
+    member_client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    event, seats = seated_event
+    tier = _seated_tier(event, seats)
+    venue = event.venue
+    assert venue is not None
+    stranger = PriceCategory.objects.create(venue=venue, name="Boxes", color="#0000aa")
+
+    resp = member_client.post(
+        f"/api/events/{event.id}/seating/holds/best-available",
+        data={"tier_id": str(tier.id), "quantity": 2, "price_category_id": str(stranger.id)},
+        content_type="application/json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert "Orchestra" in resp.json()["detail"]

@@ -26,6 +26,7 @@ from events.models import (
     VenueSector,
 )
 from events.service import guest as guest_service
+from events.service.guest_hold_session import GUEST_HOLD_COOKIE, issue_guest_hold_token
 from events.service.seating import holds as holds_service
 
 pytestmark = pytest.mark.django_db
@@ -113,9 +114,15 @@ def best_available_tier(
         payment_method=TicketTier.PaymentMethod.FREE,  # Free for easier testing
         price_type=TicketTier.PriceType.FIXED,
         venue=venue,
-        price_category=category,
+        sector=sector,
+        category_prices={str(category.id): "20.00"},
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
+
+
+def _zone(tier: TicketTier) -> UUID:
+    """The single zone of ``best_available_tier``: v3 makes the buyer name it per request."""
+    return UUID(next(iter(tier.category_prices)))
 
 
 @pytest.mark.django_db(transaction=True)
@@ -212,6 +219,7 @@ class TestGuestCheckoutReservedSeating:
             "email": "autoseat@example.com",
             "first_name": "Auto",
             "last_name": "Seat",
+            "price_category_id": str(_zone(best_available_tier)),
             "tickets": [{"guest_name": "Auto Seat"}],  # No seat_id for BEST_AVAILABLE mode
         }
 
@@ -233,7 +241,11 @@ class TestGuestCheckoutReservedSeating:
         # Arrange: Create token without seat_id (BEST_AVAILABLE mode)
         tickets = [schema.TicketPurchaseItem(guest_name="Auto Test")]
         token = guest_service.create_guest_ticket_token(
-            existing_guest_user, guest_event_with_tickets.id, best_available_tier.id, tickets
+            existing_guest_user,
+            guest_event_with_tickets.id,
+            best_available_tier.id,
+            tickets,
+            price_category_id=_zone(best_available_tier),
         )
 
         # Act: Confirm the token
@@ -472,6 +484,7 @@ class TestGuestAccessibleSeating:
             "first_name": "Access",
             "last_name": "Ible",
             "accessible_required": True,
+            "price_category_id": str(_zone(best_available_tier)),
             "tickets": [{"guest_name": "Access Ible"}],
         }
 
@@ -507,6 +520,7 @@ class TestGuestAccessibleSeating:
             best_available_tier.id,
             tickets,
             accessible_required=True,
+            price_category_id=_zone(best_available_tier),
         )
 
         # Act
@@ -539,6 +553,7 @@ class TestGuestAccessibleSeating:
             best_available_tier.id,
             tickets,
             accessible_required=True,
+            price_category_id=_zone(best_available_tier),
         )
 
         # Act
@@ -563,7 +578,11 @@ class TestGuestAccessibleSeating:
         # Arrange
         tickets = [schema.TicketPurchaseItem(guest_name="General Guest")]
         token = guest_service.create_guest_ticket_token(
-            existing_guest_user, guest_event_with_tickets.id, best_available_tier.id, tickets
+            existing_guest_user,
+            guest_event_with_tickets.id,
+            best_available_tier.id,
+            tickets,
+            price_category_id=_zone(best_available_tier),
         )
 
         # Act
@@ -599,7 +618,8 @@ class TestGuestAccessibleSeating:
             payment_method=TicketTier.PaymentMethod.ONLINE,
             price_type=TicketTier.PriceType.FIXED,
             venue=venue,
-            price_category=best_available_tier.price_category,
+            sector=best_available_tier.sector,
+            category_prices=dict(best_available_tier.category_prices),
             seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
         )
         client = Client()
@@ -612,6 +632,7 @@ class TestGuestAccessibleSeating:
             "first_name": "Online",
             "last_name": "Accessible",
             "accessible_required": True,
+            "price_category_id": str(_zone(online_tier)),
             "tickets": [{"guest_name": "Online Accessible"}],
         }
 
@@ -696,3 +717,193 @@ class TestGuestConfirmSessionBinding:
         assert response.status_code == 200, response.content
         ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
         assert ticket.seat == seats[1]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGuestZoneSelection:
+    """The best-available zone (#749) survives the checkout → email → confirm round trip."""
+
+    @pytest.fixture
+    def two_zone_tier(
+        self,
+        best_available_tier: TicketTier,
+        seats: list[VenueSeat],
+    ) -> tuple[TicketTier, PriceCategory, PriceCategory]:
+        """Split ``best_available_tier``'s seats into a Front and a Back zone."""
+        venue = best_available_tier.venue
+        assert venue is not None
+        front = PriceCategory.objects.get(id=UUID(next(iter(best_available_tier.category_prices))))
+        back = PriceCategory.objects.create(venue=venue, name="Back", color="#aa0000")
+        VenueSeat.objects.filter(id__in=[s.id for s in seats[3:]]).update(default_price_category=back)
+        best_available_tier.category_prices = {str(front.id): "20.00", str(back.id): "10.00"}
+        best_available_tier.max_tickets_per_user = 10
+        best_available_tier.save(update_fields=["category_prices", "max_tickets_per_user"])
+        return best_available_tier, front, back
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_checkout_embeds_the_zone_in_the_token(
+        self,
+        mock_send_email: Mock,
+        guest_event_with_tickets: Event,
+        two_zone_tier: tuple[TicketTier, PriceCategory, PriceCategory],
+        seats: list[VenueSeat],
+    ) -> None:
+        tier, _front, back = two_zone_tier
+        url = reverse(
+            "api:guest_ticket_checkout",
+            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": tier.pk},
+        )
+        payload = {
+            "email": "zone@example.com",
+            "first_name": "Zone",
+            "last_name": "Picker",
+            "price_category_id": str(back.id),
+            "tickets": [{"guest_name": "Zone Picker"}],
+        }
+
+        response = Client().post(url, data=payload, content_type="application/json")
+
+        assert response.status_code == 200, response.content
+        token = mock_send_email.call_args[0][1]
+        decoded = guest_service.validate_and_decode_guest_token(token)
+        assert isinstance(decoded, schema.GuestTicketJWTPayloadSchema)
+        assert decoded.price_category_id == back.id
+
+    def test_confirm_assigns_a_seat_from_the_token_zone(
+        self,
+        guest_event_with_tickets: Event,
+        two_zone_tier: tuple[TicketTier, PriceCategory, PriceCategory],
+        seats: list[VenueSeat],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        tier, _front, back = two_zone_tier
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user,
+            guest_event_with_tickets.id,
+            tier.id,
+            [schema.TicketPurchaseItem(guest_name="Zone Picker")],
+            price_category_id=back.id,
+        )
+
+        response = Client().post(
+            reverse("api:confirm_guest_action"), data={"token": token}, content_type="application/json"
+        )
+
+        assert response.status_code == 200, response.content
+        ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
+        assert ticket.seat is not None
+        assert ticket.seat.default_price_category_id == back.id
+
+    def test_checkout_rejects_a_zone_the_tier_does_not_price(
+        self,
+        guest_event_with_tickets: Event,
+        two_zone_tier: tuple[TicketTier, PriceCategory, PriceCategory],
+        venue: Venue,
+        seats: list[VenueSeat],
+    ) -> None:
+        """A venue category that is not a zone of this tier is unsellable through it."""
+        tier, _front, _back = two_zone_tier
+        stranger = PriceCategory.objects.create(venue=venue, name="Boxes", color="#0000aa")
+        url = reverse(
+            "api:guest_ticket_checkout",
+            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": tier.pk},
+        )
+        payload = {
+            "email": "zone@example.com",
+            "first_name": "Zone",
+            "last_name": "Picker",
+            "price_category_id": str(stranger.id),
+            "tickets": [{"guest_name": "Zone Picker"}],
+        }
+
+        response = Client().post(url, data=payload, content_type="application/json")
+
+        assert response.status_code == 400, response.content
+        assert "Back" in response.json()["detail"]
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_stale_hold_in_another_zone_does_not_dead_link_the_confirmation_email(
+        self,
+        mock_send_email: Mock,
+        guest_event_with_tickets: Event,
+        two_zone_tier: tuple[TicketTier, PriceCategory, PriceCategory],
+        seats: list[VenueSeat],
+    ) -> None:
+        """A non-online guest checkout must never promise an email whose link then 409s.
+
+        Seat assignment is deferred to the confirmation click, so a cheerful
+        "check your email" for a request the confirm would refuse strands the buyer
+        on a different device, with no hold-release UI on the confirmation page.
+        """
+        tier, _front, back = two_zone_tier
+        guest_event_with_tickets.max_tickets_per_user = 10  # the hold cap is the event's
+        guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
+        session_id, cookie = issue_guest_hold_token()
+        # Browsed Front, then switched to Back — the hold endpoint only ever ADDS.
+        holds_service.acquire_seats(
+            guest_event_with_tickets, [seats[0].id, seats[1].id], user=None, guest_session=session_id
+        )
+        holds_service.acquire_seats(
+            guest_event_with_tickets, [seats[3].id, seats[4].id], user=None, guest_session=session_id
+        )
+        client = Client()
+        client.cookies[GUEST_HOLD_COOKIE] = cookie
+
+        response = client.post(
+            reverse(
+                "api:guest_ticket_checkout",
+                kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": tier.pk},
+            ),
+            data={
+                "email": "stalezone@example.com",
+                "first_name": "Stale",
+                "last_name": "Zone",
+                "price_category_id": str(back.id),
+                "tickets": [{"guest_name": "Guest 1"}, {"guest_name": "Guest 2"}],
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["message"]  # "check your email"
+
+        # The emailed link must actually work — same buyer, different device (no cookie).
+        token = mock_send_email.call_args[0][1]
+        confirm = Client().post(
+            reverse("api:confirm_guest_action"), data={"token": token}, content_type="application/json"
+        )
+
+        assert confirm.status_code == 200, confirm.content
+        created = Ticket.objects.filter(event=guest_event_with_tickets, user__email="stalezone@example.com")
+        assert {t.seat_id for t in created} == {seats[3].id, seats[4].id}
+
+    def test_legacy_token_without_the_zone_claim_still_decodes(
+        self,
+        guest_event_with_tickets: Event,
+        user_choice_tier: TicketTier,
+        seats: list[VenueSeat],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """A pre-v3 token whose JSON lacks price_category_id decodes (default None) and confirms."""
+        valid_token = guest_service.create_guest_ticket_token(
+            existing_guest_user,
+            guest_event_with_tickets.id,
+            user_choice_tier.id,
+            [schema.TicketPurchaseItem(guest_name="Legacy", seat_id=seats[0].id)],
+        )
+        raw = jwt.decode(
+            valid_token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], options={"verify_aud": False}
+        )
+        raw.pop("price_category_id")  # simulate a token minted before the zone existed
+        token = create_token(raw, settings.SECRET_KEY, settings.JWT_ALGORITHM)
+
+        decoded = guest_service.validate_and_decode_guest_token(token)
+        assert isinstance(decoded, schema.GuestTicketJWTPayloadSchema)
+        assert decoded.price_category_id is None
+
+        response = Client().post(
+            reverse("api:confirm_guest_action"), data={"token": token}, content_type="application/json"
+        )
+
+        assert response.status_code == 200, response.content
+        assert Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets).seat == seats[0]

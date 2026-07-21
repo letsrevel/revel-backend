@@ -50,9 +50,57 @@ class StandingAvailabilitySchema(Schema):
     taken: int = 0
 
 
+class ZoneAvailabilitySchema(Schema):
+    """Live selectable-seat counts for one (sector, price category) pair.
+
+    Scoped per SECTOR, not per venue: a best-available tier draws only from its own
+    sector, so a venue-wide count for a category painted in two sectors would promise
+    seats no single tier can sell. Look a tier's row up by
+    ``(tier.sector_id, zone_id)`` where ``zone_id`` is a key of ``tier.category_prices``.
+
+    Name and colour are deliberately absent — the chart fetched alongside this payload
+    already carries them, and ``chart_updated_at`` ties the two together.
+    """
+
+    sector_id: UUID
+    price_category_id: UUID
+    free_seats: int = Field(
+        default=0,
+        description=(
+            "Non-accessible seats currently selectable in this zone: active, not sold, not "
+            "blocked/overridden, and not held by anyone (including you — your own holds are "
+            "listed in `my_holds`). Good for 'N seats left' copy; NOT a promise that N can be "
+            "held together — see `largest_contiguous_block`."
+        ),
+    )
+    largest_contiguous_block: int = Field(
+        default=0,
+        description=(
+            "Longest run of adjacent selectable non-accessible seats within a single row of "
+            "this zone. A best-available hold for `quantity` succeeds here iff "
+            "`largest_contiguous_block >= quantity` — this is the number a zone picker should "
+            "compare against the requested quantity. Subject only to concurrency: another "
+            "buyer may take seats between this snapshot and your hold."
+        ),
+    )
+    accessible_free_seats: int = Field(
+        default=0,
+        description=(
+            "Selectable accessible seats in this zone. Disjoint from `free_seats`: accessible "
+            "seats are protected unconditionally and are reachable only via "
+            "`accessible_required=true`, which does not require adjacency — such a hold for "
+            "`quantity` succeeds iff `accessible_free_seats >= quantity`."
+        ),
+    )
+
+
 class SeatingAvailabilitySchema(Schema):
     seats: dict[UUID, str] = Field(default_factory=dict)  # sparse: seat_id -> sold|held|blocked
     standing: dict[UUID, StandingAvailabilitySchema] = Field(default_factory=dict)
+    # One row per (sector, price category) painted on at least one active seat of the venue,
+    # ordered by sector then category display_order. A zone with every seat taken is still
+    # present with zeroes — that is what lets a picker grey it out instead of 409ing.
+    zones: list[ZoneAvailabilitySchema] = Field(default_factory=list)
     my_holds: list[UUID] = Field(default_factory=list)
     my_holds_expire_at: AwareDatetime | None = None
     # Mirrors VenueChartSchema.updated_at. The poller compares it against the chart it
@@ -80,6 +128,13 @@ class BestAvailableHoldRequest(Schema):
     tier_id: UUID
     quantity: int = Field(..., ge=1, le=20)
     accessible_required: bool = False
+    price_category_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Zone to draw from: a price category painted in the tier's sector and priced by its "
+            "`category_prices` map. Null = the tier's whole pool."
+        ),
+    )
 
 
 class ReleaseSeatsRequest(Schema):

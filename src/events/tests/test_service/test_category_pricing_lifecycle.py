@@ -25,10 +25,11 @@ from django.utils import timezone
 from ninja.errors import HttpError
 
 from events import schema
+from events.exceptions import InvalidZoneSelectionError
 from events.models import Event, EventSeries, Organization, PriceCategory, TicketTier, Venue, VenueSeat, VenueSector
 from events.service import recurrence_service, venue_service
 from events.service.duplication import duplicate_event
-from events.service.seating import pricing
+from events.service.seating import pick, pricing
 from events.utils.tier_pricing import parse_price_map
 
 pytestmark = pytest.mark.django_db
@@ -102,7 +103,7 @@ class TestCategoryDeleteGuard:
         self, tier: TicketTier, premium: PriceCategory, seats: list[VenueSeat]
     ) -> None:
         """A category priced by a user-choice tier is not deletable, despite having no FK."""
-        assert tier.price_category_id is None  # referenced *only* through the JSON map
+        assert str(premium.id) in tier.category_prices  # referenced *only* through the JSON map
 
         with pytest.raises(HttpError) as exc_info:
             venue_service.delete_price_category(premium)
@@ -299,6 +300,26 @@ class TestRepaintLifecycle:
         assert [g.name for g in gaps] == ["Balcony"]
         assert gaps[0].id == balcony.id
 
+    def test_partial_map_best_available_tier_reports_no_gaps(
+        self, seated_event: Event, venue: Venue, sector: VenueSector, seats: list[VenueSeat]
+    ) -> None:
+        """v3: a best-available map names the tier's zones, so an unpriced painted category is no gap."""
+        premium_seat, _standard_seat = seats
+        premium_category_id = premium_seat.default_price_category_id
+        assert premium_category_id is not None
+        ba = TicketTier.objects.create(
+            event=seated_event,
+            name="Premium Only",
+            price=FLAT,
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(premium_category_id): str(PREMIUM)},
+        )
+
+        assert schema.TicketTierDetailSchema.resolve_pricing_gaps(ba) == []
+
     def test_flat_tier_reports_no_gaps(self, seated_event: Event, venue: Venue, sector: VenueSector) -> None:
         """A tier with no map is not under-covered — it is flat-priced, which is legal."""
         flat = TicketTier.objects.create(
@@ -331,3 +352,109 @@ class TestRepaintLifecycle:
         assert by_name["Balcony"].available is False
         assert by_name["Balcony"].price is None
         assert seat_pricing.unpainted == FLAT
+
+
+class TestFlatPricingOverAPaintedSector:
+    """An empty map on a painted sector: legal, but the organizer must be told (#2).
+
+    A seated tier with no map draws from its whole sector and charges ``tier.price`` for
+    every seat in it — premium seats included. That stays *expressible*: an organizer may
+    paint purely for colour-coding and price flat on purpose. So this is never a refusal,
+    only an advisory, and it must not cry wolf on a sector that carries no paint at all.
+    """
+
+    @pytest.fixture
+    def flat_user_choice(self, seated_event: Event, venue: Venue, sector: VenueSector) -> TicketTier:
+        return TicketTier.objects.create(
+            event=seated_event,
+            name="Flat Stalls",
+            price=FLAT,
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+        )
+
+    def test_empty_map_over_a_painted_sector_is_reported_as_a_gap(
+        self, flat_user_choice: TicketTier, seats: list[VenueSeat]
+    ) -> None:
+        """Every painted category is being sold at the flat price — the silent mispricing."""
+        gaps = schema.TicketTierDetailSchema.resolve_pricing_gaps(flat_user_choice)
+
+        assert [g.name for g in gaps] == ["Premium", "Standard"]
+
+    def test_empty_map_best_available_tier_is_reported_too(
+        self, seated_event: Event, venue: Venue, sector: VenueSector, seats: list[VenueSeat]
+    ) -> None:
+        """The hole the dropped ``price_category`` FK reopened exists in both modes."""
+        ba = TicketTier.objects.create(
+            event=seated_event,
+            name="Flat BA",
+            price=FLAT,
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        )
+
+        assert [g.name for g in schema.TicketTierDetailSchema.resolve_pricing_gaps(ba)] == ["Premium", "Standard"]
+
+    def test_empty_map_over_an_unpainted_sector_reports_nothing(
+        self, flat_user_choice: TicketTier, sector: VenueSector
+    ) -> None:
+        """No paint, no advisory — an advisory that always fires is one nobody reads."""
+        VenueSeat.objects.create(sector=sector, label="C1", row_label="C", number=1)
+
+        assert schema.TicketTierDetailSchema.resolve_pricing_gaps(flat_user_choice) == []
+
+    def test_paint_advises_the_flat_tier_it_just_started_flattening(
+        self, flat_user_choice: TicketTier, venue: Venue, sector: VenueSector, premium: PriceCategory
+    ) -> None:
+        """Nothing else fires: write-time validation, checkout and the delta report all stay silent."""
+        seat = VenueSeat.objects.create(sector=sector, label="C1", row_label="C", number=1)
+
+        result = venue_service.paint_seats(
+            venue, schema.VenueSeatPaintSchema(seat_ids=[seat.id], price_category_id=premium.id)
+        )
+
+        assert [t_.tier_id for t_ in result.affected_tiers] == [flat_user_choice.id]
+        affected = result.affected_tiers[0]
+        assert [c.name for c in affected.missing_categories] == ["Premium"]
+        # A flat tier's money did not move — the paint cannot reprice what is not mapped.
+        assert affected.price_changes == []
+
+    def test_unpainting_the_last_category_stops_advising_the_flat_tier(
+        self, flat_user_choice: TicketTier, venue: Venue, seats: list[VenueSeat]
+    ) -> None:
+        """Once the sector carries no paint, the flat tier is simply a flat tier again."""
+        result = venue_service.paint_seats(
+            venue, schema.VenueSeatPaintSchema(seat_ids=[s.id for s in seats], price_category_id=None)
+        )
+
+        assert result.affected_tiers == []
+
+
+class TestDanglingZoneMessage:
+    """A map key whose category row is gone must still render a usable 400 (#4)."""
+
+    def test_zone_error_never_renders_an_empty_list(
+        self, seated_event: Event, venue: Venue, sector: VenueSector, seats: list[VenueSeat], premium: PriceCategory
+    ) -> None:
+        """``delete_price_category`` guards this, but the admin and the DB do not."""
+        ba = TicketTier.objects.create(
+            event=seated_event,
+            name="Premium Only",
+            price=FLAT,
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(premium.id): str(PREMIUM)},
+        )
+        PriceCategory.objects.filter(id=premium.id).delete()
+
+        with pytest.raises(InvalidZoneSelectionError) as exc_info:
+            pick.resolve_requested_zone(ba, None)
+
+        assert "zones: ." not in str(exc_info.value)
+        assert "contact the organizer" in str(exc_info.value)

@@ -5,7 +5,7 @@ import typing as t
 import pytest
 
 from accounts.models import RevelUser
-from events.models import Event, PriceCategory, TicketTier, VenueSeat
+from events.models import Event, PriceCategory, TicketTier, VenueSeat, VenueSector
 from events.service.seating import holds as holds_service
 from events.service.seating import pick
 from events.service.seating.holds import HoldResult
@@ -27,10 +27,14 @@ def _paint(seats: list[VenueSeat], cat: PriceCategory) -> None:
 
 
 def _tier(event: Event, cat: PriceCategory) -> TicketTier:
+    """A best-available tier whose single sellable zone is ``cat`` (v3: zone = map key)."""
+    sector = VenueSector.objects.filter(venue=event.venue).first()
+    assert sector is not None
     return TicketTier.objects.create(
         event=event,
         name="Std",
-        price_category=cat,
+        sector=sector,
+        category_prices={str(cat.id): "0"},
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
 
@@ -41,7 +45,7 @@ def test_hold_best_available_end_to_end(seated_event: tuple[Event, list[VenueSea
     _paint(seats, cat)
     tier = _tier(event, cat)
 
-    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None)
+    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None, price_category_id=cat.id)
 
     assert result.conflicts == []
     assert len(result.held) == 2
@@ -54,7 +58,7 @@ def test_hold_best_available_insufficient(seated_event: tuple[Event, list[VenueS
     cat = _category(event)
     tier = _tier(event, cat)  # no seats painted with the category
 
-    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None)
+    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None, price_category_id=cat.id)
 
     assert result.held == []
     assert result.conflicts == []
@@ -70,7 +74,7 @@ def test_hold_best_available_only_picks_own_category(
     _paint(seats[2:], cat_b)
     tier = _tier(event, cat_a)
 
-    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None)
+    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None, price_category_id=cat_a.id)
 
     held_ids = {h.seat_id for h in result.held}
     assert held_ids == {seats[0].id, seats[1].id}
@@ -87,7 +91,9 @@ def test_hold_best_available_accessible_required(
         s.save(update_fields=["is_accessible"])
     tier = _tier(event, cat)
 
-    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None, accessible_required=True)
+    result = pick.hold_best_available(
+        event, tier, 2, user=member_user, guest_session=None, accessible_required=True, price_category_id=cat.id
+    )
 
     held_ids = {h.seat_id for h in result.held}
     assert held_ids == {seats[0].id, seats[1].id}
@@ -103,7 +109,7 @@ def test_hold_best_available_avoids_already_held_seats(
     # Someone else holds the centre seat that would otherwise be the best pick.
     holds_service.acquire_seats(event, [seats[2].id], user=public_user, guest_session=None)
 
-    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None)
+    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None, price_category_id=cat.id)
 
     held_ids = {h.seat_id for h in result.held}
     assert seats[2].id not in held_ids
@@ -131,7 +137,7 @@ def test_hold_best_available_retries_on_conflict(
 
     monkeypatch.setattr(pick, "acquire_seats", fake_acquire)
 
-    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None)
+    result = pick.hold_best_available(event, tier, 2, user=member_user, guest_session=None, price_category_id=cat.id)
 
     assert len(calls) == 2
     assert set(calls[1]).isdisjoint(set(calls[0]))  # retry excluded the lost seats
@@ -145,6 +151,6 @@ def test_load_candidates_stable_order(seated_event: tuple[Event, list[VenueSeat]
     _paint(seats, cat)
     tier = _tier(event, cat)
 
-    ids = [c.id for c in pick.load_candidates(event, tier, set())]
+    ids = [c.id for c in pick.load_candidates(event, tier, set(), zone_id=cat.id)]
 
     assert ids == sorted(ids)  # deterministic PK order for the seeded tiebreak

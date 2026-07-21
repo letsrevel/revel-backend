@@ -1,6 +1,7 @@
 """Request-scoped state shared by every ``BatchTicketService`` mixin."""
 
 import typing as t
+from uuid import UUID
 
 from accounts.models import RevelUser
 from events.models import Event, TicketTier
@@ -28,6 +29,7 @@ class BatchTicketContext:
         *,
         guest_session: str | None = None,
         accessible_required: bool = False,
+        price_category_id: UUID | None = None,
     ) -> None:
         """Initialize the batch ticket service.
 
@@ -40,6 +42,9 @@ class BatchTicketContext:
                 held seats under this identity, not under the guest RevelUser.
             accessible_required: BEST_AVAILABLE assignment must use the accessible
                 seat pool (relaxed contiguity) for the whole batch (#726).
+            price_category_id: Zone the BEST_AVAILABLE pool is drawn from — a
+                request parameter, validated once by
+                :func:`events.service.seating.pick.resolve_requested_zone` (#749).
         """
         self.event = event
         self.tier = tier
@@ -47,4 +52,5 @@ class BatchTicketContext:
         self.discount_code = discount_code
         self.guest_session = guest_session
         self.accessible_required = accessible_required
+        self.price_category_id = price_category_id
         self._reserve_buyer_vat: "BuyerVATContext | None" = None

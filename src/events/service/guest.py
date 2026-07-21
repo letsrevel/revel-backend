@@ -106,6 +106,7 @@ def create_guest_ticket_token(
     discount_code: str | None = None,
     *,
     accessible_required: bool = False,
+    price_category_id: UUID | None = None,
     guest_session: str | None = None,
 ) -> str:
     """Create JWT token for guest ticket purchase confirmation.
@@ -122,6 +123,8 @@ def create_guest_ticket_token(
         discount_code: Optional discount code string
         accessible_required: Whether best-available assignment at confirm time must
             use the accessible seat pool (applies to the whole block)
+        price_category_id: Zone selected at checkout, carried in the token so the
+            confirm-time assignment draws from the same pool the buyer chose
         guest_session: Hold-owner session id captured at checkout, embedded in the
             token so confirm-time assignment consumes the buyer's own holds even
             when the confirmation link is opened on a different device.
@@ -141,6 +144,7 @@ def create_guest_ticket_token(
         discount_code=discount_code,
         tickets=ticket_payloads,
         accessible_required=accessible_required,
+        price_category_id=price_category_id,
         guest_session=guest_session,
         exp=timezone.now() + timedelta(hours=1),
         jti=str(uuid4()),
@@ -257,6 +261,7 @@ def handle_guest_ticket_checkout(
     billing_info: "schema.BuyerBillingInfoSchema | None" = None,
     guest_session: str | None = None,
     accessible_required: bool = False,
+    price_category_id: UUID | None = None,
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request (business logic extracted from controller).
 
@@ -273,6 +278,8 @@ def handle_guest_ticket_checkout(
         guest_session: Resolved guest-hold session id (seat holds are owned by it)
         accessible_required: Whether best-available seat assignment must use the
             accessible pool (applies to the whole checkout block)
+        price_category_id: Zone the best-available pool is drawn from (#749);
+            validated by ``resolve_requested_zone`` inside the batch service
 
     Returns:
         GuestCheckoutResponseSchema. Non-online tiers: `message` (email confirmation sent).
@@ -282,9 +289,11 @@ def handle_guest_ticket_checkout(
 
     Raises:
         HttpError: If event doesn't allow guest access, tier issues, or eligibility checks fail
+        InvalidZoneSelectionError: 400 if the requested zone is unusable on this tier
     """
     from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
+    from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
 
     # Check if event allows guest access
@@ -312,11 +321,22 @@ def handle_guest_ticket_checkout(
     if discount_code:
         dc = discount_code_service.validate_discount_code(discount_code, event.organization, tier, user, len(tickets))
 
+    # Validate the requested zone HERE, not only downstream: the non-online branch
+    # below defers seat assignment to the confirmation click, so an unusable zone
+    # would otherwise cost the buyer an email and a dead link instead of a 400.
+    resolve_requested_zone(tier, price_category_id)
+
     # Branch by payment method
     if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
         # Online payment: use BatchTicketService (Stripe provides security)
         service = BatchTicketService(
-            event, tier, user, discount_code=dc, guest_session=guest_session, accessible_required=accessible_required
+            event,
+            tier,
+            user,
+            discount_code=dc,
+            guest_session=guest_session,
+            accessible_required=accessible_required,
+            price_category_id=price_category_id,
         )
         result = service.create_batch(tickets, pwyc_amount=pwyc_amount, billing_info=billing_info)
 
@@ -353,6 +373,7 @@ def handle_guest_ticket_checkout(
             pwyc_amount,
             discount_code,
             accessible_required=accessible_required,
+            price_category_id=price_category_id,
             guest_session=guest_session,
         )
         transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name))
@@ -450,6 +471,9 @@ def confirm_guest_action(
             # back to the confirming request's cookie for legacy tokens (None).
             guest_session=payload.guest_session or guest_session,
             accessible_required=payload.accessible_required,
+            # Absent from pre-v3 tokens (defaults to None) — a legacy token still
+            # decodes and buys from the tier's whole sector, as it did when minted.
+            price_category_id=payload.price_category_id,
         )
         result = service.create_batch(ticket_items, pwyc_amount=payload.pwyc_amount)
 

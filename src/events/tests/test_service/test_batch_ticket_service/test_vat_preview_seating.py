@@ -9,11 +9,16 @@ on a total they were never charged.
 Cart shape throughout, reusing the module conftest: seat A1 Premium 80.00,
 A2 Standard 30.00, A3 unpainted → the tier's flat 50.00. Gross total 160.00.
 
+Best-available tiers preview the same prices without any seats at all: the buyer names a
+*zone* (``price_category_id``) instead, since the picker only assigns seats at hold time.
+Both shapes must produce the identical response — see ``TestModeAgnosticResponseShape``.
+
 The load-bearing test in this module is
 ``TestPreviewMatchesTheCharge::test_preview_total_equals_the_sum_of_the_payment_rows``:
 a preview that disagrees with the charge is the bug this task exists to close.
 """
 
+import dataclasses
 import typing as t
 from decimal import Decimal
 
@@ -22,6 +27,7 @@ import pytest
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.exceptions import InvalidZoneSelectionError
 from events.models import (
     DiscountCode,
     Event,
@@ -86,6 +92,58 @@ def flat_tier(seated_event: Event, vat_org: Organization) -> TicketTier:
 
 
 @pytest.fixture
+def ba_tier(
+    seated_event: Event,
+    vat_org: Organization,
+    sector: VenueSector,
+    categories: tuple[PriceCategory, PriceCategory],
+    seats: list[VenueSeat],
+) -> TicketTier:
+    """Best-available twin of ``online_tier``: same zones, same prices, no seat picking.
+
+    Its ``category_prices`` keys *are* its sellable zones (spec §4.2) — the buyer names
+    one per request and the picker assigns seats inside it later.
+    """
+    premium, standard = categories
+    return TicketTier.objects.create(
+        event=seated_event,
+        name="Stalls BA",
+        price=FLAT,
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        total_quantity=50,
+        max_tickets_per_user=5,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        venue=sector.venue,
+        sector=sector,
+        category_prices={str(premium.pk): str(PREMIUM), str(standard.pk): str(STANDARD)},
+    )
+
+
+@pytest.fixture
+def ba_unmapped_tier(seated_event: Event, vat_org: Organization, sector: VenueSector) -> TicketTier:
+    """A best-available tier with no category map: one flat price for the whole sector."""
+    return TicketTier.objects.create(
+        event=seated_event,
+        name="Stalls BA Flat",
+        price=FLAT,
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        total_quantity=50,
+        max_tickets_per_user=5,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        venue=sector.venue,
+        sector=sector,
+    )
+
+
+@pytest.fixture
+def unpriced_zone(sector: VenueSector) -> PriceCategory:
+    """A category of the venue that no tier in these tests prices."""
+    return PriceCategory.objects.create(venue=sector.venue, name="Box", color="#0000aa")
+
+
+@pytest.fixture
 def pct10(vat_org: Organization) -> DiscountCode:
     """10% off — 80 → 72, 30 → 27, 50 → 45."""
     return DiscountCode.objects.create(
@@ -114,6 +172,7 @@ def _preview(
     *,
     seats: list[VenueSeat] | None = None,
     count: int | None = None,
+    zone: PriceCategory | None = None,
     billing: BuyerBillingInfoSchema | None = None,
     discount_code: str | None = None,
     price_per_ticket: Decimal | None = None,
@@ -123,6 +182,7 @@ def _preview(
         tier_id=tier.pk,
         count=count if count is not None else (len(seat_ids) or 1),
         seat_ids=seat_ids,
+        price_category_id=zone.pk if zone is not None else None,
     )
     return calculate_vat_preview(
         event,
@@ -422,6 +482,267 @@ class TestWireShape:
             ("Standard", 1, "30.00"),
             (None, 1, "50.00"),
         ]
+        assert data["total_gross"] == "160.00"
+
+
+class TestBestAvailableZonePreview:
+    """A best-available line is priced by the zone it asks for, with no seats at all.
+
+    The buyer has picked nothing — the picker assigns seats at hold/checkout time — so the
+    only thing that fixes the price is the requested price category. One zone per request
+    makes the line uniformly priced by construction, which is exactly why it is quotable
+    without seats.
+    """
+
+    def test_zone_priced_line_quotes_the_zone_price(
+        self, seated_event: Event, ba_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
+    ) -> None:
+        """Two Premium seats, unchosen: 2 × 80.00, named "Premium", 22% VAT on the real total."""
+        premium, _standard = categories
+
+        result = _preview(seated_event, ba_tier, count=2, zone=premium)
+
+        assert _quote(result.line_items) == [("Premium", 2, PREMIUM)]
+        assert result.total_gross == Decimal("160.00")
+        # 80.00 gross at 22% inclusive → 65.57 net + 14.43 VAT, twice.
+        assert result.line_items[0].unit_price_net == Decimal("65.57")
+        assert result.line_items[0].unit_vat == Decimal("14.43")
+        assert result.total_net == Decimal("131.14")
+        assert result.total_vat == Decimal("28.86")
+        assert result.total_net + result.total_vat == result.total_gross
+
+    def test_the_other_zone_of_the_same_tier_prices_differently(
+        self, seated_event: Event, ba_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
+    ) -> None:
+        """The zone is the whole price — the same tier quotes 30.00 for Standard."""
+        _premium, standard = categories
+
+        result = _preview(seated_event, ba_tier, count=2, zone=standard)
+
+        assert _quote(result.line_items) == [("Standard", 2, STANDARD)]
+        assert result.total_gross == Decimal("60.00")
+
+    def test_non_eu_buyer_is_zero_rated_on_a_zone_line(
+        self, seated_event: Event, ba_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
+    ) -> None:
+        """VAT is applied to the zone price, not the tier's flat one."""
+        premium, _standard = categories
+
+        result = _preview(seated_event, ba_tier, count=2, zone=premium, billing=_non_eu())
+
+        assert result.line_items[0].line_gross == Decimal("131.14")  # 2 × 65.57
+        assert result.total_vat == ZERO
+        assert result.reverse_charge is False
+
+    def test_discount_code_applies_to_the_zone_price(
+        self,
+        seated_event: Event,
+        ba_tier: TicketTier,
+        categories: tuple[PriceCategory, PriceCategory],
+        pct10: DiscountCode,
+    ) -> None:
+        """10% off Premium's 80.00 → 72.00, through the same pricing authority as checkout."""
+        premium, _standard = categories
+
+        result = _preview(seated_event, ba_tier, count=2, zone=premium, discount_code="PCT10")
+
+        assert _quote(result.line_items) == [("Premium", 2, Decimal("72.00"))]
+        assert result.total_gross == Decimal("144.00")
+
+    def test_unmapped_best_available_tier_is_flat_priced_without_a_zone(
+        self, seated_event: Event, ba_unmapped_tier: TicketTier
+    ) -> None:
+        """No map means no zones: the flat tier price, one anonymous line, as before."""
+        result = _preview(seated_event, ba_unmapped_tier, count=3)
+
+        assert _quote(result.line_items) == [(None, 3, FLAT)]
+        assert result.total_gross == Decimal("150.00")
+
+
+class TestZoneValidation:
+    """The refusals, which come from checkout's own authority (Task B, #749).
+
+    The preview does not implement these rules — it calls
+    ``events.service.seating.pick.resolve_requested_zone``, the single authority the
+    charge uses. These tests therefore pin the *wording the buyer sees* as identical in
+    both places: a preview that refuses differently from the charge is the same drift
+    that having two resolvers would have caused.
+    """
+
+    def test_mapped_best_available_tier_without_a_zone_is_refused(
+        self, seated_event: Event, ba_tier: TicketTier
+    ) -> None:
+        """Quoting the flat 50.00 for a tier that sells at 80/30 would be a lie; name the zones."""
+        with pytest.raises(InvalidZoneSelectionError) as exc:
+            _preview(seated_event, ba_tier, count=2)
+
+        assert "Select one of this ticket tier's zones" in str(exc.value)
+        assert "Premium" in str(exc.value)
+        assert "Standard" in str(exc.value)
+
+    def test_zone_outside_the_tiers_map_is_refused(
+        self, seated_event: Event, ba_tier: TicketTier, unpriced_zone: PriceCategory
+    ) -> None:
+        """A category the tier does not price is not a sellable zone — same message."""
+        with pytest.raises(InvalidZoneSelectionError) as exc:
+            _preview(seated_event, ba_tier, count=2, zone=unpriced_zone)
+
+        assert "Select one of this ticket tier's zones" in str(exc.value)
+        assert "Premium" in str(exc.value)
+        assert "Standard" in str(exc.value)
+
+    def test_zone_on_an_unmapped_tier_is_refused(
+        self, seated_event: Event, ba_unmapped_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
+    ) -> None:
+        """The tier sells one flat price; honouring a zone would quote a price it has not set.
+
+        Refused, never ignored: a parameter the buyer believes selected a zone, silently
+        dropped, quotes a number they did not ask for.
+        """
+        premium, _standard = categories
+
+        with pytest.raises(InvalidZoneSelectionError) as exc:
+            _preview(seated_event, ba_unmapped_tier, count=2, zone=premium)
+
+        assert "single price for its whole sector" in str(exc.value)
+
+    def test_zone_on_a_user_choice_tier_is_refused(
+        self, seated_event: Event, online_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
+    ) -> None:
+        """A user-choice line prices from its seats; a zone would quote seats it never checked."""
+        premium, _standard = categories
+
+        with pytest.raises(InvalidZoneSelectionError) as exc:
+            _preview(seated_event, online_tier, count=2, zone=premium)
+
+        assert "can only be selected on a best-available ticket tier" in str(exc.value)
+
+    def test_seats_and_a_zone_together_are_refused(
+        self,
+        seated_event: Event,
+        ba_tier: TicketTier,
+        seats: list[VenueSeat],
+        categories: tuple[PriceCategory, PriceCategory],
+    ) -> None:
+        """Two selectors that can disagree: pick one rather than silently preferring either."""
+        premium, _standard = categories
+
+        with pytest.raises(HttpError) as exc:
+            _preview(seated_event, ba_tier, seats=[seats[0]], zone=premium)
+
+        assert exc.value.status_code == 400
+        assert "not both" in str(exc.value.message)
+
+    def test_seats_alone_on_a_best_available_tier_are_refused(
+        self, seated_event: Event, ba_tier: TicketTier, seats: list[VenueSeat]
+    ) -> None:
+        """The fifth cell of the table, and the one that quoted what checkout refuses.
+
+        The mutual-exclusion guard above only fires when *both* selectors are present.
+        ``seat_ids`` alone fell through to the user-choice branch, priced the named seats
+        and returned a 200 with a total — while the same intent at checkout carries no
+        ``price_category_id`` (the picker assigns the seats) and is a 400 from
+        ``resolve_requested_zone``. Asymmetric, too: a zone on a user-choice tier *is*
+        refused. The zone rule is now asked for every mode, exactly as checkout's
+        ``resolve_seats`` asks it.
+        """
+        with pytest.raises(InvalidZoneSelectionError) as exc:
+            _preview(seated_event, ba_tier, seats=[seats[0], seats[1]])
+
+        assert "Select one of this ticket tier's zones" in str(exc.value)
+
+    def test_a_zone_deleted_between_the_two_reads_is_a_400_not_a_500(
+        self, seated_event: Event, ba_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
+    ) -> None:
+        """ "A zone in the map cannot be deleted" holds at an instant, not across two statements.
+
+        ``delete_price_category`` guards a category a tier still prices, so this state is
+        unreachable at any single moment — but the preview reads the tier's map and *then*
+        fetches the category, and the organizer can unmap the zone and delete it in
+        between. The bare ``PriceCategory.objects.get()`` let ``DoesNotExist`` escape as a
+        500 on exactly the input that gives a clean 400 a moment later. The row is deleted
+        directly here to reproduce the interleaved state the guard cannot see.
+        """
+        premium, _standard = categories
+        PriceCategory.objects.filter(pk=premium.pk).delete()
+
+        with pytest.raises(InvalidZoneSelectionError) as exc:
+            _preview(seated_event, ba_tier, count=2, zone=premium)
+
+        assert "no longer on sale" in str(exc.value)
+
+
+class TestModeAgnosticResponseShape:
+    """The frontend must not branch on seating mode to render a quote."""
+
+    def test_zone_preview_is_shaped_exactly_like_the_seat_preview_that_prices_the_same(
+        self,
+        seated_event: Event,
+        online_tier: TicketTier,
+        ba_tier: TicketTier,
+        seats: list[VenueSeat],
+        sector: VenueSector,
+        categories: tuple[PriceCategory, PriceCategory],
+    ) -> None:
+        """Two Premium seats picked by hand vs two asked for by zone: the same line, field for field.
+
+        Only ``tier_name`` may differ (they are different tiers). Everything the buyer
+        reads — category, count, unit and line money, VAT rate — is byte-identical.
+        """
+        premium, _standard = categories
+        premium_twin = VenueSeat.objects.create(
+            sector=sector,
+            label="A4",
+            row_label="A",
+            number=4,
+            position={"x": 3, "y": 0},
+            is_active=True,
+            default_price_category=premium,
+        )
+
+        by_seat = _preview(seated_event, online_tier, seats=[seats[0], premium_twin])
+        by_zone = _preview(seated_event, ba_tier, count=2, zone=premium)
+
+        anonymize = [dataclasses.replace(li, tier_name="") for li in by_seat.line_items]
+        assert anonymize == [dataclasses.replace(li, tier_name="") for li in by_zone.line_items]
+        assert (by_seat.total_net, by_seat.total_vat, by_seat.total_gross) == (
+            by_zone.total_net,
+            by_zone.total_vat,
+            by_zone.total_gross,
+        )
+
+    def test_zone_round_trips_through_the_endpoint(
+        self,
+        seated_event: Event,
+        ba_tier: TicketTier,
+        categories: tuple[PriceCategory, PriceCategory],
+        member_user: RevelUser,
+    ) -> None:
+        """POST price_category_id, get back the same named-line payload seats produce."""
+        from django.test import Client
+        from django.urls import reverse
+        from ninja_jwt.tokens import RefreshToken
+
+        premium, _standard = categories
+        refresh = RefreshToken.for_user(member_user)
+        client = Client(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")  # type: ignore[attr-defined]
+
+        response = client.post(
+            reverse("api:vat_preview", kwargs={"event_id": str(seated_event.pk)}),
+            data=orjson.dumps(
+                {
+                    "billing_info": {"billing_name": "ACME SRL", "vat_country_code": "IT"},
+                    "items": [{"tier_id": str(ba_tier.pk), "count": 2, "price_category_id": str(premium.pk)}],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [
+            (li["price_category_name"], li["ticket_count"], li["unit_price_gross"]) for li in data["line_items"]
+        ] == [("Premium", 2, "80.00")]
         assert data["total_gross"] == "160.00"
 
 

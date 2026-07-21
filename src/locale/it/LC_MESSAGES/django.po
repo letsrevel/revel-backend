@@ -1127,6 +1127,12 @@ msgstr "Le fatture annullate non possono essere emesse."
 msgid "Only draft invoices can be deleted."
 msgstr "Solo le fatture in bozza possono essere eliminate."
 
+msgid "Provide either seat_ids or price_category_id, not both."
+msgstr "Fornisci seat_ids oppure price_category_id, non entrambi."
+
+msgid "That zone is no longer on sale — please choose another."
+msgstr "Quella zona non è più in vendita — scegline un'altra."
+
 msgid ""
 "This ticket tier prices seats by category — seat_ids are required to preview "
 "it."
@@ -1138,6 +1144,27 @@ msgid "One or more selected seats are invalid or not in the correct sector."
 msgstr ""
 "Uno o più posti selezionati non sono validi o non si trovano nel settore "
 "corretto."
+
+msgid "This ticket tier is sold out."
+msgstr "Questo livello di biglietto è esaurito."
+
+#, python-brace-format
+msgid "Only {available} ticket(s) remaining for this tier."
+msgstr "Restano solo {available} biglietto/i per questo livello."
+
+msgid "This event is sold out."
+msgstr "Questo evento è esaurito."
+
+#, python-brace-format
+msgid "Only {available} spot(s) remaining for this event."
+msgstr "Restano solo {available} posto/i per questo evento."
+
+msgid "This sector is full."
+msgstr "Questo settore è al completo."
+
+#, python-brace-format
+msgid "Only {available} spot(s) remaining in this sector."
+msgstr "Restano solo {available} posto/i in questo settore."
 
 msgid "You are not allowed to purchase from this tier."
 msgstr "Non ti è consentito acquistare da questo livello."
@@ -1174,27 +1201,6 @@ msgstr "Impossibile assicurare posti adiacenti — riprova."
 
 msgid "Unknown seat assignment mode."
 msgstr "Modalità di assegnazione posti sconosciuta."
-
-msgid "This ticket tier is sold out."
-msgstr "Questo livello di biglietto è esaurito."
-
-#, python-brace-format
-msgid "Only {available} ticket(s) remaining for this tier."
-msgstr "Restano solo {available} biglietto/i per questo livello."
-
-msgid "This event is sold out."
-msgstr "Questo evento è esaurito."
-
-#, python-brace-format
-msgid "Only {available} spot(s) remaining for this event."
-msgstr "Restano solo {available} posto/i per questo evento."
-
-msgid "This sector is full."
-msgstr "Questo settore è al completo."
-
-#, python-brace-format
-msgid "Only {available} spot(s) remaining in this sector."
-msgstr "Restano solo {available} posto/i in questo settore."
 
 msgid "Unknown payment method."
 msgstr "Metodo di pagamento sconosciuto."
@@ -1563,13 +1569,31 @@ msgid "The target seat is currently held by another buyer."
 msgstr ""
 "Il posto di destinazione è attualmente riservato da un altro acquirente."
 
+msgid "A zone can only be selected on a best-available ticket tier."
+msgstr ""
+"È possibile selezionare una zona solo per un livello di biglietto con "
+"assegnazione automatica del posto migliore."
+
+msgid ""
+"This ticket tier has a single price for its whole sector — no zone can be "
+"selected."
+msgstr ""
+"Questo livello di biglietto ha un prezzo unico per tutto il settore — non è "
+"possibile selezionare una zona."
+
+msgid ""
+"This ticket tier's zones are misconfigured — please contact the organizer."
+msgstr "Le zone di questo livello di biglietto non sono configurate correttamente — contatta l'organizzatore."
+
+#, python-brace-format
+msgid "Select one of this ticket tier's zones: {zones}."
+msgstr "Seleziona una delle zone di questo livello di biglietto: {zones}."
+
 #, python-brace-format
 msgid ""
 "Seat {seat} is in the \"{category}\" price category, which this ticket tier "
-"does not price yet."
-msgstr ""
-"Il posto {seat} appartiene alla categoria di prezzo \"{category}\", per cui "
-"questo tipo di biglietto non ha ancora un prezzo."
+"does not sell."
+msgstr "Il posto {seat} appartiene alla categoria di prezzo \"{category}\", che questo livello di biglietto non vende."
 
 msgid "You cannot purchase from this organization."
 msgstr "Non puoi acquistare da questa organizzazione."
@@ -1816,12 +1840,11 @@ msgstr "La categoria di prezzo deve appartenere alla stessa sede dei posti."
 #, python-brace-format
 msgid ""
 "This price category is used by one or more ticket tiers and cannot be "
-"deleted: {tiers}. Reassign those tiers, or remove the category from their "
-"category prices, first."
+"deleted: {tiers}. Remove it from those tiers' category prices first."
 msgstr ""
 "Questa categoria di prezzo è utilizzata da uno o più tipi di biglietto e non "
-"può essere eliminata: {tiers}. Riassegna quei tipi di biglietto, oppure "
-"rimuovi prima la categoria dai loro prezzi per categoria."
+"può essere eliminata: {tiers}. Rimuovila prima dai prezzi per categoria di "
+"quei tipi di biglietto."
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La posizione del posto '{}' è al di fuori della forma del settore."

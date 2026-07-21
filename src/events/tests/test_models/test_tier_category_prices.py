@@ -74,16 +74,25 @@ def test_category_prices_defaults_to_empty_dict(event: Event) -> None:
     assert tier.category_prices == {}
 
 
-def test_empty_map_is_valid_in_every_mode(event: Event, venue: Venue, premium: PriceCategory) -> None:
-    """An empty map imposes no constraints — every existing tier stays legal."""
+def test_empty_map_is_valid_in_every_mode(event: Event, venue: Venue, sector: VenueSector) -> None:
+    """An empty map imposes no constraints — every existing tier stays legal (flat pricing)."""
     tier = TicketTier(
         event=event,
         name="Best Available",
         venue=venue,
-        price_category=premium,
+        sector=sector,
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
     tier.full_clean()
+
+
+def test_empty_map_skips_the_coverage_check(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """A user-choice tier with painted-but-unpriced categories is legal while the map is empty."""
+    paint(sector, "A1", premium)
+    paint(sector, "A2", standard)
+    make_tier(event, sector).full_clean()
 
 
 def test_full_coverage_user_choice_tier_is_valid(
@@ -111,34 +120,98 @@ def test_map_rejected_for_unseated_tier(event: Event, venue: Venue, premium: Pri
     assert "category_prices" in exc_info.value.message_dict
 
 
-def test_map_rejected_for_best_available_tier(event: Event, venue: Venue, premium: PriceCategory) -> None:
-    """best_available draws from one category and already has a flat price for it."""
-    tier = TicketTier(
-        event=event,
+def test_map_accepted_for_best_available_tier(event: Event, sector: VenueSector, premium: PriceCategory) -> None:
+    """v3: the map is the single pricing mechanism — best_available uses it too."""
+    paint(sector, "A1", premium)
+    tier = make_tier(
+        event,
+        sector,
         name="Best Available",
-        venue=venue,
-        price_category=premium,
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
         category_prices={str(premium.id): "10.00"},
     )
+    tier.full_clean()
+
+
+def test_partial_map_valid_for_best_available_tier(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """The keys define the tier's sellable zones; an unpriced painted category is simply not one."""
+    paint(sector, "A1", premium)
+    paint(sector, "A2", standard)
+    tier = make_tier(
+        event,
+        sector,
+        name="Premium Only",
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        category_prices={str(premium.id): "50.00"},
+    )
+    tier.full_clean()
+
+
+def test_partial_map_rejected_for_user_choice_tier(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """A user-choice buyer can click any seat, so every painted category must be priced."""
+    paint(sector, "A1", premium)
+    paint(sector, "A2", standard)
+    tier = make_tier(event, sector, category_prices={str(premium.id): "50.00"})
     with pytest.raises(ValidationError) as exc_info:
         tier.full_clean()
     assert "category_prices" in exc_info.value.message_dict
 
 
-def test_flipping_mode_away_from_user_choice_rejected(
-    event: Event, venue: Venue, sector: VenueSector, premium: PriceCategory
+def test_flipping_user_choice_to_best_available_allowed(
+    event: Event, sector: VenueSector, premium: PriceCategory
 ) -> None:
-    """An existing priced tier cannot be switched out of user_choice while the map stands."""
+    """Both modes price through the map, so a mode flip needs no map surgery."""
     paint(sector, "A1", premium)
     tier = make_tier(event, sector, category_prices={str(premium.id): "50.00"})
     tier.save()
 
     tier.seat_assignment_mode = TicketTier.SeatAssignmentMode.BEST_AVAILABLE
-    tier.price_category = premium
+    tier.save()
+    tier.refresh_from_db()
+    assert tier.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE
+
+
+def test_flipping_best_available_to_user_choice_needs_full_coverage(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """A partial map is legal for best_available but a hole for user_choice."""
+    paint(sector, "A1", premium)
+    paint(sector, "A2", standard)
+    tier = make_tier(
+        event,
+        sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        category_prices={str(premium.id): "50.00"},
+    )
+    tier.save()
+
+    tier.seat_assignment_mode = TicketTier.SeatAssignmentMode.USER_CHOICE
     with pytest.raises(ValidationError) as exc_info:
         tier.save()
     assert "category_prices" in exc_info.value.message_dict
+
+
+def test_flipping_mode_to_none_requires_clearing_the_map(
+    event: Event, sector: VenueSector, premium: PriceCategory
+) -> None:
+    """An unseated tier has no seats, so it can carry no category prices."""
+    paint(sector, "A1", premium)
+    tier = make_tier(event, sector, category_prices={str(premium.id): "50.00"})
+    tier.save()
+
+    tier.seat_assignment_mode = TicketTier.SeatAssignmentMode.NONE
+    with pytest.raises(ValidationError) as exc_info:
+        tier.save()
+    assert "category_prices" in exc_info.value.message_dict
+
+    tier.category_prices = {}
+    tier.save()
+    tier.refresh_from_db()
+    assert tier.seat_assignment_mode == TicketTier.SeatAssignmentMode.NONE
 
 
 # --- Rule 3: venue scope ---
@@ -321,7 +394,79 @@ def test_categories_painted_in_other_sectors_do_not_require_coverage(
 def test_pricing_an_unpainted_but_valid_category_is_allowed(
     event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
 ) -> None:
-    """Over-coverage is harmless: pricing a category nobody painted yet is fine."""
+    """Over-coverage is harmless *on user-choice*: pricing a category nobody painted yet is fine.
+
+    The key is inert — no seat carries it, so nothing quotes or charges it — and it goes
+    live the moment the category is painted. Rejecting it would break "price the venue's
+    categories once, paint incrementally", an ordering user-choice's own full-coverage
+    rule already makes safe. Best-available is the opposite case (below): there the key
+    is *published as a sellable zone*.
+    """
     paint(sector, "A1", premium)
     tier = make_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    tier.full_clean()
+
+
+# --- Rule 8: best-available zones must exist in the sector ---
+
+
+def make_ba_tier(event: Event, sector: VenueSector, **kwargs: object) -> TicketTier:
+    """Build (unsaved) a best-available tier on ``sector``."""
+    kwargs.setdefault("name", "Best Available")
+    return make_tier(event, sector, seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE, **kwargs)
+
+
+def test_best_available_zone_painted_nowhere_in_the_sector_is_rejected_and_named(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """A zone no seat carries sells nothing: every buyer choosing it gets a 409, unexplained."""
+    paint(sector, "A1", premium)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    with pytest.raises(ValidationError) as exc_info:
+        tier.full_clean()
+    message = exc_info.value.message_dict["category_prices"][0]
+    assert "Standard" in message
+    assert "Premium" not in message
+
+
+def test_best_available_zone_painted_only_in_another_sector_is_rejected(
+    event: Event, venue: Venue, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """Venue membership is not enough — the pool is the tier's sector, never the venue."""
+    other_sector = VenueSector.objects.create(venue=venue, name="Balcony")
+    paint(sector, "A1", premium)
+    paint(other_sector, "A1", standard)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    with pytest.raises(ValidationError) as exc_info:
+        tier.full_clean()
+    assert "Standard" in exc_info.value.message_dict["category_prices"][0]
+
+
+def test_best_available_zone_painted_only_on_an_inactive_seat_is_rejected(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """Inactive seats are not sellable, so they cannot keep a zone alive either."""
+    paint(sector, "A1", premium)
+    paint(sector, "A2", standard, is_active=False)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    with pytest.raises(ValidationError):
+        tier.full_clean()
+
+
+def test_best_available_zones_are_allowed_while_the_sector_is_unpainted(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """Mid-setup ordering: prices before paint stays legal while nothing contradicts them."""
+    paint(sector, "A1", None)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    tier.full_clean()
+
+
+def test_best_available_partial_map_over_a_painted_sector_still_saves(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """Painted-but-unpriced remains the feature — only priced-but-unpainted is the error."""
+    paint(sector, "A1", premium)
+    paint(sector, "A2", standard)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00"})
     tier.full_clean()

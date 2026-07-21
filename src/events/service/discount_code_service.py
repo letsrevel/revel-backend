@@ -352,6 +352,17 @@ def preview_discount_code(
 
     Handles both authenticated and anonymous users. Does not decrement usage.
 
+    ``discounted_price`` is omitted on a **category-priced** tier. There is no single
+    such price there: each seat discounts off its own category price, and ``tier.price``
+    is not what any painted seat costs — quoting it would hand the buyer a number
+    checkout will not honour (a 10% code on an 80.00 Premium seat is 72.00, not 4.50 off
+    a leftover flat 5.00). This endpoint deliberately does **not** grow a second price
+    computation to fix that: :func:`~events.service.seating.pricing.resolve_seat_price`
+    is the single price authority, and the seat-aware VAT preview
+    (``POST /events/{id}/vat-preview``) is the endpoint that already reaches it with the
+    buyer's actual seats or zone. What this endpoint exists to answer — is the code
+    valid, and what kind/size of discount is it — still comes back in full.
+
     Args:
         code: The discount code string.
         organization: The organization owning the event.
@@ -359,7 +370,8 @@ def preview_discount_code(
         user: The user (may be anonymous).
 
     Returns:
-        DiscountCodeValidationResponse with discount details.
+        DiscountCodeValidationResponse with discount details; ``discounted_price`` is
+        ``None`` when the tier prices seats by category.
 
     Raises:
         HttpError: If the discount code is invalid or not applicable.
@@ -371,7 +383,9 @@ def preview_discount_code(
     else:
         dc = validate_discount_code(code, organization, tier, user, batch_size=1)
 
-    discounted_price = calculate_discounted_price(tier, dc)
+    # Truthiness, not parse_price_map: this must not start raising on a legacy malformed
+    # map (same reasoning as `should_stamp_price_paid`).
+    discounted_price = None if tier.category_prices else calculate_discounted_price(tier, dc)
     return schema.DiscountCodeValidationResponse(
         valid=True,
         discount_type=DiscountCode.DiscountType(dc.discount_type),
