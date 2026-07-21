@@ -177,11 +177,19 @@ class SeatResolutionMixin(BatchTicketContext):
         they held. Accessible held seats are likewise consumed without
         ``accessible_required`` at checkout.
 
-        When the request selected a zone, EVERY held seat in the sector must be in it:
-        a held block from another zone must never be silently swapped for picker output
-        at this zone's price — the buyer guide promises "what you saw held is what you
-        buy", and the instant-issue paths have no confirmation screen where a
-        substitution would show up. So a zone mismatch is a 409, not a fall-through.
+        When the request selected a zone, the buyer's holds are FILTERED to it before
+        anything else: the hold endpoint only ever adds, so a buyer who browses zone A
+        and then switches to zone B still owns the zone-A holds until they expire, and
+        those must not speak for a checkout that explicitly named zone B. The "what you
+        saw held is what you buy" promise is preserved by the filter — only seats in the
+        requested zone can be consumed, and they are consumed exactly. Holds outside the
+        zone are simply invisible here (they expire on their own TTL).
+
+        With no matching block the request falls through to the picker, which is what a
+        buyer with no holds at all already gets. Deliberately NOT a refusal: the rule
+        "holds elsewhere block you" would be non-monotonic (holding one seat in the
+        requested zone would *fix* the error), and for guest checkout the refusal would
+        only surface at email-confirm time, on another device, with no hold-release UI.
 
         Args:
             count: Number of seats the cart needs.
@@ -192,26 +200,18 @@ class SeatResolutionMixin(BatchTicketContext):
             when the buyer holds fewer than ``count`` matching seats, or a held
             seat conflicts post-lock (ticketed/overridden/deactivated/sniped) —
             the savepoint rollback releases the locks and restores the holds.
-
-        Raises:
-            HttpError: 409 when the buyer's held block sits in a different zone
-                than the one requested.
         """
         if not self.tier.sector_id:
             return None
         owner_q = SeatHold.owner_q(None if self.guest_session else self.user, self.guest_session)
-        held = list(
-            SeatHold.objects.active()
-            .filter(owner_q, event=self.event, seat__sector_id=self.tier.sector_id)
-            .order_by("seat__sector__display_order", "seat__row_order", "seat__adjacency_index")
-            .values_list("seat_id", "seat__default_price_category_id")
-        )
-        if zone_id is not None and any(category_id != zone_id for _seat_id, category_id in held):
-            raise HttpError(
-                409,
-                str(_("Your held seats are in a different zone — release them before buying this zone.")),
+        qs = SeatHold.objects.active().filter(owner_q, event=self.event, seat__sector_id=self.tier.sector_id)
+        if zone_id is not None:
+            qs = qs.filter(seat__default_price_category_id=zone_id)
+        held_ids = list(
+            qs.order_by("seat__sector__display_order", "seat__row_order", "seat__adjacency_index").values_list(
+                "seat_id", flat=True
             )
-        held_ids = [seat_id for seat_id, _category_id in held]
+        )
         if len(held_ids) < count:
             return None
         try:

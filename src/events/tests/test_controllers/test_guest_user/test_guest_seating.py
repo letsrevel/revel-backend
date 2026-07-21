@@ -26,6 +26,7 @@ from events.models import (
     VenueSector,
 )
 from events.service import guest as guest_service
+from events.service.guest_hold_session import GUEST_HOLD_COOKIE, issue_guest_hold_token
 from events.service.seating import holds as holds_service
 
 pytestmark = pytest.mark.django_db
@@ -819,6 +820,62 @@ class TestGuestZoneSelection:
 
         assert response.status_code == 400, response.content
         assert "Back" in response.json()["detail"]
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_stale_hold_in_another_zone_does_not_dead_link_the_confirmation_email(
+        self,
+        mock_send_email: Mock,
+        guest_event_with_tickets: Event,
+        two_zone_tier: tuple[TicketTier, PriceCategory, PriceCategory],
+        seats: list[VenueSeat],
+    ) -> None:
+        """A non-online guest checkout must never promise an email whose link then 409s.
+
+        Seat assignment is deferred to the confirmation click, so a cheerful
+        "check your email" for a request the confirm would refuse strands the buyer
+        on a different device, with no hold-release UI on the confirmation page.
+        """
+        tier, _front, back = two_zone_tier
+        guest_event_with_tickets.max_tickets_per_user = 10  # the hold cap is the event's
+        guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
+        session_id, cookie = issue_guest_hold_token()
+        # Browsed Front, then switched to Back — the hold endpoint only ever ADDS.
+        holds_service.acquire_seats(
+            guest_event_with_tickets, [seats[0].id, seats[1].id], user=None, guest_session=session_id
+        )
+        holds_service.acquire_seats(
+            guest_event_with_tickets, [seats[3].id, seats[4].id], user=None, guest_session=session_id
+        )
+        client = Client()
+        client.cookies[GUEST_HOLD_COOKIE] = cookie
+
+        response = client.post(
+            reverse(
+                "api:guest_ticket_checkout",
+                kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": tier.pk},
+            ),
+            data={
+                "email": "stalezone@example.com",
+                "first_name": "Stale",
+                "last_name": "Zone",
+                "price_category_id": str(back.id),
+                "tickets": [{"guest_name": "Guest 1"}, {"guest_name": "Guest 2"}],
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["message"]  # "check your email"
+
+        # The emailed link must actually work — same buyer, different device (no cookie).
+        token = mock_send_email.call_args[0][1]
+        confirm = Client().post(
+            reverse("api:confirm_guest_action"), data={"token": token}, content_type="application/json"
+        )
+
+        assert confirm.status_code == 200, confirm.content
+        created = Ticket.objects.filter(event=guest_event_with_tickets, user__email="stalezone@example.com")
+        assert {t.seat_id for t in created} == {seats[3].id, seats[4].id}
 
     def test_legacy_token_without_the_zone_claim_still_decodes(
         self,

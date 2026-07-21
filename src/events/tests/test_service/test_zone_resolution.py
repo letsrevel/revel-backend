@@ -14,7 +14,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.exceptions import InvalidZoneSelectionError
-from events.models import Event, PriceCategory, TicketTier, VenueSeat, VenueSector
+from events.models import Event, PriceCategory, SeatHold, TicketTier, VenueSeat, VenueSector
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.seating import holds as holds_service
@@ -264,7 +264,7 @@ def test_accessible_request_succeeds_in_the_zone_that_has_accessible_seats(
     assert {t.seat_id for t in tickets} == {seats[3].id, seats[4].id}
 
 
-# --- held-block reuse: sector ∩ zone, mismatch is 409 ------------------------
+# --- held-block reuse: sector ∩ zone, non-matching holds are invisible -------
 
 
 def test_held_block_in_another_sector_is_not_consumed(seated_event: SeatedEvent, member_user: RevelUser) -> None:
@@ -299,10 +299,39 @@ def test_held_block_in_the_requested_zone_is_consumed_exactly(
     assert {t.seat_id for t in tickets} == {seats[4].id, seats[5].id}
 
 
-def test_held_block_in_another_zone_is_a_409_not_a_silent_substitution(
+def test_stale_hold_in_another_zone_does_not_block_a_matching_held_block(
     seated_event: SeatedEvent, member_user: RevelUser
 ) -> None:
-    """ "What you saw held is what you buy" — the instant-issue paths have no confirm screen."""
+    """The buyer browsed Front, then switched to Back — the hold endpoint only ever ADDS.
+
+    The leftover Front holds must not speak for a checkout that named Back: the Back
+    block the buyer was actually shown is what gets consumed.
+    """
+    event, seats = seated_event
+    front, back = _category(event, "Front"), _category(event, "Back", "#aa0000")
+    _paint(seats[:3], front)
+    _paint(seats[3:], back)
+    tier = _tier(event, seats[0].sector, {front: "40.00", back: "20.00"})
+    holds_service.acquire_seats(event, [seats[0].id, seats[1].id], user=member_user, guest_session=None)
+    # The edge pair of the zone — never what the picker would choose on its own.
+    holds_service.acquire_seats(event, [seats[4].id, seats[5].id], user=member_user, guest_session=None)
+
+    tickets = BatchTicketService(event, tier, member_user, price_category_id=back.id).create_batch(items=_items(2))
+
+    assert isinstance(tickets, list)
+    assert {t.seat_id for t in tickets} == {seats[4].id, seats[5].id}
+
+
+def test_holds_only_in_another_zone_fall_through_to_the_picker(
+    seated_event: SeatedEvent, member_user: RevelUser
+) -> None:
+    """Nothing held in the requested zone == nothing the buyer was shown there.
+
+    So this is the no-holds-at-all case: the picker runs. Deliberately NOT a refusal —
+    "holds elsewhere block you" would be non-monotonic (holding one seat in the
+    requested zone would *fix* the error) and, on the guest path, would only surface
+    at email-confirm time on another device with no hold-release UI.
+    """
     event, seats = seated_event
     front, back = _category(event, "Front"), _category(event, "Back", "#aa0000")
     _paint(seats[:3], front)
@@ -310,12 +339,29 @@ def test_held_block_in_another_zone_is_a_409_not_a_silent_substitution(
     tier = _tier(event, seats[0].sector, {front: "40.00", back: "20.00"})
     holds_service.acquire_seats(event, [seats[0].id, seats[1].id], user=member_user, guest_session=None)
 
-    service = BatchTicketService(event, tier, member_user, price_category_id=back.id)
-    with pytest.raises(HttpError) as exc:
-        service.create_batch(items=_items(2))
+    tickets = BatchTicketService(event, tier, member_user, price_category_id=back.id).create_batch(items=_items(2))
 
-    assert exc.value.status_code == 409
-    assert "zone" in str(exc.value)
+    assert isinstance(tickets, list)
+    assert {t.seat_id for t in tickets}.issubset({s.id for s in seats[3:]})
+    # The Front holds are untouched — only the purchased zone's holds are consumed.
+    assert SeatHold.objects.active().filter(event=event, seat_id=seats[0].id).exists()
+
+
+def test_partial_match_in_the_requested_zone_falls_through_to_the_picker(
+    seated_event: SeatedEvent, member_user: RevelUser
+) -> None:
+    """Fewer than ``count`` matching held seats is the pre-existing fall-through, zone or not."""
+    event, seats = seated_event
+    front, back = _category(event, "Front"), _category(event, "Back", "#aa0000")
+    _paint(seats[:3], front)
+    _paint(seats[3:], back)
+    tier = _tier(event, seats[0].sector, {front: "40.00", back: "20.00"})
+    holds_service.acquire_seats(event, [seats[0].id, seats[5].id], user=member_user, guest_session=None)
+
+    tickets = BatchTicketService(event, tier, member_user, price_category_id=back.id).create_batch(items=_items(2))
+
+    assert isinstance(tickets, list)
+    assert {t.seat_id for t in tickets}.issubset({s.id for s in seats[3:]})
 
 
 def test_checkout_rejects_a_zone_the_tier_does_not_price(seated_event: SeatedEvent, member_user: RevelUser) -> None:
