@@ -1140,6 +1140,12 @@ msgstr "Non è possibile assegnare un posto non attivo."
 msgid "Seat must belong to the specified sector."
 msgstr "Il posto deve appartenere al settore specificato."
 
+msgid "Seated"
+msgstr "Posti a sedere"
+
+msgid "Standing"
+msgstr "Posti in piedi"
+
 msgid "Address visible to invited guests only"
 msgstr "Indirizzo visibile solo agli ospiti invitati"
 
@@ -1154,6 +1160,10 @@ msgstr "Indirizzo visibile solo ai partecipanti"
 
 msgid "Only draft invoices can be edited."
 msgstr "Solo le fatture in bozza possono essere modificate."
+
+#, python-brace-format
+msgid "Cannot edit fields: {fields}"
+msgstr "Impossibile modificare i campi: {fields}"
 
 msgid "Cancelled invoices cannot be issued."
 msgstr "Le fatture annullate non possono essere emesse."
