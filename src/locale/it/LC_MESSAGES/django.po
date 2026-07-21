@@ -1130,6 +1130,9 @@ msgstr "Solo le fatture in bozza possono essere eliminate."
 msgid "Provide either seat_ids or price_category_id, not both."
 msgstr "Fornisci seat_ids oppure price_category_id, non entrambi."
 
+msgid "That zone is no longer on sale — please choose another."
+msgstr "Quella zona non è più in vendita — scegline un'altra."
+
 msgid ""
 "This ticket tier prices seats by category — seat_ids are required to preview "
 "it."
@@ -1182,13 +1185,6 @@ msgstr "Uno o più posti selezionati non sono più disponibili."
 
 msgid "One or more selected seats are held by another buyer."
 msgstr "Uno o più posti selezionati sono riservati da un altro acquirente."
-
-msgid ""
-"Your held seats are in a different zone — release them before buying this "
-"zone."
-msgstr ""
-"I posti che hai riservato sono in un'altra zona — rilasciali prima di "
-"acquistare questa zona."
 
 msgid "Not enough accessible seats available — please contact the organizer."
 msgstr ""
@@ -1582,8 +1578,12 @@ msgid ""
 "This ticket tier has a single price for its whole sector — no zone can be "
 "selected."
 msgstr ""
-"Questo livello di biglietto ha un prezzo unico per tutto il settore — non "
-"è possibile selezionare una zona."
+"Questo livello di biglietto ha un prezzo unico per tutto il settore — non è "
+"possibile selezionare una zona."
+
+msgid ""
+"This ticket tier's zones are misconfigured — please contact the organizer."
+msgstr "Le zone di questo livello di biglietto non sono configurate correttamente — contatta l'organizzatore."
 
 #, python-brace-format
 msgid "Select one of this ticket tier's zones: {zones}."
@@ -1592,10 +1592,8 @@ msgstr "Seleziona una delle zone di questo livello di biglietto: {zones}."
 #, python-brace-format
 msgid ""
 "Seat {seat} is in the \"{category}\" price category, which this ticket tier "
-"does not price yet."
-msgstr ""
-"Il posto {seat} appartiene alla categoria di prezzo \"{category}\", per cui "
-"questo tipo di biglietto non ha ancora un prezzo."
+"does not sell."
+msgstr "Il posto {seat} appartiene alla categoria di prezzo \"{category}\", che questo livello di biglietto non vende."
 
 msgid "You cannot purchase from this organization."
 msgstr "Non puoi acquistare da questa organizzazione."

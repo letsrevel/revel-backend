@@ -17,21 +17,22 @@ from events.utils.tier_pricing import parse_price_map
 _MAX_ATTEMPTS = 3
 
 
-def _zone_names(zone_ids: t.Iterable[UUID]) -> str:
+def _zone_names(zone_ids: t.Iterable[UUID]) -> str | None:
     """Render a tier's sellable zones as a human list, for the 400 message.
 
-    Falls back to a sentence when nothing resolves: a map key whose ``PriceCategory`` row
-    was deleted leaves the tier with zones it cannot name, and "Select one of this ticket
-    tier's zones: ." tells the buyer nothing and the support ticket even less.
+    Returns ``None`` when nothing resolves: a map key whose ``PriceCategory`` row was
+    deleted leaves the tier with zones it cannot name, and "Select one of this ticket
+    tier's zones: ." tells the buyer nothing and the support ticket even less. The caller
+    picks a whole sentence for that case rather than splicing in a fragment — a sentence
+    assembled from separately translated pieces cannot be made to read well in every
+    language.
     """
     names = list(
         PriceCategory.objects.filter(id__in=list(zone_ids))
         .order_by("display_order", "name")
         .values_list("name", flat=True)
     )
-    if not names:
-        return str(_("none are configured — please contact the organizer"))
-    return ", ".join(names)
+    return ", ".join(names) if names else None
 
 
 def resolve_requested_zone(tier: TicketTier, price_category_id: UUID | None) -> UUID | None:
@@ -70,9 +71,12 @@ def resolve_requested_zone(tier: TicketTier, price_category_id: UUID | None) -> 
             )
         return None
     if price_category_id not in zone_ids:
-        raise InvalidZoneSelectionError(
-            str(_("Select one of this ticket tier's zones: {zones}.")).format(zones=_zone_names(zone_ids))
-        )
+        names = _zone_names(zone_ids)
+        if names is None:
+            raise InvalidZoneSelectionError(
+                str(_("This ticket tier's zones are misconfigured — please contact the organizer."))
+            )
+        raise InvalidZoneSelectionError(str(_("Select one of this ticket tier's zones: {zones}.")).format(zones=names))
     return price_category_id
 
 
