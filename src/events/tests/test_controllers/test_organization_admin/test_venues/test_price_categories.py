@@ -149,20 +149,29 @@ class TestPriceCategoryManagement:
         seat.refresh_from_db()
         assert seat.default_price_category_id is None
 
+    @pytest.mark.parametrize(
+        "mode",
+        [TicketTier.SeatAssignmentMode.BEST_AVAILABLE, TicketTier.SeatAssignmentMode.USER_CHOICE],
+    )
     def test_delete_price_category_blocked_by_tier(
-        self, organization_owner_client: Client, organization: Organization, event: Event
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        mode: TicketTier.SeatAssignmentMode,
     ) -> None:
-        """Test that deleting a tier-priced category is refused with 400."""
+        """Test that deleting a tier-priced category is refused with 400, in either seated mode."""
         venue = Venue.objects.create(organization=organization, name="Hall")
         event.venue = venue
         event.save(update_fields=["venue"])
         sector = VenueSector.objects.create(venue=venue, name="Stalls")
         category = PriceCategory.objects.create(venue=venue, name="Gold", color="#ffaa00")
+        VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
         TicketTier.objects.create(
             event=event,
             name="Gold",
             sector=sector,
-            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            seat_assignment_mode=mode,
             category_prices={str(category.id): "10.00"},
         )
 
