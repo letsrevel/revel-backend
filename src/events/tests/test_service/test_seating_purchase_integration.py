@@ -5,6 +5,7 @@ BEST_AVAILABLE seat-assignment mode (Task 11).
 """
 
 import typing as t
+from uuid import UUID
 
 import pytest
 from ninja.errors import HttpError
@@ -60,6 +61,11 @@ def _best_available_tier(event: Event, seats: list[VenueSeat]) -> TicketTier:
         seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
         payment_method=TicketTier.PaymentMethod.FREE,
     )
+
+
+def _zone_of(tier: TicketTier) -> UUID:
+    """The single zone of a ``_best_available_tier``: v3 makes the buyer name it per request."""
+    return UUID(next(iter(tier.category_prices)))
 
 
 def _item(seat: VenueSeat | None = None) -> TicketPurchaseItem:
@@ -173,7 +179,7 @@ def test_user_choice_rejects_checked_in_seat(seated_event: SeatedEvent, revel_us
 def test_best_available_mode_assigns_adjacent(seated_event: SeatedEvent, revel_user: RevelUser) -> None:
     event, seats = seated_event
     tier = _best_available_tier(event, seats)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(items=[_item(), _item()])
     bought = sorted(t.seat.adjacency_index for t in Ticket.objects.filter(event=event).select_related("seat") if t.seat)
     assert len(bought) == 2
     assert bought[1] - bought[0] == 1
@@ -187,7 +193,7 @@ def test_best_available_rejects_foreign_held_seats(
     tier = _best_available_tier(event, seats)
     held_ids = [seats[0].id, seats[1].id, seats[2].id, seats[3].id]
     holds_service.acquire_seats(event, held_ids, user=other_user, guest_session=None)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(items=[_item(), _item()])
     assigned = {t.seat_id for t in Ticket.objects.filter(event=event)}
     assert assigned == {seats[4].id, seats[5].id}
 
@@ -199,7 +205,9 @@ def test_best_available_409_when_no_block_fits(seated_event: SeatedEvent, revel_
     for seat in (seats[1], seats[3], seats[5]):
         EventSeatOverride.objects.create(event=event, seat=seat, status=EventSeatOverride.OverrideStatus.KILLED)
     with pytest.raises(HttpError) as exc:
-        BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+        BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(
+            items=[_item(), _item()]
+        )
     assert exc.value.status_code == 409
     assert not Ticket.objects.filter(event=event).exists()
 
@@ -209,7 +217,7 @@ def test_best_available_never_assigns_killed_seat(seated_event: SeatedEvent, rev
     event, seats = seated_event
     tier = _best_available_tier(event, seats)
     EventSeatOverride.objects.create(event=event, seat=seats[0], status=EventSeatOverride.OverrideStatus.KILLED)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(items=[_item(), _item()])
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
     assert seats[0].id not in assigned
     assert len(assigned) == 2
@@ -222,7 +230,7 @@ def test_best_available_purchase_consumes_own_held_block(seated_event: SeatedEve
     event, seats = seated_event
     tier = _best_available_tier(event, seats)
     holds_service.acquire_seats(event, [seats[2].id, seats[3].id], user=revel_user, guest_session=None)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(items=[_item(), _item()])
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
     assert assigned == {seats[2].id, seats[3].id}
     assert not SeatHold.objects.filter(event=event).exists()
@@ -239,7 +247,9 @@ def test_best_available_own_hold_on_last_pair_succeeds(seated_event: SeatedEvent
     for seat in (seats[1], seats[4]):  # fragment the row: runs [A1], [A3, A4], [A6]
         EventSeatOverride.objects.create(event=event, seat=seat, status=EventSeatOverride.OverrideStatus.KILLED)
     holds_service.acquire_seats(event, [seats[2].id, seats[3].id], user=revel_user, guest_session=None)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])  # must NOT raise 409
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(
+        items=[_item(), _item()]
+    )  # must NOT raise 409
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
     assert assigned == {seats[2].id, seats[3].id}
     assert not SeatHold.objects.filter(event=event).exists()
@@ -252,7 +262,9 @@ def test_best_available_guest_session_own_hold_succeeds(seated_event: SeatedEven
     for seat in (seats[1], seats[4]):
         EventSeatOverride.objects.create(event=event, seat=seat, status=EventSeatOverride.OverrideStatus.KILLED)
     holds_service.acquire_seats(event, [seats[2].id, seats[3].id], user=None, guest_session="guest-session-abc")
-    service = BatchTicketService(event, tier, revel_user, guest_session="guest-session-abc")
+    service = BatchTicketService(
+        event, tier, revel_user, guest_session="guest-session-abc", price_category_id=_zone_of(tier)
+    )
     service.create_batch(items=[_item(), _item()])
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
     assert assigned == {seats[2].id, seats[3].id}
@@ -269,7 +281,9 @@ def test_best_available_foreign_hold_on_last_pair_still_409(
         EventSeatOverride.objects.create(event=event, seat=seat, status=EventSeatOverride.OverrideStatus.KILLED)
     holds_service.acquire_seats(event, [seats[2].id, seats[3].id], user=other_user, guest_session=None)
     with pytest.raises(HttpError) as exc:
-        BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+        BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(
+            items=[_item(), _item()]
+        )
     assert exc.value.status_code == 409
     assert not Ticket.objects.filter(event=event).exists()
     assert SeatHold.objects.filter(event=event).count() == 2  # foreign holds untouched
@@ -287,7 +301,7 @@ def test_best_available_checkout_consumes_exact_held_block_over_better_pick(
     event, seats = seated_event
     tier = _best_available_tier(event, seats)
     holds_service.acquire_seats(event, [seats[0].id, seats[1].id], user=revel_user, guest_session=None)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(items=[_item(), _item()])
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
     assert assigned == {seats[0].id, seats[1].id}
     assert not SeatHold.objects.filter(event=event).exists()
@@ -307,9 +321,19 @@ def test_best_available_checkout_consumes_accessible_held_block_without_flag(
     event, seats = seated_event
     tier = _best_available_tier(event, seats)
     VenueSeat.objects.filter(id__in=[seats[4].id, seats[5].id]).update(is_accessible=True)
-    result = hold_best_available(event, tier, 2, user=revel_user, guest_session=None, accessible_required=True)
+    result = hold_best_available(
+        event,
+        tier,
+        2,
+        user=revel_user,
+        guest_session=None,
+        accessible_required=True,
+        price_category_id=_zone_of(tier),
+    )
     assert {h.seat_id for h in result.held} == {seats[4].id, seats[5].id}
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])  # no accessible_required
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(
+        items=[_item(), _item()]
+    )  # no accessible_required
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
     assert assigned == {seats[4].id, seats[5].id}
     assert not SeatHold.objects.filter(event=event).exists()
@@ -324,7 +348,7 @@ def test_best_available_partial_hold_falls_through_to_picker(seated_event: Seate
     event, seats = seated_event
     tier = _best_available_tier(event, seats)
     holds_service.acquire_seats(event, [seats[2].id], user=revel_user, guest_session=None)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(items=[_item(), _item()])
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
     assert assigned == {seats[2].id, seats[3].id}
     assert not SeatHold.objects.filter(event=event).exists()
@@ -352,7 +376,7 @@ def test_best_available_sniped_held_seat_falls_through_to_picker(
         sector=seats[0].sector,
         venue=seats[0].sector.venue,
     )
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(items=[_item(), _item()])
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event, user=revel_user)}
     assert assigned == {seats[2].id, seats[3].id}  # picker's best clean pair
     # Fast-path savepoint rolled back: the buyer's holds survive untouched (until TTL).
@@ -399,7 +423,7 @@ def test_best_available_post_lock_recheck_retries_on_stale_pick(
         return real_load(event_arg, tier_arg, exclude, **kwargs)
 
     monkeypatch.setattr(pick_module, "load_candidates", stale_then_real)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(items=[_item(), _item()])
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
     assert seats[0].id not in assigned
     assert len(assigned) == 2
@@ -442,7 +466,7 @@ def test_best_available_deactivated_seat_conflicts_post_lock(
         return real_load(event_arg, tier_arg, exclude, **kwargs)
 
     monkeypatch.setattr(pick_module, "load_candidates", stale_then_real)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    BatchTicketService(event, tier, revel_user, price_category_id=_zone_of(tier)).create_batch(items=[_item(), _item()])
     assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
     assert seats[0].id not in assigned
     assert len(assigned) == 2

@@ -80,5 +80,14 @@ class SeriesPassNotPurchasableError(Exception):
     """Raised when a series pass cannot be purchased right now."""
 
 
+class InvalidZoneSelectionError(Exception):
+    """Raised when the requested best-available zone (price category) is not selectable on this tier.
+
+    Carries a buyer-facing message naming the tier's sellable zones — see
+    :func:`events.service.seating.pick.resolve_requested_zone`, the single
+    authority for the rule.
+    """
+
+
 class SeriesPassHasHoldersError(Exception):
     """Raised when deleting a SeriesPass or removing tier-link coverage would strand non-cancelled holders."""

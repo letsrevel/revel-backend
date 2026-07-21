@@ -1,11 +1,14 @@
 """DB-facing best-available: load candidates, score (pure core), hold winners optimistically."""
 
 import typing as t
+from uuid import UUID
 
 from django.db.models import Max
+from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
-from events.models import Event, EventSeatOverride, SeatHold, Ticket, TicketTier, VenueSeat, VenueSector
+from events.exceptions import InvalidZoneSelectionError
+from events.models import Event, EventSeatOverride, PriceCategory, SeatHold, Ticket, TicketTier, VenueSeat, VenueSector
 from events.service.seating.best_available import CandidateSeat, pick_best_available
 from events.service.seating.holds import HoldResult, acquire_seats
 from events.utils.tier_pricing import parse_price_map
@@ -13,18 +16,71 @@ from events.utils.tier_pricing import parse_price_map
 _MAX_ATTEMPTS = 3
 
 
+def _zone_names(zone_ids: t.Iterable[UUID]) -> str:
+    """Render a tier's sellable zones as a human list, for the 400 message."""
+    return ", ".join(
+        PriceCategory.objects.filter(id__in=list(zone_ids))
+        .order_by("display_order", "name")
+        .values_list("name", flat=True)
+    )
+
+
+def resolve_requested_zone(tier: TicketTier, price_category_id: UUID | None) -> UUID | None:
+    """Resolve the zone a best-available request draws from — the single authority.
+
+    The zone is a REQUEST parameter, not a tier attribute: a tier with a non-empty
+    ``category_prices`` map sells several differently-priced zones of its sector, and
+    the buyer must say which one. Called by the hold route, authenticated checkout and
+    guest checkout alike so the rule cannot drift between them.
+
+    A supplied-but-unusable ``price_category_id`` is always an error, never a silent
+    no-op: a parameter the buyer believes selected a zone, ignored, is a money bug.
+
+    Args:
+        tier: The tier being held/bought.
+        price_category_id: The zone the buyer asked for, if any.
+
+    Returns:
+        The zone to narrow the pool to, or ``None`` for the tier's whole sector
+        (flat pricing / non-best-available modes).
+
+    Raises:
+        InvalidZoneSelectionError: 400 — a zone is required but missing, is not one of
+            the tier's zones (including a venue category this tier does not price), or
+            was supplied where the tier cannot honour it.
+    """
+    if tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
+        if price_category_id is not None:
+            raise InvalidZoneSelectionError(str(_("A zone can only be selected on a best-available ticket tier.")))
+        return None
+    zone_ids = set(parse_price_map(tier.category_prices))
+    if not zone_ids:
+        if price_category_id is not None:
+            raise InvalidZoneSelectionError(
+                str(_("This ticket tier has a single price for its whole sector — no zone can be selected."))
+            )
+        return None
+    if price_category_id not in zone_ids:
+        raise InvalidZoneSelectionError(
+            str(_("Select one of this ticket tier's zones: {zones}.")).format(zones=_zone_names(zone_ids))
+        )
+    return price_category_id
+
+
 def load_candidates(
     event: Event,
     tier: TicketTier,
     exclude: set[t.Any],
     *,
+    zone_id: UUID | None = None,
     hold_owner_user: RevelUser | None = None,
     hold_owner_guest_session: str | None = None,
 ) -> list[CandidateSeat]:
     """Load holdable seats in the tier's pool, excluding sold/held/blocked/inactive/lost.
 
-    The pool is the tier's sector, narrowed to the price categories its
-    ``category_prices`` map names (an empty map = the whole sector).
+    The pool is the tier's sector — never wider, so a price category painted across
+    two sectors can't bleed one sector's seats into another's pool — narrowed to
+    ``zone_id`` when the request selected one (see :func:`resolve_requested_zone`).
 
     When a hold-owner identity is given (purchase path), only FOREIGN active holds are
     excluded — the owner's own held seats remain candidates, to be consumed post-lock by
@@ -34,11 +90,8 @@ def load_candidates(
     Returned in stable PK order so the seeded tiebreak in ``pick_best_available`` is
     reproducible across requests (and the re-pick after a conflict is deterministic).
     """
-    # ponytail: the zone is derived from the tier's map here. Threading the buyer's
-    # requested `price_category_id` through as a per-request narrowing is Task B (#749).
     if not tier.sector_id or event.venue_id is None:
         return []
-    zone_ids = list(parse_price_map(tier.category_prices))
     # Non-cancelled = occupied, matching the unique_ticket_event_seat constraint.
     taken = set(
         Ticket.objects.filter(event=event, seat__isnull=False)
@@ -51,14 +104,15 @@ def load_candidates(
     taken |= set(holds_qs.values_list("seat_id", flat=True))
     taken |= set(EventSeatOverride.objects.filter(event=event).values_list("seat_id", flat=True))
     taken |= exclude
-    # Full-row bounds over ALL active seats (sold/held included) so centrality is
-    # scored against the real row midpoint, not the shrinking available pool.
+    # Full-row bounds over ALL active seats of the pool's sector (sold/held included)
+    # so centrality is scored against the real row midpoint, not the shrinking
+    # available pool — and against the same sector the pool is drawn from.
     row_bounds = {
         (r["sector__display_order"], r["row_order"]): r["max_adjacency"] + 1
         for r in VenueSeat.objects.filter(
             is_active=True,
             sector__kind=VenueSector.Kind.SEATED,
-            sector__venue_id=event.venue_id,
+            sector_id=tier.sector_id,
         )
         .values("sector__display_order", "row_order")
         .annotate(max_adjacency=Max("adjacency_index"))
@@ -69,8 +123,8 @@ def load_candidates(
         sector__kind=VenueSector.Kind.SEATED,
         sector__venue_id=event.venue_id,
     )
-    if zone_ids:
-        pool = pool.filter(default_price_category_id__in=zone_ids)
+    if zone_id is not None:
+        pool = pool.filter(default_price_category_id=zone_id)
     qs = (
         pool.exclude(id__in=taken)
         .order_by("id")
@@ -97,16 +151,21 @@ def hold_best_available(
     user: RevelUser | None,
     guest_session: str | None,
     accessible_required: bool = False,
+    price_category_id: UUID | None = None,
 ) -> HoldResult:
     """Optimistic pick: read unlocked, score, hold only the winners; retry excluding losers.
 
     Returns an empty result (no held, no conflicts) when no block of ``quantity`` seats
     fits — the caller maps that to a 409.
+
+    Raises:
+        InvalidZoneSelectionError: 400 — see :func:`resolve_requested_zone`.
     """
+    zone_id = resolve_requested_zone(tier, price_category_id)
     exclude: set[t.Any] = set()
     last = HoldResult(held=[], conflicts=[], expires_at=None)
-    for _ in range(_MAX_ATTEMPTS):
-        candidates = load_candidates(event, tier, exclude)
+    for _attempt in range(_MAX_ATTEMPTS):
+        candidates = load_candidates(event, tier, exclude, zone_id=zone_id)
         picked = pick_best_available(candidates, quantity, accessible_required=accessible_required)
         if not picked:
             return HoldResult(held=[], conflicts=[], expires_at=None)
