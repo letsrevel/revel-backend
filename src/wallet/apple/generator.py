@@ -245,7 +245,7 @@ class ApplePassGenerator:
 
         # Extract venue (from tier's venue, ticket's venue, or event's venue)
         venue = None
-        if ticket.tier and ticket.tier.venue:
+        if ticket.tier.venue:
             venue = ticket.tier.venue
         elif ticket.venue:
             venue = ticket.venue
@@ -255,7 +255,7 @@ class ApplePassGenerator:
 
         # Extract sector name (from tier's sector or ticket's sector)
         sector_name: str | None = None
-        if ticket.tier and ticket.tier.sector:
+        if ticket.tier.sector:
             sector_name = ticket.tier.sector.name
         elif ticket.sector:
             sector_name = ticket.sector.name
@@ -272,7 +272,7 @@ class ApplePassGenerator:
             event_end=event.end,
             event_tz=get_event_timezone(event),
             address=(venue.full_address() if venue else None) or event.address or None,
-            ticket_tier=ticket.tier.name if ticket.tier else "General Admission",
+            ticket_tier=ticket.tier.name,
             ticket_price=ticket_price,
             colors=get_theme_colors(),
             logo_image=logo_image,
