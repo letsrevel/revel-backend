@@ -15,7 +15,7 @@ from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
 from events.utils.tier_pricing import painted_categories, parse_price_map
 
 from .organization import MembershipTierSchema
-from .venue import TierPricingGapSchema, VenueSchema, VenueSectorSchema
+from .venue import TierPricingGapSchema, TierUnsellableZoneSchema, VenueSchema, VenueSectorSchema
 
 # RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
 # events.utils.refund_policy so services, models, and schemas share one source
@@ -269,8 +269,9 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
         default=None,
         description=(
             "Per-seat-category prices for seated tiers: {price_category_id: decimal-string}. "
-            "For user-choice tiers every painted category must be priced; for best-available the "
-            "keys define the tier's sellable zones (partial coverage is allowed). "
+            "Partial coverage is allowed in both modes and is never rejected: on user-choice a "
+            "painted category left unpriced is refused at checkout and reported as a pricing "
+            "gap, and on best-available the keys simply define the tier's sellable zones. "
             "Omitted or null leaves the map at its default (empty); an empty object clears it; a "
             "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
             "JSON floats are rejected, because binary floats cannot represent money."
@@ -329,8 +330,9 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
         default=None,
         description=(
             "Per-seat-category prices for seated tiers: {price_category_id: decimal-string}. "
-            "For user-choice tiers every painted category must be priced; for best-available the "
-            "keys define the tier's sellable zones (partial coverage is allowed). "
+            "Partial coverage is allowed in both modes and is never rejected: on user-choice a "
+            "painted category left unpriced is refused at checkout and reported as a pricing "
+            "gap, and on best-available the keys simply define the tier's sellable zones. "
             "Omitted or null leaves the existing map untouched; an empty object clears it; a "
             "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
             "JSON floats are rejected, because binary floats cannot represent money."
@@ -374,6 +376,7 @@ class TicketTierDetailSchema(ModelSchema):
     refund_policy: RefundPolicySchema | None = None
     category_prices: CategoryPriceMap = Field(default_factory=dict)
     pricing_gaps: list[TierPricingGapSchema] = Field(default_factory=list)
+    unsellable_zones: list[TierUnsellableZoneSchema] = Field(default_factory=list)
 
     class Meta:
         model = TicketTier
@@ -427,9 +430,11 @@ class TicketTierDetailSchema(ModelSchema):
         leave an already-saved tier out of step with its sector. Nothing else tells the
         admin, so the tier form warns from this field. Two distinct cases produce a gap:
 
-        - **A mapped user-choice tier missing a painted category.** Write-time validation
-          demanded full coverage; a later repaint broke it, and checkout now refuses those
-          seats.
+        - **A mapped user-choice tier missing a painted category.** Checkout refuses those
+          seats (spec §4.3). Nothing refuses the *tier*: coverage is advisory, never a
+          save-time rule, because paint is venue-wide state the tier's own save does not
+          control — enforcing it there only ever blocked unrelated writes (see
+          ``tier_pricing.validate_category_prices``).
         - **A tier of either mode with an *empty* map over a painted sector.** Flat pricing
           is a legitimate choice — an organizer may paint purely for colour-coding — so this
           is never rejected at write time. But it also silently sells a premium seat at the
@@ -455,6 +460,49 @@ class TicketTierDetailSchema(ModelSchema):
             return []
         gaps = painted_categories(obj.sector_id).exclude(id__in=list(price_map)).order_by("display_order", "name")
         return [TierPricingGapSchema(id=c.id, name=c.name, color=c.color) for c in gaps]
+
+    @staticmethod
+    def resolve_unsellable_zones(obj: TicketTier) -> list[TierUnsellableZoneSchema]:
+        """Zones this best-available tier prices that no live seat of its sector carries.
+
+        The exact converse of :meth:`resolve_pricing_gaps`, and the *only* signal for it:
+        a best-available buyer must name a zone, ``resolve_requested_zone`` accepts any
+        map key, and ``load_candidates`` then intersects it with the sector — so a key
+        painted nowhere yields an empty pool and every buyer who picks it gets a 409
+        "not enough adjacent seats" with nothing anywhere explaining why. Typically a typo
+        or a category from the wrong sector; occasionally a repaint that took the last seat
+        of a zone away, which the organizer never sees because painting is venue-wide.
+
+        **Not the best-available false alarm.** That one is painted-but-unpriced —
+        deliberate scoping, and reported by nothing. This is priced-but-unpainted, which is
+        never deliberate: the tier is publishing a zone it cannot fill.
+
+        Silent in the two states where it would cry wolf:
+
+        - **Any other mode.** On ``user_choice`` the buyer picks seats, not zones, so an
+          unpainted key is inert — it prices nothing and costs nobody a 409. Pricing the
+          venue's categories once and painting incrementally stays a supported ordering.
+        - **A sector carrying no paint at all.** Mid-setup (prices first, paint second);
+          nothing contradicts the keys yet.
+
+        Advisory only, like every other coverage signal — paint is venue-wide state a tier
+        save does not control, so it can be reported but never enforced.
+
+        # ponytail: one extra query per mapped best-available tier, and only when its sector
+        # is painted. Same ceiling and same fix as ``resolve_pricing_gaps`` if tier lists
+        # ever grow: prefetch the sectors' painted categories once in the controller.
+        """
+        if obj.seat_assignment_mode != TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
+            return []
+        price_map = parse_price_map(obj.category_prices)
+        painted = set(painted_categories(obj.sector_id).values_list("id", flat=True)) if price_map else set()
+        if not painted:
+            return []
+        unpainted = price_map.keys() - painted
+        if not unpainted:
+            return []
+        zones = models.PriceCategory.objects.filter(id__in=unpainted).order_by("display_order", "name")
+        return [TierUnsellableZoneSchema(id=c.id, name=c.name, color=c.color) for c in zones]
 
 
 class ReorderSchema(Schema):

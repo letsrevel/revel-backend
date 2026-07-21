@@ -85,16 +85,21 @@ Four rules to have at your fingertips when you demo this:
    comedy-club case ("every seat in this room is €20"), and it needs no setup at all.
 2. **A non-empty map means different things in the two modes** — this is the one
    distinction worth memorising:
-   - **`user_choice` → full coverage required.** If Platea Premium and Platea are painted
-     on live seats in the tier's sector, both need a price. Saving a tier with a gap is
-     rejected, and the error **names the missing categories** ("Every painted category in
-     the sector must be priced. Missing: Galleria."). The buyer can click any seat, so
-     every seat must have a price.
+   - **`user_choice` → every painted category *should* be priced.** The buyer can click
+     any seat, so a painted category the map omits is a seat that cannot be sold. This is
+     **advisory, not a refusal**: the tier saves, the admin screen names the unpriced
+     categories (`pricing_gaps`), and checkout refuses exactly those seats. It cannot be a
+     save-time rule, because painting is venue-wide and always succeeds — a rule against
+     it would never prevent the gap, only block the organizer's next unrelated edit (and,
+     worse, block duplicating the event or generating the next date of a series).
    - **`best_available` → the map's keys *are* the tier's sellable zones.** A partial map
      is not a mistake, it's the feature: a tier that prices only "Platea Premium" sells
      *only* Platea Premium, and the rest of the sector is simply not part of this product.
      A painted category the map omits is **not** reported as a gap and never will be —
-     that would be a permanent false alarm on a deliberately-scoped tier.
+     that would be a permanent false alarm on a deliberately-scoped tier. The *converse*
+     is worth watching, and is reported: a zone the tier prices that no live seat in its
+     sector carries can never yield a seat, so the admin screen lists it
+     (`unsellable_zones`) — typically a typo, or a category from the wrong sector.
 3. **Unpainted seats fall back to the flat price.** That's the one legitimate fallback,
    and it's deliberate: a sector where only the front rows are painted works fine.
 4. **Zone pricing and pay-what-you-can are mutually exclusive.** A tier is one or the
@@ -118,7 +123,12 @@ Four rules to have at your fingertips when you demo this:
 > - **The fix takes seconds**: add a price for that zone and every future sale is right.
 >
 > On a `best_available` tier there is no equivalent gap — an unpriced painted category is
-> simply outside that tier's zones, so nothing to fix and nothing reported.
+> simply outside that tier's zones, so nothing to fix and nothing reported. Its own hazard
+> is the mirror image: a zone the tier prices that nothing in the sector carries (someone
+> unpainted the last of those seats, or picked a category from the wrong sector). Buyers
+> can select that zone and the picker will never find a seat for it, so the tier's admin
+> screen lists it as an **unsellable zone**. Same fix, same seconds: repaint the seats, or
+> drop the zone from the map.
 
 **Repainting can move money on a best-available tier too.** Because both modes read the
 paint, a repaint that moves seats between two zones a tier prices changes what those seats
@@ -182,7 +192,7 @@ on sale:
 | Mode | What the buyer experiences | Server requirement |
 |---|---|---|
 | **`none`** | General admission — no assigned seat. Optionally tied to a standing sector with a hard head-count. | Nothing required. A sector is optional; if given, it must not be a seated one used for `user_choice`. |
-| **`user_choice`** | Buyer sees the chart and clicks their own seat(s) — at one flat price, or at a price per painted zone. | **Requires a seated sector.** Pointing this mode at a standing sector is rejected outright — a standing sector has no individual seats to choose from. A zone price map is optional; when present it must cover the sector. |
+| **`user_choice`** | Buyer sees the chart and clicks their own seat(s) — at one flat price, or at a price per painted zone. | **Requires a seated sector.** Pointing this mode at a standing sector is rejected outright — a standing sector has no individual seats to choose from. A zone price map is optional; partial coverage saves, and the unpriced categories are flagged on the tier (and refused at checkout). |
 | **`best_available`** | Buyer requests a quantity (and, on a mapped tier, a zone); the system finds and holds the best block automatically. | **Requires a seated sector** too — the sector bounds the pool. A zone price map is optional; when present, its keys are the tier's sellable zones and the buyer must name one. |
 
 A few knock-on rules worth knowing when demoing:
@@ -428,12 +438,17 @@ For the technically-curious rep or a prospect's technical evaluator:
 - **Validation**: `TicketTier._validate_venue_sector` and
   `_validate_seat_assignment_mode` (same file) enforce the per-mode requirements
   server-side at `clean()` time — **either** seated mode without a `sector_id`, or pointed
-  at a standing sector, is rejected before save. Full-coverage validation of the map is
-  `USER_CHOICE`-only (`tier_pricing.validate_category_prices`); on `BEST_AVAILABLE` the
-  keys are the tier's zones, so partial coverage is valid by construction. The same rule
-  is what keeps `pricing_gaps` and the seat-paint advisory's `missing_categories`
-  user-choice-only — reporting a "gap" on a deliberately-scoped best-available tier would
-  be a permanent false alarm.
+  at a standing sector, is rejected before save. `tier_pricing.validate_category_prices`
+  covers the map itself (shape, venue scope, PWYC exclusivity, the ONLINE floor) and
+  deliberately **nothing that depends on the paint**: a save-time rule may only read state
+  the save controls, and paint is venue-wide (`paint_seats` never fails by design), so a
+  coverage rule there could not prevent an uncovered tier — only break the next write to
+  it, including `duplicate_event` and background occurrence generation. Coverage is
+  reported instead: `pricing_gaps` and the seat-paint advisory's `missing_categories` for
+  painted-but-unpriced (user-choice only — flagging it on a deliberately-scoped
+  best-available tier would be a permanent false alarm), and `unsellable_zones` for the
+  converse, priced-but-unpainted (best-available only, where a zone is selectable). The
+  money guard is `resolve_seat_price`'s 400 at the till.
 - **Best-available scoring**: the pure scoring function lives in
   `src/events/service/seating/best_available.py` (`pick_best_available` /
   `_pick_general` / `_pick_accessible`) — row order, centrality, fragmentation penalty,

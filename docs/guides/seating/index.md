@@ -81,8 +81,9 @@ To show the whole loop on the seeded demo data:
 2. **Configure a tier** ([Tickets & Pricing](tiers-and-pricing.md#demo-it)) — create a
    `best_available` tier on the Galleria sector and a `user_choice` tier on a stalls
    sector; give each a price per zone, then try to misconfigure one (e.g. a user-choice
-   price map with a painted zone left out, or a best-available hold that names no zone) to
-   show the guardrails.
+   price map with a painted zone left out — it saves, and the tier flags the gap while
+   checkout refuses those seats — or a best-available hold that names no zone, which is
+   rejected outright) to show the guardrails.
 3. **Buy** ([The Buyer Experience](buyer-experience.md#demo-it)) — pull the availability
    map, hold two adjacent seats, and check out; then do a **best-available** buy and
    show that the seats you were shown are exactly what you get.
