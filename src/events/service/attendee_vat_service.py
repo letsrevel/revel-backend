@@ -262,7 +262,9 @@ def _resolve_preview_seats(tier: "TicketTier", item: "VATPreviewItemSchema") -> 
       copies of one *unsaved* seat carrying the requested zone. A best-available request
       is uniformly priced by construction (one zone per request), which is exactly why it
       is representable without seats. The instance is never saved and never read for
-      anything but its price category.
+      anything but its price category. Any ``seat_ids`` on such a line are ignored, for
+      the same reason checkout's ``resolve_seats`` ignores them: the picker assigns the
+      seats, not the buyer.
 
     Args:
         tier: The tier this line buys into.
@@ -282,19 +284,30 @@ def _resolve_preview_seats(tier: "TicketTier", item: "VATPreviewItemSchema") -> 
     """
     from ninja.errors import HttpError
 
-    from events.models import PriceCategory, VenueSeat
+    from events.exceptions import InvalidZoneSelectionError
+    from events.models import PriceCategory, TicketTier, VenueSeat
     from events.service.seating.pick import resolve_requested_zone
 
     if item.seat_ids and item.price_category_id is not None:
         raise HttpError(400, str(_("Provide either seat_ids or price_category_id, not both.")))
 
-    if not item.seat_ids:
-        zone_id = resolve_requested_zone(tier, item.price_category_id)
+    # Asked for EVERY mode, exactly as checkout's `resolve_seats` does. Asking it only when
+    # `seat_ids` was empty let a best-available line smuggle itself past the zone rule by
+    # sending seats: the preview priced those seats and quoted a total, while the same
+    # intent at checkout (which has no seat_ids to send) was refused.
+    zone_id = resolve_requested_zone(tier, item.price_category_id)
+
+    if tier.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE or not item.seat_ids:
         if zone_id is not None:
             # The preview needs the category itself for the line name; the authority
-            # returns only the id, and has already proven it is one of the tier's zones
-            # (a zone in the map cannot be deleted — see `delete_price_category`).
-            zone = PriceCategory.objects.get(pk=zone_id)
+            # returns only the id, and has already proven it is one of the tier's zones.
+            zone = PriceCategory.objects.filter(pk=zone_id).first()
+            if zone is None:
+                # A zone in the map cannot be deleted (see `delete_price_category`), but that
+                # holds at any *instant*, not across two statements: the organizer can unmap
+                # the zone and then delete the category between the tier read above and this
+                # fetch. Same 400 the buyer gets a moment later, never a 500.
+                raise InvalidZoneSelectionError(str(_("That zone is no longer on sale — please choose another.")))
             # One shared read-only stand-in: `resolve_seat_price` reads only the category.
             return [VenueSeat(default_price_category=zone)] * item.count
         # A category-priced user-choice tier has no meaningful flat price, so quoting one would

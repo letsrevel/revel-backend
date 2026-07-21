@@ -78,6 +78,10 @@ def resolve_seat_price(
 ) -> Decimal:
     """Resolve the pre-discount price of one seat (spec §4.3).
 
+    The single price authority, shared by every seat mode: user-choice carts, the
+    best-available picker's assigned seats, the VAT preview and the box office all
+    land here, so a quote can never be computed differently from the charge.
+
     Resolution order:
 
     - Seat painted with a category present in the map → the mapped price.
@@ -86,13 +90,18 @@ def resolve_seat_price(
       documented fallback.
     - No seat (general admission) or an empty map → ``tier.price``, no warning.
 
-    Why refusing beats falling back (decision 2026-07-20): ``paint_seats`` is
-    venue-scoped, so it deliberately does **not** hard-fail when it leaves a tier
-    under-covered — one event's pricing config must not block routine map work for
-    every other event at that venue. The gap therefore has to bite here instead;
-    the alternative is charging the flat price for a premium seat, which is exactly
-    the silent mispricing this feature exists to prevent. Only the affected seats
-    are refused — seats in priced categories still sell normally.
+    Why refusing beats falling back (decision 2026-07-20): the map's keys *are* the
+    set of categories a tier sells, and a partial map is legal in both directions.
+    On a **best-available** tier it is the normal, intended shape — the map's keys
+    are the tier's sellable zones, and a category left out is simply not in this
+    tier's pool. On a **user-choice** tier it can instead be an unfinished
+    configuration: ``paint_seats`` is venue-scoped, so it deliberately does **not**
+    hard-fail when it leaves a tier under-covered — one event's pricing config must
+    not block routine map work for every other event at that venue. Either way the
+    answer at the till is the same, and it is not "fall back to ``tier.price``":
+    charging the flat price for a premium seat is exactly the silent mispricing this
+    feature exists to prevent. Only the affected seats are refused — seats in priced
+    categories still sell normally.
 
     Args:
         tier: The tier being purchased (already locked by the caller, if relevant).
@@ -104,8 +113,13 @@ def resolve_seat_price(
 
     Raises:
         HttpError: 400, when the seat is painted into a category the tier does not
-            price. The message names the category so the buyer (and the organizer
-            reading the support ticket) knows which one is unconfigured.
+            price. The message names both the seat and the category: door staff read
+            it off a box-office refusal and need to know which seat to stop selling,
+            and the organizer reading the support ticket needs to know which category
+            to add. It states the fact ("this tier does not sell that category")
+            rather than diagnosing a cause — one wording, because the buyer's and the
+            door's next move is identical whether the gap is deliberate or an
+            oversight, and only the organizer can tell the two apart.
     """
     if seat is None or not price_map:
         return tier.price
@@ -122,9 +136,9 @@ def resolve_seat_price(
         category_name = getattr(seat.default_price_category, "name", str(category_id))
         raise HttpError(
             400,
-            str(
-                _('Seat {seat} is in the "{category}" price category, which this ticket tier does not price yet.')
-            ).format(seat=seat.label, category=category_name),
+            str(_('Seat {seat} is in the "{category}" price category, which this ticket tier does not sell.')).format(
+                seat=seat.label, category=category_name
+            ),
         )
     return effective_category_price(price_map, category_id, tier.price)
 
