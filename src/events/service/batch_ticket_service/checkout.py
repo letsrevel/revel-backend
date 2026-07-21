@@ -5,6 +5,7 @@ decides only three things: the status the tickets get, whether Payment rows are
 created, and which side effects fire. ``create_batch`` picks the method.
 """
 
+import dataclasses
 import typing as t
 from uuid import UUID
 
@@ -13,7 +14,7 @@ from django.db.models import F
 from events.models import Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.tickets import TicketWriterMixin
-from events.service.seating.pricing import BatchPricing
+from events.service.seating.pricing import ZERO, BatchPricing
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
@@ -149,30 +150,38 @@ class CheckoutMixin(TicketWriterMixin):
         seats: list[VenueSeat | None],
         locked_tier: TicketTier,
         pricing: BatchPricing,
-        stamp_price_paid: bool = False,
+        stamp_price_paid: bool,
     ) -> list[Ticket]:
         """Handle free checkout for batch tickets.
 
         Creates ACTIVE tickets immediately.
+
+        Nothing is collected on this path — by construction for the FREE **payment
+        method**, and by the all-zero price vector for a rerouted ONLINE cart. So what
+        gets recorded is ``0.00``, never the vector's list price: a category-priced FREE
+        tier carries the seat's price (say 40.00) in ``pricing.lines``, and stamping that
+        would report revenue on a giveaway. This mirrors the box-office comp
+        (``seating/box_office.py``), the other path that hands out a free seated ticket.
+
+        *Whether* to record is not decided here — ``create_batch`` asks
+        ``pricing.should_stamp_price_paid`` once and passes the answer, so a plain free
+        tier keeps its truthful NULL ("``tier.price`` reconstructs this") while a
+        category-priced or buyer-zeroed one — where no tier price reconstructs the sale —
+        records the 0.00 (spec §5.5).
 
         Args:
             items: List of ticket purchase items.
             seats: List of seats corresponding to items.
             locked_tier: The locked tier.
             pricing: The per-ticket price vector (all zero, or a zeroing discount).
-            stamp_price_paid: Whether the unit price is written to ``price_paid``.
-                Defaults to False for the FREE **payment method**: it collects nothing,
-                so a NULL is the truthful "``tier.price`` reconstructs this" claim, and
-                the price vector there can still carry category prices that were never
-                charged. An ONLINE cart that the buyer's PWYC amount or discount code
-                zeroed passes the real decision through instead — its price genuinely is
-                not ``tier.price``, so it must be recorded (spec §5.5).
+            stamp_price_paid: Whether ``price_paid`` is written at all.
 
         Returns:
             List of created ACTIVE tickets.
         """
+        lines = [dataclasses.replace(line, unit_price=ZERO) for line in pricing.lines]
         tickets = self.create_tickets(
-            items, seats, Ticket.TicketStatus.ACTIVE, pricing.lines, stamp_price_paid=stamp_price_paid
+            items, seats, Ticket.TicketStatus.ACTIVE, lines, stamp_price_paid=stamp_price_paid
         )
 
         # Update quantity sold

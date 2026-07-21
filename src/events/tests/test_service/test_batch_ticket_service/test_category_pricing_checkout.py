@@ -159,15 +159,21 @@ class TestMixedCartByPaymentMethod:
     def test_free_tier_ignores_the_map_and_charges_nothing(
         self, seated_event: Event, free_tier: TicketTier, seats: list[VenueSeat], member_user: RevelUser
     ) -> None:
-        """A FREE tier is free whatever the map says: ACTIVE tickets, no price, no Payment rows.
+        """A FREE tier is free whatever the map says: ACTIVE tickets, 0.00 recorded, no Payment rows.
 
-        ``price_paid`` stays NULL because nothing was paid — the map is configuration
-        for a paid tier and must not manufacture a charge on a free one.
+        ``price_paid`` is an explicit ``0.00``, not NULL. This assertion used to read
+        ``[None, None, None]`` on the reasoning that "nothing was paid" — but a NULL is
+        not that claim. It is the positive claim that ``tier.price`` reconstructs the
+        amount, and on a category-priced tier every reader that honours it
+        (``recorded_or_resolved_price``, and through it the Apple Wallet pass) resolves
+        the amount *from the seat* instead and reports the map's 80.00 on a giveaway.
+        Recording the 0.00 is what actually stops the map manufacturing a charge, and it
+        is what the box-office comp on the same tier already did.
         """
         tickets = _tickets(_buy(seated_event, free_tier, member_user, seats))
 
         assert [ticket.status for ticket in tickets] == [Ticket.TicketStatus.ACTIVE] * 3
-        assert [ticket.price_paid for ticket in tickets] == [None, None, None]
+        assert [ticket.price_paid for ticket in tickets] == [Decimal("0.00")] * 3
         assert not Payment.objects.filter(ticket__in=tickets).exists()
 
     def test_a_code_that_zeroes_every_seat_reroutes_an_online_cart_to_free_checkout(

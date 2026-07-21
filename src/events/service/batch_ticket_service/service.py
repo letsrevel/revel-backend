@@ -112,9 +112,12 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # is the cart's real total known (spec §5.6).
         if self.discount_code is not None:
             assert_min_purchase_amount(self.discount_code, pricing.gross_total)
-        # One authority for every writer (spec §5.5). The ONLINE branch never stamps
-        # (Payment.amount is authoritative there) and neither does a FREE-payment-method
-        # tier, but an ONLINE cart the buyer zeroed does — see the reroute below.
+        # One authority for every writer (spec §5.5). Computed ONCE and handed to every
+        # branch that stamps — a branch that recomputes, or silently drops it, is exactly
+        # how a category-priced tier ended up with NULL price_paid rows. The ONLINE branch
+        # is the sole exception and does not take it at all: Payment.amount is
+        # authoritative there (and is *net* for a reverse-charge buyer). An ONLINE cart the
+        # buyer zeroed has no Payment row, so it reroutes to free and does stamp.
         stamp_price_paid = should_stamp_price_paid(
             locked_tier, pwyc_amount=pwyc_amount, has_discount=self.discount_code is not None
         )
@@ -160,6 +163,6 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
             case TicketTier.PaymentMethod.AT_THE_DOOR:
                 return self._at_the_door_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
             case TicketTier.PaymentMethod.FREE:
-                return self._free_checkout(items, seats, locked_tier, pricing)
+                return self._free_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
             case _:
                 raise HttpError(400, str(_("Unknown payment method.")))

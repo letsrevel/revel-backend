@@ -633,6 +633,44 @@ class TestZoneValidation:
         assert exc.value.status_code == 400
         assert "not both" in str(exc.value.message)
 
+    def test_seats_alone_on_a_best_available_tier_are_refused(
+        self, seated_event: Event, ba_tier: TicketTier, seats: list[VenueSeat]
+    ) -> None:
+        """The fifth cell of the table, and the one that quoted what checkout refuses.
+
+        The mutual-exclusion guard above only fires when *both* selectors are present.
+        ``seat_ids`` alone fell through to the user-choice branch, priced the named seats
+        and returned a 200 with a total — while the same intent at checkout carries no
+        ``price_category_id`` (the picker assigns the seats) and is a 400 from
+        ``resolve_requested_zone``. Asymmetric, too: a zone on a user-choice tier *is*
+        refused. The zone rule is now asked for every mode, exactly as checkout's
+        ``resolve_seats`` asks it.
+        """
+        with pytest.raises(InvalidZoneSelectionError) as exc:
+            _preview(seated_event, ba_tier, seats=[seats[0], seats[1]])
+
+        assert "Select one of this ticket tier's zones" in str(exc.value)
+
+    def test_a_zone_deleted_between_the_two_reads_is_a_400_not_a_500(
+        self, seated_event: Event, ba_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
+    ) -> None:
+        """ "A zone in the map cannot be deleted" holds at an instant, not across two statements.
+
+        ``delete_price_category`` guards a category a tier still prices, so this state is
+        unreachable at any single moment — but the preview reads the tier's map and *then*
+        fetches the category, and the organizer can unmap the zone and delete it in
+        between. The bare ``PriceCategory.objects.get()`` let ``DoesNotExist`` escape as a
+        500 on exactly the input that gives a clean 400 a moment later. The row is deleted
+        directly here to reproduce the interleaved state the guard cannot see.
+        """
+        premium, _standard = categories
+        PriceCategory.objects.filter(pk=premium.pk).delete()
+
+        with pytest.raises(InvalidZoneSelectionError) as exc:
+            _preview(seated_event, ba_tier, count=2, zone=premium)
+
+        assert "no longer on sale" in str(exc.value)
+
 
 class TestModeAgnosticResponseShape:
     """The frontend must not branch on seating mode to render a quote."""
