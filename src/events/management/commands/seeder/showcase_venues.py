@@ -259,19 +259,33 @@ class ShowcaseVenueSeeder(BaseSeeder):
 
         for event in events:
             tiers = [
+                # Flat: an unmapped user-choice tier prices the whole sector at `price`.
                 self._create_tier(event, "Platea", platea, TicketTier.SeatAssignmentMode.USER_CHOICE, Decimal("45")),
+                # Single-zone best-available: the buyer must still name the zone.
                 self._create_tier(
                     event,
                     "Galleria",
                     galleria,
                     TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
                     Decimal("25"),
-                    price_category=cat_galleria,
+                    zone_prices={cat_galleria: Decimal("25")},
                 ),
                 self._create_tier(
                     event, "Palco 1", palchi[0], TicketTier.SeatAssignmentMode.USER_CHOICE, Decimal("80")
                 ),
             ]
+            # Multi-zone best-available on the Platea sector: two painted zones at two
+            # prices in one tier, so the buyer's requested zone decides both the seat
+            # pool and the price. Deliberately not sold into — it shares its sector with
+            # the "Platea" tier above, and (event, seat) is unique across tiers.
+            self._create_tier(
+                event,
+                "Platea — Best Available",
+                platea,
+                TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+                Decimal("45"),
+                zone_prices={cat_platea_premium: Decimal("80"), cat_platea: Decimal("45")},
+            )
             if event is events[0]:
                 for tier in tiers:
                     self._sell_seated_tickets(event, tier)
@@ -367,7 +381,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
                     riser,
                     TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
                     Decimal("15"),
-                    price_category=cat_riser,
+                    zone_prices={cat_riser: Decimal("15")},
                 ),
                 self._create_tier(event, "Standing", standing, TicketTier.SeatAssignmentMode.NONE, Decimal("0")),
             ]
@@ -435,14 +449,10 @@ class ShowcaseVenueSeeder(BaseSeeder):
         for i, event in enumerate(events):
             balcony_mode = modes.USER_CHOICE if i == 0 else modes.BEST_AVAILABLE
             tiers = [
-                self._create_tier(
-                    event,
-                    "Balcony Seated",
-                    balcony,
-                    balcony_mode,
-                    Decimal("35"),
-                    price_category=cat_balcony if balcony_mode == modes.BEST_AVAILABLE else None,
-                ),
+                # Unmapped in both modes: one price for the whole balcony sector. A
+                # best-available tier does not need a zone map — and with none, the
+                # buyer cannot select a zone.
+                self._create_tier(event, "Balcony Seated", balcony, balcony_mode, Decimal("35")),
                 self._create_tier(event, "GA Floor", floor, TicketTier.SeatAssignmentMode.NONE, Decimal("0")),
             ]
             if event is events[0]:
@@ -492,14 +502,19 @@ class ShowcaseVenueSeeder(BaseSeeder):
         sector: VenueSector,
         mode: "TicketTier.SeatAssignmentMode",
         price: Decimal,
-        price_category: PriceCategory | None = None,
+        zone_prices: dict[PriceCategory, Decimal] | None = None,
     ) -> TicketTier:
         """Create a ticket tier bound to a venue sector.
 
         Free tiers use the FREE payment method; priced tiers use OFFLINE so no
-        Stripe involvement is needed. Best-available tiers pass the price category
-        whose seat pool they draw from; it becomes the tier's single-zone
-        ``category_prices`` map.
+        Stripe involvement is needed.
+
+        ``zone_prices`` becomes the tier's ``category_prices`` map — the single
+        pricing mechanism for both seated modes. Omit it for flat pricing at
+        ``price`` across the whole sector. On a ``USER_CHOICE`` tier the map must
+        price every category painted on the sector's active seats; on a
+        ``BEST_AVAILABLE`` tier its keys *define* the tier's sellable zones, and
+        the buyer names one per hold/checkout request.
         """
         is_free = price == 0
         return TicketTier.objects.create(
@@ -512,7 +527,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
             manual_payment_instructions=None if is_free else "Please transfer to IBAN: XX1234567890",
             venue=sector.venue,
             sector=sector,
-            category_prices={str(price_category.id): str(price)} if price_category else {},
+            category_prices={str(cat.id): str(zone_price) for cat, zone_price in (zone_prices or {}).items()},
             seat_assignment_mode=mode,
         )
 
