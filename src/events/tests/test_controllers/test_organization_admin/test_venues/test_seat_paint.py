@@ -50,7 +50,7 @@ class TestPaintSeatsEndpoint:
         )
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"painted": 2, "affected_tiers": []}
+        assert response.json() == {"painted": 2, "affected_tiers": [], "unsellable_zone_tiers": []}
         assert VenueSeat.objects.filter(default_price_category=category).count() == 2
 
     def test_unpaint_with_null(
@@ -69,7 +69,7 @@ class TestPaintSeatsEndpoint:
         )
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"painted": 1, "affected_tiers": []}
+        assert response.json() == {"painted": 1, "affected_tiers": [], "unsellable_zone_tiers": []}
         seat.refresh_from_db()
         assert seat.default_price_category_id is None
 
@@ -215,6 +215,7 @@ class TestPaintSeatsEndpoint:
                     "missing_categories": [{"id": str(balcony.id), "name": "Balcony", "color": "#00aa00"}],
                 }
             ],
+            "unsellable_zone_tiers": [],
         }
 
     def test_response_reports_a_repricing_with_no_coverage_gap(
@@ -262,7 +263,56 @@ class TestPaintSeatsEndpoint:
                     "missing_categories": [],
                 }
             ],
+            "unsellable_zone_tiers": [],
         }
+
+    def test_response_reports_a_zone_the_unpaint_left_unfillable(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        venue: Venue,
+        sector: VenueSector,
+        category: PriceCategory,
+    ) -> None:
+        """The converse advisory: the unpaint took the last seat of a zone the tier sells.
+
+        The organizer is on the venue screen at this moment, so this is where they have to
+        be told — the tier screen's ``unsellable_zones`` only shows if they think to look.
+        """
+        event.venue = venue
+        event.save(update_fields=["venue"])
+        standard = PriceCategory.objects.create(venue=venue, name="Standard", color="#0000aa")
+        seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
+        VenueSeat.objects.create(sector=sector, label="A2", default_price_category=standard)
+        tier = TicketTier.objects.create(
+            event=event,
+            name="Stalls",
+            price=Decimal("50.00"),
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(category.id): "80.00", str(standard.id): "30.00"},
+        )
+
+        response = organization_owner_client.put(
+            _url(organization, venue),
+            data=orjson.dumps({"seat_ids": [str(seat.id)], "price_category_id": None}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["unsellable_zone_tiers"] == [
+            {
+                "tier_id": str(tier.id),
+                "tier_name": "Stalls",
+                "event_id": str(event.id),
+                "event_name": event.name,
+                "event_status": event.status,
+                "zones": [{"id": str(category.id), "name": "Premium", "color": "#aa0000"}],
+            }
+        ]
 
     def test_preview_returns_the_same_body_as_the_paint_and_writes_nothing(
         self,

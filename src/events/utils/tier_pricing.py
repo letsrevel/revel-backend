@@ -84,6 +84,52 @@ def effective_category_price(price_map: dict[UUID, Decimal], category_id: UUID |
     return price_map.get(category_id, flat_price)
 
 
+def unsellable_zone_ids(
+    seat_assignment_mode: str,
+    price_map: dict[UUID, Decimal],
+    painted: t.Collection[UUID],
+) -> set[UUID]:
+    """The **single definition** of *priced-but-unpainted*: zones a tier cannot fill.
+
+    A best-available buyer names a zone, ``resolve_requested_zone`` accepts any map key,
+    and ``load_candidates`` then intersects it with the sector — so a key no live seat
+    carries yields an empty pool and every buyer who picks it gets a 409 "not enough
+    adjacent seats", with nothing anywhere explaining why. Never deliberate, unlike its
+    converse (a *painted-but-unpriced* category, which on a best-available tier is exactly
+    how an organizer scopes the tier to a subset of the sector).
+
+    Pure set arithmetic, deliberately query-free: the callers disagree about where the
+    painted set comes from — :meth:`events.schema.TicketTierDetailSchema.resolve_unsellable_zones`
+    reads it from the database, while the paint advisory *derives* it so its answer is
+    identical before and after the paint's UPDATE (preview parity) — but they must never
+    disagree about the rule. Both ask here.
+
+    Silent in the states where it would cry wolf, and those guards are part of the rule:
+
+    - **Any mode but best-available.** On ``user_choice`` the buyer picks seats, not zones,
+      so an unpainted key is inert; pricing the venue's categories once and painting
+      incrementally stays a supported ordering.
+    - **An empty map** (flat pricing — it publishes no zones at all).
+    - **A sector carrying no paint at all.** Mid-setup (prices first, paint second);
+      nothing contradicts the keys yet.
+
+    Args:
+        seat_assignment_mode: The tier's ``seat_assignment_mode``.
+        price_map: The tier's parsed ``{category_id: price}`` map.
+        painted: The categories carried by the live seats of the tier's sector.
+
+    Returns:
+        The map keys nothing in the sector carries. Empty in every silent state above.
+    """
+    from events.models import TicketTier
+
+    if seat_assignment_mode != TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
+        return set()
+    if not price_map or not painted:
+        return set()
+    return price_map.keys() - set(painted)
+
+
 def _painted_seats(sector_ids: t.Collection[t.Any]) -> "QuerySet[VenueSeat]":
     """The seats that count as "painted" — the single definition of the rule.
 

@@ -508,20 +508,12 @@ class SeatPriceChangeSchema(Schema):
     to_price: Decimal | None = None
 
 
-class AffectedTierSchema(Schema):
-    """A live, category-priced tier this paint changed the economics of.
-
-    A tier is reported when the paint moved the price of at least one of its seats
-    (``price_changes``), or when it is left unable to sell some of its sector
-    (``missing_categories``), or both.
+class PaintReportTierSchema(Schema):
+    """Which tier, on which event, a seat-paint advisory entry is about.
 
     Attributes:
         event_status: So the frontend can rank a live on-sale above the draft the admin
             is currently configuring — both are worth reporting, but only one is urgent.
-        price_changes: Empty when the paint moved nothing on this tier.
-        missing_categories: The tier's **current** coverage gap, not this paint's delta —
-            a category painted in its sector that it does not price. Non-empty means seats
-            in those categories are refused at checkout until the tier prices them.
     """
 
     tier_id: UUID
@@ -529,8 +521,43 @@ class AffectedTierSchema(Schema):
     event_id: UUID
     event_name: str
     event_status: Event.EventStatus
+
+
+class AffectedTierSchema(PaintReportTierSchema):
+    """A live, category-priced tier this paint changed the economics of.
+
+    A tier is reported when the paint moved the price of at least one of its seats
+    (``price_changes``), or when it is left unable to sell some of its sector
+    (``missing_categories``), or both.
+
+    Attributes:
+        price_changes: Empty when the paint moved nothing on this tier.
+        missing_categories: The tier's **current** coverage gap, not this paint's delta —
+            a category painted in its sector that it does not price. Non-empty means seats
+            in those categories are refused at checkout until the tier prices them.
+    """
+
     price_changes: list[SeatPriceChangeSchema] = Field(default_factory=list)
     missing_categories: list[TierPricingGapSchema] = Field(default_factory=list)
+
+
+class UnsellableZoneTierSchema(PaintReportTierSchema):
+    """A best-available tier left publishing a zone the painted sector cannot fill.
+
+    Deliberately **not** folded into ``AffectedTierSchema``: the two populations are
+    disjoint in both directions. A paint can reprice a tier that has no unsellable zone,
+    and — because an unpaint whose category was priced at the flat price moves no money —
+    it can strand a zone on a tier it did not reprice at all. Merging them would make an
+    empty ``affected_tiers`` stop meaning "this paint moved no money".
+
+    Attributes:
+        zones: The tier's **current** unsellable zones, not this paint's delta — same tense
+            as ``AffectedTierSchema.missing_categories``, its converse. Every zone listed
+            409s for any buyer who selects it until the sector is repainted or the key is
+            dropped from the map.
+    """
+
+    zones: list[TierUnsellableZoneSchema] = Field(default_factory=list)
 
 
 class SeatPaintResultSchema(Schema):
@@ -544,5 +571,15 @@ class SeatPaintResultSchema(Schema):
             "paint changed, and/or whose price map no longer covers every category painted in "
             "their sector. Painting is venue-scoped, so this is the only place the blast radius "
             "across other events is visible. Advisory only — the paint itself always succeeds."
+        ),
+    )
+    unsellable_zone_tiers: list[UnsellableZoneTierSchema] = Field(
+        default_factory=list,
+        description=(
+            "Best-available tiers on the painted sectors that price a zone no live seat there "
+            "carries — the converse of a pricing gap, and never deliberate: buyers can select "
+            "the zone and the picker can never fill it, so every purchase 409s. Unpainting (or "
+            "repainting away) the last seat of a zone is the usual cause, which is why it is "
+            "reported here rather than only on the tier screen. Advisory only."
         ),
     )

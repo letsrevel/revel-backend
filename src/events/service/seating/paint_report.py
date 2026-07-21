@@ -22,6 +22,17 @@ class PriorPaint(t.NamedTuple):
     seat_count: int
 
 
+class PaintReport(t.NamedTuple):
+    """Everything a paint has to tell the organizer, in two deliberately separate lists.
+
+    Kept apart because the populations are disjoint in both directions — see
+    :class:`events.schema.UnsellableZoneTierSchema`.
+    """
+
+    affected_tiers: list[schema.AffectedTierSchema]
+    unsellable_zone_tiers: list[schema.UnsellableZoneTierSchema]
+
+
 def _tier_seat_price(price_map: dict[UUID, Decimal], category_id: UUID | None, flat_price: Decimal) -> Decimal | None:
     """What one seat in ``category_id`` costs on a category-priced tier, or ``None``.
 
@@ -90,13 +101,13 @@ def _painted_after(
     return painted
 
 
-def affected_tiers(
+def build_report(
     sector_ids: t.Collection[UUID],
     prior: t.Sequence[PriorPaint],
     new_category_id: UUID | None,
     painted_seat_ids: t.Collection[UUID],
-) -> list[schema.AffectedTierSchema]:
-    """The live category-priced tiers a paint repriced, under-covered, or both.
+) -> PaintReport:
+    """The live category-priced tiers a paint repriced, under-covered, or left unfillable.
 
     Every other signal in the pricing system fires on the *absence* of a price: write-time
     validation, the checkout refusal, ``pricing_gaps``. Moving a seat between two categories
@@ -125,6 +136,20 @@ def affected_tiers(
       nothing else to warn about it. Flat pricing on a painted sector stays legal (an
       organizer may paint for colour-coding alone), so this is advice, never a refusal.
 
+    ``unsellable_zone_tiers`` is the **third** signal and the exact converse of the second:
+    a best-available tier that prices a zone the sector no longer carries. Reported here and
+    not only on the tier screen because the *cause* is a venue-screen action — unpainting (or
+    repainting away) a zone's last seat — and the organizer is reading this response at the
+    moment they take it. Kept in its own list rather than on ``affected_tiers``: an unpaint
+    whose category was priced at the tier's flat price moves no money, so a tier can strand a
+    zone without being "affected" at all. Its tense matches ``missing_categories`` — the
+    tier's **current** unsellable zones, not this paint's delta, because a zone this paint did
+    not strand still 409s every buyer who picks it, and going quiet about it on the next paint
+    of the same sector would teach the organizer that silence means healthy. The condition is
+    :func:`events.utils.tier_pricing.unsellable_zone_ids`, shared with
+    ``TicketTierDetailSchema.resolve_unsellable_zones`` — including its guards, so a
+    user-choice tier and a sector with no paint left on it both stay silent here too.
+
     Scope is otherwise deliberately narrow, because a warning that cries wolf gets ignored:
     only seated tiers read the paint at all, and only events that have not ended and are
     not cancelled — nobody can sell those seats anyway. DRAFT events stay in: the event
@@ -132,7 +157,7 @@ def affected_tiers(
     with nothing painted reports nothing, in either mode.
 
     Query cost is constant in the number of seats painted: one query for the tiers, one for
-    what is painted on the sectors, one to name the missing categories.
+    what is painted on the sectors, one to name the categories in both advisories.
 
     Args:
         sector_ids: The sectors that were touched.
@@ -141,14 +166,17 @@ def affected_tiers(
         painted_seat_ids: The seats this paint writes. Excluded from the coverage read
             and replaced by ``new_category_id``, so the gap is computed the same way
             whether or not the UPDATE has run — which is what makes the dry run's
-            answer identical to the real one rather than merely similar.
+            answer identical to the real one rather than merely similar. The unsellable-zone
+            half reads the *same* derived set, so it is preview-safe for the same reason —
+            re-reading the sector after the UPDATE would have made the dry run lie about the
+            very zone the admin is about to strand.
 
     Returns:
-        One entry per affected tier, ordered by event start then tier name. Empty when
-        nothing is affected — the common case.
+        Both advisory lists, each ordered by event start then tier name, and each empty when
+        it has nothing to say — the common case.
     """
     if not sector_ids:
-        return []
+        return PaintReport([], [])
 
     tiers = list(
         models.TicketTier.objects.filter(
@@ -164,7 +192,7 @@ def affected_tiers(
         .order_by("event__start", "name")
     )
     if not tiers:
-        return []
+        return PaintReport([], [])
 
     painted = _painted_after(sector_ids, prior, new_category_id, painted_seat_ids)
     prior_by_sector: dict[UUID, list[PriorPaint]] = {}
@@ -172,6 +200,7 @@ def affected_tiers(
         prior_by_sector.setdefault(row.sector_id, []).append(row)
 
     entries: list[tuple[models.TicketTier, list[schema.SeatPriceChangeSchema], set[UUID]]] = []
+    zone_entries: list[tuple[models.TicketTier, set[UUID]]] = []
     for tier in tiers:
         try:
             price_map = tier_pricing.parse_price_map(tier.category_prices)
@@ -204,28 +233,53 @@ def affected_tiers(
             )
         if changes or missing:
             entries.append((tier, changes, missing))
-    if not entries:
-        return []
+        # Independent of `entries`: a tier can strand a zone without this paint moving any
+        # of its money. Derived from `sector_painted`, never a fresh read — that is what
+        # keeps the preview byte-identical to the paint.
+        unsellable = tier_pricing.unsellable_zone_ids(tier.seat_assignment_mode, price_map, sector_painted)
+        if unsellable:
+            zone_entries.append((tier, unsellable))
+    if not entries and not zone_entries:
+        return PaintReport([], [])
 
+    # One query names the categories of both advisories.
     categories = {
         c.id: c
         for c in models.PriceCategory.objects.filter(
             id__in={cid for _tier, _changes, missing in entries for cid in missing}
+            | {cid for _tier, unsellable in zone_entries for cid in unsellable}
         ).order_by("display_order", "name")
     }
-    return [
-        schema.AffectedTierSchema(
-            tier_id=tier.id,
-            tier_name=tier.name,
-            event_id=tier.event_id,
-            event_name=tier.event.name,
-            event_status=models.Event.EventStatus(tier.event.status),
-            price_changes=changes,
-            missing_categories=[
-                schema.TierPricingGapSchema(id=c.id, name=c.name, color=c.color)
-                for cid, c in categories.items()
-                if cid in missing
-            ],
-        )
-        for tier, changes, missing in entries
-    ]
+    return PaintReport(
+        affected_tiers=[
+            schema.AffectedTierSchema(
+                tier_id=tier.id,
+                tier_name=tier.name,
+                event_id=tier.event_id,
+                event_name=tier.event.name,
+                event_status=models.Event.EventStatus(tier.event.status),
+                price_changes=changes,
+                missing_categories=[
+                    schema.TierPricingGapSchema(id=c.id, name=c.name, color=c.color)
+                    for cid, c in categories.items()
+                    if cid in missing
+                ],
+            )
+            for tier, changes, missing in entries
+        ],
+        unsellable_zone_tiers=[
+            schema.UnsellableZoneTierSchema(
+                tier_id=tier.id,
+                tier_name=tier.name,
+                event_id=tier.event_id,
+                event_name=tier.event.name,
+                event_status=models.Event.EventStatus(tier.event.status),
+                zones=[
+                    schema.TierUnsellableZoneSchema(id=c.id, name=c.name, color=c.color)
+                    for cid, c in categories.items()
+                    if cid in unsellable
+                ],
+            )
+            for tier, unsellable in zone_entries
+        ],
+    )
