@@ -283,10 +283,8 @@ The seed data includes a ~1,350-seat theatre with three sector types (open floor
 private boxes) as a working reference point. There is no seat-count ceiling in the design.
 
 **"Can we show the stage, or a venue with several floors?"**
-Yes — both live in the venue's free-form `metadata`, written by the layout designer and now
-carried on the buyer-facing chart alongside the per-sector `metadata` that was already there, so
-the buyer's map draws the same picture the designer laid out. Two conventions the designer and the
-buyer map agree on:
+Yes — both live in the venue's free-form `metadata`, written by the layout designer. Two
+conventions the designer and the buyer map agree on:
 
 - `metadata.stage` — the stage's position/shape, drawn as-is on the map.
 - `metadata.floors` — `[{"id": ..., "name": ..., "order": ...}]`, the venue's floors; a sector says
@@ -295,7 +293,20 @@ buyer map agree on:
 Floors are **pure presentation**: they group sectors for display and nothing else. Pricing, zones,
 capacity and holds never look at them. The convention is a shared agreement, not an enforced
 schema — nothing rejects a sector pointing at a floor id the venue doesn't list, and such a sector
-simply has no floor to render under.
+simply has no floor to render under. Note that of the two, only `stage` currently reaches the
+buyer-facing chart — see the metadata rules below.
+
+**"What can we store in `metadata`, and who can see it?"**
+Treat chart metadata as **public**: the seating chart is served to anonymous buyers, so never put
+notes, contact details, or anything internal in it. Two rules apply (#761):
+
+- **The public chart serves a whitelisted projection, not the whole blob.** Venue-level metadata:
+  only `stage`. Sector-level metadata: only `transform` and `aisles`. Anything else the designer
+  stores (including the `floors`/`floor` convention above) stays on the admin/designer endpoints
+  and never reaches buyers.
+- **Writes are capped**: metadata is rejected on save if it exceeds **16 KB** of compact JSON or
+  nests deeper than **6** levels. The field is layout config, not scratch space — the whole chart
+  is re-downloaded by every buyer polling the seat picker.
 
 **"Is there version history if we redraw the map?"**
 No — this is a known v1 limitation, worth saying plainly rather than glossing over: the seating
