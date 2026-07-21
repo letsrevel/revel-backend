@@ -165,6 +165,14 @@ def recorded_or_resolved_price(
     an anomaly, priced from the seat (flat price if its category is unpriced), and
     allowed through.
 
+    **Online tickets are the other legitimate NULL — permanently** (#758, see
+    :func:`should_stamp_price_paid`): their 1:1 ``Payment`` row is authoritative, and
+    its amount can be *net* (reverse charge), which no tier or seat price reconstructs.
+    Callers that can see online rows must consult ``ticket.payment`` before falling
+    back here (as ``ApplePassGenerator._resolve_price`` does); the paths that call this
+    directly (offline refunds, the revenue report's offline rows) never carry online
+    tickets.
+
     Callers pass ``ticket.tier``/``ticket.seat`` — pre-fetch both (``select_related``)
     when calling this in a loop.
 
@@ -212,10 +220,18 @@ def should_stamp_price_paid(
       survive a later repricing.
 
     Otherwise leave it NULL: a plain purchase on a flat tier (``tier.price`` stands) and
-    every online row (``Payment.amount`` is authoritative there, and is *net* for a
-    reverse-charge buyer — two "price paid" numbers on one row is worse than none). The
-    online and free-checkout paths therefore never ask this question; they simply do not
-    stamp.
+    every online row. The online carve-out is **permanent** (decision on #758, option a):
+    the 1:1 ``Payment`` row is authoritative there, and ``Payment.amount`` is the amount
+    actually charged — *net* for a reverse-charge buyer — so copying it into
+    ``price_paid`` would make the column's meaning depend on the buyer's VAT status
+    (and two "price paid" numbers on one row is worse than none). ``_online_checkout``
+    therefore never asks this question and never stamps, even when this function would
+    say True (e.g. a category-priced tier); every money-bearing reader of an online
+    ticket consults its ``Payment`` row instead (the revenue report aggregates the
+    payments directly; the wallet pass checks ``ticket.payment`` before falling back).
+    Pinned in ``test_online_checkout_price_paid.py`` — do not "fix" a NULL online row
+    by stamping. The zeroed-ONLINE reroute to free checkout is not part of the
+    carve-out: it has no ``Payment`` row, so it stamps like any free sale.
 
     The invariant is **time-scoped** — tickets sold before a tier opted into category
     pricing legitimately carry NULL — so it can never be a DB constraint or a raise, and
