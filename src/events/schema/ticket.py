@@ -1,993 +1,128 @@
-"""Ticket, payment, and checkout schemas."""
-
-import typing as t
-from decimal import Decimal
-from uuid import UUID
-
-from django.db.models import Q
-from ninja import ModelSchema, Schema
-from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_validator, model_validator
-
-from accounts.schema import BaseEmailJWTPayloadSchema, MemberUserSchema, MinimalRevelUserSchema
-from common.schema import OneToOneFiftyString, StrippedString, validate_country_code
-from common.signing import get_file_url
-from events import models
-from events.models import DiscountCode, Payment, Ticket, TicketTier
-from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
-from events.utils.tier_pricing import painted_categories, parse_price_map
-
-from .event import MinimalEventSchema
-from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
-from .venue import MinimalSeatSchema, TierPricingGapSchema, VenueSchema, VenueSectorSchema
-
-# RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
-# events.utils.refund_policy so services, models, and schemas share one source
-# of truth. Re-export under the "Schema" suffix for API documentation clarity.
-RefundPolicyTierSchema = RefundPolicyTier
-RefundPolicySchema = RefundPolicy
-
-# Supported currencies — must match frankfurter.dev for exchange rate availability
-Currencies = t.Literal[
-    "EUR",  # Euro
-    "USD",  # US Dollar
-    "GBP",  # British Pound Sterling
-    "JPY",  # Japanese Yen
-    "AUD",  # Australian Dollar
-    "CAD",  # Canadian Dollar
-    "CHF",  # Swiss Franc
-    "CNY",  # Chinese Yuan Renminbi
-    "HKD",  # Hong Kong Dollar
-    "NZD",  # New Zealand Dollar
-    "SEK",  # Swedish Krona
-    "KRW",  # South Korean Won
-    "SGD",  # Singapore Dollar
-    "NOK",  # Norwegian Krone
-    "MXN",  # Mexican Peso
-    "INR",  # Indian Rupee
-    "ZAR",  # South African Rand
-    "TRY",  # Turkish Lira
-    "BRL",  # Brazilian Real
-    "DKK",  # Danish Krone
-    "PLN",  # Polish Zloty
-    "THB",  # Thai Baht
-    "IDR",  # Indonesian Rupiah
-    "HUF",  # Hungarian Forint
-    "CZK",  # Czech Koruna
-    "ILS",  # Israeli Shekel
-    "MYR",  # Malaysian Ringgit
-    "PHP",  # Philippine Peso
-    "RON",  # Romanian Leu
-    "ISK",  # Icelandic Krona
-]
-
-
-class TierCategoryPriceSchema(Schema):
-    """The effective price of one price category on one tier.
-
-    Attributes:
-        price: What a seat in this category costs, or ``None`` when the tier does not
-            price the category — there is no honest number to show, and checkout will
-            refuse the seat.
-        available: False when the category is painted in the tier's sector but absent
-            from the tier's price map. Seats in it must be rendered unselectable: the
-            organizer has a configuration gap to fix, and buying is impossible until
-            they do.
-    """
-
-    id: UUID
-    name: str
-    color: str
-    price: Decimal | None = None
-    available: bool = True
-
-
-class TierSeatPricingSchema(Schema):
-    """Server-resolved seat prices for a category-priced tier (spec §7).
-
-    Deliberately *not* the raw ``category_prices`` map: handing the frontend raw rows
-    would force it to reimplement the fallback chain, and any drift means the price a
-    buyer is shown is not the price they are charged.
-
-    Attributes:
-        categories: Every category painted on an active seat of the tier's sector, plus
-            any extra category the tier prices. A category painted *after* the tier was
-            saved carries ``available=False`` and no price — checkout refuses those seats
-            (spec §4.3), so quoting them a price would sell the buyer a 400. They are
-            listed rather than omitted so the frontend can grey the seats out; silently
-            dropping them would leave those seats unexplained and, worse, indistinguishable
-            from unpainted ones.
-        unpainted: What a seat with no category costs. The one legitimate fallback.
-    """
-
-    categories: list[TierCategoryPriceSchema] = Field(default_factory=list)
-    unpainted: Decimal
-
-
-class TicketTierSchema(ModelSchema):
-    id: UUID
-    event_id: UUID
-    price: Decimal
-    currency: str
-    total_available: int | None
-    restricted_to_membership_tiers: list[MembershipTierSchema] | None = None
-    seat_assignment_mode: TicketTier.SeatAssignmentMode
-    max_tickets_per_user: int | None = None
-    venue: VenueSchema | None = None
-    sector: VenueSectorSchema | None = None
-    can_purchase: bool = True
-    invoicing_available: bool = False
-    refund_policy: RefundPolicySchema | None = None
-    seat_pricing: TierSeatPricingSchema | None = None
-
-    class Meta:
-        model = TicketTier
-        fields = [
-            "id",
-            "name",
-            "description",
-            "price",
-            "price_type",
-            "pwyc_min",
-            "pwyc_max",
-            "currency",
-            "sales_start_at",
-            "sales_end_at",
-            "purchasable_by",
-            "payment_method",
-            "manual_payment_instructions",
-            "seat_assignment_mode",
-            "max_tickets_per_user",
-            "display_order",
-            "allow_user_cancellation",
-            "cancellation_deadline_hours",
-        ]
-
-    @staticmethod
-    def resolve_can_purchase(obj: TicketTier) -> bool:
-        """Resolve from annotated attribute, defaults to True if not set."""
-        return getattr(obj, "_can_purchase", True)
-
-    @staticmethod
-    def resolve_invoicing_available(obj: TicketTier) -> bool:
-        """True when the org has attendee invoicing enabled and this tier uses online payment."""
-        org = obj.event.organization if obj.event else None
-        if not org:
-            return False
-        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
-            models.Organization.InvoicingMode.HYBRID,
-            models.Organization.InvoicingMode.AUTO,
-        )
-
-    @staticmethod
-    def resolve_seat_pricing(obj: TicketTier) -> TierSeatPricingSchema | None:
-        """Resolve the per-category prices a buyer will actually be charged.
-
-        ``None`` for a flat tier — that is the signal the frontend uses to decide whether
-        to render a price legend at all, and it keeps the hot tier-list path at zero extra
-        queries for the (overwhelmingly common) flat case. A category-priced tier costs
-        exactly one query, and an event has a handful of tiers at most.
-
-        Both seated modes are served. For ``user_choice`` the legend covers every
-        category *painted* in the sector as well as every priced one, so a painted-but-
-        unpriced category shows up as unavailable — the buyer can click that seat and
-        must be told it cannot be sold. For ``best_available`` the buyer never picks a
-        seat, only a zone, and the map keys *are* the zones: unpriced painted categories
-        are not part of this tier and are omitted rather than shown as unavailable.
-        """
-        price_map = parse_price_map(obj.category_prices)
-        # A priced map without a venue cannot exist — tier validation rejects categories
-        # that don't belong to the tier's venue — so the venue guard is only for mypy.
-        if not price_map or obj.venue_id is None:
-            return None
-        in_scope = Q(id__in=list(price_map))
-        if obj.seat_assignment_mode == TicketTier.SeatAssignmentMode.USER_CHOICE:
-            in_scope |= Q(seats__sector_id=obj.sector_id, seats__is_active=True)
-        categories = (
-            models.PriceCategory.objects.filter(in_scope, venue_id=obj.venue_id)
-            .distinct()
-            .order_by("display_order", "name")
-        )
-        return TierSeatPricingSchema(
-            categories=[
-                TierCategoryPriceSchema(
-                    id=category.id,
-                    name=category.name,
-                    color=category.color,
-                    # Everything in this queryset is either priced or painted, so "absent from
-                    # the map" is exactly "painted but unpriced" — the case checkout refuses.
-                    price=price_map.get(category.id),
-                    available=category.id in price_map,
-                )
-                for category in categories
-            ],
-            unpainted=obj.price,
-        )
-
-
-class PaymentSchema(ModelSchema):
-    """Public representation of a Payment record."""
-
-    status: Payment.PaymentStatus
-    currency: Currencies
-    stripe_dashboard_url: str
-
-    class Meta:
-        model = Payment
-        exclude = ["user", "ticket", "raw_response"]
-
-
-class MinimalPaymentSchema(ModelSchema):
-    """Minimal payment info for inclusion in ticket schemas."""
-
-    status: Payment.PaymentStatus
-
-    class Meta:
-        model = Payment
-        fields = ["id", "status"]
-
-
-class TicketDiscountCodeSchema(ModelSchema):
-    """Minimal discount-code info for inclusion in admin ticket views."""
-
-    discount_type: DiscountCode.DiscountType
-
-    class Meta:
-        model = DiscountCode
-        fields = ["id", "code", "discount_type", "discount_value", "currency"]
-
-
-class TicketSeriesPassSchema(Schema):
-    """Minimal series-pass info for tickets materialized from a held series pass."""
-
-    held_pass_id: UUID
-    series_pass_id: UUID
-    name: str
-
-
-def _resolve_ticket_series_pass(obj: Ticket) -> TicketSeriesPassSchema | None:
-    """Resolve the series pass a ticket was materialized from, if any.
-
-    Shared by ``AdminTicketSchema`` and ``UserTicketSchema`` — both expose the same
-    ``series_pass`` shape.
-    """
-    held_pass = obj.held_pass
-    if held_pass is None:
-        return None
-    return TicketSeriesPassSchema(
-        held_pass_id=held_pass.id, series_pass_id=held_pass.series_pass_id, name=held_pass.series_pass.name
-    )
-
-
-class AdminTicketSchema(ModelSchema):
-    """Schema for pending tickets in admin interface.
-
-    Venue and sector info comes from tier (tier.venue, tier.sector).
-    Only seat is included at ticket level for assigned seating.
-    """
-
-    user: MemberUserSchema
-    tier: TicketTierSchema
-    payment: PaymentSchema | None = None
-    guest_name: str
-    seat: MinimalSeatSchema | None = None
-    membership: MinimalOrganizationMemberSchema | None = None
-    price_paid: Decimal | None = None
-    discount_code: TicketDiscountCodeSchema | None = None
-    discount_amount: Decimal | None = None
-    offline_refund_amount: Decimal | None = None
-    series_pass: TicketSeriesPassSchema | None = None
-
-    class Meta:
-        model = Ticket
-        fields = [
-            "id",
-            "status",
-            "tier",
-            "created_at",
-            "guest_name",
-            "seat",
-            "price_paid",
-            "discount_amount",
-            "offline_refund_amount",
-        ]
-
-    @staticmethod
-    def resolve_membership(obj: Ticket) -> models.OrganizationMember | None:
-        """Resolve membership from prefetched org_membership_list."""
-        memberships = getattr(obj.user, "org_membership_list", None)
-        return memberships[0] if memberships else None
-
-    resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
-
-
-class UserTicketSchema(ModelSchema):
-    """Schema for user's own tickets with event details.
-
-    Venue and sector info comes from tier (tier.venue, tier.sector).
-    Only seat is included at ticket level for assigned seating.
-    """
-
-    event: MinimalEventSchema
-    tier: TicketTierSchema
-    status: Ticket.TicketStatus
-    apple_pass_available: bool
-    guest_name: str
-    payment: MinimalPaymentSchema | None = None
-    seat: MinimalSeatSchema | None = None
-    price_paid: Decimal | None = None
-    discount_amount: Decimal | None = None
-    pdf_url: str | None = None
-    pkpass_url: str | None = None
-    series_pass: TicketSeriesPassSchema | None = None
-
-    class Meta:
-        model = Ticket
-        fields = [
-            "id",
-            "status",
-            "tier",
-            "created_at",
-            "checked_in_at",
-            "guest_name",
-            "seat",
-            "price_paid",
-            "discount_amount",
-        ]
-
-    @staticmethod
-    def resolve_payment(obj: Ticket) -> Payment | None:
-        """Resolve payment for pending tickets."""
-        if hasattr(obj, "payment"):
-            return obj.payment
-        return None
-
-    @staticmethod
-    def resolve_pdf_url(obj: Ticket) -> str | None:
-        """Resolve cached PDF file to signed URL."""
-        return get_file_url(obj.pdf_file)
-
-    @staticmethod
-    def resolve_pkpass_url(obj: Ticket) -> str | None:
-        """Resolve cached pkpass file to signed URL."""
-        return get_file_url(obj.pkpass_file)
-
-    resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
-
-
-class CheckInRequestSchema(Schema):
-    """Schema for ticket check-in requests."""
-
-    ticket_id: UUID
-
-
-class CheckInResponseSchema(ModelSchema):
-    """Schema for ticket check-in response."""
-
-    user: MinimalRevelUserSchema
-    tier: TicketTierSchema | None = None
-    price_paid: Decimal | None = None
-    seat: MinimalSeatSchema | None = None
-    sector_name: str | None = None
-
-    class Meta:
-        model = Ticket
-        fields = ["id", "status", "checked_in_at", "tier", "price_paid", "seat"]
-
-    @staticmethod
-    def resolve_sector_name(obj: Ticket) -> str | None:
-        """Sector name for door staff redirecting attendees ("Stalls, Row C seat 12")."""
-        return obj.sector.name if obj.sector is not None else None
-
-
-class ConfirmPaymentSchema(Schema):
-    """Optional payload for confirming offline/at-the-door ticket payment.
-
-    price_paid is required for PWYC tiers and must be omitted for fixed-price tiers.
-    """
-
-    price_paid: Decimal | None = Field(None, gt=0)
-
-
-# ---- Cancellation Schemas ----
-
-
-class RefundWindowSchema(Schema):
-    """A single active refund window: the percentage and absolute amount refundable until a deadline."""
-
-    refund_percentage: Decimal
-    refund_amount: Decimal
-    effective_until: AwareDatetime
-
-
-class CancellationPreviewSchema(Schema):
-    """Preview of what a user would receive if they cancelled their ticket now."""
-
-    can_cancel: bool
-    reason: models.ticket.CancellationBlockReason | None = None
-    refund_amount: Decimal
-    currency: str
-    deadline: AwareDatetime | None = None
-    flat_fee: Decimal
-    payment_method: TicketTier.PaymentMethod
-    windows: list[RefundWindowSchema] = Field(default_factory=list)
-    policy_snapshot: RefundPolicySchema | None = None
-
-
-class TicketCancellationRequestSchema(Schema):
-    """Optional payload sent when a user cancels their own ticket."""
-
-    reason: StrippedString | None = Field(default=None, max_length=500)
-
-
-class TicketCancellationResponseSchema(Schema):
-    """Response returned after a successful user-initiated ticket cancellation."""
-
-    ticket: UserTicketSchema
-    refund_amount: Decimal
-    currency: str
-    refund_status: Payment.RefundStatus | None = None
-
-
-class CancellationBlockedErrorSchema(Schema):
-    """Error body returned when cancellation is not permitted."""
-
-    code: models.ticket.CancellationBlockReason
-    detail: str
-
-
-class AdminCancelTicketSchema(Schema):
-    """Optional payload for the admin cancel endpoint."""
-
-    cancellation_reason: StrippedString | None = Field(default=None, max_length=500)
-
-
-class AdminRefundTicketSchema(AdminCancelTicketSchema):
-    """Optional payload for the admin mark-refunded endpoint."""
-
-    refund_amount: Decimal | None = Field(
-        default=None,
-        ge=0,
-        description="Explicit amount refunded. Defaults to the amount paid when omitted.",
-    )
-
-
-# ---- TicketTier Schemas for Admin CRUD ----
-
-# The per-seat-category price map (``{price_category_id: decimal-string}``).
-#
-# Deliberately typed as an opaque JSON object rather than ``dict[UUID4, Decimal]``:
-# pydantic would coerce a JSON float such as ``50.0`` into a Decimal and silently
-# persist binary-float money. The map is passed through untouched and validated in
-# exactly one place — ``events.utils.tier_pricing.parse_price_map``, reached from
-# ``TicketTier.clean()`` — which rejects floats and bools outright. Malformed input
-# therefore surfaces as a Django ``ValidationError`` mapped to HTTP 400, never a 500
-# and never a silent coercion.
-CategoryPriceMap = dict[str, t.Any]
-
-
-class TicketTierPriceValidationMixin(Schema):
-    payment_method: TicketTier.PaymentMethod = TicketTier.PaymentMethod.OFFLINE
-    price: Decimal = Field(default=Decimal("0"), ge=0)
-
-    @model_validator(mode="after")
-    def validate_minimum_price(self) -> t.Self:
-        """Validate the minimum price for ONLINE payments."""
-        if self.payment_method == TicketTier.PaymentMethod.ONLINE and self.price < Decimal("1"):
-            raise ValueError("Minimum price for ONLINE payments should be at least 1.")
-        return self
-
-
-class TicketTierCreateSchema(TicketTierPriceValidationMixin):
-    name: OneToOneFiftyString
-    description: StrippedString | None = None
-    visibility: TicketTier.Visibility = TicketTier.Visibility.PUBLIC
-    purchasable_by: TicketTier.PurchasableBy = TicketTier.PurchasableBy.PUBLIC
-    restrict_visibility_to_linked_invitations: bool = False
-    restrict_purchase_to_linked_invitations: bool = False
-    price_type: TicketTier.PriceType = TicketTier.PriceType.FIXED
-    pwyc_min: Decimal = Field(default=Decimal("1"), ge=1)
-    pwyc_max: Decimal | None = Field(None, ge=1)
-    vat_rate: Decimal | None = Field(None, ge=0, le=100, description="VAT rate override. Null = use org default.")
-
-    currency: Currencies = Field(default="EUR", max_length=3)
-    sales_start_at: AwareDatetime | None = None
-    sales_end_at: AwareDatetime | None = None
-    total_quantity: int | None = None
-    restricted_to_membership_tiers_ids: list[UUID4] | None = None
-    manual_payment_instructions: StrippedString | None = None
-
-    # Venue/seating configuration
-    seat_assignment_mode: TicketTier.SeatAssignmentMode = TicketTier.SeatAssignmentMode.NONE
-    max_tickets_per_user: int | None = None
-    venue_id: UUID | None = None
-    sector_id: UUID | None = None
-    category_prices: CategoryPriceMap | None = Field(
-        default=None,
-        description=(
-            "Per-seat-category prices for seated tiers: {price_category_id: decimal-string}. "
-            "For user-choice tiers every painted category must be priced; for best-available the "
-            "keys define the tier's sellable zones (partial coverage is allowed). "
-            "Omitted or null leaves the map at its default (empty); an empty object clears it; a "
-            "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
-            "JSON floats are rejected, because binary floats cannot represent money."
-        ),
-    )
-
-    # None (or omitted) means "append at the bottom"; an explicit value pins the position (#514).
-    display_order: int | None = None
-
-    allow_user_cancellation: bool = False
-    cancellation_deadline_hours: int | None = Field(default=None, ge=0)
-    refund_policy: RefundPolicySchema | None = None
-
-    @model_validator(mode="after")
-    def validate_pwyc_fields(self) -> t.Self:
-        """Validate PWYC fields consistency."""
-        if self.price_type == TicketTier.PriceType.PWYC:
-            if self.pwyc_max and self.pwyc_max < self.pwyc_min:
-                raise ValueError("PWYC maximum must be greater than or equal to minimum.")
-        return self
-
-    @model_validator(mode="after")
-    def validate_seat_assignment_requires_sector(self) -> t.Self:
-        """Validate that each seat assignment mode comes with the field it reads."""
-        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE and self.sector_id is None:
-            raise ValueError("A sector is required when seat assignment mode is BEST_AVAILABLE.")
-        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.USER_CHOICE and self.sector_id is None:
-            raise ValueError("A sector is required when seat assignment mode is USER_CHOICE.")
-        return self
-
-
-class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
-    name: OneToOneFiftyString | None = None
-    description: StrippedString | None = None
-    visibility: TicketTier.Visibility | None = None
-    purchasable_by: TicketTier.PurchasableBy | None = None
-    restrict_visibility_to_linked_invitations: bool | None = None
-    restrict_purchase_to_linked_invitations: bool | None = None
-    price_type: TicketTier.PriceType | None = None
-    pwyc_min: Decimal | None = Field(None, ge=1)
-    pwyc_max: Decimal | None = Field(None, ge=1)
-    vat_rate: Decimal | None = Field(None, ge=0, le=100, description="VAT rate override. Null = use org default.")
-    currency: Currencies | None = None
-    sales_start_at: AwareDatetime | None = None
-    sales_end_at: AwareDatetime | None = None
-    total_quantity: int | None = None
-    restricted_to_membership_tiers_ids: list[UUID4] | None = None
-    manual_payment_instructions: StrippedString | None = None
-
-    # Venue/seating configuration
-    seat_assignment_mode: TicketTier.SeatAssignmentMode | None = None
-    max_tickets_per_user: int | None = None
-    venue_id: UUID | None = None
-    sector_id: UUID | None = None
-    category_prices: CategoryPriceMap | None = Field(
-        default=None,
-        description=(
-            "Per-seat-category prices for seated tiers: {price_category_id: decimal-string}. "
-            "For user-choice tiers every painted category must be priced; for best-available the "
-            "keys define the tier's sellable zones (partial coverage is allowed). "
-            "Omitted or null leaves the existing map untouched; an empty object clears it; a "
-            "non-empty object replaces it wholesale. Prices must be decimal strings or integers — "
-            "JSON floats are rejected, because binary floats cannot represent money."
-        ),
-    )
-
-    display_order: int | None = None
-
-    allow_user_cancellation: bool | None = None
-    cancellation_deadline_hours: int | None = Field(default=None, ge=0)
-    refund_policy: RefundPolicySchema | None = None
-
-    @model_validator(mode="after")
-    def validate_pwyc_fields(self) -> t.Self:
-        """Validate PWYC fields consistency."""
-        if self.price_type == TicketTier.PriceType.PWYC:
-            if self.pwyc_max and self.pwyc_min and self.pwyc_max < self.pwyc_min:
-                raise ValueError("PWYC maximum must be greater than or equal to minimum.")
-        return self
-
-    @model_validator(mode="after")
-    def validate_seat_assignment_requires_sector(self) -> t.Self:
-        """Validate that a mode being explicitly set comes with the field it reads."""
-        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE and self.sector_id is None:
-            raise ValueError("A sector is required when seat assignment mode is BEST_AVAILABLE.")
-        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.USER_CHOICE and self.sector_id is None:
-            raise ValueError("A sector is required when seat assignment mode is USER_CHOICE.")
-        return self
-
-
-class TicketTierDetailSchema(ModelSchema):
-    event_id: UUID
-    total_available: int | None = None
-    restricted_to_membership_tiers: list[MembershipTierSchema] | None = None
-    seat_assignment_mode: TicketTier.SeatAssignmentMode
-    max_tickets_per_user: int | None = None
-    venue: VenueSchema | None = None
-    sector: VenueSectorSchema | None = None
-    vat_rate: Decimal | None = None
-    invoicing_available: bool = False
-    refund_policy: RefundPolicySchema | None = None
-    category_prices: CategoryPriceMap = Field(default_factory=dict)
-    pricing_gaps: list[TierPricingGapSchema] = Field(default_factory=list)
-
-    class Meta:
-        model = TicketTier
-        fields = [
-            "id",
-            "name",
-            "description",
-            "visibility",
-            "payment_method",
-            "purchasable_by",
-            "restrict_visibility_to_linked_invitations",
-            "restrict_purchase_to_linked_invitations",
-            "price",
-            "price_type",
-            "pwyc_min",
-            "pwyc_max",
-            "currency",
-            "sales_start_at",
-            "sales_end_at",
-            "created_at",
-            "updated_at",
-            "total_quantity",
-            "quantity_sold",
-            "manual_payment_instructions",
-            "restricted_to_membership_tiers",
-            "seat_assignment_mode",
-            "max_tickets_per_user",
-            "display_order",
-            "vat_rate",
-            "allow_user_cancellation",
-            "cancellation_deadline_hours",
-        ]
-
-    @staticmethod
-    def resolve_invoicing_available(obj: TicketTier) -> bool:
-        """True when the org has attendee invoicing enabled and this tier uses online payment."""
-        org = obj.event.organization if obj.event else None
-        if not org:
-            return False
-        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
-            models.Organization.InvoicingMode.HYBRID,
-            models.Organization.InvoicingMode.AUTO,
-        )
-
-    @staticmethod
-    def resolve_pricing_gaps(obj: TicketTier) -> list[TierPricingGapSchema]:
-        """Categories painted in the tier's sector that the map does not price.
-
-        **User-choice tiers only.** For best-available the map keys define the tier's
-        sellable zones, so a painted category the map omits is not a gap — it is simply
-        not a zone of this tier, and reporting it would be a permanent false alarm.
-
-        A configuration error only the organizer can fix: write-time validation demands
-        full coverage, but ``paint_seats`` is venue-scoped and deliberately never fails
-        (spec §4.3), so a repaint at the venue level can leave an already-saved tier
-        under-covered. Checkout then refuses those seats. Nothing else tells the admin,
-        so the tier form warns from this field.
-
-        Computed, never stored — a stored flag would desync on the next repaint.
-
-        # ponytail: one query per *category-priced* tier on the admin tier list (flat
-        # tiers cost nothing). An event has a handful of tiers, so this is well under
-        # the noise floor; if that ever changes, prefetch the sectors' painted
-        # categories once in ``list_ticket_tiers`` and resolve from that map.
-        """
-        if obj.seat_assignment_mode != TicketTier.SeatAssignmentMode.USER_CHOICE:
-            return []
-        price_map = parse_price_map(obj.category_prices)
-        if not price_map:
-            return []
-        gaps = painted_categories(obj.sector_id).exclude(id__in=list(price_map)).order_by("display_order", "name")
-        return [TierPricingGapSchema(id=c.id, name=c.name, color=c.color) for c in gaps]
-
-
-class ReorderSchema(Schema):
-    tier_ids: list[UUID]
-
-
-# --- Stripe Schemas ---
-
-# StripeOnboardingLinkSchema and StripeAccountStatusSchema live in common.schema
-# (shared with accounts/referral). Re-exported here for backwards compatibility.
-from common.schema import StripeAccountStatusSchema as StripeAccountStatusSchema  # noqa: F401, E402
-from common.schema import StripeOnboardingLinkSchema as StripeOnboardingLinkSchema  # noqa: F401, E402
-
-
-class StripeCheckoutSessionSchema(Schema):
-    checkout_url: str
-
-
-class PWYCCheckoutPayloadSchema(Schema):
-    """Schema for Pay What You Can checkout payload."""
-
-    pwyc: Decimal = Field(..., ge=1, description="Pay what you can amount, minimum 1")
-
-
-# ---- Batch Checkout Schemas ----
-
-
-class TicketPurchaseItem(Schema):
-    """Single ticket item in a batch purchase."""
-
-    guest_name: StrippedString = Field(..., min_length=1, max_length=255, description="Name of the ticket holder")
-    seat_id: UUID | None = Field(default=None, description="Seat ID for USER_CHOICE seat assignment mode")
-
-
-class BuyerBillingInfoSchema(Schema):
-    """Buyer billing info for attendee invoicing at checkout."""
-
-    billing_name: str = Field(..., min_length=1, max_length=255)
-    vat_id: str = Field("", max_length=20)
-    vat_country_code: str = Field("", max_length=2)
-    billing_address: str = ""
-    billing_email: str = ""
-    save_to_profile: bool = False
-
-    @field_validator("vat_country_code")
-    @classmethod
-    def validate_vat_country_code(cls, v: str) -> str:
-        """Validate ISO 3166-1 alpha-2 country code or allow empty."""
-        return validate_country_code(v) or ""
-
-    @field_validator("billing_email")
-    @classmethod
-    def validate_billing_email(cls, v: str) -> str:
-        """Allow empty string but reject invalid emails."""
-        if v:
-            from pydantic import TypeAdapter
-
-            TypeAdapter(EmailStr).validate_python(v)
-        return v
-
-
-class VATPreviewItemSchema(Schema):
-    """Single item in a VAT preview request."""
-
-    tier_id: UUID
-    count: int = Field(..., ge=1)
-    price_category_id: UUID | None = Field(
-        default=None,
-        description=(
-            "Zone the best-available picker draws from: a price category painted in the tier's "
-            "sector and priced by its `category_prices` map. Null = the tier's whole pool."
-        ),
-    )
-    seat_ids: list[UUID] = Field(
-        default_factory=list,
-        description=(
-            "Seats chosen for this line, in cart order. Required to preview a tier that prices "
-            "seats per category — without it the preview charges the tier's flat price for every "
-            "ticket and will disagree with checkout. Omit for general admission. When present it "
-            "must hold exactly `count` ids."
-        ),
-    )
-
-    @model_validator(mode="after")
-    def validate_seat_ids_cover_the_line(self) -> "VATPreviewItemSchema":
-        """Partial seat context is refused: it would silently under-price the uncovered tickets."""
-        if self.seat_ids and len(self.seat_ids) != self.count:
-            raise ValueError("seat_ids must contain exactly `count` entries when provided.")
-        return self
-
-
-class VATPreviewRequestSchema(Schema):
-    """Request payload for the VAT preview endpoint."""
-
-    billing_info: BuyerBillingInfoSchema
-    items: list[VATPreviewItemSchema] = Field(..., min_length=1)
-    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
-    price_per_ticket: Decimal | None = Field(None, ge=1, description="PWYC price override")
-
-
-class VATPreviewLineItemSchema(Schema):
-    """Line item in a VAT preview response.
-
-    **One line per distinct unit price**, not per requested tier: a cart mixing price
-    categories has no single ``unit_price_gross``, and collapsing it to one would be the
-    exact number the buyer is not charged. A tier whose seats all cost the same — every
-    tier without a category map — still yields exactly one line, unchanged.
-    """
-
-    tier_name: str
-    price_category_name: str | None = Field(
-        default=None,
-        description=(
-            "The price category this line's seats are painted with. Null for general admission, "
-            "unpainted seats, and any tier without a category map."
-        ),
-    )
-    ticket_count: int
-    unit_price_gross: Decimal
-    unit_price_net: Decimal
-    unit_vat: Decimal
-    vat_rate: Decimal
-    line_net: Decimal
-    line_vat: Decimal
-    line_gross: Decimal
-
-
-class VATPreviewResponseSchema(Schema):
-    """Response from the VAT preview endpoint."""
-
-    vat_id_valid: bool | None = None
-    vat_id_validation_error: str | None = None
-    reverse_charge: bool
-    line_items: list[VATPreviewLineItemSchema]
-    total_net: Decimal
-    total_vat: Decimal
-    total_gross: Decimal
-    currency: str
-
-
-class BatchCheckoutPayload(Schema):
-    """Payload for batch ticket checkout (authenticated users)."""
-
-    tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
-    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
-    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
-    price_category_id: UUID | None = Field(
-        default=None,
-        description=(
-            "Zone the best-available picker draws from: a price category painted in the tier's "
-            "sector and priced by its `category_prices` map. Null = the tier's whole pool."
-        ),
-    )
-
-
-class BatchCheckoutPWYCPayload(BatchCheckoutPayload):
-    """Payload for batch PWYC ticket checkout."""
-
-    price_per_ticket: Decimal = Field(..., ge=1, description="Pay what you can amount per ticket (same for all)")
-
-
-class BatchCheckoutResponse(Schema):
-    """Response for batch checkout operations."""
-
-    checkout_url: str | None = Field(None, description="Stripe checkout URL (for online payment)")
-    tickets: list[UserTicketSchema] = Field(
-        default_factory=list, description="Created tickets (for free/offline payments)"
-    )
-    reservation_id: UUID | None = Field(
-        default=None, description="Reservation handle; POST it to the checkout-session endpoint to get the Stripe URL"
-    )
-    requires_payment: bool = Field(
-        default=False,
-        description="True for online tiers: call the checkout-session endpoint next. False = already complete.",
-    )
-
-
-class CheckoutSessionResponse(Schema):
-    """Response of the checkout-session endpoint: the Stripe URL to redirect to."""
-
-    checkout_url: str = Field(..., description="Stripe checkout URL")
-
-
-# ---- Guest User Schemas ----
-
-
-class GuestUserDataSchema(Schema):
-    """Base schema for guest user data (no authentication required)."""
-
-    email: EmailStr
-    first_name: StrippedString = Field(..., min_length=1, max_length=150, description="Guest user's first name")
-    last_name: StrippedString = Field(..., min_length=1, max_length=150, description="Guest user's last name")
-
-
-class GuestPWYCCheckoutSchema(GuestUserDataSchema):
-    """Schema for guest PWYC ticket checkout."""
-
-    pwyc: Decimal = Field(..., ge=1, description="Pay what you can amount, minimum 1")
-
-
-class GuestBatchCheckoutPayload(GuestUserDataSchema):
-    """Payload for batch checkout by guest (unauthenticated) users."""
-
-    tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
-    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
-    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
-    accessible_required: bool = Field(
-        default=False,
-        description="Request accessible seating for the whole checkout (BEST_AVAILABLE assignment "
-        "picks from the accessible pool)",
-    )
-    price_category_id: UUID | None = Field(
-        default=None,
-        description=(
-            "Zone the best-available picker draws from: a price category painted in the tier's "
-            "sector and priced by its `category_prices` map. Null = the tier's whole pool."
-        ),
-    )
-
-
-class GuestBatchCheckoutPWYCPayload(GuestBatchCheckoutPayload):
-    """Payload for batch PWYC checkout by guest users."""
-
-    price_per_ticket: Decimal = Field(..., ge=1, description="Pay what you can amount per ticket (same for all)")
-
-
-class GuestActionResponseSchema(Schema):
-    """Response after guest action initiated (RSVP or non-online-payment ticket)."""
-
-    message: str = Field(default="Please check your email to confirm your action")
-
-
-class GuestCheckoutResponseSchema(Schema):
-    """Combined response for guest checkout - either email confirmation or Stripe checkout."""
-
-    # For non-online payments (email confirmation)
-    message: str | None = Field(None, description="Confirmation message (for non-online payments)")
-    # For online payments (Stripe checkout)
-    checkout_url: str | None = Field(None, description="Stripe checkout URL (for online payment)")
-    tickets: list[UserTicketSchema] = Field(
-        default_factory=list,
-        description="Created tickets (only present after guest email confirmation for free/offline payments)",
-    )
-    reservation_id: UUID | None = Field(
-        default=None, description="Reservation handle; POST it to the checkout-session endpoint to get the Stripe URL"
-    )
-    requires_payment: bool = Field(
-        default=False,
-        description="True for online tiers: call the checkout-session endpoint next. False = already complete.",
-    )
-
-
-class GuestActionConfirmSchema(Schema):
-    """Request to confirm a guest action via JWT token."""
-
-    token: str = Field(..., description="JWT token from confirmation email")
-
-
-# ---- Guest JWT Payload Schemas (for email confirmation tokens) ----
-
-
-class GuestRSVPJWTPayloadSchema(BaseEmailJWTPayloadSchema):
-    """JWT payload for guest RSVP confirmation."""
-
-    type: t.Literal["guest_rsvp"] = "guest_rsvp"
-    event_id: UUID4
-    answer: t.Literal["yes", "no", "maybe"]
-    note: str = Field(default="", max_length=500)
-
-
-class GuestTicketItemPayload(Schema):
-    """Ticket item info stored in JWT payload for guest checkout confirmation."""
-
-    guest_name: str
-    seat_id: UUID4 | None = None
-
-
-class GuestTicketJWTPayloadSchema(BaseEmailJWTPayloadSchema):
-    """JWT payload for guest ticket purchase confirmation.
-
-    Only used for non-online-payment tickets (free/offline/at-the-door).
-    Online payment tickets go directly to Stripe without email confirmation.
-    """
-
-    type: t.Literal["guest_ticket"] = "guest_ticket"
-    event_id: UUID4
-    tier_id: UUID4
-    pwyc_amount: Decimal | None = None
-    discount_code: str | None = None
-    tickets: list[GuestTicketItemPayload] = Field(default_factory=list)
-    # Optional with default so legacy tokens minted before #726 keep validating.
-    accessible_required: bool = False
-    # Same reason: the best-available zone claim is absent from pre-v3 tokens.
-    price_category_id: UUID4 | None = None
-    # Hold-owner session captured at checkout; legacy/no-hold tokens carry None
-    # and the confirm-time request cookie is used as a fallback.
-    guest_session: str | None = None
-
-
-# Discriminated union for guest action payloads
-from pydantic import Discriminator, Tag  # noqa: E402
-
-GuestActionPayload = t.Annotated[
-    t.Union[
-        t.Annotated[GuestRSVPJWTPayloadSchema, Tag("guest_rsvp")],
-        t.Annotated[GuestTicketJWTPayloadSchema, Tag("guest_ticket")],
-    ],
-    Discriminator("type"),
+"""Ticket, payment, and checkout schemas.
+
+The definitions live in focused modules — ``ticket_tier``, ``ticket_detail``,
+``ticket_cancellation``, ``checkout``, ``vat_preview`` and ``guest_checkout`` — and are
+re-exported here so ``events.schema.ticket.X`` keeps resolving to the same object.
+"""
+
+from .checkout import (
+    BatchCheckoutPayload,
+    BatchCheckoutPWYCPayload,
+    BatchCheckoutResponse,
+    BuyerBillingInfoSchema,
+    CheckoutSessionResponse,
+    PWYCCheckoutPayloadSchema,
+    StripeAccountStatusSchema,
+    StripeCheckoutSessionSchema,
+    StripeOnboardingLinkSchema,
+    TicketPurchaseItem,
+)
+from .guest_checkout import (
+    GuestActionConfirmSchema,
+    GuestActionPayload,
+    GuestActionResponseSchema,
+    GuestBatchCheckoutPayload,
+    GuestBatchCheckoutPWYCPayload,
+    GuestCheckoutResponseSchema,
+    GuestPWYCCheckoutSchema,
+    GuestRSVPJWTPayloadSchema,
+    GuestTicketItemPayload,
+    GuestTicketJWTPayloadSchema,
+    GuestUserDataSchema,
+)
+from .ticket_cancellation import (
+    AdminCancelTicketSchema,
+    AdminRefundTicketSchema,
+    CancellationBlockedErrorSchema,
+    CancellationPreviewSchema,
+    RefundWindowSchema,
+    TicketCancellationRequestSchema,
+    TicketCancellationResponseSchema,
+)
+from .ticket_detail import (
+    AdminTicketSchema,
+    CheckInRequestSchema,
+    CheckInResponseSchema,
+    ConfirmPaymentSchema,
+    MinimalPaymentSchema,
+    PaymentSchema,
+    TicketDiscountCodeSchema,
+    TicketSeriesPassSchema,
+    UserTicketSchema,
+)
+from .ticket_tier import (
+    CategoryPriceMap,
+    Currencies,
+    RefundPolicySchema,
+    RefundPolicyTierSchema,
+    ReorderSchema,
+    TicketTierCreateSchema,
+    TicketTierDetailSchema,
+    TicketTierPriceValidationMixin,
+    TicketTierSchema,
+    TicketTierUpdateSchema,
+    TierCategoryPriceSchema,
+    TierSeatPricingSchema,
+)
+from .vat_preview import (
+    VATPreviewItemSchema,
+    VATPreviewLineItemSchema,
+    VATPreviewRequestSchema,
+    VATPreviewResponseSchema,
+)
+
+__all__ = [
+    "AdminCancelTicketSchema",
+    "AdminRefundTicketSchema",
+    "AdminTicketSchema",
+    "BatchCheckoutPWYCPayload",
+    "BatchCheckoutPayload",
+    "BatchCheckoutResponse",
+    "BuyerBillingInfoSchema",
+    "CancellationBlockedErrorSchema",
+    "CancellationPreviewSchema",
+    "CategoryPriceMap",
+    "CheckInRequestSchema",
+    "CheckInResponseSchema",
+    "CheckoutSessionResponse",
+    "ConfirmPaymentSchema",
+    "Currencies",
+    "GuestActionConfirmSchema",
+    "GuestActionPayload",
+    "GuestActionResponseSchema",
+    "GuestBatchCheckoutPWYCPayload",
+    "GuestBatchCheckoutPayload",
+    "GuestCheckoutResponseSchema",
+    "GuestPWYCCheckoutSchema",
+    "GuestRSVPJWTPayloadSchema",
+    "GuestTicketItemPayload",
+    "GuestTicketJWTPayloadSchema",
+    "GuestUserDataSchema",
+    "MinimalPaymentSchema",
+    "PWYCCheckoutPayloadSchema",
+    "PaymentSchema",
+    "RefundPolicySchema",
+    "RefundPolicyTierSchema",
+    "RefundWindowSchema",
+    "ReorderSchema",
+    "StripeAccountStatusSchema",
+    "StripeCheckoutSessionSchema",
+    "StripeOnboardingLinkSchema",
+    "TicketCancellationRequestSchema",
+    "TicketCancellationResponseSchema",
+    "TicketDiscountCodeSchema",
+    "TicketPurchaseItem",
+    "TicketSeriesPassSchema",
+    "TicketTierCreateSchema",
+    "TicketTierDetailSchema",
+    "TicketTierPriceValidationMixin",
+    "TicketTierSchema",
+    "TicketTierUpdateSchema",
+    "TierCategoryPriceSchema",
+    "TierSeatPricingSchema",
+    "UserTicketSchema",
+    "VATPreviewItemSchema",
+    "VATPreviewLineItemSchema",
+    "VATPreviewRequestSchema",
+    "VATPreviewResponseSchema",
 ]
