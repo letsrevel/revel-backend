@@ -445,12 +445,6 @@ class TestPaintAffectedTierReport:
 
         assert _paint(venue, [seat], standard).affected_tiers == []
 
-    @pytest.mark.xfail(
-        reason="v3 Task A removed TicketTier.price_category: a best-available tier now prices "
-        "through category_prices, so a repaint CAN reprice it and the report must widen to "
-        "cover it. Widening affected_tiers to both seated modes is Task C (paint report).",
-        strict=True,
-    )
     def test_best_available_tier_is_reported(
         self,
         venue: Venue,
@@ -461,18 +455,77 @@ class TestPaintAffectedTierReport:
     ) -> None:
         """v3 inverts this: both seated modes read the map, so both are repriceable by a paint."""
         seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=standard)
-        TicketTier.objects.create(
-            event=seated_venue_event,
+        _make_tier(
+            seated_venue_event,
+            venue,
+            sector,
+            prices={standard: str(FLAT)},
             name="Best",
-            price=FLAT,
-            payment_method=TicketTier.PaymentMethod.OFFLINE,
-            venue=venue,
-            sector=sector,
-            category_prices={str(standard.id): str(FLAT)},
-            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
         )
 
         assert _paint(venue, [seat], balcony).affected_tiers != []
+
+    def test_best_available_tier_reprices_like_a_user_choice_one(
+        self,
+        venue: Venue,
+        sector: VenueSector,
+        category: PriceCategory,
+        standard: PriceCategory,
+        seated_venue_event: Event,
+    ) -> None:
+        """A move between two zones the map prices is the silent case the report exists for."""
+        seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
+        tier = _make_tier(
+            seated_venue_event,
+            venue,
+            sector,
+            prices={category: str(PREMIUM_PRICE), standard: str(STANDARD_PRICE)},
+            name="Best",
+            mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        )
+
+        reported = _paint(venue, [seat], standard).affected_tiers
+
+        assert [r.tier_id for r in reported] == [tier.id]
+        assert [(c.seat_count, c.from_price, c.to_price) for c in reported[0].price_changes] == [
+            (1, PREMIUM_PRICE, STANDARD_PRICE)
+        ]
+
+    def test_best_available_partial_map_reports_no_missing_categories(
+        self,
+        venue: Venue,
+        sector: VenueSector,
+        category: PriceCategory,
+        balcony: PriceCategory,
+        gallery: PriceCategory,
+        seated_venue_event: Event,
+    ) -> None:
+        """The map keys *are* the tier's zones, so a category it never priced is not a gap.
+
+        Same rule as ``resolve_pricing_gaps`` and write-time validation: advising an
+        organizer to price a category they deliberately left out of the pool would be a
+        permanent false alarm on every paint of that sector.
+        """
+        priced_seat = VenueSeat.objects.create(sector=sector, label="A1", default_price_category=category)
+        drifting = VenueSeat.objects.create(sector=sector, label="A2", default_price_category=balcony)
+        _make_tier(
+            seated_venue_event,
+            venue,
+            sector,
+            prices={category: str(PREMIUM_PRICE)},
+            name="Best",
+            mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        )
+
+        # Moving between two unpriced categories touches neither the pool nor the money.
+        assert _paint(venue, [drifting], gallery).affected_tiers == []
+        # Leaving the pool is still reported — as a price change, never as a gap.
+        reported = _paint(venue, [priced_seat], gallery).affected_tiers
+        assert reported[0].missing_categories == []
+        assert [(c.seat_count, c.from_price, c.to_price) for c in reported[0].price_changes] == [
+            (1, PREMIUM_PRICE, None)
+        ]
 
     def test_past_event_is_not_reported(
         self,
