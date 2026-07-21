@@ -317,18 +317,53 @@ def test_integer_price_is_accepted(
     assert TicketTier.objects.get(pk=response.json()["id"]).category_prices == payload_map
 
 
-def test_missing_painted_category_is_rejected_naming_it(
-    organization_owner_client: Client, event: Event, sector: VenueSector, premium: PriceCategory
+def test_missing_painted_category_is_accepted_and_reported_as_a_gap(
+    organization_owner_client: Client,
+    event: Event,
+    sector: VenueSector,
+    premium: PriceCategory,
+    standard: PriceCategory,
 ) -> None:
-    """The §4.3 coverage rule surfaces as a 400 naming the unpriced categories."""
+    """Coverage is advisory: the tier saves, and the same response names what it misses.
+
+    Refusing here never prevented the uncovered state (a venue-wide paint creates it and
+    cannot be blocked) — it only blocked the organizer's next write.
+    """
     response = post_tier(
         organization_owner_client, event, create_payload(sector, category_prices={str(premium.pk): "50.00"})
     )
 
-    assert response.status_code == 400, response.json()
-    message = response.json()["errors"]["category_prices"][0]
-    assert "Standard" in message
-    assert "must be priced" in message
+    assert response.status_code == 200, response.json()
+    assert response.json()["pricing_gaps"] == [{"id": str(standard.pk), "name": "Standard", "color": "#0000aa"}]
+
+
+def test_best_available_zone_painted_nowhere_is_accepted_and_reported_as_unsellable(
+    organization_owner_client: Client,
+    event: Event,
+    venue: Venue,
+    sector: VenueSector,
+    premium: PriceCategory,
+) -> None:
+    """The converse condition — priced but unpainted — has to reach the admin too.
+
+    ``resolve_requested_zone`` accepts the key and the picker then finds an empty pool, so
+    without this field every buyer choosing that zone gets an unexplained 409.
+    """
+    balcony = PriceCategory.objects.create(venue=venue, name="Balcony", color="#00aa00")
+    response = post_tier(
+        organization_owner_client,
+        event,
+        create_payload(
+            sector,
+            seat_assignment_mode="best_available",
+            category_prices={str(premium.pk): "50.00", str(balcony.pk): "20.00"},
+        ),
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["unsellable_zones"] == [{"id": str(balcony.pk), "name": "Balcony", "color": "#00aa00"}]
+    # And not the false alarm: Standard is painted but unpriced, which is this mode's feature.
+    assert response.json()["pricing_gaps"] == []
 
 
 def test_unknown_category_is_rejected_with_400(

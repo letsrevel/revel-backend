@@ -470,6 +470,20 @@ class TierPricingGapSchema(Schema):
     color: str
 
 
+class TierUnsellableZoneSchema(Schema):
+    """The converse of a pricing gap: a zone the tier prices that no live seat carries.
+
+    Best-available only, and never the same condition as ``TierPricingGapSchema`` —
+    a *painted-but-unpriced* category is that tier's deliberate scoping, while a
+    *priced-but-unpainted* one is a zone the buyer can select and the picker can never
+    fill, so every purchase of it 409s.
+    """
+
+    id: UUID
+    name: str
+    color: str
+
+
 class SeatPriceChangeSchema(Schema):
     """One before→after price move a paint caused on a tier, and how many seats made it.
 

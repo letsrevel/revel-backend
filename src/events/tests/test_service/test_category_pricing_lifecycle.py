@@ -240,6 +240,188 @@ class TestDuplicationCarriesTheMap:
         assert parse_price_map(occurrence_tier.category_prices) == {premium.id: PREMIUM, standard.id: STANDARD}
 
 
+class TestPaintNeverHostagesTheTier:
+    """A paint may leave a tier under-covered; it must never make writing to it fail.
+
+    ``paint_seats`` is venue-wide and always succeeds, so coverage is a state the tier's
+    own save does not control. While it *was* validated at save time, painting one seat
+    into an unpriced category broke every later write to that tier — including the ones
+    nobody asks for: ``duplicate_event`` (``TicketTier.objects.create`` runs
+    ``full_clean``) and, through it, background recurrence generation. Same shape as #743.
+    """
+
+    @pytest.fixture
+    def uncovered(self, tier: TicketTier, venue: Venue, seats: list[VenueSeat]) -> PriceCategory:
+        """Paint one seat of the tier's sector into a category the tier does not price."""
+        balcony = PriceCategory.objects.create(venue=venue, name="Balcony", color="#00aa00", display_order=2)
+        venue_service.paint_seats(
+            venue, schema.VenueSeatPaintSchema(seat_ids=[seats[1].id], price_category_id=balcony.id)
+        )
+        return balcony
+
+    def test_duplicating_an_event_works_after_an_unpriced_paint(
+        self, tier: TicketTier, seated_event: Event, uncovered: PriceCategory
+    ) -> None:
+        """The headline regression: a venue-wide paint must not break event duplication."""
+        new_event = duplicate_event(seated_event, "Second Night", timezone.now() + timedelta(days=30))
+
+        copy = new_event.ticket_tiers.get(name=tier.name)
+        assert copy.category_prices == tier.category_prices
+        assert copy.sector_id == tier.sector_id
+
+    def test_recurring_occurrence_generates_after_an_unpriced_paint(
+        self,
+        active_series: EventSeries,
+        venue: Venue,
+        sector: VenueSector,
+        premium: PriceCategory,
+        seats: list[VenueSeat],
+    ) -> None:
+        """The same failure in the background, where nobody would see the cause.
+
+        Occurrence generation runs from a Celery beat sweep, so a paint made for an
+        unrelated event could silently stop a series producing dates.
+        """
+        template = active_series.template_event
+        assert template is not None
+        template.venue = venue
+        template.save(update_fields=["venue"])
+        template.ticket_tiers.all().delete()
+        TicketTier.objects.create(
+            event=template,
+            name="Stalls",
+            price=FLAT,
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+            category_prices={str(premium.id): str(PREMIUM)},  # `standard` is painted but unpriced
+        )
+
+        occurrence = recurrence_service.materialize_occurrence(active_series, timezone.now() + timedelta(days=7), 1)
+
+        assert parse_price_map(occurrence.ticket_tiers.get(name="Stalls").category_prices) == {premium.id: PREMIUM}
+
+    def test_unrelated_tier_edit_still_saves(self, tier: TicketTier, uncovered: PriceCategory) -> None:
+        """Renaming a tier has nothing to do with the sector's paint, and must not read it."""
+        tier.name = "Stalls (renamed)"
+        tier.save()
+
+        tier.refresh_from_db()
+        assert tier.name == "Stalls (renamed)"
+
+    def test_checkout_still_refuses_the_unpriced_seat(
+        self, tier: TicketTier, seats: list[VenueSeat], uncovered: PriceCategory
+    ) -> None:
+        """The backstop that makes dropping the save-time rule safe: money is guarded at the till."""
+        seats[1].refresh_from_db()
+
+        with pytest.raises(HttpError) as exc_info:
+            pricing.resolve_seat_price(tier, seats[1], parse_price_map(tier.category_prices))
+
+        assert exc_info.value.status_code == 400
+        assert "Balcony" in str(exc_info.value)
+        # And only that seat — the priced zone keeps selling.
+        assert pricing.resolve_seat_price(tier, seats[0], parse_price_map(tier.category_prices)) == PREMIUM
+
+
+class TestUnsellableZonesAreReported:
+    """Priced-but-unpainted: the converse of a pricing gap, and best-available's real hazard.
+
+    ``resolve_requested_zone`` accepts any map key, ``load_candidates`` then intersects it
+    with the sector — so a zone painted on no live seat answers every buyer with a 409 and
+    no admin surface would otherwise explain it.
+    """
+
+    @pytest.fixture
+    def ba_tier(self, seated_event: Event, venue: Venue, sector: VenueSector, premium: PriceCategory) -> TicketTier:
+        return TicketTier.objects.create(
+            event=seated_event,
+            name="Premium Only",
+            price=FLAT,
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(premium.id): str(PREMIUM)},
+        )
+
+    def test_zone_painted_nowhere_in_the_sector_is_reported(
+        self, ba_tier: TicketTier, venue: Venue, seats: list[VenueSeat]
+    ) -> None:
+        """The condition the deleted save-time rule used to catch, now surfaced instead."""
+        balcony = PriceCategory.objects.create(venue=venue, name="Balcony", color="#00aa00", display_order=2)
+        ba_tier.category_prices = {**ba_tier.category_prices, str(balcony.id): str(STANDARD)}
+        ba_tier.save()
+
+        zones = schema.TicketTierDetailSchema.resolve_unsellable_zones(ba_tier)
+
+        assert [z.name for z in zones] == ["Balcony"]
+        assert zones[0].id == balcony.id
+
+    def test_an_unpaint_that_empties_a_zone_is_reported(
+        self, ba_tier: TicketTier, venue: Venue, seats: list[VenueSeat], premium: PriceCategory
+    ) -> None:
+        """The venue-wide operation can create the condition on an untouched tier."""
+        venue_service.paint_seats(venue, schema.VenueSeatPaintSchema(seat_ids=[seats[0].id], price_category_id=None))
+
+        assert [z.name for z in schema.TicketTierDetailSchema.resolve_unsellable_zones(ba_tier)] == ["Premium"]
+
+    def test_a_partial_map_is_never_reported(self, ba_tier: TicketTier, seats: list[VenueSeat]) -> None:
+        """The false alarm this must not resurrect: painted-but-unpriced is the mode's feature."""
+        assert schema.TicketTierDetailSchema.resolve_unsellable_zones(ba_tier) == []
+        assert schema.TicketTierDetailSchema.resolve_pricing_gaps(ba_tier) == []
+
+    def test_an_unpainted_sector_reports_nothing(
+        self, seated_event: Event, venue: Venue, sector: VenueSector, premium: PriceCategory
+    ) -> None:
+        """Prices before paint is a legal setup ordering — nothing contradicts the keys yet."""
+        VenueSeat.objects.create(sector=sector, label="C1", row_label="C", number=1)
+        ba = TicketTier.objects.create(
+            event=seated_event,
+            name="Premium Only",
+            price=FLAT,
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(premium.id): str(PREMIUM)},
+        )
+
+        assert schema.TicketTierDetailSchema.resolve_unsellable_zones(ba) == []
+
+    def test_user_choice_never_reports_unsellable_zones(
+        self, tier: TicketTier, sector: VenueSector, standard: PriceCategory
+    ) -> None:
+        """A user-choice buyer picks seats, not zones, so an unpainted key costs nobody a 409.
+
+        Pricing the venue's categories once and painting incrementally stays supported.
+        """
+        sector.seats.filter(default_price_category=standard).delete()
+
+        assert schema.TicketTierDetailSchema.resolve_unsellable_zones(tier) == []
+
+    def test_flat_and_unseated_tiers_report_nothing(
+        self, seated_event: Event, venue: Venue, sector: VenueSector, seats: list[VenueSeat]
+    ) -> None:
+        """No map, no zones — and an unseated tier has no sector to compare against."""
+        flat = TicketTier.objects.create(
+            event=seated_event,
+            name="Flat BA",
+            price=FLAT,
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        )
+        unseated = TicketTier.objects.create(
+            event=seated_event, name="GA", price=FLAT, payment_method=TicketTier.PaymentMethod.OFFLINE
+        )
+
+        assert schema.TicketTierDetailSchema.resolve_unsellable_zones(flat) == []
+        assert schema.TicketTierDetailSchema.resolve_unsellable_zones(unseated) == []
+
+
 class TestRepaintLifecycle:
     """Repainting never fails; the gap it can open surfaces at checkout and to the admin."""
 
