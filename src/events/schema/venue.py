@@ -479,10 +479,14 @@ class SeatPriceChangeSchema(Schema):
     Attributes:
         seat_count: Active seats in this paint that moved from ``from_price`` to ``to_price``.
         from_price: What each of those seats cost on this tier **before** the paint.
-            ``None`` means the seat was in a category the tier does not price, so checkout
-            was refusing it (spec §4.3) and there was no honest number.
-        to_price: What each now costs. ``None`` means checkout now refuses it — the paint
-            moved the seats into a category this tier has no price for.
+            ``None`` means the seat was in a category the tier does not price, so there was
+            no honest number — see ``to_price`` for what that means per seating mode.
+        to_price: What each now costs. ``None`` means the paint moved the seats into a
+            category this tier has no price for, which reads differently by seat-assignment
+            mode: on a **user_choice** tier the seat stays pickable but checkout refuses it
+            (spec §4.3), while on a **best_available** tier a partial map is legal and the
+            keys define the sellable zones — so the seat simply left the tier's pool and the
+            picker will never offer it again. Either way the tier can no longer sell it.
     """
 
     seat_count: int
