@@ -8,17 +8,14 @@ if t.TYPE_CHECKING:
 
 
 def convert_random_tiers(apps: "Apps", schema_editor: "BaseDatabaseSchemaEditor") -> None:
-    """Map removed RANDOM mode: BEST_AVAILABLE when a price category exists, else USER_CHOICE.
+    """Map the removed RANDOM mode onto USER_CHOICE.
 
-    Databases migrating from 0096 may hold legacy 'random' tier values. A
-    BEST_AVAILABLE tier without a price category would be unsellable
-    (load_candidates draws from the category's seat pool), so category-less
-    RANDOM tiers keep their sector semantics as USER_CHOICE.
+    Databases migrating from 0096 may hold legacy 'random' tier values. No deployed
+    row can carry a per-category price (category pricing lands in 0097, never before),
+    and a BEST_AVAILABLE tier with no priced categories would be unsellable, so every
+    legacy RANDOM tier keeps its sector semantics as USER_CHOICE.
     """
     TicketTier = apps.get_model("events", "TicketTier")
-    TicketTier.objects.filter(seat_assignment_mode="random", price_category__isnull=False).update(
-        seat_assignment_mode="best_available"
-    )
     TicketTier.objects.filter(seat_assignment_mode="random").update(seat_assignment_mode="user_choice")
 
 
