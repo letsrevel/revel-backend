@@ -175,4 +175,13 @@ class Migration(migrations.Migration):
             model_name='seathold',
             constraint=models.CheckConstraint(condition=models.Q(models.Q(('user__isnull', False), ('guest_session', '')), models.Q(('user__isnull', True), models.Q(('guest_session', ''), _negated=True)), _connector='OR'), name='seathold_exactly_one_owner'),
         ),
+        migrations.AddField(
+            model_name='payment',
+            name='incident_hold_at',
+            field=models.DateTimeField(blank=True, help_text='Evidence hold for a recorded money-correctness incident. While set, the payment expiry sweep retains this row; clear it once the incident is resolved to release the row back to the normal cleanup schedule.', null=True),
+        ),
+        migrations.AddIndex(
+            model_name='payment',
+            index=models.Index(condition=models.Q(('incident_hold_at__isnull', False)), fields=['incident_hold_at'], name='payment_incident_hold_idx'),
+        ),
     ]
