@@ -15,7 +15,7 @@ def _seated_tier(event: Event, seats: list[VenueSeat], *, paint: bool = True) ->
     """Create a best-available tier; paint the seats with its category unless paint=False."""
     venue = event.venue
     assert venue is not None
-    cat = PriceCategory.objects.create(venue=venue, name="Std", color="#00aa00")
+    cat = PriceCategory.objects.create(venue=venue, name="Orchestra", color="#00aa00")
     if paint:
         for s in seats:
             s.default_price_category = cat
@@ -214,7 +214,7 @@ def test_best_available_hold_400_without_a_zone(
     )
 
     assert resp.status_code == 400, resp.content
-    assert "Std" in resp.json()["detail"]  # the message names the sellable zones
+    assert "Orchestra" in resp.json()["detail"]  # the ZONE name, distinct from the tier name "Std"
 
 
 def test_best_available_hold_400_for_a_zone_the_tier_does_not_price(
@@ -233,4 +233,4 @@ def test_best_available_hold_400_for_a_zone_the_tier_does_not_price(
     )
 
     assert resp.status_code == 400, resp.content
-    assert "Std" in resp.json()["detail"]
+    assert "Orchestra" in resp.json()["detail"]
