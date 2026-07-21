@@ -223,7 +223,9 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         Painting always succeeds, but it is venue-scoped and takes effect immediately:
         it can change what buyers are charged on every event at this venue, or leave a
         user-choice tier without a price for a category now painted in its sector (checkout
-        refuses those seats). Both come back in ``affected_tiers`` (advisory).
+        refuses those seats). Both come back in ``affected_tiers`` (advisory). Unpainting can
+        also strand the converse — a best-available tier still pricing a zone no seat carries,
+        which 409s every buyer who picks it — reported in ``unsellable_zone_tiers``.
 
         Because that report is computed before the write, ``?preview=true`` returns exactly
         the same payload with nothing written — the same request, answered in advance.

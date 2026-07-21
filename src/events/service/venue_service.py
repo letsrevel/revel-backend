@@ -12,7 +12,7 @@ from ninja.errors import HttpError
 
 from events import models, schema
 from events.service.seating.chart import bump_chart_version
-from events.service.seating.paint_report import PriorPaint, affected_tiers
+from events.service.seating.paint_report import PriorPaint, build_report
 
 
 def _seat_model_kwargs(data: dict[str, t.Any]) -> dict[str, t.Any]:
@@ -705,11 +705,11 @@ def paint_seats(
 
     Painting always succeeds (spec §4.3): a venue-wide map operation must never be
     blocked by one event's pricing config. The consequence is reported instead —
-    see :func:`affected_tiers`.
+    see :func:`build_report`.
 
     Every input to the report is UPDATE-independent: the prior categories are captured
     before it (the UPDATE overwrites them), and the coverage state is *derived* rather
-    than re-read — see ``painted_seat_ids`` on :func:`affected_tiers`. So ``preview``
+    than re-read — see ``painted_seat_ids`` on :func:`build_report`. So ``preview``
     needs no second code path: it skips the one statement that writes, and everything
     else — validation, the 404, ``painted``, the report — is the same line of code
     producing the same value. A dry run that disagreed with the paint would have to be
@@ -723,7 +723,8 @@ def paint_seats(
     Returns:
         The number of seats painted (or that *would* be, under ``preview``), plus every
         live category-priced tier whose seat prices this changed or whose sector it left
-        partly unsellable.
+        partly unsellable, plus every best-available tier now pricing a zone the sector
+        cannot fill.
 
     Raises:
         HttpError: 400 if the category belongs to another venue, 404 if any seat
@@ -764,9 +765,11 @@ def paint_seats(
     if not preview:
         seats.update(default_price_category_id=payload.price_category_id, updated_at=timezone.now())
         venue.chart_version = bump_chart_version(venue.id)
+    report = build_report(sector_ids, prior, payload.price_category_id, seat_ids)
     return schema.SeatPaintResultSchema(
         painted=painted,
-        affected_tiers=affected_tiers(sector_ids, prior, payload.price_category_id, seat_ids),
+        affected_tiers=report.affected_tiers,
+        unsellable_zone_tiers=report.unsellable_zone_tiers,
     )
 
 
