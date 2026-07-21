@@ -25,10 +25,14 @@ class PriorPaint(t.NamedTuple):
 def _tier_seat_price(price_map: dict[UUID, Decimal], category_id: UUID | None, flat_price: Decimal) -> Decimal | None:
     """What one seat in ``category_id`` costs on a category-priced tier, or ``None``.
 
-    ``None`` is not "free": it is the reporting projection of
+    ``None`` is not "free": it means *this tier cannot sell that seat*. On a
+    ``user_choice`` tier that is the reporting projection of
     :func:`events.service.seating.pricing.resolve_seat_price`'s refusal — a seat painted
     into a category the tier does not price has no honest price, and checkout returns a 400
-    for it (spec §4.3). Same convention as ``TierCategoryPriceSchema.price``.
+    for it (spec §4.3). On a ``best_available`` tier the map keys *are* the tier's zones,
+    so ``None`` reads as "outside this tier's pool" instead; either way the seat stopped
+    (or started) being sellable at a price, which is what the report is advising about.
+    Same convention as ``TierCategoryPriceSchema.price``.
     """
     if category_id is not None and category_id not in price_map:
         return None
@@ -104,12 +108,20 @@ def affected_tiers(
     The two halves have deliberately different tenses:
 
     - ``price_changes`` is the **delta of this paint** — what it just did to the money.
+      Reported for **both** seated modes: since ``category_prices`` became the sole pricing
+      mechanism (v3), a ``best_available`` tier reads the paint exactly like a
+      ``user_choice`` one, so a repaint reprices its sales just as silently.
     - ``missing_categories`` is the tier's **current** gap, not the delta. A gap this paint
       did not open still leaves seats unsellable, and telling the admin "all clear" while
-      checkout keeps refusing seats is worse than saying nothing.
+      checkout keeps refusing seats is worse than saying nothing. **User-choice only**, for
+      the same reason ``TicketTierDetailSchema.resolve_pricing_gaps`` and
+      ``tier_pricing.validate_category_prices`` treat it that way: on a best-available tier
+      the map keys *define* the sellable zones, so a painted category the map omits is not
+      a gap — it is deliberately not part of this tier, and reporting it would be a
+      permanent false alarm on every paint.
 
-    Scope is deliberately narrow, because a warning that cries wolf gets ignored: only
-    ``USER_CHOICE`` tiers with a non-empty price map read the paint at all, and only events
+    Scope is otherwise deliberately narrow, because a warning that cries wolf gets ignored:
+    only seated tiers with a non-empty price map read the paint at all, and only events
     that have not ended and are not cancelled — nobody can sell those seats anyway. DRAFT
     events stay in: the event being configured right now is the most valuable warning.
 
@@ -134,7 +146,10 @@ def affected_tiers(
 
     tiers = list(
         models.TicketTier.objects.filter(
-            seat_assignment_mode=models.TicketTier.SeatAssignmentMode.USER_CHOICE,
+            seat_assignment_mode__in=(
+                models.TicketTier.SeatAssignmentMode.USER_CHOICE,
+                models.TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            ),
             sector_id__in=sector_ids,
             event__end__gte=timezone.now(),
         )
@@ -163,7 +178,13 @@ def affected_tiers(
             continue
         # sector_id is non-null by the filter above; the guard is for the type checker.
         sector_id = tier.sector_id
-        missing = (painted.get(sector_id, set()) if sector_id else set()) - price_map.keys()
+        # Best-available: the map keys are the tier's zones, so an unpriced painted
+        # category is not a gap (same rule as `resolve_pricing_gaps`) — only user-choice
+        # tiers can be under-covered.
+        if tier.seat_assignment_mode == models.TicketTier.SeatAssignmentMode.USER_CHOICE:
+            missing = (painted.get(sector_id, set()) if sector_id else set()) - price_map.keys()
+        else:
+            missing = set()
         changes = _price_changes(
             prior_by_sector.get(sector_id, []) if sector_id else [],
             price_map,

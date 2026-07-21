@@ -1139,6 +1139,27 @@ msgstr ""
 "Uno o più posti selezionati non sono validi o non si trovano nel settore "
 "corretto."
 
+msgid "This ticket tier is sold out."
+msgstr "Questo livello di biglietto è esaurito."
+
+#, python-brace-format
+msgid "Only {available} ticket(s) remaining for this tier."
+msgstr "Restano solo {available} biglietto/i per questo livello."
+
+msgid "This event is sold out."
+msgstr "Questo evento è esaurito."
+
+#, python-brace-format
+msgid "Only {available} spot(s) remaining for this event."
+msgstr "Restano solo {available} posto/i per questo evento."
+
+msgid "This sector is full."
+msgstr "Questo settore è al completo."
+
+#, python-brace-format
+msgid "Only {available} spot(s) remaining in this sector."
+msgstr "Restano solo {available} posto/i in questo settore."
+
 msgid "You are not allowed to purchase from this tier."
 msgstr "Non ti è consentito acquistare da questo livello."
 
@@ -1174,27 +1195,6 @@ msgstr "Impossibile assicurare posti adiacenti — riprova."
 
 msgid "Unknown seat assignment mode."
 msgstr "Modalità di assegnazione posti sconosciuta."
-
-msgid "This ticket tier is sold out."
-msgstr "Questo livello di biglietto è esaurito."
-
-#, python-brace-format
-msgid "Only {available} ticket(s) remaining for this tier."
-msgstr "Restano solo {available} biglietto/i per questo livello."
-
-msgid "This event is sold out."
-msgstr "Questo evento è esaurito."
-
-#, python-brace-format
-msgid "Only {available} spot(s) remaining for this event."
-msgstr "Restano solo {available} posto/i per questo evento."
-
-msgid "This sector is full."
-msgstr "Questo settore è al completo."
-
-#, python-brace-format
-msgid "Only {available} spot(s) remaining in this sector."
-msgstr "Restano solo {available} posto/i in questo settore."
 
 msgid "Unknown payment method."
 msgstr "Metodo di pagamento sconosciuto."
@@ -1816,12 +1816,11 @@ msgstr "La categoria di prezzo deve appartenere alla stessa sede dei posti."
 #, python-brace-format
 msgid ""
 "This price category is used by one or more ticket tiers and cannot be "
-"deleted: {tiers}. Reassign those tiers, or remove the category from their "
-"category prices, first."
+"deleted: {tiers}. Remove it from those tiers' category prices first."
 msgstr ""
 "Questa categoria di prezzo è utilizzata da uno o più tipi di biglietto e non "
-"può essere eliminata: {tiers}. Riassegna quei tipi di biglietto, oppure "
-"rimuovi prima la categoria dai loro prezzi per categoria."
+"può essere eliminata: {tiers}. Rimuovila prima dai prezzi per categoria di "
+"quei tipi di biglietto."
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La posizione del posto '{}' è al di fuori della forma del settore."
