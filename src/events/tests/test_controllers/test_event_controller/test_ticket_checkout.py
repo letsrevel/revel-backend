@@ -144,3 +144,89 @@ def test_ticket_checkout_without_a_zone_is_400(
     assert response.status_code == 400, response.content
     assert front.name in response.json()["detail"]
     assert not Ticket.objects.filter(event=event, user__username="member_user").exists()
+
+
+class TestAuthenticatedAccessibleRequest:
+    """An authenticated buyer must be able to ask for an accessible seat at checkout.
+
+    Guests could (``GuestBatchCheckoutPayload.accessible_required``, #726) while logged-in
+    buyers could not — they had to pre-hold through the hold route. That asymmetry is an
+    accessibility defect, not an ergonomic one: the buyer who most needs the seat had the
+    longest path to it.
+    """
+
+    def test_accessible_required_seats_the_buyer_in_the_accessible_pool(
+        self, member_client: Client, seated_event: tuple[Event, list[VenueSeat]]
+    ) -> None:
+        """The flag reaches the picker: the one accessible seat of the requested zone is assigned."""
+        event, seats = seated_event
+        tier, _front, back = _two_zone_tier(event, seats)
+        VenueSeat.objects.filter(id=seats[4].id).update(is_accessible=True)  # A5, in Back
+        url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+
+        response = member_client.post(
+            url,
+            data={
+                "tickets": [{"guest_name": "Wheelchair user"}],
+                "price_category_id": str(back.id),
+                "accessible_required": True,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        ticket = Ticket.objects.get(event=event, user__username="member_user")
+        assert ticket.seat is not None
+        assert ticket.seat.id == seats[4].id
+        assert ticket.seat.is_accessible is True
+
+    def test_exhausted_zone_accessible_pool_is_a_409_not_a_downgrade(
+        self, member_client: Client, seated_event: tuple[Event, list[VenueSeat]]
+    ) -> None:
+        """Front has no accessible seat; Back has one. Neither may rescue the request.
+
+        Silently handing back a non-accessible Front seat, or Back's accessible seat at
+        Front's price, both sell the buyer something they did not ask for — one unusable,
+        one mispriced. The distinct 409 is the only honest answer.
+        """
+        event, seats = seated_event
+        tier, front, _back = _two_zone_tier(event, seats)
+        VenueSeat.objects.filter(id=seats[4].id).update(is_accessible=True)  # A5, in Back
+        url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+
+        response = member_client.post(
+            url,
+            data={
+                "tickets": [{"guest_name": "Wheelchair user"}],
+                "price_category_id": str(front.id),
+                "accessible_required": True,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 409, response.content
+        assert "accessible" in response.json()["detail"]
+        assert not Ticket.objects.filter(event=event, user__username="member_user").exists()
+
+    def test_partially_exhausted_accessible_pool_is_a_409_for_the_whole_batch(
+        self, member_client: Client, seated_event: tuple[Event, list[VenueSeat]]
+    ) -> None:
+        """One accessible seat in the zone, two asked for: no partial fill, no mixed batch."""
+        event, seats = seated_event
+        tier, front, _back = _two_zone_tier(event, seats)
+        VenueSeat.objects.filter(id=seats[0].id).update(is_accessible=True)  # A1, in Front
+        url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+
+        response = member_client.post(
+            url,
+            data={
+                "tickets": [{"guest_name": "One"}, {"guest_name": "Two"}],
+                "price_category_id": str(front.id),
+                "accessible_required": True,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 409, response.content
+        assert "accessible" in response.json()["detail"]
+        assert not Ticket.objects.filter(event=event, user__username="member_user").exists()

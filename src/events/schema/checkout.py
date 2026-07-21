@@ -69,6 +69,11 @@ class BatchCheckoutPayload(Schema):
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
     billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
+    accessible_required: bool = Field(
+        default=False,
+        description="Request accessible seating for the whole checkout (BEST_AVAILABLE assignment "
+        "picks from the accessible pool)",
+    )
     price_category_id: UUID | None = Field(
         default=None,
         description=(
