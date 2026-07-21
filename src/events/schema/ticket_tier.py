@@ -86,18 +86,30 @@ class TierSeatPricingSchema(Schema):
     buyer is shown is not the price they are charged.
 
     Attributes:
-        categories: Every category painted on an active seat of the tier's sector, plus
-            any extra category the tier prices. A category painted *after* the tier was
-            saved carries ``available=False`` and no price — checkout refuses those seats
-            (spec §4.3), so quoting them a price would sell the buyer a 400. They are
-            listed rather than omitted so the frontend can grey the seats out; silently
-            dropping them would leave those seats unexplained and, worse, indistinguishable
-            from unpainted ones.
-        unpainted: What a seat with no category costs. The one legitimate fallback.
+        categories: What this list covers depends on the seating mode.
+
+            - ``user_choice``: every category painted on an active seat of the tier's
+              sector, plus any extra category the tier prices. A category painted *after*
+              the tier was saved carries ``available=False`` and no price — checkout
+              refuses those seats (spec §4.3), so quoting them a price would sell the
+              buyer a 400. They are listed rather than omitted so the frontend can grey
+              the seats out; silently dropping them would leave those seats unexplained
+              and, worse, indistinguishable from unpainted ones.
+            - ``best_available``: exactly the categories the tier prices — its sellable
+              zones — all of them ``available=True``. The buyer picks a zone, not a seat,
+              and a painted category the map omits is not part of this tier, so listing
+              it would offer a zone that cannot be bought.
+        unpainted: What a seat with no category costs, or ``None`` when no such seat can
+            be bought through this tier. It is ``None`` for every ``best_available`` tier
+            reaching this schema: the map is non-empty (a flat tier resolves to ``None``
+            wholesale), so a zone is mandatory and the candidate pool is filtered to that
+            zone's category — an unpainted seat is never a candidate. Rendering
+            "Other seats: €45" from a number that can never be charged would quote an
+            unbuyable price.
     """
 
     categories: list[TierCategoryPriceSchema] = Field(default_factory=list)
-    unpainted: Decimal
+    unpainted: Decimal | None = None
 
 
 class TicketTierSchema(ModelSchema):
@@ -169,7 +181,9 @@ class TicketTierSchema(ModelSchema):
         unpriced category shows up as unavailable — the buyer can click that seat and
         must be told it cannot be sold. For ``best_available`` the buyer never picks a
         seat, only a zone, and the map keys *are* the zones: unpriced painted categories
-        are not part of this tier and are omitted rather than shown as unavailable.
+        are not part of this tier and are omitted rather than shown as unavailable — and
+        for the same reason ``unpainted`` is ``None``, since the zone-filtered pool can
+        never yield an unpainted seat.
         """
         price_map = parse_price_map(obj.category_prices)
         # A priced map without a venue cannot exist — tier validation rejects categories
@@ -197,7 +211,7 @@ class TicketTierSchema(ModelSchema):
                 )
                 for category in categories
             ],
-            unpainted=obj.price,
+            unpainted=None if obj.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE else obj.price,
         )
 
 
@@ -408,27 +422,36 @@ class TicketTierDetailSchema(ModelSchema):
     def resolve_pricing_gaps(obj: TicketTier) -> list[TierPricingGapSchema]:
         """Categories painted in the tier's sector that the map does not price.
 
-        **User-choice tiers only.** For best-available the map keys define the tier's
-        sellable zones, so a painted category the map omits is not a gap — it is simply
-        not a zone of this tier, and reporting it would be a permanent false alarm.
+        A configuration error only the organizer can fix: ``paint_seats`` is venue-scoped
+        and deliberately never fails (spec §4.3), so a repaint at the venue level can
+        leave an already-saved tier out of step with its sector. Nothing else tells the
+        admin, so the tier form warns from this field. Two distinct cases produce a gap:
 
-        A configuration error only the organizer can fix: write-time validation demands
-        full coverage, but ``paint_seats`` is venue-scoped and deliberately never fails
-        (spec §4.3), so a repaint at the venue level can leave an already-saved tier
-        under-covered. Checkout then refuses those seats. Nothing else tells the admin,
-        so the tier form warns from this field.
+        - **A mapped user-choice tier missing a painted category.** Write-time validation
+          demanded full coverage; a later repaint broke it, and checkout now refuses those
+          seats.
+        - **A tier of either mode with an *empty* map over a painted sector.** Flat pricing
+          is a legitimate choice — an organizer may paint purely for colour-coding — so this
+          is never rejected at write time. But it also silently sells a premium seat at the
+          flat price, which is the exact mispricing this feature exists to prevent, so the
+          organizer is shown what they are flattening. Advisory, not an error.
+
+        A **mapped best-available** tier reports nothing: there the map keys define the
+        tier's sellable zones, so a painted category the map omits is not a gap — it is
+        simply not a zone of this tier, and reporting it would be a permanent false alarm.
+        A tier whose sector carries no paint at all likewise reports nothing, in every mode.
 
         Computed, never stored — a stored flag would desync on the next repaint.
 
-        # ponytail: one query per *category-priced* tier on the admin tier list (flat
-        # tiers cost nothing). An event has a handful of tiers, so this is well under
-        # the noise floor; if that ever changes, prefetch the sectors' painted
-        # categories once in ``list_ticket_tiers`` and resolve from that map.
+        # ponytail: one query per *seated* tier on the admin tier list (unseated tiers cost
+        # nothing). An event has a handful of tiers, so this is well under the noise floor;
+        # if that ever changes, prefetch the sectors' painted categories once in
+        # ``list_ticket_tiers`` and resolve from that map.
         """
-        if obj.seat_assignment_mode != TicketTier.SeatAssignmentMode.USER_CHOICE:
+        if obj.seat_assignment_mode == TicketTier.SeatAssignmentMode.NONE:
             return []
         price_map = parse_price_map(obj.category_prices)
-        if not price_map:
+        if price_map and obj.seat_assignment_mode != TicketTier.SeatAssignmentMode.USER_CHOICE:
             return []
         gaps = painted_categories(obj.sector_id).exclude(id__in=list(price_map)).order_by("display_order", "name")
         return [TierPricingGapSchema(id=c.id, name=c.name, color=c.color) for c in gaps]

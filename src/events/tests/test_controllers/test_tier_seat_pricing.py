@@ -119,6 +119,32 @@ def test_painted_but_unpriced_category_is_still_listed(
     assert "Zone C" in str(exc_info.value.message)
 
 
+def test_best_available_tier_quotes_no_unpainted_price(
+    client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    """A mapped best-available tier can never sell an unpainted seat, so it must not price one.
+
+    A zone is mandatory on a mapped tier and the candidate pool is filtered to that zone's
+    category, so an unpainted seat is never a candidate. "Other seats: €50" would quote a
+    price no buyer can ever be charged.
+    """
+    event, seats = seated_event
+    venue = event.venue
+    assert venue is not None
+    premium = PriceCategory.objects.create(venue=venue, name="Premium", color="#aa0000", display_order=0)
+    _paint(seats[:2], premium)
+    tier = _tier(event, seats, {str(premium.id): "80.00"}, name="BA")
+    tier.seat_assignment_mode = TicketTier.SeatAssignmentMode.BEST_AVAILABLE
+    tier.save(update_fields=["seat_assignment_mode"])
+
+    pricing = _tier_payload(client, event, tier)["seat_pricing"]
+    assert pricing["unpainted"] is None
+    # The zones are exactly the priced categories, all of them buyable.
+    assert pricing["categories"] == [
+        {"id": str(premium.id), "name": "Premium", "color": "#aa0000", "price": "80.00", "available": True}
+    ]
+
+
 def test_flat_tiers_cost_no_extra_queries(
     client: Client,
     seated_event: tuple[Event, list[VenueSeat]],
