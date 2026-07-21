@@ -24,6 +24,9 @@ from .harness import (
     status_counts,
 )
 
+if t.TYPE_CHECKING:
+    from events.models import TicketTier
+
 SYMPHONY_EVENT = "Symphony No. 9 — New Year Gala"
 CHUCKLE_EVENT = "Headliner Night: Late Show"
 
@@ -56,6 +59,10 @@ class Fixtures:
     platea_seat_ids: list[uuid.UUID]
     galleria_seat_count: int
     riser_seat_count: int
+    # The zone a best-available request draws from. Required by the API whenever the
+    # tier has a non-empty `category_prices` map, `None` for a flat tier.
+    galleria_zone_id: uuid.UUID | None
+    riser_zone_id: uuid.UUID | None
 
 
 def prepare_fixtures() -> Fixtures:
@@ -109,7 +116,22 @@ def prepare_fixtures() -> Fixtures:
         platea_seat_ids=platea_seats,
         galleria_seat_count=galleria_count,
         riser_seat_count=riser_count,
+        galleria_zone_id=_default_zone(galleria),
+        riser_zone_id=_default_zone(riser),
     )
+
+
+def _default_zone(tier: "TicketTier") -> uuid.UUID | None:
+    """The zone a best-available request should ask for on this tier.
+
+    The zone is a request parameter, not a tier attribute: a mapped tier sells one
+    zone per key and the API rejects a request that names none (400). A flat tier has
+    no zones and rejects one that does. Both seeded herd tiers ship a single-zone map,
+    so the lowest key is the whole pool — this keeps the scenario measuring adjacency
+    contention, not zone fan-out.
+    """
+    zones = sorted(tier.category_prices)
+    return uuid.UUID(zones[0]) if zones else None
 
 
 def _seat_slice(fx: Fixtures, span: tuple[int, int]) -> list[uuid.UUID]:
@@ -240,6 +262,7 @@ def _herd_wave(
     client: LoadClient,
     event_id: uuid.UUID,
     tier_id: uuid.UUID,
+    zone_id: uuid.UUID | None,
     tokens: list[str],
     seed: int,
     wave: str,
@@ -258,7 +281,10 @@ def _herd_wave(
 
     def make_task(i: int) -> t.Callable[[], None]:
         def task() -> None:
-            body = {"tier_id": str(tier_id), "quantity": sizes[i]}
+            body: dict[str, t.Any] = {"tier_id": str(tier_id), "quantity": sizes[i]}
+            if zone_id is not None:
+                # A mapped tier requires the zone; omitting it is a 400, not a wider pool.
+                body["price_category_id"] = str(zone_id)
             client.request("POST", path, tokens[i], body, label=f"best_available_{wave}")
 
         return task
@@ -308,8 +334,26 @@ def scenario_best_available_herd(client: LoadClient, fx: Fixtures, seed: int) ->
     print(f"  wave A: 100 parties (2-4) on Teatro Galleria ({fx.galleria_seat_count} seats)")
     print(f"  wave B: 30 parties (2-4) on Chuckle Cellar Riser ({fx.riser_seat_count} seats) — forces exhaustion")
     notes: list[str] = []
-    ok = _herd_wave(client, fx.symphony_event_id, fx.galleria_tier_id, _tokens_for(USERS_HERD_A), seed, "A", notes)
-    ok &= _herd_wave(client, fx.chuckle_event_id, fx.riser_tier_id, _tokens_for(USERS_HERD_B), seed + 1000, "B", notes)
+    ok = _herd_wave(
+        client,
+        fx.symphony_event_id,
+        fx.galleria_tier_id,
+        fx.galleria_zone_id,
+        _tokens_for(USERS_HERD_A),
+        seed,
+        "A",
+        notes,
+    )
+    ok &= _herd_wave(
+        client,
+        fx.chuckle_event_id,
+        fx.riser_tier_id,
+        fx.riser_zone_id,
+        _tokens_for(USERS_HERD_B),
+        seed + 1000,
+        "B",
+        notes,
+    )
     return ScenarioResult("best_available_herd", ok, notes)
 
 
