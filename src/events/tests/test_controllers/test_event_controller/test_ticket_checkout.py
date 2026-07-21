@@ -7,11 +7,32 @@ from django.urls import reverse
 from accounts.models import RevelUser
 from events.models import (
     Event,
+    PriceCategory,
     Ticket,
     TicketTier,
+    VenueSeat,
 )
 
 pytestmark = pytest.mark.django_db
+
+
+def _two_zone_tier(event: Event, seats: list[VenueSeat]) -> tuple[TicketTier, PriceCategory, PriceCategory]:
+    """A best-available tier pricing a Front and a Back zone of the same sector."""
+    venue = event.venue
+    assert venue is not None
+    front = PriceCategory.objects.create(venue=venue, name="Front", color="#00aa00")
+    back = PriceCategory.objects.create(venue=venue, name="Back", color="#aa0000")
+    VenueSeat.objects.filter(id__in=[s.id for s in seats[:3]]).update(default_price_category=front)
+    VenueSeat.objects.filter(id__in=[s.id for s in seats[3:]]).update(default_price_category=back)
+    tier = TicketTier.objects.create(
+        event=event,
+        name="Zoned",
+        payment_method=TicketTier.PaymentMethod.FREE,
+        sector=seats[0].sector,
+        category_prices={str(front.id): "0", str(back.id): "0"},
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+    )
+    return tier, front, back
 
 
 def test_ticket_checkout_success(nonmember_client: Client, public_event: Event, free_tier: TicketTier) -> None:
@@ -89,3 +110,37 @@ def test_ticket_checkout_anonymous_fails(client: Client, public_event: Event, fr
     response = client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 401
+
+
+def test_ticket_checkout_zone_reaches_the_picker(
+    member_client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    """The payload's price_category_id decides which zone the buyer is seated in (#749)."""
+    event, seats = seated_event
+    tier, front, back = _two_zone_tier(event, seats)
+    url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+
+    response = member_client.post(
+        url,
+        data={"tickets": [{"guest_name": "Zoned"}], "price_category_id": str(back.id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200, response.content
+    ticket = Ticket.objects.get(event=event, user__username="member_user")
+    assert ticket.seat is not None
+    assert ticket.seat.default_price_category_id == back.id
+
+
+def test_ticket_checkout_without_a_zone_is_400(
+    member_client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    event, seats = seated_event
+    tier, front, _back = _two_zone_tier(event, seats)
+    url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+
+    response = member_client.post(url, data={"tickets": [{"guest_name": "Zoned"}]}, content_type="application/json")
+
+    assert response.status_code == 400, response.content
+    assert front.name in response.json()["detail"]
+    assert not Ticket.objects.filter(event=event, user__username="member_user").exists()

@@ -105,6 +105,7 @@ class EventPublicGuestController(EventPublicBaseController):
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
             accessible_required=payload.accessible_required,
+            price_category_id=payload.price_category_id,
         )
 
     @route.post(
@@ -164,6 +165,7 @@ class EventPublicGuestController(EventPublicBaseController):
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
             accessible_required=payload.accessible_required,
+            price_category_id=payload.price_category_id,
         )
 
     @route.post(

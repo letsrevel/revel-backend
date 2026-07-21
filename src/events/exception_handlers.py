@@ -29,6 +29,7 @@ from events.exceptions import (
     InvalidPeriodError,
     InvalidResourceStateError,
     InvalidStripeWebhookSignatureError,
+    InvalidZoneSelectionError,
     MembershipPolicyManageSubscriptionsOnlyError,
     OrganizationTokenGrantInvariantError,
     OrganizationTokenMembershipTierRequiredError,
@@ -106,6 +107,9 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     InvalidStripeWebhookSignatureError: make_static_handler(403, _("Invalid Stripe signature")),
     # Duplicate discount code → 409 with a clear, translatable message instead of an opaque 500.
     DuplicateDiscountCodeError: make_static_handler(409, _("A discount code with this code already exists.")),
+    # Best-available zone selection: a missing/unknown/foreign price category is bad
+    # buyer input, and the message names the tier's sellable zones → 400.
+    InvalidZoneSelectionError: make_simple_handler(400),
     # Mutually exclusive period selectors (month + quarter together) → 422.
     InvalidPeriodError: make_simple_handler(422),
     # Series pass enable-time coverage gate — bad input, so 400.

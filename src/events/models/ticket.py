@@ -453,9 +453,10 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         """Validate that each seat-assigned mode comes with the field it reads.
 
         Both seated modes are confined to a sector: USER_CHOICE assigns within it,
-        and BEST_AVAILABLE draws its pool from it (narrowed to the zones named by
-        ``category_prices``). A category painted across two sectors must never
-        yield a cross-sector pool.
+        and BEST_AVAILABLE draws its pool from it (narrowed to the zone the buyer
+        requests). A category painted across two sectors must never yield a
+        cross-sector pool — and neither mode can sit on a standing sector, which
+        has no seats to assign at all.
         """
         if self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE and not self.sector_id:
             raise DjangoValidationError(
@@ -465,9 +466,9 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
             raise DjangoValidationError(
                 {"seat_assignment_mode": "A sector is required for user-choice seat assignment."}
             )
-        # A standing sector has no seats to choose from — every hold would 409.
-        # The create/update schemas only see sector_id (no DB access), so this
-        # model-level check is the single source of truth for the rule.
+        # A standing sector has no seats to choose from or pick — every hold/checkout
+        # would 409. The create/update schemas only see sector_id (no DB access), so
+        # this model-level check is the single source of truth for the rule.
         if (
             self.seat_assignment_mode == self.SeatAssignmentMode.USER_CHOICE
             and sector is not None
@@ -475,6 +476,14 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         ):
             raise DjangoValidationError(
                 {"seat_assignment_mode": "User-choice seat assignment requires a seated sector, not a standing one."}
+            )
+        if (
+            self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE
+            and sector is not None
+            and sector.kind == VenueSector.Kind.STANDING
+        ):
+            raise DjangoValidationError(
+                {"seat_assignment_mode": "Best-available seat assignment requires a seated sector, not a standing one."}
             )
 
     def _validate_invitation_restrictions(self) -> None:
