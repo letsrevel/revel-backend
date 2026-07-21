@@ -314,7 +314,7 @@ class ApplePassGenerator:
             Tuple of (price, currency).
         """
         tier = ticket.tier
-        currency = tier.currency if tier else "EUR"
+        currency = tier.currency
 
         if ticket.price_paid is not None:
             return ticket.price_paid, currency

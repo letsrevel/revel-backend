@@ -330,7 +330,7 @@ def update_draft_invoice(
 
     disallowed = set(update_data.keys()) - EDITABLE_DRAFT_FIELDS
     if disallowed:
-        raise HttpError(422, f"Cannot edit fields: {', '.join(sorted(disallowed))}")
+        raise HttpError(422, str(_("Cannot edit fields: {fields}")).format(fields=", ".join(sorted(disallowed))))
 
     # Normalize line_items to ensure string values (schema sends Decimals)
     if "line_items" in update_data:
