@@ -10,6 +10,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models import F, Prefetch, Q
 from django.utils import timezone
 from django.utils.functional import cached_property
+from django.utils.translation import gettext_lazy as _
 
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
@@ -438,14 +439,14 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
             venue = sector.venue
 
         if sector and self.venue_id and sector.venue_id != self.venue_id:
-            raise DjangoValidationError({"sector": "Sector must belong to the specified venue."})
+            raise DjangoValidationError({"sector": _("Sector must belong to the specified venue.")})
 
         # Validate venue belongs to the same organization as the event
         if venue and venue.organization_id != self.event.organization_id:
-            raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
+            raise DjangoValidationError({"venue": _("Venue must belong to the same organization as the event.")})
 
         if self.venue_id and self.event.venue_id and self.venue_id != self.event.venue_id:
-            raise DjangoValidationError({"venue": "Tier venue must match the event venue."})
+            raise DjangoValidationError({"venue": _("Tier venue must match the event venue.")})
 
         self._validate_seat_assignment_mode(sector)
 
@@ -460,11 +461,11 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         """
         if self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE and not self.sector_id:
             raise DjangoValidationError(
-                {"seat_assignment_mode": "A sector is required for best-available seat assignment."}
+                {"seat_assignment_mode": _("A sector is required for best-available seat assignment.")}
             )
         if self.seat_assignment_mode == self.SeatAssignmentMode.USER_CHOICE and not self.sector_id:
             raise DjangoValidationError(
-                {"seat_assignment_mode": "A sector is required for user-choice seat assignment."}
+                {"seat_assignment_mode": _("A sector is required for user-choice seat assignment.")}
             )
         # A standing sector has no seats to choose from or pick — every hold/checkout
         # would 409. The create/update schemas only see sector_id (no DB access), so
@@ -475,7 +476,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
             and sector.kind == VenueSector.Kind.STANDING
         ):
             raise DjangoValidationError(
-                {"seat_assignment_mode": "User-choice seat assignment requires a seated sector, not a standing one."}
+                {"seat_assignment_mode": _("User-choice seat assignment requires a seated sector, not a standing one.")}
             )
         if (
             self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE
@@ -483,7 +484,11 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
             and sector.kind == VenueSector.Kind.STANDING
         ):
             raise DjangoValidationError(
-                {"seat_assignment_mode": "Best-available seat assignment requires a seated sector, not a standing one."}
+                {
+                    "seat_assignment_mode": _(
+                        "Best-available seat assignment requires a seated sector, not a standing one."
+                    )
+                }
             )
 
     def _validate_invitation_restrictions(self) -> None:
@@ -799,13 +804,13 @@ class Ticket(TimeStampedModel):
 
         if seat:
             if not seat.is_active:
-                raise DjangoValidationError({"seat": "Cannot assign an inactive seat."})
+                raise DjangoValidationError({"seat": _("Cannot assign an inactive seat.")})
 
             if not self.sector_id:
                 self.sector_id = seat.sector_id
                 sector = seat.sector
             elif seat.sector_id != self.sector_id:
-                raise DjangoValidationError({"seat": "Seat must belong to the specified sector."})
+                raise DjangoValidationError({"seat": _("Seat must belong to the specified sector.")})
 
         return sector
 
@@ -815,7 +820,7 @@ class Ticket(TimeStampedModel):
             if not self.venue_id:
                 self.venue_id = sector.venue_id
             elif sector.venue_id != self.venue_id:
-                raise DjangoValidationError({"sector": "Sector must belong to the specified venue."})
+                raise DjangoValidationError({"sector": _("Sector must belong to the specified venue.")})
 
     def clean(self) -> None:
         """Validate and auto-fill venue/sector/seat consistency."""

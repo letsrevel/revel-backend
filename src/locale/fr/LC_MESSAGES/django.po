@@ -1134,6 +1134,40 @@ msgstr "Échoué"
 msgid "Refunded"
 msgstr "Remboursé"
 
+msgid "Sector must belong to the specified venue."
+msgstr "Le secteur doit appartenir au lieu spécifié."
+
+msgid "Venue must belong to the same organization as the event."
+msgstr "Le lieu doit appartenir à la même organisation que l'événement."
+
+msgid "Tier venue must match the event venue."
+msgstr ""
+"Le lieu de la catégorie de tickets doit correspondre à celui de l'événement."
+
+msgid "A sector is required for best-available seat assignment."
+msgstr "Un secteur est requis pour l'attribution du meilleur siège disponible."
+
+msgid "A sector is required for user-choice seat assignment."
+msgstr "Un secteur est requis pour l'attribution avec choix du siège."
+
+msgid ""
+"User-choice seat assignment requires a seated sector, not a standing one."
+msgstr ""
+"L'attribution avec choix du siège requiert un secteur assis, pas un secteur "
+"debout."
+
+msgid ""
+"Best-available seat assignment requires a seated sector, not a standing one."
+msgstr ""
+"L'attribution du meilleur siège disponible requiert un secteur assis, pas un "
+"secteur debout."
+
+msgid "Cannot assign an inactive seat."
+msgstr "Impossible d'attribuer un siège inactif."
+
+msgid "Seat must belong to the specified sector."
+msgstr "Le siège doit appartenir au secteur spécifié."
+
 msgid "Address visible to invited guests only"
 msgstr "Adresse visible uniquement par les personnes invité·e·s"
 
@@ -1618,7 +1652,9 @@ msgstr ""
 
 msgid ""
 "This ticket tier's zones are misconfigured — please contact the organizer."
-msgstr "Les zones de cette catégorie de tickets sont mal configurées — contacte l'organisateur·rice."
+msgstr ""
+"Les zones de cette catégorie de tickets sont mal configurées — contacte "
+"l'organisateur·rice."
 
 #, python-brace-format
 msgid "Select one of this ticket tier's zones: {zones}."
@@ -1628,7 +1664,9 @@ msgstr "Choisis une des zones de cette catégorie de tickets : {zones}."
 msgid ""
 "Seat {seat} is in the \"{category}\" price category, which this ticket tier "
 "does not sell."
-msgstr "Le siège {seat} appartient à la catégorie tarifaire \"{category}\", que cette catégorie de tickets ne vend pas."
+msgstr ""
+"Le siège {seat} appartient à la catégorie tarifaire \"{category}\", que "
+"cette catégorie de tickets ne vend pas."
 
 msgid "You cannot purchase from this organization."
 msgstr "Tu ne peux pas acheter auprès de cette organisation."
@@ -2023,6 +2061,51 @@ msgstr ""
 msgid "This is an automated billing document."
 msgstr ""
 "Ceci est une notification automatique de ton système de gestion d'événements."
+
+msgid "Category prices must be a mapping of price category id to price."
+msgstr ""
+"Les prix par catégorie doivent être une correspondance entre l'id de la "
+"catégorie tarifaire et le prix."
+
+#, python-brace-format
+msgid "'{key}' is not a valid price category id."
+msgstr "« {key} » n'est pas un id de catégorie tarifaire valide."
+
+#, python-brace-format
+msgid "Price for category {category} must be a decimal string."
+msgstr "Le prix de la catégorie {category} doit être une chaîne décimale."
+
+#, python-brace-format
+msgid "'{value}' is not a valid price for category {category}."
+msgstr "« {value} » n'est pas un prix valide pour la catégorie {category}."
+
+#, python-brace-format
+msgid "Price for category {category} must be a non-negative number."
+msgstr "Le prix de la catégorie {category} doit être un nombre positif ou nul."
+
+msgid ""
+"Category prices require a seated tier. Clear them to change the seating mode."
+msgstr ""
+"Les prix par catégorie requièrent une catégorie de tickets avec placement. "
+"Efface-les pour changer le mode de placement."
+
+msgid "A tier is either pay-what-you-can or category-priced, never both."
+msgstr ""
+"Une catégorie de tickets est soit à tarif libre, soit tarifée par catégorie, "
+"jamais les deux."
+
+#, python-brace-format
+msgid ""
+"Online tiers require every category price to be at least 1: {categories}."
+msgstr ""
+"Les catégories de tickets en paiement en ligne exigent que chaque prix par "
+"catégorie soit d'au moins 1 : {categories}."
+
+#, python-brace-format
+msgid "These price categories do not belong to the tier's venue: {categories}."
+msgstr ""
+"Ces catégories tarifaires n'appartiennent pas au lieu de la catégorie de "
+"tickets : {categories}."
 
 msgid "This name is not allowed."
 msgstr "Ce nom n'est pas autorisé."
