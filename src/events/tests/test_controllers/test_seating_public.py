@@ -72,32 +72,34 @@ def test_chart_projects_metadata_to_whitelisted_keys(
 ) -> None:
     """The anonymous chart serves a whitelisted projection, not the verbatim blob (#761).
 
-    Venue level keeps only ``stage``; sector level only ``transform``/``aisles`` —
-    exactly the keys the shipped buyer renderer reads. Whitelisted values pass
+    Venue level keeps only ``stage``/``floors``; sector level only
+    ``transform``/``aisles``/``floor`` — the keys the buyer renderer reads, including
+    the floors convention (letsrevel/revel-frontend#680). Whitelisted values pass
     through verbatim; everything else the designer wrote is stripped.
     """
     event, seats = seated_event
     venue = event.venue
     assert venue is not None
     stage = {"shape": [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], "label": "Stage"}
+    floors = [{"id": "ground", "name": "Ground", "order": 0}]
     venue.metadata = {
         "stage": stage,
-        "floors": [{"id": "ground", "name": "Ground", "order": 0}],
+        "floors": floors,
         "designer_note": "loading dock code 4711",
     }
     venue.save(update_fields=["metadata"])
     sector = seats[0].sector
     transform = {"x": 0.0, "y": 120.0, "rotation": 90.0}
     aisles = {"verticalAisles": [4], "horizontalAisles": [2], "invertRowOrder": False}
-    sector.metadata = {"transform": transform, "aisles": aisles, "floor": "ground"}
+    sector.metadata = {"transform": transform, "aisles": aisles, "floor": "ground", "scratch": "not for buyers"}
     sector.save(update_fields=["metadata"])
 
     resp = client.get(f"/api/events/{event.id}/seating/chart")
 
     assert resp.status_code == 200, resp.content
     body = resp.json()
-    assert body["metadata"] == {"stage": stage}
-    assert body["sectors"][0]["metadata"] == {"transform": transform, "aisles": aisles}
+    assert body["metadata"] == {"stage": stage, "floors": floors}
+    assert body["sectors"][0]["metadata"] == {"transform": transform, "aisles": aisles, "floor": "ground"}
 
 
 def test_chart_projects_non_whitelisted_metadata_to_empty_object(
@@ -110,7 +112,7 @@ def test_chart_projects_non_whitelisted_metadata_to_empty_object(
     venue.metadata = {"scratch": "not for buyers"}
     venue.save(update_fields=["metadata"])
     sector = seats[0].sector
-    sector.metadata = {"floor": "ground"}
+    sector.metadata = {"designer_note": "loading dock code 4711"}
     sector.save(update_fields=["metadata"])
 
     resp = client.get(f"/api/events/{event.id}/seating/chart")
@@ -148,6 +150,41 @@ def test_chart_query_count_is_unaffected_by_venue_metadata(
     venue.save(update_fields=["metadata"])
     with django_assert_num_queries(_CHART_QUERIES):
         assert client.get(f"/api/events/{event.id}/seating/chart").status_code == 200
+
+
+def test_tier_seats_projects_sector_metadata_to_whitelisted_keys(
+    client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    """The anonymous seats endpoint serves the chart's sector projection, not the verbatim blob (#769).
+
+    ``GET /events/{event_id}/tickets/{tier_id}/seats`` is the second anonymous surface
+    carrying sector metadata — same whitelist as the chart: ``transform``/``aisles``/``floor``.
+    """
+    event, seats = seated_event
+    tier = _seated_tier(event, seats)
+    sector = seats[0].sector
+    transform = {"x": 0.0, "y": 120.0, "rotation": 90.0}
+    aisles = {"verticalAisles": [4], "horizontalAisles": [2], "invertRowOrder": False}
+    sector.metadata = {"transform": transform, "aisles": aisles, "floor": "ground", "designer_note": "dock code 4711"}
+    sector.save(update_fields=["metadata"])
+
+    resp = client.get(f"/api/events/{event.id}/tickets/{tier.id}/seats")
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["metadata"] == {"transform": transform, "aisles": aisles, "floor": "ground"}
+
+
+def test_tier_seats_metadata_is_null_when_unset(client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
+    """No designer data serialises as ``null`` — the projection must not turn it into ``{}`` (#769)."""
+    event, seats = seated_event
+    tier = _seated_tier(event, seats)
+
+    resp = client.get(f"/api/events/{event.id}/tickets/{tier.id}/seats")
+
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert "metadata" in body
+    assert body["metadata"] is None
 
 
 def test_chart_404_when_event_has_no_venue(client: Client, event: Event) -> None:

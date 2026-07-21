@@ -270,7 +270,9 @@ class SectorAvailabilitySchema(Schema):
     shape: list[Coordinate2D] | None = None
     capacity: int | None = None
     display_order: int = 0
-    metadata: dict[str, t.Any] | None = None  # For frontend rendering (e.g., aisle positions)
+    # Anonymous surface (#769): the chart's whitelisted sector projection
+    # (CHART_SECTOR_METADATA_KEYS), never the verbatim designer blob.
+    metadata: dict[str, t.Any] | None = None
     seats: list[VenueSeatSchema] = Field(default_factory=list)
     available_count: int = 0  # Number of available seats
     total_count: int = 0  # Total active seats
@@ -295,9 +297,9 @@ class VenueCreateSchema(CityEditMixin):
     metadata: BoundedMetadata = Field(
         default=None,
         description=(
-            "JSON for venue-level layout config (e.g. stage position/shape). Max 16 KB of "
-            "compact JSON, max 6 nesting levels. The `stage` key is served publicly on the "
-            "anonymous seating chart."
+            "JSON for venue-level layout config (e.g. stage position/shape, floors). Max 16 KB of "
+            "compact JSON, max 6 nesting levels. The `stage` and `floors` keys are served "
+            "publicly on the anonymous seating chart."
         ),
     )
 
@@ -311,9 +313,9 @@ class VenueUpdateSchema(CityEditMixin):
     metadata: BoundedMetadata = Field(
         default=None,
         description=(
-            "JSON for venue-level layout config (e.g. stage position/shape). Max 16 KB of "
-            "compact JSON, max 6 nesting levels. The `stage` key is served publicly on the "
-            "anonymous seating chart."
+            "JSON for venue-level layout config (e.g. stage position/shape, floors). Max 16 KB of "
+            "compact JSON, max 6 nesting levels. The `stage` and `floors` keys are served "
+            "publicly on the anonymous seating chart."
         ),
     )
 
@@ -363,8 +365,8 @@ class VenueSectorCreateSchema(Schema):
         None,
         description=(
             "JSON metadata for frontend rendering (e.g., aisle positions). Max 16 KB of "
-            "compact JSON, max 6 nesting levels. The `transform` and `aisles` keys are "
-            "served publicly on the anonymous seating chart."
+            "compact JSON, max 6 nesting levels. The `transform`, `aisles` and `floor` keys "
+            "are served publicly on the anonymous seating chart and tier seats endpoint."
         ),
     )
     seats: list[VenueSeatInputSchema] = Field(default_factory=list)
@@ -402,8 +404,8 @@ class VenueSectorUpdateSchema(Schema):
         None,
         description=(
             "JSON metadata for frontend rendering (e.g., aisle positions). Max 16 KB of "
-            "compact JSON, max 6 nesting levels. The `transform` and `aisles` keys are "
-            "served publicly on the anonymous seating chart."
+            "compact JSON, max 6 nesting levels. The `transform`, `aisles` and `floor` keys "
+            "are served publicly on the anonymous seating chart and tier seats endpoint."
         ),
     )
 

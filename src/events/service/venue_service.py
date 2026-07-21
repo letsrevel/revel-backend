@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events import models, schema
+from events.schema.seating import CHART_SECTOR_METADATA_KEYS, project_chart_metadata
 from events.service.seating.chart import bump_chart_version
 from events.service.seating.paint_report import PriorPaint, build_report
 
@@ -847,7 +848,8 @@ def get_tier_seat_availability(
         shape=shape,
         capacity=sector.capacity,
         display_order=sector.display_order,
-        metadata=sector.metadata,
+        # Anonymous surface: serve the chart's whitelisted projection, never the verbatim blob (#769).
+        metadata=project_chart_metadata(sector.metadata, CHART_SECTOR_METADATA_KEYS),
         seats=seats,
         available_count=available_count,
         total_count=len(seats),
