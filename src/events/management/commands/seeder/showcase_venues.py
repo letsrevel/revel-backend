@@ -8,7 +8,8 @@ picks) so repeated runs with the same seed produce the same structures.
 Venues:
     - Teatro Grande: large theatre (Platea, Galleria, 4 Palchi) with ~1,350 seats.
     - The Chuckle Cellar: comedy club (front tables, riser rows, standing room).
-    - Mittelfest Halle: mid-size music venue (GA floor + seated balcony).
+    - Mittelfest Halle: mid-size music venue (GA floor + seated balcony, and the
+      reference category-priced user-choice tier).
 """
 
 import typing as t
@@ -51,6 +52,10 @@ CHUCKLE_RISER_SEATS_PER_ROW = 12
 MITTELFEST_BALCONY_ROWS = ["A", "B", "C", "D", "E", "F"]
 MITTELFEST_BALCONY_SEATS_PER_ROW = 20
 MITTELFEST_BALCONY_AISLES = [10]  # Center aisle
+MITTELFEST_BALCONY_PREMIUM_ROWS = ["A", "B"]  # Front block: premium price category
+# Back rows carry no category at all, so a category-priced tier resolves them
+# through the documented unpainted fallback (`tier.price`).
+MITTELFEST_BALCONY_UNPAINTED_ROWS = ["E", "F"]
 
 # Seat occupancy for the first event of each venue (active tickets), as a
 # fraction of the sector's active seats.
@@ -422,6 +427,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
         )
 
         cat_balcony = self._price_category(venue, "Balcony", "#2563eb", 0)
+        cat_balcony_premium = self._price_category(venue, "Balcony Premium", "#db2777", 1)
 
         seats = self._build_grid_seats(
             balcony,
@@ -433,6 +439,13 @@ class ShowcaseVenueSeeder(BaseSeeder):
             inactive={"E11"},
             price_category=cat_balcony,
         )
+        # Two painted zones plus a deliberately unpainted back block, so the
+        # category-priced tier below shows three different prices on the seat map.
+        for seat in seats:
+            if seat.row_label in MITTELFEST_BALCONY_PREMIUM_ROWS:
+                seat.default_price_category = cat_balcony_premium
+            elif seat.row_label in MITTELFEST_BALCONY_UNPAINTED_ROWS:
+                seat.default_price_category = None
 
         self.batch_create(VenueSeat, seats, desc="Creating Mittelfest Halle seats")
         self.log(f"  Mittelfest Halle: {len(seats)} seats in 2 sectors (+{floor.capacity} GA floor)")
@@ -458,6 +471,20 @@ class ShowcaseVenueSeeder(BaseSeeder):
             if event is events[0]:
                 self._sell_seated_tickets(event, tiers[0])
                 self._sell_ga_tickets(event, tiers[1], num_tickets=80)
+            else:
+                # The reference category-priced user-choice tier: the buyer picks a
+                # seat and the price follows the paint — premium front rows at 60,
+                # standard middle rows at 40, and the unpainted back rows at the
+                # tier's flat 35. Lives on the second event (nothing is sold there),
+                # so the whole balcony is available to demo against.
+                self._create_tier(
+                    event,
+                    "Balcony — Pick Your Seat",
+                    balcony,
+                    modes.USER_CHOICE,
+                    Decimal("35"),
+                    zone_prices={cat_balcony_premium: Decimal("60"), cat_balcony: Decimal("40")},
+                )
 
     # -- Event / tier / ticket helpers -------------------------------------
 
