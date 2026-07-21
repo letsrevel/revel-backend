@@ -252,13 +252,19 @@ Grafana supports multiple notification channels:
 
 The checkout path refuses to write a ledger entry it cannot reconcile: if Stripe's session
 total disagrees with `sum(Payment.amount)`, the webhook raises, the whole transaction rolls
-back, and Stripe redelivers. That is the correct failure mode, but it is also **evidence-
-destroying**: the rollback discards every database trace of the attempt, and
-`events.cleanup_expired_payments` deletes the still-`PENDING` `Payment`/`Ticket` rows within
-minutes of the hold expiring. Once that has happened, a redelivery finds no payments at all.
+back, and Stripe redelivers. That is the correct failure mode, but the rollback discards
+every database trace of *the attempt* — so detection does two things at once:
 
-Everything needed to recover the buyer is therefore emitted **at the moment of detection**, on
-one log line, and nowhere else:
+- **The implicated `Payment`/`Ticket` rows are placed under an incident hold** (#756):
+  `record_session_total_mismatch` dispatches `events.hold_mismatch_payments` (a bare
+  `.delay()` — the broker message survives the rollback), which stamps
+  `Payment.incident_hold_at`. `events.cleanup_expired_payments` retains held rows instead of
+  deleting them on the normal ~hourly schedule, so you find real rows to reconcile against.
+  The hold is bounded: it lapses after `INCIDENT_HOLD_RETENTION` (30 days,
+  `events/tasks/payments.py`), after which the sweep reclaims the rows normally.
+- Everything needed to recover the buyer is still emitted **at the moment of detection**, on
+  one self-contained log line — the only record in the rare race where the sweep locked the
+  rows before the hold landed:
 
 ```logql
 {service_name="web", level="error"} |= "stripe_session_total_mismatch"
@@ -273,9 +279,15 @@ The line carries `session_id`, `payment_intent_id`, `user_id`, `user_email`,
 
 1. Find the session/PaymentIntent in Stripe and confirm the captured amount.
 2. Refund it.
-3. Re-issue the tickets manually from the `payments[]` breakdown on the log line — the rows
-   themselves are likely already gone.
+3. Reconcile against the retained rows: filter the Payment admin by
+   "incident hold" (or look up the `payment_ids` from the log line). Re-issue the tickets
+   from those rows — or from the `payments[]` breakdown on the log line if the sweep won
+   the race before the hold landed.
 4. Diff `charged_minor_units` against `recorded_minor_units` to find the pricing bug.
+5. **Resolve the hold**: clear `incident_hold_at` on the retained payments in the Payment
+   admin. The next sweep run reclaims the rows and releases their tier capacity. An
+   unresolved hold lapses on its own after 30 days — the rows are never immortal, but
+   resolving explicitly is what keeps the tier's `quantity_sold` honest sooner.
 
 `call_site="preflight"` is the safe half: it fires before a payable session exists, so nobody
 has been charged. Still critical — it means a pricing bug shipped — but there is no money to
