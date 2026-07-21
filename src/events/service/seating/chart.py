@@ -9,13 +9,32 @@ polls, and :func:`bump_chart_version` is the only writer of.
 """
 
 import datetime
+import typing as t
 import uuid
 
 from django.utils import timezone
 
 from events.models import Venue, VenueSector
-from events.schema.seating import ChartSeatSchema, ChartSectorSchema, VenueChartSchema
+from events.schema.seating import (
+    CHART_SECTOR_METADATA_KEYS,
+    CHART_VENUE_METADATA_KEYS,
+    ChartSeatSchema,
+    ChartSectorSchema,
+    VenueChartSchema,
+)
 from events.schema.venue import PriceCategorySchema
+
+
+def _project_metadata(metadata: dict[str, t.Any] | None, allowed: frozenset[str]) -> dict[str, t.Any] | None:
+    """Reduce organizer-written metadata to the chart's public whitelist (#761).
+
+    ``None`` stays ``None`` (the FE's one emptiness check); an object keeps only its
+    whitelisted keys, verbatim — possibly ``{}``. The whitelists live next to the chart
+    schemas in :mod:`events.schema.seating`.
+    """
+    if metadata is None:
+        return None
+    return {k: v for k, v in metadata.items() if k in allowed}
 
 
 def bump_chart_version(venue_id: uuid.UUID) -> datetime.datetime:
@@ -73,7 +92,7 @@ def build_chart(venue: Venue) -> VenueChartSchema:
                 shape=sector.shape,
                 capacity=sector.capacity,
                 display_order=sector.display_order,
-                metadata=sector.metadata,
+                metadata=_project_metadata(sector.metadata, CHART_SECTOR_METADATA_KEYS),
                 seats=seat_schemas,
             )
         )
@@ -81,7 +100,7 @@ def build_chart(venue: Venue) -> VenueChartSchema:
         venue_id=venue.id,
         venue_name=venue.name,
         updated_at=venue.chart_version,
-        metadata=venue.metadata,
+        metadata=_project_metadata(venue.metadata, CHART_VENUE_METADATA_KEYS),
         price_categories=[PriceCategorySchema.from_orm(c) for c in categories],
         sectors=sector_schemas,
     )

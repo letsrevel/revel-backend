@@ -1,17 +1,54 @@
 """Venue-related schemas."""
 
+import json
 import typing as t
 from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
 from ninja.schema import DjangoGetter
-from pydantic import Field, StringConstraints, model_validator
+from pydantic import AfterValidator, Field, StringConstraints, model_validator
 
 from common.schema import OneToOneFiftyString, StrippedString
 from events.models import Event, PriceCategory, Venue, VenueSeat, VenueSector
 
 from .mixins import CityEditMixin, CityRetrieveMixin
+
+# Hard bounds on organizer-written ``metadata`` JSON, enforced on all four write
+# surfaces (venue create/update, sector create/update). The blob is served on the
+# anonymous seating chart that every buyer polls, so it must stay small and flat (#761).
+# Size is measured as UTF-8 bytes of compact JSON: ``json.dumps(v, separators=(",", ":"),
+# ensure_ascii=False).encode()``. Depth counts nested dict/list containers along the
+# deepest path, the top-level object included (``{"a": {"b": 1}}`` has depth 2).
+METADATA_MAX_BYTES: t.Final = 16_384
+METADATA_MAX_DEPTH: t.Final = 6
+
+
+def _json_depth(value: t.Any) -> int:
+    """Nesting depth of a JSON value: scalars are 0, each dict/list level adds 1."""
+    if isinstance(value, dict):
+        return 1 + max((_json_depth(v) for v in value.values()), default=0)
+    if isinstance(value, list):
+        return 1 + max((_json_depth(v) for v in value), default=0)
+    return 0
+
+
+def _validate_metadata_bounds(v: dict[str, t.Any] | None) -> dict[str, t.Any] | None:
+    """Shared write-path guard for venue/sector metadata: compact-JSON size and nesting depth."""
+    if v is None:
+        return v
+    size = len(json.dumps(v, separators=(",", ":"), ensure_ascii=False).encode())
+    if size > METADATA_MAX_BYTES:
+        raise ValueError(f"metadata must serialize to at most {METADATA_MAX_BYTES} bytes of JSON (got {size}).")
+    depth = _json_depth(v)
+    if depth > METADATA_MAX_DEPTH:
+        raise ValueError(f"metadata must not nest deeper than {METADATA_MAX_DEPTH} levels (got {depth}).")
+    return v
+
+
+# Write-path type for venue/sector metadata. Response schemas keep plain dicts —
+# rows written before the cap landed must still serialize.
+BoundedMetadata = t.Annotated[dict[str, t.Any] | None, AfterValidator(_validate_metadata_bounds)]
 
 
 class Coordinate2D(Schema):
@@ -255,9 +292,13 @@ class VenueCreateSchema(CityEditMixin):
     name: OneToOneFiftyString
     description: StrippedString | None = None
     capacity: int | None = Field(None, ge=0)
-    metadata: dict[str, t.Any] | None = Field(
+    metadata: BoundedMetadata = Field(
         default=None,
-        description="Arbitrary JSON for venue-level layout config (e.g. stage position/shape).",
+        description=(
+            "JSON for venue-level layout config (e.g. stage position/shape). Max 16 KB of "
+            "compact JSON, max 6 nesting levels. The `stage` key is served publicly on the "
+            "anonymous seating chart."
+        ),
     )
 
 
@@ -267,9 +308,13 @@ class VenueUpdateSchema(CityEditMixin):
     name: OneToOneFiftyString | None = None
     description: StrippedString | None = None
     capacity: int | None = Field(None, ge=0)
-    metadata: dict[str, t.Any] | None = Field(
+    metadata: BoundedMetadata = Field(
         default=None,
-        description="Arbitrary JSON for venue-level layout config (e.g. stage position/shape).",
+        description=(
+            "JSON for venue-level layout config (e.g. stage position/shape). Max 16 KB of "
+            "compact JSON, max 6 nesting levels. The `stage` key is served publicly on the "
+            "anonymous seating chart."
+        ),
     )
 
 
@@ -314,9 +359,13 @@ class VenueSectorCreateSchema(Schema):
     )
     capacity: int | None = Field(None, ge=0)
     display_order: int = Field(0, ge=0)
-    metadata: dict[str, t.Any] | None = Field(
+    metadata: BoundedMetadata = Field(
         None,
-        description="Arbitrary JSON metadata for frontend rendering (e.g., aisle positions).",
+        description=(
+            "JSON metadata for frontend rendering (e.g., aisle positions). Max 16 KB of "
+            "compact JSON, max 6 nesting levels. The `transform` and `aisles` keys are "
+            "served publicly on the anonymous seating chart."
+        ),
     )
     seats: list[VenueSeatInputSchema] = Field(default_factory=list)
 
@@ -349,9 +398,13 @@ class VenueSectorUpdateSchema(Schema):
     )
     capacity: int | None = Field(None, ge=0)
     display_order: int | None = Field(None, ge=0)
-    metadata: dict[str, t.Any] | None = Field(
+    metadata: BoundedMetadata = Field(
         None,
-        description="Arbitrary JSON metadata for frontend rendering (e.g., aisle positions).",
+        description=(
+            "JSON metadata for frontend rendering (e.g., aisle positions). Max 16 KB of "
+            "compact JSON, max 6 nesting levels. The `transform` and `aisles` keys are "
+            "served publicly on the anonymous seating chart."
+        ),
     )
 
 
