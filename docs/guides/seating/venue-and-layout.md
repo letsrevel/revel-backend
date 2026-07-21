@@ -293,16 +293,18 @@ conventions the designer and the buyer map agree on:
 Floors are **pure presentation**: they group sectors for display and nothing else. Pricing, zones,
 capacity and holds never look at them. The convention is a shared agreement, not an enforced
 schema — nothing rejects a sector pointing at a floor id the venue doesn't list, and such a sector
-simply has no floor to render under. Note that of the two, only `stage` currently reaches the
-buyer-facing chart — see the metadata rules below.
+simply has no floor to render under. Both conventions reach the buyer-facing chart: `stage`,
+`floors` and `floor` are on the public whitelists — see the metadata rules below.
 
 **"What can we store in `metadata`, and who can see it?"**
 Treat chart metadata as **public**: the seating chart is served to anonymous buyers, so never put
 notes, contact details, or anything internal in it. Two rules apply (#761):
 
-- **The public chart serves a whitelisted projection, not the whole blob.** Venue-level metadata:
-  only `stage`. Sector-level metadata: only `transform` and `aisles`. Anything else the designer
-  stores (including the `floors`/`floor` convention above) stays on the admin/designer endpoints
+- **Public surfaces serve a whitelisted projection, not the whole blob.** Venue-level metadata:
+  only `stage` and `floors`. Sector-level metadata: only `transform`, `aisles` and `floor`.
+  The same sector projection applies to the tier seats endpoint
+  (`GET /events/{event_id}/tickets/{tier_id}/seats`), the second anonymous surface carrying
+  sector metadata. Anything else the designer stores stays on the admin/designer endpoints
   and never reaches buyers.
 - **Writes are capped**: metadata is rejected on save if it exceeds **16 KB** of compact JSON or
   nests deeper than **6** levels. The field is layout config, not scratch space — the whole chart

@@ -25,15 +25,29 @@ class ChartSeatSchema(Schema):
     price_category_id: UUID | None = None
 
 
-# The anonymous chart serves a whitelisted PROJECTION of organizer-written metadata, not
-# the verbatim blob (#761) — exactly the keys the shipped buyer renderer consumes:
-# frontend `events/venue-overview.ts` parses venue `metadata.stage`; `tickets/seat-map-layout.ts`
-# and `tickets/sector-transform.ts` parse sector `metadata.aisles` / `metadata.transform`.
-# Admin/designer endpoints keep serving the full blob. Applied in
-# ``events.service.seating.chart.build_chart``; ``null`` stays ``null``, an object is reduced
-# to its whitelisted keys (possibly ``{}``).
-CHART_VENUE_METADATA_KEYS: t.Final = frozenset({"stage"})
-CHART_SECTOR_METADATA_KEYS: t.Final = frozenset({"transform", "aisles"})
+# Anonymous surfaces serve a whitelisted PROJECTION of organizer-written metadata, not
+# the verbatim blob (#761, #769) — the union of two consumers' keys:
+# - the shipped buyer chart renderer: frontend `events/venue-overview.ts` parses venue
+#   `metadata.stage`; `tickets/seat-map-layout.ts` and `tickets/sector-transform.ts` parse
+#   sector `metadata.aisles` / `metadata.transform`;
+# - the multi-floor convention (letsrevel/revel-frontend#680): venue
+#   `metadata.floors = [{id, name, order}]`, sector `metadata.floor = <floor id>`.
+# Admin/designer endpoints keep serving the full blob. Applied via
+# ``project_chart_metadata`` in ``events.service.seating.chart.build_chart`` (both levels)
+# and ``events.service.venue_service.get_tier_seat_availability`` (sector level).
+CHART_VENUE_METADATA_KEYS: t.Final = frozenset({"stage", "floors"})
+CHART_SECTOR_METADATA_KEYS: t.Final = frozenset({"transform", "aisles", "floor"})
+
+
+def project_chart_metadata(metadata: dict[str, t.Any] | None, allowed: frozenset[str]) -> dict[str, t.Any] | None:
+    """Reduce organizer-written metadata to an anonymous surface's public whitelist (#761, #769).
+
+    ``None`` stays ``None`` (the FE's one emptiness check); an object keeps only its
+    whitelisted keys, verbatim — possibly ``{}``.
+    """
+    if metadata is None:
+        return None
+    return {k: v for k, v in metadata.items() if k in allowed}
 
 
 class ChartSectorSchema(Schema):
@@ -54,8 +68,8 @@ class VenueChartSchema(Schema):
     venue_name: str
     updated_at: AwareDatetime
     # Venue-level counterpart of ChartSectorSchema.metadata: the layout designer's whole-venue
-    # config, projected to CHART_VENUE_METADATA_KEYS (the stage position/shape). `null` when
-    # the designer never wrote any — never `{}`.
+    # config, projected to CHART_VENUE_METADATA_KEYS (stage position/shape, floors list).
+    # `null` when the designer never wrote any — never `{}`.
     metadata: dict[str, t.Any] | None = None
     price_categories: list[PriceCategorySchema] = Field(default_factory=list)
     sectors: list[ChartSectorSchema] = Field(default_factory=list)
