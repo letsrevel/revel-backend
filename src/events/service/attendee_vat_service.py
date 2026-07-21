@@ -378,9 +378,9 @@ def _resolve_line_pricing(
 
     if price_per_ticket is not None:
         if tier.pwyc_min and price_per_ticket < tier.pwyc_min:
-            raise HttpError(400, f"PWYC amount must be at least {tier.pwyc_min}")
+            raise HttpError(400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min))
         if tier.pwyc_max and price_per_ticket > tier.pwyc_max:
-            raise HttpError(400, f"PWYC amount must be at most {tier.pwyc_max}")
+            raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
         return build_batch_pricing(tier, seats, pwyc_amount=price_per_ticket)
 
     dc = None
