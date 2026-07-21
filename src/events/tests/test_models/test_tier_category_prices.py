@@ -394,7 +394,79 @@ def test_categories_painted_in_other_sectors_do_not_require_coverage(
 def test_pricing_an_unpainted_but_valid_category_is_allowed(
     event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
 ) -> None:
-    """Over-coverage is harmless: pricing a category nobody painted yet is fine."""
+    """Over-coverage is harmless *on user-choice*: pricing a category nobody painted yet is fine.
+
+    The key is inert — no seat carries it, so nothing quotes or charges it — and it goes
+    live the moment the category is painted. Rejecting it would break "price the venue's
+    categories once, paint incrementally", an ordering user-choice's own full-coverage
+    rule already makes safe. Best-available is the opposite case (below): there the key
+    is *published as a sellable zone*.
+    """
     paint(sector, "A1", premium)
     tier = make_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    tier.full_clean()
+
+
+# --- Rule 8: best-available zones must exist in the sector ---
+
+
+def make_ba_tier(event: Event, sector: VenueSector, **kwargs: object) -> TicketTier:
+    """Build (unsaved) a best-available tier on ``sector``."""
+    kwargs.setdefault("name", "Best Available")
+    return make_tier(event, sector, seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE, **kwargs)
+
+
+def test_best_available_zone_painted_nowhere_in_the_sector_is_rejected_and_named(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """A zone no seat carries sells nothing: every buyer choosing it gets a 409, unexplained."""
+    paint(sector, "A1", premium)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    with pytest.raises(ValidationError) as exc_info:
+        tier.full_clean()
+    message = exc_info.value.message_dict["category_prices"][0]
+    assert "Standard" in message
+    assert "Premium" not in message
+
+
+def test_best_available_zone_painted_only_in_another_sector_is_rejected(
+    event: Event, venue: Venue, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """Venue membership is not enough — the pool is the tier's sector, never the venue."""
+    other_sector = VenueSector.objects.create(venue=venue, name="Balcony")
+    paint(sector, "A1", premium)
+    paint(other_sector, "A1", standard)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    with pytest.raises(ValidationError) as exc_info:
+        tier.full_clean()
+    assert "Standard" in exc_info.value.message_dict["category_prices"][0]
+
+
+def test_best_available_zone_painted_only_on_an_inactive_seat_is_rejected(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """Inactive seats are not sellable, so they cannot keep a zone alive either."""
+    paint(sector, "A1", premium)
+    paint(sector, "A2", standard, is_active=False)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    with pytest.raises(ValidationError):
+        tier.full_clean()
+
+
+def test_best_available_zones_are_allowed_while_the_sector_is_unpainted(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """Mid-setup ordering: prices before paint stays legal while nothing contradicts them."""
+    paint(sector, "A1", None)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00", str(standard.id): "30.00"})
+    tier.full_clean()
+
+
+def test_best_available_partial_map_over_a_painted_sector_still_saves(
+    event: Event, sector: VenueSector, premium: PriceCategory, standard: PriceCategory
+) -> None:
+    """Painted-but-unpriced remains the feature — only priced-but-unpainted is the error."""
+    paint(sector, "A1", premium)
+    paint(sector, "A2", standard)
+    tier = make_ba_tier(event, sector, category_prices={str(premium.id): "50.00"})
     tier.full_clean()
