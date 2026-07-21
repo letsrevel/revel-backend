@@ -12,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils.translation import gettext_lazy as _
 
 if t.TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -43,22 +44,26 @@ def parse_price_map(raw: t.Any) -> dict[UUID, Decimal]:
     if not raw:
         return {}
     if not isinstance(raw, dict):
-        _fail("Category prices must be a mapping of price category id to price.")
+        _fail(str(_("Category prices must be a mapping of price category id to price.")))
 
     parsed: dict[UUID, Decimal] = {}
     for key, value in raw.items():
         try:
             category_id = UUID(str(key))
         except ValueError, AttributeError, TypeError:
-            _fail(f"'{key}' is not a valid price category id.")
+            _fail(str(_("'{key}' is not a valid price category id.")).format(key=key))
         if isinstance(value, (float, bool)) or value is None:
-            _fail(f"Price for category {category_id} must be a decimal string.")
+            _fail(str(_("Price for category {category} must be a decimal string.")).format(category=category_id))
         try:
             price = Decimal(str(value))
         except InvalidOperation:
-            _fail(f"'{value}' is not a valid price for category {category_id}.")
+            _fail(
+                str(_("'{value}' is not a valid price for category {category}.")).format(
+                    value=value, category=category_id
+                )
+            )
         if not price.is_finite() or price < 0:
-            _fail(f"Price for category {category_id} must be a non-negative number.")
+            _fail(str(_("Price for category {category} must be a non-negative number.")).format(category=category_id))
         parsed[category_id] = price
     return parsed
 
@@ -234,13 +239,17 @@ def validate_category_prices(tier: "TicketTier") -> None:
         return
 
     if tier.seat_assignment_mode == tier.SeatAssignmentMode.NONE:
-        _fail("Category prices require a seated tier. Clear them to change the seating mode.")
+        _fail(str(_("Category prices require a seated tier. Clear them to change the seating mode.")))
     if tier.price_type == tier.PriceType.PWYC:
-        _fail("A tier is either pay-what-you-can or category-priced, never both.")
+        _fail(str(_("A tier is either pay-what-you-can or category-priced, never both.")))
     if tier.payment_method == tier.PaymentMethod.ONLINE:
         low = sorted(str(cid) for cid, price in prices.items() if price < ONLINE_MINIMUM)
         if low:
-            _fail(f"Online tiers require every category price to be at least 1: {', '.join(low)}.")
+            _fail(
+                str(_("Online tiers require every category price to be at least 1: {categories}.")).format(
+                    categories=", ".join(low)
+                )
+            )
 
     known = set(
         PriceCategory.objects.filter(venue_id=tier.venue_id, id__in=prices).values_list("id", flat=True)
@@ -254,4 +263,8 @@ def validate_category_prices(tier: "TicketTier") -> None:
         # at all fall back to the raw value.
         elsewhere = dict(PriceCategory.objects.filter(id__in=unknown).values_list("id", "name"))
         labels = sorted(elsewhere.get(cid, str(cid)) for cid in unknown)
-        _fail(f"These price categories do not belong to the tier's venue: {', '.join(labels)}.")
+        _fail(
+            str(_("These price categories do not belong to the tier's venue: {categories}.")).format(
+                categories=", ".join(labels)
+            )
+        )
