@@ -1155,6 +1155,9 @@ msgstr "Les factures annulées ne peuvent pas être émises."
 msgid "Only draft invoices can be deleted."
 msgstr "Seules les factures au statut de brouillon peuvent être supprimées."
 
+msgid "Provide either seat_ids or price_category_id, not both."
+msgstr "Fournis soit seat_ids, soit price_category_id, pas les deux."
+
 msgid ""
 "This ticket tier prices seats by category — seat_ids are required to preview "
 "it."
@@ -1209,6 +1212,13 @@ msgstr "Un ou plusieurs sièges sélectionnés ne sont plus disponibles."
 msgid "One or more selected seats are held by another buyer."
 msgstr ""
 "Un ou plusieurs sièges sélectionnés sont réservés par un autre acheteur."
+
+msgid ""
+"Your held seats are in a different zone — release them before buying this "
+"zone."
+msgstr ""
+"Tes sièges réservés se trouvent dans une autre zone — libère-les avant "
+"d'acheter cette zone."
 
 msgid "Not enough accessible seats available — please contact the organizer."
 msgstr ""
@@ -1597,6 +1607,22 @@ msgstr "Le siège cible est bloqué pour cet événement."
 
 msgid "The target seat is currently held by another buyer."
 msgstr "Le siège cible est actuellement réservé par un autre acheteur."
+
+msgid "A zone can only be selected on a best-available ticket tier."
+msgstr ""
+"Une zone ne peut être sélectionnée que pour une catégorie de tickets avec "
+"attribution automatique du meilleur siège."
+
+msgid ""
+"This ticket tier has a single price for its whole sector — no zone can be "
+"selected."
+msgstr ""
+"Cette catégorie de tickets a un prix unique pour tout son secteur — "
+"aucune zone ne peut être sélectionnée."
+
+#, python-brace-format
+msgid "Select one of this ticket tier's zones: {zones}."
+msgstr "Choisis une des zones de cette catégorie de tickets : {zones}."
 
 #, python-brace-format
 msgid ""

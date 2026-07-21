@@ -1148,6 +1148,9 @@ msgstr "Stornierte Rechnungen können nicht ausgestellt werden."
 msgid "Only draft invoices can be deleted."
 msgstr "Nur Rechnungsentwürfe können gelöscht werden."
 
+msgid "Provide either seat_ids or price_category_id, not both."
+msgstr "Gib entweder seat_ids oder price_category_id an, nicht beides."
+
 msgid ""
 "This ticket tier prices seats by category — seat_ids are required to preview "
 "it."
@@ -1202,6 +1205,13 @@ msgid "One or more selected seats are held by another buyer."
 msgstr ""
 "Ein oder mehrere ausgewählte Sitzplätze sind von einem anderen Käufer "
 "reserviert."
+
+msgid ""
+"Your held seats are in a different zone — release them before buying this "
+"zone."
+msgstr ""
+"Deine reservierten Sitzplätze befinden sich in einer anderen Zone — gib "
+"sie frei, bevor du diese Zone kaufst."
 
 msgid "Not enough accessible seats available — please contact the organizer."
 msgstr ""
@@ -1590,6 +1600,22 @@ msgstr "Der Zielsitzplatz ist für dieses Event gesperrt."
 
 msgid "The target seat is currently held by another buyer."
 msgstr "Der Zielsitzplatz ist derzeit von einem anderen Käufer reserviert."
+
+msgid "A zone can only be selected on a best-available ticket tier."
+msgstr ""
+"Eine Zone kann nur bei einer Ticket-Kategorie mit automatischer "
+"Bestplatzvergabe ausgewählt werden."
+
+msgid ""
+"This ticket tier has a single price for its whole sector — no zone can be "
+"selected."
+msgstr ""
+"Diese Ticket-Kategorie hat einen einheitlichen Preis für den gesamten "
+"Sektor — es kann keine Zone ausgewählt werden."
+
+#, python-brace-format
+msgid "Select one of this ticket tier's zones: {zones}."
+msgstr "Wähle eine der Zonen dieser Ticket-Kategorie: {zones}."
 
 #, python-brace-format
 msgid ""
