@@ -397,17 +397,19 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         """Validate sales window constraints."""
         if self.sales_start_at and self.sales_start_at > self.event.start:
             raise DjangoValidationError(
-                {"sales_start_at": "Ticket sales must start before or at the event start time."}
+                {"sales_start_at": _("Ticket sales must start before or at the event start time.")}
             )
         if self.sales_start_at and self.sales_end_at and self.sales_end_at <= self.sales_start_at:
-            raise DjangoValidationError({"sales_end_at": "Ticket sales end time must be after the sales start time."})
+            raise DjangoValidationError(
+                {"sales_end_at": _("Ticket sales end time must be after the sales start time.")}
+            )
 
     def _validate_pwyc(self) -> None:
         """Validate pay-what-you-can pricing constraints."""
         if self.price_type == self.PriceType.PWYC:
             if self.pwyc_max and self.pwyc_max < self.pwyc_min:
                 raise DjangoValidationError(
-                    {"pwyc_max": "Maximum pay-what-you-can amount must be greater than or equal to minimum amount."}
+                    {"pwyc_max": _("Maximum pay-what-you-can amount must be greater than or equal to minimum amount.")}
                 )
 
     def _validate_membership_tiers(self) -> None:
@@ -415,7 +417,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         for membership_tier in self.restricted_to_membership_tiers.all():
             if membership_tier.organization_id != self.event.organization_id:
                 raise DjangoValidationError(
-                    {"restricted_to_tiers": "All linked membership tiers must belong to the event's organization."}
+                    {"restricted_to_tiers": _("All linked membership tiers must belong to the event's organization.")}
                 )
         if self.restricted_to_membership_tiers.exists() and self.purchasable_by not in [
             self.PurchasableBy.MEMBERS,
@@ -423,8 +425,10 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         ]:
             raise DjangoValidationError(
                 {
-                    "restricted_to_tiers": "If tickets are restricted to specific tiers, 'Purchasable By' must be set "
-                    "to 'Members only' or 'Invited and Members only'."
+                    "restricted_to_tiers": _(
+                        "If tickets are restricted to specific tiers, 'Purchasable By' must be set "
+                        "to 'Members only' or 'Invited and Members only'."
+                    )
                 }
             )
 
@@ -496,7 +500,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         if self.restrict_visibility_to_linked_invitations and self.visibility != self.Visibility.PRIVATE:
             raise DjangoValidationError(
                 {
-                    "restrict_visibility_to_linked_invitations": (
+                    "restrict_visibility_to_linked_invitations": _(
                         "This option is only valid when visibility is set to 'Private'."
                     )
                 }
@@ -507,7 +511,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         ]:
             raise DjangoValidationError(
                 {
-                    "restrict_purchase_to_linked_invitations": (
+                    "restrict_purchase_to_linked_invitations": _(
                         "This option is only valid when purchasable by is set to "
                         "'Invitees only' or 'Invited and Members only'."
                     )

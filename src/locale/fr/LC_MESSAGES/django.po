@@ -1074,6 +1074,43 @@ msgstr ""
 "Le renvoi aux nouvelles inscriptions nécessite une annonce ciblant un "
 "événement."
 
+msgid "valid_until must be after valid_from."
+msgstr "valid_until doit être postérieur à valid_from."
+
+msgid "Percentage discount cannot exceed 100."
+msgstr "La réduction en pourcentage ne peut pas dépasser 100."
+
+msgid "Currency is required for fixed amount discounts."
+msgstr "La devise est requise pour les réductions à montant fixe."
+
+msgid "Event series must belong to the same organization as the event."
+msgstr ""
+"La série d'événements doit appartenir à la même organisation que "
+"l'événement."
+
+msgid "End date must be after start date."
+msgstr "La date de fin doit être postérieure à la date de début."
+
+msgid "Check-in end time must be after check-in start time."
+msgstr ""
+"L'heure de fin du check-in doit être postérieure à l'heure de début du "
+"check-in."
+
+msgid "Venue must belong to the same organization as the event."
+msgstr "Le lieu doit appartenir à la même organisation que l'événement."
+
+msgid "Time window must be at least 1 hour."
+msgstr "La fenêtre de temps doit être d'au moins 1 heure."
+
+msgid "Time window cannot exceed 7 days."
+msgstr "La fenêtre de temps ne peut pas dépasser 7 jours."
+
+msgid "Cutoff date requires waitlist_time_window to be set."
+msgstr "La date limite nécessite que waitlist_time_window soit défini."
+
+msgid "Cutoff date must be before event start."
+msgstr "La date limite doit être antérieure au début de l'événement."
+
 msgid "Days a PAST_DUE subscription stays valid before expiring."
 msgstr ""
 "Nombre de jours pendant lesquels un abonnement PAST_DUE reste valide avant "
@@ -1086,6 +1123,9 @@ msgstr ""
 "Une adresse e-mail de contact vérifiée est requise pour activer un moyen de "
 "contact autre que NONE."
 
+msgid "The tier must belong to the same organization as the membership."
+msgstr "Le niveau doit appartenir à la même organisation que l'adhésion."
+
 msgid "Membership tier is required when granting membership."
 msgstr "Le niveau d'adhésion est requis lors de l'octroi d'une adhésion."
 
@@ -1095,6 +1135,43 @@ msgstr ""
 
 msgid "Token must be a single non-empty slug segment."
 msgstr "Le jeton doit être un segment de slug non vide."
+
+msgid "At-the-door payment is not supported for series passes."
+msgstr ""
+"Le paiement sur place n'est pas pris en charge pour les pass de série."
+
+msgid "Series passes cannot be invitation-restricted."
+msgstr "Les pass de série ne peuvent pas être réservés aux invités."
+
+msgid "Currency cannot be changed once the pass covers events."
+msgstr ""
+"La devise ne peut plus être modifiée une fois que le pass couvre des "
+"événements."
+
+msgid "Payment method cannot be changed while the pass has holders."
+msgstr ""
+"La méthode de paiement ne peut pas être modifiée tant que le pass a des "
+"détenteurs."
+
+msgid "Tier must belong to the covered event."
+msgstr "La catégorie de tickets doit appartenir à l'événement couvert."
+
+msgid "Event must belong to the pass's series."
+msgstr "L'événement doit appartenir à la série du pass."
+
+msgid "Tier currency must match the pass currency."
+msgstr ""
+"La devise de la catégorie de tickets doit correspondre à celle du pass."
+
+msgid "Assigned-seating tiers cannot back a series pass."
+msgstr ""
+"Les catégories de tickets avec places assignées ne peuvent pas être "
+"associées à un pass de série."
+
+msgid "Pay What You Can tiers cannot back a series pass."
+msgstr ""
+"Les catégories de tickets à tarif libre ne peuvent pas être associées à un "
+"pass de série."
 
 msgid "Month"
 msgstr "Mois"
@@ -1134,11 +1211,37 @@ msgstr "Échoué"
 msgid "Refunded"
 msgstr "Remboursé"
 
+msgid "Ticket sales must start before or at the event start time."
+msgstr ""
+"La vente des tickets doit commencer au plus tard au début de l'événement."
+
+msgid "Ticket sales end time must be after the sales start time."
+msgstr ""
+"L'heure de fin de vente des tickets doit être postérieure à l'heure de "
+"début de vente."
+
+msgid ""
+"Maximum pay-what-you-can amount must be greater than or equal to minimum "
+"amount."
+msgstr ""
+"Le montant maximum du tarif libre doit être supérieur ou égal au montant "
+"minimum."
+
+msgid "All linked membership tiers must belong to the event's organization."
+msgstr ""
+"Tous les niveaux d'adhésion liés doivent appartenir à l'organisation de "
+"l'événement."
+
+msgid ""
+"If tickets are restricted to specific tiers, 'Purchasable By' must be set to "
+"'Members only' or 'Invited and Members only'."
+msgstr ""
+"Si les tickets sont réservés à des niveaux spécifiques, 'Achetable par' "
+"doit être défini sur 'Membres uniquement' ou 'Invités et membres "
+"uniquement'."
+
 msgid "Sector must belong to the specified venue."
 msgstr "Le secteur doit appartenir au lieu spécifié."
-
-msgid "Venue must belong to the same organization as the event."
-msgstr "Le lieu doit appartenir à la même organisation que l'événement."
 
 msgid "Tier venue must match the event venue."
 msgstr ""
@@ -1161,6 +1264,17 @@ msgid ""
 msgstr ""
 "L'attribution du meilleur siège disponible requiert un secteur assis, pas un "
 "secteur debout."
+
+msgid "This option is only valid when visibility is set to 'Private'."
+msgstr ""
+"Cette option n'est valide que lorsque la visibilité est définie sur 'Privé'."
+
+msgid ""
+"This option is only valid when purchasable by is set to 'Invitees only' or "
+"'Invited and Members only'."
+msgstr ""
+"Cette option n'est valide que lorsque 'Achetable par' est défini sur "
+"'Invités uniquement' ou 'Invités et membres uniquement'."
 
 msgid "Cannot assign an inactive seat."
 msgstr "Impossible d'attribuer un siège inactif."
