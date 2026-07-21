@@ -204,7 +204,9 @@ buyer's screen would show at each step:
 
 1. **Buyer opens the seat map.**
    `GET /events/{event_id}/seating/chart` — the full venue layout: sectors, every seat, and the
-   price categories (colors) painted onto them. This is what draws the picture. The prices come
+   price categories (colors) painted onto them, plus the designer's venue-level `metadata`
+   (stage position, floors — see [venue-and-layout.md](venue-and-layout.md)). This is what draws
+   the picture. The prices come
    from the event's tiers: a tier that prices seats by zone returns a `seat_pricing` block — the
    effective price of each zone plus the unpainted fallback — which is what the legend renders.
    A flat tier returns nothing there, and the app shows one price, exactly as before.

@@ -1,5 +1,7 @@
 """Public seating controller: chart, availability, holds (POST/DELETE)."""
 
+import typing as t
+
 import pytest
 from django.test.client import Client
 
@@ -9,6 +11,11 @@ from events.service.guest_hold_session import GUEST_HOLD_COOKIE
 from events.service.seating import holds as holds_service
 
 pytestmark = pytest.mark.django_db
+
+# Whole anonymous chart request: event visibility lookups, the venue row, then build_chart's
+# own prefetches (sectors, seats, price categories). Measured, and unchanged by #755 —
+# ``metadata`` rides on the venue row that is already fetched.
+_CHART_QUERIES = 9
 
 
 def _seated_tier(event: Event, seats: list[VenueSeat], *, paint: bool = True) -> TicketTier:
@@ -58,6 +65,57 @@ def test_chart_serializes_legacy_pair_shape(client: Client, seated_event: tuple[
         {"x": 4.0, "y": 2.0},
         {"x": 0.0, "y": 2.0},
     ]
+
+
+def test_chart_exposes_venue_metadata(client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
+    """The designer's venue-level config (stage, floors) round-trips verbatim to the buyer's map."""
+    event, seats = seated_event
+    venue = event.venue
+    assert venue is not None
+    metadata = {
+        "stage": {"shape": [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], "label": "Stage"},
+        "floors": [{"id": "ground", "name": "Ground", "order": 0}],
+    }
+    venue.metadata = metadata
+    venue.save(update_fields=["metadata"])
+    sector = seats[0].sector
+    sector.metadata = {"floor": "ground"}
+    sector.save(update_fields=["metadata"])
+
+    resp = client.get(f"/api/events/{event.id}/seating/chart")
+
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["metadata"] == metadata
+    # Same shape at both levels: sector metadata carries the floor id the venue list declares.
+    assert body["sectors"][0]["metadata"] == {"floor": "ground"}
+
+
+def test_chart_metadata_is_null_when_unset(client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
+    """No designer data serialises as ``null`` — never ``{}`` — so the FE has one emptiness check."""
+    event, _seats = seated_event
+    resp = client.get(f"/api/events/{event.id}/seating/chart")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert "metadata" in body
+    assert body["metadata"] is None
+
+
+def test_chart_query_count_is_unaffected_by_venue_metadata(
+    client: Client, seated_event: tuple[Event, list[VenueSeat]], django_assert_num_queries: t.Any
+) -> None:
+    """``metadata`` rides on the venue row already fetched — the chart budget must not move."""
+    event, _seats = seated_event
+    venue = event.venue
+    assert venue is not None
+    client.get(f"/api/events/{event.id}/seating/chart")  # warm any per-process caches
+    with django_assert_num_queries(_CHART_QUERIES):
+        assert client.get(f"/api/events/{event.id}/seating/chart").status_code == 200
+
+    venue.metadata = {"stage": {"label": "Stage"}}
+    venue.save(update_fields=["metadata"])
+    with django_assert_num_queries(_CHART_QUERIES):
+        assert client.get(f"/api/events/{event.id}/seating/chart").status_code == 200
 
 
 def test_chart_404_when_event_has_no_venue(client: Client, event: Event) -> None:
