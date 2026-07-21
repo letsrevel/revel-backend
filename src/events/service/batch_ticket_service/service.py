@@ -115,9 +115,10 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # One authority for every writer (spec §5.5). Computed ONCE and handed to every
         # branch that stamps — a branch that recomputes, or silently drops it, is exactly
         # how a category-priced tier ended up with NULL price_paid rows. The ONLINE branch
-        # is the sole exception and does not take it at all: Payment.amount is
-        # authoritative there (and is *net* for a reverse-charge buyer). An ONLINE cart the
-        # buyer zeroed has no Payment row, so it reroutes to free and does stamp.
+        # is the sole exception and does not take it at all — a PERMANENT carve-out (#758):
+        # Payment.amount is authoritative there (and is *net* for a reverse-charge buyer).
+        # An ONLINE cart the buyer zeroed has no Payment row, so it reroutes to free and
+        # does stamp.
         stamp_price_paid = should_stamp_price_paid(
             locked_tier, pwyc_amount=pwyc_amount, has_discount=self.discount_code is not None
         )

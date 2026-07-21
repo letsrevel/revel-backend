@@ -55,7 +55,9 @@ class CheckoutMixin(TicketWriterMixin):
 
         reservation_id = uuid4()
 
-        # PENDING tickets; price_paid stays NULL online — Payment.amount is authoritative (spec §5.5).
+        # PENDING tickets; price_paid stays NULL online — PERMANENTLY (#758). Payment.amount is
+        # authoritative (spec §5.5) and is net for a reverse-charge buyer, so stamping it would
+        # make price_paid's meaning depend on the buyer's VAT status. Never pass stamp_price_paid.
         tickets = self.create_tickets(items, seats, Ticket.TicketStatus.PENDING, pricing.lines)
 
         # Update quantity sold
