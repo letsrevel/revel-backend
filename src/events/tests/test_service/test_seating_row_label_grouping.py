@@ -52,7 +52,7 @@ def test_pick_stays_within_one_row_when_row_order_is_all_zero() -> None:
     assert labels in ({"A"}, {"B"}), "the block must come from a single physical row"
     adjacency = sorted(by_id[p].adjacency_index for p in picked)
     assert adjacency[-1] - adjacency[0] == 3, "and it must be genuinely contiguous within that row"
-    assert all(b - a == 1 for a, b in zip(adjacency, adjacency[1:], strict=True))
+    assert all(b - a == 1 for a, b in zip(adjacency, adjacency[1:]))
 
 
 # --- DB integration: load_candidates + build_zone_availability --------------

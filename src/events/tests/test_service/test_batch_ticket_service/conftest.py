@@ -112,9 +112,11 @@ def seated_event(seated_org: Organization) -> Event:
 
 
 @pytest.fixture
-def sector(seated_org: Organization) -> VenueSector:
+def sector(seated_org: Organization, seated_event: Event) -> VenueSector:
     """A sector in a venue that has Premium and Standard categories."""
     venue = Venue.objects.create(organization=seated_org, name="Theatre", capacity=100)
+    seated_event.venue = venue
+    seated_event.save(update_fields=["venue"])
     return VenueSector.objects.create(
         venue=venue,
         name="Stalls",
