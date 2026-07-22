@@ -43,8 +43,11 @@ class _ZoneAccumulator:
     order: tuple[int, int]
     free: int = 0
     accessible_free: int = 0
-    # row_order -> adjacency indexes of the free non-accessible seats in that row
-    rows: dict[int, list[int]] = dataclasses.field(default_factory=dict)
+    # (row_order, row_label) -> adjacency indexes of the free non-accessible seats in that
+    # row. row_label is in the key so an all-zero row_order layout still keeps rows apart —
+    # otherwise every row collapses onto one plane and largest_contiguous_block is computed
+    # across physical rows (see the picker's identical grouping in best_available._pick_general).
+    rows: dict[tuple[int, str | None], list[int]] = dataclasses.field(default_factory=dict)
 
 
 def _longest_run(adjacency_indexes: list[int]) -> int:
@@ -98,8 +101,9 @@ def build_zone_availability(event: Event, taken: set[uuid.UUID]) -> list[ZoneAva
         "is_accessible",
         "sector__display_order",
         "default_price_category__display_order",
+        "row_label",
     )
-    for seat_id, sector_id, category_id, row_order, adjacency_index, is_accessible, s_order, c_order in rows:
+    for seat_id, sector_id, category_id, row_order, adjacency_index, is_accessible, s_order, c_order, row_label in rows:
         zone = zones.setdefault((sector_id, category_id), _ZoneAccumulator(order=(s_order, c_order)))
         if seat_id in taken:
             continue
@@ -107,7 +111,7 @@ def build_zone_availability(event: Event, taken: set[uuid.UUID]) -> list[ZoneAva
             zone.accessible_free += 1
         else:
             zone.free += 1
-            zone.rows.setdefault(row_order, []).append(adjacency_index)
+            zone.rows.setdefault((row_order, row_label), []).append(adjacency_index)
     return [
         ZoneAvailabilitySchema(
             sector_id=sector_id,

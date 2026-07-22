@@ -146,7 +146,7 @@ class EventPublicSeatingController(EventPublicBaseController):
             # Same HoldResponseSchema shape as every other hold 409 (not an HttpError
             # {detail} body): no block of the requested size fits.
             return 409, schema.HoldResponseSchema(
-                held_seat_ids=[], conflicts=[], expires_at=None, conflict_reason="no_block"
+                held_seat_ids=[], conflicts=[], expires_at=None, conflict_reason=schema.HoldConflictReason.NO_BLOCK
             )
         status = 409 if result.conflicts else 200
         return status, schema.HoldResponseSchema(

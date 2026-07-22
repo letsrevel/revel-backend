@@ -167,15 +167,17 @@ def load_candidates(
     )
     # Full-row bounds over ALL active seats of the pool's sector (sold/held included)
     # so centrality is scored against the real row midpoint, not the shrinking
-    # available pool — and against the same sector the pool is drawn from.
+    # available pool — and against the same sector the pool is drawn from. Keyed by
+    # (sector, row_order, row_label) to match the picker's row grouping, so an all-zero
+    # row_order layout still bounds each row_label row by its own length.
     row_bounds = {
-        (r["sector__display_order"], r["row_order"]): r["max_adjacency"] + 1
+        (r["sector__display_order"], r["row_order"], r["row_label"]): r["max_adjacency"] + 1
         for r in VenueSeat.objects.filter(
             is_active=True,
             sector__kind=VenueSector.Kind.SEATED,
             sector_id=tier.sector_id,
         )
-        .values("sector__display_order", "row_order")
+        .values("sector__display_order", "row_order", "row_label")
         .annotate(max_adjacency=Max("adjacency_index"))
     }
     pool = VenueSeat.objects.filter(
@@ -189,7 +191,7 @@ def load_candidates(
     qs = (
         pool.exclude(id__in=taken)
         .order_by("id")
-        .values_list("id", "row_order", "adjacency_index", "is_accessible", "sector__display_order")
+        .values_list("id", "row_order", "adjacency_index", "is_accessible", "sector__display_order", "row_label")
     )
     return [
         CandidateSeat(
@@ -198,7 +200,8 @@ def load_candidates(
             adjacency_index=r[2],
             is_accessible=r[3],
             sector_display_order=r[4],
-            row_length=row_bounds[(r[4], r[1])],
+            row_length=row_bounds[(r[4], r[1], r[5])],
+            row_label=r[5],
         )
         for r in qs
     ]

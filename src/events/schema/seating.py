@@ -1,5 +1,6 @@
 """Schemas for the seating engine (chart, availability, holds, overrides)."""
 
+import enum
 import typing as t
 from uuid import UUID
 
@@ -171,13 +172,24 @@ class ReleaseSeatsRequest(Schema):
     seat_ids: list[UUID] | None = None  # None = release all
 
 
+class HoldConflictReason(str, enum.Enum):
+    """Why a hold request produced conflicts (``HoldResponseSchema.conflict_reason``).
+
+    The frontend matches these values literally — never change the strings. Referencing
+    the enum in the schema, service and controller is what lands the value set in the
+    OpenAPI spec instead of a bare ``string``.
+    """
+
+    CAPACITY = "capacity"  # the caller would hold more than the per-identity cap
+    UNAVAILABLE = "unavailable"  # a seat is invalid/blocked/sold/held by someone else
+    NO_BLOCK = "no_block"  # best-available: no adjacent block of the requested size fits
+
+
 class HoldResponseSchema(Schema):
     held_seat_ids: list[UUID] = Field(default_factory=list)
     conflicts: list[UUID] = Field(default_factory=list)
-    # "capacity" (caller holds too many seats) vs "unavailable" (seats taken/blocked)
-    # vs "no_block" (best-available: no adjacent block of the requested size fits);
-    # None on success.
-    conflict_reason: str | None = None
+    # See HoldConflictReason for the value set; None on success.
+    conflict_reason: HoldConflictReason | None = None
     expires_at: AwareDatetime | None = None
 
 

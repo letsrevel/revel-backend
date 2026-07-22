@@ -21,6 +21,12 @@ class CandidateSeat:
     # + 1) — NOT the available pool's extent. Centrality is scored against the real
     # row midpoint, so sold/held high-index seats don't shift the perceived center.
     row_length: int
+    # Identifies the physical row alongside row_order. The seat designer currently
+    # writes row_order=0 for every editor-built seat, so row_order alone would collapse
+    # distinct rows onto one adjacency plane; row_label keeps them apart (rows are grouped
+    # by (sector_display_order, row_order, row_label)). Adding it to the key only ever
+    # SPLITS groups, so the row_order-distinguished path is unchanged.
+    row_label: str | None = None
 
 
 def _contiguous_runs(seats: list[CandidateSeat]) -> list[list[CandidateSeat]]:
@@ -53,9 +59,12 @@ def _placement_score(run: list[CandidateSeat], start: int, quantity: int, row_le
 
 
 def _pick_general(pool: list[CandidateSeat], quantity: int, seed: int | None) -> list[uuid.UUID]:
-    rows: dict[tuple[int, int], list[CandidateSeat]] = {}
+    # Keyed by (sector, row_order, row_label): row_label breaks the tie when the designer
+    # left row_order=0 on every seat, so seats from different rows never merge into one
+    # contiguous-run plane. Contiguity is still scored on adjacency_index within a row.
+    rows: dict[tuple[int, int, str | None], list[CandidateSeat]] = {}
     for s in pool:
-        rows.setdefault((s.sector_display_order, s.row_order), []).append(s)
+        rows.setdefault((s.sector_display_order, s.row_order, s.row_label), []).append(s)
     # Full-row bounds carried by the candidates themselves — never derived from the
     # (already filtered) pool, which would move the midpoint when edge seats are taken.
     row_len = {key: max(s.row_length for s in seats) for key, seats in rows.items()}
