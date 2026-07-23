@@ -9,7 +9,18 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, OrganizationStaff, Ticket, TicketTier, Venue, VenueSeat, VenueSector
+from events.models import (
+    Event,
+    Organization,
+    OrganizationStaff,
+    PriceCategory,
+    Ticket,
+    TicketTier,
+    Venue,
+    VenueSeat,
+    VenueSector,
+)
+from events.service.seating import availability
 
 pytestmark = pytest.mark.django_db
 
@@ -236,7 +247,7 @@ class TestVenueSeatManagement:
         response = organization_owner_client.delete(url)
 
         assert response.status_code == 400
-        assert "active or pending tickets" in response.json()["detail"]
+        assert "decommission" in response.json()["detail"].lower()
         # Seat should still exist
         assert VenueSeat.objects.filter(id=seat.id).exists()
 
@@ -274,12 +285,12 @@ class TestVenueSeatManagement:
         response = organization_owner_client.delete(url)
 
         assert response.status_code == 400
-        assert "active or pending tickets" in response.json()["detail"]
+        assert "decommission" in response.json()["detail"].lower()
 
-    def test_delete_seat_allowed_with_cancelled_ticket(
+    def test_delete_seat_blocked_by_cancelled_ticket(
         self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test that seat with cancelled ticket can be deleted."""
+        """A cancelled ticket still references the seat historically, so deletion is blocked."""
         venue = Venue.objects.create(organization=organization, name="Theater")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
@@ -309,13 +320,14 @@ class TestVenueSeatManagement:
         )
         response = organization_owner_client.delete(url)
 
-        assert response.status_code == 204
-        assert not VenueSeat.objects.filter(id=seat.id).exists()
+        assert response.status_code == 400
+        assert "decommission" in response.json()["detail"].lower()
+        assert VenueSeat.objects.filter(id=seat.id).exists()
 
-    def test_delete_seat_allowed_with_past_event_ticket(
+    def test_delete_seat_blocked_by_past_event_ticket(
         self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test that seat with ticket for past event can be deleted."""
+        """A ticket for a past event still references the seat, so deletion is blocked."""
         venue = Venue.objects.create(organization=organization, name="Theater")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
@@ -345,13 +357,14 @@ class TestVenueSeatManagement:
         )
         response = organization_owner_client.delete(url)
 
-        assert response.status_code == 204
-        assert not VenueSeat.objects.filter(id=seat.id).exists()
+        assert response.status_code == 400
+        assert "decommission" in response.json()["detail"].lower()
+        assert VenueSeat.objects.filter(id=seat.id).exists()
 
-    def test_delete_seat_allowed_with_checked_in_ticket(
+    def test_delete_seat_blocked_by_checked_in_ticket(
         self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test that seat with checked_in ticket for future event can be deleted."""
+        """A checked-in ticket still references the seat historically, so deletion is blocked."""
         venue = Venue.objects.create(organization=organization, name="Theater")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
@@ -383,8 +396,9 @@ class TestVenueSeatManagement:
         )
         response = organization_owner_client.delete(url)
 
-        assert response.status_code == 204
-        assert not VenueSeat.objects.filter(id=seat.id).exists()
+        assert response.status_code == 400
+        assert "decommission" in response.json()["detail"].lower()
+        assert VenueSeat.objects.filter(id=seat.id).exists()
 
     def test_seat_operations_by_staff_without_permission(
         self, organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
@@ -519,9 +533,9 @@ class TestVenueSeatManagement:
         """Test bulk updating seats via API."""
         venue = Venue.objects.create(organization=organization, name="Theater")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
-        VenueSeat.objects.create(sector=sector, label="A1", row="A", number=1, is_accessible=False)
-        VenueSeat.objects.create(sector=sector, label="A2", row="A", number=2, is_accessible=False)
-        VenueSeat.objects.create(sector=sector, label="A3", row="A", number=3, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A1", row_label="A", number=1, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A2", row_label="A", number=2, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A3", row_label="A", number=3, is_accessible=False)
 
         url = reverse(
             "api:bulk_update_venue_seats",
@@ -545,13 +559,13 @@ class TestVenueSeatManagement:
         assert a1.is_accessible is True
 
         a2 = sector.seats.get(label="A2")
-        assert a2.row == "B"
+        assert a2.row_label == "B"
         assert a2.number == 1
 
         # A3 should be unchanged
         a3 = sector.seats.get(label="A3")
         assert a3.is_accessible is False
-        assert a3.row == "A"
+        assert a3.row_label == "A"
 
     def test_bulk_update_seats_not_found(self, organization_owner_client: Client, organization: Organization) -> None:
         """Test bulk update with non-existent seats fails."""
@@ -625,3 +639,32 @@ class TestVenueSeatManagement:
         response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 422  # Pydantic validation error (min_length=1)
+
+    def test_single_seat_repaint_moves_the_chart_version(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """The seat PATCH can reprice a seat, so the buyer's poller must see it (#752).
+
+        This endpoint changes ``price_category_id`` — the same money-affecting field the bulk
+        paint endpoint guards with #747's report — and used to leave the chart version frozen,
+        so an open seat map kept rendering the old colour *and* the old price indefinitely.
+        """
+        venue = Venue.objects.create(organization=organization, name="Theater")
+        sector = VenueSector.objects.create(venue=venue, name="Orchestra")
+        premium = PriceCategory.objects.create(venue=venue, name="Premium", color="#aa0000")
+        standard = PriceCategory.objects.create(venue=venue, name="Standard", color="#0000aa")
+        VenueSeat.objects.create(sector=sector, label="A1", default_price_category=premium)
+        before = availability.resolve_chart_version(venue.id)
+
+        url = reverse(
+            "api:update_venue_seat",
+            kwargs={"slug": organization.slug, "venue_id": venue.id, "sector_id": sector.id, "label": "A1"},
+        )
+        response = organization_owner_client.put(
+            url, data=orjson.dumps({"price_category_id": str(standard.id)}), content_type="application/json"
+        )
+
+        assert response.status_code == 200
+        after = availability.resolve_chart_version(venue.id)
+        assert before is not None and after is not None
+        assert after > before

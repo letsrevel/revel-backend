@@ -158,8 +158,55 @@ http://localhost:8000/metrics
 
 Exposes Prometheus-format metrics from the Django application.
 
-!!! note "Custom Business Metrics"
-    Custom business metrics (ticket sales, payment volumes, evaluation throughput) are planned but not yet implemented.
+### Custom Business Metrics
+
+Custom metrics live in `common/observability/metrics.py`, on the default
+`prometheus_client` registry that `django_prometheus` already exposes at `/metrics` — no
+extra wiring. **Only add one if someone is going to alert on it**, and keep labels
+low-cardinality (never a session id, user id, or event id — those belong on the log line).
+
+| Metric | Meaning |
+|---|---|
+| `revel_stripe_session_total_mismatch_total{call_site}` | Stripe's session total disagreed with `sum(Payment.amount)`. `call_site="preflight"`: caught before the session existed, nobody charged. `call_site="webhook"`: **the buyer has been charged**. |
+| `revel_stripe_session_paid_without_payments_total` | A session that captured money was confirmed with no `Payment` rows to confirm — charged buyer, no record. |
+
+Both are **one-occurrence incidents**, so they alert with no `for:` delay:
+
+```promql
+increase(revel_stripe_session_total_mismatch_total[5m]) > 0
+increase(revel_stripe_session_paid_without_payments_total[5m]) > 0
+```
+
+Each increment is paired with a self-contained `ERROR` log line carrying the identifiers to
+act on — see [the money-correctness runbook](#money-correctness-stripe-session-total-mismatch).
+
+!!! warning "Counters are per gunicorn worker until multiproc lands in deployment"
+    Production runs several gunicorn workers with no `PROMETHEUS_MULTIPROC_DIR`, so each
+    worker keeps its own counters and a scrape reaches one of them. That is fine for
+    "did this ever happen" alerting — the incremented worker holds its non-zero value and is
+    eventually scraped — but these values are **not** exact rates. Until the deployment half
+    of [#757](https://github.com/letsrevel/revel-backend/issues/757)
+    (tracked as [letsrevel/infra#35](https://github.com/letsrevel/infra/issues/35)) sets the
+    env var, **every alert or dashboard built on these metrics must be a presence check
+    (`increase(...) > 0`) — never a rate or an absolute count.** Only define
+    alert-on-any-occurrence metrics here until then.
+
+    The backend is already multiproc-ready; everything is gated on the
+    `PROMETHEUS_MULTIPROC_DIR` env var and inert while it is unset:
+
+    - `prometheus_client` switches metric storage to per-process mmap files in that
+      directory automatically (the env var is read at import time, so it must be set in the
+      container environment — it cannot be turned on from Django settings).
+    - `django_prometheus`' `/metrics` view detects the env var per request and serves the
+      aggregated `MultiProcessCollector` registry instead of the in-process one.
+    - `src/gunicorn.conf.py` (auto-loaded by gunicorn from its working directory) wipes
+      stale metric files when the master starts and runs
+      `multiprocess.mark_process_dead()` on `child_exit`.
+
+    Once deployment sets the env var and mounts a writable shared directory (tmpfs) for it,
+    rates and absolute counts become trustworthy. One trade-off: the default per-process
+    collectors (`process_*`, `python_gc_*`, `python_info`) disappear from `/metrics`, as
+    they only exist on the in-process registry.
 
 ---
 
@@ -180,6 +227,8 @@ Grafana provides the alerting layer, replacing the previous database-based error
 
 | Alert | Trigger |
 |---|---|
+| Stripe session total mismatch | `revel_stripe_session_total_mismatch_total` increases (see [runbook](#money-correctness-stripe-session-total-mismatch)) |
+| Paid session with no payments | `revel_stripe_session_paid_without_payments_total` increases |
 | High error rate | 5xx responses exceed threshold |
 | Auth failures | Repeated failed login attempts |
 | Database errors | Connection pool exhaustion, slow queries |
@@ -196,6 +245,57 @@ Grafana supports multiple notification channels:
 - Slack
 - Discord
 - PagerDuty
+
+### Money-correctness: Stripe session total mismatch
+
+`severity: critical`, **no `for:` delay — one occurrence is the incident.**
+
+The checkout path refuses to write a ledger entry it cannot reconcile: if Stripe's session
+total disagrees with `sum(Payment.amount)`, the webhook raises, the whole transaction rolls
+back, and Stripe redelivers. That is the correct failure mode, but the rollback discards
+every database trace of *the attempt* — so detection does two things at once:
+
+- **The implicated `Payment`/`Ticket` rows are placed under an incident hold** (#756):
+  `record_session_total_mismatch` dispatches `events.hold_mismatch_payments` (a bare
+  `.delay()` — the broker message survives the rollback), which stamps
+  `Payment.incident_hold_at`. `events.cleanup_expired_payments` retains held rows instead of
+  deleting them on the normal ~hourly schedule, so you find real rows to reconcile against.
+  The hold is bounded: it lapses after `INCIDENT_HOLD_RETENTION` (30 days,
+  `events/tasks/payments.py`), after which the sweep reclaims the rows normally.
+- Everything needed to recover the buyer is still emitted **at the moment of detection**, on
+  one self-contained log line — the only record in the rare race where the sweep locked the
+  rows before the hold landed:
+
+```logql
+{service_name="web", level="error"} |= "stripe_session_total_mismatch"
+{service_name="web", level="error"} |= "stripe_session_paid_without_payments"
+```
+
+The line carries `session_id`, `payment_intent_id`, `user_id`, `user_email`,
+`charged_minor_units` vs `recorded_minor_units`, and a `payments[]` breakdown of
+`ticket_id` / `event_id` / `tier_id` / `guest_name` / `amount`.
+
+**Remediation** (`call_site="webhook"` — the buyer *has* been charged):
+
+1. Find the session/PaymentIntent in Stripe and confirm the captured amount.
+2. Refund it.
+3. Reconcile against the retained rows: filter the Payment admin by
+   "incident hold" (or look up the `payment_ids` from the log line). Re-issue the tickets
+   from those rows — or from the `payments[]` breakdown on the log line if the sweep won
+   the race before the hold landed.
+4. Diff `charged_minor_units` against `recorded_minor_units` to find the pricing bug.
+5. **Resolve the hold**: clear `incident_hold_at` on the retained payments in the Payment
+   admin. The next sweep run reclaims the rows and releases their tier capacity. An
+   unresolved hold lapses on its own after 30 days — the rows are never immortal, but
+   resolving explicitly is what keeps the tier's `quantity_sold` honest sooner.
+
+`call_site="preflight"` is the safe half: it fires before a payable session exists, so nobody
+has been charged. Still critical — it means a pricing bug shipped — but there is no money to
+chase, only a 500 the buyer saw.
+
+!!! note "Do not alert on `stripe_session_rounding_drift`"
+    That `WARNING` is structurally unavoidable rounding on zero-decimal currencies, and paging
+    on it would page on every reverse-charge cart.
 
 ---
 

@@ -50,30 +50,6 @@ def build_attendee_visibility_flags(event_id: str) -> None:
         event.attendee_count = ticket_count + rsvp_count
         event.save(update_fields=["attendee_count"])
 
-    # Re-fetch event without lock for visibility flag building (read-only operations)
-    event = Event.objects.with_organization().get(pk=event_id)
-
-    organization = event.organization
-    owner_id = organization.owner_id
-    staff_ids = {sm.id for sm in organization.staff_members.all()}
-
-    # Pre-load all relationship data in 4 queries (instead of N queries per pair)
-    context = VisibilityContext.for_event(event, owner_id, staff_ids)
-
-    # Users attending the event (for visibility purposes)
-    # Prefetch general_preferences to avoid N+1 when accessing target.general_preferences
-    attendees_q = Q(
-        tickets__event=event,
-        tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
-    ) | Q(rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES)
-
-    attendees = list(RevelUser.objects.filter(attendees_q).select_related("general_preferences").distinct())
-
-    # Users invited or attending = potential viewers
-    viewers = list(RevelUser.objects.filter(Q(invitations__event=event) | attendees_q).distinct())
-
-    flags = []
-
     with transaction.atomic():
         # Serialize concurrent rebuilds of the same event's matrix. Every confirmed
         # ticket/RSVP dispatches this task, so a checkout rush runs several rebuilds
@@ -82,8 +58,37 @@ def build_attendee_visibility_flags(event_id: str) -> None:
         # serializes the rebuild without touching the Event row that checkout paths
         # select_for_update (so it adds no checkout latency). Released automatically
         # at commit/rollback.
+        #
+        # The lock is taken FIRST, before the visibility snapshot below: a task that
+        # waits here must read the state left by the rebuild it waited on, otherwise
+        # it would overwrite a newer matrix with stale flags.
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [visibility_rebuild_lock_key(event_id)])
+
+        # Re-fetch event without a row lock for visibility flag building (read-only)
+        event = Event.objects.with_organization().get(pk=event_id)
+
+        organization = event.organization
+        owner_id = organization.owner_id
+        staff_ids = {sm.id for sm in organization.staff_members.all()}
+
+        # Pre-load all relationship data in 4 queries (instead of N queries per pair)
+        context = VisibilityContext.for_event(event, owner_id, staff_ids)
+
+        # Users attending the event (for visibility purposes)
+        # Prefetch general_preferences to avoid N+1 when accessing target.general_preferences
+        attendees_q = Q(
+            tickets__event=event,
+            tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
+        ) | Q(rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES)
+
+        attendees = list(RevelUser.objects.filter(attendees_q).select_related("general_preferences").distinct())
+
+        # Users invited or attending = potential viewers
+        viewers = list(RevelUser.objects.filter(Q(invitations__event=event) | attendees_q).distinct())
+
+        flags = []
+
         AttendeeVisibilityFlag.objects.filter(event=event).delete()
         for viewer in viewers:
             for target in attendees:

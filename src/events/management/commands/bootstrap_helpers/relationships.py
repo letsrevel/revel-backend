@@ -225,8 +225,9 @@ def _create_seated_concert_tickets(state: BootstrapState) -> None:
     """Create Classical Music Evening tickets (offline payment demo)."""
     standing_tier = events_models.TicketTier.objects.get(event=state.events["seated_concert"], name="Standing Room")
 
-    # Tickets with confirmed payment (ACTIVE)
-    for user_key in ["attendee_3", "org_alpha_member", "multi_org_user"]:
+    # Tickets with confirmed payment (ACTIVE). org_alpha_member (Charlie) is deliberately
+    # excluded so a developer logged in as Charlie can still test purchasing on this event.
+    for user_key in ["attendee_3", "multi_org_user"]:
         events_models.Ticket.objects.create(
             guest_name=state.users[user_key].get_display_name(),
             event=state.events["seated_concert"],

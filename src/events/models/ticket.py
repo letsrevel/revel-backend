@@ -10,10 +10,12 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models import F, Prefetch, Q
 from django.utils import timezone
 from django.utils.functional import cached_property
+from django.utils.translation import gettext_lazy as _
 
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from events.utils import apple_wallet_configured
+from events.utils.tier_pricing import validate_category_prices
 
 from .mixins import VisibilityMixin
 from .organization import MembershipTier, OrganizationMember
@@ -245,7 +247,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
 
     class SeatAssignmentMode(models.TextChoices):
         NONE = "none", "No seat assignment (GA/standing)"
-        RANDOM = "random", "Random assignment at purchase"
+        BEST_AVAILABLE = "best_available", "Best available (adjacency-aware)"
         USER_CHOICE = "user_choice", "User chooses seat"
 
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="ticket_tiers")
@@ -323,6 +325,11 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         related_name="ticket_tiers",
         help_text="Specific sector for this tier.",
     )
+    category_prices = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="{price_category_id: price}. Empty = flat pricing.",
+    )
     seat_assignment_mode = models.CharField(
         choices=SeatAssignmentMode.choices,
         default=SeatAssignmentMode.NONE,
@@ -390,17 +397,19 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         """Validate sales window constraints."""
         if self.sales_start_at and self.sales_start_at > self.event.start:
             raise DjangoValidationError(
-                {"sales_start_at": "Ticket sales must start before or at the event start time."}
+                {"sales_start_at": _("Ticket sales must start before or at the event start time.")}
             )
         if self.sales_start_at and self.sales_end_at and self.sales_end_at <= self.sales_start_at:
-            raise DjangoValidationError({"sales_end_at": "Ticket sales end time must be after the sales start time."})
+            raise DjangoValidationError(
+                {"sales_end_at": _("Ticket sales end time must be after the sales start time.")}
+            )
 
     def _validate_pwyc(self) -> None:
         """Validate pay-what-you-can pricing constraints."""
         if self.price_type == self.PriceType.PWYC:
             if self.pwyc_max and self.pwyc_max < self.pwyc_min:
                 raise DjangoValidationError(
-                    {"pwyc_max": "Maximum pay-what-you-can amount must be greater than or equal to minimum amount."}
+                    {"pwyc_max": _("Maximum pay-what-you-can amount must be greater than or equal to minimum amount.")}
                 )
 
     def _validate_membership_tiers(self) -> None:
@@ -408,7 +417,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         for membership_tier in self.restricted_to_membership_tiers.all():
             if membership_tier.organization_id != self.event.organization_id:
                 raise DjangoValidationError(
-                    {"restricted_to_tiers": "All linked membership tiers must belong to the event's organization."}
+                    {"restricted_to_tiers": _("All linked membership tiers must belong to the event's organization.")}
                 )
         if self.restricted_to_membership_tiers.exists() and self.purchasable_by not in [
             self.PurchasableBy.MEMBERS,
@@ -416,8 +425,10 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         ]:
             raise DjangoValidationError(
                 {
-                    "restricted_to_tiers": "If tickets are restricted to specific tiers, 'Purchasable By' must be set "
-                    "to 'Members only' or 'Invited and Members only'."
+                    "restricted_to_tiers": _(
+                        "If tickets are restricted to specific tiers, 'Purchasable By' must be set "
+                        "to 'Members only' or 'Invited and Members only'."
+                    )
                 }
             )
 
@@ -432,24 +443,64 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
             venue = sector.venue
 
         if sector and self.venue_id and sector.venue_id != self.venue_id:
-            raise DjangoValidationError({"sector": "Sector must belong to the specified venue."})
+            raise DjangoValidationError({"sector": _("Sector must belong to the specified venue.")})
 
         # Validate venue belongs to the same organization as the event
         if venue and venue.organization_id != self.event.organization_id:
-            raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
+            raise DjangoValidationError({"venue": _("Venue must belong to the same organization as the event.")})
 
         if self.venue_id and self.event.venue_id and self.venue_id != self.event.venue_id:
-            raise DjangoValidationError({"venue": "Tier venue must match the event venue."})
+            raise DjangoValidationError({"venue": _("Tier venue must match the event venue.")})
 
-        if self.seat_assignment_mode != self.SeatAssignmentMode.NONE and not self.sector_id:
-            raise DjangoValidationError({"sector": "A sector is required when seat assignment mode is not 'none'."})
+        self._validate_seat_assignment_mode(sector)
+
+    def _validate_seat_assignment_mode(self, sector: "VenueSector | None") -> None:
+        """Validate that each seat-assigned mode comes with the field it reads.
+
+        Both seated modes are confined to a sector: USER_CHOICE assigns within it,
+        and BEST_AVAILABLE draws its pool from it (narrowed to the zone the buyer
+        requests). A category painted across two sectors must never yield a
+        cross-sector pool — and neither mode can sit on a standing sector, which
+        has no seats to assign at all.
+        """
+        if self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE and not self.sector_id:
+            raise DjangoValidationError(
+                {"seat_assignment_mode": _("A sector is required for best-available seat assignment.")}
+            )
+        if self.seat_assignment_mode == self.SeatAssignmentMode.USER_CHOICE and not self.sector_id:
+            raise DjangoValidationError(
+                {"seat_assignment_mode": _("A sector is required for user-choice seat assignment.")}
+            )
+        # A standing sector has no seats to choose from or pick — every hold/checkout
+        # would 409. The create/update schemas only see sector_id (no DB access), so
+        # this model-level check is the single source of truth for the rule.
+        if (
+            self.seat_assignment_mode == self.SeatAssignmentMode.USER_CHOICE
+            and sector is not None
+            and sector.kind == VenueSector.Kind.STANDING
+        ):
+            raise DjangoValidationError(
+                {"seat_assignment_mode": _("User-choice seat assignment requires a seated sector, not a standing one.")}
+            )
+        if (
+            self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE
+            and sector is not None
+            and sector.kind == VenueSector.Kind.STANDING
+        ):
+            raise DjangoValidationError(
+                {
+                    "seat_assignment_mode": _(
+                        "Best-available seat assignment requires a seated sector, not a standing one."
+                    )
+                }
+            )
 
     def _validate_invitation_restrictions(self) -> None:
         """Validate that invitation restriction flags match visibility/purchasable_by settings."""
         if self.restrict_visibility_to_linked_invitations and self.visibility != self.Visibility.PRIVATE:
             raise DjangoValidationError(
                 {
-                    "restrict_visibility_to_linked_invitations": (
+                    "restrict_visibility_to_linked_invitations": _(
                         "This option is only valid when visibility is set to 'Private'."
                     )
                 }
@@ -460,7 +511,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         ]:
             raise DjangoValidationError(
                 {
-                    "restrict_purchase_to_linked_invitations": (
+                    "restrict_purchase_to_linked_invitations": _(
                         "This option is only valid when purchasable by is set to "
                         "'Invitees only' or 'Invited and Members only'."
                     )
@@ -468,12 +519,13 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
             )
 
     def clean(self) -> None:
-        """Validate sales window, PWYC, membership tier, venue/sector, and invitation restriction constraints."""
+        """Validate sales window, PWYC, membership tier, venue/sector, category prices and invitation restrictions."""
         super().clean()
         self._validate_sales_window()
         self._validate_pwyc()
         self._validate_membership_tiers()
         self._validate_venue_sector()
+        validate_category_prices(self)
         self._validate_invitation_restrictions()
 
     def can_purchase(self) -> bool:
@@ -633,8 +685,11 @@ class Ticket(TimeStampedModel):
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Amount paid per ticket for PWYC offline/at_the_door purchases. "
-        "Null for online payments (stored in Payment.amount) or fixed-price tiers (use tier.price).",
+        help_text="Amount paid for THIS ticket, when tier.price alone cannot reconstruct it: "
+        "PWYC, a discount code, or a tier that prices seats per category. "
+        "Null for online payments (Payment.amount is authoritative there — it is net for a "
+        "reverse-charge buyer, so stamping it here would put two different 'price paid' numbers "
+        "on one row) and null for a plain purchase on a flat tier (use tier.price).",
     )
 
     # Venue/seating (denormalized for fast access, validated for consistency)
@@ -753,13 +808,13 @@ class Ticket(TimeStampedModel):
 
         if seat:
             if not seat.is_active:
-                raise DjangoValidationError({"seat": "Cannot assign an inactive seat."})
+                raise DjangoValidationError({"seat": _("Cannot assign an inactive seat.")})
 
             if not self.sector_id:
                 self.sector_id = seat.sector_id
                 sector = seat.sector
             elif seat.sector_id != self.sector_id:
-                raise DjangoValidationError({"seat": "Seat must belong to the specified sector."})
+                raise DjangoValidationError({"seat": _("Seat must belong to the specified sector.")})
 
         return sector
 
@@ -769,7 +824,7 @@ class Ticket(TimeStampedModel):
             if not self.venue_id:
                 self.venue_id = sector.venue_id
             elif sector.venue_id != self.venue_id:
-                raise DjangoValidationError({"sector": "Sector must belong to the specified venue."})
+                raise DjangoValidationError({"sector": _("Sector must belong to the specified venue.")})
 
     def clean(self) -> None:
         """Validate and auto-fill venue/sector/seat consistency."""
@@ -884,12 +939,36 @@ class Payment(TimeStampedModel):
 
     raw_response = models.JSONField(blank=True, default=dict)  # To store the full webhook event for auditing
     expires_at = models.DateTimeField(default=_get_payment_default_expiry, db_index=True, editable=False)
+    # Incident hold (#756): stamped by events.hold_mismatch_payments when this row is
+    # implicated in a recorded stripe_session_total_mismatch — the PENDING rows ARE the
+    # incident evidence. Non-null exempts the row from cleanup_expired_payments until
+    # the retention window (INCIDENT_HOLD_RETENTION in events/tasks/payments.py) lapses;
+    # an operator resolves earlier by clearing the field in the Payment admin.
+    incident_hold_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Evidence hold for a recorded money-correctness incident. While set, the payment "
+            "expiry sweep retains this row; clear it once the incident is resolved to release "
+            "the row back to the normal cleanup schedule."
+        ),
+    )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["stripe_session_id", "ticket"],
                 name="unique_payment_per_session_ticket",
+            ),
+        ]
+        indexes = [
+            # Partial index: near-empty in practice (holds are one-occurrence incidents),
+            # so the sweep's retention-lapse branch (incident_hold_at < cutoff, which
+            # implies NOT NULL) stays an index scan without taxing every Payment write.
+            models.Index(
+                fields=["incident_hold_at"],
+                name="payment_incident_hold_idx",
+                condition=models.Q(incident_hold_at__isnull=False),
             ),
         ]
 

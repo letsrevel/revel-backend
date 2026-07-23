@@ -185,18 +185,17 @@ def _validate_core(
     code: str,
     organization: Organization,
     tier: TicketTier,
-    batch_size: int = 1,
 ) -> DiscountCode:
     """Core validation shared by authenticated and anonymous flows.
 
     Checks: lookup, dates, global usage limit (optimistic), tier type,
-    scope applicability, currency match, and minimum purchase amount.
+    scope applicability and currency match. ``min_purchase_amount`` is **not**
+    checked here — see :func:`assert_min_purchase_amount`.
 
     Args:
         code: The discount code string.
         organization: The organization owning the event.
         tier: The ticket tier being purchased.
-        batch_size: Number of tickets in the purchase.
 
     Returns:
         The validated DiscountCode instance.
@@ -233,17 +232,34 @@ def _validate_core(
     if dc.discount_type == DiscountCode.DiscountType.FIXED_AMOUNT and dc.currency != tier.currency:
         raise HttpError(400, str(_("This discount code is not valid for this currency.")))
 
-    # Minimum purchase amount
-    total_amount = tier.price * batch_size
-    if total_amount < dc.min_purchase_amount:
+    return dc
+
+
+def assert_min_purchase_amount(discount_code: DiscountCode, total_amount: Decimal) -> None:
+    """Enforce ``min_purchase_amount`` against a cart's real pre-discount total (spec §5.6).
+
+    Deferred out of :func:`_validate_core` deliberately. That runs before seats are
+    resolved, so the only total it could compute was ``tier.price * batch_size`` —
+    which is simply the wrong number on a category-priced tier, and which
+    :func:`validate_discount_code_anonymous` computed with a hardcoded
+    ``batch_size=1``. Checkout knows the real total and calls this under the tier lock.
+    A "conservative" pre-check off the cheapest category was considered and struck: it
+    *underestimates* the total, so it would falsely reject valid carts.
+
+    Args:
+        discount_code: The validated discount code.
+        total_amount: The cart's pre-discount total (sum of the resolved seat prices).
+
+    Raises:
+        HttpError: 400, if the cart is below the code's minimum.
+    """
+    if total_amount < discount_code.min_purchase_amount:
         raise HttpError(
             400,
             str(_("Minimum purchase amount of {amount} required to use this discount code.")).format(
-                amount=dc.min_purchase_amount,
+                amount=discount_code.min_purchase_amount,
             ),
         )
-
-    return dc
 
 
 def _check_per_user_usage(dc: DiscountCode, user: RevelUser, batch_size: int) -> None:
@@ -286,7 +302,7 @@ def validate_discount_code(
     Raises:
         HttpError: If the discount code is invalid or not applicable.
     """
-    dc = _validate_core(code, organization, tier, batch_size)
+    dc = _validate_core(code, organization, tier)
 
     # Per-user usage limit (optimistic — definitive check under lock in apply_discount)
     _check_per_user_usage(dc, user, batch_size)
@@ -323,7 +339,7 @@ def validate_discount_code_anonymous(
     Raises:
         HttpError: If the discount code is invalid or not applicable.
     """
-    return _validate_core(code, organization, tier, batch_size=1)
+    return _validate_core(code, organization, tier)
 
 
 def preview_discount_code(
@@ -336,6 +352,17 @@ def preview_discount_code(
 
     Handles both authenticated and anonymous users. Does not decrement usage.
 
+    ``discounted_price`` is omitted on a **category-priced** tier. There is no single
+    such price there: each seat discounts off its own category price, and ``tier.price``
+    is not what any painted seat costs — quoting it would hand the buyer a number
+    checkout will not honour (a 10% code on an 80.00 Premium seat is 72.00, not 4.50 off
+    a leftover flat 5.00). This endpoint deliberately does **not** grow a second price
+    computation to fix that: :func:`~events.service.seating.pricing.resolve_seat_price`
+    is the single price authority, and the seat-aware VAT preview
+    (``POST /events/{id}/vat-preview``) is the endpoint that already reaches it with the
+    buyer's actual seats or zone. What this endpoint exists to answer — is the code
+    valid, and what kind/size of discount is it — still comes back in full.
+
     Args:
         code: The discount code string.
         organization: The organization owning the event.
@@ -343,7 +370,8 @@ def preview_discount_code(
         user: The user (may be anonymous).
 
     Returns:
-        DiscountCodeValidationResponse with discount details.
+        DiscountCodeValidationResponse with discount details; ``discounted_price`` is
+        ``None`` when the tier prices seats by category.
 
     Raises:
         HttpError: If the discount code is invalid or not applicable.
@@ -355,13 +383,52 @@ def preview_discount_code(
     else:
         dc = validate_discount_code(code, organization, tier, user, batch_size=1)
 
-    discounted_price = calculate_discounted_price(tier, dc)
+    # Truthiness, not parse_price_map: this must not start raising on a legacy malformed
+    # map (same reasoning as `should_stamp_price_paid`).
+    discounted_price = None if tier.category_prices else calculate_discounted_price(tier, dc)
     return schema.DiscountCodeValidationResponse(
         valid=True,
         discount_type=DiscountCode.DiscountType(dc.discount_type),
         discount_value=dc.discount_value,
         discounted_price=discounted_price,
     )
+
+
+def calculate_discounted_unit_price(base_price: Decimal, discount_code: DiscountCode) -> Decimal:
+    """Apply a discount code to one unit price.
+
+    The per-unit primitive. ``calculate_discounted_price`` is the flat-tier
+    special case (``base_price = tier.price``); per-seat category pricing feeds
+    each seat's own resolved price in here instead.
+
+    Args:
+        base_price: The pre-discount unit price.
+        discount_code: The validated discount code.
+
+    Returns:
+        The discounted unit price (2 decimal places, non-negative).
+    """
+    if discount_code.discount_type == DiscountCode.DiscountType.PERCENTAGE:
+        discounted = (base_price * (Decimal("100") - discount_code.discount_value) / Decimal("100")).quantize(
+            Decimal("0.01")
+        )
+        return max(discounted, Decimal("0.00"))
+
+    # FIXED_AMOUNT
+    return max((base_price - discount_code.discount_value).quantize(Decimal("0.01")), Decimal("0.00"))
+
+
+def calculate_unit_discount_amount(base_price: Decimal, discount_code: DiscountCode) -> Decimal:
+    """Calculate how much a discount code subtracts from one unit price.
+
+    Args:
+        base_price: The pre-discount unit price.
+        discount_code: The validated discount code.
+
+    Returns:
+        The discount amount for that unit (never negative, never above ``base_price``).
+    """
+    return base_price - calculate_discounted_unit_price(base_price, discount_code)
 
 
 def calculate_discounted_price(tier: TicketTier, discount_code: DiscountCode) -> Decimal:
@@ -374,14 +441,7 @@ def calculate_discounted_price(tier: TicketTier, discount_code: DiscountCode) ->
     Returns:
         The discounted unit price (2 decimal places, non-negative).
     """
-    if discount_code.discount_type == DiscountCode.DiscountType.PERCENTAGE:
-        discounted = (tier.price * (Decimal("100") - discount_code.discount_value) / Decimal("100")).quantize(
-            Decimal("0.01")
-        )
-        return max(discounted, Decimal("0.00"))
-
-    # FIXED_AMOUNT
-    return max((tier.price - discount_code.discount_value).quantize(Decimal("0.01")), Decimal("0.00"))
+    return calculate_discounted_unit_price(tier.price, discount_code)
 
 
 def calculate_discount_amount(tier: TicketTier, discount_code: DiscountCode) -> Decimal:
@@ -394,7 +454,7 @@ def calculate_discount_amount(tier: TicketTier, discount_code: DiscountCode) -> 
     Returns:
         The discount amount per ticket.
     """
-    return tier.price - calculate_discounted_price(tier, discount_code)
+    return calculate_unit_discount_amount(tier.price, discount_code)
 
 
 def apply_discount(discount_code: DiscountCode, user: RevelUser, batch_size: int) -> None:

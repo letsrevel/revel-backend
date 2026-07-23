@@ -164,7 +164,16 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
     list_select_related = ["user", "ticket"]
     list_per_page = 50
     show_full_result_count = False
-    list_filter = ["status", "refund_status", "currency", "created_at", "expires_at"]
+    # incident_hold_at is deliberately editable (not in readonly_fields): clearing it is
+    # the operator resolution path for a stripe_session_total_mismatch hold (#756).
+    list_filter = [
+        "status",
+        "refund_status",
+        "currency",
+        "created_at",
+        "expires_at",
+        ("incident_hold_at", admin.EmptyFieldListFilter),
+    ]
     search_fields = ["user__username", "user__email", "ticket__event__name", "stripe_session_id"]
     readonly_fields = [
         "id",

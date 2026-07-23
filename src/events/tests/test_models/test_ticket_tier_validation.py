@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.utils import timezone
+from django.utils import timezone, translation
 
 from events.models import Event, TicketTier
 
@@ -110,3 +110,22 @@ class TestTicketTierValidation:
         )
         # Should not raise ValidationError
         tier.clean()
+
+
+# --- i18n: the messages are organizer-facing, so they must actually translate ---
+
+
+def test_sales_window_message_renders_in_the_active_language(public_event: Event) -> None:
+    """Guards both the ``gettext`` wrapping and the catalog entry (see ADR-0011)."""
+    tier = TicketTier(
+        event=public_event,
+        name="Invalid End",
+        sales_start_at=timezone.now() + timedelta(hours=12),
+        sales_end_at=timezone.now() + timedelta(hours=6),
+    )
+    with translation.override("it"):
+        with pytest.raises(ValidationError) as exc_info:
+            tier.clean()
+        assert exc_info.value.message_dict["sales_end_at"] == [
+            "L'orario di fine vendita dei biglietti deve essere successivo all'orario di inizio vendita."
+        ]

@@ -123,10 +123,11 @@ class TicketSeeder(BaseSeeder):
                 if event_venue and event_sectors and self.random_bool(0.3):
                     tier_venue = event_venue
                     tier_sector = self.random_choice(event_sectors)
+                    # No price category on these seeded sectors → USER_CHOICE is the
+                    # only sellable seat-assigned mode (BEST_AVAILABLE needs a category).
                     seat_assignment_mode = self.random_choice(
                         [
                             TicketTier.SeatAssignmentMode.NONE,
-                            TicketTier.SeatAssignmentMode.RANDOM,
                             TicketTier.SeatAssignmentMode.USER_CHOICE,
                         ]
                     )

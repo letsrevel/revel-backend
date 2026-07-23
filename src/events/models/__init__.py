@@ -43,6 +43,7 @@ from .questionnaire import EventQuestionnaireSubmission, OrganizationQuestionnai
 from .recurrence_rule import RecurrenceRule
 from .reserved_slug_token import ReservedSlugToken
 from .rsvp import EventRSVP
+from .seating import EventSeatOverride, SeatHold
 from .series_pass import HeldSeriesPass, SeriesPass, SeriesPassTierLink
 from .stripe_webhook_event import StripeWebhookEvent
 from .subscription import (
@@ -57,7 +58,7 @@ from .ticket import (
     Ticket,
     TicketTier,
 )
-from .venue import Venue, VenueSeat, VenueSector
+from .venue import PriceCategory, Venue, VenueSeat, VenueSector
 
 __all__ = [
     # Events
@@ -114,9 +115,13 @@ __all__ = [
     # Mixins / Enums
     "ResourceVisibility",
     # Venues
+    "PriceCategory",
     "Venue",
     "VenueSeat",
     "VenueSector",
+    # Seating (per-event)
+    "EventSeatOverride",
+    "SeatHold",
     # Blacklist
     "Blacklist",
     "WhitelistRequest",

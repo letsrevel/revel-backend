@@ -13,6 +13,7 @@ from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.schema.ticket import BuyerBillingInfoSchema
 from events.service import pending_checkout, stripe_service
 from events.service.attendee_vat_service import BuyerVATContext
+from events.service.seating.pricing import TicketPrice
 from events.utils.currency import to_stripe_amount
 
 pytestmark = pytest.mark.django_db
@@ -137,7 +138,7 @@ class TestReserveBatchPayments:
                 user=organization_owner_user,
                 tickets=tickets,
                 reservation_id=rid,
-                price_override=Decimal("0.00"),
+                lines=[TicketPrice(unit_price=Decimal("0.00"), discount_amount=Decimal("0.00"))],
             )
         assert exc.value.status_code == 400
         assert not Payment.objects.filter(reservation_id=rid).exists()

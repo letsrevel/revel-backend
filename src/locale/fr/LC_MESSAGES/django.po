@@ -992,6 +992,9 @@ msgstr "Signature Stripe invalide"
 msgid "A discount code with this code already exists."
 msgstr "Un code de réduction avec ce code existe déjà."
 
+msgid "Payment processing failed. Please try again later."
+msgstr "Le traitement du paiement a échoué. Réessaie plus tard."
+
 msgid "Draft"
 msgstr "Brouillon"
 
@@ -1071,6 +1074,43 @@ msgstr ""
 "Le renvoi aux nouvelles inscriptions nécessite une annonce ciblant un "
 "événement."
 
+msgid "valid_until must be after valid_from."
+msgstr "valid_until doit être postérieur à valid_from."
+
+msgid "Percentage discount cannot exceed 100."
+msgstr "La réduction en pourcentage ne peut pas dépasser 100."
+
+msgid "Currency is required for fixed amount discounts."
+msgstr "La devise est requise pour les réductions à montant fixe."
+
+msgid "Event series must belong to the same organization as the event."
+msgstr ""
+"La série d'événements doit appartenir à la même organisation que "
+"l'événement."
+
+msgid "End date must be after start date."
+msgstr "La date de fin doit être postérieure à la date de début."
+
+msgid "Check-in end time must be after check-in start time."
+msgstr ""
+"L'heure de fin du check-in doit être postérieure à l'heure de début du "
+"check-in."
+
+msgid "Venue must belong to the same organization as the event."
+msgstr "Le lieu doit appartenir à la même organisation que l'événement."
+
+msgid "Time window must be at least 1 hour."
+msgstr "La fenêtre de temps doit être d'au moins 1 heure."
+
+msgid "Time window cannot exceed 7 days."
+msgstr "La fenêtre de temps ne peut pas dépasser 7 jours."
+
+msgid "Cutoff date requires waitlist_time_window to be set."
+msgstr "La date limite nécessite que waitlist_time_window soit défini."
+
+msgid "Cutoff date must be before event start."
+msgstr "La date limite doit être antérieure au début de l'événement."
+
 msgid "Days a PAST_DUE subscription stays valid before expiring."
 msgstr ""
 "Nombre de jours pendant lesquels un abonnement PAST_DUE reste valide avant "
@@ -1083,6 +1123,9 @@ msgstr ""
 "Une adresse e-mail de contact vérifiée est requise pour activer un moyen de "
 "contact autre que NONE."
 
+msgid "The tier must belong to the same organization as the membership."
+msgstr "Le niveau doit appartenir à la même organisation que l'adhésion."
+
 msgid "Membership tier is required when granting membership."
 msgstr "Le niveau d'adhésion est requis lors de l'octroi d'une adhésion."
 
@@ -1092,6 +1135,43 @@ msgstr ""
 
 msgid "Token must be a single non-empty slug segment."
 msgstr "Le jeton doit être un segment de slug non vide."
+
+msgid "At-the-door payment is not supported for series passes."
+msgstr ""
+"Le paiement sur place n'est pas pris en charge pour les pass de série."
+
+msgid "Series passes cannot be invitation-restricted."
+msgstr "Les pass de série ne peuvent pas être réservés aux invités."
+
+msgid "Currency cannot be changed once the pass covers events."
+msgstr ""
+"La devise ne peut plus être modifiée une fois que le pass couvre des "
+"événements."
+
+msgid "Payment method cannot be changed while the pass has holders."
+msgstr ""
+"La méthode de paiement ne peut pas être modifiée tant que le pass a des "
+"détenteurs."
+
+msgid "Tier must belong to the covered event."
+msgstr "La catégorie de tickets doit appartenir à l'événement couvert."
+
+msgid "Event must belong to the pass's series."
+msgstr "L'événement doit appartenir à la série du pass."
+
+msgid "Tier currency must match the pass currency."
+msgstr ""
+"La devise de la catégorie de tickets doit correspondre à celle du pass."
+
+msgid "Assigned-seating tiers cannot back a series pass."
+msgstr ""
+"Les catégories de tickets avec places assignées ne peuvent pas être "
+"associées à un pass de série."
+
+msgid "Pay What You Can tiers cannot back a series pass."
+msgstr ""
+"Les catégories de tickets à tarif libre ne peuvent pas être associées à un "
+"pass de série."
 
 msgid "Month"
 msgstr "Mois"
@@ -1131,6 +1211,83 @@ msgstr "Échoué"
 msgid "Refunded"
 msgstr "Remboursé"
 
+msgid "Ticket sales must start before or at the event start time."
+msgstr ""
+"La vente des tickets doit commencer au plus tard au début de l'événement."
+
+msgid "Ticket sales end time must be after the sales start time."
+msgstr ""
+"L'heure de fin de vente des tickets doit être postérieure à l'heure de "
+"début de vente."
+
+msgid ""
+"Maximum pay-what-you-can amount must be greater than or equal to minimum "
+"amount."
+msgstr ""
+"Le montant maximum du tarif libre doit être supérieur ou égal au montant "
+"minimum."
+
+msgid "All linked membership tiers must belong to the event's organization."
+msgstr ""
+"Tous les niveaux d'adhésion liés doivent appartenir à l'organisation de "
+"l'événement."
+
+msgid ""
+"If tickets are restricted to specific tiers, 'Purchasable By' must be set to "
+"'Members only' or 'Invited and Members only'."
+msgstr ""
+"Si les tickets sont réservés à des niveaux spécifiques, 'Achetable par' "
+"doit être défini sur 'Membres uniquement' ou 'Invités et membres "
+"uniquement'."
+
+msgid "Sector must belong to the specified venue."
+msgstr "Le secteur doit appartenir au lieu spécifié."
+
+msgid "Tier venue must match the event venue."
+msgstr ""
+"Le lieu de la catégorie de tickets doit correspondre à celui de l'événement."
+
+msgid "A sector is required for best-available seat assignment."
+msgstr "Un secteur est requis pour l'attribution du meilleur siège disponible."
+
+msgid "A sector is required for user-choice seat assignment."
+msgstr "Un secteur est requis pour l'attribution avec choix du siège."
+
+msgid ""
+"User-choice seat assignment requires a seated sector, not a standing one."
+msgstr ""
+"L'attribution avec choix du siège requiert un secteur assis, pas un secteur "
+"debout."
+
+msgid ""
+"Best-available seat assignment requires a seated sector, not a standing one."
+msgstr ""
+"L'attribution du meilleur siège disponible requiert un secteur assis, pas un "
+"secteur debout."
+
+msgid "This option is only valid when visibility is set to 'Private'."
+msgstr ""
+"Cette option n'est valide que lorsque la visibilité est définie sur 'Privé'."
+
+msgid ""
+"This option is only valid when purchasable by is set to 'Invitees only' or "
+"'Invited and Members only'."
+msgstr ""
+"Cette option n'est valide que lorsque 'Achetable par' est défini sur "
+"'Invités uniquement' ou 'Invités et membres uniquement'."
+
+msgid "Cannot assign an inactive seat."
+msgstr "Impossible d'attribuer un siège inactif."
+
+msgid "Seat must belong to the specified sector."
+msgstr "Le siège doit appartenir au secteur spécifié."
+
+msgid "Seated"
+msgstr "Places assises"
+
+msgid "Standing"
+msgstr "Places debout"
+
 msgid "Address visible to invited guests only"
 msgstr "Adresse visible uniquement par les personnes invité·e·s"
 
@@ -1146,42 +1303,33 @@ msgstr "Adresse visible uniquement par les participant·e·s"
 msgid "Only draft invoices can be edited."
 msgstr "Seules les factures au statut de brouillon peuvent être modifiées."
 
+#, python-brace-format
+msgid "Cannot edit fields: {fields}"
+msgstr "Impossible de modifier les champs : {fields}"
+
 msgid "Cancelled invoices cannot be issued."
 msgstr "Les factures annulées ne peuvent pas être émises."
 
 msgid "Only draft invoices can be deleted."
 msgstr "Seules les factures au statut de brouillon peuvent être supprimées."
 
-msgid "You are not allowed to purchase from this tier."
-msgstr "Tu n'es pas autorisé·e à acheter des tickets de cette catégorie."
+msgid "Provide either seat_ids or price_category_id, not both."
+msgstr "Fournis soit seat_ids, soit price_category_id, pas les deux."
 
-msgid "You have reached the maximum number of tickets for this tier."
-msgstr "Tu as atteint le nombre maximum de tickets pour cette catégorie."
+msgid "That zone is no longer on sale — please choose another."
+msgstr "Cette zone n'est plus en vente — choisis-en une autre."
 
-#, python-brace-format
-msgid "You can only purchase {remaining} more ticket(s) for this tier."
+msgid ""
+"This ticket tier prices seats by category — seat_ids are required to preview "
+"it."
 msgstr ""
-"Tu ne peux acheter que {remaining} ticket·s supplémentaire·s pour cette "
-"catégorie."
-
-#, python-brace-format
-msgid "Not enough seats available. Only {available} seat(s) remaining."
-msgstr ""
-"Pas assez de places disponibles. Seulement {available} place·s restante·s."
-
-msgid "Seat selection is required for this ticket tier."
-msgstr "Le choix du siège est requis pour cette catégorie de tickets."
+"Ce type de billet applique un tarif par catégorie de place : les seat_ids "
+"sont requis pour l'aperçu."
 
 msgid "One or more selected seats are invalid or not in the correct sector."
 msgstr ""
 "Un ou plusieurs sièges sélectionnés sont invalides ou ne se trouvent pas "
 "dans le bon secteur."
-
-msgid "One or more selected seats are no longer available."
-msgstr "Un ou plusieurs sièges sélectionnés ne sont plus disponibles."
-
-msgid "Unknown seat assignment mode."
-msgstr "Mode d'attribution des sièges inconnu."
 
 msgid "This ticket tier is sold out."
 msgstr "Cette catégorie de tickets est épuisée."
@@ -1203,6 +1351,42 @@ msgstr "Ce secteur est complet."
 #, python-brace-format
 msgid "Only {available} spot(s) remaining in this sector."
 msgstr "Seulement {available} place·s restante·s dans ce secteur."
+
+msgid "You are not allowed to purchase from this tier."
+msgstr "Tu n'es pas autorisé·e à acheter des tickets de cette catégorie."
+
+msgid "You have reached the maximum number of tickets for this tier."
+msgstr "Tu as atteint le nombre maximum de tickets pour cette catégorie."
+
+#, python-brace-format
+msgid "You can only purchase {remaining} more ticket(s) for this tier."
+msgstr ""
+"Tu ne peux acheter que {remaining} ticket·s supplémentaire·s pour cette "
+"catégorie."
+
+msgid "Seat selection is required for this ticket tier."
+msgstr "Le choix du siège est requis pour cette catégorie de tickets."
+
+msgid "One or more selected seats are no longer available."
+msgstr "Un ou plusieurs sièges sélectionnés ne sont plus disponibles."
+
+msgid "One or more selected seats are held by another buyer."
+msgstr ""
+"Un ou plusieurs sièges sélectionnés sont réservés par un autre acheteur."
+
+msgid "Not enough accessible seats available — please contact the organizer."
+msgstr ""
+"Pas assez de sièges accessibles disponibles — contacte l'organisateur·rice."
+
+msgid "Not enough adjacent seats available for this tier."
+msgstr ""
+"Pas assez de sièges adjacents disponibles pour cette catégorie de tickets."
+
+msgid "Could not secure adjacent seats — please try again."
+msgstr "Impossible de réserver des sièges adjacents — veuillez réessayer."
+
+msgid "Unknown seat assignment mode."
+msgstr "Mode d'attribution des sièges inconnu."
 
 msgid "Unknown payment method."
 msgstr "Moyen de paiement inconnu."
@@ -1434,16 +1618,8 @@ msgstr "Consulte tes e-mails pour confirmer ta réponse à l'invitation"
 msgid "This event requires login to purchase tickets."
 msgstr "Cet événement nécessite de se connecter pour acheter des tickets."
 
-msgid "Internal server error: Unexpected ticket result for online payment."
-msgstr ""
-"Erreur interne du serveur : résultat de ticket inattendu pour le paiement en "
-"ligne."
-
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Consulte tes e-mails pour confirmer ton achat de ticket"
-
-msgid "Unexpected response from ticket creation"
-msgstr "Réponse inattendue lors de la création du ticket"
 
 msgid "Invalid token type"
 msgstr "Type de jeton invalide"
@@ -1550,6 +1726,72 @@ msgstr ""
 "Un fichier doit être fourni lorsque le type de ressource (resource_type) est "
 "'file'."
 
+msgid "This seat is not available for this event."
+msgstr "Ce siège n'est pas disponible pour cet événement."
+
+msgid "This seat already has a ticket."
+msgstr "Ce siège a déjà un ticket."
+
+msgid "This seat is blocked for this event."
+msgstr "Ce siège est bloqué pour cet événement."
+
+msgid "This seat is currently held by another buyer."
+msgstr "Ce siège est actuellement réservé par un autre acheteur."
+
+msgid "Only pending or active tickets can be reseated."
+msgstr "Seuls les tickets en attente ou actifs peuvent être replacés."
+
+msgid "This ticket has no seat assigned."
+msgstr "Ce ticket n'a pas de siège attribué."
+
+msgid "The ticket is already on this seat."
+msgstr "Le ticket est déjà sur ce siège."
+
+msgid "The target seat is not available for this event."
+msgstr "Le siège cible n'est pas disponible pour cet événement."
+
+msgid "Reseat is limited to seats in the same price category."
+msgstr "Le replacement est limité aux sièges de la même catégorie tarifaire."
+
+msgid "The target seat already has a ticket."
+msgstr "Le siège cible a déjà un ticket."
+
+msgid "The target seat is blocked for this event."
+msgstr "Le siège cible est bloqué pour cet événement."
+
+msgid "The target seat is currently held by another buyer."
+msgstr "Le siège cible est actuellement réservé par un autre acheteur."
+
+msgid "A zone can only be selected on a best-available ticket tier."
+msgstr ""
+"Une zone ne peut être sélectionnée que pour une catégorie de tickets avec "
+"attribution automatique du meilleur siège."
+
+msgid ""
+"This ticket tier has a single price for its whole sector — no zone can be "
+"selected."
+msgstr ""
+"Cette catégorie de tickets a un prix unique pour tout son secteur — aucune "
+"zone ne peut être sélectionnée."
+
+msgid ""
+"This ticket tier's zones are misconfigured — please contact the organizer."
+msgstr ""
+"Les zones de cette catégorie de tickets sont mal configurées — contacte "
+"l'organisateur·rice."
+
+#, python-brace-format
+msgid "Select one of this ticket tier's zones: {zones}."
+msgstr "Choisis une des zones de cette catégorie de tickets : {zones}."
+
+#, python-brace-format
+msgid ""
+"Seat {seat} is in the \"{category}\" price category, which this ticket tier "
+"does not sell."
+msgstr ""
+"Le siège {seat} appartient à la catégorie tarifaire \"{category}\", que "
+"cette catégorie de tickets ne vend pas."
+
 msgid "You cannot purchase from this organization."
 msgstr "Tu ne peux pas acheter auprès de cette organisation."
 
@@ -1643,9 +1885,6 @@ msgstr "Ce pass de série n'est pas payé hors ligne."
 
 msgid "This held pass is not pending."
 msgstr "Ce pass détenu n'est pas en attente."
-
-msgid "Payment processing failed. Please try again later."
-msgstr "Le traitement du paiement a échoué. Réessaie plus tard."
 
 msgid "This organization is not configured to accept payments."
 msgstr "Cette organisation n'est pas configurée pour accepter les paiements."
@@ -1798,8 +2037,27 @@ msgstr ""
 "Le montant du remboursement doit être compris entre 0 et le montant payé "
 "(%(amount)s)."
 
+msgid "Price category must belong to the same venue as the seats."
+msgstr "La catégorie tarifaire doit appartenir au même lieu que les sièges."
+
+#, python-brace-format
+msgid ""
+"This price category is used by one or more ticket tiers and cannot be "
+"deleted: {tiers}. Remove it from those tiers' category prices first."
+msgstr ""
+"Cette catégorie de prix est utilisée par un ou plusieurs types de billets et "
+"ne peut pas être supprimée : {tiers}. Retirez-la d'abord des prix par "
+"catégorie de ces types de billets."
+
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La position du siège « {} » est en dehors de la forme du secteur."
+
+msgid ""
+"Sector kind can only be changed while the sector has no seats. Delete its "
+"seats first."
+msgstr ""
+"Le type de secteur ne peut être modifié que lorsque le secteur n'a aucun "
+"siège. Supprimez d'abord ses sièges."
 
 msgid "Seat with label '{}' not found in this sector."
 msgstr "Siège avec l'étiquette « {} » introuvable dans ce secteur."
@@ -1808,20 +2066,24 @@ msgid "Seat position is outside the sector shape."
 msgstr "La position du siège est en dehors de la forme du secteur."
 
 msgid ""
-"Cannot delete seat '{}' because it has active or pending tickets for future "
-"events."
+"Seat '{}' is referenced by tickets or an active hold and cannot be deleted. "
+"Decommission it instead (set inactive)."
 msgstr ""
-"Impossible de supprimer le siège « {} » car il comporte des tickets actifs "
-"ou en attente pour des événements futurs."
+"Le siège « {} » est référencé par des tickets ou une réservation active et "
+"ne peut pas être supprimé. Désactivez-le plutôt (mettez-le en inactif)."
 
 msgid "Seats not found in this sector: {}"
 msgstr "Sièges introuvables dans ce secteur : {}"
 
 msgid ""
-"Cannot delete seats with active or pending tickets for future events: {}"
+"Seats referenced by tickets or active holds cannot be deleted: {}. "
+"Decommission them instead (set inactive)."
 msgstr ""
-"Impossible de supprimer les sièges avec des tickets actifs ou en attente "
-"pour des événements futurs : {}"
+"Les sièges référencés par des tickets ou des réservations actives ne peuvent "
+"pas être supprimés : {}. Désactivez-les plutôt (mettez-les en inactif)."
+
+msgid "Some seats were not found in this venue."
+msgstr "Certains sièges sont introuvables dans ce lieu."
 
 msgid "This tier does not have seat assignment."
 msgstr "Cette catégorie n'a pas d'attribution de siège."
@@ -1923,6 +2185,51 @@ msgstr ""
 msgid "This is an automated billing document."
 msgstr ""
 "Ceci est une notification automatique de ton système de gestion d'événements."
+
+msgid "Category prices must be a mapping of price category id to price."
+msgstr ""
+"Les prix par catégorie doivent être une correspondance entre l'id de la "
+"catégorie tarifaire et le prix."
+
+#, python-brace-format
+msgid "'{key}' is not a valid price category id."
+msgstr "« {key} » n'est pas un id de catégorie tarifaire valide."
+
+#, python-brace-format
+msgid "Price for category {category} must be a decimal string."
+msgstr "Le prix de la catégorie {category} doit être une chaîne décimale."
+
+#, python-brace-format
+msgid "'{value}' is not a valid price for category {category}."
+msgstr "« {value} » n'est pas un prix valide pour la catégorie {category}."
+
+#, python-brace-format
+msgid "Price for category {category} must be a non-negative number."
+msgstr "Le prix de la catégorie {category} doit être un nombre positif ou nul."
+
+msgid ""
+"Category prices require a seated tier. Clear them to change the seating mode."
+msgstr ""
+"Les prix par catégorie requièrent une catégorie de tickets avec placement. "
+"Efface-les pour changer le mode de placement."
+
+msgid "A tier is either pay-what-you-can or category-priced, never both."
+msgstr ""
+"Une catégorie de tickets est soit à tarif libre, soit tarifée par catégorie, "
+"jamais les deux."
+
+#, python-brace-format
+msgid ""
+"Online tiers require every category price to be at least 1: {categories}."
+msgstr ""
+"Les catégories de tickets en paiement en ligne exigent que chaque prix par "
+"catégorie soit d'au moins 1 : {categories}."
+
+#, python-brace-format
+msgid "These price categories do not belong to the tier's venue: {categories}."
+msgstr ""
+"Ces catégories tarifaires n'appartiennent pas au lieu de la catégorie de "
+"tickets : {categories}."
 
 msgid "This name is not allowed."
 msgstr "Ce nom n'est pas autorisé."
@@ -2318,6 +2625,13 @@ msgstr "Enregistré·e pour %(event)s"
 #, python-format
 msgid "Checked in - %(event)s"
 msgstr "Enregistré·e - %(event)s"
+
+msgid "Refund could not be matched to a ticket"
+msgstr "Le remboursement n'a pas pu être associé à un billet"
+
+#, python-format
+msgid "Action needed: unmatched refund - %(org)s"
+msgstr "Action requise : remboursement non associé - %(org)s"
 
 #, python-format
 msgid "Spot available for %(event)s!"
@@ -3059,6 +3373,37 @@ msgstr "Détails de la soumission :"
 
 msgid "Review the submission:"
 msgstr "Examiner la soumission :"
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s arrived from Stripe on payment "
+"%(intent)s, but Revel could not tell which ticket it belongs to. No ticket "
+"was cancelled and no seat was freed."
+msgstr ""
+"Un remboursement de %(amount)s %(currency)s a été reçu de Stripe pour le "
+"paiement %(intent)s, mais Revel n'a pas pu déterminer à quel billet il "
+"correspond. Aucun billet n'a été annulé et aucune place n'a été libérée."
+
+msgid "It could apply to any of these tickets:"
+msgstr "Il pourrait correspondre à l'un de ces billets :"
+
+#, python-format
+msgid "seat %(seat)s"
+msgstr "place %(seat)s"
+
+msgid ""
+"Check the refund in Stripe, then cancel the matching ticket in Revel. "
+"Refunds issued through Revel are always applied automatically."
+msgstr ""
+"Vérifie le remboursement dans Stripe, puis annule le billet correspondant "
+"dans Revel. Les remboursements effectués via Revel sont toujours appliqués "
+"automatiquement."
+
+msgid "Review these tickets in Revel"
+msgstr "Vérifier ces billets dans Revel"
+
+msgid "Refund ID:"
+msgstr "ID du remboursement :"
 
 #, python-format
 msgid ""

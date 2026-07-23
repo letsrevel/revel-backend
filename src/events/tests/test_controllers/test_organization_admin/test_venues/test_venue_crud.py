@@ -146,6 +146,52 @@ class TestVenueManagement:
         assert venue.name == "New Name"
         assert venue.capacity == 200
 
+    def test_update_venue_metadata_stage_round_trips(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """PUT venue metadata (stage), then GET detail and assert it round-trips exactly."""
+        venue = Venue.objects.create(organization=organization, name="Staged Venue")
+        stage = {
+            "stage": {
+                "position": {"x": 12.0, "y": 8.5},
+                "shape": [{"x": 0.0, "y": 0.0}, {"x": 4.0, "y": 0.0}, {"x": 2.0, "y": 3.0}],
+                "label": "Front Stage",
+            }
+        }
+
+        url = reverse("api:update_organization_venue", kwargs={"slug": organization.slug, "venue_id": venue.id})
+        response = organization_owner_client.put(
+            url, data=orjson.dumps({"metadata": stage}), content_type="application/json"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["metadata"] == stage
+
+        get_url = reverse("api:get_organization_venue", kwargs={"slug": organization.slug, "venue_id": venue.id})
+        get_response = organization_owner_client.get(get_url)
+        assert get_response.status_code == 200
+        assert get_response.json()["metadata"] == stage
+
+        venue.refresh_from_db()
+        assert venue.metadata == stage
+
+    def test_update_venue_omitting_metadata_preserves_existing(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """An update that omits metadata (exclude_unset) does NOT wipe an existing value."""
+        stage = {"stage": {"position": {"x": 1.0, "y": 2.0}, "shape": None}}
+        venue = Venue.objects.create(organization=organization, name="Keep Meta", metadata=stage)
+
+        url = reverse("api:update_organization_venue", kwargs={"slug": organization.slug, "venue_id": venue.id})
+        response = organization_owner_client.put(
+            url, data=orjson.dumps({"name": "Renamed"}), content_type="application/json"
+        )
+
+        assert response.status_code == 200
+        venue.refresh_from_db()
+        assert venue.name == "Renamed"
+        assert venue.metadata == stage
+
     def test_update_venue_preserves_slug(self, organization_owner_client: Client, organization: Organization) -> None:
         """Test that updating venue name does not change slug."""
         venue = Venue.objects.create(organization=organization, name="Original")

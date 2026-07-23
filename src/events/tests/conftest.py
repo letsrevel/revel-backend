@@ -25,6 +25,9 @@ from events.models import (
     PermissionsSchema,
     Ticket,
     TicketTier,
+    Venue,
+    VenueSeat,
+    VenueSector,
 )
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
@@ -83,6 +86,23 @@ def event(organization: Organization, event_series: EventSeries) -> Event:
         status="open",
         requires_ticket=True,
     )
+
+
+@pytest.fixture
+def seated_event(event: Event, organization: Organization) -> tuple[Event, list[VenueSeat]]:
+    """The generic event bound to a venue with one seated sector of six seats (A1..A6)."""
+    venue = Venue.objects.create(organization=organization, name="Hall")
+    sector = VenueSector.objects.create(venue=venue, name="Stalls")
+    seats = [
+        VenueSeat.objects.create(sector=sector, label=f"A{i}", row_label="A", number=i, adjacency_index=i - 1)
+        for i in range(1, 7)
+    ]
+    event.venue = venue
+    # The Event default (1) would cap holds at a single seat; None means "unlimited
+    # tickets", so holds fall back to DEFAULT_MAX_HELD_SEATS.
+    event.max_tickets_per_user = None
+    event.save(update_fields=["venue", "max_tickets_per_user"])
+    return event, seats
 
 
 # --- User Fixtures ---

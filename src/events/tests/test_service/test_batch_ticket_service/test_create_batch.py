@@ -446,7 +446,7 @@ class TestCreateBatchWithVenue:
             VenueSeat.objects.create(
                 sector=sector,
                 label=f"A{i}",
-                row="A",
+                row_label="A",
                 number=i,
                 position={"x": i * 10, "y": 10},
                 is_active=True,
@@ -573,7 +573,7 @@ class TestCreateBatchPWYC:
         ]
         pwyc_amount = Decimal("25.00")
 
-        result = service.create_batch(items, price_override=pwyc_amount)
+        result = service.create_batch(items, pwyc_amount=pwyc_amount)
 
         assert isinstance(result, list)
         assert len(result) == 2
@@ -599,24 +599,24 @@ class TestCreateBatchPWYC:
         ]
         pwyc_amount = Decimal("75.50")
 
-        result = service.create_batch(items, price_override=pwyc_amount)
+        result = service.create_batch(items, pwyc_amount=pwyc_amount)
 
         assert isinstance(result, list)
         assert len(result) == 3
         assert all(t.status == Ticket.TicketStatus.ACTIVE for t in result)
         assert all(t.price_paid == pwyc_amount for t in result)
 
-    def test_pwyc_offline_without_price_override_stores_none(
+    def test_pwyc_offline_without_pwyc_amount_stores_none(
         self,
         event: Event,
         pwyc_offline_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """PWYC offline checkout without price_override should have price_paid=None."""
+        """PWYC offline checkout without a pwyc_amount should have price_paid=None."""
         service = BatchTicketService(event, pwyc_offline_tier, member_user)
         items = [TicketPurchaseItem(guest_name="Guest 1")]
 
-        result = service.create_batch(items)  # No price_override
+        result = service.create_batch(items)  # No pwyc_amount
 
         assert isinstance(result, list)
         assert len(result) == 1
@@ -634,7 +634,7 @@ class TestCreateBatchPWYC:
         pwyc_amount = Decimal("30.00")
 
         with patch("stripe.checkout.Session.create") as mock_stripe:
-            result = service.create_batch(items, price_override=pwyc_amount)
+            result = service.create_batch(items, pwyc_amount=pwyc_amount)
             mock_stripe.assert_not_called()
 
         assert isinstance(result, tuple)
@@ -656,7 +656,7 @@ class TestCreateBatchPWYC:
         items = [TicketPurchaseItem(guest_name="Persistence Test")]
         pwyc_amount = Decimal("42.99")
 
-        result = service.create_batch(items, price_override=pwyc_amount)
+        result = service.create_batch(items, pwyc_amount=pwyc_amount)
 
         assert isinstance(result, list)
         # Verify via fresh DB query
@@ -686,4 +686,4 @@ class TestCreateBatchPWYC:
 
         assert isinstance(result, list)
         assert len(result) == 1
-        assert result[0].price_paid is None  # No price_override passed
+        assert result[0].price_paid is None  # No pwyc_amount passed

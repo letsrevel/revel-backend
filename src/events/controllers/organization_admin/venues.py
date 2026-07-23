@@ -1,7 +1,9 @@
+import typing as t
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
+from ninja import Query
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -13,6 +15,9 @@ from events.controllers.permissions import IsOrganizationStaff, OrganizationPerm
 from events.service import venue_service
 
 from .base import OrganizationAdminBaseController
+
+# Prefetch a sector's seats with their painted category (avoids an N+1 in VenueSeatSchema, #733).
+_SEATS_PREFETCH = Prefetch("seats", queryset=models.VenueSeat.objects.select_related("default_price_category"))
 
 
 @api_controller(
@@ -122,6 +127,114 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         venue.delete()
         return 204, None
 
+    # ---- Venue Price Category Management ----
+
+    @route.get(
+        "/venues/{venue_id}/price-categories",
+        url_name="list_venue_price_categories",
+        response=list[schema.PriceCategorySchema],
+        permissions=[IsOrganizationStaff()],
+        throttle=UserDefaultThrottle(),
+    )
+    def list_price_categories(self, slug: str, venue_id: UUID) -> QuerySet[models.PriceCategory]:
+        """List all price categories for a venue.
+
+        Categories are ordered by display_order, then name.
+        """
+        organization = self.get_one(slug)
+        venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
+        return models.PriceCategory.objects.filter(venue=venue)
+
+    @route.post(
+        "/venues/{venue_id}/price-categories",
+        url_name="create_venue_price_category",
+        response={201: schema.PriceCategorySchema},
+    )
+    def create_price_category(
+        self, slug: str, venue_id: UUID, payload: schema.PriceCategoryCreateSchema
+    ) -> tuple[int, models.PriceCategory]:
+        """Create a price category for a venue.
+
+        A category with a name already used by this venue is rejected with 400.
+        """
+        organization = self.get_one(slug)
+        venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
+        category = venue_service.create_price_category(venue, payload)
+        return 201, category
+
+    @route.put(
+        "/venues/{venue_id}/price-categories/{category_id}",
+        url_name="update_venue_price_category",
+        response=schema.PriceCategorySchema,
+    )
+    def update_price_category(
+        self, slug: str, venue_id: UUID, category_id: UUID, payload: schema.PriceCategoryUpdateSchema
+    ) -> models.PriceCategory:
+        """Update a price category's name, color, or display order."""
+        organization = self.get_one(slug)
+        venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
+        category = get_object_or_404(models.PriceCategory, pk=category_id, venue=venue)
+        return venue_service.update_price_category(category, payload)
+
+    @route.delete(
+        "/venues/{venue_id}/price-categories/{category_id}",
+        url_name="delete_venue_price_category",
+        response={204: None},
+    )
+    def delete_price_category(self, slug: str, venue_id: UUID, category_id: UUID) -> tuple[int, None]:
+        """Delete a price category.
+
+        Refused (400) when any ticket tier references the category, because the
+        FK is SET_NULL and a silent removal would leave best-available tiers
+        unsellable. Seats painted with the category are unaffected by the guard:
+        on delete their default_price_category becomes NULL (repaintable).
+        """
+        organization = self.get_one(slug)
+        venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
+        category = get_object_or_404(models.PriceCategory, pk=category_id, venue=venue)
+        venue_service.delete_price_category(category)
+        return 204, None
+
+    @route.put(
+        "/venues/{venue_id}/seats/paint",
+        url_name="paint_venue_seats",
+        response=schema.SeatPaintResultSchema,
+    )
+    def paint_seats(
+        self,
+        slug: str,
+        venue_id: UUID,
+        payload: schema.VenueSeatPaintSchema,
+        preview: t.Annotated[
+            bool,
+            Query(
+                description=(
+                    "Dry run: validate the request and return the identical response, "
+                    "without painting anything. Use it to confirm a repricing before it happens."
+                )
+            ),
+        ] = False,
+    ) -> schema.SeatPaintResultSchema:
+        """Bulk paint seats with a price category (null = unpaint).
+
+        All seats must belong to this venue (across any of its sectors) and the
+        category, when given, must belong to this venue. Executes a single UPDATE.
+
+        Painting always succeeds, but it is venue-scoped and takes effect immediately:
+        it can change what buyers are charged on every event at this venue, or leave a
+        user-choice tier without a price for a category now painted in its sector (checkout
+        refuses those seats). Both come back in ``affected_tiers`` (advisory). Unpainting can
+        also strand the converse — a best-available tier still pricing a zone no seat carries,
+        which 409s every buyer who picks it — reported in ``unsellable_zone_tiers``.
+
+        Because that report is computed before the write, ``?preview=true`` returns exactly
+        the same payload with nothing written — the same request, answered in advance.
+        Validation is unchanged: a preview of a paint that would 404 or 400 still does.
+        """
+        organization = self.get_one(slug)
+        venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
+        return venue_service.paint_seats(venue, payload, preview=preview)
+
     # ---- Venue Sector Management ----
 
     @route.get(
@@ -139,7 +252,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         """
         organization = self.get_one(slug)
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
-        return models.VenueSector.objects.filter(venue=venue).prefetch_related("seats")
+        return models.VenueSector.objects.filter(venue=venue).prefetch_related(_SEATS_PREFETCH)
 
     @route.post(
         "/venues/{venue_id}/sectors",
@@ -159,7 +272,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
         sector = venue_service.create_sector(venue, payload)
         # Refresh to get prefetched seats
-        return 201, models.VenueSector.objects.prefetch_related("seats").get(pk=sector.pk)
+        return 201, models.VenueSector.objects.prefetch_related(_SEATS_PREFETCH).get(pk=sector.pk)
 
     @route.get(
         "/venues/{venue_id}/sectors/{sector_id}",
@@ -173,7 +286,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         organization = self.get_one(slug)
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
         return get_object_or_404(
-            models.VenueSector.objects.prefetch_related("seats"),
+            models.VenueSector.objects.prefetch_related(_SEATS_PREFETCH),
             pk=sector_id,
             venue=venue,
         )
@@ -194,7 +307,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
         sector = get_object_or_404(models.VenueSector, pk=sector_id, venue=venue)
         venue_service.update_sector(sector, payload)
-        return models.VenueSector.objects.prefetch_related("seats").get(pk=sector.pk)
+        return models.VenueSector.objects.prefetch_related(_SEATS_PREFETCH).get(pk=sector.pk)
 
     @route.delete(
         "/venues/{venue_id}/sectors/{sector_id}",
@@ -210,7 +323,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         organization = self.get_one(slug)
         venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
         sector = get_object_or_404(models.VenueSector, pk=sector_id, venue=venue)
-        sector.delete()
+        venue_service.delete_sector(sector)
         return 204, None
 
     # ---- Venue Seat Management ----

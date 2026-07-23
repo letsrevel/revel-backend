@@ -196,17 +196,27 @@ def test_visibility_rebuild_lock_key_is_stable_and_64_bit() -> None:
     assert visibility_rebuild_lock_key(str(uuid.uuid4())) != key
 
 
+@pytest.mark.django_db(transaction=True)
 def test_build_attendee_visibility_flags_takes_per_event_advisory_lock(
     event: Event,
     revel_user_factory: RevelUserFactory,
 ) -> None:
-    """The rebuild transaction acquires the per-event advisory xact lock, and repeated
-    sequential runs still produce a complete, correct matrix.
+    """The rebuild transaction acquires the per-event advisory xact lock BEFORE the
+    visibility snapshot reads, and repeated sequential runs still produce a complete,
+    correct matrix.
 
-    This is the deadlock regression guard: concurrent rebuilds of the same event's
-    matrix deadlocked in production because delete + bulk_create interleaved row locks
-    across workers. The advisory lock serializes them by construction, so we assert the
-    lock is taken with the derived key rather than reproducing a two-thread deadlock.
+    This is the deadlock + stale-overwrite regression guard: concurrent rebuilds of
+    the same event's matrix deadlocked in production because delete + bulk_create
+    interleaved row locks across workers, and a task that waits on the lock must read
+    AFTER acquiring it or it overwrites a newer matrix with stale flags. We assert the
+    lock query runs exactly once, with the derived key, and strictly before every
+    snapshot read and the destructive delete (query-order inspection) rather than
+    reproducing a two-thread race.
+
+    ``transaction=True`` is required: under pytest-django's default outer transaction
+    the task's ``transaction.atomic()`` degrades to a savepoint, so
+    ``pg_advisory_xact_lock`` would attach to the test's long-lived outer transaction
+    and the "lock taken inside the task's own transaction" contract could never fail.
     """
     attendee1 = revel_user_factory()
     attendee2 = revel_user_factory()
@@ -220,9 +230,30 @@ def test_build_attendee_visibility_flags_takes_per_event_advisory_lock(
     with CaptureQueriesContext(connection) as ctx:
         build_attendee_visibility_flags(str(event.id))
 
-    lock_queries = [q["sql"] for q in ctx.captured_queries if "pg_advisory_xact_lock" in q["sql"]]
-    assert len(lock_queries) == 1
-    assert str(visibility_rebuild_lock_key(str(event.id))) in lock_queries[0]
+    sqls = [q["sql"] for q in ctx.captured_queries]
+    lock_indices = [i for i, sql in enumerate(sqls) if "pg_advisory_xact_lock" in sql]
+    assert len(lock_indices) == 1
+    lock_idx = lock_indices[0]
+    assert str(visibility_rebuild_lock_key(str(event.id))) in sqls[lock_idx]
+
+    # The visibility snapshot (attendee/viewer reads) and the destructive rewrite must
+    # all happen AFTER the advisory lock — a stale pre-lock snapshot would let a queued
+    # rebuild overwrite a newer matrix. The attendee/viewer reads are the reveluser
+    # selects joined against tickets/rsvps/invitations (the pre-lock attendee-count
+    # block also prefetches staff members, so a bare reveluser match would be wrong).
+    snapshot_reads = [
+        i
+        for i, sql in enumerate(sqls)
+        if "accounts_reveluser" in sql
+        and sql.startswith("SELECT")
+        and ("events_ticket" in sql or "events_eventrsvp" in sql or "events_eventinvitation" in sql)
+    ]
+    delete_indices = [
+        i for i, sql in enumerate(sqls) if "events_attendeevisibilityflag" in sql and sql.startswith("DELETE")
+    ]
+    assert snapshot_reads, "expected attendee/viewer snapshot reads"
+    assert delete_indices, "expected the matrix delete"
+    assert all(lock_idx < i for i in snapshot_reads + delete_indices)
 
     # A second sequential run (what the lock enforces for concurrent dispatches)
     # still yields a complete matrix: every viewer/target pair has exactly one flag.

@@ -185,9 +185,14 @@ def create_payments_and_invoice(state: BootstrapState) -> None:
 
     effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
 
-    # Create 5 payments spread across last month
+    # Create 5 payments spread across last month. These 4 keys are deliberately disjoint from
+    # every other named-user ticket assignment on seated_concert (Standing Room in
+    # relationships.py, and org_alpha_member/Charlie is kept ticket-free everywhere on that
+    # event) so no developer test account ends up double-ticketed if this picks seated_concert.
     resolved_users: list[RevelUser] = [
-        state.users[k] for k in ("org_alpha_member", "multi_org_user", "attendee_1", "attendee_2") if k in state.users
+        state.users[k]
+        for k in ("org_alpha_owner", "org_alpha_staff", "org_beta_owner", "org_beta_staff")
+        if k in state.users
     ]
     if not resolved_users:
         logger.warning("no_users_for_payments")

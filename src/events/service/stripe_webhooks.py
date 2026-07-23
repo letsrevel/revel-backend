@@ -14,13 +14,16 @@ from django.db.models import F
 
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
-from events.exceptions import InvalidStripeWebhookSignatureError
+from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMismatchError
 from events.models import HeldSeriesPass, Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
+from events.service.stripe_incidents import record_paid_session_without_payments, record_session_total_mismatch
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
+from notifications.signals.payment import send_refund_unmatched
 from notifications.signals.series_pass import send_series_pass_purchased
 
 logger = structlog.get_logger(__name__)
+
 
 # Pin both credentials and API version at import time (mirrors stripe_service).
 # This module makes its own outbound call (Refund.list in _resolve_refunds), so
@@ -30,6 +33,11 @@ stripe.api_version = settings.STRIPE_API_VERSION
 
 # Placeholder values that must never be treated as real signing secrets.
 _PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})
+
+
+def _distinct_amounts(payments: list[Payment]) -> set[tuple[int, str]]:
+    """Return the distinct (smallest-unit amount, currency) pairs across payments."""
+    return {(to_stripe_amount(p.amount, p.currency), p.currency) for p in payments}
 
 
 def verify_webhook(payload: bytes, signature_header: str) -> stripe.Event:
@@ -220,8 +228,10 @@ class StripeEventHandler:
         payments = list(Payment.objects.filter(stripe_session_id=session_id).select_related("ticket"))
 
         if not payments:
-            logger.warning("stripe_session_no_payments", session_id=session_id)
+            self._report_missing_payments(session, session_id)
             return
+
+        self._reconcile_session_total(session, payments)
 
         # Always enqueue invoice generation (idempotent downstream).
         # This must run even on duplicate webhooks so that a previously failed
@@ -281,6 +291,71 @@ class StripeEventHandler:
             total_amount=float(sum(p.amount for p in payments)),
             currency=payments[0].currency,
         )
+
+    @staticmethod
+    def _report_missing_payments(session: t.Any, session_id: str) -> None:
+        """Grade a session that has no Payment rows to confirm (#750).
+
+        A zero-total session (a free ticket, a fully-discounted cart, a session
+        Stripe expired and re-delivered) is benign noise and stays a warning.
+
+        A session that captured *money* is not: whatever the cause — the expiry
+        sweep having deleted the rows of a checkout whose confirmation kept
+        failing, a reservation reclaimed mid-flight — the buyer has been charged
+        and we hold no record to confirm, refund against, or re-issue from. The
+        handler still returns 200 because a redelivery would find exactly the same
+        nothing; the alert, not the retry, is what recovers the buyer.
+        """
+        amount_total = session.get("amount_total")
+        if not amount_total:
+            logger.warning("stripe_session_no_payments", session_id=session_id)
+            return
+        record_paid_session_without_payments(
+            session_id=session_id,
+            amount_total=int(amount_total),
+            currency=session.get("currency"),
+            payment_intent_id=session.get("payment_intent"),
+        )
+
+    @staticmethod
+    def _reconcile_session_total(session: t.Any, payments: list[Payment]) -> None:
+        """Refuse to confirm a session whose total disagrees with our Payment rows (#739).
+
+        The books-vs-charge check nothing in this path used to do: before per-ticket
+        prices, every Payment in a batch held the same amount and the session was
+        built from that one scalar, so the two could not diverge. They can now, and a
+        divergence means the captured amount, the recorded revenue and the platform
+        fee are all computed off different totals — permanently, and silently.
+
+        Raising rolls the whole webhook transaction back (including the dedup row and
+        the queued invoice ``on_commit``), so Stripe redelivers and the discrepancy
+        stays visible instead of being written into the ledger. ``amount_total`` is
+        optional in the payload: absent, there is nothing to reconcile against.
+
+        Raises:
+            SessionTotalMismatchError: If Stripe's total differs from ``sum(Payment.amount)``.
+        """
+        amount_total = session.get("amount_total")
+        if amount_total is None:
+            return
+        currency = payments[0].currency
+        recorded = to_stripe_amount(sum((p.amount for p in payments), Decimal("0")), currency)
+        if int(amount_total) != recorded:
+            # Emitted *before* the raise: the rollback takes every database trace of
+            # this attempt with it, and the expiry sweep deletes the rows within
+            # minutes, so this is the only surviving record of the incident (#750).
+            record_session_total_mismatch(
+                call_site="webhook",
+                payments=payments,
+                charged_minor_units=int(amount_total),
+                recorded_minor_units=recorded,
+                currency=currency,
+                session_id=session["id"],
+                payment_intent_id=session.get("payment_intent"),
+            )
+            raise SessionTotalMismatchError(
+                f"Stripe charged {amount_total} but recorded Payment total is {recorded} ({currency})"
+            )
 
     @staticmethod
     def _activate_series_passes(session_id: str) -> None:
@@ -378,7 +453,8 @@ class StripeEventHandler:
         Five-branch matching strategy (first match wins):
           1. existing stripe_refund_id on a Payment
           2. refund.metadata["ticket_id"]
-          3. exactly one unrefunded Payment with matching amount
+          3. exactly one unrefunded Payment with matching amount, *and* the intent's
+             Payments are uniform in amount (otherwise the match is a guess)
           4. refund.amount equals sum of unrefunded-payment amounts (full remaining batch)
           5. ambiguous → logged, no mutation
         """
@@ -481,7 +557,9 @@ class StripeEventHandler:
                     refund_id=refund.get("id"),
                     refund_amount=refund.get("amount"),
                     candidate_payment_ids=[str(c.id) for c in candidates if c.refund_status is None],
+                    candidate_amounts=[f"{c.amount}{c.currency}" for c in candidates if c.refund_status is None],
                 )
+                self._notify_unmatched_refund(refund, candidates, payment_intent_id)
                 continue
             # Branch 4 fans out a single refund across N Payments — each gets its
             # own amount, not the aggregate. Branches 1-3 always return one row.
@@ -501,6 +579,41 @@ class StripeEventHandler:
                     affected_event_ids.add(cancelled_event_id)
 
         return newly_refunded_ids, touched_session_id, affected_event_ids
+
+    def _notify_unmatched_refund(
+        self, refund: dict[str, t.Any], candidates: list[Payment], payment_intent_id: str
+    ) -> None:
+        """Raise a durable staff notification for a refund the matcher declined.
+
+        Covers both decline paths — the non-uniform-batch refusal in Branch 3
+        and the genuinely ambiguous Branch 5 — because both end the match with
+        an empty result. Money moved in Stripe but nothing changed in Revel, so
+        the log line alone leaves the organizer believing a ticket was refunded.
+
+        Runs inside the webhook's atomic block on purpose: the Notification rows
+        commit with the rest of the handler (and vanish with it if the handler
+        raises), while the notification dispatcher defers its Celery ``.delay()``
+        to ``on_commit``. Redelivery can't double-notify because the
+        ``StripeWebhookEvent`` dedup row in :func:`handle_event` stops the whole
+        handler from re-running.
+
+        Args:
+            refund: The Stripe refund object dict that could not be matched.
+            candidates: All Payment rows on the intent.
+            payment_intent_id: The Stripe payment intent id.
+        """
+        unrefunded = [p for p in candidates if p.refund_status is None]
+        if not unrefunded:
+            return  # every Payment on the intent is already refunded — nothing to reconcile
+        currency = unrefunded[0].currency
+        send_refund_unmatched(
+            payment_intent_id=payment_intent_id,
+            refund_id=refund.get("id") or "",
+            refund_amount=from_stripe_amount(int(refund.get("amount", 0)), currency),
+            currency=currency,
+            reason="non_uniform" if len(_distinct_amounts(candidates)) > 1 else "ambiguous",
+            candidates=unrefunded,
+        )
 
     def _resolve_refunds(self, charge_data: dict[str, t.Any]) -> list[dict[str, t.Any]]:
         """Return the charge's refunds, from the payload or the Stripe API.
@@ -616,10 +729,26 @@ class StripeEventHandler:
         if not unrefunded:
             return []
 
-        # Branch 3: exactly-one exact-amount match among unrefunded rows.
+        # Branch 3: exactly-one exact-amount match among unrefunded rows — but only
+        # when every Payment on the intent costs the same. On a mixed-price batch a
+        # partial refund on the expensive ticket is indistinguishable from a full
+        # refund of the cheap one, and guessing wrong cancels a ticket whose buyer
+        # still occupies the seat. Dashboard refunds carry no ticket_id metadata, so
+        # there is nothing else to disambiguate with: refuse and let Branch 5 log it.
         exact = [p for p in unrefunded if to_stripe_amount(p.amount, p.currency) == refund_amount]
         if len(exact) == 1:
-            return exact
+            amounts = _distinct_amounts(candidates)
+            if len(amounts) == 1:
+                return exact
+            logger.warning(
+                "stripe_refund_non_uniform_batch",
+                payment_intent_id=candidates[0].stripe_payment_intent_id,
+                refund_id=refund_id,
+                refund_amount=refund_amount,
+                would_have_matched_payment_id=str(exact[0].id),
+                would_have_matched_ticket_id=str(exact[0].ticket_id),
+                candidate_amounts=sorted(f"{amount}{currency}" for amount, currency in amounts),
+            )
 
         # Branch 4: full-remaining-batch refund.
         remaining_total = sum(to_stripe_amount(p.amount, p.currency) for p in unrefunded)
