@@ -378,16 +378,24 @@ def _create_seated_concert_tiers(state: BootstrapState, now: "datetime.datetime"
         manual_payment_instructions=_OFFLINE_INSTRUCTIONS.format(price="35.00", currency="EUR"),
     )
 
-    _sell_seated_concert_tickets(state, reserved_seat, occupancy=0.18)
-    _sell_seated_concert_tickets(state, balcony_seat, occupancy=0.18)
+    sold_reserved = _sell_seated_concert_tickets(reserved_seat, occupancy=0.18, filler_offset=0)
+    _sell_seated_concert_tickets(balcony_seat, occupancy=0.18, filler_offset=sold_reserved)
 
 
-def _sell_seated_concert_tickets(state: BootstrapState, tier: events_models.TicketTier, occupancy: float) -> None:
+def _sell_seated_concert_tickets(tier: events_models.TicketTier, occupancy: float, filler_offset: int) -> int:
     """Sell a deterministic slice of a sector's active seats as active tickets.
 
     Selection takes an evenly-spaced slice of seats (ordered by row/number)
     rather than a random sample, so bootstrap output is stable across runs.
-    Buyers cycle through the existing named bootstrap users.
+    Buyers are dedicated filler accounts (not added to ``BootstrapState.users``),
+    mirroring the ``ml-filler`` pattern in ``_create_sold_out_workshop_tier`` — so
+    the named bootstrap users (Alice, Charlie, ...) stay untouched and free to
+    test purchasing on this event. ``filler_offset`` keeps two calls selling
+    different tiers of the same event from reusing filler numbers; pass the
+    previous call's return value as the next call's offset.
+
+    Returns:
+        The number of tickets sold, for chaining ``filler_offset`` into the next call.
     """
     active_seats = list(
         events_models.VenueSeat.objects.filter(sector=tier.sector, is_active=True).order_by("row_label", "number")
@@ -396,17 +404,24 @@ def _sell_seated_concert_tickets(state: BootstrapState, tier: events_models.Tick
     step = max(1, len(active_seats) // num_to_sell)
     picked = active_seats[::step][:num_to_sell]
 
-    users = list(state.users.values())
     tickets: list[events_models.Ticket] = []
     for i, seat in enumerate(picked):
-        user = users[i % len(users)]
+        filler_num = filler_offset + i + 1
+        filler = RevelUser.objects.create_user(
+            username=f"concert-filler-{filler_num:02d}@bootstrap.example",
+            email=f"concert-filler-{filler_num:02d}@bootstrap.example",
+            password="password123",
+            email_verified=True,
+            first_name="Concert",
+            last_name=f"Attendee {filler_num:02d}",
+        )
         tickets.append(
             events_models.Ticket(
                 event=tier.event,
-                user=user,
+                user=filler,
                 tier=tier,
                 status=events_models.Ticket.TicketStatus.ACTIVE,
-                guest_name=user.get_display_name(),
+                guest_name=filler.get_display_name(),
                 venue=tier.venue,
                 sector=tier.sector,
                 seat=seat,
@@ -416,6 +431,7 @@ def _sell_seated_concert_tickets(state: BootstrapState, tier: events_models.Tick
     tier.quantity_sold = len(tickets)
     tier.save(update_fields=["quantity_sold"])
     logger.info(f"  {tier.event.name} / {tier.name}: {len(tickets)} active tickets sold")
+    return len(tickets)
 
 
 def _add_comprehensive_tiers(state: BootstrapState, now: "datetime.datetime") -> None:
