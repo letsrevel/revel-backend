@@ -315,10 +315,14 @@ def _create_sold_out_workshop_tier(state: BootstrapState, now: "datetime.datetim
 
 
 def _create_seated_concert_tiers(state: BootstrapState, now: "datetime.datetime") -> None:
-    """Create Seated Concert tiers with reserved seating and offline payment."""
-    concert_sector = events_models.VenueSector.objects.get(venue=state.venues["concert_hall"], name="Main Floor")
+    """Create Seated Concert tiers: zone-priced Orchestra, flat-priced Balcony, flat Standing Room."""
+    venue = state.venues["concert_hall"]
+    orchestra = events_models.VenueSector.objects.get(venue=venue, name="Orchestra")
+    balcony = events_models.VenueSector.objects.get(venue=venue, name="Balcony")
+    cat_premium = events_models.PriceCategory.objects.get(venue=venue, name="Orchestra Premium")
+    cat_standard = events_models.PriceCategory.objects.get(venue=venue, name="Orchestra Standard")
 
-    events_models.TicketTier.objects.create(
+    reserved_seat = events_models.TicketTier.objects.create(
         event=state.events["seated_concert"],
         name="Reserved Seat",
         visibility=events_models.TicketTier.Visibility.PUBLIC,
@@ -326,13 +330,35 @@ def _create_seated_concert_tiers(state: BootstrapState, now: "datetime.datetime"
         purchasable_by=events_models.TicketTier.PurchasableBy.PUBLIC,
         price=Decimal("75.00"),
         currency="EUR",
-        total_quantity=100,
+        total_quantity=120,
         quantity_sold=0,
         sales_start_at=now,
         sales_end_at=now + timedelta(days=49),
-        description="Reserved seating - select your seat during checkout.",
-        venue=state.venues["concert_hall"],
-        sector=concert_sector,
+        description="Reserved seating in the Orchestra - select your seat during checkout.",
+        venue=venue,
+        sector=orchestra,
+        seat_assignment_mode=events_models.TicketTier.SeatAssignmentMode.USER_CHOICE,
+        category_prices={
+            str(cat_premium.id): "95.00",
+            str(cat_standard.id): "75.00",
+        },
+    )
+
+    balcony_seat = events_models.TicketTier.objects.create(
+        event=state.events["seated_concert"],
+        name="Balcony Seat",
+        visibility=events_models.TicketTier.Visibility.PUBLIC,
+        payment_method=events_models.TicketTier.PaymentMethod.ONLINE,
+        purchasable_by=events_models.TicketTier.PurchasableBy.PUBLIC,
+        price=Decimal("55.00"),
+        currency="EUR",
+        total_quantity=56,
+        quantity_sold=0,
+        sales_start_at=now,
+        sales_end_at=now + timedelta(days=49),
+        description="Reserved seating in the Balcony - select your seat during checkout.",
+        venue=venue,
+        sector=balcony,
         seat_assignment_mode=events_models.TicketTier.SeatAssignmentMode.USER_CHOICE,
     )
 
@@ -351,6 +377,45 @@ def _create_seated_concert_tiers(state: BootstrapState, now: "datetime.datetime"
         description="Standing room at the back of the venue. Pay via bank transfer.",
         manual_payment_instructions=_OFFLINE_INSTRUCTIONS.format(price="35.00", currency="EUR"),
     )
+
+    _sell_seated_concert_tickets(state, reserved_seat, occupancy=0.18)
+    _sell_seated_concert_tickets(state, balcony_seat, occupancy=0.18)
+
+
+def _sell_seated_concert_tickets(state: BootstrapState, tier: events_models.TicketTier, occupancy: float) -> None:
+    """Sell a deterministic slice of a sector's active seats as active tickets.
+
+    Selection takes an evenly-spaced slice of seats (ordered by row/number)
+    rather than a random sample, so bootstrap output is stable across runs.
+    Buyers cycle through the existing named bootstrap users.
+    """
+    active_seats = list(
+        events_models.VenueSeat.objects.filter(sector=tier.sector, is_active=True).order_by("row_label", "number")
+    )
+    num_to_sell = max(1, int(len(active_seats) * occupancy))
+    step = max(1, len(active_seats) // num_to_sell)
+    picked = active_seats[::step][:num_to_sell]
+
+    users = list(state.users.values())
+    tickets: list[events_models.Ticket] = []
+    for i, seat in enumerate(picked):
+        user = users[i % len(users)]
+        tickets.append(
+            events_models.Ticket(
+                event=tier.event,
+                user=user,
+                tier=tier,
+                status=events_models.Ticket.TicketStatus.ACTIVE,
+                guest_name=user.get_display_name(),
+                venue=tier.venue,
+                sector=tier.sector,
+                seat=seat,
+            )
+        )
+    events_models.Ticket.objects.bulk_create(tickets)
+    tier.quantity_sold = len(tickets)
+    tier.save(update_fields=["quantity_sold"])
+    logger.info(f"  {tier.event.name} / {tier.name}: {len(tickets)} active tickets sold")
 
 
 def _add_comprehensive_tiers(state: BootstrapState, now: "datetime.datetime") -> None:
