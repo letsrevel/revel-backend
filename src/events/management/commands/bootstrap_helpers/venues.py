@@ -69,6 +69,8 @@ def _build_grid_seats(
                     is_accessible=label in accessible,
                     is_obstructed_view=label in obstructed,
                     is_active=label not in inactive,
+                    row_order=row_idx,
+                    adjacency_index=col,
                 )
             )
     return seats
