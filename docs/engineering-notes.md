@@ -160,3 +160,20 @@ legacy rows that predate the split.
   handler keeps the session-id-based expiry since by then a session always exists.
 
 See issue #632 for the full design (Option F) and the task-by-task implementation log.
+
+**Membership subscriptions deliberately do NOT use the reserve/session split.** Every
+online subscription mutation (subscribe, cancel, pause/resume, change-plan, revive) takes
+`select_for_update` on the *subscription* row and — under `ATOMIC_REQUESTS` — holds it
+across its Stripe round-trips: the inner `transaction.atomic()` exit releases only a
+savepoint, never the lock (code comments in `subscription_service` /
+`subscription_stripe_plan_change` state this explicitly). This is acceptable where the
+tier-row lock was not because the contended row is **per-member**: the blast radius is one
+member's own requests, not every buyer of a hot tier. It is also currently *load-bearing*:
+the held lock is what serializes Stripe echo-webhooks against the local mutation (the
+webhook's own `select_for_update` blocks until the request commits, then its dispatch gates
+see the updated flags and suppress duplicate notifications). Don't "fix" the lock without
+replacing that serialization. The one webhook-side network call
+(`_invoice_payment_intent_id`'s `Invoice.retrieve` fallback) resolves *before* the row lock
+per the resolve-before-lock discipline above. The plan-row lock taken by
+`ensure_plan_sales_capacity` (sale caps) is scoped the same way as the tier lock — but it
+only guards a count+insert, never a Stripe call.

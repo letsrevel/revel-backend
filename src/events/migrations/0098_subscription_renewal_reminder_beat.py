@@ -38,7 +38,7 @@ def delete_subscription_renewal_reminder_task(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("events", "0098_membershippayment_stripe_invoice_id_and_more"),
+        ("events", "0097_memberships_subscriptions_integration"),
         ("django_celery_beat", "0019_alter_periodictasks_options"),
     ]
 
