@@ -19,7 +19,7 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_service, subscription_stripe_service
+from events.service import subscription_service, subscription_stripe_service, subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -558,7 +558,7 @@ class TestSyncSubscriptionFromStripe:
             "current_period_start": 1_800_000_000,
             "current_period_end": 1_800_000_000 + 30 * 86400,
         }
-        result = subscription_stripe_service.sync_subscription_from_stripe(payload)
+        result = subscription_stripe_sync.sync_subscription_from_stripe(payload)
         assert result is not None
         result.refresh_from_db()
         assert result.status == MembershipSubscription.SubscriptionStatus.ACTIVE
@@ -572,7 +572,7 @@ class TestSyncSubscriptionFromStripe:
         assert member.tier_id == pending_online_subscription.plan.tier_id
 
     def test_unknown_subscription_returns_none(self) -> None:
-        result = subscription_stripe_service.sync_subscription_from_stripe({"id": "sub_unknown", "status": "active"})
+        result = subscription_stripe_sync.sync_subscription_from_stripe({"id": "sub_unknown", "status": "active"})
         assert result is None
 
     def test_cancel_at_period_end_mirrored(self, pending_online_subscription: MembershipSubscription) -> None:
@@ -581,7 +581,7 @@ class TestSyncSubscriptionFromStripe:
             "status": "active",
             "cancel_at_period_end": True,
         }
-        result = subscription_stripe_service.sync_subscription_from_stripe(payload)
+        result = subscription_stripe_sync.sync_subscription_from_stripe(payload)
         assert result is not None
         assert result.cancel_at_period_end is True
 
@@ -625,7 +625,7 @@ class TestRecordStripePaymentFromInvoice:
                 ]
             },
         }
-        payment = subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         assert payment is not None
         assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
@@ -659,7 +659,7 @@ class TestRecordStripePaymentFromInvoice:
             "lines": {"data": [{"period": {"start": 1_800_000_000, "end": 1_800_000_000 + 86400}}]},
         }
 
-        payment = subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=False)
+        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False)
         assert payment is not None
         assert payment.status == MembershipPayment.PaymentStatus.FAILED
         # FAILED payments collected nothing — ``amount`` reflects that.
@@ -679,8 +679,8 @@ class TestRecordStripePaymentFromInvoice:
             "payment_intent": "pi_dup",
             "lines": {"data": [{"period": {"start": 1_800_000_000, "end": 1_800_000_000 + 86400}}]},
         }
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         assert MembershipPayment.objects.filter(stripe_invoice_id="in_dup").count() == 1
 
@@ -691,7 +691,7 @@ class TestRecordStripePaymentFromInvoice:
             "amount_paid": 0,
             "currency": "eur",
         }
-        assert subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=False) is None
+        assert subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False) is None
 
     def test_stale_payment_failed_never_downgrades_succeeded_payment(
         self,
@@ -712,10 +712,10 @@ class TestRecordStripePaymentFromInvoice:
             "payment_intent": "pi_ooo",
             "lines": {"data": [{"period": {"start": 1_800_000_000, "end": 1_800_000_000 + 86400}}]},
         }
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         stale_failure = {**invoice, "amount_paid": 0, "amount_due": 1000}
-        payment = subscription_stripe_service.record_stripe_payment_from_invoice(stale_failure, succeeded=False)
+        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(stale_failure, succeeded=False)
 
         assert payment is not None
         assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED

@@ -25,7 +25,12 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_service, subscription_stripe_plan_change, subscription_stripe_service
+from events.service import (
+    subscription_service,
+    subscription_stripe_plan_change,
+    subscription_stripe_service,
+    subscription_stripe_sync,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -416,7 +421,7 @@ class TestSyncPauseCollectionAndPlanSwap:
             "pause_collection": {"behavior": "void"},
             "cancel_at_period_end": False,
         }
-        result = subscription_stripe_service.sync_subscription_from_stripe(payload)
+        result = subscription_stripe_sync.sync_subscription_from_stripe(payload)
         assert result is not None
         online_subscription.refresh_from_db()
         assert online_subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED
@@ -432,7 +437,7 @@ class TestSyncPauseCollectionAndPlanSwap:
             "status": "active",
             "pause_collection": None,
         }
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
         online_subscription.refresh_from_db()
         assert online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
@@ -462,7 +467,7 @@ class TestSyncPauseCollectionAndPlanSwap:
             "status": "active",
             "items": {"data": [{"price": {"id": "price_switched"}}]},
         }
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
         online_subscription.refresh_from_db()
         assert online_subscription.plan_id == new_plan.pk
         assert online_subscription.pending_plan_id is None
@@ -477,7 +482,7 @@ class TestSyncPauseCollectionAndPlanSwap:
             "status": "active",
             "items": {"data": [{"price": {"id": "price_unknown_to_us"}}]},
         }
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
         online_subscription.refresh_from_db()
         # Plan stays unchanged; we don't blindly orphan the subscription.
         assert online_subscription.plan_id == online_subscription.plan_id
@@ -496,7 +501,7 @@ class TestSyncPauseCollectionAndPlanSwap:
             "status": "canceled",
             "pause_collection": {"behavior": "void"},
         }
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
         online_subscription.refresh_from_db()
         assert online_subscription.status == MembershipSubscription.SubscriptionStatus.CANCELLED
         assert online_subscription.cancelled_at is not None
@@ -528,7 +533,7 @@ class TestSyncPauseCollectionAndPlanSwap:
             "status": "canceled",
             "items": {"data": [{"price": {"id": "price_late"}}]},
         }
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
         online_subscription.refresh_from_db()
         assert online_subscription.plan_id == original_plan_id
         # ``new_plan`` exists but the swap is rejected because the row is terminal.
@@ -673,7 +678,7 @@ class TestSyncExpiredAt:
             "status": "incomplete_expired",
             "cancel_at_period_end": False,
         }
-        result = subscription_stripe_service.sync_subscription_from_stripe(payload)
+        result = subscription_stripe_sync.sync_subscription_from_stripe(payload)
         assert result is not None
         pending_subscription.refresh_from_db()
         assert pending_subscription.status == MembershipSubscription.SubscriptionStatus.EXPIRED
@@ -695,7 +700,7 @@ class TestSyncExpiredAt:
             "status": "incomplete_expired",
             "cancel_at_period_end": False,
         }
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
         pending_subscription.refresh_from_db()
         # expired_at stays at the original value — idempotent.
         assert pending_subscription.expired_at == first_expiry

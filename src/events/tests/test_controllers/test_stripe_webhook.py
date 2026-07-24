@@ -211,7 +211,7 @@ class TestSubscriptionWebhookDispatch:
         event.data.object = obj
         return event
 
-    @patch("events.service.subscription_stripe_service.sync_subscription_from_stripe")
+    @patch("events.service.subscription_stripe_sync.sync_subscription_from_stripe")
     def test_customer_subscription_created_dispatch(self, mock_sync: Mock) -> None:
         from events.service.stripe_webhooks import StripeEventHandler
 
@@ -224,7 +224,7 @@ class TestSubscriptionWebhookDispatch:
         passed = mock_sync.call_args.args[0]
         assert passed["id"] == "sub_x"
 
-    @patch("events.service.subscription_stripe_service.sync_subscription_from_stripe")
+    @patch("events.service.subscription_stripe_sync.sync_subscription_from_stripe")
     def test_customer_subscription_updated_dispatch(self, mock_sync: Mock) -> None:
         from events.service.stripe_webhooks import StripeEventHandler
 
@@ -235,7 +235,7 @@ class TestSubscriptionWebhookDispatch:
         StripeEventHandler(event).handle()
         mock_sync.assert_called_once()
 
-    @patch("events.service.subscription_stripe_service.sync_subscription_from_stripe")
+    @patch("events.service.subscription_stripe_sync.sync_subscription_from_stripe")
     def test_customer_subscription_deleted_dispatch(self, mock_sync: Mock) -> None:
         from events.service.stripe_webhooks import StripeEventHandler
 
@@ -246,7 +246,7 @@ class TestSubscriptionWebhookDispatch:
         StripeEventHandler(event).handle()
         mock_sync.assert_called_once()
 
-    @patch("events.service.subscription_stripe_service.record_stripe_payment_from_invoice")
+    @patch("events.service.subscription_stripe_sync.record_stripe_payment_from_invoice")
     def test_invoice_paid_dispatch(self, mock_record: Mock) -> None:
         from events.service.stripe_webhooks import StripeEventHandler
 
@@ -258,7 +258,7 @@ class TestSubscriptionWebhookDispatch:
         mock_record.assert_called_once()
         assert mock_record.call_args.kwargs["succeeded"] is True
 
-    @patch("events.service.subscription_stripe_service.record_stripe_payment_from_invoice")
+    @patch("events.service.subscription_stripe_sync.record_stripe_payment_from_invoice")
     def test_invoice_payment_failed_dispatch(self, mock_record: Mock) -> None:
         from events.service.stripe_webhooks import StripeEventHandler
 

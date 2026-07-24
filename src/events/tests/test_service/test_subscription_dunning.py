@@ -20,7 +20,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_service
+from events.service import subscription_stripe_sync
 from notifications.enums import NotificationType
 from notifications.models import Notification
 
@@ -137,7 +137,7 @@ class TestInvoicePaidRenewal:
         _make_online_sub(online_plan, subscriber, stripe_id="sub_ren1")
         invoice = _invoice_payload("sub_ren1", invoice_id="in_ren1", succeeded=True)
 
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
 
@@ -152,7 +152,7 @@ class TestInvoicePaidRenewal:
         )
         invoice = _invoice_payload("sub_ren2", invoice_id="in_ren2", succeeded=True)
 
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
 
@@ -167,7 +167,7 @@ class TestInvoicePaidRenewal:
         )
         invoice = _invoice_payload("sub_ren3", invoice_id="in_ren3", succeeded=True)
 
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
 
@@ -182,9 +182,9 @@ class TestInvoicePaidRenewal:
         invoice = _invoice_payload("sub_ren4", invoice_id="in_ren4", succeeded=True)
 
         # First delivery
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
         # Re-delivery of the same invoice
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
 
@@ -202,7 +202,7 @@ class TestInvoicePaymentFailed:
         _make_online_sub(online_plan, subscriber, stripe_id="sub_fail1")
         invoice = _invoice_payload("sub_fail1", invoice_id="in_fail1", succeeded=False)
 
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=False)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False)
 
         assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_PAYMENT_FAILED)
 
@@ -217,7 +217,7 @@ class TestInvoicePaymentFailed:
         )
         invoice = _invoice_payload("sub_fail2", invoice_id="in_fail2", succeeded=False)
 
-        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=False)
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False)
 
         assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_PAYMENT_FAILED)
 
@@ -264,7 +264,7 @@ class TestSyncCancelAtPeriodEnd:
         _make_online_sub(online_plan, subscriber, stripe_id="sub_cap1", cancel_at_period_end=False)
         payload = _stripe_sub_payload("sub_cap1", status="active", cancel_at_period_end=True)
 
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
 
         notif = Notification.objects.filter(
             user=subscriber,
@@ -282,7 +282,7 @@ class TestSyncCancelAtPeriodEnd:
         _make_online_sub(online_plan, subscriber, stripe_id="sub_cap2", cancel_at_period_end=True)
         payload = _stripe_sub_payload("sub_cap2", status="active", cancel_at_period_end=True)
 
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
 
         assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED)
 
@@ -300,7 +300,7 @@ class TestSyncSubscriptionDeleted:
         _make_online_sub(online_plan, subscriber, stripe_id="sub_del1")
         payload = _stripe_sub_payload("sub_del1", status="canceled")
 
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
 
         notif = Notification.objects.filter(
             user=subscriber,
@@ -325,7 +325,7 @@ class TestSyncSubscriptionDeleted:
         sub.save(update_fields=["cancelled_at"])
         payload = _stripe_sub_payload("sub_del2", status="canceled")
 
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
 
         assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED)
 
@@ -345,7 +345,7 @@ class TestSyncSubscriptionExpired:
         )
         payload = _stripe_sub_payload("sub_exp1", status="incomplete_expired")
 
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
 
         assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_EXPIRED)
 
@@ -365,6 +365,6 @@ class TestSyncSubscriptionExpired:
         sub.save(update_fields=["expired_at"])
         payload = _stripe_sub_payload("sub_exp2", status="incomplete_expired")
 
-        subscription_stripe_service.sync_subscription_from_stripe(payload)
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
 
         assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_EXPIRED)

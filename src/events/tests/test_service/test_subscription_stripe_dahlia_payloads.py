@@ -27,7 +27,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_service
+from events.service import subscription_stripe_service, subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -90,7 +90,7 @@ def test_sync_reads_period_from_subscription_items(pending_subscription: Members
             ]
         },
     }
-    result = subscription_stripe_service.sync_subscription_from_stripe(payload)
+    result = subscription_stripe_sync.sync_subscription_from_stripe(payload)
     assert result is not None
     result.refresh_from_db()
     assert result.status == MembershipSubscription.SubscriptionStatus.ACTIVE
@@ -116,7 +116,7 @@ def test_invoice_paid_resolves_subscription_via_parent_details(
     pending_subscription: MembershipSubscription,
 ) -> None:
     payments = {"data": [{"payment": {"type": "payment_intent", "payment_intent": "pi_dahlia"}}]}
-    payment = subscription_stripe_service.record_stripe_payment_from_invoice(_dahlia_invoice(payments), succeeded=True)
+    payment = subscription_stripe_sync.record_stripe_payment_from_invoice(_dahlia_invoice(payments), succeeded=True)
     assert payment is not None
     assert payment.subscription_id == pending_subscription.pk
     assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
@@ -134,7 +134,7 @@ def test_invoice_without_embedded_payments_fetches_outbound(
         "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
         return_value=retrieved,
     ) as mock_retrieve:
-        payment = subscription_stripe_service.record_stripe_payment_from_invoice(
+        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
             _dahlia_invoice(payments=None), succeeded=True
         )
     assert payment is not None
@@ -153,7 +153,7 @@ def test_invoice_payment_intent_fetch_failure_is_tolerated(
         "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
         side_effect=stripe.error.StripeError("boom"),
     ):
-        payment = subscription_stripe_service.record_stripe_payment_from_invoice(
+        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
             _dahlia_invoice(payments=None), succeeded=True
         )
     assert payment is not None

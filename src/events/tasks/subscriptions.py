@@ -212,7 +212,7 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
     """
     import stripe as stripe_sdk
 
-    from events.service import subscription_stripe_service
+    from events.service import subscription_stripe_sync
     from events.service.subscription_stripe_payloads import _stripe_account_kwargs
 
     now = timezone.now()
@@ -259,7 +259,7 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
             continue
 
         with transaction.atomic():
-            subscription_stripe_service.sync_subscription_from_stripe(dict(stripe_sub))
+            subscription_stripe_sync.sync_subscription_from_stripe(dict(stripe_sub))
         counters["checked"] += 1
 
     logger.info("reconcile_stripe_subscriptions_done", **counters)
