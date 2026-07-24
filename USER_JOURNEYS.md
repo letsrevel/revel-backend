@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Last updated**: 2026-07-07 (v1.67.1)
+> **Last updated**: 2026-07-24 (v1.72.1)
 
 ---
 
@@ -36,6 +36,7 @@ This document maps every user journey through the Revel platform, organized by p
 - [Journey 24: Polls](#journey-24-polls)
 - [Journey 25: Revenue & VAT Reporting](#journey-25-revenue--vat-reporting)
 - [Journey 26: Series Passes (Season Tickets)](#journey-26-series-passes-season-tickets)
+- [Journey 27: Membership Applications (Join Eligibility & Apply)](#journey-27-membership-applications-join-eligibility--apply)
 - [Cross-Cutting Concerns](#cross-cutting-concerns)
 - [Gap-Fill Interview Questions](#gap-fill-interview-questions)
 
@@ -73,7 +74,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 | **Organization Staff** | Assigned staff role with granular JSON-based permissions | Fully authenticated |
 | **Waitlisted User** | Joined waitlist for a full event; may hold a time-limited waitlist offer | Fully authenticated |
 | **Referrer** | Has a referral code and earns payouts from referred users' ticket purchases | Fully authenticated |
-| **Subscriber** | Member with an active (currently OFFLINE) recurring membership subscription tied to a plan/tier | Fully authenticated |
+| **Subscriber** | Member with an active recurring membership subscription (ONLINE/Stripe self-service or OFFLINE/staff-managed) tied to a plan/tier | Fully authenticated |
 
 ---
 
@@ -239,6 +240,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Click "Request Membership"
 - Submit optional message
 - Wait for approval → notification when approved/rejected
+- The structured, tier-aware application flow (eligibility preview, questionnaire gating, polling) lives in [Journey 27](#journey-27-membership-applications-join-eligibility--apply)
 
 ### 3.11 Bookmark Events
 - Click the bookmark icon on an event (list or detail)
@@ -275,7 +277,7 @@ Multiple paths:
 - Certain ticket tiers restricted to specific membership tiers
 - Announcements can target specific tiers
 - Tier assignment set by staff on approval or later
-- A tier can be backed by a recurring **membership subscription** (currently OFFLINE) — see [Journey 23](#journey-23-membership-subscriptions)
+- A tier can be backed by a recurring **membership subscription** (ONLINE/Stripe or OFFLINE/staff-managed) — see [Journey 23](#journey-23-membership-subscriptions)
 
 ### 4.4 Membership Status Changes
 - ACTIVE → PAUSED (by staff): limited access
@@ -475,7 +477,7 @@ Opt-in per tier via `allow_user_cancellation`, `cancellation_deadline_hours`, an
 - Set `contact_method`: `none` / `email` / `form` (both `email` and `form` require a verified `contact_email`)
   - Changing `contact_email` to a new (unverified) address auto-forces `contact_method=none`
 - Set `revenue_report_cadence`: `NONE` / `QUARTERLY` / `MONTHLY` (**owner-only** — non-owners get a `403`; see [Journey 25](#journey-25-revenue--vat-reporting))
-- Set membership-subscription policy: `membership_grace_period_days` (default 7), `membership_refund_policy`
+- Set membership-subscription policy: `membership_grace_period_days` (default 7), `membership_subscription_revival_window_days` (default 30; 0 disables revival), `membership_refund_policy`
 
 ### 8.3 Stripe Connect Setup
 - Navigate to billing settings
@@ -932,7 +934,7 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 - Tickets: created, purchased, cancelled, refunded (note: on-check-in `TICKET_CHECKED_IN` is **no longer sent** — the holder is already there)
 - Invitations: sent, accepted, pending conversion
 - Memberships: granted, request created/approved/rejected
-- Subscriptions: payment recorded, lifecycle changes (cancel/pause/resume), expiry/past-due
+- Subscriptions: renewal reminder/succeeded, payment failed (with grace deadline + payment-fix link), cancellation confirmed, expired (with revival CTA), price migration
 - Questionnaires: submitted, evaluation complete
 - Polls: (organization-managed; see [Journey 24](#journey-24-polls))
 - RSVPs: confirmed
@@ -1255,32 +1257,82 @@ First-class recurring series with rolling-window materialization:
 
 ## Journey 23: Membership Subscriptions
 
-> **Phase 1 — OFFLINE only.** Subscriptions are currently staff-managed (recorded payments), not self-served Stripe billing. Online/auto-renew is future work.
+> **Hybrid billing.** Plans are either **ONLINE** (Stripe-backed, member self-service: subscribe, cancel, change plan, revive) or **OFFLINE** (staff-managed: staff create the subscription and record the payments they actually received). One partial-unique constraint enforces at most one non-terminal subscription per `(user, org)` in both modes.
 
 ### 23.1 Configure Subscription Plans (Organizer)
 - Requires the `manage_subscriptions` permission (owner ✓, staff ✓ by default, member ✗)
-- Create plans per membership tier: `MembershipSubscriptionPlan` CRUD scoped to a tier
-- Org-level policy: `membership_grace_period_days` (default 7), `membership_refund_policy`
-- `GET /organization-admin/{slug}/plans` lists every plan across the org (optional `is_active` filter); `tier_name` resolved on `PlanSchema` so UIs render the plan→tier link without a join
+- Create plans per membership tier: `POST /organization-admin/{slug}/tiers/{tier_id}/plans` — name, description, price, currency, `period_unit` (month/year) + `period_count`, `payment_method` (ONLINE/OFFLINE)
+- `payment_method` is immutable after creation (archive and recreate to switch); ONLINE plans lazily provision a Stripe Product + Price
+- **Sale controls** (new):
+  - `max_subscriptions` — cap on concurrent non-terminal subscriptions (the venue's "card stock"). Cancelled/expired subscriptions free their slot automatically. NULL = unlimited. **Hard limit: blocks everyone, including staff**
+  - `sales_status` — `OPEN` / `PAUSED`. PAUSED stops **member self-service only** (subscribe, revive, plan switches into the plan); staff can still create/revive manually. Orthogonal to archiving
+- Patch via `PATCH /organization-admin/{slug}/plans/{plan_id}`; archive (`POST .../plans/{plan_id}/archive` → `is_active=False`); hard-delete only when no subscriptions reference the plan (`DELETE .../plans/{plan_id}`)
+- `GET /organization-admin/{slug}/plans` lists every plan across the org (optional `is_active` filter); `tier_name` + `active_subscription_count` resolved on `PlanSchema`; per-tier list at `GET .../tiers/{tier_id}/plans`
+- Org-level policy: `membership_grace_period_days` (default 7), `membership_subscription_revival_window_days` (default 30, 0 = revival disabled), `membership_refund_policy`
 
-### 23.2 Create & Manage a Subscription (Organizer)
-- Staff endpoints: subscription create / list / get
-- Lifecycle: cancel / pause / resume
-- Record a payment (`MembershipPayment`); record-only refund
-- `occurred_at` lets staff backfill OFFLINE payments with the real payment date — it anchors `period_start` / `period_end` math when set
-- `GET /organization-admin/{slug}/subscriptions/{sub_id}/payments` — paginated payment history (newest first)
-- A partial-unique constraint enforces at most one non-terminal subscription per `(user, org)`
+### 23.2 Discover Plans (Member / Guest)
+- `GET /organizations/{slug}/membership-plans` — public list of active plans (`PublicPlanSchema`; archived plans filtered out, no Stripe internals)
+- Each plan exposes `sales_status` and a resolved `sold_out` flag (cap fully occupied)
+- **The FE must render three distinct states**: normal subscribe CTA (`sales_status=open`, `sold_out=false`), "Sold out" (`sold_out=true` — cap reached), and "Sales paused" (`sales_status=paused`) — sold-out and paused are different messages with different recovery stories (a slot may free up vs. the org reopens sales)
 
-### 23.3 Membership Sync (Behind the Scenes)
-- A `post_save` signal syncs `OrganizationMember.status + tier` from the subscription
-- It never **creates** members and never touches a `BANNED` member
-- Daily Celery beat `events.expire_subscriptions_past_grace` transitions `ACTIVE → PAST_DUE → EXPIRED` once past the org's grace period
+### 23.3 Subscribe to an ONLINE Plan (Member)
+- `POST /me/organizations/{org_id}/subscribe` with `{plan_id}` → `201 {subscription, client_secret}`
+- Local subscription row created as `PENDING`; `client_secret` handed to Stripe.js to confirm the first invoice's PaymentIntent (payment sheet, SCA-capable)
+- Webhook (`invoice.paid`) flips `PENDING → ACTIVE` and grants the membership: `OrganizationMember` is created/updated at the plan's tier **on the first paid invoice**, not at subscribe time
+- Refusals: plan not ONLINE / archived → 400; sales paused → 400; cap reached ("This plan is sold out.") → 400; user BANNED in org → 403; duplicate non-terminal subscription → 400; org not Stripe-connected → error
 
-### 23.4 Member View
-- `GET /me/membership-subscriptions` — the caller's subscriptions
-- `GET /me/organizations/{org_id}/subscription` — the caller's subscription for one org
-- `GET /me/memberships` — unified memberships list, inlining the most recent non-terminal subscription per org
-- `MySubscriptionSchema` resolves `organization_name`, `organization_slug`, `organization_logo_url` so dashboards render a card without N+1 org lookups
+### 23.4 Abandoned Checkout Recovery (Member)
+- Member closes the payment sheet without paying → local row stays `PENDING`, Stripe sub stays `incomplete`
+- Re-`POST /subscribe` for the **same plan** resumes the same checkout: the API returns the same subscription with a fresh `client_secret` for the same Stripe subscription — no duplicate row, **no ~23h lockout** waiting for Stripe's `incomplete_expired`
+- Re-subscribing to a **different plan** (or a dead Stripe sub) clears the stale `PENDING` row (best-effort Stripe cancel) and starts a fresh checkout
+- If Stripe reports the pending sub already live (paid, webhook in flight) → 400 duplicate-active, never a double charge
+
+### 23.5 View My Subscriptions (Member)
+- `GET /me/membership-subscriptions` — the caller's subscriptions across orgs (paginated)
+- `GET /me/organizations/{org_id}/subscription` — the caller's most recent non-terminal subscription in one org (404 if none)
+- `GET /me/memberships` — unified memberships list (legacy + subscription-backed, incl. BANNED for explicit rendering), inlining the most recent non-terminal subscription per org
+- `MySubscriptionSchema` resolves `organization_name`, `organization_slug`, `organization_logo_url` so dashboards render a card without N+1 org lookups; `pending_plan_id` surfaces a scheduled downgrade
+
+### 23.6 Cancel, Change Plan & Billing Portal (Member)
+- **Cancel**: `POST /me/organizations/{org_id}/subscription/cancel` with `{immediate: bool}` (default `false`)
+  - `immediate=false` → `cancel_at_period_end=True`; access continues until the period boundary, then the daily sweep expires it
+  - `immediate=true` → `CANCELLED` now; ONLINE cancels are mirrored to Stripe
+  - `SUBSCRIPTION_CANCELLATION_CONFIRMED` notification with `access_ends_at`
+- **Change plan**: `POST /me/organizations/{org_id}/subscription/change-plan` with `{plan_id}` — server decides by price delta:
+  - **Upgrade** (higher price): prorated **immediately** on Stripe
+  - **Downgrade** (lower price): **scheduled** via a Stripe Subscription Schedule — `pending_plan_id` visible on the subscription until the period rolls over
+  - Refused: cross-org plans, archived plans, ONLINE↔OFFLINE switches, currency changes; target plan's PAUSED sales and cap are enforced
+- **Billing portal**: `POST /me/organizations/{org_id}/billing-portal` with optional `{return_url}` → `201 {url}` — Stripe Customer Portal session for managing saved payment methods / downloading invoices
+
+### 23.7 Dunning, Grace Period & Expiry
+- Renewal payment fails or SCA is required → Stripe `invoice.payment_failed` webhook mirrors the row to `PAST_DUE`; the member gets a `SUBSCRIPTION_PAYMENT_FAILED` notification with `grace_period_end` — the template renders an "Update Payment Method" portal link when a `customer_portal_url` is supplied, otherwise a contact-the-org link; the member can always open the portal via [23.6](#236-cancel-change-plan--billing-portal-member) to fix the payment method (OFFLINE lapses get the same notification from the daily sweep)
+- Membership access continues during the grace window (org's `membership_grace_period_days`, default 7); a successful retry within it flips `PAST_DUE → ACTIVE`
+- Daily beat task `events.expire_subscriptions_past_grace`: lapsed `ACTIVE` → `PAST_DUE` (or straight to `EXPIRED` when `cancel_at_period_end`); `PAST_DUE` past the grace window → `EXPIRED` (Stripe sub cancelled best-effort so dunning stops)
+- On expiry: `SUBSCRIPTION_EXPIRED` notification with a **revival CTA** (`revival_url`, `revival_window_end`) when the org's revival window is open
+- `SUBSCRIPTION_RENEWAL_REMINDER` fires ahead of upcoming renewals; `SUBSCRIPTION_RENEWAL_SUCCEEDED` on each paid renewal
+
+### 23.8 Revival (Member — ONLINE only)
+- `POST /me/organizations/{org_id}/subscription/revive` revives the caller's most recent `EXPIRED` subscription → `{subscription, client_secret}`; member confirms the new Stripe subscription's first invoice via Stripe.js
+- Only within the org's revival window (`expired_at + membership_subscription_revival_window_days`); 0 disables revival
+- **OFFLINE revival is staff-only**: the member endpoint returns **400** ("This subscription is managed by the organization. Contact them to renew your membership.") — members must never self-record money
+- Member revival respects `sales_status` (PAUSED → 400) and always respects the cap (the revived sub re-occupies a slot); 404 when no expired subscription exists
+
+### 23.9 Staff Subscription Lifecycle (Organizer)
+- All under `/organization-admin/{slug}/...` with `manage_subscriptions`
+- **Create OFFLINE subscription**: `POST .../subscriptions` with `{plan_id, user_id, initial_payment_amount?, initial_payment_currency?, initial_payment_notes?}` — ONLINE plans are refused (the member must subscribe themselves so they can confirm payment); membership at the plan's tier is granted immediately for OFFLINE
+- **Record payment**: `POST .../subscriptions/{sub_id}/payments` — advances the billing period, resets `PENDING`/`PAST_DUE` to `ACTIVE`; `occurred_at` anchors backfilled periods; ONLINE payments are refused (they arrive via Stripe webhooks — hand-recording would duplicate)
+- **Lifecycle**: `POST .../subscriptions/{sub_id}/cancel` (`{immediate}`), `/pause`, `/resume` — ONLINE variants mirror to Stripe (`pause_collection`)
+- **Staff revive**: `POST .../subscriptions/{sub_id}/revive` — OFFLINE requires `{amount, currency}` for the recorded payment; ONLINE returns `client_secret` for the member's confirmation step. **Staff bypass the PAUSED-sales gate (they are the org) but never the cap**
+- **Refund**: `POST .../payments/{payment_id}/refund` (record-only) — a refund fully covering the **current period auto-cancels the subscription immediately**; idempotent
+- **Migrate subscribers after a price change**: `POST .../plans/{plan_id}/migrate-subscribers` — force-migrates all non-terminal subscribers to the plan's current price (no proration, effective next renewal; already-current ONLINE subs counted as `skipped`; per-sub errors reported without rollback). Until run, existing subscribers are **grandfathered** on their old Stripe price
+- **Metrics**: `GET .../subscriptions/metrics` — MRR, churn, status breakdown per org
+- **Browse**: `GET .../subscriptions` (paginated, searchable by user/status), `GET .../subscriptions/{sub_id}`, `GET .../subscriptions/{sub_id}/payments`
+
+### 23.10 Membership Sync (Behind the Scenes)
+- A `post_save` signal syncs `OrganizationMember.status + tier` from the subscription; ONLINE flows also ensure the member row on `invoice.paid` / subscription-sync
+- It never **creates** members from nothing on sync and never touches a `BANNED` member
+- Stripe webhooks are idempotent (DB-level `StripeWebhookEvent` log); a nightly `events.reconcile_stripe_subscriptions` sweep heals rows that missed a webhook
+- Subscription statuses: `PENDING → ACTIVE ⇄ PAST_DUE → EXPIRED`, plus `PAUSED` and `CANCELLED`; `CANCELLED`/`EXPIRED` are terminal (slots freed, revival = new Stripe sub on the same row)
 
 ---
 
@@ -1376,6 +1428,49 @@ First-class recurring series with rolling-window materialization:
 ### 26.7 Organizer Visibility
 - `GET .../passes/{pass_id}/holders` — holder list (searchable)
 - Attendee/ticket lists filter by origin: `?source=pass|direct`; ticket rows expose their originating `series_pass`
+
+---
+
+## Journey 27: Membership Applications (Join Eligibility & Apply)
+
+> The structured join flow: a 10-gate eligibility pipeline (see `docs/architecture/membership-eligibility.md`) drives both a side-effect-free **preview** and an application **state machine that advances on every read**. Statuses: `PENDING → APPROVED/COMPLETED/REJECTED/CANCELLED`.
+
+### 27.1 Join-Eligibility Preview (Member)
+- `GET /me/organizations/{slug}/join-eligibility?tier_id=&plan_id=` — pure check, no side effects
+- Response (`MembershipEligibilitySchema`): `allowed`, stable `reason_code`, translated `reason`, and a structured `next_step` that drives the CTA
+- `next_step` values (`MembershipNextStep`): `submit_questionnaire`, `wait_for_questionnaire_evaluation`, `wait_to_retake_questionnaire`, `wait_for_approval`, `wait_for_whitelist_approval`, `requires_invitation`, `proceed_to_payment` (reserved, unused until online paid applications land), `already_member`, `reapply`
+- `already_member` arrives with `allowed=true` — render "You're already a member", not a join button
+- Extra context fields when relevant: `questionnaire_id`, `application_id`, `retry_on` (questionnaire retake cooldown)
+
+### 27.2 Apply — Free Path (Member)
+- `POST /me/organizations/{slug}/apply` with `{tier_id?, plan_id?, notes?, questionnaire_submission_id?}` → `201 {application, eligibility}`
+- **Instant membership**: with a tier, no questionnaire/approval blocking → application goes straight to `COMPLETED` and the `OrganizationMember` is created at that tier
+- **Pending**: questionnaire required / manual approval / whitelist verification → application stays `PENDING`; the response's `eligibility.next_step` says what to do and `eligibility.application_id` is the row to poll
+- Idempotent: re-`POST` while a `PENDING` application exists re-runs the gates on the same row (and can attach a `questionnaire_submission_id` that was missing)
+- Tier-less applications (legacy) stay `PENDING` until staff approve and assign a tier
+- **Phase boundary**: `plan_id` is rejected with **400** ("Paid applications are not supported in this release.") — paid memberships go through the direct subscribe flow ([Journey 23.3](#233-subscribe-to-an-online-plan-member)) until the application-based paid path ships
+- Hard-blocked users (hard blacklist, org not accepting requests, tier unavailable, terminal questionnaire failure) get a **403 before any row is created** — no dead-end `PENDING` rows, no noisy staff notifications
+
+### 27.3 Track & Poll an Application (Member)
+- `GET /me/applications` — paginated list of the caller's applications across orgs
+- `GET /me/applications/{id}` → `{application, eligibility}` — **state advances on read**: each poll re-runs the gate pipeline under a row lock and may transition `PENDING → COMPLETED` (free path — member materialized) the moment upstream conditions clear (questionnaire approved, staff approved, whitelist granted)
+- Poll after submitting a questionnaire or receiving an approval notification; `application.status` + `eligibility.next_step` together drive the UI
+
+### 27.4 Rejection, Reapply & Cancel (Member)
+- Staff rejection (or a terminal questionnaire failure observed on read) → application `REJECTED` + `MEMBERSHIP_REQUEST_REJECTED` notification
+- `REJECTED` is terminal **for that row only**: eligibility then returns `reason_code=application_rejected` with `next_step=reapply` — a fresh `POST /apply` creates a new `PENDING` row that supersedes the rejected one and runs the gates from scratch (orgs that want a permanent block must blacklist)
+- `POST /me/applications/{id}/cancel` — cancels own `PENDING`/`APPROVED` application → `CANCELLED`; idempotent on already-terminal rows
+
+### 27.5 Approve / Reject Applications (Organizer)
+- Requires `manage_members`; endpoints under `/organization-admin/{slug}/membership-requests`
+- `GET .../membership-requests?status=` — list/filter applications
+- `POST .../membership-requests/{id}/approve` with `{tier_id?}` (`tier_id` optional when the application already carries a tier):
+  - Free (plan-less) application → `COMPLETED`, member created/updated ACTIVE at the tier, approval notification
+  - Plan-bearing application → `APPROVED`, awaiting the member's payment step (future online paid-application flow)
+- `POST .../membership-requests/{id}/reject` → `REJECTED` + notification
+
+### 27.6 Private Orgs: No Enumeration
+- For an org the caller cannot see (`Organization.objects.for_user()`), **both** `GET /join-eligibility` and `POST /apply` return **404** — never a 200/403 that would confirm the org exists (or leak its UUID) to slug-guessing callers
 
 ---
 
@@ -1529,7 +1624,7 @@ The following questions represent gaps in my understanding that I could not reso
 
 ### New Capabilities (added since v1.47.0)
 
-31. **Membership subscriptions**: Phase 1 is OFFLINE/staff-managed. What's the intended member-facing UX today — read-only "your subscription" cards, or any self-service actions? When does online/auto-renew billing land?
+31. ~~**Membership subscriptions**: Phase 1 is OFFLINE/staff-managed. What's the intended member-facing UX today — read-only "your subscription" cards, or any self-service actions? When does online/auto-renew billing land?~~ **Resolved (v1.72.x)** — ONLINE (Stripe) self-service shipped: subscribe with in-page payment sheet, cancel (immediate/at-period-end), change plan (prorated upgrade / scheduled downgrade), billing portal, and self-service revival for ONLINE plans; OFFLINE stays staff-managed. See [Journey 23](#journey-23-membership-subscriptions). Remaining UX question: where do "sold out" / "sales paused" states surface besides the org page (dashboards? email CTAs)?
 
 32. **Polls**: What's the primary use case — event feedback, community decisions, both? Are polls surfaced on the public org/event page, or member-dashboard only? Which anonymity defaults should E2E assert?
 

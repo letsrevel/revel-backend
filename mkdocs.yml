@@ -68,6 +68,8 @@ nav:
       - Controllers: architecture/controllers.md
       - Permissions & Roles: architecture/permissions.md
       - Eligibility Pipeline: architecture/eligibility-pipeline.md
+      - Membership Eligibility: architecture/membership-eligibility.md
+      - Membership Subscriptions: architecture/membership-subscriptions.md
       - Advanced Waitlist: architecture/waitlist.md
       - Recurring Series: architecture/recurring-series.md
       - Series Passes: architecture/series-passes.md

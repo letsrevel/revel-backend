@@ -359,11 +359,12 @@ class ManualApprovalGate(BaseMembershipEligibilityGate):
 class PaymentReadyGate(BaseMembershipEligibilityGate):
     """Gate #10: Final pre-payment readiness check. No-op when plan is not provided.
 
-    Phase 1 ships OFFLINE plans only: ``MembershipSubscriptionPlan`` has no
-    ``payment_method`` field until Phase 2 (dev/subscriptions), so no plan can
-    be paid for online and any plan-bearing application blocks here. Phase 2
-    restores the full readiness check (ONLINE plan, Stripe-connected org, no
-    duplicate non-terminal subscription, PROCEED_TO_PAYMENT next step).
+    The paid path currently ships via the direct ``/subscribe`` endpoints, not
+    the application pipeline, so any plan-bearing application blocks here
+    unconditionally. Phase 2 of the eligibility pipeline replaces this with the
+    full readiness check (``payment_method == ONLINE``, plan on sale and not at
+    its cap, Stripe-connected org, no duplicate non-terminal subscription,
+    PROCEED_TO_PAYMENT next step).
     """
 
     def check(self) -> MembershipEligibility | None:
