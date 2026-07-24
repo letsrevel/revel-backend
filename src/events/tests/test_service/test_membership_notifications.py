@@ -68,7 +68,7 @@ def test_approve_fires_approved_notification(
         tier=tier,
         status=OrganizationMembershipRequest.Status.PENDING,
     )
-    with patch("events.service.organization_service.notification_requested.send") as mock_send:
+    with patch("events.service.organization_service.membership.notification_requested.send") as mock_send:
         organization_service.approve_membership_request(app, organization_owner_user)
     types_sent = [call.kwargs.get("notification_type") for call in mock_send.call_args_list]
     assert NotificationType.MEMBERSHIP_REQUEST_APPROVED in types_sent
@@ -86,7 +86,7 @@ def test_reject_fires_rejected_notification(
         tier=tier,
         status=OrganizationMembershipRequest.Status.PENDING,
     )
-    with patch("events.service.organization_service.notification_requested.send") as mock_send:
+    with patch("events.service.organization_service.membership.notification_requested.send") as mock_send:
         organization_service.reject_membership_request(app, organization_owner_user)
     types_sent = [call.kwargs.get("notification_type") for call in mock_send.call_args_list]
     assert NotificationType.MEMBERSHIP_REQUEST_REJECTED in types_sent

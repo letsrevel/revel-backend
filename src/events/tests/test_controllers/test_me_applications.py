@@ -656,6 +656,20 @@ def test_join_eligibility_unknown_org_slug_returns_404(nonmember_user: RevelUser
     assert response.status_code == 404
 
 
+def test_join_eligibility_invisible_org_returns_404(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """A PRIVATE org the user can't see must look like 404 — same posture as /apply."""
+    organization.visibility = Organization.Visibility.PRIVATE
+    organization.save(update_fields=["visibility"])
+
+    client = _client(nonmember_user)
+    url = reverse("api:get_join_eligibility", kwargs={"slug": organization.slug})
+    response = client.get(url, {"tier_id": str(tier.id)})
+
+    assert response.status_code == 404, response.content
+
+
 def test_join_eligibility_tier_from_other_org_returns_404(
     nonmember_user: RevelUser,
     organization: Organization,

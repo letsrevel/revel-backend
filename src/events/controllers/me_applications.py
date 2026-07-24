@@ -1,5 +1,6 @@
 """Member-facing endpoints for membership applications."""
 
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -54,13 +55,15 @@ class MeMembershipApplicationsController(UserAwareController):
     def get_join_eligibility(
         self,
         slug: str,
-        params: schema.JoinEligibilityQuery = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[schema.JoinEligibilityQuery, Query(...)],
     ) -> schema.MembershipEligibilitySchema:
         """Preview membership eligibility for the caller at a target tier (and optional plan).
 
         Pure check — no side effects. Use the result to render the right join CTA.
         """
-        organization = get_object_or_404(Organization, slug=slug)
+        # Mirror /apply's anti-enumeration posture: invisible orgs are a 404,
+        # not a 200 confirming existence (+ UUID) to slug-guessing callers.
+        organization = get_object_or_404(Organization.objects.for_user(self.user()), slug=slug)
         tier = self._resolve_tier(organization, params.tier_id)
         plan = self._resolve_plan(organization, params.plan_id)
         service = MembershipEligibilityService(user=self.user(), organization=organization, tier=tier, plan=plan)
