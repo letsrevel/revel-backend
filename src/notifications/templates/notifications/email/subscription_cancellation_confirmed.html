@@ -1,0 +1,38 @@
+{%load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;}
+        .container {max-width:600px;margin:0 auto;background:white;}
+        .header {background:linear-gradient(135deg,#6c757d 0%,#495057 100%);color:white;padding:30px 20px;text-align:center;}
+        .content {padding:30px 20px;}
+        .card {background:#f8f9fa;border-left:4px solid #6c757d;padding:20px;margin:20px 0;border-radius:4px;}
+        .info-row {margin:10px 0;}
+        .label {color:#666;font-weight:600;}
+        .footer {background:#f8f9fa;padding:20px;text-align:center;color:#666;font-size:14px;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin:0;font-size:28px;">📋 {%trans "Subscription Cancelled"%}</h1>
+        </div>
+        <div class="content">
+            <p>{%trans "Hello"%} {{user.display_name}},</p>
+            {%if context.immediate%}
+            <p style="font-size:18px;">{%blocktranslate with plan=context.plan_name org=context.organization_name %}Your <strong>{{ plan }}</strong> subscription at <strong>{{ org }}</strong> has been cancelled effective immediately.{%endblocktranslate%}</p>
+            {%else%}
+            <p style="font-size:18px;">{%blocktranslate with plan=context.plan_name org=context.organization_name date=context.access_ends_at %}Your <strong>{{ plan }}</strong> subscription at <strong>{{ org }}</strong> will end on {{ date }}.{%endblocktranslate%}</p>
+            {%endif%}
+            <div class="card">
+                <div class="info-row"><span class="label">{%trans "Plan:"%}</span> {{context.plan_name}}</div>
+                <div class="info-row"><span class="label">{%trans "Access ends:"%}</span> {{context.access_ends_at}}</div>
+            </div>
+            <p>{%trans "We hope to see you again in the future."%}</p>
+        </div>
+        {%include "notifications/email/_footer.html"%}
+    </div>
+</body>
+</html>

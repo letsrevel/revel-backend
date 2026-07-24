@@ -1,0 +1,37 @@
+{%load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;}
+        .container {max-width:600px;margin:0 auto;background:white;}
+        .header {background:linear-gradient(135deg,#007bff 0%,#6610f2 100%);color:white;padding:30px 20px;text-align:center;}
+        .content {padding:30px 20px;}
+        .card {background:#f0f4ff;border-left:4px solid #007bff;padding:20px;margin:20px 0;border-radius:4px;}
+        .info-row {margin:10px 0;}
+        .label {color:#666;font-weight:600;}
+        .footer {background:#f8f9fa;padding:20px;text-align:center;color:#666;font-size:14px;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin:0;font-size:28px;">📢 {%trans "Subscription Price Update"%}</h1>
+        </div>
+        <div class="content">
+            <p>{%trans "Hello"%} {{user.display_name}},</p>
+            <p style="font-size:18px;">{%blocktranslate with plan=context.plan_name org=context.organization_name %}The price for your <strong>{{ plan }}</strong> subscription at <strong>{{ org }}</strong> is changing.{%endblocktranslate%}</p>
+            <div class="card">
+                <h3 style="margin-top:0;color:#007bff;">💰 {%trans "Price Change Details"%}</h3>
+                <div class="info-row"><span class="label">{%trans "Plan:"%}</span> {{context.plan_name}}</div>
+                <div class="info-row"><span class="label">{%trans "Current price:"%}</span> {{context.old_amount}}</div>
+                <div class="info-row"><span class="label">{%trans "New price:"%}</span> <strong>{{context.new_amount}}</strong></div>
+                <div class="info-row"><span class="label">{%trans "Effective from:"%}</span> {{context.effective_at}}</div>
+            </div>
+            <p>{%blocktranslate with old=context.old_amount new=context.new_amount date=context.effective_at %}Your subscription will move from {{ old }} to {{ new }} starting {{ date }}.{%endblocktranslate%}</p>
+        </div>
+        {%include "notifications/email/_footer.html"%}
+    </div>
+</body>
+</html>

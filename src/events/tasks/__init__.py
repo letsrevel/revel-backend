@@ -37,7 +37,11 @@ from events.tasks.recurrence import generate_recurring_events_task, generate_sin
 from events.tasks.revenue import generate_revenue_report_task, send_scheduled_revenue_reports_task
 from events.tasks.series_pass import materialize_series_pass_holders
 from events.tasks.stripe_webhooks import prune_stripe_webhook_events
-from events.tasks.subscriptions import expire_subscriptions_past_grace
+from events.tasks.subscriptions import (
+    expire_subscriptions_past_grace,
+    reconcile_stripe_subscriptions,
+    send_subscription_renewal_reminders,
+)
 from events.tasks.waitlist import (
     expire_waitlist_offers_task,
     nudge_open_waitlists_task,
@@ -68,6 +72,7 @@ __all__ = [
     "nudge_open_waitlists_task",
     "process_waitlist_for_event_task",
     "prune_stripe_webhook_events",
+    "reconcile_stripe_subscriptions",
     "redispatch_undelivered_invoices_task",
     "resend_announcements_to_new_signups",
     "reset_demo_data",
@@ -80,5 +85,6 @@ __all__ = [
     "send_organization_contact_message_email",
     "send_scheduled_announcements",
     "send_scheduled_revenue_reports_task",
+    "send_subscription_renewal_reminders",
     "send_waitlist_offer_notification_task",
 ]

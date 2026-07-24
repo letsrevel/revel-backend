@@ -1,0 +1,14 @@
+{%load i18n %}{%trans "Hello"%} {{user.display_name}},
+
+🔔 {%blocktranslate with plan=context.plan_name org=context.organization_name date=context.period_end amount=context.amount %}Heads up — your {{ plan }} membership at {{ org }} renews on {{ date }} for {{ amount }}.{%endblocktranslate%}
+
+{%trans "Plan:"%} {{context.plan_name}}
+{%trans "Renewal date:"%} {{context.period_end}}
+{%trans "Amount:"%} {{context.amount}}
+
+{%if context.is_online%}{%trans "We'll charge your card on file on the renewal date."%}
+{%if context.customer_portal_url%}
+{%trans "Manage billing:"%} {{context.customer_portal_url}}
+{%endif%}{%else%}{%blocktranslate with org=context.organization_name %}If you don't want to renew, please contact {{ org }}:{%endblocktranslate%} {{context.organization_contact_url}}
+{%endif%}
+{% include "notifications/email/_footer.txt" %}

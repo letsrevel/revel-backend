@@ -46,6 +46,7 @@ from .rsvp import EventRSVP
 from .series_pass import HeldSeriesPass, SeriesPass, SeriesPassTierLink
 from .stripe_webhook_event import StripeWebhookEvent
 from .subscription import (
+    CustomerProfile,
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -93,6 +94,7 @@ __all__ = [
     # Event Series
     "EventSeries",
     # Subscriptions
+    "CustomerProfile",
     "MembershipPayment",
     "MembershipSubscription",
     "MembershipSubscriptionPlan",

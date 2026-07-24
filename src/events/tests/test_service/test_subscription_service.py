@@ -484,14 +484,67 @@ class TestLifecycle:
         out = subscription_service.cancel_subscription(sub, immediate=True)
         assert out.status == MembershipSubscription.SubscriptionStatus.CANCELLED
 
+    def test_pause_online_without_stripe_id_is_refused(
+        self,
+        tier: MembershipTier,
+        subscriber: RevelUser,
+    ) -> None:
+        """An ONLINE row that hasn't been linked to a Stripe subscription must not pause locally."""
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Online",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            period_count=1,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
+        # stripe_subscription_id intentionally empty
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=online_plan.tier.organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        with pytest.raises(HttpError) as exc:
+            subscription_service.pause_subscription(sub)
+        assert exc.value.status_code == 400
+
+    def test_resume_online_without_stripe_id_is_refused(
+        self,
+        tier: MembershipTier,
+        subscriber: RevelUser,
+    ) -> None:
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Online R",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            period_count=1,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=online_plan.tier.organization,
+            status=MembershipSubscription.SubscriptionStatus.PAUSED,
+        )
+        with pytest.raises(HttpError) as exc:
+            subscription_service.resume_subscription(sub)
+        assert exc.value.status_code == 400
+
 
 # ---- refund_payment ----------------------------------------------------------
 
 
 class TestRefundPayment:
-    def test_refund_marks_payment_only(
+    def test_refund_full_current_period_auto_cancels_subscription(
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
     ) -> None:
+        """Phase 4: a full refund of the subscription's current period
+        auto-cancels the subscription immediately. The previous record-only
+        contract was replaced in Phase 4 (§2 of the design)."""
         sub = subscription_service.create_subscription(
             plan,
             subscriber,
@@ -499,15 +552,13 @@ class TestRefundPayment:
         )
         payment = sub.payments.first()
         assert payment is not None
-        status_before = sub.status
-        period_before = sub.current_period_end
 
         refunded = subscription_service.refund_payment(payment, recorded_by=recorder, notes="customer asked")
         assert refunded.status == MembershipPayment.PaymentStatus.REFUNDED
 
         sub.refresh_from_db()
-        assert sub.status == status_before
-        assert sub.current_period_end == period_before
+        assert sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert sub.cancelled_at is not None
 
     def test_refund_idempotent(
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
