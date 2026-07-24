@@ -42,6 +42,10 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         ONLINE = "online", _("Online (Stripe)")
         OFFLINE = "offline", _("Offline (staff-managed)")
 
+    class SalesStatus(models.TextChoices):
+        OPEN = "open", _("Open")
+        PAUSED = "paused", _("Paused")
+
     tier = models.ForeignKey(
         MembershipTier,
         on_delete=models.CASCADE,
@@ -65,6 +69,25 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         validators=[MinValueValidator(1)],
     )
     is_active = models.BooleanField(default=True, db_index=True)
+    sales_status = models.CharField(
+        max_length=10,
+        choices=SalesStatus.choices,
+        default=SalesStatus.OPEN,
+        help_text=_(
+            "PAUSED stops member self-service sales (subscribe, revive, plan switches "
+            "into this plan) while leaving existing subscribers untouched. Orthogonal "
+            "to archiving: an archived plan is retired, a paused one is temporarily closed."
+        ),
+    )
+    max_subscriptions = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_(
+            "Cap on concurrent non-terminal subscriptions (the venue's card stock). "
+            "Cancelled/expired subscriptions free their slot automatically. NULL = unlimited."
+        ),
+    )
     payment_method = models.CharField(
         max_length=10,
         choices=PaymentMethod.choices,

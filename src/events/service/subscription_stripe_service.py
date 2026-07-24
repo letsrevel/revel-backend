@@ -228,6 +228,10 @@ def start_online_subscription(
         raise HttpError(400, str(_("This plan is not configured for online checkout.")))
     if not plan.is_active:
         raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
+    # Member self-service path: a PAUSED plan sells to no one (staff-created
+    # OFFLINE subs don't come through here). The capacity cap is enforced
+    # race-safely inside create_subscription, under the plan row lock.
+    subscription_service.ensure_plan_on_sale(plan)
 
     org = plan.tier.organization
     _require_stripe_connected(org)

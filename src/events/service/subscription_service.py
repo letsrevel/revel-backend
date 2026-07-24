@@ -95,6 +95,8 @@ def create_plan(
     description: str = "",
     is_active: bool = True,
     payment_method: str = MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
+    sales_status: str = MembershipSubscriptionPlan.SalesStatus.OPEN,
+    max_subscriptions: int | None = None,
 ) -> MembershipSubscriptionPlan:
     """Create a subscription plan for a membership tier.
 
@@ -111,6 +113,8 @@ def create_plan(
         description=description,
         is_active=is_active,
         payment_method=payment_method,
+        sales_status=sales_status,
+        max_subscriptions=max_subscriptions,
     )
     return _maybe_sync_plan_to_stripe(plan)
 
@@ -188,6 +192,42 @@ def delete_plan(plan: MembershipSubscriptionPlan) -> None:
 # ---- Subscription operations -------------------------------------------------
 
 
+def ensure_plan_on_sale(plan: MembershipSubscriptionPlan) -> None:
+    """Refuse member self-service sales on a PAUSED plan.
+
+    Applies to member-facing subscribe / revive / plan switches only — staff
+    endpoints skip this check (an organizer who paused public sales can still
+    manage subscriptions manually). Existing subscribers are never affected.
+    """
+    if plan.sales_status == MembershipSubscriptionPlan.SalesStatus.PAUSED:
+        raise HttpError(400, str(_("Sales for this plan are currently paused.")))
+
+
+def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
+    """Enforce the plan's cap on concurrent non-terminal subscriptions.
+
+    The cap is the venue's "card stock": it counts PENDING/ACTIVE/PAUSED/
+    PAST_DUE subscriptions, so a cancelled or expired subscription frees its
+    slot automatically — there is no counter to drift. When a cap is set the
+    plan row is locked so concurrent creations serialize (mirrors the
+    capacity-reclaim invariants of ticket tiers); callers must already be
+    inside a transaction. Applies to staff creation too: capacity is a hard
+    limit, unlike the sales-status pause.
+    """
+    if plan.max_subscriptions is None:
+        return
+    locked_plan = MembershipSubscriptionPlan.objects.select_for_update().get(pk=plan.pk)
+    if locked_plan.max_subscriptions is None:  # changed since the unlocked read
+        return
+    taken = (
+        MembershipSubscription.objects.filter(plan=locked_plan)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .count()
+    )
+    if taken >= locked_plan.max_subscriptions:
+        raise HttpError(400, str(_("This plan is sold out.")))
+
+
 @transaction.atomic
 def create_subscription(
     plan: MembershipSubscriptionPlan,
@@ -198,8 +238,9 @@ def create_subscription(
     """Create a subscription for ``user`` on ``plan``.
 
     Refuses if the user is BANNED in the organization, or already has a
-    non-terminal subscription there. Ensures an :class:`OrganizationMember`
-    exists at the plan's tier in the same transaction.
+    non-terminal subscription there, or the plan's subscription cap is
+    reached. Ensures an :class:`OrganizationMember` exists at the plan's
+    tier in the same transaction.
     """
     organization = plan.tier.organization
 
@@ -223,6 +264,8 @@ def create_subscription(
     )
     if duplicate:
         raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
+
+    ensure_plan_sales_capacity(plan)
 
     # Ensure membership exists at plan.tier (don't overwrite BANNED — guarded above).
     # ONLINE plans gate ACTIVE membership on the first successful Stripe payment,
@@ -533,6 +576,7 @@ def revive_subscription(
     *,
     initial_payment: InitialPayment | None = None,
     revived_by: RevelUser | None = None,
+    enforce_sales_status: bool = True,
 ) -> tuple[MembershipSubscription, str | None]:
     """Revive an EXPIRED subscription within the org's revival window.
 
@@ -564,6 +608,9 @@ def revive_subscription(
       - user has another non-terminal subscription
       - user is BANNED
       - OFFLINE revival called without initial_payment
+      - plan sales are PAUSED (member callers; staff pass
+        ``enforce_sales_status=False``) or the plan's cap is reached
+        (everyone — the revived sub re-occupies a slot)
     """
     with transaction.atomic():
         subscription = (
@@ -572,6 +619,11 @@ def revive_subscription(
             .get(pk=subscription.pk)
         )
         _validate_revivable(subscription)
+        if enforce_sales_status:
+            ensure_plan_on_sale(subscription.plan)
+        # The EXPIRED row is terminal so it doesn't count against the cap —
+        # reviving genuinely consumes a free slot or fails cleanly here.
+        ensure_plan_sales_capacity(subscription.plan)
         is_online = subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
 
         if not is_online:
@@ -617,10 +669,36 @@ def revive_subscription(
     return subscription, client_secret
 
 
+def _validate_change_plan_target(
+    subscription: MembershipSubscription,
+    new_plan: MembershipSubscriptionPlan,
+    *,
+    enforce_sales_status: bool,
+) -> None:
+    """Validate ``new_plan`` as a switch target for ``subscription``."""
+    if new_plan.tier.organization_id != subscription.organization_id:
+        raise HttpError(400, str(_("New plan must belong to the same organization as the subscription.")))
+    if not new_plan.is_active:
+        raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
+    if subscription.plan_id != new_plan.pk:
+        if enforce_sales_status:
+            ensure_plan_on_sale(new_plan)
+        ensure_plan_sales_capacity(new_plan)
+    if new_plan.payment_method != subscription.plan.payment_method:
+        raise HttpError(
+            400,
+            str(_("Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new subscription instead.")),
+        )
+    if new_plan.currency.upper() != subscription.plan.currency.upper():
+        raise HttpError(400, str(_("New plan must use the same currency as the current plan.")))
+
+
 @transaction.atomic
 def change_plan(
     subscription: MembershipSubscription,
     new_plan: MembershipSubscriptionPlan,
+    *,
+    enforce_sales_status: bool = True,
 ) -> MembershipSubscription:
     """Switch ``subscription`` to ``new_plan``.
 
@@ -631,24 +709,16 @@ def change_plan(
 
     Refuses cross-organization plan changes and currency switches in either
     path; the latter would require manual prorating against a moving FX rate
-    which we do not attempt.
+    which we do not attempt. The target plan's subscription cap is always
+    enforced; ``enforce_sales_status=False`` (staff callers) additionally
+    skips the PAUSED-sales check.
     """
     subscription = (
         MembershipSubscription.objects.select_for_update()
         .select_related("plan", "plan__tier", "organization", "user")
         .get(pk=subscription.pk)
     )
-    if new_plan.tier.organization_id != subscription.organization_id:
-        raise HttpError(400, str(_("New plan must belong to the same organization as the subscription.")))
-    if not new_plan.is_active:
-        raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
-    if new_plan.payment_method != subscription.plan.payment_method:
-        raise HttpError(
-            400,
-            str(_("Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new subscription instead.")),
-        )
-    if new_plan.currency.upper() != subscription.plan.currency.upper():
-        raise HttpError(400, str(_("New plan must use the same currency as the current plan.")))
+    _validate_change_plan_target(subscription, new_plan, enforce_sales_status=enforce_sales_status)
 
     if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         from events.service import subscription_stripe_plan_change  # lazy: avoid cycle

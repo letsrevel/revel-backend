@@ -25,6 +25,8 @@ class PlanSchema(ModelSchema):
     tier_name: str
     period_unit: MembershipSubscriptionPlan.PeriodUnit
     payment_method: MembershipSubscriptionPlan.PaymentMethod
+    sales_status: MembershipSubscriptionPlan.SalesStatus
+    active_subscription_count: int
 
     class Meta:
         model = MembershipSubscriptionPlan
@@ -36,7 +38,13 @@ class PlanSchema(ModelSchema):
             "currency",
             "period_count",
             "is_active",
+            "max_subscriptions",
         ]
+
+    @staticmethod
+    def resolve_active_subscription_count(obj: MembershipSubscriptionPlan) -> int:
+        """Non-terminal subscriptions currently occupying cap slots."""
+        return obj.subscriptions.exclude(status__in=MembershipSubscription.TERMINAL_STATUSES).count()
 
     @staticmethod
     def resolve_tier_name(obj: MembershipSubscriptionPlan) -> str:
@@ -54,6 +62,8 @@ class PublicPlanSchema(ModelSchema):
     tier_id: UUID
     period_unit: MembershipSubscriptionPlan.PeriodUnit
     payment_method: MembershipSubscriptionPlan.PaymentMethod
+    sales_status: MembershipSubscriptionPlan.SalesStatus
+    sold_out: bool
 
     class Meta:
         model = MembershipSubscriptionPlan
@@ -65,6 +75,18 @@ class PublicPlanSchema(ModelSchema):
             "currency",
             "period_count",
         ]
+
+    @staticmethod
+    def resolve_sold_out(obj: MembershipSubscriptionPlan) -> bool:
+        """True when the plan's subscription cap is fully occupied.
+
+        Lets the frontend distinguish "sold out" (cap reached) from
+        "sales paused" (``sales_status``) when rendering the join CTA.
+        """
+        if obj.max_subscriptions is None:
+            return False
+        taken = obj.subscriptions.exclude(status__in=MembershipSubscription.TERMINAL_STATUSES).count()
+        return taken >= obj.max_subscriptions
 
 
 class PlanCreateSchema(Schema):
@@ -78,6 +100,8 @@ class PlanCreateSchema(Schema):
     period_count: int = Field(1, ge=1, le=120)
     is_active: bool = True
     payment_method: MembershipSubscriptionPlan.PaymentMethod = MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+    sales_status: MembershipSubscriptionPlan.SalesStatus = MembershipSubscriptionPlan.SalesStatus.OPEN
+    max_subscriptions: int | None = Field(default=None, ge=1)
 
 
 class PlanUpdateSchema(Schema):
@@ -95,6 +119,8 @@ class PlanUpdateSchema(Schema):
     period_unit: MembershipSubscriptionPlan.PeriodUnit | None = None
     period_count: int | None = Field(None, ge=1, le=120)
     is_active: bool | None = None
+    sales_status: MembershipSubscriptionPlan.SalesStatus | None = Field(default=None)
+    max_subscriptions: int | None = Field(default=None, ge=1)
 
 
 class SubscriptionCreateSchema(Schema):

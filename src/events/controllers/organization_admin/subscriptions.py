@@ -392,6 +392,9 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             subscription,
             initial_payment=initial,
             revived_by=self.user(),
+            # Staff bypass the PAUSED-sales gate (they ARE the org); the
+            # capacity cap still applies inside the service.
+            enforce_sales_status=False,
         )
         # Return a dict (not a constructed schema): Ninja's response pipeline
         # validates it via ``StaffRevivalResponseSchema``. Pre-validating the
