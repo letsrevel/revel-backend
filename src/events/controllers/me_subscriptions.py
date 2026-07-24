@@ -6,6 +6,8 @@ from uuid import UUID
 from django.db.models import F, Prefetch, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext as _
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
@@ -193,10 +195,11 @@ class MeSubscriptionsController(UserAwareController):
     ) -> schema.RevivalResponseSchema:
         """Revive the caller's most recent EXPIRED subscription in an org.
 
-        For OFFLINE plans, the request body must include ``amount`` and
-        ``currency`` (recorded as the initial payment). For ONLINE plans,
-        send an empty body; the response includes ``client_secret`` for the
-        member to confirm the new Stripe Subscription's first invoice.
+        Only ONLINE plans can be revived self-service: the response includes
+        ``client_secret`` for the member to confirm the new Stripe
+        Subscription's first invoice, so payment is collected by Stripe.
+        OFFLINE plans are revived by organization staff (who record the
+        payment they actually received) — the member endpoint refuses them.
         """
         qs = (
             MembershipSubscription.objects.filter(
@@ -211,18 +214,18 @@ class MeSubscriptionsController(UserAwareController):
         if subscription is None:
             raise Http404("No expired subscription found.")
 
-        initial_payment = None
-        if payload.amount is not None and payload.currency is not None:
-            initial_payment = subscription_service.InitialPayment(
-                amount=payload.amount,
-                currency=payload.currency,
-                recorded_by=self.user(),
-                notes=payload.notes,
+        # Trust boundary: members must never self-record money. A member-supplied
+        # amount/currency here would let an EXPIRED offline subscriber grant
+        # themselves an ACTIVE period with a self-authored ledger entry.
+        if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+            raise HttpError(
+                400,
+                str(_("This subscription is managed by the organization. Contact them to renew your membership.")),
             )
 
         revived, client_secret = subscription_service.revive_subscription(
             subscription,
-            initial_payment=initial_payment,
+            initial_payment=None,
             revived_by=self.user(),
         )
         # See note on ``subscribe``: return a dict so Ninja's response pipeline

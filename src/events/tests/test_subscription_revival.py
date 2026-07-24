@@ -487,14 +487,19 @@ def _auth_client(user: RevelUser) -> Client:
 class TestSelfReviveEndpoint:
     """POST /api/me/organizations/{org_id}/subscription/revive"""
 
-    def test_offline_self_revive_succeeds(
+    def test_offline_self_revive_is_refused(
         self,
         plan: MembershipSubscriptionPlan,
         organization: Organization,
         subscriber: RevelUser,
     ) -> None:
-        """OFFLINE revival returns 200 with null client_secret and active subscription."""
-        MembershipSubscription.objects.create(
+        """OFFLINE plans cannot be revived self-service: members must never self-record money.
+
+        A member-supplied amount would let an expired offline subscriber grant
+        themselves an ACTIVE period for free (e.g. amount=0) with a self-authored
+        ledger entry. Staff revive offline subscriptions via the admin endpoint.
+        """
+        sub = MembershipSubscription.objects.create(
             user=subscriber,
             plan=plan,
             organization=organization,
@@ -506,14 +511,14 @@ class TestSelfReviveEndpoint:
         url = f"/api/me/organizations/{organization.pk}/subscription/revive"
         resp = client.post(
             url,
-            data={"amount": str(plan.price), "currency": plan.currency},
+            data={"amount": "0", "currency": plan.currency},
             content_type="application/json",
         )
 
-        assert resp.status_code == 200, resp.content
-        body = resp.json()
-        assert body["client_secret"] is None
-        assert body["subscription"]["status"] == MembershipSubscription.SubscriptionStatus.ACTIVE
+        assert resp.status_code == 400, resp.content
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert not sub.payments.exists()
 
     def test_no_expired_sub_returns_404(
         self,
@@ -540,21 +545,29 @@ class TestSelfReviveEndpoint:
 
     def test_picks_most_recent_expired_sub(
         self,
-        plan: MembershipSubscriptionPlan,
+        tier: MembershipTier,
         organization: Organization,
         subscriber: RevelUser,
     ) -> None:
         """When multiple EXPIRED subs exist, the most recently expired one is revived."""
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly online",
+            price=Decimal("10"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
         older = MembershipSubscription.objects.create(
             user=subscriber,
-            plan=plan,
+            plan=online_plan,
             organization=organization,
             status=MembershipSubscription.SubscriptionStatus.EXPIRED,
             expired_at=timezone.now() - timedelta(days=10),
         )
         newer = MembershipSubscription.objects.create(
             user=subscriber,
-            plan=plan,
+            plan=online_plan,
             organization=organization,
             status=MembershipSubscription.SubscriptionStatus.EXPIRED,
             expired_at=timezone.now() - timedelta(days=1),
@@ -562,16 +575,16 @@ class TestSelfReviveEndpoint:
 
         client = _auth_client(subscriber)
         url = f"/api/me/organizations/{organization.pk}/subscription/revive"
-        resp = client.post(
-            url,
-            data={"amount": str(plan.price), "currency": plan.currency},
-            content_type="application/json",
-        )
+        with patch("events.controllers.me_subscriptions.subscription_service.revive_subscription") as mock_revive:
+            mock_revive.return_value = (newer, "cs_secret")
+            resp = client.post(url, data={}, content_type="application/json")
 
         assert resp.status_code == 200, resp.content
-        body = resp.json()
-        assert body["subscription"]["id"] == str(newer.pk)
-        # The older sub must remain EXPIRED.
+        # The endpoint must resolve the most recently expired sub and never
+        # forward a member-supplied initial payment.
+        (called_sub,), called_kwargs = mock_revive.call_args
+        assert called_sub.pk == newer.pk
+        assert called_kwargs["initial_payment"] is None
         older.refresh_from_db()
         assert older.status == MembershipSubscription.SubscriptionStatus.EXPIRED
 

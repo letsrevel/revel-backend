@@ -542,11 +542,14 @@ def revive_subscription(
 
     ONLINE flow: creates a fresh Stripe Subscription on the plan's current
     price and returns a ``client_secret`` for the member to confirm payment.
-    Validation happens under a brief ``select_for_update`` lock that is
-    released before the Stripe HTTP call — mirroring the pattern documented
-    in ``start_online_subscription`` to avoid holding the row lock across a
-    slow API call. Stripe ``idempotency_key`` keys the create call to this
-    subscription's current ``expired_at`` so concurrent attempts converge.
+    Validation happens under a ``select_for_update`` lock in an inner
+    ``transaction.atomic()``. NOTE: under production ATOMIC_REQUESTS the
+    inner block exit releases only a savepoint, so the row lock is in fact
+    held across the Stripe calls until the request commits — accepted for
+    now (single-member blast radius; the lock also serializes echo-webhooks
+    against this mutation). Stripe ``idempotency_key`` keys the create call
+    to this subscription's current ``expired_at`` so concurrent attempts
+    converge.
 
     Returns:
         A ``(subscription, client_secret)`` tuple. ``client_secret`` is

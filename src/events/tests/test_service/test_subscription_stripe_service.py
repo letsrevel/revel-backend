@@ -288,6 +288,97 @@ class TestStartOnlineSubscription:
             subscription_stripe_service.start_online_subscription(offline_plan, subscriber)
         assert exc.value.status_code == 400
 
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    def test_abandoned_checkout_resumes_existing_pending_sub(
+        self,
+        mock_retrieve: mock.Mock,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """Re-subscribing with a PENDING row resumes the existing Stripe checkout.
+
+        Previously the duplicate-active check 400'd until Stripe's
+        ``incomplete_expired`` webhook (~23h) — a user who closed the payment
+        sheet was locked out of subscribing for a day.
+        """
+        pending = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=stripe_org,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_subscription_id="sub_pending",
+        )
+        mock_retrieve.return_value = mock.MagicMock(
+            id="sub_pending",
+            status="incomplete",
+            latest_invoice={"confirmation_secret": {"client_secret": "pi_resume_secret"}},
+        )
+
+        subscription, client_secret = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+
+        assert subscription.pk == pending.pk
+        assert client_secret == "pi_resume_secret"
+        assert MembershipSubscription.objects.filter(user=subscriber, organization=stripe_org).count() == 1
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_expired_pending_checkout_is_cleared_and_recreated(
+        self,
+        mock_customer: mock.Mock,
+        mock_retrieve: mock.Mock,
+        mock_cancel: mock.Mock,
+        mock_create: mock.Mock,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """A Stripe-side expired/canceled pending checkout is cleared and a fresh one created."""
+        stale = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=stripe_org,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_subscription_id="sub_stale",
+        )
+        mock_retrieve.return_value = mock.MagicMock(id="sub_stale", status="incomplete_expired")
+        mock_customer.return_value = mock.MagicMock(id="cus_abc")
+        mock_create.return_value = mock.MagicMock(
+            id="sub_fresh",
+            latest_invoice={"confirmation_secret": {"client_secret": "pi_fresh_secret"}},
+        )
+
+        subscription, client_secret = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+
+        assert subscription.pk != stale.pk
+        assert subscription.stripe_subscription_id == "sub_fresh"
+        assert client_secret == "pi_fresh_secret"
+        assert not MembershipSubscription.objects.filter(pk=stale.pk).exists()
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    def test_pending_but_stripe_active_raises_duplicate(
+        self,
+        mock_retrieve: mock.Mock,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """Paid on Stripe with the webhook still in flight must not create a second sub."""
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=stripe_org,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_subscription_id="sub_paid_lagging",
+        )
+        mock_retrieve.return_value = mock.MagicMock(id="sub_paid_lagging", status="active")
+
+        with pytest.raises(HttpError) as exc:
+            subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+        assert exc.value.status_code == 400
+
     def test_refuses_archived_plan(
         self,
         online_plan: MembershipSubscriptionPlan,
@@ -407,6 +498,35 @@ class TestCancelOnlineSubscription:
         mock_cancel.assert_called_once_with("sub_abc", stripe_account="acct_test_org")
         assert result.status == MembershipSubscription.SubscriptionStatus.CANCELLED
         assert result.cancelled_at is not None
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
+    def test_immediate_cancellation_tolerates_already_canceled_on_stripe(
+        self, mock_cancel: mock.Mock, online_subscription: MembershipSubscription
+    ) -> None:
+        """A Stripe-side already-canceled sub must not 500 the cancel path.
+
+        Scenario: staff cancels + refunds in the Stripe Dashboard; the
+        ``charge.refunded`` webhook's auto-cancel then calls Stripe against an
+        already-canceled subscription. Raising would roll back the webhook
+        dedup row and wedge Stripe redelivery in a permanent retry loop.
+        """
+        mock_cancel.side_effect = stripe.error.InvalidRequestError("This subscription has been canceled.", param=None)
+
+        result = subscription_stripe_service.cancel_online_subscription(online_subscription, immediate=True)
+
+        assert result.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert result.cancelled_at is not None
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    def test_period_end_cancellation_tolerates_already_canceled_on_stripe(
+        self, mock_modify: mock.Mock, online_subscription: MembershipSubscription
+    ) -> None:
+        """Same race on the at-period-end branch: record intent, don't 500."""
+        mock_modify.side_effect = stripe.error.InvalidRequestError("This subscription has been canceled.", param=None)
+
+        result = subscription_stripe_service.cancel_online_subscription(online_subscription, immediate=False)
+
+        assert result.cancel_at_period_end is True
 
 
 # ---- sync_subscription_from_stripe ------------------------------------------
@@ -572,3 +692,35 @@ class TestRecordStripePaymentFromInvoice:
             "currency": "eur",
         }
         assert subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=False) is None
+
+    def test_stale_payment_failed_never_downgrades_succeeded_payment(
+        self,
+        pending_online_subscription: MembershipSubscription,
+    ) -> None:
+        """Out-of-order delivery: ``payment_failed`` arriving after ``paid``.
+
+        Stripe guarantees no event ordering, and a failed→retried→paid invoice
+        emits both events. The late ``failed`` must neither corrupt the
+        SUCCEEDED ledger row (amount would drop to 0) nor push the ACTIVE
+        subscription back to PAST_DUE.
+        """
+        invoice = {
+            "id": "in_ooo",
+            "subscription": "sub_invoice",
+            "amount_paid": 1000,
+            "currency": "eur",
+            "payment_intent": "pi_ooo",
+            "lines": {"data": [{"period": {"start": 1_800_000_000, "end": 1_800_000_000 + 86400}}]},
+        }
+        subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=True)
+
+        stale_failure = {**invoice, "amount_paid": 0, "amount_due": 1000}
+        payment = subscription_stripe_service.record_stripe_payment_from_invoice(stale_failure, succeeded=False)
+
+        assert payment is not None
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        assert payment.amount == Decimal("10.00")
+        assert MembershipPayment.objects.filter(stripe_invoice_id="in_ooo").count() == 1
+
+        pending_online_subscription.refresh_from_db()
+        assert pending_online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE

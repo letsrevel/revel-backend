@@ -134,6 +134,7 @@ class StripeEventHandler:
             "customer.subscription.deleted": self.handle_customer_subscription_deleted,
             "invoice.paid": self.handle_invoice_paid,
             "invoice.payment_failed": self.handle_invoice_payment_failed,
+            "invoice.payment_action_required": self.handle_invoice_payment_action_required,
         }
         handler = handlers.get(self.event.type)
         if handler is None:
@@ -797,6 +798,22 @@ class StripeEventHandler:
 
     def handle_invoice_payment_failed(self, event: stripe.Event) -> None:
         """Record a FAILED MembershipPayment + transition subscription to PAST_DUE."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.record_stripe_payment_from_invoice(dict(event.data.object), succeeded=False)
+
+    def handle_invoice_payment_action_required(self, event: stripe.Event) -> None:
+        """Handle an off-session renewal blocked on SCA/3DS confirmation.
+
+        The invoice stays open (no immediate ``payment_failed``), so without
+        this hook an SCA-stuck renewal would surface only via a much later
+        failure event or the nightly reconcile. Routing through the failed
+        branch transitions the sub to PAST_DUE and fires the payment-failed
+        dunning notification (whose portal link is where the member completes
+        the confirmation). The monotonicity guard in
+        ``record_stripe_payment_from_invoice`` keeps a later ``invoice.paid``
+        (or an out-of-order one) authoritative for the ledger.
+        """
         from events.service import subscription_stripe_service
 
         subscription_stripe_service.record_stripe_payment_from_invoice(dict(event.data.object), succeeded=False)

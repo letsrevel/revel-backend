@@ -39,6 +39,9 @@ PLATFORM_EVENTS: tuple[str, ...] = (
     "customer.subscription.deleted",
     "invoice.paid",
     "invoice.payment_failed",
+    # Off-session renewals blocked on SCA/3DS: the invoice stays open with no
+    # immediate payment_failed, so this is the only prompt signal.
+    "invoice.payment_action_required",
 )
 CONNECT_EVENTS: tuple[str, ...] = PLATFORM_EVENTS + ("account.updated",)
 

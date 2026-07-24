@@ -246,13 +246,18 @@ def change_online_plan(
     Same-currency check, then routes to :func:`_upgrade_online_subscription`
     or :func:`_downgrade_online_subscription` based on price delta.
 
-    Validation runs under a brief ``select_for_update`` lock that is
-    released before the Stripe HTTP call — mirroring the pattern in
-    ``start_online_subscription`` and ``revive_subscription`` to avoid
-    holding the row lock across a slow external call. Concurrent attempts
-    are still serialized in practice because Stripe rejects a second
-    ``SubscriptionSchedule.create`` against the same ``from_subscription``
-    once one already exists.
+    Validation runs under a ``select_for_update`` lock taken in an inner
+    ``transaction.atomic()``. NOTE: under production ATOMIC_REQUESTS the
+    inner block exit releases only a savepoint — the row lock is actually
+    held until the request transaction commits, i.e. across the Stripe
+    round-trips below. That is deliberate for now: the lock is what
+    serializes echo-webhooks against this mutation (the webhook's own
+    ``select_for_update`` blocks until we commit, then sees the updated
+    local flags and suppresses duplicate dispatch). Contention is per-user
+    per-subscription, so the blast radius is a single member's requests.
+    Concurrent attempts are additionally serialized because Stripe rejects
+    a second ``SubscriptionSchedule.create`` against the same
+    ``from_subscription`` once one already exists.
     """
     if subscription.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         raise HttpError(400, str(_("This subscription is not managed by Stripe.")))
@@ -270,7 +275,7 @@ def change_online_plan(
         _validate_change_plan_state(subscription, new_plan)
         classification = _classify_plan_change(subscription, new_plan)
 
-    # Stripe calls run OUTSIDE the row lock (see docstring).
+    # Under ATOMIC_REQUESTS the row lock is still held here (see docstring).
     if classification == "upgrade":
         return _upgrade_online_subscription(subscription, new_plan)
     return _downgrade_online_subscription(subscription, new_plan)

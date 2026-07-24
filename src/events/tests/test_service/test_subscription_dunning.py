@@ -221,6 +221,35 @@ class TestInvoicePaymentFailed:
 
         assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_PAYMENT_FAILED)
 
+    def test_payment_action_required_routes_through_failed_branch(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """invoice.payment_action_required (SCA-blocked renewal) must dun like a failure.
+
+        The invoice stays open with no immediate ``payment_failed``, so this
+        event is the only prompt signal to move the sub to PAST_DUE and tell
+        the member to complete 3DS confirmation via the portal link.
+        """
+        from unittest import mock
+
+        sub = _make_online_sub(online_plan, subscriber, stripe_id="sub_sca1")
+        invoice = _invoice_payload("sub_sca1", invoice_id="in_sca1", succeeded=False)
+
+        event = mock.Mock()
+        event.type = "invoice.payment_action_required"
+        event.id = "evt_sca_1"
+        event.data.object = invoice
+        from events.service.stripe_webhooks import StripeEventHandler
+
+        handled = StripeEventHandler(event).handle()
+
+        assert handled is True
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PAST_DUE
+        assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_PAYMENT_FAILED)
+
 
 # ---- customer.subscription.updated cancel_at_period_end ----------------------
 
