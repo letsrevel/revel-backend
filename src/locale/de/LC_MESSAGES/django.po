@@ -3981,3 +3981,305 @@ msgstr "Gesperrtes Telegram-Konto verbunden"
 
 msgid "Django site admin"
 msgstr "Django-Website-Admin"
+
+msgid ""
+"contain at least one uppercase letter, one lowercase letter, one digit, and "
+"one special character (!@#$%^&*(),.?\":{}|<>)."
+msgstr ""
+"mindestens einen Großbuchstaben, einen Kleinbuchstaben, eine Ziffer und ein "
+"Sonderzeichen enthalten (!@#$%^&*(),.?\":{}|<>)."
+
+msgid "Account Deactivated"
+msgstr "Konto deaktiviert"
+
+msgid "Verify Email & Reactivate"
+msgstr "E-Mail verifizieren & reaktivieren"
+
+#, python-format
+msgid ""
+"You have received this email because you have requested to delete your "
+"account at\n"
+"        <a href=\"%(frontend_base_url)s\">Revel</a>."
+msgstr ""
+"Du hast diese E-Mail erhalten, weil du die Löschung deines Kontos bei\n"
+"        <a href=\"%(frontend_base_url)s\">Revel</a> angefordert hast."
+
+msgid ""
+"Best,<br>\n"
+"        The Revel Team"
+msgstr ""
+"Viele Grüße,<br>\n"
+"        Das Revel-Team"
+
+msgid "Verify Your Email"
+msgstr "Verifiziere deine E-Mail"
+
+msgid "Urgent: Verify Your Email"
+msgstr "Dringend: Verifiziere deine E-Mail"
+
+msgid "Token not found or expired."
+msgstr "Token nicht gefunden oder abgelaufen."
+
+msgid "Paid applications are not supported in this release."
+msgstr ""
+
+#, fuzzy
+#| msgid "Payment Information"
+msgid "Not found."
+msgstr "Zahlungsinformationen"
+
+msgid "Not allowed."
+msgstr ""
+
+#, fuzzy
+#| msgid "One or more events do not exist or belong to this organization."
+msgid ""
+"Default membership questionnaire applied to all tiers (overridable per tier)."
+msgstr ""
+"Ein oder mehrere Events existieren nicht oder gehören nicht zu dieser "
+"Organisation."
+
+#, fuzzy
+#| msgid "Your verification request is pending approval."
+msgid "When True, every membership application requires manual staff approval."
+msgstr "Deine Verifizierungsanfrage wartet auf Genehmigung."
+
+#, fuzzy
+#| msgid "One or more events do not exist or belong to this organization."
+msgid "Default membership questionnaire must belong to this organization."
+msgstr ""
+"Ein oder mehrere Events existieren nicht oder gehören nicht zu dieser "
+"Organisation."
+
+msgid "Membership questionnaire must be of type MEMBERSHIP."
+msgstr ""
+
+msgid "Tier-specific membership questionnaire. NULL = inherit org default."
+msgstr ""
+
+msgid ""
+"Tier-specific manual-approval override. NULL = inherit "
+"org.default_requires_membership_approval."
+msgstr ""
+
+#, fuzzy
+#| msgid "One or more events do not exist or belong to this organization."
+msgid "Membership questionnaire must belong to the same organization."
+msgstr ""
+"Ein oder mehrere Events existieren nicht oder gehören nicht zu dieser "
+"Organisation."
+
+msgid ""
+"Target tier. NULL = tier-less legacy application; staff picks at approval."
+msgstr ""
+
+msgid ""
+"Target plan for paid path. NULL = free join. Phase 1 rejects non-null at /"
+"apply."
+msgstr ""
+
+msgid "Submission that satisfied the questionnaire gate, if applicable."
+msgstr ""
+
+#, fuzzy
+#| msgid "Registration is not available."
+msgid "This organization is not available."
+msgstr "Die Registrierung ist nicht verfügbar."
+
+#, fuzzy
+#| msgid "You are not allowed to participate in this organization's events."
+msgid "You are not allowed to join this organization."
+msgstr "Du darfst nicht an den Events dieser Organisation teilnehmen."
+
+#, fuzzy
+#| msgid "You are already a member of this organization."
+msgid "You are already a member at this tier."
+msgstr "Du bist bereits Mitglied dieser Organisation."
+
+#, fuzzy
+#| msgid "The organization does not accept new members."
+msgid "This organization is not accepting new members."
+msgstr "Die Organisation akzeptiert keine neuen Mitglieder."
+
+#, fuzzy
+#| msgid "Registration is not available."
+msgid "The requested tier is not available."
+msgstr "Die Registrierung ist nicht verfügbar."
+
+#, fuzzy
+#| msgid "Registration is not available."
+msgid "The requested plan is not available."
+msgstr "Die Registrierung ist nicht verfügbar."
+
+#, fuzzy
+#| msgid "Your verification request was rejected."
+msgid "Your application was rejected."
+msgstr "Deine Verifizierungsanfrage wurde abgelehnt."
+
+#, fuzzy
+#| msgid "Questionnaire has not been filled."
+msgid "Membership questionnaire has not been filled."
+msgstr "Der Fragebogen wurde nicht ausgefüllt."
+
+#, fuzzy
+#| msgid "Questionnaire evaluation was insufficient."
+msgid "Membership questionnaire evaluation was insufficient."
+msgstr "Die Bewertung des Fragebogens war unzureichend."
+
+#, fuzzy
+#| msgid ""
+#| "Questionnaire evaluation was insufficient. You can try again in "
+#| "{retry_on}."
+msgid ""
+"Membership questionnaire evaluation was insufficient. You can try again "
+"later."
+msgstr ""
+"Die Bewertung des Fragebogens war unzureichend. Du kannst es in {retry_on} "
+"erneut versuchen."
+
+#, fuzzy
+#| msgid "Your verification request is pending approval."
+msgid "Your application is awaiting staff approval."
+msgstr "Deine Verifizierungsanfrage wartet auf Genehmigung."
+
+#, fuzzy
+#| msgid "This organization is not configured to accept payments."
+msgid "This plan is not configured for online checkout."
+msgstr ""
+"Diese Organisation ist nicht für die Annahme von Zahlungen konfiguriert."
+
+#, fuzzy
+#| msgid "This organization is not configured to accept payments."
+msgid "This organization cannot accept online payments yet."
+msgstr ""
+"Diese Organisation ist nicht für die Annahme von Zahlungen konfiguriert."
+
+#, fuzzy
+#| msgid "User is already a member of this organization."
+msgid "You already have an active subscription in this organization."
+msgstr "Nutzer:in ist bereits Mitglied dieser Organisation."
+
+msgid ""
+"Your membership at this tier is paused. Contact the organization to resume."
+msgstr ""
+
+#, fuzzy
+#| msgid "New Questionnaire Submission"
+msgid "Invalid questionnaire submission."
+msgstr "Neuer Fragebogen eingegangen"
+
+msgid "A tier must be specified to approve this application."
+msgstr ""
+
+#, fuzzy
+#| msgid "User is already a member of this organization."
+msgid "Tier must belong to the same organization."
+msgstr "Nutzer:in ist bereits Mitglied dieser Organisation."
+
+msgid "This ticket tier cannot be purchased."
+msgstr "Diese Ticket-Kategorie kann nicht gekauft werden."
+
+msgid "You already have a ticket"
+msgstr "Du hast bereits ein Ticket"
+
+msgid "Event Cancelled"
+msgstr "Event abgesagt"
+
+msgid "New Event Published"
+msgstr "Neues Event veröffentlicht"
+
+msgid "Event Reminder"
+msgstr "Event-Erinnerung"
+
+msgid "New Follower"
+msgstr "Neue:r Follower:in"
+
+msgid "Event Updated"
+msgstr "Event aktualisiert"
+
+msgid "Membership Granted"
+msgstr "Mitgliedschaft gewährt"
+
+msgid "New Event"
+msgstr "Neues Event"
+
+msgid "New Event in Series"
+msgstr "Neues Event in Reihe"
+
+msgid "Payment Confirmed"
+msgstr "Zahlung bestätigt"
+
+#, fuzzy
+#| msgid ""
+#| "You have received this email because you have requested to delete your "
+#| "account at %(frontend_base_url)s."
+msgid "You received this email because you were invited to an event on Revel."
+msgstr ""
+"Du hast diese E-Mail erhalten, weil du die Löschung deines Kontos bei %"
+"(frontend_base_url)s angefordert hast."
+
+msgid "Claimed"
+msgstr "Beansprucht"
+
+msgid "New Potluck Item"
+msgstr "Neuer Mitbringsel"
+
+msgid "New Item Added & Claimed"
+msgstr "Neues Mitbringsel hinzugefügt & beansprucht"
+
+msgid "Removed"
+msgstr "Entfernt"
+
+msgid "Available"
+msgstr "Verfügbar"
+
+msgid "Updated"
+msgstr "Aktualisiert"
+
+msgid "Questionnaire Approved"
+msgstr "Fragebogen genehmigt"
+
+msgid "Questionnaire Not Approved"
+msgstr "Fragebogen nicht genehmigt"
+
+msgid "New Questionnaire Submission"
+msgstr "Neuer Fragebogen eingegangen"
+
+msgid "RSVP Cancelled"
+msgstr "RSVP storniert"
+
+msgid "RSVP Confirmed"
+msgstr "Zusage (RSVP) bestätigt"
+
+msgid "RSVP Updated"
+msgstr "RSVP aktualisiert"
+
+msgid "New Events Scheduled"
+msgstr "Neue Events geplant"
+
+msgid "Ticket Cancelled"
+msgstr "Ticket storniert"
+
+msgid "Checked In!"
+msgstr "Eingecheckt!"
+
+msgid "New Ticket Registered"
+msgstr "Neues Ticket registriert"
+
+msgid "Ticket Confirmed"
+msgstr "Ticket bestätigt"
+
+msgid "Refund Processed"
+msgstr "Rückerstattung verarbeitet"
+
+msgid "Ticket Updated"
+msgstr "Ticket aktualisiert"
+
+msgid "Spot Available!"
+msgstr "Platz verfügbar!"
+
+msgid "Notification Digest"
+msgstr "Benachrichtigungs-Digest"
+
+msgid "Here's a summary of your recent notifications:"
+msgstr "Hier ist eine Zusammenfassung deiner letzten Benachrichtigungen:"
