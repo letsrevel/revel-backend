@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
+from ninja import Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -191,14 +192,21 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         Searching,
         search_fields=["user__email", "user__first_name", "user__last_name", "user__preferred_name", "status"],
     )
-    def list_subscriptions(self, slug: str) -> QuerySet[models.MembershipSubscription]:
-        """List all subscriptions for the organization."""
+    def list_subscriptions(
+        self,
+        slug: str,
+        status: t.Annotated[models.MembershipSubscription.SubscriptionStatus | None, Query(None)] = None,
+    ) -> QuerySet[models.MembershipSubscription]:
+        """List all subscriptions for the organization, optionally filtered by ``status``."""
         organization = self.get_one(slug)
-        return (
+        qs = (
             models.MembershipSubscription.objects.filter(organization=organization)
             .select_related("user", "plan", "plan__tier")
             .order_by("-created_at")
         )
+        if status is not None:
+            qs = qs.filter(status=status)
+        return qs
 
     @route.get(
         "/subscriptions/{sub_id}",

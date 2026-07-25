@@ -323,6 +323,66 @@ class TestSubscriptionEndpoints:
         data = response.json()
         assert data["count"] == 1
 
+    def test_list_subscriptions_status_filter(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        # Two PAST_DUE subs and one ACTIVE sub across distinct users.
+        for i in range(2):
+            user = django_user_model.objects.create_user(
+                username=f"pastdue_{i}", email=f"pastdue-{i}@example.com", password="pass"
+            )
+            sub = subscription_service.create_subscription(plan, user)
+            sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+            sub.save(update_fields=["status"])
+        active_user = django_user_model.objects.create_user(
+            username="active_user", email="active@example.com", password="pass"
+        )
+        active_sub = subscription_service.create_subscription(plan, active_user)
+        active_sub.status = MembershipSubscription.SubscriptionStatus.ACTIVE
+        active_sub.save(update_fields=["status"])
+
+        url = reverse("api:list_subscriptions", kwargs={"slug": organization.slug})
+
+        filtered = organization_owner_client.get(url, {"status": "past_due"})
+        assert filtered.status_code == 200
+        filtered_data = filtered.json()
+        assert filtered_data["count"] == 2
+        assert all(item["status"] == "past_due" for item in filtered_data["results"])
+
+        # Pagination stays within the filtered set.
+        paged = organization_owner_client.get(url, {"status": "past_due", "page_size": "1"})
+        paged_data = paged.json()
+        assert paged_data["count"] == 2
+        assert len(paged_data["results"]) == 1
+
+    def test_list_subscriptions_no_status_returns_all(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        for i in range(2):
+            user = django_user_model.objects.create_user(
+                username=f"anysub_{i}", email=f"anysub-{i}@example.com", password="pass"
+            )
+            sub = subscription_service.create_subscription(plan, user)
+            sub.status = (
+                MembershipSubscription.SubscriptionStatus.PAST_DUE
+                if i == 0
+                else MembershipSubscription.SubscriptionStatus.ACTIVE
+            )
+            sub.save(update_fields=["status"])
+
+        url = reverse("api:list_subscriptions", kwargs={"slug": organization.slug})
+        response = organization_owner_client.get(url)
+        assert response.status_code == 200
+        assert response.json()["count"] == 2
+
     def test_get_subscription(
         self,
         organization_owner_client: Client,
