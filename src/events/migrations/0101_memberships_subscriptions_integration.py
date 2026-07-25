@@ -333,4 +333,14 @@ class Migration(migrations.Migration):
             model_name='customerprofile',
             constraint=models.UniqueConstraint(fields=('organization', 'stripe_customer_id'), name='unique_stripe_customer_per_org'),
         ),
+        migrations.AddField(
+            model_name='historicalmembershipsubscription',
+            name='stripe_checkout_session_id',
+            field=models.CharField(blank=True, db_index=True, default='', help_text='Hosted Checkout Session that will (or did) create the Stripe Subscription.', max_length=255),
+        ),
+        migrations.AddField(
+            model_name='membershipsubscription',
+            name='stripe_checkout_session_id',
+            field=models.CharField(blank=True, db_index=True, default='', help_text='Hosted Checkout Session that will (or did) create the Stripe Subscription.', max_length=255),
+        ),
     ]
