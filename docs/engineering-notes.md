@@ -177,3 +177,38 @@ replacing that serialization. The one webhook-side network call
 per the resolve-before-lock discipline above. The plan-row lock taken by
 `ensure_plan_sales_capacity` (sale caps) is scoped the same way as the tier lock — but it
 only guards a count+insert, never a Stripe call.
+
+## Migration Squashing (one per app per PR, never hand-edit schema migrations)
+
+Branch policy: a PR introduces at most **one schema migration per app** — iterative work
+that accumulated several (tables, then a default tweak, then an `on_delete` change) gets
+squashed before merge. Data migrations are the exception and stay separate: backfills and
+"special" data migrations (beat-task `PeriodicTask` rows, seeded data) are hand-written by
+design and must not be folded into schema migrations (`make nuke-db` preserves them for the
+same reason).
+
+**Never hand-edit a schema migration to squash it** — don't append `AddField`s to an
+existing generated file or merge choices lists by hand. Hand-edited "generated" files drift
+from what `makemigrations` would produce (operation ordering, fields inline in `CreateModel`
+vs. trailing `AddField`s) and forfeit the guarantee that the migration is exactly the
+autodetector's view of the models. Manual authorship is for data migrations only. Squash by
+deleting and regenerating:
+
+1. **Delete** the branch's schema migrations for the app (all of them, including the base
+   one being squashed into).
+2. **Data migrations in between?** They reference the deleted schema migration **by
+   filename string** in `dependencies` (e.g. `("events",
+   "0101_memberships_subscriptions_integration")`). Temporarily move them out of the
+   migrations dir, regenerate with the *original* name so the reference still resolves —
+   `manage.py makemigrations <app> --name <original_name>` — then move them back. Editing
+   their `dependencies` line instead is acceptable (it's a data migration), but keeping the
+   filename is less churn.
+3. **Regenerate**: `make migrations` (or the `--name` form above). Verify with
+   `makemigrations --check --dry-run` (no changes detected) and `git diff` — expect the
+   squashed fields inline in `CreateModel` for new models and canonically-ordered
+   `AddField`s for existing ones.
+4. **Local DB bookkeeping**: if the pre-squash migrations were already applied locally,
+   there is no need to roll back (the schema is identical). Remove the stale
+   `django_migrations` rows for the now-deleted files with
+   `manage.py migrate <app> --prune`. Any other machine that had applied them does the
+   same after pulling.
