@@ -14,7 +14,7 @@ from events.models import (
     OrganizationQuestionnaire,
 )
 from events.service.membership_manager import MembershipApplicationIneligibleError, advance_application
-from events.service.membership_manager.enums import ReasonCode
+from events.service.membership_manager.enums import MembershipReasonCode
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 pytestmark = pytest.mark.django_db
@@ -75,7 +75,7 @@ def test_privileged_bypass_of_paused_guard_raises_handled_error(
     )
     with pytest.raises(MembershipApplicationIneligibleError) as excinfo:
         advance_application(app)
-    assert excinfo.value.eligibility.reason_code == ReasonCode.MEMBERSHIP_PAUSED
+    assert excinfo.value.eligibility.reason_code == MembershipReasonCode.MEMBERSHIP_PAUSED
     assert excinfo.value.eligibility.allowed is False
 
 

@@ -27,7 +27,7 @@ from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireSubmission
 
-from .enums import ReasonCode, Reasons
+from .enums import MembershipReasonCode, Reasons
 from .gates import MEMBERSHIP_ELIGIBILITY_GATES, BaseMembershipEligibilityGate
 from .resolvers import resolve_membership_questionnaire
 from .types import MembershipApplicationIneligibleError, MembershipEligibility
@@ -198,9 +198,9 @@ class MembershipEligibilityService:
 #: Reasons that genuinely terminate an application — the user has no in-app
 #: recourse on THIS row (they can still re-apply; see ApplicationStatusGate).
 #: Everything else leaves the row PENDING.
-TERMINAL_REJECTION_CODES: t.Final[frozenset[ReasonCode]] = frozenset(
+TERMINAL_REJECTION_CODES: t.Final[frozenset[MembershipReasonCode]] = frozenset(
     {
-        ReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
+        MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
     }
 )
 
@@ -456,7 +456,7 @@ def _complete_free_application(application: OrganizationMembershipRequest) -> No
                 organization_id=application.organization_id,
                 tier_id=application.tier_id,
                 reason=_(Reasons.DUPLICATE_ACTIVE_SUBSCRIPTION),
-                reason_code=ReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION,
+                reason_code=MembershipReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION,
                 application_id=application.pk,
             ),
         )
@@ -478,7 +478,7 @@ def _complete_free_application(application: OrganizationMembershipRequest) -> No
                 organization_id=application.organization_id,
                 tier_id=application.tier_id,
                 reason=_(Reasons.MEMBERSHIP_PAUSED),
-                reason_code=ReasonCode.MEMBERSHIP_PAUSED,
+                reason_code=MembershipReasonCode.MEMBERSHIP_PAUSED,
                 application_id=application.pk,
             ),
         )

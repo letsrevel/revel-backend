@@ -13,7 +13,7 @@ from events.models import (
     OrganizationMember,
 )
 from events.service.membership_manager import MembershipEligibilityService
-from events.service.membership_manager.enums import MembershipNextStep, ReasonCode, Reasons
+from events.service.membership_manager.enums import MembershipNextStep, MembershipReasonCode, Reasons
 
 pytestmark = pytest.mark.django_db
 
@@ -114,7 +114,7 @@ def test_paused_membership_blocks_regardless_of_target_tier(
     service = MembershipEligibilityService(user=user, organization=organization, tier=tier_b)
     result = service.check_eligibility()
     assert result.allowed is False
-    assert result.reason_code == ReasonCode.MEMBERSHIP_PAUSED
+    assert result.reason_code == MembershipReasonCode.MEMBERSHIP_PAUSED
     assert result.next_step is None
 
 

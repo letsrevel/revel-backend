@@ -19,7 +19,7 @@ class MembershipNextStep(StrEnum):
     REAPPLY = "reapply"
 
 
-class ReasonCode(StrEnum):
+class MembershipReasonCode(StrEnum):
     """Stable machine-readable identifiers for membership-eligibility reasons.
 
     Mirrors :class:`Reasons` member-for-member but with snake_case values that
@@ -81,11 +81,11 @@ class Reasons(StrEnum):
     MEMBERSHIP_PAUSED = gettext_noop("Your membership at this tier is paused. Contact the organization to resume.")
 
     @property
-    def code(self) -> ReasonCode:
+    def code(self) -> MembershipReasonCode:
         """The stable machine-readable code for this reason.
 
         Pairs with the translated ``reason`` string so API consumers (and the
         application state machine) can switch on a stable identifier instead
         of matching localized prose.
         """
-        return ReasonCode[self.name]
+        return MembershipReasonCode[self.name]

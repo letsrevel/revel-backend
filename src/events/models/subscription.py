@@ -26,6 +26,21 @@ from .organization import MembershipTier, Organization
 _TERMINAL_STATUS_VALUES: tuple[str, ...] = ("cancelled", "expired")
 
 
+class SubscriptionPaymentMethod(models.TextChoices):
+    """Payment method for a subscription plan.
+
+    Module-level with a distinct class name (not nested as ``PaymentMethod``):
+    django-ninja dedupes OpenAPI ``components.schemas`` by bare class name with
+    last-writer-wins, so a nested ``PaymentMethod`` silently clobbered
+    ``TicketTier.PaymentMethod`` in the generated spec (#782). Code keeps using
+    the ``MembershipSubscriptionPlan.PaymentMethod`` idiom via the class-level
+    alias.
+    """
+
+    ONLINE = "online", _("Online (Stripe)")
+    OFFLINE = "offline", _("Offline (staff-managed)")
+
+
 class MembershipSubscriptionPlanQuerySet(models.QuerySet["MembershipSubscriptionPlan"]):
     """QuerySet exposing the plan-list annotation helper."""
 
@@ -66,9 +81,9 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         MONTH = "month", _("Month")
         YEAR = "year", _("Year")
 
-    class PaymentMethod(models.TextChoices):
-        ONLINE = "online", _("Online (Stripe)")
-        OFFLINE = "offline", _("Offline (staff-managed)")
+    # Alias so callers keep the ``Model.PaymentMethod`` idiom; the class lives
+    # at module level under a collision-free name (see its docstring, #782).
+    PaymentMethod = SubscriptionPaymentMethod
 
     class SalesStatus(models.TextChoices):
         OPEN = "open", _("Open")

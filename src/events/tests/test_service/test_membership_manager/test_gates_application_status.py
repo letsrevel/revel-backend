@@ -5,7 +5,7 @@ import pytest
 from accounts.models import RevelUser
 from events.models import MembershipTier, Organization, OrganizationMembershipRequest
 from events.service.membership_manager import MembershipEligibilityService
-from events.service.membership_manager.enums import MembershipNextStep, ReasonCode, Reasons
+from events.service.membership_manager.enums import MembershipNextStep, MembershipReasonCode, Reasons
 
 pytestmark = pytest.mark.django_db
 
@@ -35,7 +35,7 @@ def test_rejected_application_blocks_with_reapply_next_step(
     result = service.check_eligibility()
     assert result.allowed is False
     assert result.reason == str(Reasons.APPLICATION_REJECTED)
-    assert result.reason_code == ReasonCode.APPLICATION_REJECTED
+    assert result.reason_code == MembershipReasonCode.APPLICATION_REJECTED
     # REAPPLY signals the recourse: a fresh POST /apply supersedes this row (B1).
     assert result.next_step == MembershipNextStep.REAPPLY
 

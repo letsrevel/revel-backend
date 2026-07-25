@@ -804,13 +804,30 @@ class OrganizationToken(TokenMixin):
             )
 
 
+class MembershipRequestStatus(models.TextChoices):
+    """Application state machine for :class:`OrganizationMembershipRequest`.
+
+    Module-level with a distinct class name (not nested as ``Status``):
+    django-ninja dedupes OpenAPI ``components.schemas`` by bare class name with
+    last-writer-wins, so a nested ``Status`` clobbered the 3-value
+    ``UserRequestMixin.Status`` that ``WhitelistRequestSchema`` infers (#782).
+    Code keeps using the ``OrganizationMembershipRequest.Status`` idiom via the
+    class-level alias.
+    """
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+
+
 class OrganizationMembershipRequest(UserRequestMixin):
-    class Status(models.TextChoices):
-        PENDING = "pending"
-        APPROVED = "approved"
-        REJECTED = "rejected"
-        CANCELLED = "cancelled"
-        COMPLETED = "completed"
+    # Alias so callers keep the ``Model.Status`` idiom; the class lives at
+    # module level under a collision-free name (see its docstring, #782).
+    # The subclass deliberately widens the mixin's 3-value Status enum, so the
+    # attribute type genuinely differs from the base — hence the ignore.
+    Status = MembershipRequestStatus  # type: ignore[assignment]
 
     # Override the inherited status field to use the expanded choices.
     status = models.CharField(

@@ -4,7 +4,7 @@ import uuid
 
 from pydantic import AwareDatetime, BaseModel
 
-from .enums import MembershipNextStep, ReasonCode
+from .enums import MembershipNextStep, MembershipReasonCode
 
 
 class MembershipEligibility(BaseModel):
@@ -15,7 +15,7 @@ class MembershipEligibility(BaseModel):
     tier_id: uuid.UUID | None = None
     plan_id: uuid.UUID | None = None
     reason: str | None = None
-    reason_code: ReasonCode | None = None  # stable machine-readable identifier
+    reason_code: MembershipReasonCode | None = None  # stable machine-readable identifier
     next_step: MembershipNextStep | None = None
     questionnaire_id: uuid.UUID | None = None
     application_id: uuid.UUID | None = None

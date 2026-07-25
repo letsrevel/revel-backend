@@ -12,6 +12,7 @@ from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
     OrganizationMember,
+    SubscriptionPaymentMethod,
 )
 
 from .mixins import get_image_field_url
@@ -25,7 +26,7 @@ class PlanSchema(ModelSchema):
     tier_id: UUID
     tier_name: str
     period_unit: MembershipSubscriptionPlan.PeriodUnit
-    payment_method: MembershipSubscriptionPlan.PaymentMethod
+    payment_method: SubscriptionPaymentMethod
     sales_status: MembershipSubscriptionPlan.SalesStatus
     active_subscription_count: int
 
@@ -71,7 +72,7 @@ class PublicPlanSchema(ModelSchema):
 
     tier_id: UUID
     period_unit: MembershipSubscriptionPlan.PeriodUnit
-    payment_method: MembershipSubscriptionPlan.PaymentMethod
+    payment_method: SubscriptionPaymentMethod
     sales_status: MembershipSubscriptionPlan.SalesStatus
     sold_out: bool
 
@@ -114,7 +115,7 @@ class MemberPlanSchema(ModelSchema):
     tier_id: UUID
     tier_name: str
     period_unit: MembershipSubscriptionPlan.PeriodUnit
-    payment_method: MembershipSubscriptionPlan.PaymentMethod
+    payment_method: SubscriptionPaymentMethod
     sales_status: MembershipSubscriptionPlan.SalesStatus
 
     class Meta:
@@ -145,7 +146,7 @@ class PlanCreateSchema(Schema):
     period_unit: MembershipSubscriptionPlan.PeriodUnit = MembershipSubscriptionPlan.PeriodUnit.MONTH
     period_count: int = Field(1, ge=1, le=120)
     is_active: bool = True
-    payment_method: MembershipSubscriptionPlan.PaymentMethod = MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+    payment_method: SubscriptionPaymentMethod = MembershipSubscriptionPlan.PaymentMethod.OFFLINE
     sales_status: MembershipSubscriptionPlan.SalesStatus = MembershipSubscriptionPlan.SalesStatus.OPEN
     max_subscriptions: int | None = Field(default=None, ge=1)
 

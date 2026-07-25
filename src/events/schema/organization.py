@@ -11,6 +11,7 @@ from accounts.schema import BaseEmailJWTPayloadSchema, MemberUserSchema, Minimal
 from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
 from events import models
 from events.models import (
+    MembershipRequestStatus,
     Organization,
     OrganizationContactMessage,
     OrganizationMember,
@@ -250,7 +251,7 @@ class OrganizationContactMessageSchema(ModelSchema):
 
 class OrganizationMembershipRequestRetrieve(ModelSchema):
     user: MinimalRevelUserSchema
-    status: OrganizationMembershipRequest.Status
+    status: MembershipRequestStatus
 
     class Meta:
         model = OrganizationMembershipRequest

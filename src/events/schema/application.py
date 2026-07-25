@@ -5,9 +5,9 @@ import typing as t
 from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, Field
 
-from events.models import OrganizationMembershipRequest
+from events.models import MembershipRequestStatus, OrganizationMembershipRequest
 from events.service.membership_manager import MembershipEligibility, MembershipNextStep
-from events.service.membership_manager.enums import ReasonCode
+from events.service.membership_manager.enums import MembershipReasonCode
 
 
 class JoinEligibilityQuery(Schema):
@@ -34,7 +34,7 @@ class MembershipEligibilitySchema(Schema):
     tier_id: UUID4 | None = None
     plan_id: UUID4 | None = None
     reason: str | None = None
-    reason_code: ReasonCode | None = None
+    reason_code: MembershipReasonCode | None = None
     next_step: MembershipNextStep | None = None
     questionnaire_id: UUID4 | None = None
     application_id: UUID4 | None = None
@@ -54,7 +54,7 @@ class MembershipApplicationSchema(ModelSchema):
     plan_id: UUID4 | None = None
     subscription_id: UUID4 | None = None
     questionnaire_submission_id: UUID4 | None = None
-    status: OrganizationMembershipRequest.Status
+    status: MembershipRequestStatus
 
     class Meta:
         model = OrganizationMembershipRequest

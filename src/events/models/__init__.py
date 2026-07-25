@@ -1,5 +1,5 @@
 from .announcement import Announcement
-from .attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote
+from .attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote, AttendeeInvoiceStatus
 from .blacklist import Blacklist, WhitelistRequest
 from .bookmark import EventBookmark
 from .discount_code import DiscountCode
@@ -26,6 +26,7 @@ from .organization import (
     Organization,
     OrganizationContactMessage,
     OrganizationMember,
+    MembershipRequestStatus,
     OrganizationMembershipRequest,
     OrganizationStaff,
     OrganizationToken,
@@ -51,6 +52,7 @@ from .subscription import (
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
+    SubscriptionPaymentMethod,
 )
 from .ticket import (
     DEFAULT_TICKET_TIER_NAME,
@@ -85,6 +87,7 @@ __all__ = [
     "Organization",
     "OrganizationContactMessage",
     "OrganizationMember",
+    "MembershipRequestStatus",
     "OrganizationMembershipRequest",
     "OrganizationStaff",
     "OrganizationToken",
@@ -99,6 +102,7 @@ __all__ = [
     "MembershipPayment",
     "MembershipSubscription",
     "MembershipSubscriptionPlan",
+    "SubscriptionPaymentMethod",
     # Recurrence
     "RecurrenceRule",
     # Reserved slug tokens
@@ -133,6 +137,7 @@ __all__ = [
     "DiscountCode",
     # Invoices
     "AttendeeInvoice",
+    "AttendeeInvoiceStatus",
     "AttendeeInvoiceCreditNote",
     "PlatformFeeCreditNote",
     "PlatformFeeInvoice",
