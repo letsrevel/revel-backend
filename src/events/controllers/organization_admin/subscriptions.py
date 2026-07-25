@@ -196,7 +196,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         organization = self.get_one(slug)
         return (
             models.MembershipSubscription.objects.filter(organization=organization)
-            .select_related("user", "plan", "plan__tier")
+            .select_related("user", "plan", "plan__tier", "organization")
             .order_by("-created_at")
         )
 
@@ -210,7 +210,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         """Get a single subscription by id."""
         organization = self.get_one(slug)
         return get_object_or_404(
-            models.MembershipSubscription.objects.select_related("user", "plan", "plan__tier"),
+            models.MembershipSubscription.objects.select_related("user", "plan", "plan__tier", "organization"),
             pk=sub_id,
             organization=organization,
         )

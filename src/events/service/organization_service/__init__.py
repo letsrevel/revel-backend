@@ -30,7 +30,9 @@ from events.service.organization_service.membership import (
     remove_staff,
     reorder_membership_tiers,
     update_member,
+    update_membership_tier,
     update_staff_permissions,
+    validate_membership_questionnaire,
 )
 from events.service.organization_service.tokens import (
     GRANT_INVARIANT_MESSAGE,
@@ -73,9 +75,11 @@ __all__ = [
     "reorder_membership_tiers",
     "update_contact_email",
     "update_member",
+    "update_membership_tier",
     "update_organization",
     "update_organization_token",
     "update_staff_permissions",
     "validate_contact_method",
+    "validate_membership_questionnaire",
     "verify_contact_email",
 ]

@@ -17,7 +17,7 @@ from common.schema import TagSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
-from events.service import organization_service, update_db_instance
+from events.service import organization_service
 
 from .base import OrganizationAdminBaseController
 
@@ -132,7 +132,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.get(
         "/membership-tiers",
         url_name="list_membership_tiers",
-        response=list[schema.MembershipTierSchema],
+        response=list[schema.MembershipTierAdminSchema],
         permissions=[IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
@@ -144,7 +144,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.post(
         "/membership-tiers",
         url_name="create_membership_tier",
-        response={201: schema.MembershipTierSchema},
+        response={201: schema.MembershipTierAdminSchema},
     )
     def create_membership_tier(
         self, slug: str, payload: schema.MembershipTierCreateSchema
@@ -168,7 +168,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.put(
         "/membership-tiers/{tier_id}",
         url_name="update_membership_tier",
-        response=schema.MembershipTierSchema,
+        response=schema.MembershipTierAdminSchema,
     )
     def update_membership_tier(
         self, slug: str, tier_id: UUID, payload: schema.MembershipTierUpdateSchema
@@ -176,7 +176,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         """Update a membership tier."""
         organization = self.get_one(slug)
         tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
-        return update_db_instance(tier, payload)
+        return organization_service.update_membership_tier(tier, payload)
 
     @route.delete(
         "/membership-tiers/{tier_id}",

@@ -155,6 +155,7 @@ from .mixins import (
 from .organization import (
     ApproveMembershipRequestSchema,
     MemberAddSchema,
+    MembershipTierAdminSchema,
     MembershipTierCreateSchema,
     MembershipTierSchema,
     MembershipTierUpdateSchema,
@@ -547,6 +548,7 @@ __all__ = [
     "MembershipApplicationSchema",
     "MembershipEligibilitySchema",
     "MembershipPaymentSchema",
+    "MembershipTierAdminSchema",
     "MembershipTierCreateSchema",
     "MembershipTierSchema",
     "MembershipTierUpdateSchema",

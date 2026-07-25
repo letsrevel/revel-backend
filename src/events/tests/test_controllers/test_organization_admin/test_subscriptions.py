@@ -336,6 +336,29 @@ class TestSubscriptionEndpoints:
         assert response.status_code == 200
         assert response.json()["id"] == str(sub.id)
 
+    def test_expired_subscription_exposes_revival_deadline(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """The staff SubscriptionSchema surfaces expired_at + computed revival_deadline (issue #778)."""
+        organization.membership_subscription_revival_window_days = 30
+        organization.save(update_fields=["membership_subscription_revival_window_days"])
+        sub = subscription_service.create_subscription(plan, subscriber)
+        sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
+        sub.expired_at = timezone.now() - datetime.timedelta(days=1)
+        sub.save(update_fields=["status", "expired_at"])
+
+        url = reverse("api:get_subscription", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["expired_at"] is not None
+        assert data["revival_deadline"] is not None
+
     def test_create_subscription_with_initial_payment(
         self,
         organization_owner_client: Client,
