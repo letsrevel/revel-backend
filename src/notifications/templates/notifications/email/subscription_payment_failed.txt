@@ -8,7 +8,7 @@
 
 {%blocktranslate with date=context.grace_period_end %}Please resolve this before {{ date }} to keep your membership active.{%endblocktranslate%}
 
-{%if context.is_online and context.customer_portal_url%}{%trans "Update payment method:"%} {{context.customer_portal_url}}
+{%if context.is_online and context.manage_subscription_url%}{%trans "Update payment method:"%} {{context.manage_subscription_url}}
 {%else%}{%blocktranslate with org=context.organization_name %}Contact {{ org }} to renew:{%endblocktranslate%} {{context.organization_contact_url}}
 {%endif%}
 {% include "notifications/email/_footer.txt" %}

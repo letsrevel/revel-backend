@@ -3,6 +3,7 @@
 import typing as t
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
@@ -116,24 +117,35 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/plans/{plan_id}/migrate-subscribers",
         url_name="migrate_plan_subscribers",
-        response=schema.MigrationResultSchema,
+        response={202: schema.MigrationAcceptedSchema},
     )
-    def migrate_plan_subscribers(self, slug: str, plan_id: UUID) -> schema.MigrationResultSchema:
-        """Force-migrate all non-terminal subscribers on a plan to the plan's current price.
+    def migrate_plan_subscribers(self, slug: str, plan_id: UUID) -> tuple[int, schema.MigrationAcceptedSchema]:
+        """Queue a force-migrate of all non-terminal subscribers to the plan's current price.
 
-        No proration is applied; the new price takes effect at the next renewal.
-        ONLINE subs whose Stripe subscription is already on the current Price are
-        counted as ``skipped``. Per-subscription errors are reported individually
-        without rolling back prior successes.
+        Runs asynchronously: the migration issues one Stripe call per ONLINE
+        subscriber, so a large plan would blow the request timeout. Returns 202
+        with the number of subscribers queued; per-subscriber outcomes (migrated /
+        skipped / failed) are recorded in the worker logs. No proration is applied;
+        the new price takes effect at each subscriber's next renewal.
         """
+        from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
+
         organization = self.get_one(slug)
         plan = get_object_or_404(
             models.MembershipSubscriptionPlan.objects.select_related("tier"),
             pk=plan_id,
             tier__organization=organization,
         )
-        result = subscription_service.migrate_plan_subscribers(plan, initiated_by=self.user())
-        return schema.MigrationResultSchema.model_validate(result)
+        queued = (
+            models.MembershipSubscription.objects.filter(plan=plan)
+            .exclude(status__in=models.MembershipSubscription.TERMINAL_STATUSES)
+            .count()
+        )
+        # Dispatch after commit so the worker sees the plan's committed price
+        # (request-path dispatch under ATOMIC_REQUESTS — see engineering-notes).
+        plan_id_str, user_id_str = str(plan.pk), str(self.user().pk)
+        transaction.on_commit(lambda: migrate_task.delay(plan_id_str, user_id_str))
+        return 202, schema.MigrationAcceptedSchema(queued=queued)
 
     @route.post(
         "/plans/{plan_id}/archive",

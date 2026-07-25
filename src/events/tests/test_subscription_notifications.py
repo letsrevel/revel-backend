@@ -201,17 +201,38 @@ class TestDispatchHelpers:
         assert helper_subscription.current_period_end is not None
         assert n.context["access_ends_at"] == helper_subscription.current_period_end.isoformat()
 
-    def test_renewal_succeeded_includes_customer_portal_url_when_provided(
+    def test_renewal_succeeded_offline_omits_manage_subscription_url(
         self, helper_subscription: MembershipSubscription
     ) -> None:
-        subscription_service._dispatch_renewal_succeeded(
-            helper_subscription, customer_portal_url="https://billing.example.com"
-        )
+        """OFFLINE plans have no self-service billing page, so the CTA is absent."""
+        assert helper_subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE.value
+        subscription_service._dispatch_renewal_succeeded(helper_subscription)
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
         )
-        assert n.context["customer_portal_url"] == "https://billing.example.com"
+        assert "manage_subscription_url" not in n.context
+
+    def test_renewal_succeeded_online_includes_manage_subscription_url(
+        self, helper_plan: MembershipSubscriptionPlan, organization: Organization, nonmember_user: RevelUser
+    ) -> None:
+        """ONLINE plans carry a manage_subscription_url pointing at the FE subscription page."""
+        helper_plan.payment_method = MembershipSubscriptionPlan.PaymentMethod.ONLINE
+        helper_plan.save(update_fields=["payment_method"])
+        sub = MembershipSubscription.objects.create(
+            user=nonmember_user,
+            plan=helper_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            current_period_start=timezone.now() - timedelta(days=10),
+            current_period_end=timezone.now() + timedelta(days=20),
+        )
+        subscription_service._dispatch_renewal_succeeded(sub)
+        n = Notification.objects.get(
+            user=nonmember_user,
+            notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        )
+        assert n.context["manage_subscription_url"].endswith(f"/organizations/{organization.slug}/subscription")
 
     def test_expired_omits_revival_when_expired_at_none(self, helper_subscription: MembershipSubscription) -> None:
         assert helper_subscription.expired_at is None

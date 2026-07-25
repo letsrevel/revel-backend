@@ -886,26 +886,30 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
 
     Includes an absolute ``organization_contact_url`` so email and Telegram
     templates render clickable links instead of relative paths that break in
-    those clients.
+    those clients. For ONLINE (Stripe-managed) subscriptions it also carries a
+    ``manage_subscription_url`` pointing at the member's subscription page,
+    from which the frontend calls ``POST /billing-portal`` to mint a Stripe
+    Customer Portal session on demand. We deliberately do **not** create a
+    portal session here: dispatch runs inside a locked webhook transaction and
+    must issue no Stripe network calls.
     """
     from common.models import SiteSettings  # lazy: avoid import cycle
 
     org = subscription.organization
     plan = subscription.plan
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    return {
+    ctx: dict[str, t.Any] = {
         "organization_name": org.name,
         "organization_slug": org.slug,
         "plan_name": plan.name,
         "organization_contact_url": f"{frontend_base_url}/organizations/{org.slug}/contact",
     }
+    if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value:
+        ctx["manage_subscription_url"] = f"{frontend_base_url}/organizations/{org.slug}/subscription"
+    return ctx
 
 
-def _dispatch_renewal_succeeded(
-    subscription: MembershipSubscription,
-    *,
-    customer_portal_url: str | None = None,
-) -> None:
+def _dispatch_renewal_succeeded(subscription: MembershipSubscription) -> None:
     """Fire SUBSCRIPTION_RENEWAL_SUCCEEDED for a renewal payment."""
     plan = subscription.plan
     ctx = _common_subscription_context(subscription)
@@ -913,8 +917,6 @@ def _dispatch_renewal_succeeded(
         amount=_format_money(plan.price, plan.currency),
         period_end=(subscription.current_period_end.date().isoformat() if subscription.current_period_end else ""),
     )
-    if customer_portal_url is not None:
-        ctx["customer_portal_url"] = customer_portal_url
     notification_dispatcher.create_notification(NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED, subscription.user, ctx)
 
 
@@ -923,9 +925,13 @@ def _dispatch_payment_failed(
     *,
     grace_period_end: t.Any,
     is_online: bool,
-    customer_portal_url: str | None = None,
 ) -> None:
-    """Fire SUBSCRIPTION_PAYMENT_FAILED when a renewal payment fails."""
+    """Fire SUBSCRIPTION_PAYMENT_FAILED when a renewal payment fails.
+
+    For ONLINE subscriptions the context carries ``manage_subscription_url``
+    (built in :func:`_common_subscription_context`), which the payment-failed
+    templates surface as an "Update Payment Method" CTA.
+    """
     plan = subscription.plan
     ctx = _common_subscription_context(subscription)
     ctx.update(
@@ -933,8 +939,6 @@ def _dispatch_payment_failed(
         grace_period_end=grace_period_end.isoformat() if grace_period_end else "",
         is_online=is_online,
     )
-    if customer_portal_url is not None:
-        ctx["customer_portal_url"] = customer_portal_url
     notification_dispatcher.create_notification(NotificationType.SUBSCRIPTION_PAYMENT_FAILED, subscription.user, ctx)
 
 

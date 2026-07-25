@@ -16,18 +16,20 @@ logger = structlog.get_logger(__name__)
 class SubscriptionExpiryCounters(t.TypedDict):
     """Telemetry counters returned by ``expire_subscriptions_past_grace``."""
 
-    expired_immediate: int
+    cancelled_at_period_end: int
     past_due: int
     expired_after_grace: int
 
 
 def _expire_row(sub: MembershipSubscription, now: "datetime.datetime", stripe_cancel_ids: list[t.Any]) -> None:
-    """Terminalize one locked subscription row: save EXPIRED, queue Stripe cancel, notify.
+    """Terminalize one lapsed row as EXPIRED: save, queue Stripe cancel, notify.
 
-    Local expiry is authoritative for both payment methods: the terminal sync
-    guard ignores Stripe's later ``deleted`` event, so nobody else notifies the
-    member. ONLINE rows are queued for a best-effort Stripe cancel after the
-    row locks are released (C1 in the 2026-06-10 reassessment).
+    Used for genuine, involuntary lapses (a PAST_DUE subscription past its grace
+    window). Local expiry is authoritative for both payment methods: the terminal
+    sync guard ignores Stripe's later ``deleted`` event, so nobody else notifies
+    the member. ONLINE rows are queued for a best-effort Stripe cancel after the
+    row locks are released (C1 in the 2026-06-10 reassessment). ``expired_at`` is
+    stamped so the row is eligible for the revival flow.
     """
     sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
     sub.cancelled_at = sub.cancelled_at or now
@@ -40,13 +42,38 @@ def _expire_row(sub: MembershipSubscription, now: "datetime.datetime", stripe_ca
     subscription_service._dispatch_subscription_expired(sub)
 
 
+def _terminalize_cancelled_row(
+    sub: MembershipSubscription, now: "datetime.datetime", stripe_cancel_ids: list[t.Any]
+) -> None:
+    """Terminalize a lapsed ACTIVE row the member CHOSE to cancel (cancel_at_period_end).
+
+    Status → CANCELLED, not EXPIRED: the member opted out at the period
+    boundary, so this is not an involuntary lapse to offer a "revive" CTA for.
+    We stamp ``cancelled_at`` but deliberately leave ``expired_at`` unset —
+    :func:`subscription_service.revive_subscription` only accepts EXPIRED rows,
+    so a CANCELLED row is naturally out of the revival window (correct for a
+    chosen cancel). No notification is dispatched: CANCELLATION_CONFIRMED
+    already fired when the member scheduled the cancel. This closes the race
+    where the beat task beats Stripe's ``customer.subscription.deleted`` webhook
+    and would otherwise send "your subscription expired — revive?" on top of the
+    cancellation-confirmed the member already received. ONLINE rows are queued
+    for a best-effort Stripe cancel so Smart Retries stop dunning them.
+    """
+    sub.status = MembershipSubscription.SubscriptionStatus.CANCELLED
+    sub.cancelled_at = sub.cancelled_at or now
+    sub.save(update_fields=["status", "cancelled_at", "updated_at"])
+    if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value:
+        stripe_cancel_ids.append(sub.pk)
+
+
 @shared_task(name="events.expire_subscriptions_past_grace")
 def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
     """Advance membership subscriptions through their lifecycle.
 
     Runs daily via Celery beat (see migration 0070). Transitions:
 
-    1. ``ACTIVE`` lapsed with ``cancel_at_period_end=True`` → ``EXPIRED``.
+    1. ``ACTIVE`` lapsed with ``cancel_at_period_end=True`` → ``CANCELLED``
+       (member chose to cancel; no expiry/revival notification).
     2. ``ACTIVE`` lapsed otherwise → ``PAST_DUE``.
     3. ``PAST_DUE`` past the org's grace window → ``EXPIRED``.
 
@@ -56,7 +83,7 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
     so the ``post_save`` signal fires and syncs ``OrganizationMember``.
     """
     now = timezone.now()
-    counters: SubscriptionExpiryCounters = {"expired_immediate": 0, "past_due": 0, "expired_after_grace": 0}
+    counters: SubscriptionExpiryCounters = {"cancelled_at_period_end": 0, "past_due": 0, "expired_after_grace": 0}
     # ONLINE rows terminalized in this run: their Stripe subscription must be
     # cancelled too, or Smart Retries keep dunning a member who has already
     # lost access locally — and a later retry success would pay an EXPIRED
@@ -64,7 +91,7 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
     # row locks are released (never hold a row lock across a network call).
     stripe_cancel_ids: list[t.Any] = []
 
-    # 1 + 2: lapsed ACTIVE → EXPIRED (if cancel_at_period_end) else PAST_DUE.
+    # 1 + 2: lapsed ACTIVE → CANCELLED (if cancel_at_period_end) else PAST_DUE.
     # list(), not .iterator(): a server-side cursor can't survive the per-row
     # commits below under PgBouncer transaction pooling (see #458).
     active_lapsed_ids = MembershipSubscription.objects.filter(
@@ -88,8 +115,8 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
             ):
                 continue
             if sub.cancel_at_period_end:
-                _expire_row(sub, now, stripe_cancel_ids)
-                counters["expired_immediate"] += 1
+                _terminalize_cancelled_row(sub, now, stripe_cancel_ids)
+                counters["cancelled_at_period_end"] += 1
             else:
                 sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
                 sub.save(update_fields=["status", "updated_at"])
@@ -181,6 +208,37 @@ def send_subscription_renewal_reminders() -> dict[str, int]:
         sent += 1
     logger.info("send_subscription_renewal_reminders_done", sent=sent)
     return {"sent": sent}
+
+
+@shared_task(name="events.migrate_plan_subscribers")
+def migrate_plan_subscribers(plan_id: str, initiated_by_id: str) -> dict[str, t.Any]:
+    """Force-migrate a plan's non-terminal subscribers to its current price (async).
+
+    Wraps :func:`events.service.subscription_service.migrate_plan_subscribers`,
+    which issues one Stripe retrieve+modify per ONLINE subscriber — too slow to
+    run inside the admin request (a large plan blows the gunicorn timeout).
+    Dispatched from the migrate-subscribers endpoint via ``transaction.on_commit``
+    so the worker sees the plan's committed price.
+
+    Completion signalling is via structured logs: the service logs the aggregate
+    (``migrate_plan_subscribers_done``) and each per-sub failure; the aggregate
+    result dict is also returned as the Celery result. No in-app notification is
+    sent (there is no fitting notification type, and adding one — enum, templates,
+    preferences — is out of proportion for a staff-triggered batch job).
+    """
+    from accounts.models import RevelUser
+    from events.service import subscription_service
+
+    empty: dict[str, t.Any] = {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}
+    plan = MembershipSubscriptionPlan.objects.select_related("tier__organization").filter(pk=plan_id).first()
+    if plan is None:
+        logger.warning("migrate_plan_subscribers_task_plan_missing", plan_id=plan_id)
+        return empty
+    initiated_by = RevelUser.objects.filter(pk=initiated_by_id).first()
+    if initiated_by is None:
+        logger.warning("migrate_plan_subscribers_task_user_missing", plan_id=plan_id, initiated_by_id=initiated_by_id)
+        return empty
+    return dict(subscription_service.migrate_plan_subscribers(plan, initiated_by=initiated_by))
 
 
 class SubscriptionReconcileCounters(t.TypedDict):

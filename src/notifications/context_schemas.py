@@ -587,7 +587,7 @@ class SubscriptionRenewalSucceededContext(BaseNotificationContext):
     plan_name: str
     amount: str  # formatted "{amount} {currency}"
     period_end: str  # ISO date
-    customer_portal_url: t.NotRequired[str | None]  # ONLINE only
+    manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE page that calls POST /billing-portal
 
 
 class SubscriptionPaymentFailedContext(BaseNotificationContext):
@@ -598,7 +598,7 @@ class SubscriptionPaymentFailedContext(BaseNotificationContext):
     plan_name: str
     amount: str
     grace_period_end: str
-    customer_portal_url: t.NotRequired[str | None]
+    manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE page that calls POST /billing-portal
     is_online: bool
 
 
@@ -632,7 +632,7 @@ class SubscriptionRenewalReminderContext(BaseNotificationContext):
     amount: str
     period_end: str
     is_online: bool
-    customer_portal_url: t.NotRequired[str | None]
+    manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE page that calls POST /billing-portal
 
 
 class SubscriptionPriceMigrationNoticeContext(BaseNotificationContext):

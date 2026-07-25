@@ -68,6 +68,55 @@ def _classify_plan_change(
     )
 
 
+def release_online_schedule(subscription: MembershipSubscription) -> None:
+    """Release any Stripe SubscriptionSchedule bound to ``subscription``, clearing local state.
+
+    A scheduled downgrade sets ``stripe_schedule_id`` and makes the
+    subscription *schedule-managed* on Stripe. In that state Stripe rejects a
+    plain ``cancel_at_period_end`` / ``pause_collection`` modify with an opaque
+    error, which surfaces to the member as a 502. Releasing the schedule hands
+    control back to the underlying subscription so the cancel/pause can proceed
+    at its current price, and the pending downgrade is dropped (a member who
+    cancels or pauses has abandoned that downgrade).
+
+    No-op when the row has no schedule. Tolerates a schedule Stripe has already
+    released or completed (``InvalidRequestError`` → log and proceed). A hard
+    Stripe failure propagates as a 502 so we don't then attempt a modify that
+    would also fail.
+    """
+    if not subscription.stripe_schedule_id:
+        return
+    kwargs = _stripe_account_kwargs(subscription.organization)
+    try:
+        # The stub types the first arg as a SubscriptionSchedule; the runtime API
+        # accepts the schedule id string (as elsewhere in this module).
+        stripe.SubscriptionSchedule.release(subscription.stripe_schedule_id, **kwargs)  # type: ignore[arg-type]
+    except stripe.error.InvalidRequestError as exc:
+        # Already released/completed on Stripe — nothing to undo; proceed to
+        # clear local state so the subscription is no longer schedule-managed.
+        logger.info(
+            "subscription_schedule_release_already_done",
+            subscription_id=str(subscription.pk),
+            schedule_id=subscription.stripe_schedule_id,
+            error=str(exc),
+        )
+    except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_schedule_release_failed",
+            subscription_id=str(subscription.pk),
+            schedule_id=subscription.stripe_schedule_id,
+            error=str(exc),
+        )
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+
+    update_fields = ["stripe_schedule_id", "updated_at"]
+    subscription.stripe_schedule_id = ""
+    if subscription.pending_plan_id:
+        subscription.pending_plan = None
+        update_fields.append("pending_plan")
+    subscription.save(update_fields=update_fields)
+
+
 def _retrieve_subscription_item_id(stripe_subscription_id: str, org: Organization) -> str:
     """Return the first Subscription Item id from a live Stripe Subscription."""
     try:

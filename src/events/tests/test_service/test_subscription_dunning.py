@@ -140,6 +140,14 @@ class TestInvoicePaidRenewal:
         subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
+        # ONLINE renewal_succeeded must carry the self-service management URL so
+        # the "Manage Billing" CTA renders (dead branch before this fix).
+        notif = Notification.objects.get(
+            user=subscriber, notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED
+        )
+        assert notif.context["manage_subscription_url"].endswith(
+            f"/organizations/{online_plan.tier.organization.slug}/subscription"
+        )
 
     def test_past_due_to_active_renewal_fires_renewal_succeeded(
         self,
@@ -205,6 +213,15 @@ class TestInvoicePaymentFailed:
         subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False)
 
         assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_PAYMENT_FAILED)
+        # ONLINE payment_failed must carry the management URL + is_online so the
+        # "Update Payment Method" branch renders instead of the contact fallback.
+        notif = Notification.objects.get(
+            user=subscriber, notification_type=NotificationType.SUBSCRIPTION_PAYMENT_FAILED
+        )
+        assert notif.context["is_online"] is True
+        assert notif.context["manage_subscription_url"].endswith(
+            f"/organizations/{online_plan.tier.organization.slug}/subscription"
+        )
 
     def test_already_past_due_redelivery_does_not_double_fire(
         self,

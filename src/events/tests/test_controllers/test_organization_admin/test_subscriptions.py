@@ -1,7 +1,9 @@
 """Tests for the staff subscription admin controller."""
 
 import datetime
+import typing as t
 from decimal import Decimal
+from unittest import mock
 from uuid import uuid4
 
 import orjson
@@ -265,6 +267,42 @@ class TestUpdateArchiveDeletePlan:
         url = reverse("api:delete_subscription_plan", kwargs={"slug": organization.slug, "plan_id": plan.id})
         response = organization_owner_client.delete(url)
         assert response.status_code == 400
+
+
+class TestMigrateSubscribersEndpoint:
+    """The migrate-subscribers endpoint queues an async task and returns 202."""
+
+    def test_owner_queues_migration_and_dispatches_task(
+        self,
+        organization_owner_client: Client,
+        organization_owner_user: RevelUser,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        subscription_service.create_subscription(plan, subscriber)  # one non-terminal subscriber
+        url = reverse("api:migrate_plan_subscribers", kwargs={"slug": organization.slug, "plan_id": plan.id})
+
+        with mock.patch("events.tasks.subscriptions.migrate_plan_subscribers.delay") as mock_delay:
+            with django_capture_on_commit_callbacks(execute=True) as callbacks:
+                response = organization_owner_client.post(url)
+
+        assert response.status_code == 202, response.content
+        assert response.json() == {"queued": 1}
+        # Dispatch is deferred to on_commit, then fires with the plan + staff ids.
+        assert len(callbacks) == 1
+        mock_delay.assert_called_once_with(str(plan.pk), str(organization_owner_user.pk))
+
+    def test_member_cannot_migrate(
+        self,
+        member_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        url = reverse("api:migrate_plan_subscribers", kwargs={"slug": organization.slug, "plan_id": plan.id})
+        response = member_client.post(url)
+        assert response.status_code in (403, 404)
 
 
 # ---- Subscription endpoints ----

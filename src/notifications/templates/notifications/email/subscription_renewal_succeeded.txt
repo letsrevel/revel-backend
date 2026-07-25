@@ -6,6 +6,6 @@
 {%trans "Amount charged:"%} {{context.amount}}
 {%trans "Next renewal:"%} {{context.period_end}}
 
-{%if context.customer_portal_url%}{%trans "Manage billing:"%} {{context.customer_portal_url}}
+{%if context.manage_subscription_url%}{%trans "Manage billing:"%} {{context.manage_subscription_url}}
 
 {%endif%}{% include "notifications/email/_footer.txt" %}

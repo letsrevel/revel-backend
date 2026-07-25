@@ -106,6 +106,83 @@ class TestMRRNormalization:
 
 
 @pytest.mark.django_db
+class TestMRRGrandfathering:
+    def test_grandfathered_sub_contributes_paid_amount_not_plan_price(
+        self,
+        organization: Organization,
+        monthly_plan: MembershipSubscriptionPlan,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        """A subscriber whose last SUCCEEDED payment differs from the current
+        plan price (grandfathered) contributes their PAID amount to MRR."""
+        from events.models import MembershipPayment
+
+        sub = MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=monthly_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        # Paid 7.00 historically; plan was later bumped to 10.00.
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("7.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+        )
+        assert monthly_plan.price == Decimal("10.00")
+
+        metrics = subscription_reporting.get_organization_metrics(organization)
+        # MRR reflects the 7.00 they actually pay, not the current 10.00 plan price.
+        assert metrics["mrr"] == Decimal("7.00")
+
+    def test_falls_back_to_plan_price_without_payment(
+        self,
+        organization: Organization,
+        monthly_plan: MembershipSubscriptionPlan,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        """A sub with no SUCCEEDED payment (e.g. brand-new) uses the plan price."""
+        MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=monthly_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        metrics = subscription_reporting.get_organization_metrics(organization)
+        assert metrics["mrr"] == Decimal("10.00")
+
+    def test_annual_grandfathered_amount_is_normalized_monthly(
+        self,
+        organization: Organization,
+        annual_plan: MembershipSubscriptionPlan,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        """The paid amount is normalized by the plan's period (annual → /12)."""
+        from events.models import MembershipPayment
+
+        sub = MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=annual_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        # Old annual price of 60.00 → 5.00/month, vs current plan 96.00 → 8.00/month.
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("60.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=335),
+        )
+        metrics = subscription_reporting.get_organization_metrics(organization)
+        assert metrics["mrr"] == Decimal("5.00")
+
+
+@pytest.mark.django_db
 class TestMixedCurrency:
     def test_mixed_currency_flag(
         self,

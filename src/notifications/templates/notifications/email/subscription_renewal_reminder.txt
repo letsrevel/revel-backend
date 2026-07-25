@@ -7,8 +7,8 @@
 {%trans "Amount:"%} {{context.amount}}
 
 {%if context.is_online%}{%trans "We'll charge your card on file on the renewal date."%}
-{%if context.customer_portal_url%}
-{%trans "Manage billing:"%} {{context.customer_portal_url}}
+{%if context.manage_subscription_url%}
+{%trans "Manage billing:"%} {{context.manage_subscription_url}}
 {%endif%}{%else%}{%blocktranslate with org=context.organization_name %}If you don't want to renew, please contact {{ org }}:{%endblocktranslate%} {{context.organization_contact_url}}
 {%endif%}
 {% include "notifications/email/_footer.txt" %}

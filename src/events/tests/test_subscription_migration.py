@@ -459,3 +459,61 @@ class TestMigratePlanSubscribers:
             notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
         )
         assert "8.00" in notif.context["old_amount"]
+
+
+@pytest.mark.django_db
+class TestMigratePlanSubscribersTask:
+    """The async wrapper task loads plan + user by id and delegates to the service."""
+
+    def test_task_runs_service_and_dispatches_notification(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=offline_plan.price,
+            currency=offline_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+        )
+        offline_plan.price = offline_plan.price + Decimal("5")
+        offline_plan.save(update_fields=["price"])
+
+        result = migrate_task.run(str(offline_plan.pk), str(organization_owner_user.pk))
+
+        assert result["migrated"] == 1
+        assert result["failed"] == 0
+        assert Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+        ).exists()
+
+    def test_task_no_ops_when_plan_missing(self, organization_owner_user: RevelUser) -> None:
+        import uuid
+
+        from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
+
+        result = migrate_task.run(str(uuid.uuid4()), str(organization_owner_user.pk))
+        assert result == {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}
+
+    def test_task_no_ops_when_user_missing(self, offline_plan: MembershipSubscriptionPlan) -> None:
+        import uuid
+
+        from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
+
+        result = migrate_task.run(str(offline_plan.pk), str(uuid.uuid4()))
+        assert result == {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}

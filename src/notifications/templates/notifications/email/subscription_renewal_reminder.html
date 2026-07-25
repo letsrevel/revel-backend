@@ -11,9 +11,9 @@
 </div>
 {% if context.is_online %}
 <p>{% trans "We'll charge your card on file on the renewal date." %}</p>
-{% if context.customer_portal_url %}
+{% if context.manage_subscription_url %}
 <center>
-    <a href="{{ context.customer_portal_url }}" class="button">{% trans "Manage Billing" %}</a>
+    <a href="{{ context.manage_subscription_url }}" class="button">{% trans "Manage Billing" %}</a>
 </center>
 {% endif %}
 {% else %}

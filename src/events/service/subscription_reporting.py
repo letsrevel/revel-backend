@@ -10,7 +10,12 @@ from decimal import Decimal
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from events.models import MembershipSubscription, MembershipSubscriptionPlan, Organization
+from events.models import (
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    Organization,
+)
 
 
 class StatusBreakdown(t.TypedDict):
@@ -77,16 +82,35 @@ def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
     active_count = breakdown["active"] + breakdown["past_due"]
 
     # MRR: walk active/past_due subs joined with plans
-    active_subs = MembershipSubscription.objects.filter(
-        organization=organization,
-        status__in=[statuses.ACTIVE, statuses.PAST_DUE],
-    ).select_related("plan")
+    active_subs = list(
+        MembershipSubscription.objects.filter(
+            organization=organization,
+            status__in=[statuses.ACTIVE, statuses.PAST_DUE],
+        ).select_related("plan")
+    )
+
+    # Grandfathered ONLINE subscribers keep paying their OLD Stripe price after
+    # a plan price change, so ``plan.price`` overstates their contribution.
+    # Prefer each subscriber's most recent SUCCEEDED payment amount; fall back to
+    # ``plan.price`` when there's none (OFFLINE pre-payment or brand-new PENDING).
+    # Single batched DISTINCT ON query keeps this out of the per-sub loop (N+1).
+    paid_by_sub: dict[t.Any, Decimal] = dict(
+        MembershipPayment.objects.filter(
+            subscription__in=active_subs,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        )
+        .order_by("subscription_id", "-created_at")
+        .distinct("subscription_id")
+        .values_list("subscription_id", "amount")
+    )
 
     currencies: set[str] = set()
     mrr_total = Decimal("0")
     for sub in active_subs:
         currencies.add(sub.plan.currency)
-        mrr_total += _monthly_equivalent(sub.plan)
+        paid = paid_by_sub.get(sub.id)
+        amount = paid if paid is not None else sub.plan.price
+        mrr_total += _normalize_to_monthly(amount, sub.plan)
 
     mixed_currency_warning = len(currencies) > 1
     if mixed_currency_warning:
@@ -130,20 +154,21 @@ def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
     }
 
 
-def _monthly_equivalent(plan: MembershipSubscriptionPlan) -> Decimal:
-    """Return one subscription's monthly recurring revenue contribution (unrounded).
+def _normalize_to_monthly(amount: Decimal, plan: MembershipSubscriptionPlan) -> Decimal:
+    """Normalise ``amount`` to a monthly figure using the plan's billing period.
 
-    Annual plans are divided by (period_count * 12) months; monthly plans
-    by period_count. The returned value is unrounded; the caller is responsible
-    for quantizing the running sum once to avoid accumulated rounding errors.
+    Annual plans are divided by (period_count * 12) months; monthly plans by
+    period_count. The returned value is unrounded; the caller quantizes the
+    running sum once to avoid accumulated rounding errors.
 
     Args:
-        plan: The :class:`MembershipSubscriptionPlan` to normalise.
+        amount: The per-period amount to normalise (plan price or a paid amount).
+        plan: The :class:`MembershipSubscriptionPlan` whose period drives the math.
 
     Returns:
-        The monthly equivalent price as a :class:`Decimal` (unrounded).
+        The monthly equivalent as a :class:`Decimal` (unrounded).
     """
     if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.MONTH:
-        return plan.price / plan.period_count
+        return amount / plan.period_count
     # YEAR
-    return plan.price / (plan.period_count * 12)
+    return amount / (plan.period_count * 12)

@@ -567,6 +567,13 @@ def cancel_online_subscription(
     org = subscription.organization
     kwargs = _stripe_account_kwargs(org)
 
+    # A pending downgrade makes the subscription schedule-managed on Stripe,
+    # which rejects a plain cancel/modify. Release the schedule first (clears
+    # stripe_schedule_id + pending_plan locally) so the cancel can proceed.
+    from events.service.subscription_stripe_plan_change import release_online_schedule  # lazy: avoid cycle
+
+    release_online_schedule(subscription)
+
     if immediate:
         try:
             # ``Subscription.cancel`` is the documented runtime API; the type stubs
@@ -674,6 +681,14 @@ def pause_online_subscription(subscription: MembershipSubscription) -> Membershi
         return subscription
 
     org = subscription.organization
+
+    # A pending downgrade makes the subscription schedule-managed on Stripe,
+    # which rejects ``pause_collection``. Release the schedule first (clears
+    # stripe_schedule_id + pending_plan locally) so the pause can proceed.
+    from events.service.subscription_stripe_plan_change import release_online_schedule  # lazy: avoid cycle
+
+    release_online_schedule(subscription)
+
     try:
         stripe.Subscription.modify(
             subscription.stripe_subscription_id,

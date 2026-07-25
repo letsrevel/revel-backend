@@ -704,3 +704,111 @@ class TestSyncExpiredAt:
         pending_subscription.refresh_from_db()
         # expired_at stays at the original value — idempotent.
         assert pending_subscription.expired_at == first_expiry
+
+
+# ---- schedule release on cancel / pause (pending-downgrade guard) -----------
+
+
+class TestScheduleReleaseOnCancelPause:
+    """A scheduled downgrade (stripe_schedule_id set) makes the subscription
+    schedule-managed on Stripe, which rejects a plain cancel/pause modify. The
+    cancel + pause paths must release the schedule first (clearing local
+    schedule state) so the mutation proceeds.
+    """
+
+    @pytest.fixture
+    def target_plan(self, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        """A second ONLINE plan on the same tier — the pending downgrade target."""
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Cheaper Online",
+            price=Decimal("5.00"),
+            currency="EUR",
+            period_unit="month",
+            period_count=1,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_cheaper",
+            stripe_price_id="price_cheaper",
+        )
+
+    @pytest.fixture
+    def scheduled_subscription(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        target_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> MembershipSubscription:
+        sub = _make_online_subscription(online_plan, subscriber, stripe_id="sub_sched_cancel")
+        sub.pending_plan = target_plan
+        sub.stripe_schedule_id = "sub_sched_xyz"
+        sub.save(update_fields=["pending_plan", "stripe_schedule_id"])
+        return sub
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    def test_cancel_at_period_end_releases_schedule_then_proceeds(
+        self,
+        mock_release: mock.Mock,
+        mock_modify: mock.Mock,
+        scheduled_subscription: MembershipSubscription,
+    ) -> None:
+        result = subscription_stripe_service.cancel_online_subscription(scheduled_subscription, immediate=False)
+        mock_release.assert_called_once_with("sub_sched_xyz", stripe_account="acct_test_org")
+        mock_modify.assert_called_once()
+        assert mock_modify.call_args.kwargs["cancel_at_period_end"] is True
+        result.refresh_from_db()
+        assert result.cancel_at_period_end is True
+        assert result.stripe_schedule_id == ""
+        assert result.pending_plan_id is None
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
+    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    def test_immediate_cancel_releases_schedule_then_terminalizes(
+        self,
+        mock_release: mock.Mock,
+        mock_cancel: mock.Mock,
+        scheduled_subscription: MembershipSubscription,
+    ) -> None:
+        result = subscription_stripe_service.cancel_online_subscription(scheduled_subscription, immediate=True)
+        mock_release.assert_called_once_with("sub_sched_xyz", stripe_account="acct_test_org")
+        mock_cancel.assert_called_once()
+        result.refresh_from_db()
+        assert result.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert result.stripe_schedule_id == ""
+        assert result.pending_plan_id is None
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    def test_pause_releases_schedule_then_proceeds(
+        self,
+        mock_release: mock.Mock,
+        mock_modify: mock.Mock,
+        scheduled_subscription: MembershipSubscription,
+    ) -> None:
+        result = subscription_stripe_service.pause_online_subscription(scheduled_subscription)
+        mock_release.assert_called_once_with("sub_sched_xyz", stripe_account="acct_test_org")
+        # Pause modify happens after the release.
+        assert mock_modify.call_args.kwargs["pause_collection"] == {"behavior": "void"}
+        result.refresh_from_db()
+        assert result.status == MembershipSubscription.SubscriptionStatus.PAUSED
+        assert result.stripe_schedule_id == ""
+        assert result.pending_plan_id is None
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    def test_release_tolerates_already_released_schedule(
+        self,
+        mock_release: mock.Mock,
+        mock_modify: mock.Mock,
+        scheduled_subscription: MembershipSubscription,
+    ) -> None:
+        """A schedule Stripe already released/completed must not block the cancel."""
+        mock_release.side_effect = stripe.error.InvalidRequestError("No such schedule", param=None)
+        result = subscription_stripe_service.cancel_online_subscription(scheduled_subscription, immediate=False)
+        mock_release.assert_called_once()
+        mock_modify.assert_called_once()
+        result.refresh_from_db()
+        assert result.cancel_at_period_end is True
+        # Local schedule state is cleared even though Stripe had nothing to release.
+        assert result.stripe_schedule_id == ""
+        assert result.pending_plan_id is None

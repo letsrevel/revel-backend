@@ -412,20 +412,15 @@ class StaffRevivalResponseSchema(Schema):
     client_secret: str | None = None
 
 
-class MigrationErrorSchema(Schema):
-    """Per-subscription error entry in a migration result."""
+class MigrationAcceptedSchema(Schema):
+    """Acknowledgement that a force-migrate-subscribers job was queued.
 
-    sub_id: str
-    reason: str
+    The migration runs asynchronously (one Stripe call per ONLINE subscriber),
+    so the endpoint returns immediately with the number of non-terminal
+    subscribers targeted; per-subscriber outcomes are recorded in worker logs.
+    """
 
-
-class MigrationResultSchema(Schema):
-    """Result of a force-migrate-subscribers operation."""
-
-    migrated: int
-    skipped: int
-    failed: int
-    errors: list[MigrationErrorSchema]
+    queued: int
 
 
 class SubscriptionStatusBreakdownSchema(Schema):

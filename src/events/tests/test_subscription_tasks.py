@@ -70,17 +70,22 @@ class TestExpireSubscriptions:
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
 
-    def test_active_lapsed_with_cancel_at_period_end_expires_immediately(
+    def test_active_lapsed_with_cancel_at_period_end_becomes_cancelled(
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, organization: Organization
     ) -> None:
+        """A member who scheduled cancel_at_period_end terminalizes as CANCELLED
+        (not EXPIRED) and gets no revival CTA — they chose to leave."""
         period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
         _make_active_sub(plan, subscriber, period_end, cancel_at_period_end=True)
 
         with freeze_time("2026-05-02 13:00:00"):
             counters = expire_subscriptions_past_grace()
-        assert counters["expired_immediate"] == 1
+        assert counters["cancelled_at_period_end"] == 1
         sub = MembershipSubscription.objects.get(user=subscriber)
-        assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        # expired_at stays unset so the row is out of the revival flow.
+        assert sub.expired_at is None
+        assert sub.cancelled_at is not None
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.CANCELLED
 
@@ -144,7 +149,7 @@ class TestExpireSubscriptions:
         period_end = timezone.now() + datetime.timedelta(days=15)
         _make_active_sub(plan, subscriber, period_end)
         counters = expire_subscriptions_past_grace()
-        assert counters == {"expired_immediate": 0, "past_due": 0, "expired_after_grace": 0}
+        assert counters == {"cancelled_at_period_end": 0, "past_due": 0, "expired_after_grace": 0}
 
     def test_processes_entire_batch_in_one_run(
         self,
@@ -174,7 +179,7 @@ class TestExpireSubscriptions:
             )
 
         to_past_due = [_make_active_sub(plan, _user(i), recent_end) for i in range(2)]
-        to_expired_immediate = _make_active_sub(plan, _user(2), old_end, cancel_at_period_end=True)
+        to_cancelled = _make_active_sub(plan, _user(2), old_end, cancel_at_period_end=True)
         to_expired_grace = []
         for i in range(3, 5):
             sub = _make_active_sub(plan, _user(i), old_end)
@@ -185,20 +190,21 @@ class TestExpireSubscriptions:
         with freeze_time("2026-05-11 13:00:00"):
             counters = expire_subscriptions_past_grace()
 
-        assert counters == {"expired_immediate": 1, "past_due": 2, "expired_after_grace": 2}
+        assert counters == {"cancelled_at_period_end": 1, "past_due": 2, "expired_after_grace": 2}
         for sub in to_past_due:
             sub.refresh_from_db()
             assert sub.status == MembershipSubscription.SubscriptionStatus.PAST_DUE
-        to_expired_immediate.refresh_from_db()
-        assert to_expired_immediate.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        to_cancelled.refresh_from_db()
+        assert to_cancelled.status == MembershipSubscription.SubscriptionStatus.CANCELLED
         for sub in to_expired_grace:
             sub.refresh_from_db()
             assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
 
-    def test_expired_at_set_on_cancel_at_period_end_expiry(
+    def test_expired_at_not_set_on_cancel_at_period_end_terminalization(
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser
     ) -> None:
-        """ACTIVE sub with cancel_at_period_end=True must have expired_at stamped on expiry."""
+        """ACTIVE sub with cancel_at_period_end=True terminalizes as CANCELLED
+        with cancelled_at stamped but expired_at left unset (no revival anchor)."""
         period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
         _make_active_sub(plan, subscriber, period_end, cancel_at_period_end=True)
 
@@ -206,8 +212,9 @@ class TestExpireSubscriptions:
             expire_subscriptions_past_grace()
 
         sub = MembershipSubscription.objects.get(user=subscriber)
-        assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
-        assert sub.expired_at is not None
+        assert sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert sub.cancelled_at is not None
+        assert sub.expired_at is None
 
     def test_expired_at_set_on_past_due_grace_expiry(
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser
@@ -248,13 +255,14 @@ class TestExpireSubscriptions:
             notification_type=NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
         ).exists()
 
-    def test_offline_cancel_at_period_end_expiry_fires_subscription_expired(
+    def test_cancel_at_period_end_terminalization_dispatches_nothing(
         self,
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
         organization: Organization,
     ) -> None:
-        """OFFLINE ACTIVE sub with cancel_at_period_end=True → EXPIRED fires SUBSCRIPTION_EXPIRED."""
+        """cancel_at_period_end → CANCELLED must NOT fire SUBSCRIPTION_EXPIRED
+        (the member already received CANCELLATION_CONFIRMED when they scheduled it)."""
         from notifications.enums import NotificationType
         from notifications.models import Notification
 
@@ -264,9 +272,13 @@ class TestExpireSubscriptions:
         with freeze_time("2026-05-02 13:00:00"):
             expire_subscriptions_past_grace()
 
-        assert Notification.objects.filter(
+        assert not Notification.objects.filter(
             user=subscriber,
             notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
+        ).exists()
+        assert not Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
         ).exists()
 
     def test_offline_past_due_beyond_grace_fires_subscription_expired(
@@ -401,12 +413,14 @@ class TestOnlineExpiryCancelsStripe:
             user=subscriber, notification_type=NotificationType.SUBSCRIPTION_EXPIRED
         ).exists()
 
-    def test_online_cancel_at_period_end_expiry_cancels_stripe(
+    def test_online_cancel_at_period_end_terminalizes_cancelled_and_cancels_stripe(
         self,
         tier: MembershipTier,
         organization: Organization,
         subscriber: RevelUser,
     ) -> None:
+        """ONLINE cancel_at_period_end lapse → CANCELLED (not EXPIRED), Stripe
+        best-effort cancel still queued so Smart Retries stop dunning."""
         from unittest.mock import patch
 
         sub = self._make_online_sub(
@@ -420,10 +434,12 @@ class TestOnlineExpiryCancelsStripe:
         with patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock:
             counters = expire_subscriptions_past_grace()
 
-        assert counters["expired_immediate"] == 1
+        assert counters["cancelled_at_period_end"] == 1
         sub.refresh_from_db()
-        assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert sub.expired_at is None
         cancel_mock.assert_called_once()
+        assert cancel_mock.call_args.args[0] == "sub_c1_online"
 
     def test_stripe_cancel_failure_does_not_fail_the_task(
         self,

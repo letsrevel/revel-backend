@@ -10,9 +10,9 @@
     <div class="info-row"><span class="label">{% trans "Amount charged:" %}</span> <strong>{{ context.amount }}</strong></div>
     <div class="info-row"><span class="label">{% trans "Next renewal:" %}</span> {{ context.period_end }}</div>
 </div>
-{% if context.customer_portal_url %}
+{% if context.manage_subscription_url %}
 <center>
-    <a href="{{ context.customer_portal_url }}" class="button">{% trans "Manage Billing" %}</a>
+    <a href="{{ context.manage_subscription_url }}" class="button">{% trans "Manage Billing" %}</a>
 </center>
 {% endif %}
 {% endblock %}
