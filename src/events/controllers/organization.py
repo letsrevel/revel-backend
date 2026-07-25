@@ -180,7 +180,8 @@ class OrganizationController(UserAwareController):
         """
         organization = self.get_one(slug)
         return (
-            models.MembershipSubscriptionPlan.objects.filter(tier__organization=organization, is_active=True)
+            models.MembershipSubscriptionPlan.objects.with_active_subscription_count()
+            .filter(tier__organization=organization, is_active=True)
             .select_related("tier")
             .order_by("tier__name", "price")
         )

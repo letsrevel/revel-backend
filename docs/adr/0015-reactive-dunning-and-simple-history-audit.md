@@ -31,7 +31,7 @@ orchestrator. For ONLINE subscriptions:
 |---|---|---|
 | `invoice.paid` | period_start/end updated; PENDING/PAST_DUE → ACTIVE; `MembershipPayment(SUCCEEDED)` | `RENEWAL_SUCCEEDED` (gated to true renewals — see below) |
 | `invoice.payment_failed` | ACTIVE/PENDING → PAST_DUE; `MembershipPayment(FAILED)` | `PAYMENT_FAILED` |
-| `customer.subscription.deleted` | EXPIRED + stamp `expired_at` | `SUBSCRIPTION_EXPIRED` |
+| `customer.subscription.deleted` | from PAST_DUE without a chosen `cancel_at_period_end` (dunning exhausted): EXPIRED + stamp `expired_at`; otherwise (member-chosen cancel): CANCELLED | `SUBSCRIPTION_EXPIRED` / `CANCELLATION_CONFIRMED` respectively |
 | `customer.subscription.updated` (`cancel_at_period_end=true`, first time) | mirror flag | `CANCELLATION_CONFIRMED` (when not already locally set) |
 | `charge.refunded` | mark `MembershipPayment` REFUNDED; auto-cancel if full refund of current period | `CANCELLATION_CONFIRMED` (only if auto-cancel triggered) |
 

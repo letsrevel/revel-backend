@@ -18,6 +18,8 @@ from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMi
 from events.models import (
     HeldSeriesPass,
     MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
     Organization,
     Payment,
     StripeWebhookEvent,
@@ -183,6 +185,14 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin):
         """
         session = event.data.object
         session_id = session["id"]
+        if session.get("mode") == "subscription" or (session.get("metadata") or {}).get("membership_subscription_id"):
+            # Subscription checkouts have no Payment rows and no on_commit task
+            # to re-enqueue — instead re-run the (idempotent) link + initial-
+            # invoice backfill so a redelivery self-heals a dropped first
+            # ``invoice.paid`` (link is a no-op when already set; the backfill
+            # skips when a payment row exists).
+            self.handle_subscription_checkout_completed(event)
+            return
         if session["payment_status"] not in {"paid", "no_payment_required"}:
             return
         if not Payment.objects.filter(stripe_session_id=session_id).exists():
@@ -205,6 +215,32 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin):
         """
         payment_intent_id = event.data.object.get("payment_intent")
         if not payment_intent_id:
+            return
+        membership_payment = (
+            MembershipPayment.objects.filter(
+                stripe_payment_intent_id=payment_intent_id,
+                status=MembershipPayment.PaymentStatus.REFUNDED,
+            )
+            .select_related("subscription", "subscription__plan", "subscription__organization")
+            .first()
+        )
+        if membership_payment is not None:
+            # Subscription-refund redelivery: the first delivery terminalized
+            # the row and queued a post-commit best-effort Stripe cancel that
+            # may have failed (the exact window replay exists for, #492). If
+            # the local row is CANCELLED with a live Stripe link, retry the
+            # cancel — idempotent, tolerates an already-canceled Stripe sub.
+            sub = membership_payment.subscription
+            if (
+                sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+                and sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
+                and sub.stripe_subscription_id
+            ):
+                from events.service.subscription_stripe_service import cancel_stripe_subscription_best_effort
+
+                transaction.on_commit(
+                    functools.partial(cancel_stripe_subscription_best_effort, sub, reason="refund_auto_cancel_replay")
+                )
             return
         refunded = list(
             Payment.objects.filter(

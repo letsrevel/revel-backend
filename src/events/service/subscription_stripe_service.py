@@ -269,6 +269,15 @@ def start_online_subscription(
     Returns:
         A ``(subscription, checkout_url)`` pair. The caller redirects the
         member to ``checkout_url``.
+
+    NOTE: for plans with ``max_subscriptions`` set, ``create_subscription``
+    takes the plan row lock (``ensure_plan_sales_capacity``); under production
+    ATOMIC_REQUESTS the inner atomic exit releases only a savepoint, so that
+    lock is held across the Checkout-Session Stripe call below until the
+    request commits — serializing concurrent subscribers to a capped plan.
+    Accepted for now (see engineering-notes, "reserve/session split"): capped
+    plans are the exception and don't see on-sale-rush traffic; the split is
+    the upgrade path if one ever does.
     """
     if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         raise HttpError(400, str(_("This plan is not configured for online checkout.")))
@@ -358,8 +367,15 @@ def _maybe_resume_pending_checkout(
     activation webhooks haven't landed yet) — creating a second subscription
     there would double-charge.
     """
+    # Locked read: two concurrent subscribes (double-submit, stale-tab retry
+    # with a different plan) must not diverge — one expiring the session while
+    # the other hands its URL back (a dead Checkout page). The lock is
+    # per-member (single-member blast radius) and, under ATOMIC_REQUESTS, is
+    # held across the Session.retrieve below — same accepted trade as the
+    # revive path (see #702's reservation-lock precedent for tickets).
     pending = (
-        MembershipSubscription.objects.filter(
+        MembershipSubscription.objects.select_for_update()
+        .filter(
             organization=plan.tier.organization,
             user=user,
             status=MembershipSubscription.SubscriptionStatus.PENDING,

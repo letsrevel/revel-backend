@@ -48,8 +48,14 @@ window.**
 - New field `Organization.membership_subscription_revival_window_days`
   (default 30; `0` disables revival entirely for the org).
 - New field `MembershipSubscription.expired_at` is stamped on every
-  transition into EXPIRED (Celery beat, `customer.subscription.deleted`,
-  `cancel_subscription(immediate=True)` on an already-lapsed sub). Legacy
+  transition into EXPIRED: the Celery grace-expiry beat, and
+  `customer.subscription.deleted` arriving while the row is PAST_DUE without
+  a member-chosen `cancel_at_period_end` (Stripe dunning outran the local
+  grace clock — an involuntary lapse). A chosen cancel (immediate or
+  scheduled) lands CANCELLED and never stamps `expired_at`: revival is
+  deliberately reserved for involuntary lapses. It is cleared again on every
+  transition back to ACTIVE (revival consumed the window; a later lapse
+  stamps a fresh one — simple-history keeps the audit trail). Legacy
   EXPIRED rows (pre-Phase-4) have `expired_at = NULL` and are **not
   revivable** — the absence of the timestamp is the deliberate signal.
 - `revive_subscription` validates: status is EXPIRED, `expired_at` is set,

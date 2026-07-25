@@ -1,9 +1,11 @@
+import typing as t
+
 from django.db import migrations
 
 _RECONCILE_TASK_NAME = "Reconcile Stripe membership subscriptions"
 
 
-def create_subscription_reconcile_task(apps, schema_editor):
+def create_subscription_reconcile_task(apps: t.Any, schema_editor: t.Any) -> None:
     """Register the nightly Stripe-subscription reconciliation beat task."""
     CrontabSchedule = apps.get_model("django_celery_beat", "CrontabSchedule")
     PeriodicTask = apps.get_model("django_celery_beat", "PeriodicTask")
@@ -29,7 +31,7 @@ def create_subscription_reconcile_task(apps, schema_editor):
     )
 
 
-def delete_subscription_reconcile_task(apps, schema_editor):
+def delete_subscription_reconcile_task(apps: t.Any, schema_editor: t.Any) -> None:
     """Remove the Stripe-subscription reconciliation beat task."""
     PeriodicTask = apps.get_model("django_celery_beat", "PeriodicTask")
     PeriodicTask.objects.filter(name=_RECONCILE_TASK_NAME).delete()

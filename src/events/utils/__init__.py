@@ -125,6 +125,34 @@ def format_event_datetime(
         return date_format(dt_in_event_tz, fmt)
 
 
+def format_organization_datetime(
+    dt: datetime | None,
+    org: "Organization",
+    fmt: str = DEFAULT_DATE_FORMAT,
+) -> str:
+    r"""Format a datetime in the organization's timezone.
+
+    Mirrors :func:`format_event_datetime` for org-scoped contexts (e.g.
+    membership-subscription notifications, #511/#542 convention: never render
+    raw UTC ISO timestamps into member-facing copy).
+
+    Args:
+        dt: Datetime to format (must be timezone-aware)
+        org: Organization to get the timezone from
+        fmt: Date format string (default: "l, F j, Y \a\t g:i A T")
+
+    Returns:
+        Formatted datetime string, or empty string if dt is None
+    """
+    if not dt:
+        return ""
+
+    org_tz = get_organization_timezone(org)
+    dt_in_org_tz = dt.astimezone(org_tz)
+    with timezone.override(org_tz):
+        return date_format(dt_in_org_tz, fmt)
+
+
 class _SafeAccessStr(str):
     """Empty string that silently absorbs attribute and item access.
 

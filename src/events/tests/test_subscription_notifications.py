@@ -4,8 +4,10 @@ Dispatch-site tests are added in later tasks (D2/D3/E1). This file only
 contains the type-registration smoke tests for now.
 """
 
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
+from unittest import mock
 
 import pytest
 from django.utils import timezone
@@ -18,6 +20,7 @@ from events.models import (
     Organization,
 )
 from events.service import subscription_service
+from events.utils import format_organization_datetime
 from notifications.context_schemas import (
     NOTIFICATION_CONTEXT_SCHEMAS,
     validate_notification_context,
@@ -133,6 +136,31 @@ def helper_subscription(
 
 
 @pytest.mark.django_db
+class TestDispatchWiring:
+    def test_dispatch_helper_enqueues_delivery_task_on_commit(
+        self,
+        helper_subscription: MembershipSubscription,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """The helpers must route through the signal so the row is actually DELIVERED.
+
+        Regression: the helpers used to call ``create_notification`` directly,
+        which only inserts a Notification row with empty title/body — nothing
+        ever enqueued ``dispatch_notification`` (the #442 create+on_commit
+        pairing lives in the signal handler), so no email/Telegram went out and
+        in-app entries rendered blank.
+        """
+        with mock.patch("notifications.tasks.dispatch_notification.delay") as mock_delay:
+            with django_capture_on_commit_callbacks(execute=True):
+                subscription_service._dispatch_renewal_succeeded(helper_subscription)
+        notif = Notification.objects.get(
+            user=helper_subscription.user,
+            notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        )
+        mock_delay.assert_called_once_with(str(notif.id))
+
+
+@pytest.mark.django_db
 class TestDispatchHelpers:
     def test_renewal_succeeded_creates_notification(self, helper_subscription: MembershipSubscription) -> None:
         subscription_service._dispatch_renewal_succeeded(helper_subscription)
@@ -199,7 +227,10 @@ class TestDispatchHelpers:
         )
         assert n.context["immediate"] is False
         assert helper_subscription.current_period_end is not None
-        assert n.context["access_ends_at"] == helper_subscription.current_period_end.isoformat()
+        # Org-local, human-readable (#511/#542) — never a raw UTC isoformat.
+        assert n.context["access_ends_at"] == format_organization_datetime(
+            helper_subscription.current_period_end, helper_subscription.organization
+        )
 
     def test_renewal_succeeded_offline_omits_manage_subscription_url(
         self, helper_subscription: MembershipSubscription

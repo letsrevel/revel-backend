@@ -154,6 +154,51 @@ def _apply_stripe_price_swap(
     return changed
 
 
+def _apply_status_transition(
+    subscription: MembershipSubscription,
+    stripe_subscription: dict[str, t.Any],
+    *,
+    prior_cap: bool,
+) -> list[str]:
+    """Resolve and apply the payload's status onto the row; return mutated field names.
+
+    Mutates the instance in place but does not save. Handles the lifecycle
+    timestamps that ride along with a status change: ``cancelled_at`` /
+    ``expired_at`` stamping on the way into a terminal state, and the
+    ``expired_at`` clear on the way back to ACTIVE.
+    """
+    target_status = _resolve_target_status(stripe_subscription)
+    if (
+        target_status == MembershipSubscription.SubscriptionStatus.CANCELLED.value
+        and subscription.status == MembershipSubscription.SubscriptionStatus.PAST_DUE.value
+        and not prior_cap
+    ):
+        # Stripe's dunning gave up (``customer.subscription.deleted`` carries
+        # status "canceled") while the row sat PAST_DUE and the member had NOT
+        # chosen to cancel. That is an involuntary lapse, not a chosen cancel:
+        # land EXPIRED so ``expired_at`` is stamped, the revival window opens,
+        # and the member gets SUBSCRIPTION_EXPIRED (revive CTA) instead of a
+        # cancellation confirmation (ADR-0014 / ADR-0015 dunning table).
+        target_status = MembershipSubscription.SubscriptionStatus.EXPIRED.value
+    if not target_status or subscription.status == target_status:
+        return []
+    changed = ["status"]
+    subscription.status = target_status
+    if target_status == MembershipSubscription.SubscriptionStatus.CANCELLED.value and not subscription.cancelled_at:
+        subscription.cancelled_at = timezone.now()
+        changed.append("cancelled_at")
+    if target_status == MembershipSubscription.SubscriptionStatus.EXPIRED.value and not subscription.expired_at:
+        subscription.expired_at = timezone.now()
+        changed.append("expired_at")
+    if target_status == MembershipSubscription.SubscriptionStatus.ACTIVE.value and subscription.expired_at:
+        # Back to ACTIVE (e.g. a revival row's Stripe sub confirming):
+        # the old expiry is consumed — a future lapse must stamp a fresh
+        # one so the revival window doesn't anchor on stale data.
+        subscription.expired_at = None
+        changed.append("expired_at")
+    return changed
+
+
 @transaction.atomic
 def sync_subscription_from_stripe(
     stripe_subscription: dict[str, t.Any],
@@ -196,17 +241,7 @@ def sync_subscription_from_stripe(
     prior_cap = subscription.cancel_at_period_end
 
     update_fields: list[str] = []
-
-    target_status = _resolve_target_status(stripe_subscription)
-    if target_status and subscription.status != target_status:
-        subscription.status = target_status
-        update_fields.append("status")
-        if target_status == MembershipSubscription.SubscriptionStatus.CANCELLED.value and not subscription.cancelled_at:
-            subscription.cancelled_at = timezone.now()
-            update_fields.append("cancelled_at")
-        if target_status == MembershipSubscription.SubscriptionStatus.EXPIRED.value and not subscription.expired_at:
-            subscription.expired_at = timezone.now()
-            update_fields.append("expired_at")
+    update_fields.extend(_apply_status_transition(subscription, stripe_subscription, prior_cap=prior_cap))
 
     cap = bool(stripe_subscription.get("cancel_at_period_end", False))
     if subscription.cancel_at_period_end != cap:
@@ -250,6 +285,12 @@ def _apply_invoice_outcome(
         if subscription.status in revivable:
             subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
             update_fields.append("status")
+        if subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE.value and subscription.expired_at:
+            # An ONLINE revival row re-enters ACTIVE here (PENDING → first
+            # invoice.paid). Clear the consumed expiry so a future lapse opens
+            # a fresh revival window instead of anchoring on the stale one.
+            subscription.expired_at = None
+            update_fields.append("expired_at")
         if update_fields:
             subscription.save(update_fields=[*update_fields, "updated_at"])
         if subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE.value:

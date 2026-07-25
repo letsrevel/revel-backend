@@ -25,6 +25,7 @@ from events.service.membership_manager import (
     MembershipEligibilityService,
     advance_application,
     apply_for_membership,
+    cancel_application,
 )
 from events.service.membership_manager.enums import MembershipNextStep
 
@@ -137,14 +138,7 @@ class MeMembershipApplicationsController(UserAwareController):
     def cancel(self, application_id: UUID) -> OrganizationMembershipRequest:
         """Cancel one of the caller's own applications. Idempotent on already-cancelled rows."""
         app = get_object_or_404(OrganizationMembershipRequest, pk=application_id, user=self.user())
-        if app.status not in {
-            OrganizationMembershipRequest.Status.PENDING,
-            OrganizationMembershipRequest.Status.APPROVED,
-        }:
-            return app
-        app.status = OrganizationMembershipRequest.Status.CANCELLED
-        app.save(update_fields=["status", "updated_at"])
-        return app
+        return cancel_application(app)
 
     @route.get(
         "/applications/{application_id}",

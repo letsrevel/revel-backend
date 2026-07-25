@@ -7,6 +7,7 @@ subscription/invoice state onto the local rows via ``subscription_stripe_sync``
 and route full charge refunds through ``subscription_refunds``.
 """
 
+import typing as t
 import uuid
 
 import stripe
@@ -78,6 +79,46 @@ class SubscriptionWebhookHandlersMixin:
             session_id=session.get("id"),
             subscription_id=str(subscription.pk),
             stripe_subscription_id=stripe_sub_id,
+        )
+        # Out-of-order delivery guard: Stripe guarantees no event ordering, and
+        # for ``mode=subscription`` the first ``invoice.paid`` fires almost
+        # simultaneously with this event. If the invoice event arrived FIRST it
+        # found no local row carrying this ``stripe_subscription_id`` and was
+        # silently dropped (its dedup row committed as HANDLED, so Stripe never
+        # retries it) — losing the member's first payment from the ledger and
+        # leaving the row PENDING. Replay the already-paid initial invoice now.
+        self._backfill_initial_invoice(session, subscription)
+
+    @staticmethod
+    def _backfill_initial_invoice(session: t.Any, subscription: MembershipSubscription) -> None:
+        """Record the checkout's first invoice if its ``invoice.paid`` was dropped.
+
+        No-op when a payment already exists for the subscription (the normal
+        ordering), when the session carries no invoice reference, or when the
+        invoice isn't paid yet (async payment methods — the later
+        ``invoice.paid`` now resolves against the freshly-linked row). The
+        ``Invoice.retrieve`` runs while holding this member's row lock — the
+        documented single-member-blast-radius trade for webhook paths — and a
+        Stripe failure propagates so the whole delivery (including the link and
+        the dedup row) rolls back and Stripe redelivers.
+        """
+        from events.service import subscription_stripe_sync
+        from events.service.subscription_stripe_payloads import _stripe_account_kwargs
+
+        if MembershipPayment.objects.filter(subscription=subscription).exists():
+            return
+        invoice_ref = session.get("invoice")
+        invoice_id = invoice_ref.get("id") if isinstance(invoice_ref, dict) else invoice_ref
+        if not invoice_id:
+            return
+        invoice = stripe.Invoice.retrieve(invoice_id, **_stripe_account_kwargs(subscription.organization))
+        if invoice.get("status") != "paid":
+            return
+        subscription_stripe_sync.record_stripe_payment_from_invoice(dict(invoice), succeeded=True)
+        logger.info(
+            "subscription_checkout_initial_invoice_backfilled",
+            subscription_id=str(subscription.pk),
+            stripe_invoice_id=invoice_id,
         )
 
     def _handle_subscription_refund(

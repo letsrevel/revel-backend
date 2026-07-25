@@ -303,6 +303,33 @@ def test_apply_paused_membership_blocks_self_promotion(
     assert member.status == OrganizationMember.MembershipStatus.PAUSED
 
 
+def test_apply_paused_membership_blocks_cross_tier_self_promotion(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """PAUSED at one tier must also block a free /apply at a DIFFERENT tier.
+
+    Regression: the gate and the completion guard were tier-scoped, but
+    OrganizationMember is unique per (org, user) — completing at another tier
+    ``update_or_create``s the SAME row, flipping it to ACTIVE and letting the
+    member self-clear an admin-imposed pause.
+    """
+    member = OrganizationMember.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=tier,
+        status=OrganizationMember.MembershipStatus.PAUSED,
+    )
+    other_tier = MembershipTier.objects.create(organization=organization, name="Cross-tier target")
+    client = _client(nonmember_user)
+    url = reverse("api:apply_for_membership", kwargs={"slug": organization.slug})
+    response = client.post(url, data={"tier_id": str(other_tier.id)}, content_type="application/json")
+
+    assert response.status_code == 403, response.content
+    member.refresh_from_db()
+    assert member.status == OrganizationMember.MembershipStatus.PAUSED
+    assert member.tier_id == tier.id
+
+
 def test_apply_user_with_active_subscription_cannot_self_promote_via_free_apply(
     nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
 ) -> None:

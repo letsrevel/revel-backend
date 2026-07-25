@@ -26,6 +26,34 @@ from .organization import MembershipTier, Organization
 _TERMINAL_STATUS_VALUES: tuple[str, ...] = ("cancelled", "expired")
 
 
+class MembershipSubscriptionPlanQuerySet(models.QuerySet["MembershipSubscriptionPlan"]):
+    """QuerySet exposing the plan-list annotation helper."""
+
+    def with_active_subscription_count(self) -> "MembershipSubscriptionPlanQuerySet":
+        """Annotate each plan with its count of non-terminal subscriptions.
+
+        Read by ``PlanSchema.resolve_active_subscription_count`` and
+        ``PublicPlanSchema.resolve_sold_out`` — annotating in the queryset
+        avoids one COUNT query per serialized row (N+1).
+        """
+        return self.annotate(
+            active_subscription_count=models.Count(
+                "subscriptions",
+                filter=~models.Q(subscriptions__status__in=_TERMINAL_STATUS_VALUES),
+            )
+        )
+
+
+class MembershipSubscriptionPlanManager(models.Manager["MembershipSubscriptionPlan"]):
+    def get_queryset(self) -> MembershipSubscriptionPlanQuerySet:
+        """Get base queryset."""
+        return MembershipSubscriptionPlanQuerySet(self.model, using=self._db)
+
+    def with_active_subscription_count(self) -> MembershipSubscriptionPlanQuerySet:
+        """Queryset annotated with each plan's non-terminal subscription count."""
+        return self.get_queryset().with_active_subscription_count()
+
+
 class MembershipSubscriptionPlan(TimeStampedModel):
     """A paid plan attached to a :class:`MembershipTier`.
 
@@ -98,6 +126,8 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     stripe_price_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
 
     history = HistoricalRecords()
+
+    objects = MembershipSubscriptionPlanManager()
 
     class Meta:
         ordering = ["tier__name", "name"]
@@ -272,6 +302,18 @@ class MembershipPayment(TimeStampedModel):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["subscription", "-created_at"]),
+        ]
+        constraints = [
+            # A Stripe invoice maps to at most one ledger row. The webhook path
+            # already serializes concurrent invoice events per subscription via
+            # select_for_update; this is the DB-level idempotency token backing
+            # the update_or_create keyed on stripe_invoice_id (house pattern,
+            # #483/#491).
+            models.UniqueConstraint(
+                fields=["stripe_invoice_id"],
+                condition=~models.Q(stripe_invoice_id=""),
+                name="unique_membership_payment_stripe_invoice",
+            ),
         ]
 
     def __str__(self) -> str:

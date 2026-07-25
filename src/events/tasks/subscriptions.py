@@ -10,6 +10,9 @@ from django.utils import timezone
 
 from events.models import MembershipSubscription, MembershipSubscriptionPlan
 
+if t.TYPE_CHECKING:
+    from events.service.subscription_service import MigrationResult
+
 logger = structlog.get_logger(__name__)
 
 
@@ -167,11 +170,17 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
     return counters
 
 
+class SubscriptionReminderCounters(t.TypedDict):
+    """Telemetry counters returned by ``send_subscription_renewal_reminders``."""
+
+    sent: int
+
+
 @shared_task(name="events.send_subscription_renewal_reminders")
-def send_subscription_renewal_reminders() -> dict[str, int]:
+def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     """Fire SUBSCRIPTION_RENEWAL_REMINDER for subscriptions renewing in REMINDER_DAYS.
 
-    Runs daily via Celery beat (see migration 0078). Processes only ACTIVE
+    Runs daily via Celery beat (see migration 0102). Processes only ACTIVE
     subscriptions whose ``current_period_end`` falls exactly REMINDER_DAYS from
     today and have ``cancel_at_period_end=False`` (no point reminding about a
     subscription already scheduled to end).
@@ -186,17 +195,22 @@ def send_subscription_renewal_reminders() -> dict[str, int]:
     from events.service import subscription_service  # lazy: avoid import cycle
     from events.utils.subscription_periods import REMINDER_DAYS
     from notifications.enums import NotificationType
-    from notifications.service import dispatcher as notification_dispatcher
+    from notifications.signals import notification_requested
 
     today = timezone.now().date()
     target_date = today + datetime.timedelta(days=REMINDER_DAYS)
-    qs = MembershipSubscription.objects.filter(
-        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
-        cancel_at_period_end=False,
-        current_period_end__date=target_date,
-    ).select_related("plan", "organization", "user")
+    # list(), not .iterator(): the signal handler INSERTs a Notification per row,
+    # and a server-side cursor can't survive per-row commits under PgBouncer
+    # transaction pooling (see #458).
+    subs = list(
+        MembershipSubscription.objects.filter(
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            cancel_at_period_end=False,
+            current_period_end__date=target_date,
+        ).select_related("plan", "organization", "user")
+    )
     sent = 0
-    for sub in qs.iterator():
+    for sub in subs:
         plan = sub.plan
         ctx = subscription_service._common_subscription_context(sub)
         ctx.update(
@@ -204,14 +218,19 @@ def send_subscription_renewal_reminders() -> dict[str, int]:
             period_end=sub.current_period_end.date().isoformat() if sub.current_period_end else "",
             is_online=(plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value),
         )
-        notification_dispatcher.create_notification(NotificationType.SUBSCRIPTION_RENEWAL_REMINDER, sub.user, ctx)
+        notification_requested.send(
+            sender=MembershipSubscription,
+            user=sub.user,
+            notification_type=NotificationType.SUBSCRIPTION_RENEWAL_REMINDER,
+            context=ctx,
+        )
         sent += 1
     logger.info("send_subscription_renewal_reminders_done", sent=sent)
-    return {"sent": sent}
+    return SubscriptionReminderCounters(sent=sent)
 
 
 @shared_task(name="events.migrate_plan_subscribers")
-def migrate_plan_subscribers(plan_id: str, initiated_by_id: str) -> dict[str, t.Any]:
+def migrate_plan_subscribers(plan_id: str, initiated_by_id: str) -> "MigrationResult":
     """Force-migrate a plan's non-terminal subscribers to its current price (async).
 
     Wraps :func:`events.service.subscription_service.migrate_plan_subscribers`,
@@ -229,7 +248,7 @@ def migrate_plan_subscribers(plan_id: str, initiated_by_id: str) -> dict[str, t.
     from accounts.models import RevelUser
     from events.service import subscription_service
 
-    empty: dict[str, t.Any] = {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}
+    empty: MigrationResult = {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}
     plan = MembershipSubscriptionPlan.objects.select_related("tier__organization").filter(pk=plan_id).first()
     if plan is None:
         logger.warning("migrate_plan_subscribers_task_plan_missing", plan_id=plan_id)
@@ -238,7 +257,7 @@ def migrate_plan_subscribers(plan_id: str, initiated_by_id: str) -> dict[str, t.
     if initiated_by is None:
         logger.warning("migrate_plan_subscribers_task_user_missing", plan_id=plan_id, initiated_by_id=initiated_by_id)
         return empty
-    return dict(subscription_service.migrate_plan_subscribers(plan, initiated_by=initiated_by))
+    return subscription_service.migrate_plan_subscribers(plan, initiated_by=initiated_by)
 
 
 class SubscriptionReconcileCounters(t.TypedDict):
@@ -252,6 +271,8 @@ class SubscriptionReconcileCounters(t.TypedDict):
 @shared_task(name="events.reconcile_stripe_subscriptions")
 def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
     """Nightly drift repair: re-observe Stripe state for ONLINE subscriptions.
+
+    Runs daily via Celery beat (see migration 0103).
 
     Webhook delivery is best-effort; a missed event leaves app-truth and
     billing-truth diverged until the next event happens to arrive (C4 in the

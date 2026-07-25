@@ -326,6 +326,81 @@ class TestSyncSubscriptionDeleted:
         assert notif is not None
         assert notif.context.get("immediate") is True
 
+    def test_past_due_deleted_lands_expired_with_revival_window(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """Stripe dunning exhausting before the local grace clock is an involuntary lapse.
+
+        ``customer.subscription.deleted`` (status "canceled") arriving on a
+        PAST_DUE row without a member-chosen cancel must land EXPIRED — with
+        ``expired_at`` stamped so the revival window opens — and fire
+        SUBSCRIPTION_EXPIRED, not a cancellation confirmation (ADR-0014/0015).
+        """
+        sub = _make_online_sub(
+            online_plan,
+            subscriber,
+            stripe_id="sub_dun_exhausted",
+            status=MembershipSubscription.SubscriptionStatus.PAST_DUE,
+        )
+        payload = _stripe_sub_payload("sub_dun_exhausted", status="canceled")
+
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
+
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert sub.expired_at is not None
+        assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_EXPIRED)
+        assert not Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
+        ).exists()
+
+    def test_past_due_deleted_with_chosen_cancel_lands_cancelled(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """A member-chosen scheduled cancel reaching its end is NOT an involuntary lapse."""
+        sub = _make_online_sub(
+            online_plan,
+            subscriber,
+            stripe_id="sub_dun_chosen",
+            status=MembershipSubscription.SubscriptionStatus.PAST_DUE,
+            cancel_at_period_end=True,
+        )
+        payload = _stripe_sub_payload("sub_dun_chosen", status="canceled", cancel_at_period_end=True)
+
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
+
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert sub.expired_at is None
+        assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_EXPIRED)
+
+    def test_sync_back_to_active_clears_stale_expired_at(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """A revival row confirming ACTIVE via sync consumes its old expiry."""
+        sub = _make_online_sub(
+            online_plan,
+            subscriber,
+            stripe_id="sub_revival_confirm",
+            status=MembershipSubscription.SubscriptionStatus.PAST_DUE,
+        )
+        sub.expired_at = timezone.now() - timedelta(days=3)
+        sub.save(update_fields=["expired_at"])
+        payload = _stripe_sub_payload("sub_revival_confirm", status="active")
+
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
+
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        assert sub.expired_at is None
+
     def test_already_cancelled_echo_does_not_fire(
         self,
         online_plan: MembershipSubscriptionPlan,

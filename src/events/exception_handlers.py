@@ -45,6 +45,7 @@ from events.exceptions import (
     TooManyItemsError,
 )
 from events.service.event_manager import UserIsIneligibleError
+from events.service.membership_manager import MembershipApplicationIneligibleError
 from events.service.organization_service import (
     GRANT_INVARIANT_MESSAGE,
     MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE,
@@ -72,9 +73,32 @@ def handle_user_is_ineligible_error(request: HttpRequest, exc: Exception | t.Typ
     return Response(status=400, data=t.cast(UserIsIneligibleError, exc).eligibility.model_dump(mode="json"))
 
 
+def handle_membership_application_ineligible_error(
+    request: HttpRequest, exc: Exception | t.Type[Exception]
+) -> Response:
+    """Render a membership-application ineligibility as its eligibility payload.
+
+    Mirrors :func:`handle_user_is_ineligible_error`: the exception carries the
+    failing :class:`MembershipEligibility`, which the frontend consumes the same
+    way as a blocking ``/join-eligibility`` verdict.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``MembershipApplicationIneligibleError``.
+
+    Returns:
+        Response: A 400 response whose body is the serialized eligibility payload.
+    """
+    return Response(
+        status=400,
+        data=t.cast(MembershipApplicationIneligibleError, exc).eligibility.model_dump(mode="json"),
+    )
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     UserIsIneligibleError: handle_user_is_ineligible_error,
+    MembershipApplicationIneligibleError: handle_membership_application_ineligible_error,
     TooManyItemsError: make_static_handler(400, _("You have created too many items.")),
     AlreadyMemberError: make_static_handler(400, _("You are already a member of this organization.")),
     PendingMembershipRequestExistsError: make_static_handler(

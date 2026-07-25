@@ -1,9 +1,8 @@
 """Types and exceptions for the membership eligibility system."""
 
-import datetime
 import uuid
 
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel
 
 from .enums import MembershipNextStep, ReasonCode
 
@@ -20,7 +19,7 @@ class MembershipEligibility(BaseModel):
     next_step: MembershipNextStep | None = None
     questionnaire_id: uuid.UUID | None = None
     application_id: uuid.UUID | None = None
-    retry_on: datetime.datetime | None = None
+    retry_on: AwareDatetime | None = None
 
 
 class MembershipApplicationIneligibleError(Exception):

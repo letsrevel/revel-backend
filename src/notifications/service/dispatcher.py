@@ -23,6 +23,16 @@ TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
         NotificationType.TICKET_CREATED,
         NotificationType.TICKET_CANCELLED,
         NotificationType.TICKET_REFUNDED,
+        # Subscription money/lifecycle events must not wait for a digest sweep:
+        # a failed renewal or expiry needs immediate action, a revival checkout
+        # link is time-boxed, and renewal/cancellation confirmations are
+        # receipts. (RENEWAL_REMINDER and PRICE_MIGRATION_NOTICE are advance
+        # notices with days of slack — they stay on the digest cadence.)
+        NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
+        NotificationType.SUBSCRIPTION_EXPIRED,
+        NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
+        NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
     }
 )
 

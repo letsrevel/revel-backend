@@ -94,3 +94,35 @@ def test_plan_belonging_to_other_tier_blocks(
     result = service.check_eligibility()
     assert result.allowed is False
     assert result.reason == str(Reasons.PLAN_UNAVAILABLE)
+
+
+def test_free_apply_at_plan_bearing_tier_blocks(
+    user: RevelUser,
+    organization: Organization,
+    tier: MembershipTier,
+    plan: MembershipSubscriptionPlan,
+) -> None:
+    """A tier carrying an active plan is monetized — the free path must not grant it."""
+    organization.accept_membership_requests = True
+    organization.save(update_fields=["accept_membership_requests"])
+    service = MembershipEligibilityService(user=user, organization=organization, tier=tier)
+    result = service.check_eligibility()
+    assert result.allowed is False
+    assert result.reason == str(Reasons.TIER_REQUIRES_SUBSCRIPTION)
+    assert result.next_step is None
+
+
+def test_free_apply_at_tier_with_only_archived_plans_falls_through(
+    user: RevelUser,
+    organization: Organization,
+    tier: MembershipTier,
+    plan: MembershipSubscriptionPlan,
+) -> None:
+    """Archived plans don't monetize a tier; the free path stays open."""
+    organization.accept_membership_requests = True
+    organization.save(update_fields=["accept_membership_requests"])
+    plan.is_active = False
+    plan.save(update_fields=["is_active"])
+    service = MembershipEligibilityService(user=user, organization=organization, tier=tier)
+    result = service.check_eligibility()
+    assert result.allowed is True

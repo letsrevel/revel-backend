@@ -13,6 +13,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
+from common.schema import ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import schema
 from events.models import MembershipSubscription, MembershipSubscriptionPlan, Organization, OrganizationMember
@@ -73,7 +74,7 @@ class MeSubscriptionsController(UserAwareController):
     @route.get(
         "/organizations/{org_id}/subscription",
         url_name="get_my_organization_subscription",
-        response=schema.MySubscriptionSchema,
+        response={200: schema.MySubscriptionSchema, 404: ResponseMessage},
     )
     def get_my_subscription(self, org_id: UUID) -> MembershipSubscription:
         """Get the current user's most recent non-terminal subscription in an organization.
@@ -91,7 +92,12 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscribe",
         url_name="subscribe_to_membership_plan",
-        response={201: schema.SubscribeResponseSchema},
+        response={
+            201: schema.SubscribeResponseSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            502: ResponseMessage,
+        },
         throttle=WriteThrottle(),
     )
     def subscribe(
@@ -127,7 +133,7 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscription/cancel",
         url_name="cancel_my_membership_subscription",
-        response=schema.MySubscriptionSchema,
+        response={200: schema.MySubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage},
         throttle=WriteThrottle(),
     )
     def cancel_subscription(
@@ -153,7 +159,12 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscription/change-plan",
         url_name="change_my_membership_plan",
-        response=schema.MySubscriptionSchema,
+        response={
+            200: schema.MySubscriptionSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            502: ResponseMessage,
+        },
         throttle=WriteThrottle(),
     )
     def change_plan(
@@ -185,7 +196,12 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscription/revive",
         url_name="revive_my_membership_subscription",
-        response=schema.RevivalResponseSchema,
+        response={
+            200: schema.RevivalResponseSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            502: ResponseMessage,
+        },
         throttle=WriteThrottle(),
     )
     def revive_subscription(
@@ -238,7 +254,12 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/billing-portal",
         url_name="create_billing_portal_session",
-        response={201: schema.BillingPortalSessionSchema},
+        response={
+            201: schema.BillingPortalSessionSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            502: ResponseMessage,
+        },
         throttle=WriteThrottle(),
     )
     def create_billing_portal_session(

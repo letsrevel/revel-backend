@@ -43,6 +43,7 @@ class ReasonCode(StrEnum):
     MEMBERSHIP_QUESTIONNAIRE_FAILED = "membership_questionnaire_failed"
     MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN = "membership_questionnaire_retake_cooldown"
     REQUIRES_APPROVAL = "requires_approval"
+    TIER_REQUIRES_SUBSCRIPTION = "tier_requires_subscription"
     PLAN_NOT_ONLINE = "plan_not_online"
     ORG_NOT_STRIPE_CONNECTED = "org_not_stripe_connected"
     DUPLICATE_ACTIVE_SUBSCRIPTION = "duplicate_active_subscription"
@@ -73,6 +74,7 @@ class Reasons(StrEnum):
         "Membership questionnaire evaluation was insufficient. You can try again later."
     )
     REQUIRES_APPROVAL = gettext_noop("Your application is awaiting staff approval.")
+    TIER_REQUIRES_SUBSCRIPTION = gettext_noop("This tier requires a paid subscription. Subscribe to a plan to join.")
     PLAN_NOT_ONLINE = gettext_noop("This plan is not configured for online checkout.")
     ORG_NOT_STRIPE_CONNECTED = gettext_noop("This organization cannot accept online payments yet.")
     DUPLICATE_ACTIVE_SUBSCRIPTION = gettext_noop("You already have an active subscription in this organization.")

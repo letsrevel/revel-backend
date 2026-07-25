@@ -175,8 +175,14 @@ see the updated flags and suppress duplicate notifications). Don't "fix" the loc
 replacing that serialization. The one webhook-side network call
 (`_invoice_payment_intent_id`'s `Invoice.retrieve` fallback) resolves *before* the row lock
 per the resolve-before-lock discipline above. The plan-row lock taken by
-`ensure_plan_sales_capacity` (sale caps) is scoped the same way as the tier lock — but it
-only guards a count+insert, never a Stripe call.
+`ensure_plan_sales_capacity` (sale caps) is scoped the same way as the tier lock — the
+lock itself only guards a count+insert, **but under `ATOMIC_REQUESTS` it survives until
+request commit**, so in `start_online_subscription` (capped plans only) it is in fact held
+across the Checkout-Session Stripe call that follows `create_subscription`. That serializes
+concurrent subscribers to a *capped* plan behind one Stripe round-trip at a time — accepted
+for now (capped-plan checkout traffic is a fraction of a hot tier's on-sale rush; the
+subscribe-path docstring carries the same NOTE). The reserve/session split is the upgrade
+path if a capped plan ever sees rush-level traffic.
 
 ## Migration Squashing (one per app per PR, never hand-edit schema migrations)
 

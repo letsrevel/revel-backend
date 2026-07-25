@@ -44,7 +44,16 @@ class PlanSchema(ModelSchema):
 
     @staticmethod
     def resolve_active_subscription_count(obj: MembershipSubscriptionPlan) -> int:
-        """Non-terminal subscriptions currently occupying cap slots."""
+        """Non-terminal subscriptions currently occupying cap slots.
+
+        Reads the ``active_subscription_count`` annotation when present (set by
+        ``MembershipSubscriptionPlan.objects.with_active_subscription_count()``
+        on list querysets — avoids one COUNT per row). Falls back to a direct
+        COUNT for single-object callers that haven't annotated.
+        """
+        annotated = getattr(obj, "active_subscription_count", None)
+        if annotated is not None:
+            return int(annotated)
         return obj.subscriptions.exclude(status__in=MembershipSubscription.TERMINAL_STATUSES).count()
 
     @staticmethod
@@ -83,11 +92,47 @@ class PublicPlanSchema(ModelSchema):
 
         Lets the frontend distinguish "sold out" (cap reached) from
         "sales paused" (``sales_status``) when rendering the join CTA.
+        Reads the ``active_subscription_count`` annotation when present
+        (see ``with_active_subscription_count()``); falls back to a COUNT.
         """
         if obj.max_subscriptions is None:
             return False
-        taken = obj.subscriptions.exclude(status__in=MembershipSubscription.TERMINAL_STATUSES).count()
-        return taken >= obj.max_subscriptions
+        taken = getattr(obj, "active_subscription_count", None)
+        if taken is None:
+            taken = obj.subscriptions.exclude(status__in=MembershipSubscription.TERMINAL_STATUSES).count()
+        return int(taken) >= obj.max_subscriptions
+
+
+class MemberPlanSchema(ModelSchema):
+    """Member-facing view of a plan, nested under the member's own subscription.
+
+    Mirrors :class:`PlanSchema` minus the organizer sale-control/capacity data
+    (``max_subscriptions``, ``active_subscription_count``) — occupancy
+    telemetry is staff-facing and must not leak through the ``/me`` surface.
+    """
+
+    tier_id: UUID
+    tier_name: str
+    period_unit: MembershipSubscriptionPlan.PeriodUnit
+    payment_method: MembershipSubscriptionPlan.PaymentMethod
+    sales_status: MembershipSubscriptionPlan.SalesStatus
+
+    class Meta:
+        model = MembershipSubscriptionPlan
+        fields = [
+            "id",
+            "name",
+            "description",
+            "price",
+            "currency",
+            "period_count",
+            "is_active",
+        ]
+
+    @staticmethod
+    def resolve_tier_name(obj: MembershipSubscriptionPlan) -> str:
+        """Return the parent tier's display name."""
+        return obj.tier.name
 
 
 class PlanCreateSchema(Schema):
@@ -243,7 +288,7 @@ class _BaseSubscriptionSchema(ModelSchema):
 class MySubscriptionSchema(_BaseSubscriptionSchema):
     """Member-facing view of their own subscription (no PII about other users)."""
 
-    plan: PlanSchema
+    plan: MemberPlanSchema
     organization_name: str
     organization_slug: str
     organization_logo_url: str | None = None

@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import stripe
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
@@ -70,6 +71,111 @@ def pending_subscription(
         status=MembershipSubscription.SubscriptionStatus.PENDING,
         stripe_checkout_session_id="cs_sub_test",
     )
+
+
+def _paid_invoice_payload(stripe_sub_id: str, *, invoice_id: str) -> dict[str, t.Any]:
+    import time
+
+    now_epoch = int(time.time())
+    return {
+        "id": invoice_id,
+        "status": "paid",
+        "subscription": stripe_sub_id,
+        "amount_paid": 1000,
+        "currency": "eur",
+        "payment_intent": "pi_backfill",
+        "lines": {"data": [{"period": {"start": now_epoch - 86400, "end": now_epoch + 30 * 86400}}]},
+    }
+
+
+class TestInitialInvoiceBackfill:
+    """Out-of-order first ``invoice.paid`` recovery via checkout completion.
+
+    Stripe guarantees no ordering: if ``invoice.paid`` lands before
+    ``checkout.session.completed`` links ``stripe_subscription_id``, the
+    invoice event is silently dropped. The link handler must replay the
+    already-paid initial invoice so the ledger row and activation are never
+    lost.
+    """
+
+    def test_backfills_paid_initial_invoice(self, pending_subscription: MembershipSubscription) -> None:
+        from events.models import MembershipPayment
+
+        session = {
+            "id": "cs_sub_test",
+            "mode": "subscription",
+            "payment_status": "paid",
+            "subscription": "sub_backfill",
+            "invoice": "in_backfill",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                stripe.Invoice,
+                "retrieve",
+                classmethod(lambda cls, *a, **kw: _paid_invoice_payload("sub_backfill", invoice_id="in_backfill")),
+            )
+            StripeEventHandler(_session_event(session)).handle()
+
+        pending_subscription.refresh_from_db()
+        assert pending_subscription.stripe_subscription_id == "sub_backfill"
+        payment = MembershipPayment.objects.get(subscription=pending_subscription)
+        assert payment.stripe_invoice_id == "in_backfill"
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        # Activation no longer depends on the (dropped) invoice.paid event.
+        assert pending_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    def test_backfill_skips_unpaid_invoice(self, pending_subscription: MembershipSubscription) -> None:
+        from events.models import MembershipPayment
+
+        session = {
+            "id": "cs_sub_test",
+            "mode": "subscription",
+            "payment_status": "paid",
+            "subscription": "sub_backfill_open",
+            "invoice": "in_backfill_open",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+        open_invoice = _paid_invoice_payload("sub_backfill_open", invoice_id="in_backfill_open")
+        open_invoice["status"] = "open"
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(stripe.Invoice, "retrieve", classmethod(lambda cls, *a, **kw: open_invoice))
+            StripeEventHandler(_session_event(session)).handle()
+
+        pending_subscription.refresh_from_db()
+        assert not MembershipPayment.objects.filter(subscription=pending_subscription).exists()
+        assert pending_subscription.status == MembershipSubscription.SubscriptionStatus.PENDING
+
+    def test_backfill_skips_when_payment_already_recorded(self, pending_subscription: MembershipSubscription) -> None:
+        """Normal ordering (invoice.paid already processed): no Stripe retrieve at all."""
+        from events.models import MembershipPayment
+
+        MembershipPayment.objects.create(
+            subscription=pending_subscription,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now(),
+            period_end=timezone.now(),
+            stripe_invoice_id="in_already",
+        )
+        session = {
+            "id": "cs_sub_test",
+            "mode": "subscription",
+            "payment_status": "paid",
+            "subscription": "sub_already",
+            "invoice": "in_already",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+
+        def _boom(*a: t.Any, **kw: t.Any) -> t.NoReturn:
+            raise AssertionError("Invoice.retrieve must not be called when a payment exists")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(stripe.Invoice, "retrieve", _boom)
+            StripeEventHandler(_session_event(session)).handle()
+
+        assert MembershipPayment.objects.filter(subscription=pending_subscription).count() == 1
 
 
 class TestSubscriptionCheckoutCompleted:

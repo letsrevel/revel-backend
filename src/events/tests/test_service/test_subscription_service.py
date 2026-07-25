@@ -484,6 +484,37 @@ class TestLifecycle:
         out = subscription_service.cancel_subscription(sub, immediate=True)
         assert out.status == MembershipSubscription.SubscriptionStatus.CANCELLED
 
+    def test_schedule_cancel_blocked_when_paused_online(self, tier: MembershipTier, subscriber: RevelUser) -> None:
+        """The PAUSED guard must gate the ONLINE branch too.
+
+        Regression: the guard used to live only in the OFFLINE else-branch, so
+        a PAUSED ONLINE subscription could take the scheduled path — leaving
+        the row PAUSED with ``cancel_at_period_end=True``, invisible to the
+        grace-expiry sweep (which only selects ACTIVE/PAST_DUE).
+        """
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Online Paused Cancel",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            period_count=1,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=online_plan.tier.organization,
+            status=MembershipSubscription.SubscriptionStatus.PAUSED,
+            stripe_subscription_id="sub_paused_online",
+        )
+        with pytest.raises(HttpError) as excinfo:
+            subscription_service.cancel_subscription(sub, immediate=False)
+        assert excinfo.value.status_code == 400
+        sub.refresh_from_db()
+        assert sub.cancel_at_period_end is False
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PAUSED
+
     def test_pause_online_without_stripe_id_is_refused(
         self,
         tier: MembershipTier,

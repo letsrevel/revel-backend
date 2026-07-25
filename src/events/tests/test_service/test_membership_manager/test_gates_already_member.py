@@ -13,7 +13,7 @@ from events.models import (
     OrganizationMember,
 )
 from events.service.membership_manager import MembershipEligibilityService
-from events.service.membership_manager.enums import MembershipNextStep, Reasons
+from events.service.membership_manager.enums import MembershipNextStep, ReasonCode, Reasons
 
 pytestmark = pytest.mark.django_db
 
@@ -96,10 +96,15 @@ def test_paused_membership_at_target_tier_blocks_with_no_next_step(
     assert result.next_step is None
 
 
-def test_paused_membership_at_different_tier_falls_through(
+def test_paused_membership_blocks_regardless_of_target_tier(
     user: RevelUser, organization: Organization, tier_a: MembershipTier, tier_b: MembershipTier
 ) -> None:
-    """PAUSED at tier_a should not affect requests for tier_b (consistent with ACTIVE behavior)."""
+    """PAUSED at tier_a must also block an application at tier_b.
+
+    OrganizationMember is unique per (org, user): completing a free application
+    at tier_b would ``update_or_create`` the SAME row and flip it to ACTIVE,
+    letting a paused member self-clear an admin-imposed pause.
+    """
     OrganizationMember.objects.create(
         organization=organization,
         user=user,
@@ -108,7 +113,8 @@ def test_paused_membership_at_different_tier_falls_through(
     )
     service = MembershipEligibilityService(user=user, organization=organization, tier=tier_b)
     result = service.check_eligibility()
-    assert result.allowed is True
+    assert result.allowed is False
+    assert result.reason_code == ReasonCode.MEMBERSHIP_PAUSED
     assert result.next_step is None
 
 

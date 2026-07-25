@@ -4,7 +4,7 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
@@ -15,6 +15,7 @@ from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
+from common.schema import ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
@@ -61,7 +62,11 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     ) -> QuerySet[models.MembershipSubscriptionPlan]:
         """List all subscription plans across every tier in the organization."""
         organization = self.get_one(slug)
-        qs = models.MembershipSubscriptionPlan.objects.filter(tier__organization=organization).select_related("tier")
+        qs = (
+            models.MembershipSubscriptionPlan.objects.with_active_subscription_count()
+            .filter(tier__organization=organization)
+            .select_related("tier")
+        )
         if is_active is not None:
             qs = qs.filter(is_active=is_active)
         return qs
@@ -76,12 +81,16 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         """List all subscription plans for a tier."""
         organization = self.get_one(slug)
         tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
-        return models.MembershipSubscriptionPlan.objects.filter(tier=tier).select_related("tier")
+        return (
+            models.MembershipSubscriptionPlan.objects.with_active_subscription_count()
+            .filter(tier=tier)
+            .select_related("tier")
+        )
 
     @route.post(
         "/tiers/{tier_id}/plans",
         url_name="create_subscription_plan",
-        response={201: schema.PlanSchema},
+        response={201: schema.PlanSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
     )
     def create_plan(
         self,
@@ -98,7 +107,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.patch(
         "/plans/{plan_id}",
         url_name="update_subscription_plan",
-        response=schema.PlanSchema,
+        response={200: schema.PlanSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
     )
     def update_plan(
         self,
@@ -118,7 +127,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/plans/{plan_id}/migrate-subscribers",
         url_name="migrate_plan_subscribers",
-        response={202: schema.MigrationAcceptedSchema},
+        response={202: schema.MigrationAcceptedSchema, 404: ResponseMessage},
     )
     def migrate_plan_subscribers(self, slug: str, plan_id: UUID) -> tuple[int, schema.MigrationAcceptedSchema]:
         """Queue a force-migrate of all non-terminal subscribers to the plan's current price.
@@ -151,7 +160,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/plans/{plan_id}/archive",
         url_name="archive_subscription_plan",
-        response=schema.PlanSchema,
+        response={200: schema.PlanSchema, 404: ResponseMessage, 502: ResponseMessage},
     )
     def archive_plan(self, slug: str, plan_id: UUID) -> models.MembershipSubscriptionPlan:
         """Archive a plan (sets ``is_active=False``)."""
@@ -166,7 +175,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.delete(
         "/plans/{plan_id}",
         url_name="delete_subscription_plan",
-        response={204: None},
+        response={204: None, 400: ResponseMessage, 404: ResponseMessage},
     )
     def delete_plan(self, slug: str, plan_id: UUID) -> tuple[int, None]:
         """Hard-delete a plan. Blocks when subscriptions reference it."""
@@ -199,9 +208,14 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     ) -> QuerySet[models.MembershipSubscription]:
         """List all subscriptions for the organization, optionally filtered by ``status``."""
         organization = self.get_one(slug)
+        # ``plan`` rides a Prefetch (not select_related) so the nested
+        # ``PlanSchema.active_subscription_count`` reads an annotation instead
+        # of issuing one COUNT per page row.
+        plan_qs = models.MembershipSubscriptionPlan.objects.with_active_subscription_count().select_related("tier")
         qs = (
             models.MembershipSubscription.objects.filter(organization=organization)
-            .select_related("user", "plan", "plan__tier", "organization")
+            .select_related("user", "organization")
+            .prefetch_related(Prefetch("plan", queryset=plan_qs))
             .order_by("-created_at")
         )
         if status is not None:
@@ -211,7 +225,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.get(
         "/subscriptions/{sub_id}",
         url_name="get_subscription",
-        response=schema.SubscriptionSchema,
+        response={200: schema.SubscriptionSchema, 404: ResponseMessage},
         throttle=UserDefaultThrottle(),
     )
     def get_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
@@ -226,7 +240,12 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions",
         url_name="create_subscription",
-        response={201: schema.SubscriptionSchema},
+        response={
+            201: schema.SubscriptionSchema,
+            400: ResponseMessage,
+            403: ResponseMessage,
+            404: ResponseMessage,
+        },
     )
     def create_subscription(
         self,
@@ -292,7 +311,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/payments",
         url_name="record_subscription_payment",
-        response={201: schema.MembershipPaymentSchema},
+        response={201: schema.MembershipPaymentSchema, 400: ResponseMessage, 404: ResponseMessage},
     )
     def record_payment(
         self,
@@ -330,7 +349,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/cancel",
         url_name="cancel_subscription",
-        response=schema.SubscriptionSchema,
+        response={200: schema.SubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage},
     )
     def cancel_subscription(
         self,
@@ -350,7 +369,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/pause",
         url_name="pause_subscription",
-        response=schema.SubscriptionSchema,
+        response={200: schema.SubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
     )
     def pause_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
         """Pause a subscription."""
@@ -365,7 +384,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/resume",
         url_name="resume_subscription",
-        response=schema.SubscriptionSchema,
+        response={200: schema.SubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
     )
     def resume_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
         """Resume a paused subscription."""
@@ -380,7 +399,13 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/revive",
         url_name="revive_subscription",
-        response=schema.StaffRevivalResponseSchema,
+        response={
+            200: schema.StaffRevivalResponseSchema,
+            400: ResponseMessage,
+            403: ResponseMessage,
+            404: ResponseMessage,
+            502: ResponseMessage,
+        },
     )
     def revive_subscription(
         self,
@@ -433,7 +458,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/payments/{payment_id}/refund",
         url_name="refund_subscription_payment",
-        response=schema.MembershipPaymentSchema,
+        response={200: schema.MembershipPaymentSchema, 404: ResponseMessage},
     )
     def refund_payment(
         self,

@@ -1810,6 +1810,9 @@ msgstr ""
 msgid "Your application is awaiting staff approval."
 msgstr "Ta demande est en attente d'approbation du staff."
 
+msgid "This tier requires a paid subscription. Subscribe to a plan to join."
+msgstr "Ce niveau nécessite un abonnement payant. Abonne-toi à un forfait pour rejoindre."
+
 msgid "This plan is not configured for online checkout."
 msgstr "Ce forfait n'est pas configuré pour le paiement en ligne."
 

@@ -8,11 +8,13 @@ import typing as t
 import uuid
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import transaction
+from django.db.models import Q
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.utils import get_or_create_with_race_protection
 from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -25,10 +27,10 @@ from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireSubmission
 
-from .enums import ReasonCode
+from .enums import ReasonCode, Reasons
 from .gates import MEMBERSHIP_ELIGIBILITY_GATES, BaseMembershipEligibilityGate
 from .resolvers import resolve_membership_questionnaire
-from .types import MembershipEligibility
+from .types import MembershipApplicationIneligibleError, MembershipEligibility
 
 if t.TYPE_CHECKING:
     from events.models import Blacklist, WhitelistRequest
@@ -80,6 +82,12 @@ class MembershipEligibilityService:
             MembershipSubscription.objects.filter(organization=organization, user=user)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
             .exists()
+        )
+
+        # Is the target tier monetized? A tier carrying at least one active
+        # plan must not be granted via the free path (TierAvailabilityGate).
+        self.tier_has_active_plan: bool = (
+            tier is not None and MembershipSubscriptionPlan.objects.filter(tier=tier, is_active=True).exists()
         )
 
         # Existing applications for this (user, org), keyed by tier_id (None for tier-less).
@@ -314,11 +322,13 @@ def apply_for_membership(
     on re-POST when one wasn't recorded yet.
 
     The partial unique index ``unique_pending_application_per_user_org_tier``
-    (status=PENDING) is the source of truth for "one PENDING per tier" — a
-    concurrent insert raising :class:`IntegrityError` is caught and the winner
-    is fetched. Terminal rows (REJECTED/CANCELLED/COMPLETED) are excluded by
-    the partial constraint, so users CAN submit a fresh /apply after rejection
-    (a new PENDING row is created and runs the gates from scratch).
+    (status=PENDING) is the source of truth for "one PENDING per tier" —
+    :func:`common.utils.get_or_create_with_race_protection` absorbs a
+    concurrent insert (IntegrityError or full_clean's ValidationError) and
+    fetches the winner. Terminal rows (REJECTED/CANCELLED/COMPLETED) are
+    excluded by the partial constraint, so users CAN submit a fresh /apply
+    after rejection (a new PENDING row is created and runs the gates from
+    scratch).
 
     Note: HTTP-shaped pre-gate hard-blocks (e.g. raising 403/404 to avoid org
     enumeration) live in the controller. By the time we reach this function we
@@ -336,33 +346,45 @@ def apply_for_membership(
         questionnaire_submission_id=questionnaire_submission_id,
     )
     with transaction.atomic():
-        try:
-            application, created = OrganizationMembershipRequest.objects.get_or_create(
+        application, created = get_or_create_with_race_protection(
+            OrganizationMembershipRequest,
+            Q(
                 organization=organization,
                 user=user,
                 tier=tier,
                 status=OrganizationMembershipRequest.Status.PENDING,
-                defaults={
-                    "message": notes or None,
-                    "questionnaire_submission_id": questionnaire_submission_id,
-                },
-            )
-        except IntegrityError:
-            # The partial unique index caught a concurrent insert. Fetch the winner;
-            # idempotent from the caller's POV.
-            application = OrganizationMembershipRequest.objects.get(
-                organization=organization,
-                user=user,
-                tier=tier,
-                status=OrganizationMembershipRequest.Status.PENDING,
-            )
-            created = False
+            ),
+            {
+                "organization": organization,
+                "user": user,
+                "tier": tier,
+                "status": OrganizationMembershipRequest.Status.PENDING,
+                "message": notes or None,
+                "questionnaire_submission_id": questionnaire_submission_id,
+            },
+        )
         # Allow attaching a submission on re-POST when the row didn't have one.
         if not created and questionnaire_submission_id and not application.questionnaire_submission_id:
             application.questionnaire_submission_id = questionnaire_submission_id
             application.save(update_fields=["questionnaire_submission", "updated_at"])
 
     return advance_application(application)
+
+
+def cancel_application(application: OrganizationMembershipRequest) -> OrganizationMembershipRequest:
+    """Cancel one of the member's own applications.
+
+    Only PENDING/APPROVED rows transition to CANCELLED; anything else is
+    already terminal and is returned unchanged (idempotent).
+    """
+    if application.status not in {
+        OrganizationMembershipRequest.Status.PENDING,
+        OrganizationMembershipRequest.Status.APPROVED,
+    }:
+        return application
+    application.status = OrganizationMembershipRequest.Status.CANCELLED
+    application.save(update_fields=["status", "updated_at"])
+    return application
 
 
 def _validate_questionnaire_submission(
@@ -407,13 +429,17 @@ def _complete_free_application(application: OrganizationMembershipRequest) -> No
 
     Defense-in-depth: refuse to clobber an OrganizationMember row if the user
     has any non-terminal :class:`MembershipSubscription` for this organization,
-    or if an existing membership at the target tier is PAUSED. The gate chain
-    (:class:`AlreadyMemberGate`) is the primary line of defense; this guard
-    catches any reordering / refactoring that bypasses it.
+    or if the user's existing membership is PAUSED. The gate chain
+    (:class:`AlreadyMemberGate`) is the primary line of defense, but it is NOT
+    airtight here: :class:`PrivilegedAccessGate` allows owners/staff before it
+    runs, so these guards are reachable and raise
+    :class:`MembershipApplicationIneligibleError` (mapped to a 400 by the
+    events exception handlers) rather than a bare error.
     """
     if application.tier_id is None:
         # Tier-less applications (legacy /membership-requests) must still go through staff approval —
-        # they don't auto-complete. Caller should ensure this branch isn't reached without a tier.
+        # they don't auto-complete. advance_application only routes tier-bearing rows here, so this
+        # is a genuine programming-error backstop.
         raise ValueError("Cannot auto-complete tier-less free application; staff must assign a tier.")
 
     if (
@@ -423,18 +449,39 @@ def _complete_free_application(application: OrganizationMembershipRequest) -> No
     ):
         # The user has a paid (or otherwise non-terminal) subscription. Free
         # completion would silently overwrite the paying membership — refuse.
-        raise ValueError(
-            "Cannot auto-complete free application; user has a non-terminal subscription in this organization."
+        raise MembershipApplicationIneligibleError(
+            "Cannot auto-complete free application; user has a non-terminal subscription in this organization.",
+            MembershipEligibility(
+                allowed=False,
+                organization_id=application.organization_id,
+                tier_id=application.tier_id,
+                reason=_(Reasons.DUPLICATE_ACTIVE_SUBSCRIPTION),
+                reason_code=ReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION,
+                application_id=application.pk,
+            ),
         )
 
+    # (org, user) is unique on OrganizationMember, so look the row up WITHOUT a
+    # tier filter — the update_or_create below writes that same row regardless
+    # of the applied-for tier, and a tier-scoped check would let a paused
+    # member self-un-pause by applying at a different tier.
     existing = OrganizationMember.objects.filter(
         organization=application.organization,
         user=application.user,
-        tier=application.tier,
     ).first()
     if existing is not None and existing.status == OrganizationMember.MembershipStatus.PAUSED:
         # PAUSED is admin/Stripe-imposed; user must not self-clear it via free apply.
-        raise ValueError("Cannot auto-complete free application; user's membership at this tier is paused.")
+        raise MembershipApplicationIneligibleError(
+            "Cannot auto-complete free application; user's membership is paused.",
+            MembershipEligibility(
+                allowed=False,
+                organization_id=application.organization_id,
+                tier_id=application.tier_id,
+                reason=_(Reasons.MEMBERSHIP_PAUSED),
+                reason_code=ReasonCode.MEMBERSHIP_PAUSED,
+                application_id=application.pk,
+            ),
+        )
 
     OrganizationMember.objects.update_or_create(
         organization=application.organization,

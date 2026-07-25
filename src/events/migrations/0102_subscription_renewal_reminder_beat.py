@@ -1,10 +1,12 @@
+import typing as t
+
 from django.db import migrations
 
 
 _REMINDER_TASK_NAME = "Send membership subscription renewal reminders"
 
 
-def create_subscription_renewal_reminder_task(apps, schema_editor):
+def create_subscription_renewal_reminder_task(apps: t.Any, schema_editor: t.Any) -> None:
     """Register the daily subscription-renewal-reminder beat task."""
     CrontabSchedule = apps.get_model("django_celery_beat", "CrontabSchedule")
     PeriodicTask = apps.get_model("django_celery_beat", "PeriodicTask")
@@ -29,7 +31,7 @@ def create_subscription_renewal_reminder_task(apps, schema_editor):
     )
 
 
-def delete_subscription_renewal_reminder_task(apps, schema_editor):
+def delete_subscription_renewal_reminder_task(apps: t.Any, schema_editor: t.Any) -> None:
     """Remove the subscription-renewal-reminder beat task."""
     PeriodicTask = apps.get_model("django_celery_beat", "PeriodicTask")
     PeriodicTask.objects.filter(name=_REMINDER_TASK_NAME).delete()

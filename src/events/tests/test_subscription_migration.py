@@ -290,6 +290,55 @@ class TestMigratePlanSubscribers:
             == 1
         )
 
+    def test_offline_rerun_does_not_renotify(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """Re-running the migration must not re-spam OFFLINE subscribers.
+
+        Nothing on an OFFLINE row records the migration (the last-paid-price
+        anchor stays stale until the next renewal), so the already-sent notice
+        is the idempotency anchor: the second run counts the subscriber as
+        ``skipped`` and creates no duplicate notification.
+        """
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        old_price = offline_plan.price
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=old_price,
+            currency=offline_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+        )
+        offline_plan.price = old_price + Decimal("5")
+        offline_plan.save(update_fields=["price"])
+
+        first = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert first["migrated"] == 1
+
+        second = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert second["migrated"] == 0
+        assert second["skipped"] == 1
+        assert (
+            Notification.objects.filter(
+                user=subscriber,
+                notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+            ).count()
+            == 1
+        )
+
     def test_skips_price_migration_notification_when_no_prior_payment(
         self,
         offline_plan: MembershipSubscriptionPlan,

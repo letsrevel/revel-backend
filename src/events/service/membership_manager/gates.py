@@ -147,8 +147,12 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
     """Gate #4: ACTIVE membership at target tier short-circuits ALREADY_MEMBER.
 
     ACTIVE membership at a different tier falls through so subsequent gates can
-    re-gate tier upgrades (S7). PAUSED memberships at the target tier hard-block:
-    PAUSED is admin/Stripe-imposed and the user must contact the org to resume.
+    re-gate tier upgrades (S7). A PAUSED membership hard-blocks *regardless of
+    the target tier*: ``OrganizationMember`` is unique per (org, user), so the
+    downstream ``update_or_create`` writes the same row whatever tier the user
+    applies at — a tier-scoped check would let a paused member self-un-pause by
+    applying at a different tier. PAUSED is admin/Stripe-imposed and the user
+    must contact the org to resume.
 
     When the user is applying via the free path (``plan is None``) but already has
     a non-terminal :class:`MembershipSubscription` in this org, block — they
@@ -162,6 +166,11 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
         if self.plan is None and self.handler.has_non_terminal_subscription:
             return self._block(Reasons.DUPLICATE_ACTIVE_SUBSCRIPTION)
 
+        # PAUSED blocks whatever the target tier is (see class docstring); the
+        # user has no in-app recourse so we block with next_step=None.
+        if any(m.status == OrganizationMember.MembershipStatus.PAUSED for m in self.handler.user_memberships.values()):
+            return self._block(Reasons.MEMBERSHIP_PAUSED)
+
         if self.tier is None:
             return None
         membership = self.handler.user_memberships.get(self.tier.pk)
@@ -169,10 +178,6 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
             return None
         if membership.status == OrganizationMember.MembershipStatus.ACTIVE:
             return self._allow(next_step=MembershipNextStep.ALREADY_MEMBER)
-        if membership.status == OrganizationMember.MembershipStatus.PAUSED:
-            # PAUSED is admin/Stripe-imposed; user has no in-app recourse so we
-            # block with next_step=None.
-            return self._block(Reasons.MEMBERSHIP_PAUSED)
         return None
 
 
@@ -187,17 +192,26 @@ class AcceptRequestsGate(BaseMembershipEligibilityGate):
 
 
 class TierAvailabilityGate(BaseMembershipEligibilityGate):
-    """Gate #6: Target tier must belong to this org. When plan is provided, plan must be active and on tier."""
+    """Gate #6: Target tier must belong to this org. When plan is provided, plan must be active and on tier.
+
+    A tier that carries at least one active subscription plan is monetized:
+    the free path must not hand it out (a free /apply would otherwise grant a
+    paid tier's benefits without any payment). Plan-bearing applications fall
+    through to :class:`PaymentReadyGate` instead.
+    """
 
     def check(self) -> MembershipEligibility | None:
         """Block when the target tier or plan is not available for this organization."""
         if self.tier is not None and self.tier.organization_id != self.organization.pk:
             return self._block(Reasons.TIER_UNAVAILABLE)
-        if self.plan is not None:
-            if not self.plan.is_active:
-                return self._block(Reasons.PLAN_UNAVAILABLE)
-            if self.tier is not None and self.plan.tier_id != self.tier.pk:
-                return self._block(Reasons.PLAN_UNAVAILABLE)
+        if self.plan is None:
+            if self.tier is not None and self.handler.tier_has_active_plan:
+                return self._block(Reasons.TIER_REQUIRES_SUBSCRIPTION)
+            return None
+        if not self.plan.is_active:
+            return self._block(Reasons.PLAN_UNAVAILABLE)
+        if self.tier is not None and self.plan.tier_id != self.tier.pk:
+            return self._block(Reasons.PLAN_UNAVAILABLE)
         return None
 
 

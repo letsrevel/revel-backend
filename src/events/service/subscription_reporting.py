@@ -4,7 +4,7 @@ See: docs/superpowers/specs/2026-05-12-subscriptions-phase-4-design.md §9
 """
 
 import typing as t
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.db.models import Count, Q
@@ -28,7 +28,7 @@ class StatusBreakdown(t.TypedDict):
 
 
 class SubscriptionMetrics(t.TypedDict):
-    as_of: t.Any  # timezone-aware datetime — typed as Any to keep TypedDict friendly
+    as_of: datetime  # timezone-aware (timezone.now())
     active_count: int
     mrr: Decimal
     mrr_currency: str

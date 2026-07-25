@@ -206,13 +206,48 @@ class TestOfflineRevivalSuccess:
         assert result.status == MembershipSubscription.SubscriptionStatus.ACTIVE
         assert result.current_period_start is not None
         assert result.current_period_end is not None
-        # expired_at preserved as audit trail
-        assert result.expired_at is not None
+        # expired_at is consumed by the revival — a future lapse must stamp a
+        # fresh one (the old value stays in simple-history for audit).
+        assert result.expired_at is None
         # A payment was recorded
         assert result.payments.count() == 1
         payment = result.payments.first()
         assert payment is not None
         assert payment.amount == plan.price
+
+    def test_second_lapse_opens_fresh_revival_window(
+        self,
+        expired_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+        payload: InitialPayment,
+        staff_user: RevelUser,
+    ) -> None:
+        """Revival is not one-shot: a second lapse anchors on a FRESH expired_at.
+
+        Regression: ``expired_at`` used to survive the revival (all writers are
+        ``expired_at or now``-guarded), so the second lapse kept the stale
+        first-expiry timestamp and ``_validate_revivable`` wrongly refused with
+        "revival window elapsed".
+        """
+        assert expired_sub.expired_at is not None
+        subscription_service.revive_subscription(expired_sub, initial_payment=payload, revived_by=staff_user)
+        # Re-fetch into a fresh instance (mypy can't see refresh_from_db's mutation).
+        expired_sub = MembershipSubscription.objects.get(pk=expired_sub.pk)
+        assert expired_sub.expired_at is None
+
+        # Second lapse: mimic the grace-expiry sweep's fresh stamping (its
+        # ``expired_at or now`` guard finds None now, so it stamps anew).
+        expired_sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
+        expired_sub.expired_at = timezone.now()
+        expired_sub.save(update_fields=["status", "expired_at"])
+
+        revived, checkout_url = subscription_service.revive_subscription(
+            expired_sub, initial_payment=payload, revived_by=staff_user
+        )
+        revived.refresh_from_db()
+        assert checkout_url is None
+        assert revived.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        assert revived.expired_at is None
 
     def test_offline_revival_reactivates_organization_member(
         self,
