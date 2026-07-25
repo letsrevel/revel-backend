@@ -418,6 +418,8 @@ Unlike platform fee VAT (which is B2B between Revel and the org), attendee VAT f
 
 This means the Stripe checkout amount varies per buyer. The platform fee is calculated on the **amount actually charged** (reduced for reverse charge/export).
 
+Because the charged amount can be **net**, online tickets never copy `Payment.amount` into `Ticket.price_paid` — it stays `NULL` **permanently**, and the 1:1 `Payment` row is authoritative (decision on issue #758). Stamping it would make `price_paid`'s meaning depend on the buyer's VAT status. Every money-bearing reader of an online ticket consults its `Payment` row (the revenue report aggregates payments directly; the Apple Wallet pass checks `ticket.payment` before any fallback) — see `should_stamp_price_paid` in `events/service/seating/pricing.py`.
+
 ### Service: `events.service.attendee_vat_service`
 
 | Function | Purpose |

@@ -2,7 +2,6 @@
 
 from datetime import timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 import pytest
 from django.utils import timezone
@@ -69,141 +68,6 @@ class TestResolveSeatsModeNone:
         assert seats == [None, None]
 
 
-class TestResolveSeatsRandomMode:
-    """Tests for resolve_seats with RANDOM mode."""
-
-    @pytest.fixture
-    def event(self, organization: Organization) -> Event:
-        """Create a test event."""
-        return Event.objects.create(
-            organization=organization,
-            name="Test Event",
-            slug="test-event",
-            event_type=Event.EventType.PUBLIC,
-            start=timezone.now() + timedelta(days=7),
-            status=Event.EventStatus.OPEN,
-            visibility=Event.Visibility.PUBLIC,
-            max_tickets_per_user=10,
-        )
-
-    @pytest.fixture
-    def venue(self, organization: Organization) -> Venue:
-        """Create a test venue."""
-        return Venue.objects.create(
-            organization=organization,
-            name="Test Venue",
-            capacity=100,
-        )
-
-    @pytest.fixture
-    def sector(self, venue: Venue) -> VenueSector:
-        """Create a test sector."""
-        return VenueSector.objects.create(
-            venue=venue,
-            name="Section A",
-            shape=[{"x": 0, "y": 0}, {"x": 100, "y": 0}, {"x": 100, "y": 100}, {"x": 0, "y": 100}],
-        )
-
-    @pytest.fixture
-    def seats(self, sector: VenueSector) -> list[VenueSeat]:
-        """Create test seats."""
-        return [
-            VenueSeat.objects.create(
-                sector=sector,
-                label=f"A{i}",
-                row="A",
-                number=i,
-                position={"x": i * 10, "y": 10},
-                is_active=True,
-            )
-            for i in range(1, 6)
-        ]
-
-    @pytest.fixture
-    def tier(self, event: Event, venue: Venue, sector: VenueSector) -> TicketTier:
-        """Create a tier with RANDOM seat mode."""
-        return TicketTier.objects.create(
-            event=event,
-            name="Reserved Seating",
-            price=Decimal("50.00"),
-            currency="EUR",
-            payment_method=TicketTier.PaymentMethod.FREE,
-            seat_assignment_mode=TicketTier.SeatAssignmentMode.RANDOM,
-            venue=venue,
-            sector=sector,
-        )
-
-    def test_returns_random_seats(
-        self,
-        event: Event,
-        tier: TicketTier,
-        member_user: RevelUser,
-        seats: list[VenueSeat],
-    ) -> None:
-        """Should return random available seats."""
-        service = BatchTicketService(event, tier, member_user)
-        items = [
-            TicketPurchaseItem(guest_name="Guest 1"),
-            TicketPurchaseItem(guest_name="Guest 2"),
-        ]
-        resolved = service.resolve_seats(items)
-        assert len(resolved) == 2
-        assert all(s in seats for s in resolved if s is not None)
-
-    def test_raises_when_not_enough_seats(
-        self,
-        event: Event,
-        tier: TicketTier,
-        member_user: RevelUser,
-        seats: list[VenueSeat],
-    ) -> None:
-        """Should raise HttpError when not enough seats available."""
-        service = BatchTicketService(event, tier, member_user)
-        items = [TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(10)]
-        with pytest.raises(HttpError) as exc_info:
-            service.resolve_seats(items)
-        assert exc_info.value.status_code == 400
-        assert "Not enough seats" in str(exc_info.value.message)
-
-    def test_rechecks_taken_seats_after_lock(
-        self,
-        event: Event,
-        tier: TicketTier,
-        member_user: RevelUser,
-        organization_owner_user: RevelUser,
-        seats: list[VenueSeat],
-    ) -> None:
-        """A concurrent RANDOM-assignment tier on the same sector doesn't serialize on
-        this tier's lock, and Postgres EvalPlanQual won't re-run the exclude(taken)
-        subquery against a ticket that committed on an already-locked seat row between
-        the SELECT and the lock. Simulate the race by stubbing the initial seat query
-        to look stale (as if it ran before the competing ticket committed for real) —
-        the post-lock re-check must still catch it against the real, unmocked DB state.
-        Mirrors test_purchase.py's test_locked_recheck_catches_stale_quote pattern."""
-        seat = seats[0]
-        Ticket.objects.create(
-            event=event,
-            tier=tier,
-            user=organization_owner_user,
-            status=Ticket.TicketStatus.PENDING,
-            guest_name="Winner",
-            seat=seat,
-            sector=seat.sector,
-            venue=seat.sector.venue,
-        )
-
-        stale_available_qs = MagicMock()
-        stale_available_qs.exclude.return_value.select_for_update.return_value.__getitem__.return_value = [seat]
-
-        service = BatchTicketService(event, tier, member_user)
-        items = [TicketPurchaseItem(guest_name="Guest 1")]
-        with patch.object(VenueSeat.objects, "filter", return_value=stale_available_qs):
-            with pytest.raises(HttpError) as exc_info:
-                service.resolve_seats(items)
-        assert exc_info.value.status_code == 400
-        assert "Not enough seats" in str(exc_info.value.message)
-
-
 class TestResolveSeatsUserChoiceMode:
     """Tests for resolve_seats with USER_CHOICE mode."""
 
@@ -246,7 +110,7 @@ class TestResolveSeatsUserChoiceMode:
             VenueSeat.objects.create(
                 sector=sector,
                 label=f"A{i}",
-                row="A",
+                row_label="A",
                 number=i,
                 position={"x": i * 10, "y": 10},
                 is_active=True,

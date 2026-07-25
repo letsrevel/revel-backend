@@ -86,7 +86,8 @@ class EventPublicTicketsController(EventPublicBaseController):
     def get_tier_seat_availability(self, event_id: UUID, tier_id: UUID) -> schema.SectorAvailabilitySchema:
         """Get available seats for a ticket tier with seat assignment.
 
-        Returns seat availability for tiers that have seat assignment (RANDOM or USER_CHOICE mode).
+        Returns seat availability for tiers that have seat assignment (USER_CHOICE
+        or BEST_AVAILABLE mode).
         Useful for displaying a seat map where users can select seats.
 
         **Returns:**
@@ -96,7 +97,7 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         **Seat Status:**
         - `available=True`: Seat can be selected
-        - `available=False`: Already taken by PENDING or ACTIVE ticket
+        - `available=False`: Already taken by a non-cancelled ticket
 
         Returns 404 if the tier doesn't have seat assignment (NONE mode) or no sector is assigned.
         """
@@ -140,7 +141,7 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         **Seat Assignment Modes:**
         - `NONE`: No seat assigned (general admission)
-        - `RANDOM`: System auto-assigns available seats
+        - `BEST_AVAILABLE`: System auto-assigns the best adjacent block of seats
         - `USER_CHOICE`: User must provide seat_id for each ticket
 
         On eligibility failure, returns 400 with eligibility details explaining what's blocking
@@ -167,18 +168,25 @@ class EventPublicTicketsController(EventPublicBaseController):
         manager = EventManager(user, event)
         manager.check_eligibility(raise_on_false=True)
 
-        # Validate discount code if provided
+        # Validate discount code if provided. The code itself is threaded into the
+        # service — the discounted price is computed per ticket by the pricing
+        # service, never pre-collapsed into a scalar here.
         dc = None
-        price_override = None
         if payload.discount_code:
             dc = discount_code_service.validate_discount_code(
                 payload.discount_code, event.organization, tier, user, len(payload.tickets)
             )
-            price_override = discount_code_service.calculate_discounted_price(tier, dc)
 
         # Create batch of tickets
-        service = BatchTicketService(event, tier, user, discount_code=dc)
-        result = service.create_batch(payload.tickets, price_override=price_override, billing_info=payload.billing_info)
+        service = BatchTicketService(
+            event,
+            tier,
+            user,
+            discount_code=dc,
+            accessible_required=payload.accessible_required,
+            price_category_id=payload.price_category_id,
+        )
+        result = service.create_batch(payload.tickets, billing_info=payload.billing_info)
 
         if isinstance(result, tuple):
             tickets, reservation_id = result
@@ -259,9 +267,15 @@ class EventPublicTicketsController(EventPublicBaseController):
         manager.check_eligibility(raise_on_false=True)
 
         # Create batch of tickets
-        service = BatchTicketService(event, tier, user)
+        service = BatchTicketService(
+            event,
+            tier,
+            user,
+            accessible_required=payload.accessible_required,
+            price_category_id=payload.price_category_id,
+        )
         result = service.create_batch(
-            payload.tickets, price_override=payload.price_per_ticket, billing_info=payload.billing_info
+            payload.tickets, pwyc_amount=payload.price_per_ticket, billing_info=payload.billing_info
         )
 
         if isinstance(result, tuple):
@@ -339,6 +353,7 @@ class EventPublicTicketsController(EventPublicBaseController):
             line_items=[
                 schema.VATPreviewLineItemSchema(
                     tier_name=li.tier_name,
+                    price_category_name=li.price_category_name,
                     ticket_count=li.ticket_count,
                     unit_price_gross=li.unit_price_gross,
                     unit_price_net=li.unit_price_net,

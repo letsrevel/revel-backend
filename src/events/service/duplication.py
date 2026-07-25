@@ -57,8 +57,15 @@ _SHIFTED_DATE_FIELDS: tuple[str, ...] = (
 # 1. Auto-managed: id, timestamps.
 # 2. Per-occurrence state: quantity_sold (must reset to 0).
 # 3. Overridden / shifted: event (new), sales_start_at / sales_end_at (date-shifted).
-# 4. Cleared per occurrence: venue / sector (new event may have a different venue).
-# 5. M2M: restricted_to_membership_tiers (set after create).
+# 4. M2M: restricted_to_membership_tiers (set after create).
+#
+# ``venue``/``sector`` used to be cleared here "because the new event may have a
+# different venue" — but the duplicate always inherits the template's venue (``venue``
+# is not in ``_EXCLUDED_FROM_COPY``), and clearing them made a USER_CHOICE tier
+# unsaveable: ``TicketTier.clean`` requires a sector for that mode, so duplicating (or
+# generating any recurring occurrence of) a reserved-seating event raised
+# ``ValidationError``. Venue, sectors, seats and price categories are venue-scoped rows
+# shared **by reference**, so carrying the FKs is both correct and free.
 _TIER_EXCLUDED_FROM_COPY: frozenset[str] = frozenset(
     {
         "id",
@@ -69,10 +76,6 @@ _TIER_EXCLUDED_FROM_COPY: frozenset[str] = frozenset(
         "quantity_sold",
         "sales_start_at",
         "sales_end_at",
-        "venue",
-        "venue_id",
-        "sector",
-        "sector_id",
     }
 )
 

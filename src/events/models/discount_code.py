@@ -3,6 +3,7 @@ import typing as t
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from common.models import TimeStampedModel
 
@@ -156,16 +157,16 @@ class DiscountCode(TimeStampedModel):
 
         # Validate date range
         if self.valid_from and self.valid_until and self.valid_from >= self.valid_until:
-            raise ValidationError({"valid_until": "valid_until must be after valid_from."})
+            raise ValidationError({"valid_until": _("valid_until must be after valid_from.")})
 
         # Validate percentage range
         if self.discount_type == self.DiscountType.PERCENTAGE:
             if self.discount_value > Decimal("100"):
-                raise ValidationError({"discount_value": "Percentage discount cannot exceed 100."})
+                raise ValidationError({"discount_value": _("Percentage discount cannot exceed 100.")})
 
         # Validate currency for FIXED_AMOUNT
         if self.discount_type == self.DiscountType.FIXED_AMOUNT and not self.currency:
-            raise ValidationError({"currency": "Currency is required for fixed amount discounts."})
+            raise ValidationError({"currency": _("Currency is required for fixed amount discounts.")})
 
     def __str__(self) -> str:
         return f"{self.code} ({self.organization})"

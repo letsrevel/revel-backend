@@ -106,6 +106,39 @@ class TicketRefundedContext(BaseNotificationContext):
     refund_reason: t.NotRequired[str]
 
 
+class RefundUnmatchedCandidate(t.TypedDict):
+    """One ticket an unmatched inbound refund could have applied to."""
+
+    ticket_id: str
+    event_name: str
+    seat_label: str
+    amount: str
+    holder_email: str
+
+
+class RefundUnmatchedContext(BaseNotificationContext):
+    """Context for REFUND_UNMATCHED notification (to org staff).
+
+    Sent when a refund that arrived from Stripe (typically issued from the
+    Stripe Dashboard) could not be attributed to a single ticket, so Revel
+    cancelled nothing. ``reason`` is machine-readable: ``non_uniform`` (the
+    intent's payments differ in amount, so an amount match would be a guess)
+    or ``ambiguous`` (no amount interpretation fits).
+    """
+
+    organization_id: str
+    organization_name: str
+    payment_intent_id: str
+    refund_id: str
+    refund_amount: str
+    currency: str
+    reason: str
+    candidates: list[RefundUnmatchedCandidate]
+    # Event ticket admin, pre-filtered to the buyer (#744). Every Payment on one intent
+    # belongs to one buyer, so this lands on exactly the candidates above.
+    resolve_url: str
+
+
 class TicketCheckedInContext(BaseNotificationContext):
     """Context for TICKET_CHECKED_IN notification."""
 
@@ -584,6 +617,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.TICKET_REFUNDED: TicketRefundedContext,
     NotificationType.TICKET_CHECKED_IN: TicketCheckedInContext,
     NotificationType.PAYMENT_CONFIRMATION: PaymentConfirmationContext,
+    NotificationType.REFUND_UNMATCHED: RefundUnmatchedContext,
     NotificationType.EVENT_OPEN: EventOpenContext,
     NotificationType.EVENT_UPDATED: EventUpdatedContext,
     NotificationType.EVENT_REMINDER: EventReminderContext,

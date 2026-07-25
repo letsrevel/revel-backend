@@ -683,7 +683,7 @@ class OrganizationMember(TimeStampedModel):
         """Validate that tier belongs to the same organization."""
         super().clean()
         if self.tier and self.tier.organization_id != self.organization_id:
-            raise DjangoValidationError({"tier": "The tier must belong to the same organization as the membership."})
+            raise DjangoValidationError({"tier": _("The tier must belong to the same organization as the membership.")})
 
 
 class OrganizationToken(TokenMixin):

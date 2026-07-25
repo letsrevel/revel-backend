@@ -35,6 +35,7 @@ from events.tasks.organization import (
 from events.tasks.payments import cleanup_expired_payments, cleanup_ticket_file_cache
 from events.tasks.recurrence import generate_recurring_events_task, generate_single_series_events_task
 from events.tasks.revenue import generate_revenue_report_task, send_scheduled_revenue_reports_task
+from events.tasks.seating import cleanup_expired_seat_holds
 from events.tasks.series_pass import materialize_series_pass_holders
 from events.tasks.stripe_webhooks import prune_stripe_webhook_events
 from events.tasks.subscriptions import expire_subscriptions_past_grace
@@ -49,6 +50,7 @@ __all__ = [
     "build_attendee_visibility_flags",
     "calculate_referral_payouts",
     "cleanup_expired_payments",
+    "cleanup_expired_seat_holds",
     "cleanup_ticket_file_cache",
     "deliver_attendee_credit_note_task",
     "deliver_attendee_invoice_task",

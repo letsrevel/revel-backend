@@ -38,11 +38,25 @@ TicketOrdering = t.Literal[
 ]
 
 # Effective amount actually taken per ticket: the Stripe payment amount (online),
-# else the recorded PWYC amount (offline/at-the-door), else the tier list price
-# (fixed-price tiers, where neither of the former is set). tier.price is non-nullable
-# (defaults to 0), so the result is never NULL — no NULLS FIRST/LAST handling needed.
-# All three operands are already joined via Ticket.objects.full(), but the COALESCE
-# itself must be annotated so it appears in the SELECT list (required for SELECT DISTINCT).
+# else the recorded price (offline/at-the-door PWYC, discounted, or category-priced),
+# else the tier list price. tier.price is non-nullable (defaults to 0), so the result is
+# never NULL — no NULLS FIRST/LAST handling needed. All three operands are already joined
+# via Ticket.objects.full(), but the COALESCE itself must be annotated so it appears in
+# the SELECT list (required for SELECT DISTINCT).
+#
+# KNOWN LIMITATION — category-priced tiers (spec §5.5). This is a DB-level expression used
+# to sort and display a list; it cannot walk seat → price category → the tier's
+# `category_prices` JSON map the way `pricing.recorded_or_resolved_price` does per row, and
+# contorting it into a JSON lookup would trade a readable ORDER BY for an unmaintainable one.
+# It is therefore wrong in exactly one case: a ticket on a **category-priced tier** whose
+# `price_paid` is NULL and which has no `payment` row. Every such ticket falls back to the
+# flat `tier.price`, so seats in a category priced *above* the flat price are **under-reported**
+# and seats priced *below* it are **over-reported** — and they sort as if they all cost the
+# same. That state is only reachable for tickets sold **before** the tier opted into category
+# pricing (checkout, box office and unconfirm/confirm all stamp `price_paid` now), so it is a
+# bounded legacy tail, not an ongoing drift. The money-bearing paths — refund ceilings
+# (`ticket_service._resolve_offline_refund_amount`) and the revenue/VAT report
+# (`revenue_aggregation._process_ticket`) — resolve per row and are unaffected.
 EFFECTIVE_PRICE_PAID = Coalesce("payment__amount", "price_paid", "tier__price")
 
 # Check-in codes are either a bare canonical ticket UUID (36 chars) or a series pass

@@ -163,6 +163,65 @@ class TestGuestServiceLayer:
         assert len(payload.tickets) == 1
         assert payload.tickets[0].guest_name == "Test Guest"
 
+    def test_create_guest_ticket_token_with_accessible_required(
+        self, existing_guest_user: RevelUser, guest_event_with_tickets: Event, free_tier: TicketTier
+    ) -> None:
+        """Test that accessible_required is embedded in the token and survives the roundtrip."""
+        # Arrange
+        tickets = [schema.TicketPurchaseItem(guest_name="Accessible Guest")]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, free_tier.id, tickets, accessible_required=True
+        )
+
+        # Act
+        payload = guest_service.validate_and_decode_guest_token(token)
+
+        # Assert
+        assert isinstance(payload, schema.GuestTicketJWTPayloadSchema)
+        assert payload.accessible_required is True
+
+    def test_create_guest_ticket_token_accessible_required_defaults_false(
+        self, existing_guest_user: RevelUser, guest_event_with_tickets: Event, free_tier: TicketTier
+    ) -> None:
+        """Test that a token created without the flag decodes with accessible_required=False."""
+        # Arrange
+        tickets = [schema.TicketPurchaseItem(guest_name="Regular Guest")]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, free_tier.id, tickets
+        )
+
+        # Act
+        payload = guest_service.validate_and_decode_guest_token(token)
+
+        # Assert
+        assert isinstance(payload, schema.GuestTicketJWTPayloadSchema)
+        assert payload.accessible_required is False
+
+    def test_validate_and_decode_legacy_token_without_accessible_required(
+        self, existing_guest_user: RevelUser, guest_event_with_tickets: Event, free_tier: TicketTier
+    ) -> None:
+        """Test that legacy tokens minted before accessible_required existed still validate."""
+        # Arrange: build a legacy-shaped payload (no accessible_required key at all)
+        raw_payload = schema.GuestTicketJWTPayloadSchema(
+            user_id=existing_guest_user.id,
+            email=existing_guest_user.email,
+            event_id=guest_event_with_tickets.id,
+            tier_id=free_tier.id,
+            tickets=[schema.GuestTicketItemPayload(guest_name="Legacy Guest")],
+            exp=timezone.now() + timedelta(hours=1),
+            jti="legacy-jti",
+        ).model_dump(mode="json")
+        raw_payload.pop("accessible_required")
+        legacy_token = jwt.encode(raw_payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+        # Act
+        payload = guest_service.validate_and_decode_guest_token(legacy_token)
+
+        # Assert: validates via the discriminated union and defaults to False
+        assert isinstance(payload, schema.GuestTicketJWTPayloadSchema)
+        assert payload.accessible_required is False
+        assert payload.tickets[0].guest_name == "Legacy Guest"
+
     def test_validate_and_decode_guest_token_rejects_expired(
         self, existing_guest_user: RevelUser, guest_event: Event
     ) -> None:

@@ -1,0 +1,270 @@
+"""Parsing and write-time validation for ``TicketTier.category_prices``.
+
+The map is ``{str(PriceCategory.id): decimal-string}``. Money is always a
+``Decimal`` parsed from a string — never a float, which cannot represent money.
+
+This module is pure utility: it touches models only, never services, so it is
+safe to import from ``events.models``.
+"""
+
+import typing as t
+from decimal import Decimal, InvalidOperation
+from uuid import UUID
+
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils.translation import gettext_lazy as _
+
+if t.TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+    from events.models import PriceCategory, TicketTier, VenueSeat
+
+FIELD = "category_prices"
+ONLINE_MINIMUM = Decimal("1")
+
+
+def _fail(message: str) -> t.NoReturn:
+    raise DjangoValidationError({FIELD: message})
+
+
+def parse_price_map(raw: t.Any) -> dict[UUID, Decimal]:
+    """Parse the stored JSON map into ``{category_id: price}``.
+
+    Args:
+        raw: The raw field value, expected to be a mapping of UUID strings to
+            decimal strings.
+
+    Returns:
+        The parsed map. An empty/blank value yields an empty dict.
+
+    Raises:
+        DjangoValidationError: If the container, a key, or a value is malformed,
+            or a price is negative.
+    """
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        _fail(str(_("Category prices must be a mapping of price category id to price.")))
+
+    parsed: dict[UUID, Decimal] = {}
+    for key, value in raw.items():
+        try:
+            category_id = UUID(str(key))
+        except ValueError, AttributeError, TypeError:
+            _fail(str(_("'{key}' is not a valid price category id.")).format(key=key))
+        if isinstance(value, (float, bool)) or value is None:
+            _fail(str(_("Price for category {category} must be a decimal string.")).format(category=category_id))
+        try:
+            price = Decimal(str(value))
+        except InvalidOperation:
+            _fail(
+                str(_("'{value}' is not a valid price for category {category}.")).format(
+                    value=value, category=category_id
+                )
+            )
+        if not price.is_finite() or price < 0:
+            _fail(str(_("Price for category {category} must be a non-negative number.")).format(category=category_id))
+        parsed[category_id] = price
+    return parsed
+
+
+def effective_category_price(price_map: dict[UUID, Decimal], category_id: UUID | None, flat_price: Decimal) -> Decimal:
+    """Resolve what one price category costs on a tier (spec §4.3).
+
+    The single authority for the category → price fallback chain, shared by the
+    checkout resolver (:func:`events.service.seating.pricing.resolve_seat_price`)
+    and by the buyer-facing tier payload. They must never drift: a displayed price
+    that disagrees with the charged price is worse than no price at all.
+
+    Args:
+        price_map: The tier's parsed ``{category_id: price}`` map.
+        category_id: The seat's painted category, or ``None`` for an unpainted seat.
+        flat_price: The tier's flat ``price``, used as the fallback.
+
+    Returns:
+        The pre-discount price for a seat in that category.
+    """
+    if category_id is None:
+        return flat_price
+    return price_map.get(category_id, flat_price)
+
+
+def unsellable_zone_ids(
+    seat_assignment_mode: str,
+    price_map: dict[UUID, Decimal],
+    painted: t.Collection[UUID],
+) -> set[UUID]:
+    """The **single definition** of *priced-but-unpainted*: zones a tier cannot fill.
+
+    A best-available buyer names a zone, ``resolve_requested_zone`` accepts any map key,
+    and ``load_candidates`` then intersects it with the sector — so a key no live seat
+    carries yields an empty pool and every buyer who picks it gets a 409 "not enough
+    adjacent seats", with nothing anywhere explaining why. Never deliberate, unlike its
+    converse (a *painted-but-unpriced* category, which on a best-available tier is exactly
+    how an organizer scopes the tier to a subset of the sector).
+
+    Pure set arithmetic, deliberately query-free: the callers disagree about where the
+    painted set comes from — :meth:`events.schema.TicketTierDetailSchema.resolve_unsellable_zones`
+    reads it from the database, while the paint advisory *derives* it so its answer is
+    identical before and after the paint's UPDATE (preview parity) — but they must never
+    disagree about the rule. Both ask here.
+
+    Silent in the states where it would cry wolf, and those guards are part of the rule:
+
+    - **Any mode but best-available.** On ``user_choice`` the buyer picks seats, not zones,
+      so an unpainted key is inert; pricing the venue's categories once and painting
+      incrementally stays a supported ordering.
+    - **An empty map** (flat pricing — it publishes no zones at all).
+    - **A sector carrying no paint at all.** Mid-setup (prices first, paint second);
+      nothing contradicts the keys yet.
+
+    Args:
+        seat_assignment_mode: The tier's ``seat_assignment_mode``.
+        price_map: The tier's parsed ``{category_id: price}`` map.
+        painted: The categories carried by the live seats of the tier's sector.
+
+    Returns:
+        The map keys nothing in the sector carries. Empty in every silent state above.
+    """
+    from events.models import TicketTier
+
+    if seat_assignment_mode != TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
+        return set()
+    if not price_map or not painted:
+        return set()
+    return price_map.keys() - set(painted)
+
+
+def _painted_seats(sector_ids: t.Collection[t.Any]) -> "QuerySet[VenueSeat]":
+    """The seats that count as "painted" — the single definition of the rule.
+
+    Active seats of the given sectors carrying a price category. Everything that
+    asks "what is painted here?" goes through this.
+    """
+    from events.models import VenueSeat
+
+    return VenueSeat.objects.filter(sector_id__in=sector_ids, is_active=True, default_price_category__isnull=False)
+
+
+def painted_categories(sector_id: t.Any) -> "QuerySet[PriceCategory]":
+    """The price categories painted on at least one active seat of a sector.
+
+    Shared by write-time validation and by the read paths that surface a tier's
+    pricing gaps. A ``None`` sector yields an empty queryset (an unseated tier has
+    nothing painted).
+
+    Args:
+        sector_id: The sector to inspect.
+
+    Returns:
+        A distinct queryset of the categories in use, unordered.
+    """
+    from events.models import PriceCategory
+
+    if sector_id is None:
+        return PriceCategory.objects.none()
+    return PriceCategory.objects.filter(
+        id__in=_painted_seats([sector_id]).values("default_price_category_id")
+    ).distinct()
+
+
+def painted_categories_by_sector(
+    sector_ids: t.Collection[t.Any],
+    exclude_seat_ids: t.Collection[t.Any] = (),
+) -> dict[UUID, set[UUID]]:
+    """The multi-sector, grouped form of :func:`painted_categories`, in one query.
+
+    Same rule, batched: used when several sectors must be inspected at once (a paint
+    can span sectors) and a query per sector would be wasteful.
+
+    Args:
+        sector_ids: The sectors to inspect.
+        exclude_seat_ids: Seats to leave out. Used by the paint report to read "what
+            everything *else* carries", so the answer does not depend on whether the
+            paint's UPDATE has run yet.
+
+    Returns:
+        ``{sector_id: {category_id, ...}}``. Sectors with nothing painted are absent.
+    """
+    grouped: dict[UUID, set[UUID]] = {}
+    if not sector_ids:
+        return grouped
+    seats = _painted_seats(sector_ids)
+    if exclude_seat_ids:
+        seats = seats.exclude(id__in=exclude_seat_ids)
+    rows = seats.values_list("sector_id", "default_price_category_id").distinct()
+    for sector_id, category_id in rows:
+        grouped.setdefault(sector_id, set()).add(category_id)
+    return grouped
+
+
+def validate_category_prices(tier: "TicketTier") -> None:
+    """Validate a tier's category price map (spec §4.2).
+
+    The map is the single pricing mechanism for both seated modes. A non-empty map
+    requires a seated tier whose categories all belong to the tier's venue, is
+    mutually exclusive with PWYC, and respects the ONLINE price floor. An empty map
+    is always legal — it means flat ``tier.price`` pricing — except that it is the
+    *only* legal state for a non-seated (``none``) tier.
+
+    **Coverage of the sector's paint is deliberately not checked here.** Every rule in
+    this function reads the tier row alone, and that is the invariant: a save-time
+    validation may only depend on state the save itself controls. Paint is not — it is
+    mutated venue-wide by ``paint_seats``, which never fails on purpose (spec §4.3), so
+    a coverage rule here could never *prevent* an uncovered tier, only prevent writing
+    to one afterwards. It made an unrelated rename, an event duplication and background
+    recurrence generation fail on a tier nobody had touched (see #743). Coverage is
+    therefore reported, never enforced:
+
+    - painted-but-unpriced → ``TicketTierDetailSchema.resolve_pricing_gaps`` and the
+      paint advisory's ``missing_categories``.
+    - priced-but-unpainted (a best-available zone no seat carries) →
+      ``TicketTierDetailSchema.resolve_unsellable_zones``.
+
+    The money guard is at the till: :func:`events.service.seating.pricing.resolve_seat_price`
+    refuses a seat whose painted category the tier does not price, so an uncovered tier
+    cannot mis-sell a seat, it can only fail to sell it.
+
+    Args:
+        tier: The tier being cleaned. ``venue_id``/``sector_id`` are expected to
+            be resolved already.
+
+    Raises:
+        DjangoValidationError: If any rule is violated.
+    """
+    from events.models import PriceCategory
+
+    prices = parse_price_map(tier.category_prices)
+    if not prices:
+        return
+
+    if tier.seat_assignment_mode == tier.SeatAssignmentMode.NONE:
+        _fail(str(_("Category prices require a seated tier. Clear them to change the seating mode.")))
+    if tier.price_type == tier.PriceType.PWYC:
+        _fail(str(_("A tier is either pay-what-you-can or category-priced, never both.")))
+    if tier.payment_method == tier.PaymentMethod.ONLINE:
+        low = sorted(str(cid) for cid, price in prices.items() if price < ONLINE_MINIMUM)
+        if low:
+            _fail(
+                str(_("Online tiers require every category price to be at least 1: {categories}.")).format(
+                    categories=", ".join(low)
+                )
+            )
+
+    known = set(
+        PriceCategory.objects.filter(venue_id=tier.venue_id, id__in=prices).values_list("id", flat=True)
+        if tier.venue_id
+        else []
+    )
+    unknown = {cid for cid in prices if cid not in known}
+    if unknown:
+        # Name whatever resolves — a category from another venue still has a name the admin
+        # recognises, and a bare UUID is unrenderable in the tier form. Ids that match nothing
+        # at all fall back to the raw value.
+        elsewhere = dict(PriceCategory.objects.filter(id__in=unknown).values_list("id", "name"))
+        labels = sorted(elsewhere.get(cid, str(cid)) for cid in unknown)
+        _fail(
+            str(_("These price categories do not belong to the tier's venue: {categories}.")).format(
+                categories=", ".join(labels)
+            )
+        )

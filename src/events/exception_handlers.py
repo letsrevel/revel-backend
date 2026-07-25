@@ -29,6 +29,7 @@ from events.exceptions import (
     InvalidPeriodError,
     InvalidResourceStateError,
     InvalidStripeWebhookSignatureError,
+    InvalidZoneSelectionError,
     MembershipPolicyManageSubscriptionsOnlyError,
     OrganizationTokenGrantInvariantError,
     OrganizationTokenMembershipTierRequiredError,
@@ -38,6 +39,7 @@ from events.exceptions import (
     SeriesPassCoverageError,
     SeriesPassHasHoldersError,
     SeriesPassNotPurchasableError,
+    SessionTotalMismatchError,
     StripeNotConnectedError,
     TicketAlreadyCancelledError,
     TooManyItemsError,
@@ -105,6 +107,9 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     InvalidStripeWebhookSignatureError: make_static_handler(403, _("Invalid Stripe signature")),
     # Duplicate discount code → 409 with a clear, translatable message instead of an opaque 500.
     DuplicateDiscountCodeError: make_static_handler(409, _("A discount code with this code already exists.")),
+    # Best-available zone selection: a missing/unknown/foreign price category is bad
+    # buyer input, and the message names the tier's sellable zones → 400.
+    InvalidZoneSelectionError: make_simple_handler(400),
     # Mutually exclusive period selectors (month + quarter together) → 422.
     InvalidPeriodError: make_simple_handler(422),
     # Series pass enable-time coverage gate — bad input, so 400.
@@ -113,6 +118,9 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     SeriesPassNotPurchasableError: make_simple_handler(409),
     # Deleting a pass / removing tier-link coverage would strand a non-cancelled holder → 409.
     SeriesPassHasHoldersError: make_simple_handler(409),
+    # Books-vs-charge invariant breach (#739): a bug on our side, and one we must never
+    # paper over — 500, with a generic message so the amounts stay in the logs only.
+    SessionTotalMismatchError: make_static_handler(500, _("Payment processing failed. Please try again later.")),
 }
 
 

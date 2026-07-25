@@ -5,9 +5,11 @@ Covers:
 - Platform fee VAT with EU reverse charge rules (calculate_platform_fee_vat)
 - Effective VAT rate resolution (get_effective_vat_rate)
 - Amount distribution across items (distribute_amount_across_items)
+- Price-weighted distribution (distribute_amount_pro_rata)
 - EU_MEMBER_STATES constant integrity
 """
 
+import random
 from decimal import Decimal
 from unittest.mock import Mock
 
@@ -20,6 +22,7 @@ from events.service.vat_service import (
     calculate_platform_fee_vat,
     calculate_vat_inclusive,
     distribute_amount_across_items,
+    distribute_amount_pro_rata,
     get_effective_vat_rate,
 )
 
@@ -632,3 +635,138 @@ class TestDistributeAmountAcrossItems:
         min_val = min(result)
         max_val = max(result)
         assert max_val - min_val <= Decimal("0.01")
+
+
+# ---------------------------------------------------------------------------
+# distribute_amount_pro_rata
+# ---------------------------------------------------------------------------
+
+
+class TestDistributeAmountProRata:
+    """Price-weighted fee distribution (#753): the share must follow the revenue."""
+
+    def test_issue_scenario_eighty_twenty(self) -> None:
+        """A 5.00 fee on an 80 + 20 cart splits 4.00 / 1.00, not 2.50 / 2.50."""
+        result = distribute_amount_pro_rata(Decimal("5.00"), [Decimal("80.00"), Decimal("20.00")])
+
+        assert result == [Decimal("4.00"), Decimal("1.00")]
+
+    def test_odd_fee_over_thirds_sums_exactly(self) -> None:
+        """An odd fee over 33.33 / 33.33 / 33.34 still sums to the fee, to the penny."""
+        weights = [Decimal("33.33"), Decimal("33.33"), Decimal("33.34")]
+
+        result = distribute_amount_pro_rata(Decimal("5.01"), weights)
+
+        assert sum(result) == Decimal("5.01")
+        assert len(result) == 3
+
+    @pytest.mark.parametrize(
+        ("total", "weights"),
+        [
+            (Decimal("5.00"), ["80.00", "20.00"]),
+            (Decimal("5.01"), ["33.33", "33.33", "33.34"]),
+            (Decimal("0.01"), ["80.00", "50.00", "30.00"]),
+            (Decimal("3.07"), ["12.34", "0.01", "99.99"]),
+            (Decimal("100.00"), ["1.00"] * 97 + ["999.00"]),
+            (Decimal("0.03"), ["0.01", "0.02"]),
+            (Decimal("7.77"), ["80.00", "50.00", "30.00", "0.00"]),
+            (Decimal("999.99"), ["3.33", "6.66", "9.99", "0.01"]),
+        ],
+        ids=[
+            "issue-cart",
+            "odd-fee-thirds",
+            "one-cent-three-bands",
+            "wide-spread",
+            "long-tail-of-cheap-seats",
+            "sub-penny-weights",
+            "with-a-free-ticket",
+            "many-repeating-shares",
+        ],
+    )
+    def test_sum_invariant_parametrized(self, total: Decimal, weights: list[str]) -> None:
+        """Critical accounting invariant: the split never loses or gains a cent."""
+        decimals = [Decimal(w) for w in weights]
+
+        result = distribute_amount_pro_rata(total, decimals)
+
+        assert len(result) == len(decimals)
+        assert sum(result) == total
+
+    @pytest.mark.parametrize(
+        ("total", "count", "price"),
+        [
+            (Decimal("10.00"), 3, "25.00"),
+            (Decimal("0.10"), 3, "25.00"),
+            (Decimal("0.03"), 2, "25.00"),
+            (Decimal("0.05"), 2, "12.34"),
+            (Decimal("9.00"), 3, "50.00"),
+            (Decimal("0.01"), 5, "7.50"),
+            (Decimal("100.00"), 7, "80.00"),
+            (Decimal("1000.00"), 300, "3.00"),
+            (Decimal("42.99"), 1, "42.99"),
+        ],
+        ids=[
+            "10-euro-3",
+            "10-cents-3",
+            "3-cents-2-rounds-down",
+            "5-cents-2-rounds-down",
+            "clean-thirds",
+            "1-cent-5",
+            "100-euro-7",
+            "300-tickets",
+            "single-ticket",
+        ],
+    )
+    def test_uniform_cart_is_byte_identical_to_even_split(self, total: Decimal, count: int, price: str) -> None:
+        """Regression guard: equal prices must reproduce the pre-#753 output exactly.
+
+        Includes the cases where the even split rounds *up* and hands back a penny
+        (0.03 over 2 -> [0.01, 0.02]), which a naive largest-remainder pass would
+        reorder — the delegation keeps the remainder ordering identical too.
+        """
+        weights = [Decimal(price)] * count
+
+        assert distribute_amount_pro_rata(total, weights) == distribute_amount_across_items(total, count)
+
+    def test_zero_priced_row_gets_nothing(self) -> None:
+        """A ticket a discount floored to 0.00 carries no fee, and strands no penny."""
+        result = distribute_amount_pro_rata(Decimal("3.33"), [Decimal("80.00"), Decimal("0.00")])
+
+        assert result == [Decimal("3.33"), Decimal("0.00")]
+
+    def test_free_cart_falls_back_to_even_split(self) -> None:
+        """All weights zero: no proportion to honour, so a fixed fee splits evenly."""
+        result = distribute_amount_pro_rata(Decimal("0.50"), [Decimal("0.00")] * 2)
+
+        assert result == [Decimal("0.25"), Decimal("0.25")]
+        assert sum(result) == Decimal("0.50")
+
+    def test_free_cart_with_zero_fee(self) -> None:
+        """A zero fee on a zero cart divides by nothing and yields zeros."""
+        assert distribute_amount_pro_rata(Decimal("0.00"), [Decimal("0.00")] * 3) == [Decimal("0.00")] * 3
+
+    def test_no_weights_returns_empty_list(self) -> None:
+        """An empty cart has nothing to distribute across."""
+        assert distribute_amount_pro_rata(Decimal("10.00"), []) == []
+
+    def test_single_weight_takes_the_whole_total(self) -> None:
+        """One ticket carries the entire fee."""
+        assert distribute_amount_pro_rata(Decimal("4.37"), [Decimal("80.00")]) == [Decimal("4.37")]
+
+    def test_property_sum_and_zero_rows_over_random_carts(self) -> None:
+        """Property sweep: the sum holds and free tickets stay free, on any cart shape."""
+        rng = random.Random(753)
+
+        for _ in range(2000):
+            weights = [
+                Decimal(rng.choice([0, 1, 5, 250, 3333, 8000, rng.randint(0, 100000)])) / 100
+                for _ in range(rng.randint(1, 9))
+            ]
+            total = Decimal(rng.randint(0, 50000)) / 100
+
+            result = distribute_amount_pro_rata(total, weights)
+
+            assert sum(result) == total
+            if sum(weights) > 0:
+                assert all(share >= Decimal("0") for share in result)
+                assert all(result[i] == Decimal("0.00") for i, w in enumerate(weights) if w == 0)

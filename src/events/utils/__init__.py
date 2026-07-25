@@ -386,7 +386,7 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "venue_name": ticket.venue.name if ticket.venue else None,
         "sector_name": ticket.sector.name if ticket.sector else None,
         "seat_label": ticket.seat.label if ticket.seat else None,
-        "seat_row": ticket.seat.row if ticket.seat else None,
+        "seat_row": ticket.seat.row_label if ticket.seat else None,
         "seat_number": ticket.seat.number if ticket.seat else None,
         # Brand assets (absolute paths for WeasyPrint file:// resolution)
         "font_dir": str(settings.BASE_DIR / "fonts"),

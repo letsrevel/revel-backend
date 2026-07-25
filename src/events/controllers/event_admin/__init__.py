@@ -8,6 +8,7 @@ from .core import EventAdminCoreController
 from .invitation_requests import EventAdminInvitationRequestsController
 from .invitations import EventAdminInvitationsController
 from .rsvps import EventAdminRSVPsController
+from .seating import EventAdminSeatingController
 from .tickets import EventAdminTicketsController
 from .tokens import EventAdminTokensController
 from .waitlist import EventAdminWaitlistController
@@ -23,6 +24,7 @@ EVENT_ADMIN_CONTROLLERS: list[type] = [
     EventAdminRSVPsController,
     EventAdminWaitlistController,
     EventAdminWaitlistOffersController,
+    EventAdminSeatingController,
 ]
 
 __all__ = [
@@ -34,5 +36,6 @@ __all__ = [
     "EventAdminRSVPsController",
     "EventAdminWaitlistController",
     "EventAdminWaitlistOffersController",
+    "EventAdminSeatingController",
     "EVENT_ADMIN_CONTROLLERS",
 ]

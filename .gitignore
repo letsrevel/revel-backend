@@ -217,4 +217,6 @@ privacy.md
 
 # Superpowers / Claude Code session artefacts (plans, specs, research drafts)
 docs/superpowers/
+
+# Playwright MCP session artefacts
 .playwright-mcp/

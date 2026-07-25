@@ -8,6 +8,7 @@ from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import BooleanField, Exists, OuterRef, Prefetch, Q, Value
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import RevelUser
@@ -584,23 +585,23 @@ class Event(
         if self.event_series and self.event_series.organization_id != self.organization_id:
             raise DjangoValidationError(
                 {
-                    "event_series": "Event series must belong to the same organization as the event.",
+                    "event_series": _("Event series must belong to the same organization as the event."),
                 }
             )
         if self.end and self.end < self.start:
-            raise DjangoValidationError({"end": "End date must be after start date."})
+            raise DjangoValidationError({"end": _("End date must be after start date.")})
 
         # Validate check-in window
         if self.check_in_starts_at and self.check_in_ends_at:
             if self.check_in_ends_at <= self.check_in_starts_at:
                 raise DjangoValidationError(
-                    {"check_in_ends_at": "Check-in end time must be after check-in start time."}
+                    {"check_in_ends_at": _("Check-in end time must be after check-in start time.")}
                 )
 
         # Validate venue belongs to the same organization
         venue = self.venue
         if venue and venue.organization_id != self.organization_id:
-            raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
+            raise DjangoValidationError({"venue": _("Venue must belong to the same organization as the event.")})
 
         # Validate the display-only schedule blob (also guards the admin raw-JSON widget).
         try:
@@ -613,18 +614,18 @@ class Event(
     def _clean_waitlist_config(self) -> None:
         if self.waitlist_time_window is not None:
             if self.waitlist_time_window < timedelta(hours=1):
-                raise DjangoValidationError({"waitlist_time_window": "Time window must be at least 1 hour."})
+                raise DjangoValidationError({"waitlist_time_window": _("Time window must be at least 1 hour.")})
             if self.waitlist_time_window > timedelta(days=7):
-                raise DjangoValidationError({"waitlist_time_window": "Time window cannot exceed 7 days."})
+                raise DjangoValidationError({"waitlist_time_window": _("Time window cannot exceed 7 days.")})
 
         if self.waitlist_cutoff_date is None:
             return
         if self.waitlist_time_window is None:
             raise DjangoValidationError(
-                {"waitlist_cutoff_date": "Cutoff date requires waitlist_time_window to be set."}
+                {"waitlist_cutoff_date": _("Cutoff date requires waitlist_time_window to be set.")}
             )
         if self.start and self.waitlist_cutoff_date >= self.start:
-            raise DjangoValidationError({"waitlist_cutoff_date": "Cutoff date must be before event start."})
+            raise DjangoValidationError({"waitlist_cutoff_date": _("Cutoff date must be before event start.")})
 
     def is_check_in_open(self) -> bool:
         """Check if check-in is currently open for this event."""

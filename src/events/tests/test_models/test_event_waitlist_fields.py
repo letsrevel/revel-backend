@@ -4,6 +4,7 @@ import datetime as dt
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.utils import translation
 
 from events.models import Event
 
@@ -72,3 +73,20 @@ class TestWaitlistConfigValidation:
         event.full_clean()  # must not raise
         assert event.waitlist_lottery_mode is True
         assert event.waitlist_batch_size == 5
+
+
+# --- i18n: the messages are organizer-facing, so they must actually translate ---
+
+
+@pytest.mark.django_db
+class TestWaitlistConfigValidationI18n:
+    def test_time_window_message_renders_in_the_active_language(self, event: Event) -> None:
+        """Guards both the ``gettext`` wrapping and the catalog entry (see ADR-0011)."""
+        _prepare(event)
+        event.waitlist_time_window = dt.timedelta(minutes=30)
+        with translation.override("it"):
+            with pytest.raises(ValidationError) as exc_info:
+                event.full_clean()
+            assert exc_info.value.message_dict["waitlist_time_window"] == [
+                "La finestra temporale deve essere di almeno 1 ora."
+            ]

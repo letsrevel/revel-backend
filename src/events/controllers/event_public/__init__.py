@@ -2,6 +2,7 @@ from .attendance import EventPublicAttendanceController
 from .details import EventPublicDetailsController
 from .discovery import EventPublicDiscoveryController
 from .guest import EventPublicGuestController
+from .seating import EventPublicSeatingController
 from .tickets import EventPublicTicketsController
 
 # Controllers in order to preserve path resolution.
@@ -12,6 +13,7 @@ EVENT_PUBLIC_CONTROLLERS: list[type] = [
     EventPublicDetailsController,  # /{org_slug}/event/... and /{uuid:event_id}
     EventPublicAttendanceController,  # /{uuid:event_id}/rsvp, waitlist, questionnaire, etc.
     EventPublicTicketsController,  # /{uuid:event_id}/tickets/...
+    EventPublicSeatingController,  # /{uuid:event_id}/seating/...
     EventPublicGuestController,  # /{uuid:event_id}/.../public
 ]
 
@@ -20,6 +22,7 @@ __all__ = [
     "EventPublicDetailsController",
     "EventPublicAttendanceController",
     "EventPublicTicketsController",
+    "EventPublicSeatingController",
     "EventPublicGuestController",
     "EVENT_PUBLIC_CONTROLLERS",
 ]

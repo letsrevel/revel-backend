@@ -2,7 +2,7 @@
 
 import typing as t
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 import structlog
@@ -16,6 +16,42 @@ from events.models import HeldSeriesPass, Payment, Ticket, TicketTier
 
 logger = structlog.get_logger(__name__)
 
+# How long a Payment implicated in a recorded money-correctness incident
+# (Payment.incident_hold_at set by hold_mismatch_payments, #756) is exempt from
+# the expiry sweep. Bounded on purpose: an unresolved hold must not make the row
+# — or the tier capacity its PENDING ticket still occupies — immortal. Sized for
+# a paged, alert-driven investigation (the alert fires on the first occurrence),
+# with an order of magnitude of slack.
+INCIDENT_HOLD_RETENTION = timedelta(days=30)
+
+
+@shared_task(name="events.hold_mismatch_payments")
+def hold_mismatch_payments(payment_ids: list[str]) -> int:
+    """Stamp an incident hold on payments implicated in a session-total mismatch (#756).
+
+    Dispatched (bare ``.delay()``) by ``stripe_incidents.record_session_total_mismatch``:
+    the webhook detection point raises on purpose so its transaction rolls back, which
+    means the hold cannot be written synchronously from the request — the broker message
+    is what survives the rollback (the dispatch-then-raise pattern in
+    docs/engineering-notes.md). The rows themselves pre-exist the doomed request (created
+    at reserve time), so they are here to be stamped.
+
+    Idempotent, first detection wins: a Stripe redelivery re-records the same incident,
+    and restamping would restart the retention clock — only rows still without a hold
+    are touched.
+
+    Args:
+        payment_ids: The Payment pks implicated in the recorded mismatch.
+
+    Returns:
+        The number of rows newly placed under hold.
+    """
+    held = Payment.objects.filter(pk__in=payment_ids, incident_hold_at__isnull=True).update(
+        incident_hold_at=timezone.now()
+    )
+    logger.info("incident_hold_applied", payment_ids=payment_ids, newly_held=held)
+    return held
+
 
 @shared_task(name="events.cleanup_expired_payments")
 def cleanup_expired_payments() -> int:
@@ -25,36 +61,49 @@ def cleanup_expired_payments() -> int:
     quantity_sold counter, and cancels any series pass stranded by the expired
     checkout (releasing its quantity_sold too).
     This task is idempotent and safe to run periodically.
+
+    Incident holds (#756): a PENDING payment implicated in a recorded
+    ``stripe_session_total_mismatch`` carries ``incident_hold_at`` — its row (and
+    its ticket) IS the evidence an operator reconciles against, so the sweep
+    retains it. The hold is bounded, not an exclusion: the row leaves either when
+    an operator clears the hold after resolving the incident (reclaimed on the
+    next run, on the normal path) or when ``INCIDENT_HOLD_RETENTION`` lapses.
     """
     # Imported here: events.tasks.__init__ imports this module while
     # series_pass_service itself imports events.tasks (materialization task).
     from events.service.series_pass_service import expire_held_passes_for_tickets
 
-    # Candidate payment IDs only — re-filtered by status=PENDING and locked inside
-    # the transaction below. Computing the release-set outside the transaction (the
-    # old approach) let a concurrent reclaim on the same rows (cancel_pending_checkout,
+    now = timezone.now()
+    # Index-friendly: the first branch is the existing expires_at index scan
+    # (incident_hold_at IS NULL merely filters it); the second is a range scan on
+    # the near-empty partial index payment_incident_hold_idx. Postgres can
+    # BitmapOr the two.
+    reclaimable = Q(status=Payment.PaymentStatus.PENDING) & (
+        Q(incident_hold_at__isnull=True, expires_at__lt=now) | Q(incident_hold_at__lt=now - INCIDENT_HOLD_RETENTION)
+    )
+
+    # Candidate payment IDs only — re-filtered by the same predicate and locked
+    # inside the transaction below. Computing the release-set outside the transaction
+    # (the old approach) let a concurrent reclaim on the same rows (cancel_pending_checkout,
     # the payment_intent.canceled webhook) double-decrement a tier: both routes would
     # count the same still-outside-tx-computed payment, since neither re-checked
     # PENDING against the other's already-committed change (#632).
-    candidate_payment_ids = list(
-        Payment.objects.filter(status=Payment.PaymentStatus.PENDING, expires_at__lt=timezone.now()).values_list(
-            "id", flat=True
-        )
-    )
+    candidate_payment_ids = list(Payment.objects.filter(reclaimable).values_list("id", flat=True))
 
     if not candidate_payment_ids:
         return 0
 
     with transaction.atomic():
-        # Re-filter by status=PENDING *and* lock the rows: only payments still
-        # PENDING at this point are ours to reclaim, and select_for_update
+        # Re-apply the reclaimable predicate *and* lock the rows: only payments still
+        # PENDING (and still not incident-held — a mismatch can be recorded between
+        # the snapshot above and this lock) are ours to reclaim, and select_for_update
         # serializes a concurrent cancel_pending_checkout/webhook reclaim on the
         # same rows instead of racing it. The decrement count, the payments
         # deleted, and the tickets deleted all come from this same in-transaction,
-        # locked, still-PENDING set (#632).
+        # locked, still-reclaimable set (#632).
         locked_payments = list(
             Payment.objects.select_for_update()
-            .filter(pk__in=candidate_payment_ids, status=Payment.PaymentStatus.PENDING)
+            .filter(reclaimable, pk__in=candidate_payment_ids)
             .select_related("ticket", "ticket__tier")
         )
         if not locked_payments:

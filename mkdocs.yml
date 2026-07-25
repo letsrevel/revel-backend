@@ -88,6 +88,12 @@ nav:
       - Observability: guides/observability.md
       - Telegram Bot: guides/telegram-bot.md
       - Demo & Seeding: guides/demo-and-seeding.md
+      - Reserved Seating:
+          - guides/seating/index.md
+          - Venue & Layout Setup: guides/seating/venue-and-layout.md
+          - Tickets, Pricing & Assignment: guides/seating/tiers-and-pricing.md
+          - The Buyer Experience: guides/seating/buyer-experience.md
+          - Box Office & Event-Day Ops: guides/seating/box-office.md
   - Contributing:
       - contributing/index.md
       - Code Style: contributing/code-style.md
