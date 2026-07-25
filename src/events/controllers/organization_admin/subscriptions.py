@@ -17,7 +17,7 @@ from common.authentication import I18nJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
-from events.service import subscription_reporting, subscription_service
+from events.service import subscription_refunds, subscription_reporting, subscription_service
 from events.service.subscription_service import InitialPayment
 
 from .base import OrganizationAdminBaseController
@@ -438,4 +438,4 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             pk=payment_id,
             subscription__organization=organization,
         )
-        return subscription_service.refund_payment(payment, recorded_by=self.user(), notes=payload.notes)
+        return subscription_refunds.refund_payment(payment, recorded_by=self.user(), notes=payload.notes)

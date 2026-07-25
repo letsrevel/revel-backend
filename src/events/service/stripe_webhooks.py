@@ -729,9 +729,10 @@ class StripeEventHandler:
     ) -> None:
         """Apply a charge.refunded event to a MembershipPayment.
 
-        Delegates to subscription_service.refund_payment, which marks the row
+        Delegates to subscription_refunds.refund_payment, which marks the row
         REFUNDED and (if the refund fully covers the current period) cancels
-        the subscription immediately.
+        the subscription immediately — the Stripe-side cancel is deferred to
+        after commit so no network call happens under the row locks held here.
 
         Idempotent on already-REFUNDED rows. Partial refunds are ignored —
         ``charge.refunded`` fires for both partial and full refunds, but only
@@ -742,7 +743,7 @@ class StripeEventHandler:
             event: The Stripe webhook event.
             membership_payment: The MembershipPayment row matched by payment_intent_id.
         """
-        from events.service import subscription_service
+        from events.service import subscription_refunds
 
         if membership_payment.status == MembershipPayment.PaymentStatus.REFUNDED:
             # Idempotent: re-delivered webhook for an already-processed refund.
@@ -761,7 +762,7 @@ class StripeEventHandler:
             )
             return
 
-        subscription_service.refund_payment(membership_payment, recorded_by=None)
+        subscription_refunds.refund_payment(membership_payment, recorded_by=None)
 
         logger.info(
             "stripe_subscription_refund_processed",

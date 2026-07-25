@@ -23,7 +23,10 @@ def _dispatch_sync_notifications(
     T = MembershipSubscription.TERMINAL_STATUSES
     if not prior_cap and subscription.cancel_at_period_end and subscription.status not in T:
         subscription_service._dispatch_cancellation_confirmed(subscription, immediate=False)
-    if prior_status not in T and subscription.status == S.CANCELLED.value:
+    # ``not prior_cap``: a scheduled cancel reaching its period end already fired
+    # CANCELLATION_CONFIRMED(immediate=False) — the deletion webhook must not
+    # re-fire it as a false "cancelled effective immediately".
+    if prior_status not in T and subscription.status == S.CANCELLED.value and not prior_cap:
         subscription_service._dispatch_cancellation_confirmed(subscription, immediate=True)
     if prior_status not in T and subscription.status == S.EXPIRED.value:
         subscription_service._dispatch_subscription_expired(subscription)

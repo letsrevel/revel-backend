@@ -798,71 +798,8 @@ def migrate_plan_subscribers(
     return result
 
 
-def _is_full_refund_of_current_period(payment: MembershipPayment) -> bool:
-    """Return True when the period covered by this payment has no remaining SUCCEEDED amount.
-
-    Aggregates per-period totals AFTER ``refund_payment`` has flipped the row
-    to REFUNDED. The current period's collected amount is the sum of all
-    SUCCEEDED+REFUNDED amounts (originally-collected money); fully refunded
-    means SUCCEEDED total is zero.
-
-    Refunds against a historical period (not the subscription's current
-    period_start) are bookkeeping — return False.
-    """
-    from django.db.models import Sum
-
-    sub = payment.subscription
-    if sub.current_period_start is None:
-        return False
-    if payment.period_start != sub.current_period_start:
-        return False
-
-    period_payments = MembershipPayment.objects.filter(
-        subscription=sub,
-        period_start=sub.current_period_start,
-    )
-    succeeded_total = period_payments.filter(status=MembershipPayment.PaymentStatus.SUCCEEDED).aggregate(
-        s=Sum("amount")
-    )["s"] or Decimal("0")
-    refunded_total = period_payments.filter(status=MembershipPayment.PaymentStatus.REFUNDED).aggregate(s=Sum("amount"))[
-        "s"
-    ] or Decimal("0")
-    return succeeded_total == Decimal("0") and refunded_total > Decimal("0")
-
-
-@transaction.atomic
-def refund_payment(
-    payment: MembershipPayment,
-    *,
-    recorded_by: RevelUser | None,
-    notes: str = "",
-) -> MembershipPayment:
-    """Mark a payment as refunded.
-
-    If the refund fully covers the subscription's current period, also
-    cancels the subscription immediately. Idempotent: re-calling for an
-    already-REFUNDED payment is a no-op.
-    """
-    payment = MembershipPayment.objects.select_for_update().get(pk=payment.pk)
-    if payment.status == MembershipPayment.PaymentStatus.REFUNDED:
-        return payment
-    payment.status = MembershipPayment.PaymentStatus.REFUNDED
-    if notes:
-        payment.notes = (payment.notes + ("\n" if payment.notes else "") + notes).strip()
-    payment.save(update_fields=["status", "notes", "updated_at"])
-
-    logger.info(
-        "membership_payment_refunded",
-        payment_id=str(payment.id),
-        subscription_id=str(payment.subscription_id),
-        recorded_by=str(recorded_by.id) if recorded_by else None,
-    )
-
-    # Phase 4: full refund of the current period auto-cancels the subscription.
-    if _is_full_refund_of_current_period(payment):
-        cancel_subscription(payment.subscription, immediate=True)
-
-    return payment
+# Refund handling (``refund_payment`` + full-refund auto-cancel) lives in
+# :mod:`events.service.subscription_refunds` (file-length cap).
 
 
 # === Notification dispatch helpers ============================================

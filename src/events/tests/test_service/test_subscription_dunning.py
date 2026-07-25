@@ -346,6 +346,25 @@ class TestSyncSubscriptionDeleted:
 
         assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED)
 
+    def test_scheduled_cancel_reaching_period_end_does_not_refire(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """Period-end deletion of a scheduled cancel must not re-fire as immediate=True.
+
+        The member already received CANCELLATION_CONFIRMED(immediate=False) when
+        they scheduled the cancel; the ``customer.subscription.deleted`` webhook
+        at the period boundary must stay silent instead of sending a false
+        "cancelled effective immediately" message.
+        """
+        _make_online_sub(online_plan, subscriber, stripe_id="sub_del3", cancel_at_period_end=True)
+        payload = _stripe_sub_payload("sub_del3", status="canceled", cancel_at_period_end=True)
+
+        subscription_stripe_sync.sync_subscription_from_stripe(payload)
+
+        assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED)
+
 
 # ---- customer.subscription.updated incomplete_expired — SUBSCRIPTION_EXPIRED -
 

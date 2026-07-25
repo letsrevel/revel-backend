@@ -465,7 +465,7 @@ def sync_member_from_subscription(
     - Never creates an :class:`OrganizationMember`. Creation lives in
       :func:`events.service.subscription_service.create_subscription` for the
       OFFLINE flow, and in
-      :func:`events.service.subscription_stripe_service._ensure_active_member`
+      :func:`events.service.subscription_stripe_sync._ensure_active_member`
       for the ONLINE flow (gated on Stripe's first paid invoice / ``active``
       status, so members don't get tier benefits before paying).
     - Leaves ``BANNED`` members untouched.

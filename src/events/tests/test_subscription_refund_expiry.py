@@ -3,7 +3,7 @@
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import stripe
@@ -17,7 +17,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_service
+from events.service import subscription_refunds
 from events.service.stripe_webhooks import StripeEventHandler
 
 
@@ -71,7 +71,7 @@ class TestRefundAutoCancel:
             period_start=active_sub.current_period_start,
             period_end=active_sub.current_period_end,
         )
-        subscription_service.refund_payment(payment, recorded_by=None)
+        subscription_refunds.refund_payment(payment, recorded_by=None)
         active_sub.refresh_from_db()
         assert active_sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
         assert active_sub.cancelled_at is not None
@@ -90,7 +90,7 @@ class TestRefundAutoCancel:
             period_start=old_start,
             period_end=old_end,
         )
-        subscription_service.refund_payment(old_payment, recorded_by=None)
+        subscription_refunds.refund_payment(old_payment, recorded_by=None)
         active_sub.refresh_from_db()
         assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
@@ -116,7 +116,7 @@ class TestRefundAutoCancel:
             period_start=active_sub.current_period_start,
             period_end=active_sub.current_period_end,
         )
-        subscription_service.refund_payment(small_payment, recorded_by=None)
+        subscription_refunds.refund_payment(small_payment, recorded_by=None)
         active_sub.refresh_from_db()
         # Only 1.00 of 11.00 refunded → not a full refund → sub still ACTIVE
         assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
@@ -138,7 +138,7 @@ class TestRefundAutoCancel:
             period_start=active_sub.current_period_start,
             period_end=active_sub.current_period_end,
         )
-        subscription_service.refund_payment(payment, recorded_by=None)
+        subscription_refunds.refund_payment(payment, recorded_by=None)
         active_sub.refresh_from_db()
         # cancel_subscription early-returns for terminal subs → no state change
         assert active_sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
@@ -156,11 +156,101 @@ class TestRefundAutoCancel:
             period_start=active_sub.current_period_start,
             period_end=active_sub.current_period_end,
         )
-        result = subscription_service.refund_payment(payment, recorded_by=None)
+        result = subscription_refunds.refund_payment(payment, recorded_by=None)
         active_sub.refresh_from_db()
         # Already REFUNDED → early return → sub state unchanged
         assert result.status == MembershipPayment.PaymentStatus.REFUNDED
         assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+
+@pytest.fixture
+def online_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
+    return MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Monthly Online",
+        price=Decimal("10"),
+        currency="EUR",
+        period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+        payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        stripe_product_id="prod_refund",
+        stripe_price_id="price_refund",
+    )
+
+
+@pytest.fixture
+def online_sub(
+    online_plan: MembershipSubscriptionPlan, organization: Organization, subscriber: RevelUser
+) -> MembershipSubscription:
+    return MembershipSubscription.objects.create(
+        user=subscriber,
+        plan=online_plan,
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        stripe_subscription_id="sub_refund_online",
+        current_period_start=timezone.now() - timedelta(days=10),
+        current_period_end=timezone.now() + timedelta(days=20),
+    )
+
+
+@pytest.mark.django_db
+class TestOnlineRefundAutoCancelLockDiscipline:
+    def _full_refund_payment(
+        self, online_sub: MembershipSubscription, online_plan: MembershipSubscriptionPlan
+    ) -> MembershipPayment:
+        assert online_sub.current_period_start is not None
+        assert online_sub.current_period_end is not None
+        return MembershipPayment.objects.create(
+            subscription=online_sub,
+            amount=online_plan.price,
+            currency=online_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=online_sub.current_period_start,
+            period_end=online_sub.current_period_end,
+        )
+
+    def test_stripe_cancel_deferred_until_after_commit(
+        self,
+        online_sub: MembershipSubscription,
+        online_plan: MembershipSubscriptionPlan,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Full-period refund terminalizes locally under the row locks; the
+        Stripe-side cancel must run only after commit — never hold a row lock
+        across a network call."""
+        payment = self._full_refund_payment(online_sub, online_plan)
+        with patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as mock_cancel:
+            with django_capture_on_commit_callbacks(execute=False) as callbacks:
+                subscription_refunds.refund_payment(payment, recorded_by=None)
+                # Still inside the transaction: local state is settled...
+                online_sub.refresh_from_db()
+                assert online_sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+                # ...but no outbound Stripe call has been made yet.
+                mock_cancel.assert_not_called()
+            for callback in callbacks:
+                callback()
+        mock_cancel.assert_called_once()
+
+    def test_online_refund_auto_cancel_fires_cancellation_confirmed_once(
+        self,
+        online_sub: MembershipSubscription,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """The refund auto-cancel path still fires CANCELLATION_CONFIRMED(immediate=True)."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        payment = self._full_refund_payment(online_sub, online_plan)
+        with patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"):
+            with django_capture_on_commit_callbacks(execute=True):
+                subscription_refunds.refund_payment(payment, recorded_by=None)
+        notifs = Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
+        )
+        assert notifs.count() == 1
+        assert notifs.first().context["immediate"] is True  # type: ignore[union-attr]
 
 
 def _subscription_charge_event(payment_intent_id: str, amount_cents: int) -> stripe.Event:

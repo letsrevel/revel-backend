@@ -17,7 +17,7 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_service
+from events.service import subscription_refunds, subscription_service
 from events.service.subscription_service import InitialPayment
 
 pytestmark = pytest.mark.django_db
@@ -553,7 +553,7 @@ class TestRefundPayment:
         payment = sub.payments.first()
         assert payment is not None
 
-        refunded = subscription_service.refund_payment(payment, recorded_by=recorder, notes="customer asked")
+        refunded = subscription_refunds.refund_payment(payment, recorded_by=recorder, notes="customer asked")
         assert refunded.status == MembershipPayment.PaymentStatus.REFUNDED
 
         sub.refresh_from_db()
@@ -570,6 +570,6 @@ class TestRefundPayment:
         )
         payment = sub.payments.first()
         assert payment is not None
-        subscription_service.refund_payment(payment, recorded_by=recorder)
-        again = subscription_service.refund_payment(payment, recorded_by=recorder)
+        subscription_refunds.refund_payment(payment, recorded_by=recorder)
+        again = subscription_refunds.refund_payment(payment, recorded_by=recorder)
         assert again.status == MembershipPayment.PaymentStatus.REFUNDED
