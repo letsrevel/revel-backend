@@ -1845,6 +1845,13 @@ msgstr "Il livello deve appartenere alla stessa organizzazione."
 msgid "User is already a member of this organization."
 msgstr "L'utente è già membro di questa organizzazione."
 
+msgid ""
+"The membership questionnaire must belong to this organization and be of type "
+"MEMBERSHIP."
+msgstr ""
+"Il questionario di iscrizione deve appartenere a questa organizzazione ed "
+"essere di tipo MEMBERSHIP."
+
 msgid "Tier IDs must match all tiers for this organization exactly."
 msgstr ""
 "Gli ID devono corrispondere esattamente a tutti i livelli di questa "

@@ -1870,6 +1870,13 @@ msgstr "Die Stufe muss zur selben Organisation gehören."
 msgid "User is already a member of this organization."
 msgstr "Anwender:in ist bereits Mitglied dieser Organisation."
 
+msgid ""
+"The membership questionnaire must belong to this organization and be of type "
+"MEMBERSHIP."
+msgstr ""
+"Der Mitgliedschaftsfragebogen muss zu dieser Organisation gehören und vom "
+"Typ MEMBERSHIP sein."
+
 msgid "Tier IDs must match all tiers for this organization exactly."
 msgstr ""
 "Die IDs müssen exakt allen Mitgliedschaftsstufen dieser Organisation "
