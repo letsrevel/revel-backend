@@ -23,7 +23,7 @@ from events.models import (
 )
 
 if t.TYPE_CHECKING:
-    from events.schema import MembershipTierCreateSchema
+    from events.schema import MembershipTierCreateSchema, MembershipTierUpdateSchema
 
 # Intentional cross-module use of a private helper: the name is pinned by
 # events/migrations/0001_initial.py (referenced as a field `default=`), so it
@@ -224,6 +224,32 @@ def update_member(
     return member
 
 
+def validate_membership_questionnaire(organization: Organization, questionnaire_id: UUID) -> None:
+    """Ensure ``questionnaire_id`` names a MEMBERSHIP questionnaire owned by ``organization``.
+
+    Mirrors the model-level ``clean()`` rules (org-scoped, MEMBERSHIP type) but runs before
+    ``save()`` so callers get a clean 400 for a cross-org, wrong-type, or non-existent id —
+    the model ``clean()`` would 500 on the last case when it dereferences the FK.
+
+    Args:
+        organization: The organization the questionnaire must belong to.
+        questionnaire_id: The candidate ``OrganizationQuestionnaire`` id.
+
+    Raises:
+        HttpError 400: If no matching MEMBERSHIP questionnaire exists for the organization.
+    """
+    exists = models.OrganizationQuestionnaire.objects.filter(
+        pk=questionnaire_id,
+        organization=organization,
+        questionnaire_type=models.OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+    ).exists()
+    if not exists:
+        raise HttpError(
+            400,
+            str(_("The membership questionnaire must belong to this organization and be of type MEMBERSHIP.")),
+        )
+
+
 @transaction.atomic
 def create_membership_tier(organization: Organization, payload: "MembershipTierCreateSchema") -> MembershipTier:
     """Create a membership tier, appending it at the bottom of the organization's ordering.
@@ -240,10 +266,39 @@ def create_membership_tier(organization: Organization, payload: "MembershipTierC
     Returns:
         The created ``MembershipTier``, appended after any existing tiers.
     """
+    if payload.membership_questionnaire_id:
+        validate_membership_questionnaire(organization, payload.membership_questionnaire_id)
     Organization.objects.select_for_update().filter(pk=organization.pk).first()
     current_max = MembershipTier.objects.filter(organization=organization).aggregate(m=Max("display_order"))["m"]
     display_order = 0 if current_max is None else current_max + 1
     return MembershipTier.objects.create(organization=organization, display_order=display_order, **payload.model_dump())
+
+
+@transaction.atomic
+def update_membership_tier(tier: MembershipTier, payload: "MembershipTierUpdateSchema") -> MembershipTier:
+    """Update a membership tier, validating any membership-questionnaire override first.
+
+    The tier-level questionnaire (when set) must belong to the tier's organization and be of
+    type MEMBERSHIP; a NULL override clears it (inherit the org default). Delegates the field
+    write to ``update_db_instance`` (locked, ``exclude_unset`` so tri-state fields keep their
+    "not provided vs explicit null" distinction).
+
+    Args:
+        tier: The tier to update.
+        payload: The validated ``MembershipTierUpdateSchema`` payload.
+
+    Returns:
+        The updated ``MembershipTier``.
+
+    Raises:
+        HttpError 400: If ``membership_questionnaire_id`` is not a MEMBERSHIP questionnaire for the org.
+    """
+    from events.service import update_db_instance
+
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("membership_questionnaire_id"):
+        validate_membership_questionnaire(tier.organization, data["membership_questionnaire_id"])
+    return update_db_instance(tier, payload)
 
 
 @transaction.atomic

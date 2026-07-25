@@ -58,7 +58,12 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     contact_method: Organization.ContactMethod = Organization.ContactMethod.NONE
     revenue_report_cadence: Organization.RevenueReportCadence = Organization.RevenueReportCadence.NONE
     membership_grace_period_days: t.Annotated[int, Field(ge=0)] = 7
+    membership_subscription_revival_window_days: t.Annotated[int, Field(ge=0)] = 30
     membership_refund_policy: StrippedString = ""
+    # Membership eligibility policy defaults (overridable per tier). The questionnaire id
+    # is validated (org-scoped, MEMBERSHIP type) in the service layer before persisting.
+    default_membership_questionnaire_id: UUID | None = None
+    default_requires_membership_approval: bool = False
 
 
 class OrganizationBillingInfoSchema(Schema):
@@ -205,7 +210,11 @@ class OrganizationAdminDetailSchema(
     revenue_report_cadence: OrganizationModel.RevenueReportCadence
     # Membership subscription policy
     membership_grace_period_days: int
+    membership_subscription_revival_window_days: int
     membership_refund_policy: str
+    # Membership eligibility policy defaults
+    default_membership_questionnaire_id: UUID | None = None
+    default_requires_membership_approval: bool
 
 
 class OrganizationPermissionsSchema(Schema):
@@ -266,14 +275,30 @@ class MembershipTierSchema(ModelSchema):
         fields = ["id", "name", "description", "display_order"]
 
 
+class MembershipTierAdminSchema(MembershipTierSchema):
+    """Admin-facing tier view exposing the eligibility-policy overrides for form prefill.
+
+    ``requires_membership_approval`` is tri-state: ``None`` means "inherit the org default".
+    Kept separate from the member-facing ``MembershipTierSchema`` so these policy fields
+    don't leak into nested member/subscription/ticket-tier serializations.
+    """
+
+    membership_questionnaire_id: UUID | None = None
+    requires_membership_approval: bool | None = None
+
+
 class MembershipTierCreateSchema(Schema):
     name: OneToOneFiftyString
     description: str | None = None
+    membership_questionnaire_id: UUID | None = None
+    requires_membership_approval: bool | None = None
 
 
 class MembershipTierUpdateSchema(Schema):
     name: OneToOneFiftyString | None = None
     description: str | None = None
+    membership_questionnaire_id: UUID | None = None
+    requires_membership_approval: bool | None = None
 
 
 class MinimalOrganizationMemberSchema(ModelSchema):

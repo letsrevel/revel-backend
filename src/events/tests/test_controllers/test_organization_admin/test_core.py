@@ -15,9 +15,20 @@ from accounts.jwt import create_token
 from accounts.models import RevelUser
 from common.utils import assert_image_equal
 from events import schema
-from events.models import Organization, OrganizationStaff
+from events.models import Organization, OrganizationQuestionnaire, OrganizationStaff
+from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
+
+
+def _make_org_questionnaire(
+    org: Organization,
+    questionnaire_type: str = OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+) -> OrganizationQuestionnaire:
+    q = Questionnaire.objects.create(name="Q", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+    return OrganizationQuestionnaire.objects.create(
+        organization=org, questionnaire=q, questionnaire_type=questionnaire_type
+    )
 
 
 # --- Tests for PUT /organization-admin/{slug} ---
@@ -88,6 +99,75 @@ def test_update_membership_grace_period_rejects_negative(
     assert response.status_code == 422
     organization.refresh_from_db()
     assert organization.membership_grace_period_days == 7
+
+
+def test_update_revival_window_and_eligibility_policy(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """Revival window (issue #778) and membership-eligibility defaults (issue #777) are writable via PUT."""
+    oq = _make_org_questionnaire(organization)
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {
+        "visibility": "public",
+        "membership_subscription_revival_window_days": 45,
+        "default_membership_questionnaire_id": str(oq.id),
+        "default_requires_membership_approval": True,
+    }
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["membership_subscription_revival_window_days"] == 45
+    assert data["default_membership_questionnaire_id"] == str(oq.id)
+    assert data["default_requires_membership_approval"] is True
+    organization.refresh_from_db()
+    assert organization.membership_subscription_revival_window_days == 45
+    assert organization.default_membership_questionnaire_id == oq.id
+    assert organization.default_requires_membership_approval is True
+
+
+def test_update_revival_window_rejects_negative(organization_owner_client: Client, organization: Organization) -> None:
+    """A negative revival window is rejected at the schema boundary (ge=0)."""
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "membership_subscription_revival_window_days": -1}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 422
+
+
+def test_update_default_questionnaire_rejects_cross_org(
+    organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """A default questionnaire belonging to another org is rejected with 400."""
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    other_oq = _make_org_questionnaire(other_org)
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "default_membership_questionnaire_id": str(other_oq.id)}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    organization.refresh_from_db()
+    assert organization.default_membership_questionnaire_id is None
+
+
+def test_update_default_questionnaire_rejects_wrong_type(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """A non-MEMBERSHIP questionnaire is rejected with 400."""
+    feedback_oq = _make_org_questionnaire(
+        organization, questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK
+    )
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "default_membership_questionnaire_id": str(feedback_oq.id)}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    organization.refresh_from_db()
+    assert organization.default_membership_questionnaire_id is None
 
 
 def test_upload_organization_logo_by_owner(

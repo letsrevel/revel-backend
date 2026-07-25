@@ -1,5 +1,7 @@
 """Tests for the member-facing /me subscription endpoints."""
 
+import typing as t
+from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -7,6 +9,7 @@ import pytest
 import stripe
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
@@ -586,3 +589,63 @@ class TestBillingPortalEndpoint:
         url = reverse("api:create_billing_portal_session", kwargs={"org_id": organization.id})
         response = subscriber_client.post(url, data={}, content_type="application/json")
         assert response.status_code == 400
+
+
+class TestRevivalDeadlineExposure:
+    """expired_at + computed revival_deadline on the member-facing subscription schema (issue #778)."""
+
+    @staticmethod
+    def _expire(sub: MembershipSubscription) -> MembershipSubscription:
+        sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
+        sub.expired_at = timezone.now() - timedelta(days=1)
+        sub.save(update_fields=["status", "expired_at"])
+        return sub
+
+    def _list_item(self, client: Client) -> dict[str, t.Any]:
+        response = client.get(reverse("api:list_my_membership_subscriptions"))
+        assert response.status_code == 200
+        return response.json()["results"][0]  # type: ignore[no-any-return]
+
+    def test_expired_subscription_exposes_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        organization.membership_subscription_revival_window_days = 30
+        organization.save(update_fields=["membership_subscription_revival_window_days"])
+        self._expire(their_subscription)
+
+        item = self._list_item(subscriber_client)
+
+        assert item["expired_at"] is not None
+        assert item["revival_deadline"] is not None
+        expired_at = datetime.fromisoformat(item["expired_at"])
+        deadline = datetime.fromisoformat(item["revival_deadline"])
+        assert deadline - expired_at == timedelta(days=30)
+
+    def test_window_zero_yields_no_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        organization.membership_subscription_revival_window_days = 0
+        organization.save(update_fields=["membership_subscription_revival_window_days"])
+        self._expire(their_subscription)
+
+        item = self._list_item(subscriber_client)
+
+        assert item["expired_at"] is not None
+        assert item["revival_deadline"] is None
+
+    def test_non_expired_subscription_has_no_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+    ) -> None:
+        # ``their_subscription`` is active/pending, never EXPIRED.
+        item = self._list_item(subscriber_client)
+
+        assert item["expired_at"] is None
+        assert item["revival_deadline"] is None

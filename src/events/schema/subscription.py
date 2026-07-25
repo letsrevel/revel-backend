@@ -1,5 +1,6 @@
 """Subscription, plan, and payment schemas (Phase 1)."""
 
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -210,6 +211,8 @@ class _BaseSubscriptionSchema(ModelSchema):
     current_period_end: AwareDatetime | None = None
     cancelled_at: AwareDatetime | None = None
     pending_plan_id: UUID | None = None
+    expired_at: AwareDatetime | None = None
+    revival_deadline: AwareDatetime | None = None
 
     class Meta:
         model = MembershipSubscription
@@ -219,6 +222,22 @@ class _BaseSubscriptionSchema(ModelSchema):
             "created_at",
             "updated_at",
         ]
+
+    @staticmethod
+    def resolve_revival_deadline(obj: MembershipSubscription) -> datetime | None:
+        """Deadline to revive an EXPIRED subscription in place.
+
+        ``expired_at + org.membership_subscription_revival_window_days``. Returns ``None``
+        unless the subscription is EXPIRED, has an ``expired_at`` timestamp, and the org's
+        revival window is greater than zero — mirroring ``_validate_revivable`` in
+        ``subscription_service`` so the surfaced deadline matches what revival enforces.
+        """
+        if obj.status != MembershipSubscription.SubscriptionStatus.EXPIRED or obj.expired_at is None:
+            return None
+        window = obj.organization.membership_subscription_revival_window_days
+        if window <= 0:
+            return None
+        return obj.expired_at + timedelta(days=window)
 
 
 class MySubscriptionSchema(_BaseSubscriptionSchema):
