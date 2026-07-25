@@ -668,6 +668,16 @@ class SubscriptionRenewalReminderContext(BaseNotificationContext):
     manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE page that calls POST /billing-portal
 
 
+class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
+    """Context for SUBSCRIPTION_REVIVAL_CHECKOUT notification."""
+
+    organization_name: str
+    organization_slug: str
+    plan_name: str
+    amount: str  # formatted "{amount} {currency}"
+    checkout_url: str  # hosted Stripe Checkout the member completes to renew
+
+
 class SubscriptionPriceMigrationNoticeContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_PRICE_MIGRATION_NOTICE notification."""
 
@@ -733,6 +743,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED: SubscriptionCancellationConfirmedContext,
     NotificationType.SUBSCRIPTION_RENEWAL_REMINDER: SubscriptionRenewalReminderContext,
     NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE: SubscriptionPriceMigrationNoticeContext,
+    NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT: SubscriptionRevivalCheckoutContext,
 }
 
 

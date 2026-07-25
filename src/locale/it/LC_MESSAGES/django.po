@@ -1290,6 +1290,12 @@ msgstr "Annullato"
 msgid "Expired"
 msgstr "Scaduto"
 
+msgid ""
+"Hosted Checkout Session that will (or did) create the Stripe Subscription."
+msgstr ""
+"Sessione di Checkout ospitata che creerà (o ha creato) la Subscription "
+"Stripe."
+
 msgid "Plan that will replace ``plan`` at the next renewal (downgrade flow)."
 msgstr ""
 "Piano che sostituirà ``plan`` al prossimo rinnovo (flusso di downgrade)."
@@ -2861,6 +2867,14 @@ msgstr "Cambio di prezzo: iscrizione a %(org)s"
 msgid "Upcoming price change for your %(org)s membership"
 msgstr "Prossimo cambio di prezzo per la tua iscrizione a %(org)s"
 
+#, python-format
+msgid "Complete your membership renewal: %(org)s"
+msgstr "Completa il rinnovo della tua iscrizione: %(org)s"
+
+#, python-format
+msgid "Complete your %(org)s membership renewal"
+msgstr "Completa il rinnovo della tua iscrizione a %(org)s"
+
 msgid "System Announcement"
 msgstr "Annuncio di sistema"
 
@@ -4195,6 +4209,38 @@ msgstr "Prossimo rinnovo:"
 msgid "Your %(plan)s membership at %(org)s has been successfully renewed."
 msgstr ""
 "La tua iscrizione %(plan)s presso %(org)s è stata rinnovata con successo."
+
+msgid "Renew Your Membership"
+msgstr "Rinnova la tua iscrizione"
+
+#, python-format
+msgid ""
+"<strong>%(org)s</strong> has set up the renewal of your <strong>%(plan)s</"
+"strong> membership. Complete the payment to reactivate it."
+msgstr ""
+"<strong>%(org)s</strong> ha predisposto il rinnovo della tua iscrizione "
+"<strong>%(plan)s</strong>. Completa il pagamento per riattivarla."
+
+msgid "Complete payment"
+msgstr "Completa il pagamento"
+
+msgid ""
+"The payment link expires after a short while; if it no longer works, you can "
+"restart the renewal from your membership page."
+msgstr ""
+"Il link di pagamento scade dopo poco tempo; se non funziona più, puoi "
+"riavviare il rinnovo dalla pagina della tua iscrizione."
+
+#, python-format
+msgid ""
+"%(org)s has set up the renewal of your %(plan)s membership. Complete the "
+"payment to reactivate it."
+msgstr ""
+"%(org)s ha predisposto il rinnovo della tua iscrizione %(plan)s. Completa il "
+"pagamento per riattivarla."
+
+msgid "Complete payment:"
+msgstr "Completa il pagamento:"
 
 msgid "Read More"
 msgstr "Leggi di più"

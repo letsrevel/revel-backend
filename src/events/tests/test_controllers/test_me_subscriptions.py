@@ -289,28 +289,26 @@ class TestSubscribeEndpoint:
             stripe_price_id="price_test",
         )
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
     @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
-    def test_subscribe_returns_client_secret(
+    def test_subscribe_returns_checkout_url(
         self,
         mock_customer: mock.Mock,
-        mock_subscription: mock.Mock,
+        mock_session: mock.Mock,
         subscriber_client: Client,
         subscriber_user: RevelUser,
         online_plan: MembershipSubscriptionPlan,
         organization: Organization,
     ) -> None:
         mock_customer.return_value = mock.MagicMock(id="cus_x")
-        mock_subscription.return_value = mock.MagicMock(
-            id="sub_x", latest_invoice={"payment_intent": {"client_secret": "pi_secret"}}
-        )
+        mock_session.return_value = mock.MagicMock(id="cs_x", url="https://checkout.stripe.com/c/pay/cs_x")
 
         url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
         response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
 
         assert response.status_code == 201, response.content
         body = response.json()
-        assert body["client_secret"] == "pi_secret"
+        assert body["checkout_url"] == "https://checkout.stripe.com/c/pay/cs_x"
         assert body["subscription"]["plan_id"] == str(online_plan.id)
         assert MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
 
@@ -334,19 +332,19 @@ class TestSubscribeEndpoint:
         response = Client().post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
         assert response.status_code == 401
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
     @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
     def test_subscribe_stripe_failure_rolls_back(
         self,
         mock_customer: mock.Mock,
-        mock_subscription: mock.Mock,
+        mock_session: mock.Mock,
         subscriber_client: Client,
         subscriber_user: RevelUser,
         online_plan: MembershipSubscriptionPlan,
         organization: Organization,
     ) -> None:
         mock_customer.return_value = mock.MagicMock(id="cus_x")
-        mock_subscription.side_effect = stripe.error.CardError("declined", "card", "card_declined")
+        mock_session.side_effect = stripe.error.CardError("declined", "card", "card_declined")
         url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
         response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
         assert response.status_code == 502

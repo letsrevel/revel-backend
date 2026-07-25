@@ -101,8 +101,8 @@ class MeSubscriptionsController(UserAwareController):
     ) -> tuple[int, schema.SubscribeResponseSchema]:
         """Start a Stripe-backed subscription on an ONLINE plan.
 
-        Returns the local subscription row plus a Stripe ``client_secret`` the
-        frontend uses to confirm the first invoice's PaymentIntent.
+        Returns the local subscription row plus a hosted Stripe Checkout
+        ``checkout_url`` the frontend redirects the member to for payment.
         """
         organization = get_object_or_404(Organization, pk=org_id)
         plan = get_object_or_404(
@@ -113,7 +113,7 @@ class MeSubscriptionsController(UserAwareController):
         )
         # ``start_online_subscription`` enforces ``payment_method == ONLINE``
         # and raises 400 if the plan is offline; no need to repeat the check.
-        subscription, client_secret = subscription_stripe_service.start_online_subscription(plan, self.user())
+        subscription, checkout_url = subscription_stripe_service.start_online_subscription(plan, self.user())
         # Return a dict (not a constructed schema): Ninja's response pipeline will
         # validate it via ``SubscribeResponseSchema``. Pre-validating the inner
         # ``MySubscriptionSchema`` would cause Ninja's wrap-validator to re-run
@@ -121,7 +121,7 @@ class MeSubscriptionsController(UserAwareController):
         # the original Django relations), breaking serialization.
         return 201, t.cast(
             schema.SubscribeResponseSchema,
-            {"subscription": subscription, "client_secret": client_secret},
+            {"subscription": subscription, "checkout_url": checkout_url},
         )
 
     @route.post(
@@ -196,10 +196,10 @@ class MeSubscriptionsController(UserAwareController):
         """Revive the caller's most recent EXPIRED subscription in an org.
 
         Only ONLINE plans can be revived self-service: the response includes
-        ``client_secret`` for the member to confirm the new Stripe
-        Subscription's first invoice, so payment is collected by Stripe.
-        OFFLINE plans are revived by organization staff (who record the
-        payment they actually received) — the member endpoint refuses them.
+        ``checkout_url`` — a hosted Stripe Checkout the member completes to
+        pay the new Stripe Subscription's first invoice. OFFLINE plans are
+        revived by organization staff (who record the payment they actually
+        received) — the member endpoint refuses them.
         """
         qs = (
             MembershipSubscription.objects.filter(
@@ -223,7 +223,7 @@ class MeSubscriptionsController(UserAwareController):
                 str(_("This subscription is managed by the organization. Contact them to renew your membership.")),
             )
 
-        revived, client_secret = subscription_service.revive_subscription(
+        revived, checkout_url = subscription_service.revive_subscription(
             subscription,
             initial_payment=None,
             revived_by=self.user(),
@@ -232,7 +232,7 @@ class MeSubscriptionsController(UserAwareController):
         # validates the Django model through ``MySubscriptionSchema`` resolvers.
         return t.cast(
             schema.RevivalResponseSchema,
-            {"subscription": revived, "client_secret": client_secret},
+            {"subscription": revived, "checkout_url": checkout_url},
         )
 
     @route.post(

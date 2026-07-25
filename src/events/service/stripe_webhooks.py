@@ -229,10 +229,16 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin):
         """Handles the successful completion of a checkout session.
 
         Updates payment and ticket status and triggers confirmation email.
-        Supports both single-ticket and batch ticket purchases.
+        Supports both single-ticket and batch ticket purchases. Sessions in
+        ``mode=subscription`` (membership subscriptions) are dispatched to the
+        subscription handler instead — they have no Payment/Ticket rows.
         """
         session = event.data.object
         session_id = session["id"]
+
+        if session.get("mode") == "subscription" or (session.get("metadata") or {}).get("membership_subscription_id"):
+            self.handle_subscription_checkout_completed(event)
+            return
 
         if session["payment_status"] not in {"paid", "no_payment_required"}:
             logger.warning(

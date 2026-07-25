@@ -185,7 +185,7 @@ class TestSalesStatusPause:
         )
         with (
             pytest.raises(HttpError) as exc,
-            mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create") as mock_create,
+            mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as mock_create,
         ):
             subscription_stripe_service.start_online_subscription(online_paused, _user(1, django_user_model))
         assert exc.value.status_code == 400

@@ -280,7 +280,11 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
         MembershipSubscription.objects.filter(
             plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
         )
+        # No Stripe Subscription to observe yet: a PENDING row mid-hosted-
+        # checkout carries only a stripe_checkout_session_id — the Stripe
+        # Subscription is created at session completion. Skip those.
         .exclude(stripe_subscription_id="")
+        .exclude(stripe_subscription_id__isnull=True)
         .filter(
             ~models.Q(status__in=MembershipSubscription.TERMINAL_STATUSES)
             | models.Q(updated_at__gte=now - datetime.timedelta(days=30))

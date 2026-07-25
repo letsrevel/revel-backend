@@ -549,20 +549,22 @@ def revive_subscription(
     recorded and the subscription transitions EXPIRED → ACTIVE under a
     short ``select_for_update`` transaction.
 
-    ONLINE flow: creates a fresh Stripe Subscription on the plan's current
-    price and returns a ``client_secret`` for the member to confirm payment.
-    Validation happens under a ``select_for_update`` lock in an inner
-    ``transaction.atomic()``. NOTE: under production ATOMIC_REQUESTS the
-    inner block exit releases only a savepoint, so the row lock is in fact
-    held across the Stripe calls until the request commits — accepted for
-    now (single-member blast radius; the lock also serializes echo-webhooks
-    against this mutation). Stripe ``idempotency_key`` keys the create call
-    to this subscription's current ``expired_at`` so concurrent attempts
-    converge.
+    ONLINE flow: mints a hosted Checkout Session for a fresh Stripe
+    Subscription on the plan's current price and returns its URL. When the
+    revival is staff-initiated (``revived_by`` is not the subscriber), the
+    member is additionally emailed the checkout link — staff cannot pay on
+    the member's behalf. Validation happens under a ``select_for_update``
+    lock in an inner ``transaction.atomic()``. NOTE: under production
+    ATOMIC_REQUESTS the inner block exit releases only a savepoint, so the
+    row lock is in fact held across the Stripe calls until the request
+    commits — accepted for now (single-member blast radius; the lock also
+    serializes echo-webhooks against this mutation). Stripe
+    ``idempotency_key`` keys the session-create call to this subscription's
+    current ``expired_at`` so concurrent attempts converge.
 
     Returns:
-        A ``(subscription, client_secret)`` tuple. ``client_secret`` is
-        ``None`` for OFFLINE revivals; a Stripe PaymentIntent secret for
+        A ``(subscription, checkout_url)`` tuple. ``checkout_url`` is
+        ``None`` for OFFLINE revivals; the hosted Checkout Session URL for
         ONLINE revivals.
 
     Refuses if:
@@ -620,9 +622,12 @@ def revive_subscription(
     # ONLINE branch — Stripe call runs OUTSIDE the row lock (see docstring).
     from events.service import subscription_stripe_service  # lazy: avoid cycle
 
-    client_secret = subscription_stripe_service.create_revival_subscription(subscription)
+    checkout_url = subscription_stripe_service.create_revival_checkout(subscription)
     # Stripe call mutated and saved the subscription — refresh local state.
     subscription.refresh_from_db()
+    if revived_by is not None and revived_by.pk != subscription.user_id:
+        # Staff-initiated: the member has to complete the checkout themselves.
+        _dispatch_revival_checkout(subscription, checkout_url=checkout_url)
     logger.info(
         "membership_subscription_revived",
         subscription_id=str(subscription.pk),
@@ -631,7 +636,7 @@ def revive_subscription(
         revived_by=str(revived_by.id) if revived_by else None,
         method="online",
     )
-    return subscription, client_secret
+    return subscription, checkout_url
 
 
 def _validate_change_plan_target(
@@ -913,6 +918,22 @@ def _dispatch_cancellation_confirmed(subscription: MembershipSubscription, *, im
     notification_dispatcher.create_notification(
         NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED, subscription.user, ctx
     )
+
+
+def _dispatch_revival_checkout(subscription: MembershipSubscription, *, checkout_url: str) -> None:
+    """Fire SUBSCRIPTION_REVIVAL_CHECKOUT with the hosted Checkout link.
+
+    Sent when staff revive a member's ONLINE subscription: staff cannot pay on
+    the member's behalf, so the member gets the checkout link to complete the
+    renewal themselves.
+    """
+    plan = subscription.plan
+    ctx = _common_subscription_context(subscription)
+    ctx.update(
+        amount=_format_money(plan.price, plan.currency),
+        checkout_url=checkout_url,
+    )
+    notification_dispatcher.create_notification(NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT, subscription.user, ctx)
 
 
 def _dispatch_price_migration(
