@@ -15,6 +15,9 @@ EU VAT rules for event tickets:
 import typing as t
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from uuid import UUID
+
+from django.utils.translation import gettext as _
 
 from common.constants import EU_MEMBER_STATES
 from common.service.vat_utils import TWO_PLACES, calculate_vat_inclusive
@@ -23,7 +26,9 @@ if t.TYPE_CHECKING:
     from events.models.event import Event
     from events.models.organization import Organization
     from events.models.ticket import TicketTier
+    from events.models.venue import VenueSeat
     from events.schema.ticket import BuyerBillingInfoSchema, VATPreviewItemSchema
+    from events.service.seating.pricing import BatchPricing
 
 
 @dataclass(frozen=True)
@@ -144,7 +149,11 @@ def get_effective_vat_rate(tier: "TicketTier", org: "Organization") -> Decimal:
 
 @dataclass(frozen=True)
 class VATPreviewLineItem:
-    """Single line item in a VAT preview result."""
+    """Single line item in a VAT preview result.
+
+    One line per **distinct unit price**, not per requested tier — see
+    :func:`calculate_vat_preview`.
+    """
 
     tier_name: str
     ticket_count: int
@@ -155,6 +164,7 @@ class VATPreviewLineItem:
     line_net: Decimal
     line_vat: Decimal
     line_gross: Decimal
+    price_category_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -236,35 +246,181 @@ def _validate_buyer_vat(
     return vat_id_valid, vat_id_validation_error, buyer_country
 
 
-def _resolve_effective_price(
+def _resolve_preview_seats(tier: "TicketTier", item: "VATPreviewItemSchema") -> "list[VenueSeat | None]":
+    """Resolve what each ticket of a preview line is priced from, in cart order.
+
+    Two shapes, one per seat-assignment mode, both collapsing onto the same
+    ``VenueSeat | None`` vector so everything downstream — pricing, grouping, VAT — is
+    mode-blind and the response the frontend renders is identical either way:
+
+    - **user_choice**: the buyer's ``seat_ids``, resolved and scoped exactly like
+      checkout's ``_resolve_seats_user_choice`` (the tier's sector, active seats only) so
+      a seat the preview prices is a seat checkout would accept. Availability is
+      deliberately *not* checked: a preview is not a reservation, and a seat someone else
+      is holding is still worth quoting a price for.
+    - **best_available**: no seats exist yet, so the line is represented by ``count``
+      copies of one *unsaved* seat carrying the requested zone. A best-available request
+      is uniformly priced by construction (one zone per request), which is exactly why it
+      is representable without seats. The instance is never saved and never read for
+      anything but its price category. Any ``seat_ids`` on such a line are ignored, for
+      the same reason checkout's ``resolve_seats`` ignores them: the picker assigns the
+      seats, not the buyer.
+
+    Args:
+        tier: The tier this line buys into.
+        item: The requested line — count, and either ``seat_ids`` or ``price_category_id``.
+
+    Returns:
+        ``item.count`` entries; ``None`` for general admission / unzoned lines.
+
+    Raises:
+        HttpError: 400, if both selectors are supplied, or if any seat id is unknown or
+            outside the tier's sector.
+        InvalidZoneSelectionError: 400 (rendered by ``events/exception_handlers.py``), if
+            the requested zone is unusable on this tier — see
+            :func:`~events.service.seating.pick.resolve_requested_zone`, the single
+            authority the preview and checkout share so a quote can never be validated
+            differently from the charge it predicts.
+    """
+    from ninja.errors import HttpError
+
+    from events.exceptions import InvalidZoneSelectionError
+    from events.models import PriceCategory, TicketTier, VenueSeat
+    from events.service.seating.pick import resolve_requested_zone
+
+    if item.seat_ids and item.price_category_id is not None:
+        raise HttpError(400, str(_("Provide either seat_ids or price_category_id, not both.")))
+
+    # Asked for EVERY mode, exactly as checkout's `resolve_seats` does. Asking it only when
+    # `seat_ids` was empty let a best-available line smuggle itself past the zone rule by
+    # sending seats: the preview priced those seats and quoted a total, while the same
+    # intent at checkout (which has no seat_ids to send) was refused.
+    zone_id = resolve_requested_zone(tier, item.price_category_id)
+
+    if tier.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE or not item.seat_ids:
+        if zone_id is not None:
+            # The preview needs the category itself for the line name; the authority
+            # returns only the id, and has already proven it is one of the tier's zones.
+            zone = PriceCategory.objects.filter(pk=zone_id).first()
+            if zone is None:
+                # A zone in the map cannot be deleted (see `delete_price_category`), but that
+                # holds at any *instant*, not across two statements: the organizer can unmap
+                # the zone and then delete the category between the tier read above and this
+                # fetch. Same 400 the buyer gets a moment later, never a 500.
+                raise InvalidZoneSelectionError(str(_("That zone is no longer on sale — please choose another.")))
+            # One shared read-only stand-in: `resolve_seat_price` reads only the category.
+            return [VenueSeat(default_price_category=zone)] * item.count
+        # A category-priced user-choice tier has no meaningful flat price, so quoting one would
+        # hand the buyer a total checkout will not honour — the exact disagreement this endpoint
+        # exists to prevent. Refusing costs no backward compatibility: `category_prices` ships
+        # with this feature, so no existing client can be previewing such a tier.
+        if tier.category_prices:
+            raise HttpError(
+                400,
+                str(_("This ticket tier prices seats by category — seat_ids are required to preview it.")),
+            )
+        return [None] * item.count
+
+    seats = VenueSeat.objects.filter(id__in=item.seat_ids, sector_id=tier.sector_id, is_active=True).select_related(
+        "default_price_category"
+    )
+    seat_map = {seat.pk: seat for seat in seats}
+    if len(seat_map) != len(set(item.seat_ids)):
+        raise HttpError(400, str(_("One or more selected seats are invalid or not in the correct sector.")))
+    return [seat_map[seat_id] for seat_id in item.seat_ids]
+
+
+def _resolve_line_pricing(
     tier: "TicketTier",
     org: "Organization",
+    seats: "list[VenueSeat | None]",
     price_per_ticket: Decimal | None,
     discount_code: str | None,
-) -> Decimal:
-    """Determine the effective price for a tier in the VAT preview.
+) -> "BatchPricing":
+    """Price every ticket in one preview line, per seat (spec §7).
 
-    Priority: PWYC override > discount code > tier list price.
+    The priority order is unchanged — PWYC override > discount code > list price — but
+    "list price" is now the seat's category price, resolved through the same
+    :func:`~events.service.seating.pricing.build_batch_pricing` checkout uses. There is
+    deliberately no second resolver: a preview computed by different code than the charge
+    is a preview that drifts.
+
+    Two preview-only softenings, both of which only ever move the quote *up* toward the
+    real charge:
+
+    - An invalid discount code is ignored (pre-existing behaviour) — the buyer is still
+      typing, and a 400 per keystroke is not a preview.
+    - A code the cart is too small for is ignored too. Checkout enforces
+      ``min_purchase_amount`` against the resolved total (spec §5.6); honouring the code
+      here would quote a discount Stripe would never grant.
+
+    A seat painted into a category the tier does not price is **not** softened — see
+    :func:`calculate_vat_preview`.
+
+    Args:
+        tier: The tier this line buys into.
+        org: The selling organization (scopes discount-code lookup).
+        seats: Resolved seats in cart order; ``None`` entries are general admission.
+        price_per_ticket: The buyer's PWYC amount, if any.
+        discount_code: The raw code string the buyer typed, if any.
+
+    Returns:
+        The per-ticket price vector for this line.
+
+    Raises:
+        HttpError: 400, if the PWYC amount is outside the tier's bounds, or if a seat's
+            price category is unpriced.
     """
     from ninja.errors import HttpError
 
     from events.service import discount_code_service
+    from events.service.seating.pricing import build_batch_pricing
 
     if price_per_ticket is not None:
         if tier.pwyc_min and price_per_ticket < tier.pwyc_min:
-            raise HttpError(400, f"PWYC amount must be at least {tier.pwyc_min}")
+            raise HttpError(400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min))
         if tier.pwyc_max and price_per_ticket > tier.pwyc_max:
-            raise HttpError(400, f"PWYC amount must be at most {tier.pwyc_max}")
-        return price_per_ticket
+            raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
+        return build_batch_pricing(tier, seats, pwyc_amount=price_per_ticket)
 
+    dc = None
     if discount_code:
         try:
             dc = discount_code_service.validate_discount_code_anonymous(discount_code, org, tier)
-            return discount_code_service.calculate_discounted_price(tier, dc)
         except HttpError:
-            pass  # Invalid discount code in preview — use original price
+            dc = None  # Invalid discount code in preview — use original price
 
-    return tier.price
+    pricing = build_batch_pricing(tier, seats, discount_code=dc)
+    if dc is not None and pricing.gross_total < dc.min_purchase_amount:
+        return build_batch_pricing(tier, seats)
+    return pricing
+
+
+def _group_by_price(
+    seats: "list[VenueSeat | None]",
+    pricing: "BatchPricing",
+) -> dict[tuple["UUID | None", Decimal], tuple[str | None, int]]:
+    """Collapse a priced cart line into one entry per (price category, unit price).
+
+    Keyed on the category *id* — two categories may share a name — and on the price, so
+    a category that somehow charged two different unit prices would show as two honest
+    lines rather than one arbitrary one. Insertion-ordered, so the response mirrors the
+    order the buyer picked their seats in.
+
+    Args:
+        seats: Resolved seats in cart order; ``None`` for general admission.
+        pricing: The per-ticket price vector, positionally aligned with ``seats``.
+
+    Returns:
+        ``{(category_id, unit_price): (category_name, ticket_count)}``.
+    """
+    groups: dict[tuple[UUID | None, Decimal], tuple[str | None, int]] = {}
+    for seat, line in zip(seats, pricing.lines, strict=True):
+        category = seat.default_price_category if seat is not None else None
+        key = (category.pk if category is not None else None, line.unit_price)
+        name, count = groups.get(key, (category.name if category is not None else None, 0))
+        groups[key] = (name, count + 1)
+    return groups
 
 
 def calculate_vat_preview(
@@ -280,10 +436,30 @@ def calculate_vat_preview(
     per-line-item and total VAT breakdown. Supports discount codes and
     PWYC price overrides.
 
+    **Seat-aware (spec §7).** An item may carry ``seat_ids`` (user-choice) or a
+    ``price_category_id`` zone (best-available, whose seats do not exist until the picker
+    runs); each ticket is then priced from that category through the same authority
+    checkout uses. Both shapes produce the same response — a zone-priced line is grouped
+    and named exactly like a seat-priced one — so the frontend never branches on the
+    tier's seating mode to render a quote. Because a category-priced cart has no single
+    unit price, the result is grouped into **one line per (price category, unit price)**
+    in first-appearance order rather than one line per tier — "2 × Premium @ 80.00,
+    1 × Standard @ 30.00" is what an invoice will say, and is what the buyer can check
+    against Stripe. Two categories that happen to charge the same price stay two lines;
+    merging them would produce an anonymous total the buyer cannot reconcile with the seat
+    map. An item with neither selector, on a tier with no category map, yields exactly one
+    line at the flat price — byte-identical to the pre-seating behaviour.
+
+    A seat painted into a category the tier does not price raises 400 here, exactly as it
+    does at checkout, and deliberately so: this is the one refusal that must **not** be
+    softened into a warning. Quoting a total that omits or mis-prices a seat the buyer
+    picked is the precise failure this endpoint exists to prevent, and the error names the
+    offending category so the buyer can pick another seat or the organizer can fix the map.
+
     Args:
         event: The event whose tiers are being previewed.
         billing_info: Buyer billing info with optional VAT ID.
-        items: List of tier IDs and quantities.
+        items: List of tier IDs, quantities and optional seat ids / zone id.
         discount_code: Optional discount code to apply.
         price_per_ticket: Optional PWYC price override.
 
@@ -292,6 +468,12 @@ def calculate_vat_preview(
 
     Raises:
         HttpError 404: If a tier is not found for the event.
+        HttpError 400: On a currency mismatch, an unknown seat, a PWYC amount out of
+            bounds, or a seat whose price category the tier does not price.
+        InvalidZoneSelectionError: 400, on a missing/unpriced or inapplicable zone —
+            raised by the shared authority
+            :func:`~events.service.seating.pick.resolve_requested_zone`, so the preview
+            refuses a zone in exactly the words checkout would.
     """
     from ninja.errors import HttpError
 
@@ -319,40 +501,43 @@ def calculate_vat_preview(
         elif tier.currency != currency:
             raise HttpError(400, "All tiers must use the same currency.")
 
-        effective_price = _resolve_effective_price(tier, org, price_per_ticket, discount_code)
-
+        seats = _resolve_preview_seats(tier, item)
+        pricing = _resolve_line_pricing(tier, org, seats, price_per_ticket, discount_code)
         vat_rate = get_effective_vat_rate(tier, org)
-        vat_result = determine_attendee_vat(
-            gross_price=effective_price,
-            seller_vat_rate=vat_rate,
-            seller_country=org.vat_country_code,
-            buyer_country=buyer_country,
-            buyer_vat_id_valid=buyer_vat_valid,
-        )
 
-        line_net = (vat_result.net_amount * item.count).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
-        line_vat = (vat_result.vat_amount * item.count).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
-        line_gross = (vat_result.effective_price * item.count).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
-
-        line_items.append(
-            VATPreviewLineItem(
-                tier_name=tier.name,
-                ticket_count=item.count,
-                unit_price_gross=effective_price,
-                unit_price_net=vat_result.net_amount,
-                unit_vat=vat_result.vat_amount,
-                vat_rate=vat_result.vat_rate,
-                line_net=line_net,
-                line_vat=line_vat,
-                line_gross=line_gross,
+        for (_category_id, effective_price), (category_name, count) in _group_by_price(seats, pricing).items():
+            vat_result = determine_attendee_vat(
+                gross_price=effective_price,
+                seller_vat_rate=vat_rate,
+                seller_country=org.vat_country_code,
+                buyer_country=buyer_country,
+                buyer_vat_id_valid=buyer_vat_valid,
             )
-        )
 
-        total_net += line_net
-        total_vat += line_vat
-        total_gross += line_gross
-        if vat_result.reverse_charge:
-            reverse_charge = True
+            line_net = (vat_result.net_amount * count).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+            line_vat = (vat_result.vat_amount * count).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+            line_gross = (vat_result.effective_price * count).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+
+            line_items.append(
+                VATPreviewLineItem(
+                    tier_name=tier.name,
+                    price_category_name=category_name,
+                    ticket_count=count,
+                    unit_price_gross=effective_price,
+                    unit_price_net=vat_result.net_amount,
+                    unit_vat=vat_result.vat_amount,
+                    vat_rate=vat_result.vat_rate,
+                    line_net=line_net,
+                    line_vat=line_vat,
+                    line_gross=line_gross,
+                )
+            )
+
+            total_net += line_net
+            total_vat += line_vat
+            total_gross += line_gross
+            if vat_result.reverse_charge:
+                reverse_charge = True
 
     return VATPreviewResult(
         vat_id_valid=vat_id_valid,

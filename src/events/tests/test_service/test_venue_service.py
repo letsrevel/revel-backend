@@ -8,8 +8,9 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events import schema
-from events.models import Event, Organization, Ticket, TicketTier, Venue, VenueSeat, VenueSector
+from events.models import Event, Organization, SeatHold, Ticket, TicketTier, Venue, VenueSeat, VenueSector
 from events.service import venue_service
+from events.service.seating import holds as holds_service
 
 pytestmark = pytest.mark.django_db
 
@@ -286,12 +287,12 @@ class TestUpdateSeat:
         """Test update with no changes returns seat unchanged."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
-        seat = VenueSeat.objects.create(sector=sector, label="A1", row="A")
+        seat = VenueSeat.objects.create(sector=sector, label="A1", row_label="A")
 
         payload = schema.VenueSeatUpdateSchema()  # type: ignore[call-arg]
         updated = venue_service.update_seat(seat, payload)
 
-        assert updated.row == "A"
+        assert updated.row_label == "A"
 
 
 class TestDeleteSeat:
@@ -339,7 +340,7 @@ class TestDeleteSeat:
             venue_service.delete_seat(seat)
 
         assert exc_info.value.status_code == 400
-        assert "active or pending tickets" in str(exc_info.value.message)
+        assert "decommission" in str(exc_info.value.message).lower()
         assert VenueSeat.objects.filter(id=seat.id).exists()
 
     def test_delete_seat_blocked_by_pending_future_ticket(
@@ -373,16 +374,15 @@ class TestDeleteSeat:
             venue_service.delete_seat(seat)
 
         assert exc_info.value.status_code == 400
-        assert "active or pending tickets" in str(exc_info.value.message)
+        assert "decommission" in str(exc_info.value.message).lower()
 
-    def test_delete_seat_allowed_with_cancelled_ticket(
+    def test_delete_seat_blocked_by_cancelled_ticket(
         self, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test that seat with cancelled ticket can be deleted."""
+        """A cancelled ticket still references the seat historically, so deletion is blocked."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
-        seat_id = seat.id
 
         future_event = Event.objects.create(
             organization=organization,
@@ -403,18 +403,20 @@ class TestDeleteSeat:
             status=Ticket.TicketStatus.CANCELLED,
         )
 
-        venue_service.delete_seat(seat)
+        with pytest.raises(HttpError) as exc_info:
+            venue_service.delete_seat(seat)
 
-        assert not VenueSeat.objects.filter(id=seat_id).exists()
+        assert exc_info.value.status_code == 400
+        assert "decommission" in str(exc_info.value.message).lower()
+        assert VenueSeat.objects.filter(id=seat.id).exists()
 
-    def test_delete_seat_allowed_with_past_event_ticket(
+    def test_delete_seat_blocked_by_past_event_ticket(
         self, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test that seat with ticket for past event can be deleted."""
+        """A ticket for a past event still references the seat, so deletion is blocked."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
-        seat_id = seat.id
 
         past_event = Event.objects.create(
             organization=organization,
@@ -435,18 +437,20 @@ class TestDeleteSeat:
             status=Ticket.TicketStatus.ACTIVE,
         )
 
-        venue_service.delete_seat(seat)
+        with pytest.raises(HttpError) as exc_info:
+            venue_service.delete_seat(seat)
 
-        assert not VenueSeat.objects.filter(id=seat_id).exists()
+        assert exc_info.value.status_code == 400
+        assert "decommission" in str(exc_info.value.message).lower()
+        assert VenueSeat.objects.filter(id=seat.id).exists()
 
-    def test_delete_seat_allowed_with_checked_in_ticket(
+    def test_delete_seat_blocked_by_checked_in_ticket(
         self, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test that seat with checked_in ticket can be deleted (they've already used it)."""
+        """A checked-in ticket still references the seat historically, so deletion is blocked."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
-        seat_id = seat.id
 
         future_event = Event.objects.create(
             organization=organization,
@@ -466,6 +470,49 @@ class TestDeleteSeat:
             venue=venue,
             status=Ticket.TicketStatus.CHECKED_IN,
             checked_in_at=timezone.now(),
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            venue_service.delete_seat(seat)
+
+        assert exc_info.value.status_code == 400
+        assert "decommission" in str(exc_info.value.message).lower()
+        assert VenueSeat.objects.filter(id=seat.id).exists()
+
+    def test_delete_seat_blocked_by_unexpired_hold(
+        self, seated_event: tuple[Event, list[VenueSeat]], organization_owner_user: RevelUser
+    ) -> None:
+        """An unexpired SeatHold (cart hold, no ticket yet) also blocks hard deletion."""
+        event, seats = seated_event
+        holds_service.acquire_seats(event, [seats[0].id], user=organization_owner_user, guest_session=None)
+
+        with pytest.raises(HttpError) as exc_info:
+            venue_service.delete_seat(seats[0])
+
+        assert exc_info.value.status_code == 400
+        assert "decommission" in str(exc_info.value.message).lower()
+        assert VenueSeat.objects.filter(id=seats[0].id).exists()
+
+    def test_delete_seat_allowed_with_expired_hold(self, organization: Organization) -> None:
+        """An expired SeatHold does not block deletion."""
+        venue = Venue.objects.create(organization=organization, name="Venue")
+        sector = VenueSector.objects.create(venue=venue, name="Orchestra")
+        seat = VenueSeat.objects.create(sector=sector, label="A1")
+        seat_id = seat.id
+
+        event = Event.objects.create(
+            organization=organization,
+            name="Some Concert",
+            start=timezone.now() + timedelta(days=7),
+            end=timezone.now() + timedelta(days=7, hours=3),
+            status=Event.EventStatus.OPEN,
+        )
+        SeatHold.objects.create(
+            event=event,
+            seat=seat,
+            guest_session="guest-session-expired",
+            acquired_at=timezone.now() - timedelta(hours=1),
+            expires_at=timezone.now() - timedelta(minutes=1),
         )
 
         venue_service.delete_seat(seat)
@@ -601,10 +648,10 @@ class TestBulkDeleteSeats:
         # All seats should still exist
         assert sector.seats.count() == 3
 
-    def test_bulk_delete_seats_allowed_with_non_blocking_tickets(
+    def test_bulk_delete_seats_blocked_by_any_ticket_reference(
         self, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test bulk delete succeeds when tickets are cancelled or for past events."""
+        """Cancelled/checked-in tickets still reference the seat, so bulk delete is blocked atomically."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat1 = VenueSeat.objects.create(sector=sector, label="A1")
@@ -618,7 +665,7 @@ class TestBulkDeleteSeats:
             status=Event.EventStatus.OPEN,
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
-        # Cancelled ticket - should not block
+        # Cancelled ticket - historically referenced, now blocks
         Ticket.objects.create(
             guest_name="Test Guest",
             event=future_event,
@@ -629,7 +676,7 @@ class TestBulkDeleteSeats:
             venue=venue,
             status=Ticket.TicketStatus.CANCELLED,
         )
-        # Checked-in ticket - should not block
+        # Checked-in ticket - historically referenced, now blocks
         Ticket.objects.create(
             guest_name="Test Guest",
             event=future_event,
@@ -642,10 +689,42 @@ class TestBulkDeleteSeats:
             checked_in_at=timezone.now(),
         )
 
-        deleted_count = venue_service.bulk_delete_seats(sector, ["A1", "A2"])
+        with pytest.raises(HttpError) as exc_info:
+            venue_service.bulk_delete_seats(sector, ["A1", "A2"])
 
-        assert deleted_count == 2
-        assert sector.seats.count() == 0
+        assert exc_info.value.status_code == 400
+        assert "A1" in str(exc_info.value.message)
+        assert "A2" in str(exc_info.value.message)
+        assert sector.seats.count() == 2
+
+    def test_bulk_delete_seats_blocked_by_unexpired_hold(self, organization: Organization) -> None:
+        """An unexpired SeatHold on any target seat blocks the whole bulk delete atomically."""
+        venue = Venue.objects.create(organization=organization, name="Venue")
+        sector = VenueSector.objects.create(venue=venue, name="Orchestra")
+        seat1 = VenueSeat.objects.create(sector=sector, label="A1")
+        VenueSeat.objects.create(sector=sector, label="A2")
+
+        event = Event.objects.create(
+            organization=organization,
+            name="Some Concert",
+            start=timezone.now() + timedelta(days=7),
+            end=timezone.now() + timedelta(days=7, hours=3),
+            status=Event.EventStatus.OPEN,
+        )
+        SeatHold.objects.create(
+            event=event,
+            seat=seat1,
+            guest_session="guest-session-active",
+            acquired_at=timezone.now(),
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            venue_service.bulk_delete_seats(sector, ["A1", "A2"])
+
+        assert exc_info.value.status_code == 400
+        assert "A1" in str(exc_info.value.message)
+        assert sector.seats.count() == 2
 
 
 class TestBulkUpdateSeats:
@@ -655,9 +734,9 @@ class TestBulkUpdateSeats:
         """Test bulk updating seats successfully."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
-        VenueSeat.objects.create(sector=sector, label="A1", row="A", number=1, is_accessible=False)
-        VenueSeat.objects.create(sector=sector, label="A2", row="A", number=2, is_accessible=False)
-        VenueSeat.objects.create(sector=sector, label="A3", row="A", number=3, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A1", row_label="A", number=1, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A2", row_label="A", number=2, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A3", row_label="A", number=3, is_accessible=False)
 
         updates = [
             schema.VenueSeatBulkUpdateItemSchema(label="A1", is_accessible=True),  # type: ignore[call-arg]
@@ -673,13 +752,13 @@ class TestBulkUpdateSeats:
         assert a1.is_accessible is True
 
         a2 = sector.seats.get(label="A2")
-        assert a2.row == "B"
+        assert a2.row_label == "B"
         assert a2.number == 1
 
         # A3 should be unchanged
         a3 = sector.seats.get(label="A3")
         assert a3.is_accessible is False
-        assert a3.row == "A"
+        assert a3.row_label == "A"
 
     def test_bulk_update_seats_empty_list(self, organization: Organization) -> None:
         """Test bulk update with empty list returns empty."""
@@ -735,6 +814,30 @@ class TestBulkUpdateSeats:
         assert "A2" in str(exc_info.value.message)
         assert "outside the sector shape" in str(exc_info.value.message)
 
+    def test_bulk_update_seats_validates_positions_against_legacy_shape(self, organization: Organization) -> None:
+        """point_in_polygon must tolerate shapes stored in the legacy ``[[x, y], ...]`` format."""
+        venue = Venue.objects.create(organization=organization, name="Venue")
+        sector = VenueSector.objects.create(
+            venue=venue,
+            name="Floor",
+            shape=[[0, 0], [100, 0], [100, 100], [0, 100]],
+        )
+        VenueSeat.objects.create(sector=sector, label="A1")
+
+        inside = [
+            schema.VenueSeatBulkUpdateItemSchema(label="A1", position=schema.Coordinate2D(x=50, y=50)),  # type: ignore[call-arg]
+        ]
+        venue_service.bulk_update_seats(sector, inside)
+        assert sector.seats.get(label="A1").position == {"x": 50.0, "y": 50.0}
+
+        outside = [
+            schema.VenueSeatBulkUpdateItemSchema(label="A1", position=schema.Coordinate2D(x=150, y=50)),  # type: ignore[call-arg]
+        ]
+        with pytest.raises(HttpError) as exc_info:
+            venue_service.bulk_update_seats(sector, outside)
+        assert exc_info.value.status_code == 400
+        assert "outside the sector shape" in str(exc_info.value.message)
+
     def test_bulk_update_seats_no_shape_skips_validation(self, organization: Organization) -> None:
         """Test that positions are not validated when sector has no shape."""
         venue = Venue.objects.create(organization=organization, name="Venue")
@@ -755,7 +858,7 @@ class TestBulkUpdateSeats:
         """Test bulk update with no actual changes still returns seats."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
-        VenueSeat.objects.create(sector=sector, label="A1", row="A")
+        VenueSeat.objects.create(sector=sector, label="A1", row_label="A")
 
         # Update with only label (identifier), no changes
         updates = [
@@ -766,7 +869,7 @@ class TestBulkUpdateSeats:
 
         assert len(updated_seats) == 1
         a1 = sector.seats.get(label="A1")
-        assert a1.row == "A"
+        assert a1.row_label == "A"
 
 
 class TestSectorMetadata:

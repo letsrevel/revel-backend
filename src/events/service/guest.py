@@ -104,6 +104,10 @@ def create_guest_ticket_token(
     tickets: list[schema.TicketPurchaseItem],
     pwyc_amount: Decimal | None = None,
     discount_code: str | None = None,
+    *,
+    accessible_required: bool = False,
+    price_category_id: UUID | None = None,
+    guest_session: str | None = None,
 ) -> str:
     """Create JWT token for guest ticket purchase confirmation.
 
@@ -117,6 +121,13 @@ def create_guest_ticket_token(
         tickets: List of ticket purchase items with guest_name and optional seat_id
         pwyc_amount: Optional PWYC amount
         discount_code: Optional discount code string
+        accessible_required: Whether best-available assignment at confirm time must
+            use the accessible seat pool (applies to the whole block)
+        price_category_id: Zone selected at checkout, carried in the token so the
+            confirm-time assignment draws from the same pool the buyer chose
+        guest_session: Hold-owner session id captured at checkout, embedded in the
+            token so confirm-time assignment consumes the buyer's own holds even
+            when the confirmation link is opened on a different device.
 
     Returns:
         JWT token string
@@ -132,6 +143,9 @@ def create_guest_ticket_token(
         pwyc_amount=pwyc_amount,
         discount_code=discount_code,
         tickets=ticket_payloads,
+        accessible_required=accessible_required,
+        price_category_id=price_category_id,
+        guest_session=guest_session,
         exp=timezone.now() + timedelta(hours=1),
         jti=str(uuid4()),
     )
@@ -245,6 +259,9 @@ def handle_guest_ticket_checkout(
     pwyc_amount: Decimal | None = None,
     discount_code: str | None = None,
     billing_info: "schema.BuyerBillingInfoSchema | None" = None,
+    guest_session: str | None = None,
+    accessible_required: bool = False,
+    price_category_id: UUID | None = None,
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request (business logic extracted from controller).
 
@@ -258,6 +275,11 @@ def handle_guest_ticket_checkout(
         pwyc_amount: Optional PWYC amount (must be the same for all tickets)
         discount_code: Optional discount code string
         billing_info: Optional buyer billing info for attendee invoicing
+        guest_session: Resolved guest-hold session id (seat holds are owned by it)
+        accessible_required: Whether best-available seat assignment must use the
+            accessible pool (applies to the whole checkout block)
+        price_category_id: Zone the best-available pool is drawn from (#749);
+            validated by ``resolve_requested_zone`` inside the batch service
 
     Returns:
         GuestCheckoutResponseSchema. Non-online tiers: `message` (email confirmation sent).
@@ -267,9 +289,11 @@ def handle_guest_ticket_checkout(
 
     Raises:
         HttpError: If event doesn't allow guest access, tier issues, or eligibility checks fail
+        InvalidZoneSelectionError: 400 if the requested zone is unusable on this tier
     """
     from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
+    from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
 
     # Check if event allows guest access
@@ -291,19 +315,37 @@ def handle_guest_ticket_checkout(
         if tier.pwyc_max and pwyc_amount > tier.pwyc_max:
             raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
 
-    # Validate discount code if provided
+    # Validate discount code if provided. Only the code travels onward — the
+    # per-ticket discounted price is the pricing service's job, not ours.
     dc = None
-    price_override = pwyc_amount
     if discount_code:
         dc = discount_code_service.validate_discount_code(discount_code, event.organization, tier, user, len(tickets))
-        price_override = discount_code_service.calculate_discounted_price(tier, dc)
+
+    # Validate the requested zone HERE, not only downstream: the non-online branch
+    # below defers seat assignment to the confirmation click, so an unusable zone
+    # would otherwise cost the buyer an email and a dead link instead of a 400.
+    resolve_requested_zone(tier, price_category_id)
 
     # Branch by payment method
     if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
         # Online payment: use BatchTicketService (Stripe provides security)
-        service = BatchTicketService(event, tier, user, discount_code=dc)
-        result = service.create_batch(tickets, price_override=price_override, billing_info=billing_info)
+        service = BatchTicketService(
+            event,
+            tier,
+            user,
+            discount_code=dc,
+            guest_session=guest_session,
+            accessible_required=accessible_required,
+            price_category_id=price_category_id,
+        )
+        result = service.create_batch(tickets, pwyc_amount=pwyc_amount, billing_info=billing_info)
 
+        # Branch on the returned SHAPE, never on the tier's payment method (#740):
+        # a PWYC/discount input that zeroes every unit reroutes an ONLINE cart to
+        # the free checkout, which returns a bare list of ACTIVE tickets.
+        # ponytail: create_batch's dual return type is what invites this at every
+        # call site; a single result object carrying an optional reservation_id
+        # would make it unrepresentable (~104 call sites, mostly tests — see #740).
         if isinstance(result, tuple):
             _tickets, reservation_id = result
             return schema.GuestCheckoutResponseSchema(
@@ -314,19 +356,26 @@ def handle_guest_ticket_checkout(
                 requires_payment=True,
             )
 
-        # This shouldn't happen for ONLINE payment; log and raise an error
-        logger.error(
-            "batch_service_returned_tickets_for_online_payment",
-            event_id=str(event.id),
-            tier_id=str(tier.id),
-            user_id=str(user.id),
-            result_type=str(type(result)),
+        return schema.GuestCheckoutResponseSchema(
+            message=None,
+            checkout_url=None,
+            tickets=[schema.UserTicketSchema.from_orm(ticket) for ticket in result],
+            requires_payment=False,
         )
-        raise HttpError(500, str(_("Internal server error: Unexpected ticket result for online payment.")))
     else:
         # Non-online payment: require email confirmation
         # Store ticket info in JWT token for later creation
-        token = create_guest_ticket_token(user, event.id, tier.id, tickets, pwyc_amount, discount_code)
+        token = create_guest_ticket_token(
+            user,
+            event.id,
+            tier.id,
+            tickets,
+            pwyc_amount,
+            discount_code,
+            accessible_required=accessible_required,
+            price_category_id=price_category_id,
+            guest_session=guest_session,
+        )
         transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name))
         return schema.GuestCheckoutResponseSchema(
             message=str(_("Please check your email to confirm your ticket purchase")),
@@ -336,13 +385,17 @@ def handle_guest_ticket_checkout(
 
 
 @transaction.atomic
-def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.BatchCheckoutResponse:
+def confirm_guest_action(
+    token: str, guest_session: str | None = None
+) -> schema.EventRSVPSchema | schema.BatchCheckoutResponse:
     """Confirm a guest action (RSVP or ticket purchase) via JWT token.
 
     Uses Pydantic's discriminated union to properly decode the token type.
 
     Args:
         token: JWT token string
+        guest_session: Resolved guest-hold session id of the confirming browser,
+            so the guest's own seat holds are consumed rather than blocking them
 
     Returns:
         Created RSVP or BatchCheckoutResponse with ticket(s)
@@ -399,31 +452,52 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.BatchChe
             # Legacy token without tickets list - create single ticket with user's name
             ticket_items = [schema.TicketPurchaseItem(guest_name=user.get_display_name())]
 
-        # Re-validate discount code if one was stored in the token
+        # Re-validate discount code if one was stored in the token. As at checkout,
+        # only the code is threaded through; pricing happens per ticket downstream.
         dc = None
-        price_override = payload.pwyc_amount
         if payload.discount_code:
             dc = discount_code_service.validate_discount_code(
                 payload.discount_code, event.organization, tier, user, len(ticket_items)
             )
-            price_override = discount_code_service.calculate_discounted_price(tier, dc)
 
         # Use BatchTicketService for proper seat handling
-        service = BatchTicketService(event, tier, user, discount_code=dc)
-        result = service.create_batch(ticket_items, price_override=price_override)
+        service = BatchTicketService(
+            event,
+            tier,
+            user,
+            discount_code=dc,
+            # Prefer the hold-owner session captured in the token so the buyer's own
+            # holds are consumed even when confirming from a different device; fall
+            # back to the confirming request's cookie for legacy tokens (None).
+            guest_session=payload.guest_session or guest_session,
+            accessible_required=payload.accessible_required,
+            # Absent from pre-v3 tokens (defaults to None) — a legacy token still
+            # decodes and buys from the tier's whole sector, as it did when minted.
+            price_category_id=payload.price_category_id,
+        )
+        result = service.create_batch(ticket_items, pwyc_amount=payload.pwyc_amount)
 
         # Blacklist token after successful creation
         blacklist_token(token)
 
-        # Should always return tickets for non-online payment (what email confirmation is used for)
-        if isinstance(result, list):
-            # Always return BatchCheckoutResponse for consistency
+        # Branch on the returned SHAPE, as at the first call site (#740). The token
+        # is only minted for non-online tiers, but the tier can be flipped to ONLINE
+        # between the email being sent and the buyer clicking it — then create_batch
+        # reserves and returns (tickets, reservation_id), and the buyer must get the
+        # reservation handle rather than a 500 for work already committed.
+        if isinstance(result, tuple):
+            _tickets, reservation_id = result
             return schema.BatchCheckoutResponse(
                 checkout_url=None,
-                tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+                tickets=[],
+                reservation_id=reservation_id,
+                requires_payment=True,
             )
 
-        raise HttpError(500, str(_("Unexpected response from ticket creation")))
+        return schema.BatchCheckoutResponse(
+            checkout_url=None,
+            tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+        )
 
     # This should never happen with proper discriminated union, but satisfy mypy
     raise HttpError(400, str(_("Invalid token type")))

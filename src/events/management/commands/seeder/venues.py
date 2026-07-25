@@ -102,7 +102,11 @@ class VenueSeeder(BaseSeeder):
                         capacity=self.random_choice([20, 50, 100, 150]) if not is_seated else None,
                         display_order=i,
                         # Simple rectangular shape for testing
-                        shape=[[0, 0], [100, 0], [100, 100], [0, 100]] if self.random_bool(0.3) else None,
+                        shape=(
+                            [{"x": 0, "y": 0}, {"x": 100, "y": 0}, {"x": 100, "y": 100}, {"x": 0, "y": 100}]
+                            if self.random_bool(0.3)
+                            else None
+                        ),
                         metadata={"aisle": "left"} if self.random_bool(0.2) else None,
                     )
                     sectors_to_create.append(sector)
@@ -142,7 +146,7 @@ class VenueSeeder(BaseSeeder):
                 seat = VenueSeat(
                     sector=sector,
                     label=f"{row}{num}",
-                    row=row,
+                    row_label=row,
                     number=num,
                     position={"x": (num - 1) * 30, "y": rows.index(row) * 30} if self.random_bool(0.8) else None,
                     is_accessible=self.random_bool(0.05),

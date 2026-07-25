@@ -17,6 +17,8 @@ class NotificationType(TextChoices):
     TICKET_REFUNDED = "ticket_refunded"
     TICKET_CHECKED_IN = "ticket_checked_in"
     PAYMENT_CONFIRMATION = "payment_confirmation"
+    # Inbound Stripe refund Revel refused to auto-match to a ticket (staff only)
+    REFUND_UNMATCHED = "refund_unmatched"
 
     # Event notifications
     EVENT_OPEN = "event_open"

@@ -1,14 +1,16 @@
 import datetime
 import typing as t
+from decimal import Decimal
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.utils import timezone
+from django.utils import timezone, translation
 
 from accounts.models import RevelUser
 from events import exceptions
 from events.models import (
     AdditionalResource,
+    DiscountCode,
     Event,
     EventInvitation,
     EventRSVP,
@@ -910,3 +912,35 @@ class TestCanUserSeeCancellationReason:
     def test_superuser_can_see(self, cancelled_event: Event, nonmember_user: RevelUser) -> None:
         nonmember_user.is_superuser = True
         assert cancelled_event.can_user_see_cancellation_reason(nonmember_user) is True
+
+
+# --- i18n: model validation messages are organizer-facing, so they must actually translate ---
+
+
+@pytest.mark.django_db
+def test_member_tier_message_renders_in_the_active_language(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Guards both the ``gettext`` wrapping and the catalog entry (see ADR-0011)."""
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    tier = MembershipTier.objects.create(organization=other_org, name="Gold")
+    member = OrganizationMember(organization=organization, user=organization_owner_user, tier=tier)
+    with translation.override("it"):
+        with pytest.raises(ValidationError) as exc_info:
+            member.full_clean()
+        assert exc_info.value.message_dict["tier"] == [
+            "Il livello deve appartenere alla stessa organizzazione dell'iscrizione."
+        ]
+
+
+def test_discount_code_message_renders_in_the_active_language() -> None:
+    """DiscountCode.clean() is pure field validation — no database needed."""
+    code = DiscountCode(
+        code="SALE",
+        discount_type=DiscountCode.DiscountType.PERCENTAGE,
+        discount_value=Decimal("150"),
+    )
+    with translation.override("it"):
+        with pytest.raises(ValidationError) as exc_info:
+            code.clean()
+        assert exc_info.value.message_dict["discount_value"] == ["Lo sconto percentuale non può superare 100."]

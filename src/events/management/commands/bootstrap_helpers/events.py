@@ -872,7 +872,7 @@ def _create_seated_concert(state: BootstrapState, now: "datetime.datetime") -> N
         requires_ticket=True,
         start=now + timedelta(days=50),
         end=now + timedelta(days=50, hours=3),
-        max_attendees=100,
+        max_attendees=176,
         description="""# Classical Music Evening
 
 Join us for an enchanting evening of classical music at the Revel Concert Hall.
@@ -885,7 +885,8 @@ Vienna Chamber Orchestra.
 - **Strauss** - The Blue Danube Waltz
 
 ## Venue
-The Revel Concert Hall features reserved seating in a 10x10 grid layout.
+The Revel Concert Hall features reserved seating across two sections: the
+Orchestra (premium front rows and standard rear rows) and the Balcony.
 Choose your preferred seat during checkout for the best viewing experience.
 
 ## Dress Code

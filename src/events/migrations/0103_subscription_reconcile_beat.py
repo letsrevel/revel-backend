@@ -38,7 +38,7 @@ def delete_subscription_reconcile_task(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("events", "0098_subscription_renewal_reminder_beat"),
+        ("events", "0102_subscription_renewal_reminder_beat"),
         ("django_celery_beat", "0019_alter_periodictasks_options"),
     ]
 

@@ -12,7 +12,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('events', '0096_rsvp_notes'),
+        ('events', '0100_add_cleanup_expired_seat_holds_periodic_task'),
         ('questionnaires', '0012_alter_questionnaire_llm_backend'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

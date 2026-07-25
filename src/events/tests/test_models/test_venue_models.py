@@ -22,6 +22,29 @@ def test_venue_creation(organization: Organization) -> None:
 
 
 @pytest.mark.django_db
+def test_venue_metadata_defaults_to_none(organization: Organization) -> None:
+    """A venue's metadata defaults to None when not provided."""
+    venue = Venue.objects.create(organization=organization, name="No Metadata")
+    venue.refresh_from_db()
+    assert venue.metadata is None
+
+
+@pytest.mark.django_db
+def test_venue_metadata_stores_nested_stage(organization: Organization) -> None:
+    """Venue metadata round-trips a nested stage (position + shape) dict."""
+    stage = {
+        "stage": {
+            "position": {"x": 10.5, "y": -3.0},
+            "shape": [{"x": 0.0, "y": 0.0}, {"x": 5.0, "y": 0.0}, {"x": 5.0, "y": 5.0}],
+            "label": "Main Stage",
+        }
+    }
+    venue = Venue.objects.create(organization=organization, name="Staged", metadata=stage)
+    venue.refresh_from_db()
+    assert venue.metadata == stage
+
+
+@pytest.mark.django_db
 def test_venue_slug_auto_generated(organization: Organization) -> None:
     """Test that slug is auto-generated from name."""
     venue = Venue.objects.create(
@@ -326,13 +349,13 @@ def test_venue_seat_creation(organization: Organization) -> None:
     seat = VenueSeat.objects.create(
         sector=sector,
         label="A1",
-        row="A",
+        row_label="A",
         number=1,
         is_accessible=True,
         is_active=True,
     )
     assert seat.label == "A1"
-    assert seat.row == "A"
+    assert seat.row_label == "A"
     assert seat.number == 1
     assert seat.sector == sector
     assert seat.is_accessible is True
@@ -386,11 +409,11 @@ def test_venue_seat_optional_fields(organization: Organization) -> None:
     seat = VenueSeat.objects.create(
         sector=sector,
         label="SPOT-1",
-        row=None,
+        row_label=None,
         number=None,
         position=None,
     )
-    assert seat.row is None
+    assert seat.row_label is None
     assert seat.number is None
     assert seat.position is None
 
@@ -412,24 +435,30 @@ def test_venue_seat_position_json_field(organization: Organization) -> None:
 
 @pytest.mark.django_db
 def test_venue_seat_ordering(organization: Organization) -> None:
-    """Test that seats are ordered by row, number, and label."""
+    """Test that seats are ordered by row_order then adjacency_index (Meta.ordering)."""
     venue = Venue.objects.create(organization=organization, name="Theater")
     sector = VenueSector.objects.create(venue=venue, name="Orchestra")
 
-    # Create seats in random order
-    seat_b2 = VenueSeat.objects.create(sector=sector, label="B2", row="B", number=2)
-    seat_a1 = VenueSeat.objects.create(sector=sector, label="A1", row="A", number=1)
-    seat_a2 = VenueSeat.objects.create(sector=sector, label="A2", row="A", number=2)
-    seat_b1 = VenueSeat.objects.create(sector=sector, label="B1", row="B", number=1)
+    # row_order/adjacency_index deliberately INVERT the lexical label order, so a
+    # regression to label (or row_label/number) sorting flips the result.
+    seat_b2 = VenueSeat.objects.create(
+        sector=sector, label="B2", row_label="B", number=2, row_order=0, adjacency_index=0
+    )
+    seat_a1 = VenueSeat.objects.create(
+        sector=sector, label="A1", row_label="A", number=1, row_order=1, adjacency_index=1
+    )
+    seat_a2 = VenueSeat.objects.create(
+        sector=sector, label="A2", row_label="A", number=2, row_order=1, adjacency_index=0
+    )
+    seat_b1 = VenueSeat.objects.create(
+        sector=sector, label="B1", row_label="B", number=1, row_order=0, adjacency_index=1
+    )
 
     # Query seats
     seats = list(VenueSeat.objects.filter(sector=sector))
 
-    # Should be ordered by row, then number, then label
-    assert seats[0] == seat_a1
-    assert seats[1] == seat_a2
-    assert seats[2] == seat_b1
-    assert seats[3] == seat_b2
+    # Physical order (row_order, adjacency_index) — the reverse of lexical label order.
+    assert seats == [seat_b2, seat_b1, seat_a2, seat_a1]
 
 
 @pytest.mark.django_db

@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
+from django.utils import translation
 
 from events.models import Event, EventSeries, HeldSeriesPass, Organization, SeriesPass, SeriesPassTierLink, TicketTier
 
@@ -77,7 +78,7 @@ class TestSeriesPassModels:
             price=Decimal("10.00"),
             currency="EUR",
             payment_method=TicketTier.PaymentMethod.ONLINE,
-            seat_assignment_mode=TicketTier.SeatAssignmentMode.RANDOM,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
         )
         TicketTier.objects.bulk_create([seated_tier])
 
@@ -120,3 +121,25 @@ class TestSeriesPassModels:
     def test_held_pass_defaults(self, series_pass: SeriesPass, revel_user: t.Any) -> None:
         hp = HeldSeriesPass.objects.create(series_pass=series_pass, user=revel_user, price_paid=Decimal("36.00"))
         assert hp.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
+
+
+# --- i18n: the messages are organizer-facing, so they must actually translate ---
+
+
+@pytest.mark.django_db
+def test_at_the_door_message_renders_in_the_active_language(event_series: EventSeries) -> None:
+    """Guards both the ``gettext`` wrapping and the catalog entry (see ADR-0011)."""
+    sp = SeriesPass(
+        event_series=event_series,
+        name="Bad",
+        price=Decimal("10.00"),
+        pro_rata_discount=Decimal("1.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+    )
+    with translation.override("it"):
+        with pytest.raises(ValidationError) as exc_info:
+            sp.full_clean()
+        assert exc_info.value.message_dict["payment_method"] == [
+            "Il pagamento in loco non è supportato per i pass stagionali."
+        ]

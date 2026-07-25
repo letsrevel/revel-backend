@@ -346,6 +346,19 @@ class TicketCheckedInTemplate(NotificationTemplate):
         return _("Checked in - %(event)s") % {"event": event_name}
 
 
+class RefundUnmatchedTemplate(NotificationTemplate):
+    """Template for REFUND_UNMATCHED notification (to org staff)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("Refund could not be matched to a ticket")
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        org_name = notification.context.get("organization_name", "")
+        return _("Action needed: unmatched refund - %(org)s") % {"org": org_name}
+
+
 # Register templates
 register_template(NotificationType.TICKET_CREATED, TicketCreatedTemplate())
 register_template(NotificationType.TICKET_UPDATED, TicketUpdatedTemplate())
@@ -353,3 +366,4 @@ register_template(NotificationType.TICKET_CANCELLED, TicketUpdatedTemplate())
 register_template(NotificationType.TICKET_REFUNDED, TicketUpdatedTemplate())
 register_template(NotificationType.TICKET_CHECKED_IN, TicketCheckedInTemplate())
 register_template(NotificationType.PAYMENT_CONFIRMATION, PaymentConfirmationTemplate())
+register_template(NotificationType.REFUND_UNMATCHED, RefundUnmatchedTemplate())

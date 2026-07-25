@@ -23,6 +23,7 @@ from django.utils import timezone
 
 from common.service.vat_utils import calculate_vat_inclusive
 from events.models import Organization, Payment, Ticket, TicketTier
+from events.service.seating.pricing import recorded_or_resolved_price
 from events.utils import get_organization_timezone
 
 ZERO = Decimal("0.00")
@@ -274,7 +275,9 @@ def _offline_tickets(scope: ReportScope) -> QuerySet[Ticket]:
     from events.service.ticket_service import offline_paid_q
 
     offline_paid = offline_paid_q()
-    qs = Ticket.objects.select_related("event", "tier").filter(
+    # ``seat`` feeds the per-seat price resolution in _process_ticket when ``price_paid``
+    # is NULL on a category-priced tier — joined here so the pass stays N+1-free.
+    qs = Ticket.objects.select_related("event", "tier", "seat").filter(
         Q(offline_paid) | Q(status=Ticket.TicketStatus.CANCELLED, offline_refund_amount__isnull=False),
         event__organization=scope.org,
         tier__payment_method__in=[
@@ -343,7 +346,8 @@ def _process_ticket(
 ) -> None:
     currency = ticket.tier.currency if ticket.tier else scope.org.vat_country_code
     acc = currencies.setdefault(currency, _CurrencyAcc())
-    gross = ticket.price_paid if ticket.price_paid is not None else (ticket.tier.price if ticket.tier else ZERO)
+    # ``tier``/``seat`` are joined by _offline_tickets, so this stays one query for the batch.
+    gross = recorded_or_resolved_price(ticket.tier, ticket.seat, ticket.price_paid)
     breakdown = calculate_vat_inclusive(gross, org_rate)
 
     sale_in = _in_period(_local_date(ticket.created_at, tz), scope)

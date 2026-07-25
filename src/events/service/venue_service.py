@@ -1,24 +1,135 @@
 """Service layer for venue management operations."""
 
+import re
+import typing as t
+from uuid import UUID
+
 from django.db import transaction
-from django.db.models import Case, Exists, OuterRef, Value, When
+from django.db.models import Case, Count, Exists, OuterRef, Value, When
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events import models, schema
+from events.schema.seating import CHART_SECTOR_METADATA_KEYS, project_chart_metadata
+from events.service.seating.chart import bump_chart_version
+from events.service.seating.paint_report import PriorPaint, build_report
 
 
-def _convert_shape_to_coordinates(shape: list[dict[str, float]]) -> list[schema.Coordinate2D]:
+def _seat_model_kwargs(data: dict[str, t.Any]) -> dict[str, t.Any]:
+    """Map API seat fields onto model fields.
+
+    - ``row`` → ``row_label`` (the deployed FE still sends/reads ``row``).
+    - ``price_category_id`` → ``default_price_category_id``.
+    - ``row_order`` / ``adjacency_index``: ``None`` means "derive server-side", so the
+      keys are dropped (the model columns are non-nullable).
+
+    Renames are conditional so ``exclude_unset`` update payloads stay untouched.
+    """
+    if "row" in data:
+        data["row_label"] = data.pop("row")
+    if "price_category_id" in data:
+        data["default_price_category_id"] = data.pop("price_category_id")
+    for rank_field in ("row_order", "adjacency_index"):
+        if rank_field in data and data[rank_field] is None:
+            del data[rank_field]
+    return data
+
+
+def _validate_seat_categories(venue_id: UUID, category_ids: set[UUID]) -> None:
+    """Validate that every referenced price category belongs to the given venue.
+
+    Args:
+        venue_id: The venue the seats' sector belongs to
+        category_ids: Price category ids referenced by the seat payloads (non-null)
+
+    Raises:
+        HttpError: 400 if any category does not belong to the venue
+    """
+    if not category_ids:
+        return
+    valid_ids = set(
+        models.PriceCategory.objects.filter(venue_id=venue_id, id__in=category_ids).values_list("id", flat=True)
+    )
+    if category_ids - valid_ids:
+        raise HttpError(400, str(_("Price category must belong to the same venue as the seats.")))
+
+
+def natural_row_key(label: str) -> list[tuple[int, int] | tuple[int, int, str]]:
+    """Natural sort key for row labels so front-to-back order is physically correct.
+
+    Splits the label into alternating alpha/digit chunks and orders each chunk so:
+    numeric chunks compare as integers (``"2"`` before ``"10"``), and alpha chunks
+    compare length-first then lexicographically (``"Z"`` before ``"AA"`` — the theatre
+    continuation scheme). Handles pure-numeric, pure-alpha, and mixed (``"A2"`` before
+    ``"A10"``) labels. A plain string ``sorted()`` mis-orders all three.
+    """
+    key: list[tuple[int, int] | tuple[int, int, str]] = []
+    for chunk in re.split(r"(\d+)", label):
+        if not chunk:
+            continue
+        if chunk.isdigit():
+            key.append((0, int(chunk)))
+        else:
+            key.append((1, len(chunk), chunk))
+    return key
+
+
+def derive_sector_seat_ranks(sector: models.VenueSector) -> None:
+    """Re-rank the whole sector's seats (same semantics as migration 0098).
+
+    ``row_order`` = dense rank of ``row_label`` (natural order, null rows in the
+    0-bucket) per sector; ``adjacency_index`` = dense rank within the row —
+    numbered seats first by ``(number, label)``, then null-numbered seats by
+    ``label``. Row labels are ordered with :func:`natural_row_key` so numeric
+    (``2`` before ``10``) and multi-letter (``Z`` before ``AA``) schemes rank
+    front-to-back correctly. Re-ranking the whole sector keeps ranks consistent as
+    seats are added or removed; it is cheap at realistic sector sizes (≤2,500 seats).
+    """
+    seats = list(sector.seats.all())
+    row_labels = sorted({s.row_label for s in seats if s.row_label is not None}, key=natural_row_key)
+    row_rank = {label: i for i, label in enumerate(row_labels)}
+    by_row: dict[str | None, list[models.VenueSeat]] = {}
+    for seat in seats:
+        by_row.setdefault(seat.row_label, []).append(seat)
+    to_update: list[models.VenueSeat] = []
+    for label, row_seats in by_row.items():
+        # numbered seats first (dense rank fixes 1,3,5… gaps), then null-numbered by label
+        numbered = sorted((s for s in row_seats if s.number is not None), key=lambda s: (s.number, s.label))
+        unnumbered = sorted((s for s in row_seats if s.number is None), key=lambda s: s.label)
+        for idx, seat in enumerate(numbered + unnumbered):
+            new_row_order = row_rank.get(label, 0) if label is not None else 0
+            if seat.adjacency_index != idx or seat.row_order != new_row_order:
+                seat.adjacency_index = idx
+                seat.row_order = new_row_order
+                to_update.append(seat)
+    if to_update:
+        # bulk_update bypasses auto_now, so stamp updated_at by hand. Ranks are chart-visible
+        # and re-ranking touches seats the caller never named, so it bumps the version itself
+        # rather than trusting whichever caller happened to also write something.
+        now = timezone.now()
+        for seat in to_update:
+            seat.updated_at = now
+        models.VenueSeat.objects.bulk_update(to_update, ["adjacency_index", "row_order", "updated_at"], batch_size=500)
+        bump_chart_version(sector.venue_id)
+
+
+def _has_explicit_ranks(seats: t.Sequence[t.Any]) -> bool:
+    """Whether any seat payload carries an explicit rank (explicit wins wholesale)."""
+    return any(seat.row_order is not None or seat.adjacency_index is not None for seat in seats)
+
+
+def _convert_shape_to_coordinates(shape: list[t.Any]) -> list[schema.Coordinate2D]:
     """Convert a JSON shape from DB to list of Coordinate2D objects.
 
     Args:
-        shape: Shape data from database (list of dicts with x,y keys)
+        shape: Shape data from database — canonical ``{"x": .., "y": ..}`` dicts,
+            or legacy ``[x, y]`` pairs (coerced by Coordinate2D validation).
 
     Returns:
         List of Coordinate2D objects
     """
-    return [schema.Coordinate2D(x=point["x"], y=point["y"]) for point in shape]
+    return [schema.Coordinate2D.model_validate(point) for point in shape]
 
 
 def create_venue(
@@ -62,8 +173,107 @@ def update_venue(
     for field, value in update_data.items():
         setattr(venue, field, value)
 
+    # The venue's name is on the chart; the full save carries the bump with it.
+    venue.chart_version = timezone.now()
     venue.save()
     return venue
+
+
+def create_price_category(
+    venue: models.Venue,
+    payload: schema.PriceCategoryCreateSchema,
+) -> models.PriceCategory:
+    """Create a price category for a venue.
+
+    A duplicate ``(venue, name)`` surfaces as a Django ``ValidationError``
+    (the model's ``save()`` runs ``full_clean()``), which the global handler
+    renders as a 400 — same contract as venue creation.
+
+    Args:
+        venue: The venue to create the category for
+        payload: The category creation data
+
+    Returns:
+        The created price category
+    """
+    category = models.PriceCategory.objects.create(venue=venue, **payload.model_dump())
+    # Categories are the chart's legend, and were never in the old derived version at all.
+    venue.chart_version = bump_chart_version(venue.id)
+    return category
+
+
+@transaction.atomic
+def update_price_category(
+    category: models.PriceCategory,
+    payload: schema.PriceCategoryUpdateSchema,
+) -> models.PriceCategory:
+    """Update a price category.
+
+    Args:
+        category: The price category to update
+        payload: The category update data (partial)
+
+    Returns:
+        The updated price category
+    """
+    update_data = payload.model_dump(exclude_unset=True)
+    if not update_data:
+        return category
+
+    for field, value in update_data.items():
+        setattr(category, field, value)
+
+    category.save(update_fields=list(update_data.keys()))
+    bump_chart_version(category.venue_id)
+    return category
+
+
+def delete_price_category(category: models.PriceCategory) -> None:
+    """Delete a price category.
+
+    Refuses deletion when any ticket tier prices the category in its
+    ``category_prices`` map — invisible to the database, so **this guard is the only
+    line of defence**. Deleting a category priced by a live tier would unpaint its
+    seats (``SET_NULL``) and silently collapse those seats back to the tier's flat
+    ``price``: an €80 premium seat sold at €50, with nothing anywhere reporting it.
+
+    The map is the sole pricing mechanism for **both** seated modes since v3, so a
+    ``best_available`` tier blocks the delete exactly like a ``user_choice`` one — there
+    is no longer any other way for a tier to reference a category.
+
+    Seats painted with a category no tier prices are fine — their
+    ``default_price_category`` becomes NULL and they can simply be repainted.
+
+    Args:
+        category: The price category to delete
+
+    Raises:
+        HttpError: If any ticket tier references the category
+    """
+    blocking = (
+        models.TicketTier.objects.filter(category_prices__has_key=str(category.id))
+        .select_related("event")
+        .order_by("event__name", "name")
+    )
+    # Name the offenders: a category is venue-scoped, so the tiers holding it can belong
+    # to any number of events and an admin cannot otherwise find them.
+    labels = [f"{tier.event.name} — {tier.name}" for tier in blocking]
+    if labels:
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "This price category is used by one or more ticket tiers and cannot be deleted: {tiers}. "
+                    "Remove it from those tiers' category prices first."
+                )
+            ).format(tiers="; ".join(labels)),
+        )
+
+    venue_id = category.venue_id
+    category.delete()
+    # A delete leaves no row to stamp — the version is a venue column precisely so it can
+    # still move. Seats painted with the category were just unpainted (SET_NULL) too.
+    bump_chart_version(venue_id)
 
 
 @transaction.atomic
@@ -80,17 +290,30 @@ def create_sector(
     Returns:
         The created sector with its seats
 
+    Raises:
+        HttpError: If any seat references a price category of another venue
+
     Note:
         Seat position validation is handled by VenueSectorCreateSchema.
+        Unless any seat carries an explicit ``row_order``/``adjacency_index``
+        (explicit wins wholesale), both ranks are derived for the sector.
     """
     sector_data = payload.model_dump(exclude={"seats"})
     sector = models.VenueSector.objects.create(venue=venue, **sector_data)
 
     # Create seats if provided
     if payload.seats:
-        seats_to_create = [models.VenueSeat(sector=sector, **seat.model_dump()) for seat in payload.seats]
+        _validate_seat_categories(
+            venue.id, {s.price_category_id for s in payload.seats if s.price_category_id is not None}
+        )
+        seats_to_create = [
+            models.VenueSeat(sector=sector, **_seat_model_kwargs(seat.model_dump())) for seat in payload.seats
+        ]
         models.VenueSeat.objects.bulk_create(seats_to_create)
+        if not _has_explicit_ranks(payload.seats):
+            derive_sector_seat_ranks(sector)
 
+    venue.chart_version = bump_chart_version(venue.id)
     return sector
 
 
@@ -132,16 +355,42 @@ def update_sector(
 
     Returns:
         The updated sector
+
+    Raises:
+        HttpError: If ``kind`` would change while the sector has seats
     """
     update_data = payload.model_dump(exclude_unset=True)
+    if update_data.get("kind") is None:
+        update_data.pop("kind", None)
     if not update_data:
         return sector
+
+    if "kind" in update_data and update_data["kind"] != sector.kind and sector.seats.exists():
+        raise HttpError(
+            400,
+            str(_("Sector kind can only be changed while the sector has no seats. Delete its seats first.")),
+        )
 
     for field, value in update_data.items():
         setattr(sector, field, value)
 
+    # save(update_fields=...) drops auto_now fields that are not listed, so the row's own
+    # updated_at would not move either; the version is a separate column for exactly that reason.
     sector.save(update_fields=list(update_data.keys()))
+    bump_chart_version(sector.venue_id)
     return sector
+
+
+@transaction.atomic
+def delete_sector(sector: models.VenueSector) -> None:
+    """Delete a sector and (by cascade) its seats.
+
+    Args:
+        sector: The sector to delete
+    """
+    venue_id = sector.venue_id
+    sector.delete()
+    bump_chart_version(venue_id)
 
 
 @transaction.atomic
@@ -159,7 +408,12 @@ def bulk_create_seats(
         The created seats
 
     Raises:
-        HttpError: If any seat position is outside the sector shape
+        HttpError: If any seat position is outside the sector shape, or any seat
+            references a price category of another venue
+
+    Note:
+        Unless any seat carries an explicit ``row_order``/``adjacency_index``
+        (explicit wins wholesale), both ranks are re-derived for the whole sector.
     """
     if not seats:
         return []
@@ -169,8 +423,17 @@ def bulk_create_seats(
         shape_coords = _convert_shape_to_coordinates(sector.shape)
         _validate_seats_in_shape(seats, shape_coords)
 
-    seats_to_create = [models.VenueSeat(sector=sector, **seat.model_dump()) for seat in seats]
-    return list(models.VenueSeat.objects.bulk_create(seats_to_create))
+    _validate_seat_categories(sector.venue_id, {s.price_category_id for s in seats if s.price_category_id is not None})
+
+    seats_to_create = [models.VenueSeat(sector=sector, **_seat_model_kwargs(seat.model_dump())) for seat in seats]
+    created = list(models.VenueSeat.objects.bulk_create(seats_to_create))
+    if not _has_explicit_ranks(seats):
+        derive_sector_seat_ranks(sector)
+    bump_chart_version(sector.venue_id)
+    # Refetch with the painted category so the VenueSeatSchema response has it without an N+1
+    # (also picks up any derived row_order/adjacency_index). Order preserved via `created`.
+    by_id = models.VenueSeat.objects.select_related("default_price_category").in_bulk([s.id for s in created])
+    return [by_id[s.id] for s in created]
 
 
 def get_seat_by_label(sector: models.VenueSector, label: str) -> models.VenueSeat:
@@ -192,6 +455,7 @@ def get_seat_by_label(sector: models.VenueSector, label: str) -> models.VenueSea
         raise HttpError(404, str(_("Seat with label '{}' not found in this sector.").format(label)))
 
 
+@transaction.atomic
 def update_seat(
     seat: models.VenueSeat,
     payload: schema.VenueSeatUpdateSchema,
@@ -206,8 +470,13 @@ def update_seat(
 
     Returns:
         The updated seat
+
+    Note:
+        When the update touches ``row``/``number`` without explicit
+        ``row_order``/``adjacency_index`` (explicit wins wholesale), both ranks
+        are re-derived for the whole sector.
     """
-    update_data = payload.model_dump(exclude_unset=True)
+    update_data = _seat_model_kwargs(payload.model_dump(exclude_unset=True))
     if not update_data:
         return seat
 
@@ -217,10 +486,22 @@ def update_seat(
         if not schema.point_in_polygon(payload.position, shape_coords):
             raise HttpError(400, str(_("Seat position is outside the sector shape.")))
 
+    if payload.price_category_id is not None:
+        _validate_seat_categories(seat.sector.venue_id, {payload.price_category_id})
+
     for field, value in update_data.items():
         setattr(seat, field, value)
 
+    # save(update_fields=...) never writes an auto_now field that is not listed, so this
+    # single-seat PATCH used to change a seat's price category — the same money-affecting
+    # repaint the bulk endpoint guards with #747's report — with nothing moving at all (#752).
     seat.save(update_fields=list(update_data.keys()))
+    bump_chart_version(seat.sector.venue_id)
+
+    if not _has_explicit_ranks([payload]) and ({"row_label", "number"} & set(update_data)):
+        derive_sector_seat_ranks(seat.sector)
+        seat.refresh_from_db(fields=["row_order", "adjacency_index"])
+
     return seat
 
 
@@ -231,34 +512,36 @@ def delete_seat(seat: models.VenueSeat) -> None:
         seat: The seat to delete
 
     Raises:
-        HttpError: If the seat has active or pending tickets for future events
+        HttpError: If the seat is referenced by any ticket (any status/event, ever)
+            or has an unexpired hold
     """
-    # Check for active/pending tickets on future events
-    blocking_ticket_exists = models.Ticket.objects.filter(
-        seat=seat,
-        status__in=[models.Ticket.TicketStatus.ACTIVE, models.Ticket.TicketStatus.PENDING],
-        event__end__gt=timezone.now(),
-    ).exists()
+    # A seat referenced by any ticket, ever, or held right now, is never hard-deleted.
+    blocking_ticket_exists = models.Ticket.objects.filter(seat=seat).exists()
+    blocking_hold_exists = models.SeatHold.objects.active().filter(seat=seat).exists()
 
-    if blocking_ticket_exists:
+    if blocking_ticket_exists or blocking_hold_exists:
         raise HttpError(
             400,
             str(
-                _("Cannot delete seat '{}' because it has active or pending tickets for future events.").format(
-                    seat.label
-                )
+                _(
+                    "Seat '{}' is referenced by tickets or an active hold and cannot be deleted. "
+                    "Decommission it instead (set inactive)."
+                ).format(seat.label)
             ),
         )
 
+    venue_id = seat.sector.venue_id
     seat.delete()
+    # A DELETE leaves no row whose timestamp could carry the change; the venue column can.
+    bump_chart_version(venue_id)
 
 
 @transaction.atomic
 def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
     """Bulk delete seats by their labels.
 
-    This operation is atomic - if any seat cannot be deleted (due to having
-    active/pending tickets for future events), no seats will be deleted.
+    This operation is atomic - if any seat cannot be deleted (because it is
+    referenced by any ticket, ever, or has an unexpired hold), no seats will be deleted.
 
     Args:
         sector: The sector containing the seats
@@ -268,7 +551,7 @@ def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
         The number of seats deleted
 
     Raises:
-        HttpError: If any seat is not found or has blocking tickets
+        HttpError: If any seat is not found or is referenced by tickets/holds
     """
     if not labels:
         return 0
@@ -284,31 +567,54 @@ def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
             str(_("Seats not found in this sector: {}").format(", ".join(sorted(missing_labels)))),
         )
 
-    # Check for blocking tickets on any of the seats
-    blocking_seats = (
-        models.Ticket.objects.filter(
-            seat__in=seats,
-            status__in=[models.Ticket.TicketStatus.ACTIVE, models.Ticket.TicketStatus.PENDING],
-            event__end__gt=timezone.now(),
-        )
-        .values_list("seat__label", flat=True)
-        .distinct()
+    # A seat referenced by any ticket, ever, or held right now, is never hard-deleted.
+    blocking_ticket_labels = set(
+        models.Ticket.objects.filter(seat__in=seats).values_list("seat__label", flat=True).distinct()
     )
-    blocking_labels = list(blocking_seats)
+    blocking_hold_labels = set(
+        models.SeatHold.objects.active().filter(seat__in=seats).values_list("seat__label", flat=True).distinct()
+    )
+    blocking_labels = blocking_ticket_labels | blocking_hold_labels
 
     if blocking_labels:
         raise HttpError(
             400,
             str(
-                _("Cannot delete seats with active or pending tickets for future events: {}").format(
-                    ", ".join(sorted(blocking_labels))
-                )
+                _(
+                    "Seats referenced by tickets or active holds cannot be deleted: {}. "
+                    "Decommission them instead (set inactive)."
+                ).format(", ".join(sorted(blocking_labels)))
             ),
         )
 
     # All validations passed, delete the seats
     deleted_count, _details = models.VenueSeat.objects.filter(sector=sector, label__in=labels).delete()
+    bump_chart_version(sector.venue_id)
     return deleted_count
+
+
+def _apply_seat_update(
+    seat: models.VenueSeat,
+    update: schema.VenueSeatBulkUpdateItemSchema,
+    shape_coords: list[schema.Coordinate2D] | None,
+    update_fields: set[str],
+) -> None:
+    """Apply one bulk-update item to a seat in memory, tracking the touched fields."""
+    update_data = _seat_model_kwargs(update.model_dump(exclude={"label"}, exclude_unset=True))
+    if not update_data:
+        return
+
+    # Validate position against sector shape if both are present
+    if update.position is not None and shape_coords is not None:
+        if not schema.point_in_polygon(update.position, shape_coords):
+            raise HttpError(
+                400,
+                str(_("Seat '{}' position is outside the sector shape.").format(update.label)),
+            )
+
+    for field, value in update_data.items():
+        setattr(seat, field, value)
+        update_fields.add(field)
 
 
 @transaction.atomic
@@ -328,10 +634,20 @@ def bulk_update_seats(
         The list of updated seats
 
     Raises:
-        HttpError: If any seat is not found or position is outside sector shape
+        HttpError: If any seat is not found, a position is outside the sector
+            shape, or a price category belongs to another venue
+
+    Note:
+        When any update touches ``row``/``number`` and no seat in the request
+        carries an explicit ``row_order``/``adjacency_index`` (explicit wins
+        wholesale), both ranks are re-derived for the whole sector.
     """
     if not updates:
         return []
+
+    _validate_seat_categories(
+        sector.venue_id, {u.price_category_id for u in updates if u.price_category_id is not None}
+    )
 
     # Extract labels and verify all seats exist
     labels = [update.label for update in updates]
@@ -358,31 +674,104 @@ def bulk_update_seats(
 
     for update in updates:
         seat = seats_by_label[update.label]
-        update_data = update.model_dump(exclude={"label"}, exclude_unset=True)
-
-        if not update_data:
-            updated_seats.append(seat)
-            continue
-
-        # Validate position against sector shape if both are present
-        if update.position is not None and shape_coords is not None:
-            if not schema.point_in_polygon(update.position, shape_coords):
-                raise HttpError(
-                    400,
-                    str(_("Seat '{}' position is outside the sector shape.").format(update.label)),
-                )
-
-        for field, value in update_data.items():
-            setattr(seat, field, value)
-            update_fields.add(field)
-
+        _apply_seat_update(seat, update, shape_coords, update_fields)
         updated_seats.append(seat)
 
-    # Bulk update if there are fields to update
+    # Bulk update if there are fields to update. bulk_update bypasses auto_now, so stamp
+    # updated_at by hand, and move the chart version so the buyer's poller refetches.
     if update_fields:
-        models.VenueSeat.objects.bulk_update(updated_seats, list(update_fields))
+        now = timezone.now()
+        for seat in updated_seats:
+            seat.updated_at = now
+        models.VenueSeat.objects.bulk_update(updated_seats, [*update_fields, "updated_at"])
+        bump_chart_version(sector.venue_id)
 
-    return updated_seats
+    if not _has_explicit_ranks(updates) and ({"row_label", "number"} & update_fields):
+        derive_sector_seat_ranks(sector)
+
+    # Refetch with the painted category so the VenueSeatSchema response has it without an N+1
+    # (also picks up any derived row_order/adjacency_index). Order preserved via `updated_seats`.
+    by_id = models.VenueSeat.objects.select_related("default_price_category").in_bulk([s.id for s in updated_seats])
+    return [by_id[s.id] for s in updated_seats]
+
+
+@transaction.atomic
+def paint_seats(
+    venue: models.Venue,
+    payload: schema.VenueSeatPaintSchema,
+    *,
+    preview: bool = False,
+) -> schema.SeatPaintResultSchema:
+    """Bulk paint (or unpaint) seats with a price category in a single UPDATE.
+
+    Painting always succeeds (spec §4.3): a venue-wide map operation must never be
+    blocked by one event's pricing config. The consequence is reported instead —
+    see :func:`build_report`.
+
+    Every input to the report is UPDATE-independent: the prior categories are captured
+    before it (the UPDATE overwrites them), and the coverage state is *derived* rather
+    than re-read — see ``painted_seat_ids`` on :func:`build_report`. So ``preview``
+    needs no second code path: it skips the one statement that writes, and everything
+    else — validation, the 404, ``painted``, the report — is the same line of code
+    producing the same value. A dry run that disagreed with the paint would have to be
+    a different function.
+
+    Args:
+        venue: The venue the seats and the category must belong to
+        payload: Seat ids and the category to paint (null = unpaint)
+        preview: Dry run — compute and return the identical report, write nothing.
+
+    Returns:
+        The number of seats painted (or that *would* be, under ``preview``), plus every
+        live category-priced tier whose seat prices this changed or whose sector it left
+        partly unsellable, plus every best-available tier now pricing a zone the sector
+        cannot fill.
+
+    Raises:
+        HttpError: 400 if the category belongs to another venue, 404 if any seat
+            does not belong to this venue — in preview too, because an admin
+            confirming a paint that would fail is worse than no preview at all
+    """
+    if payload.price_category_id is not None:
+        _validate_seat_categories(venue.id, {payload.price_category_id})
+
+    seat_ids = set(payload.seat_ids)
+    seats = models.VenueSeat.objects.filter(id__in=seat_ids, sector__venue=venue)
+    # One grouped read serves all three pre-UPDATE needs — the 404 check, which sectors were
+    # touched, and the categories the seats carried *before* the UPDATE overwrites them.
+    # Grouped, not per-seat: its cost is bounded by (sector × category × is_active), never by
+    # how many seats are painted. `.order_by()` clears the model's Meta ordering, which would
+    # otherwise leak into the GROUP BY.
+    prior_rows = list(
+        seats.values("sector_id", "default_price_category_id", "is_active").order_by().annotate(seat_count=Count("id"))
+    )
+    # Every requested seat matched, so this is exactly what the UPDATE below reports back —
+    # which is why the preview can report it without running the UPDATE.
+    painted = sum(row["seat_count"] for row in prior_rows)
+    if painted != len(seat_ids):
+        raise HttpError(404, str(_("Some seats were not found in this venue.")))
+    sector_ids = {row["sector_id"] for row in prior_rows}
+    # Only active seats can be sold, so only they can be repriced — the same rule
+    # `tier_pricing._painted_seats` applies to coverage.
+    prior = [
+        PriorPaint(row["sector_id"], row["default_price_category_id"], row["seat_count"])
+        for row in prior_rows
+        if row["is_active"]
+    ]
+
+    # The single conditional step, and the only part of this function that writes.
+    # A queryset .update() bypasses auto_now, so updated_at is stamped by hand; the chart
+    # version is bumped alongside it because a repaint changes what buyers are charged and
+    # the poller has to see it. Under `preview` nothing is written, so nothing moves either.
+    if not preview:
+        seats.update(default_price_category_id=payload.price_category_id, updated_at=timezone.now())
+        venue.chart_version = bump_chart_version(venue.id)
+    report = build_report(sector_ids, prior, payload.price_category_id, seat_ids)
+    return schema.SeatPaintResultSchema(
+        painted=painted,
+        affected_tiers=report.affected_tiers,
+        unsellable_zone_tiers=report.unsellable_zone_tiers,
+    )
 
 
 def get_tier_seat_availability(
@@ -392,7 +781,9 @@ def get_tier_seat_availability(
     """Get seat availability for a ticket tier with seat assignment.
 
     Returns sector info with all seats and their availability status.
-    Seats taken by PENDING or ACTIVE tickets are marked as available=False.
+    Seats taken by any non-cancelled ticket are marked as available=False.
+    Serves any seat-assigned mode (USER_CHOICE or BEST_AVAILABLE),
+    provided the tier has a sector assigned.
 
     Args:
         event: The event to check availability for
@@ -414,12 +805,13 @@ def get_tier_seat_availability(
     # Get sector
     sector = models.VenueSector.objects.get(pk=tier.sector_id)
 
-    # Subquery to check if a seat is taken
+    # Subquery to check if a seat is taken. Occupancy matches the
+    # unique_ticket_event_seat constraint: any non-cancelled ticket
+    # (incl. CHECKED_IN) occupies the seat.
     taken_ticket_exists = models.Ticket.objects.filter(
         event=event,
         seat_id=OuterRef("pk"),
-        status__in=[models.Ticket.TicketStatus.PENDING, models.Ticket.TicketStatus.ACTIVE],
-    )
+    ).exclude(status=models.Ticket.TicketStatus.CANCELLED)
 
     # Annotate seats with availability status
     seats_with_availability = (
@@ -430,7 +822,7 @@ def get_tier_seat_availability(
                 default=Value(True),
             )
         )
-        .order_by("row", "number", "label")
+        .order_by("row_label", "number", "label")
     )
 
     # Build response with availability counts
@@ -456,7 +848,8 @@ def get_tier_seat_availability(
         shape=shape,
         capacity=sector.capacity,
         display_order=sector.display_order,
-        metadata=sector.metadata,
+        # Anonymous surface: serve the chart's whitelisted projection, never the verbatim blob (#769).
+        metadata=project_chart_metadata(sector.metadata, CHART_SECTOR_METADATA_KEYS),
         seats=seats,
         available_count=available_count,
         total_count=len(seats),

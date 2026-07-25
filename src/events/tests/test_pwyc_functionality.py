@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from accounts.models import RevelUser
 from events.models import Event, TicketTier
 from events.schema import PWYCCheckoutPayloadSchema
+from events.service.seating.pricing import TicketPrice
 
 pytestmark = pytest.mark.django_db
 
@@ -131,7 +132,7 @@ def test_stripe_service_uses_effective_price(public_user: RevelUser, public_even
         user=public_user,
         tickets=[ticket],
         reservation_id=rid,
-        price_override=Decimal("25.0"),
+        lines=[TicketPrice(unit_price=Decimal("25.0"), discount_amount=Decimal("0.00"))],
     )
 
     # Mock the actual Stripe Session.create call

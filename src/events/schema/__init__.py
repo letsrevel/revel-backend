@@ -253,6 +253,26 @@ from .rsvp import (
     WaitlistEntrySchema,
 )
 
+# Seating schemas
+from .seating import (
+    BestAvailableHoldRequest,
+    BoxOfficeReseatRequest,
+    BoxOfficeSellRequest,
+    ChartSeatSchema,
+    ChartSectorSchema,
+    HoldConflictReason,
+    HoldResponseSchema,
+    HoldSeatsRequest,
+    ReleaseSeatsRequest,
+    SeatingAvailabilitySchema,
+    SeatOverrideItemSchema,
+    SeatOverridesRequest,
+    SeatOverridesResponse,
+    StandingAvailabilitySchema,
+    VenueChartSchema,
+    ZoneAvailabilitySchema,
+)
+
 # Series pass schemas
 from .series_pass import (
     HeldSeriesPassAdminSchema,
@@ -341,6 +361,8 @@ from .ticket import (
     TicketPurchaseItem,
     TicketSeriesPassSchema,
     TicketTierCreateSchema,
+    TierCategoryPriceSchema,
+    TierSeatPricingSchema,
     TicketTierDetailSchema,
     TicketTierSchema,
     TicketTierUpdateSchema,
@@ -353,10 +375,19 @@ from .ticket import (
 
 # Venue schemas
 from .venue import (
+    AffectedTierSchema,
     Coordinate2D,
     MinimalSeatSchema,
     PolygonShape,
+    PriceCategoryCreateSchema,
+    PriceCategorySchema,
+    PriceCategoryUpdateSchema,
+    SeatPaintResultSchema,
+    SeatPriceChangeSchema,
     SectorAvailabilitySchema,
+    TierPricingGapSchema,
+    TierUnsellableZoneSchema,
+    UnsellableZoneTierSchema,
     VenueAvailabilitySchema,
     VenueCreateSchema,
     VenueDetailSchema,
@@ -366,6 +397,7 @@ from .venue import (
     VenueSeatBulkUpdateItemSchema,
     VenueSeatBulkUpdateSchema,
     VenueSeatInputSchema,
+    VenueSeatPaintSchema,
     VenueSeatSchema,
     VenueSeatUpdateSchema,
     VenueSectorCreateSchema,
@@ -387,76 +419,65 @@ from .waitlist import (
 )
 
 __all__ = [
-    # Misc
     "AdditionalResourceCreateSchema",
     "AdditionalResourceSchema",
     "AdditionalResourceUpdateSchema",
-    # Ticket and payment
     "AdminCancelTicketSchema",
     "AdminRefundTicketSchema",
     "AdminTicketSchema",
-    # Dietary
+    "AffectedTierSchema",
     "AggregatedDietaryPreferenceSchema",
     "AggregatedDietaryRestrictionSchema",
-    # Announcement
     "AnnouncementCreateSchema",
     "AnnouncementListSchema",
     "AnnouncementPublicSchema",
     "AnnouncementScheduleSchema",
     "AnnouncementSchema",
     "AnnouncementUpdateSchema",
-    # Application
     "ApplyRequestSchema",
     "ApplyResponseSchema",
-    # Organization
     "ApproveMembershipRequestSchema",
-    # Invoice
     "AttendeeInvoiceCreditNoteSchema",
     "AttendeeInvoiceDetailSchema",
     "AttendeeInvoiceSchema",
-    # Event
     "AttendeeSchema",
     "BatchCheckoutPWYCPayload",
     "BatchCheckoutPayload",
     "BatchCheckoutResponse",
+    "BestAvailableHoldRequest",
     "BillingPortalRequestSchema",
     "BillingPortalSessionSchema",
-    # Blacklist
     "BlacklistCreateSchema",
     "BlacklistEntrySchema",
     "BlacklistUpdateSchema",
+    "BoxOfficeReseatRequest",
+    "BoxOfficeSellRequest",
     "BuyerBillingInfoSchema",
     "CancelOccurrenceSchema",
-    # Subscriptions
     "CancelSubscriptionSchema",
     "CancellationBlockedErrorSchema",
     "CancellationPreviewSchema",
     "ChangePlanRequestSchema",
+    "ChartSeatSchema",
+    "ChartSectorSchema",
     "CheckInRequestSchema",
     "CheckInResponseSchema",
     "CheckoutSessionResponse",
-    # Mixins and utilities
     "CityEditMixin",
-    # Invitation
     "CombinedInvitationListSchema",
     "ConfirmPaymentSchema",
-    # Venue
     "Coordinate2D",
     "Currencies",
-    # Financials
     "CurrencyFinancialsSchema",
     "DirectInvitationCreateSchema",
     "DirectInvitationResponseSchema",
-    # Discount codes
     "DiscountCodeCreateSchema",
     "DiscountCodeDeleteResponse",
     "DiscountCodeSchema",
     "DiscountCodeUpdateSchema",
     "DiscountCodeValidationResponse",
     "DiscountCodeValidationSchema",
-    # Questionnaire
     "EventAssignmentSchema",
-    # Bookmark
     "EventBookmarkSchema",
     "EventCreateSchema",
     "EventDetailSchema",
@@ -470,17 +491,13 @@ __all__ = [
     "EventInvitationRequestCreateSchema",
     "EventInvitationRequestInternalSchema",
     "EventInvitationRequestSchema",
-    # Pronouns
     "EventPronounDistributionSchema",
-    # RSVP
     "EventRSVPSchema",
     "EventScheduleSessionSchema",
     "EventScheduleUpdateSchema",
     "EventSeriesAssignmentSchema",
     "EventSeriesDriftSchema",
-    # Event series
     "EventSeriesEditSchema",
-    # Follow
     "EventSeriesFollowCreateSchema",
     "EventSeriesFollowSchema",
     "EventSeriesFollowStatusSchema",
@@ -495,9 +512,7 @@ __all__ = [
     "EventTokenSchema",
     "EventTokenUpdateSchema",
     "EventUserStatusResponse",
-    # Export
     "FileExportSchema",
-    # Preferences
     "GeneralUserPreferencesSchema",
     "GeneralUserPreferencesUpdateSchema",
     "GenerateSeriesEventsSchema",
@@ -513,10 +528,12 @@ __all__ = [
     "GuestTicketItemPayload",
     "GuestTicketJWTPayloadSchema",
     "GuestUserDataSchema",
-    # Series pass
     "HeldSeriesPassAdminSchema",
     "HeldSeriesPassCancelSchema",
     "HeldSeriesPassSchema",
+    "HoldConflictReason",
+    "HoldResponseSchema",
+    "HoldSeatsRequest",
     "InvitationBaseSchema",
     "InvitationSchema",
     "InvoiceDownloadURLSchema",
@@ -582,9 +599,11 @@ __all__ = [
     "PlatformFeeCreditNoteSchema",
     "PlatformFeeInvoiceSchema",
     "PolygonShape",
-    # Potluck
     "PotluckItemCreateSchema",
     "PotluckItemRetrieveSchema",
+    "PriceCategoryCreateSchema",
+    "PriceCategorySchema",
+    "PriceCategoryUpdateSchema",
     "PronounCountSchema",
     "PublicPlanSchema",
     "QuestionnaireDuplicateSchema",
@@ -595,7 +614,6 @@ __all__ = [
     "RSVPUpdateSchema",
     "RateBucketSchema",
     "RecipientCountSchema",
-    # Recurrence
     "RecurrenceRuleCreateSchema",
     "RecurrenceRuleSchema",
     "RecurrenceRuleUpdateSchema",
@@ -604,12 +622,18 @@ __all__ = [
     "RefundPolicyTierSchema",
     "RefundSchema",
     "RefundWindowSchema",
+    "ReleaseSeatsRequest",
     "ReorderSchema",
-    # Revenue report
     "RevenueReportRequestSchema",
     "RevivalRequestSchema",
     "RevivalResponseSchema",
     "ScoreStatsSchema",
+    "SeatOverrideItemSchema",
+    "SeatOverridesRequest",
+    "SeatOverridesResponse",
+    "SeatPaintResultSchema",
+    "SeatPriceChangeSchema",
+    "SeatingAvailabilitySchema",
     "SectorAvailabilitySchema",
     "SeriesPassAdminSchema",
     "SeriesPassCheckoutResponseSchema",
@@ -625,6 +649,7 @@ __all__ = [
     "SocialMediaSchemaRetrieveMixin",
     "StaffAddSchema",
     "StaffRevivalResponseSchema",
+    "StandingAvailabilitySchema",
     "StatusBreakdownSchema",
     "StripeAccountStatusSchema",
     "StripeCheckoutSessionSchema",
@@ -646,7 +671,12 @@ __all__ = [
     "TicketTierDetailSchema",
     "TicketTierSchema",
     "TicketTierUpdateSchema",
+    "TierCategoryPriceSchema",
+    "TierPricingGapSchema",
     "TierRemainingTicketsSchema",
+    "TierSeatPricingSchema",
+    "TierUnsellableZoneSchema",
+    "UnsellableZoneTierSchema",
     "UpdateAttendeeInvoiceSchema",
     "UserRSVPSchema",
     "UserTicketSchema",
@@ -656,6 +686,7 @@ __all__ = [
     "VATPreviewRequestSchema",
     "VATPreviewResponseSchema",
     "VenueAvailabilitySchema",
+    "VenueChartSchema",
     "VenueCreateSchema",
     "VenueDetailSchema",
     "VenueSchema",
@@ -664,6 +695,7 @@ __all__ = [
     "VenueSeatBulkUpdateItemSchema",
     "VenueSeatBulkUpdateSchema",
     "VenueSeatInputSchema",
+    "VenueSeatPaintSchema",
     "VenueSeatSchema",
     "VenueSeatUpdateSchema",
     "VenueSectorCreateSchema",
@@ -674,7 +706,6 @@ __all__ = [
     "VenueWithSeatsSchema",
     "VerifyOrganizationContactEmailJWTPayloadSchema",
     "WaitlistEntrySchema",
-    # Waitlist (advanced)
     "WaitlistOfferCreateSchema",
     "WaitlistOfferReactivateSchema",
     "WaitlistOfferSchema",
@@ -683,5 +714,6 @@ __all__ = [
     "WhitelistEntrySchema",
     "WhitelistRequestCreateSchema",
     "WhitelistRequestSchema",
+    "ZoneAvailabilitySchema",
     "point_in_polygon",
 ]
