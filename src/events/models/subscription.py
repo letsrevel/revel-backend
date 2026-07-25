@@ -6,6 +6,7 @@ Stripe-backed ONLINE subscriptions via additive fields and a per-(user, org)
 """
 
 import typing as t
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -310,6 +311,27 @@ class MembershipPayment(TimeStampedModel):
     raw_response = models.JSONField(default=dict, blank=True)
     stripe_invoice_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
     stripe_payment_intent_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+
+    # Platform fee VAT breakdown (mirrors events.models.ticket.Payment; all
+    # nullable for OFFLINE / historical payments, which collect no fee).
+    platform_fee = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Gross platform fee taken on this payment (0 for offline/failed payments).",
+    )
+    platform_fee_net = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="Platform fee excluding VAT."
+    )
+    platform_fee_vat = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="VAT portion of the platform fee."
+    )
+    platform_fee_vat_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True, help_text="Platform fee VAT rate snapshot."
+    )
+    platform_fee_reverse_charge = models.BooleanField(
+        default=False, help_text="Whether reverse charge applies to the platform fee (EU B2B cross-border)."
+    )
 
     history = HistoricalRecords()
 

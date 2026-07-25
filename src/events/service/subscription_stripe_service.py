@@ -8,6 +8,7 @@ webhook handlers in :mod:`events.service.stripe_webhooks`.
 
 import typing as t
 from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 import stripe
 import structlog
@@ -18,6 +19,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.service.vat_utils import b2b_vat_context
 from common.utils import get_or_create_with_race_protection
 from events.models import (
     CustomerProfile,
@@ -213,6 +215,34 @@ def _checkout_session_urls(organization: Organization) -> dict[str, str]:
     }
 
 
+def _effective_application_fee_percent(org: Organization) -> Decimal | None:
+    """Org fee percent grossed up with platform VAT when applicable.
+
+    Tickets charge the org fee + VAT on the fee (``calculate_platform_fee_vat``
+    adds VAT on top). ``application_fee_percent`` is the only fee mechanism for
+    subscriptions (Stripe has no fixed/absolute variant), so the same economics
+    are achieved by grossing the percent itself up. The fixed fee component
+    (``org.platform_fee_fixed``) intentionally does NOT apply to subscriptions.
+
+    Returns:
+        The percent to send to Stripe, or ``None`` when no fee applies.
+    """
+    from common.models import SiteSettings  # lazy: avoid import cycle
+
+    if not org.platform_fee_percent:
+        return None
+    if not org.stripe_account_id or org.stripe_account_id == settings.STRIPE_ACCOUNT:
+        return None
+    site = SiteSettings.get_solo()
+    reverse_charge, rate = b2b_vat_context(org, site.platform_vat_country, site.platform_vat_rate)
+    if reverse_charge or rate <= 0:
+        return org.platform_fee_percent
+    grossed = (org.platform_fee_percent * (1 + rate / 100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    # Stripe rejects percents above 100; the org field is capped at 100, so a
+    # gross-up can theoretically overshoot.
+    return min(grossed, Decimal("100"))
+
+
 def _create_subscription_checkout_session(
     subscription: MembershipSubscription,
     customer: CustomerProfile,
@@ -234,8 +264,9 @@ def _create_subscription_checkout_session(
     org = subscription.organization
     metadata = {"membership_subscription_id": str(subscription.pk)}
     subscription_data: dict[str, t.Any] = {"metadata": metadata}
-    if org.platform_fee_percent and org.stripe_account_id and org.stripe_account_id != settings.STRIPE_ACCOUNT:
-        subscription_data["application_fee_percent"] = float(org.platform_fee_percent)
+    effective_percent = _effective_application_fee_percent(org)
+    if effective_percent is not None:
+        subscription_data["application_fee_percent"] = float(effective_percent)
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
     return stripe.checkout.Session.create(
         mode="subscription",

@@ -17,6 +17,8 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from common.models import SiteSettings
+from common.service.vat_utils import b2b_fee_vat_from_gross
 from events.models import (
     MembershipPayment,
     MembershipSubscription,
@@ -362,6 +364,32 @@ def record_stripe_payment_from_invoice(
         amount_minor = 0
     amount = from_stripe_amount(amount_minor, currency_code) if amount_minor else Decimal("0")
 
+    # Stripe's ``application_fee_amount`` is what Revel actually collected — the
+    # VAT-grossed ``application_fee_percent`` set at Checkout time — so it is the
+    # gross fee and gets decomposed back into net + VAT for our accounting.
+    fee_minor = int(invoice.get("application_fee_amount") or 0) if succeeded else 0
+    fee_gross = from_stripe_amount(fee_minor, currency_code) if fee_minor else Decimal("0.00")
+    if fee_gross:
+        site = SiteSettings.get_solo()
+        fee_breakdown = b2b_fee_vat_from_gross(
+            fee_gross, subscription.organization, site.platform_vat_country, site.platform_vat_rate
+        )
+        fee_fields: dict[str, t.Any] = {
+            "platform_fee": fee_breakdown.fee_gross,
+            "platform_fee_net": fee_breakdown.fee_net,
+            "platform_fee_vat": fee_breakdown.fee_vat,
+            "platform_fee_vat_rate": fee_breakdown.fee_vat_rate,
+            "platform_fee_reverse_charge": fee_breakdown.reverse_charge,
+        }
+    else:
+        fee_fields = {
+            "platform_fee": Decimal("0.00"),
+            "platform_fee_net": None,
+            "platform_fee_vat": None,
+            "platform_fee_vat_rate": None,
+            "platform_fee_reverse_charge": False,
+        }
+
     lines_data = (invoice.get("lines") or {}).get("data") or []
     period = (lines_data[0].get("period") if lines_data else None) or {}
     period_start = _epoch_to_dt(period.get("start")) or timezone.now()
@@ -398,6 +426,7 @@ def record_stripe_payment_from_invoice(
             "period_end": period_end,
             "stripe_payment_intent_id": payment_intent_id,
             "raw_response": invoice,
+            **fee_fields,
         },
     )
 

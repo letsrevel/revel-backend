@@ -107,6 +107,34 @@ def calculate_vat_exclusive(net_amount: Decimal, vat_rate: Decimal) -> VATBreakd
     )
 
 
+def b2b_vat_context(entity: VATEntity, platform_vat_country: str, platform_vat_rate: Decimal) -> tuple[bool, Decimal]:
+    """Return ``(reverse_charge, applicable_vat_rate)`` for a B2B fee.
+
+    ``applicable_vat_rate`` is ``0`` for reverse charge and non-EU entities.
+
+    Args:
+        entity: Any object satisfying :class:`VATEntity`.
+        platform_vat_country: The platform's VAT country code (e.g. ``"IT"``).
+        platform_vat_rate: The platform's domestic VAT rate (e.g. ``22.00``).
+
+    Returns:
+        A ``(reverse_charge, applicable_vat_rate)`` pair.
+    """
+    entity_country = entity.vat_country_code.upper() if entity.vat_country_code else ""
+    entity_has_valid_vat = bool(entity.vat_id and entity.vat_id_validated)
+    entity_in_eu = entity_country in EU_MEMBER_STATES
+    same_country = entity_country == platform_vat_country.upper()
+
+    if not entity_in_eu:
+        # Outside EU: export of services, no VAT
+        return False, Decimal("0.00")
+    if not same_country and entity_has_valid_vat:
+        # EU cross-border B2B with valid VAT ID: reverse charge
+        return True, Decimal("0.00")
+    # Same country OR EU without valid VAT ID: platform's domestic VAT applies
+    return False, platform_vat_rate
+
+
 def calculate_b2b_fee_vat(
     net_fee: Decimal,
     entity: VATEntity,
@@ -136,37 +164,63 @@ def calculate_b2b_fee_vat(
     Returns:
         :class:`B2BFeeVATBreakdown` with fee breakdown and reverse charge flag.
     """
-    entity_country = entity.vat_country_code.upper() if entity.vat_country_code else ""
-    entity_has_valid_vat = bool(entity.vat_id and entity.vat_id_validated)
-    entity_in_eu = entity_country in EU_MEMBER_STATES
-    same_country = entity_country == platform_vat_country.upper()
-
-    if not entity_in_eu:
-        # Outside EU: export of services, no VAT
+    reverse_charge, rate = b2b_vat_context(entity, platform_vat_country, platform_vat_rate)
+    if reverse_charge or rate <= 0:
         return B2BFeeVATBreakdown(
             fee_gross=net_fee,
             fee_net=net_fee,
             fee_vat=Decimal("0.00"),
             fee_vat_rate=Decimal("0.00"),
-            reverse_charge=False,
+            reverse_charge=reverse_charge,
         )
 
-    if entity_in_eu and not same_country and entity_has_valid_vat:
-        # EU cross-border B2B with valid VAT ID: reverse charge
-        return B2BFeeVATBreakdown(
-            fee_gross=net_fee,
-            fee_net=net_fee,
-            fee_vat=Decimal("0.00"),
-            fee_vat_rate=Decimal("0.00"),
-            reverse_charge=True,
-        )
-
-    # Same country OR EU without valid VAT ID: add domestic VAT on top
-    breakdown = calculate_vat_exclusive(net_fee, platform_vat_rate)
+    # Add domestic VAT on top
+    breakdown = calculate_vat_exclusive(net_fee, rate)
     return B2BFeeVATBreakdown(
         fee_gross=breakdown.gross_amount,
         fee_net=net_fee,
         fee_vat=breakdown.vat_amount,
-        fee_vat_rate=platform_vat_rate,
+        fee_vat_rate=rate,
+        reverse_charge=False,
+    )
+
+
+def b2b_fee_vat_from_gross(
+    gross_fee: Decimal,
+    entity: VATEntity,
+    platform_vat_country: str,
+    platform_vat_rate: Decimal,
+) -> B2BFeeVATBreakdown:
+    """Decompose a VAT-inclusive (gross) B2B fee into net + VAT.
+
+    Counterpart of :func:`calculate_b2b_fee_vat` for fees where the collected
+    amount already includes VAT when applicable (e.g. a Stripe
+    ``application_fee_amount`` charged at a VAT-grossed-up percent).
+
+    Args:
+        gross_fee: The collected fee amount (VAT-inclusive when VAT applies).
+        entity: Any object satisfying :class:`VATEntity`.
+        platform_vat_country: The platform's VAT country code (e.g. ``"IT"``).
+        platform_vat_rate: The platform's domestic VAT rate (e.g. ``22.00``).
+
+    Returns:
+        :class:`B2BFeeVATBreakdown` with fee breakdown and reverse charge flag.
+    """
+    reverse_charge, rate = b2b_vat_context(entity, platform_vat_country, platform_vat_rate)
+    if reverse_charge or rate <= 0:
+        return B2BFeeVATBreakdown(
+            fee_gross=gross_fee,
+            fee_net=gross_fee,
+            fee_vat=Decimal("0.00"),
+            fee_vat_rate=Decimal("0.00"),
+            reverse_charge=reverse_charge,
+        )
+
+    breakdown = calculate_vat_inclusive(gross_fee, rate)
+    return B2BFeeVATBreakdown(
+        fee_gross=gross_fee,
+        fee_net=breakdown.net_amount,
+        fee_vat=breakdown.vat_amount,
+        fee_vat_rate=rate,
         reverse_charge=False,
     )
