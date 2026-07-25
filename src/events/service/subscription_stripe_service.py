@@ -7,6 +7,7 @@ webhook handlers in :mod:`events.service.stripe_webhooks`.
 """
 
 import typing as t
+from datetime import timedelta
 
 import stripe
 import structlog
@@ -197,20 +198,77 @@ def archive_stripe_price(plan: MembershipSubscriptionPlan) -> None:
 # ---- Subscribe / cancel -----------------------------------------------------
 
 
+def _checkout_session_urls(organization: Organization) -> dict[str, str]:
+    """Success/cancel redirect URLs for a membership Checkout Session.
+
+    Mirrors the ticket checkout convention (``stripe_service._create_stripe_session``):
+    redirect back to the org page with a query flag the frontend reads.
+    """
+    from common.models import SiteSettings  # lazy: avoid import cycle
+
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    return {
+        "success_url": f"{frontend_base_url}/org/{organization.slug}?membership_success=true",
+        "cancel_url": f"{frontend_base_url}/org/{organization.slug}?membership_cancelled=true",
+    }
+
+
+def _create_subscription_checkout_session(
+    subscription: MembershipSubscription,
+    customer: CustomerProfile,
+    *,
+    idempotency_key: str,
+) -> stripe.checkout.Session:
+    """Create a hosted Checkout Session (``mode=subscription``) for a local row.
+
+    ``metadata.membership_subscription_id`` (on both the session and the
+    Stripe Subscription it will create) is the join key the
+    ``checkout.session.completed`` handler uses to link
+    ``stripe_subscription_id`` back onto the local row.
+
+    Raises:
+        stripe.error.StripeError: Propagated from the Stripe API call; the
+            caller owns local-row cleanup.
+    """
+    plan = subscription.plan
+    org = subscription.organization
+    metadata = {"membership_subscription_id": str(subscription.pk)}
+    subscription_data: dict[str, t.Any] = {"metadata": metadata}
+    if org.platform_fee_percent and org.stripe_account_id and org.stripe_account_id != settings.STRIPE_ACCOUNT:
+        subscription_data["application_fee_percent"] = float(org.platform_fee_percent)
+    expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+    return stripe.checkout.Session.create(
+        mode="subscription",
+        customer=customer.stripe_customer_id,
+        line_items=[{"price": plan.stripe_price_id, "quantity": 1}],
+        subscription_data=subscription_data,
+        metadata=metadata,
+        expires_at=int(expires_at.timestamp()),
+        # Deterministic key tied to the local row makes Stripe-side retries
+        # idempotent: a network hiccup that times out the create call won't
+        # accidentally mint two sessions on the next attempt.
+        idempotency_key=idempotency_key,
+        **_checkout_session_urls(org),
+        **_stripe_account_kwargs(org),
+    )
+
+
 def start_online_subscription(
     plan: MembershipSubscriptionPlan,
     user: RevelUser,
 ) -> tuple[MembershipSubscription, str]:
-    """Start an ONLINE subscription via Stripe.
+    """Start an ONLINE subscription via hosted Stripe Checkout.
 
     Creates the local row via :func:`subscription_service.create_subscription`
     (re-using its BANNED / duplicate-active checks and member sync), then
-    creates a Stripe Subscription with ``payment_behavior=default_incomplete``
-    so the client can confirm the first invoice's PaymentIntent.
+    creates a Checkout Session (``mode=subscription``) on the org's Connect
+    account. The Stripe Subscription itself is only created when the member
+    completes the session; ``checkout.session.completed`` links its id back
+    onto the local row.
 
     Returns:
-        A ``(subscription, client_secret)`` pair. The caller hands
-        ``client_secret`` to Stripe.js to confirm the first payment.
+        A ``(subscription, checkout_url)`` pair. The caller redirects the
+        member to ``checkout_url``.
     """
     if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         raise HttpError(400, str(_("This plan is not configured for online checkout.")))
@@ -224,9 +282,9 @@ def start_online_subscription(
     org = plan.tier.organization
     _require_stripe_connected(org)
 
-    # Abandoned-checkout recovery: a PENDING row from a closed payment sheet
+    # Abandoned-checkout recovery: a PENDING row from an abandoned redirect
     # would otherwise trip create_subscription's duplicate-active check and
-    # lock the user out until Stripe's ``incomplete_expired`` webhook (~23h).
+    # lock the user out until the session expires on Stripe's side.
     resumed = _maybe_resume_pending_checkout(plan, user)
     if resumed is not None:
         return resumed
@@ -244,69 +302,43 @@ def start_online_subscription(
     # Local PENDING row is created before the Stripe call. NOTE: under
     # production ATOMIC_REQUESTS the row is NOT yet visible to other
     # transactions during the Stripe round-trip (the whole request is one
-    # transaction) — an early ``customer.subscription.created`` webhook that
-    # races us finds no row and is dropped as unknown; the client_secret
-    # response path and the nightly reconcile backstop cover that window.
+    # transaction) — a ``checkout.session.completed`` webhook cannot race us
+    # here because the member can only reach the session via the URL this
+    # request returns after commit.
     subscription = subscription_service.create_subscription(plan, user)
 
-    create_kwargs: dict[str, t.Any] = {
-        "customer": customer.stripe_customer_id,
-        "items": [{"price": plan.stripe_price_id}],
-        "payment_behavior": "default_incomplete",
-        "payment_settings": {"save_default_payment_method": "on_subscription"},
-        "expand": ["latest_invoice.confirmation_secret"],
-        "metadata": {
-            "revel_subscription_id": str(subscription.pk),
-            "revel_user_id": str(user.pk),
-            "revel_org_id": str(org.pk),
-            "revel_plan_id": str(plan.pk),
-        },
-        # Deterministic key tied to the local row makes Stripe-side retries
-        # idempotent: a network hiccup that times out the create call won't
-        # accidentally provision two subscriptions on the next attempt.
-        "idempotency_key": f"sub:{subscription.pk}",
-    }
-    if org.platform_fee_percent and org.stripe_account_id and org.stripe_account_id != settings.STRIPE_ACCOUNT:
-        create_kwargs["application_fee_percent"] = float(org.platform_fee_percent)
-    create_kwargs.update(_stripe_account_kwargs(org))
-
     try:
-        stripe_sub = stripe.Subscription.create(**create_kwargs)
+        session = _create_subscription_checkout_session(
+            subscription,
+            customer,
+            idempotency_key=f"sub-checkout:{subscription.pk}",
+        )
     except stripe.error.StripeError as exc:
         # Roll back the local PENDING row so the user can retry cleanly.
         subscription.delete()
         logger.error(
-            "subscription_stripe_create_failed",
+            "subscription_stripe_checkout_create_failed",
             plan_id=str(plan.pk),
             user_id=str(user.pk),
             error=str(exc),
         )
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
 
-    client_secret = _extract_client_secret(stripe_sub)
-    if not client_secret:
-        # Stripe accepted the create call but didn't return an expandable
-        # PaymentIntent. The user can't confirm payment, so cancel the Stripe
-        # sub (best-effort) and drop the local row so they aren't blocked by
-        # the partial-unique index when they retry.
+    if not session.url:
+        # An open session always carries a URL; a missing one means the member
+        # cannot pay. Drop the local row so the partial-unique index doesn't
+        # block a retry.
         logger.warning(
-            "subscription_stripe_missing_client_secret",
-            stripe_subscription_id=stripe_sub.id,
+            "subscription_stripe_checkout_missing_url",
+            stripe_checkout_session_id=session.id,
             subscription_id=str(subscription.pk),
         )
-        try:
-            stripe.Subscription.cancel(stripe_sub.id, **_stripe_account_kwargs(org))  # type: ignore[attr-defined]
-        except stripe.error.StripeError:
-            logger.exception(
-                "subscription_stripe_cleanup_cancel_failed",
-                stripe_subscription_id=stripe_sub.id,
-            )
         subscription.delete()
         raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
 
-    subscription.stripe_subscription_id = t.cast(str, stripe_sub.id)
-    subscription.save(update_fields=["stripe_subscription_id", "updated_at"])
-    return subscription, client_secret
+    subscription.stripe_checkout_session_id = t.cast(str, session.id)
+    subscription.save(update_fields=["stripe_checkout_session_id", "updated_at"])
+    return subscription, t.cast(str, session.url)
 
 
 def _maybe_resume_pending_checkout(
@@ -315,15 +347,16 @@ def _maybe_resume_pending_checkout(
 ) -> tuple[MembershipSubscription, str] | None:
     """Resume the user's abandoned ONLINE checkout, or clear the stale PENDING row.
 
-    Returns ``(subscription, client_secret)`` when the existing Stripe
-    subscription is still confirmable (same plan, Stripe status
-    ``incomplete``) so the frontend can re-open the payment sheet. Returns
-    ``None`` after clearing a stale/superseded row, letting the caller create
-    a fresh subscription.
+    Returns ``(subscription, checkout_url)`` when the existing Checkout
+    Session is still ``open`` for the same plan, so the frontend can redirect
+    the member back to it. Returns ``None`` after clearing a stale/superseded
+    row (expiring its session best-effort), letting the caller mint a fresh
+    session.
 
-    Raises the duplicate-active 400 when Stripe reports the subscription as
-    already live (payment confirmed but our webhook hasn't landed yet) —
-    creating a second subscription there would double-charge.
+    Raises the duplicate-active 400 when the session already completed or the
+    Stripe Subscription is already linked (payment confirmed but the
+    activation webhooks haven't landed yet) — creating a second subscription
+    there would double-charge.
     """
     pending = (
         MembershipSubscription.objects.filter(
@@ -337,72 +370,74 @@ def _maybe_resume_pending_checkout(
     if pending is None:
         return None
 
-    if not pending.stripe_subscription_id:
-        # Stranded local row from a failed create call: clear and start over.
-        pending.delete()
+    if pending.stripe_subscription_id:
+        # A PENDING row only gets its Stripe Subscription id when its session
+        # completed — payment is done, activation webhooks are in flight.
+        raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
+
+    if not pending.stripe_checkout_session_id:
+        # Stranded local row from a failed session-create call: clear and start over.
+        _clear_stale_pending_checkout(pending)
         return None
 
     try:
-        stripe_sub = stripe.Subscription.retrieve(
-            pending.stripe_subscription_id,
-            expand=["latest_invoice.confirmation_secret"],
+        session = stripe.checkout.Session.retrieve(
+            pending.stripe_checkout_session_id,
             **_stripe_account_kwargs(pending.organization),
         )
     except stripe.error.StripeError:
         logger.exception(
-            "subscription_stripe_pending_retrieve_failed",
+            "subscription_stripe_pending_session_retrieve_failed",
             subscription_id=str(pending.pk),
-            stripe_subscription_id=pending.stripe_subscription_id,
+            stripe_checkout_session_id=pending.stripe_checkout_session_id,
         )
         raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
 
-    stripe_status = t.cast(str, stripe_sub.status)
-    if stripe_status in {"active", "trialing", "past_due"}:
-        # Paid on Stripe, webhook still in flight — never create a second sub.
+    session_status = t.cast(str, session.status or "")
+    if session_status == "complete":
+        # Paid on Stripe, webhooks still in flight — never create a second sub.
         raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
 
-    if stripe_status == "incomplete" and pending.plan_id == plan.pk:
-        client_secret = _extract_client_secret(stripe_sub)
-        if client_secret:
-            logger.info(
-                "subscription_stripe_pending_checkout_resumed",
-                subscription_id=str(pending.pk),
-                stripe_subscription_id=pending.stripe_subscription_id,
-            )
-            return pending, client_secret
+    if session_status == "open" and pending.plan_id == plan.pk and session.url:
+        logger.info(
+            "subscription_stripe_pending_checkout_resumed",
+            subscription_id=str(pending.pk),
+            stripe_checkout_session_id=pending.stripe_checkout_session_id,
+        )
+        return pending, t.cast(str, session.url)
 
-    # Different plan, expired/canceled on Stripe, or no confirmable secret:
-    # close the Stripe side (best-effort) and clear the local row.
-    cancel_stripe_subscription_best_effort(pending, reason="pending_checkout_superseded")
-    pending.delete()
+    # Different plan, or the session expired: expire the old session
+    # (best-effort) and clear the local row.
+    if session_status == "open":
+        try:
+            stripe.checkout.Session.expire(
+                pending.stripe_checkout_session_id,
+                **_stripe_account_kwargs(pending.organization),
+            )
+        except stripe.error.StripeError:
+            logger.exception(
+                "subscription_stripe_pending_session_expire_failed",
+                subscription_id=str(pending.pk),
+                stripe_checkout_session_id=pending.stripe_checkout_session_id,
+            )
+    _clear_stale_pending_checkout(pending)
     return None
 
 
-def _extract_client_secret(stripe_sub: stripe.Subscription) -> str | None:
-    """Pull the payment client_secret off an expanded Subscription.
+def _clear_stale_pending_checkout(pending: MembershipSubscription) -> None:
+    """Remove a superseded PENDING row so a fresh subscription can be created.
 
-    From API version 2025-03-31.basil (we pin dahlia) the confirmable secret
-    lives at ``latest_invoice.confirmation_secret.client_secret`` (expanded at
-    create time); ``invoice.payment_intent`` no longer exists. The legacy path
-    is kept as a fallback for old fixtures / unpinned tooling.
+    A pristine row (no payment history) is deleted outright. A revival row
+    carries the member's ledger (``MembershipPayment`` cascades on delete), so
+    it is reverted to EXPIRED instead — its ``expired_at`` is still set from
+    the original expiry, keeping the revival window intact.
     """
-    invoice = getattr(stripe_sub, "latest_invoice", None)
-    if not invoice:
-        return None
-
-    def _get(obj: t.Any, key: str) -> t.Any:
-        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
-
-    confirmation_secret = _get(invoice, "confirmation_secret")
-    if confirmation_secret:
-        secret = _get(confirmation_secret, "client_secret")
-        if secret:
-            return t.cast(str, secret)
-
-    payment_intent = _get(invoice, "payment_intent")
-    if not payment_intent:
-        return None
-    return t.cast(str | None, _get(payment_intent, "client_secret"))
+    if not pending.payments.exists():
+        pending.delete()
+        return
+    pending.status = MembershipSubscription.SubscriptionStatus.EXPIRED
+    pending.stripe_checkout_session_id = ""
+    pending.save(update_fields=["status", "stripe_checkout_session_id", "updated_at"])
 
 
 def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription, *, reason: str) -> bool:
@@ -440,18 +475,22 @@ def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription,
     return True
 
 
-def create_revival_subscription(subscription: MembershipSubscription) -> str:
-    """Provision a fresh Stripe Subscription for an EXPIRED local row.
+def create_revival_checkout(subscription: MembershipSubscription) -> str:
+    """Start a hosted Checkout for a fresh Stripe Subscription on an EXPIRED row.
 
-    A cancelled Stripe Subscription cannot be reactivated. We create a new
-    one bound to the plan's current ``stripe_price_id`` and overwrite the
-    local ``stripe_subscription_id``. The old id is preserved in
+    A cancelled Stripe Subscription cannot be reactivated. We mint a Checkout
+    Session (``mode=subscription``) bound to the plan's current
+    ``stripe_price_id``; ``checkout.session.completed`` links the new Stripe
+    Subscription's id onto this row. The old id is preserved in
     ``historical_membership_subscription`` (simple-history).
 
-    Returns the new Stripe Subscription's ``client_secret``. Raises
-    ``HttpError(502)`` if Stripe accepts the create call but doesn't return
-    a confirmable PaymentIntent (in which case the dangling Stripe sub is
-    best-effort cancelled).
+    The row transitions to PENDING with its old ``stripe_subscription_id``
+    cleared: the sync/reconcile paths must neither freeze it as terminal nor
+    re-observe the dead Stripe sub while the checkout is open. An abandoned
+    revival checkout is recovered by ``_maybe_resume_pending_checkout`` on the
+    next subscribe call (resumed while open, reverted to EXPIRED otherwise).
+
+    Returns the Checkout Session's URL.
     """
     plan = subscription.plan
     org = subscription.organization
@@ -459,7 +498,7 @@ def create_revival_subscription(subscription: MembershipSubscription) -> str:
 
     # The old Stripe sub may still be alive in past_due dunning when the local
     # row expired first (grace clock beat Smart Retries). Close it before its
-    # id is overwritten below, or a late retry success would bill a sub whose
+    # id is cleared below, or a late retry success would bill a sub whose
     # events no longer match any local row (invisible double billing, C2).
     cancel_stripe_subscription_best_effort(subscription, reason="revival_supersedes")
 
@@ -478,57 +517,29 @@ def create_revival_subscription(subscription: MembershipSubscription) -> str:
         else f"sub-revival:{subscription.pk}"
     )
 
-    create_kwargs: dict[str, t.Any] = {
-        "customer": customer.stripe_customer_id,
-        "items": [{"price": plan.stripe_price_id}],
-        "payment_behavior": "default_incomplete",
-        "payment_settings": {"save_default_payment_method": "on_subscription"},
-        "expand": ["latest_invoice.confirmation_secret"],
-        "metadata": {
-            "revel_subscription_id": str(subscription.pk),
-            "revel_user_id": str(subscription.user_id),
-            "revel_org_id": str(org.pk),
-            "revel_plan_id": str(plan.pk),
-        },
-        "idempotency_key": idempotency_key,
-    }
-    if org.platform_fee_percent and org.stripe_account_id and org.stripe_account_id != settings.STRIPE_ACCOUNT:
-        create_kwargs["application_fee_percent"] = float(org.platform_fee_percent)
-    create_kwargs.update(_stripe_account_kwargs(org))
-
     try:
-        stripe_sub = stripe.Subscription.create(**create_kwargs)
+        session = _create_subscription_checkout_session(subscription, customer, idempotency_key=idempotency_key)
     except stripe.error.StripeError as exc:
         logger.error(
-            "subscription_revival_stripe_create_failed",
+            "subscription_revival_checkout_create_failed",
             subscription_id=str(subscription.pk),
             plan_id=str(plan.pk),
             error=str(exc),
         )
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
 
-    client_secret = _extract_client_secret(stripe_sub)
-    if not client_secret:
-        # Stripe accepted the create call but didn't return a confirmable
-        # PaymentIntent. Cancel the dangling Stripe sub (best-effort) and
-        # leave the local row intact — it has meaningful history and should
+    if not session.url:
+        # Leave the local row intact — it has meaningful history and should
         # remain EXPIRED so the user can retry.
         logger.warning(
-            "subscription_revival_stripe_missing_client_secret",
-            stripe_subscription_id=stripe_sub.id,
+            "subscription_revival_checkout_missing_url",
+            stripe_checkout_session_id=session.id,
             subscription_id=str(subscription.pk),
         )
-        try:
-            stripe.Subscription.cancel(stripe_sub.id, **_stripe_account_kwargs(org))  # type: ignore[attr-defined]
-        except stripe.error.StripeError:
-            logger.exception(
-                "subscription_revival_cleanup_cancel_failed",
-                stripe_subscription_id=stripe_sub.id,
-                subscription_id=str(subscription.pk),
-            )
         raise HttpError(502, str(_("Could not initialize the payment. Please try again later.")))
 
-    subscription.stripe_subscription_id = t.cast(str, stripe_sub.id)
+    subscription.stripe_subscription_id = None
+    subscription.stripe_checkout_session_id = t.cast(str, session.id)
     subscription.status = MembershipSubscription.SubscriptionStatus.PENDING
     # Reset period — Stripe populates it via the first invoice.paid webhook.
     subscription.current_period_start = None
@@ -536,13 +547,14 @@ def create_revival_subscription(subscription: MembershipSubscription) -> str:
     subscription.save(
         update_fields=[
             "stripe_subscription_id",
+            "stripe_checkout_session_id",
             "status",
             "current_period_start",
             "current_period_end",
             "updated_at",
         ]
     )
-    return client_secret
+    return t.cast(str, session.url)
 
 
 def cancel_online_subscription(

@@ -255,29 +255,39 @@ class TestArchiveStripePrice:
 
 
 class TestStartOnlineSubscription:
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
     @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
-    def test_happy_path_returns_client_secret(
+    def test_happy_path_returns_checkout_url(
         self,
         mock_customer: mock.Mock,
-        mock_subscription: mock.Mock,
+        mock_session: mock.Mock,
         stripe_org: Organization,
         online_plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
         mock_customer.return_value = mock.MagicMock(id="cus_abc")
-        mock_subscription.return_value = mock.MagicMock(
-            id="sub_xyz",
-            latest_invoice={"payment_intent": {"client_secret": "pi_secret_test"}},
-        )
+        mock_session.return_value = mock.MagicMock(id="cs_xyz", url="https://checkout.stripe.com/c/pay/cs_xyz")
 
-        subscription, client_secret = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+        subscription, checkout_url = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
 
-        assert client_secret == "pi_secret_test"
-        assert subscription.stripe_subscription_id == "sub_xyz"
+        assert checkout_url == "https://checkout.stripe.com/c/pay/cs_xyz"
+        assert subscription.stripe_checkout_session_id == "cs_xyz"
+        # The Stripe Subscription only exists once the session completes.
+        assert subscription.stripe_subscription_id is None
         assert subscription.status == MembershipSubscription.SubscriptionStatus.PENDING
         # ONLINE PENDING must not grant member benefits up front.
         assert not OrganizationMember.objects.filter(organization=stripe_org, user=subscriber).exists()
+
+        kwargs = mock_session.call_args.kwargs
+        assert kwargs["mode"] == "subscription"
+        assert kwargs["customer"] == "cus_abc"
+        assert kwargs["line_items"] == [{"price": "price_test", "quantity": 1}]
+        assert kwargs["metadata"] == {"membership_subscription_id": str(subscription.pk)}
+        assert kwargs["subscription_data"]["metadata"] == {"membership_subscription_id": str(subscription.pk)}
+        assert kwargs["stripe_account"] == "acct_test_org"
+        assert "membership_success=true" in kwargs["success_url"]
+        assert "membership_cancelled=true" in kwargs["cancel_url"]
+        assert isinstance(kwargs["expires_at"], int)
 
     def test_refuses_offline_plan(
         self,
@@ -288,93 +298,200 @@ class TestStartOnlineSubscription:
             subscription_stripe_service.start_online_subscription(offline_plan, subscriber)
         assert exc.value.status_code == 400
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
-    def test_abandoned_checkout_resumes_existing_pending_sub(
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.retrieve")
+    def test_abandoned_checkout_resumes_open_session(
         self,
         mock_retrieve: mock.Mock,
         stripe_org: Organization,
         online_plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        """Re-subscribing with a PENDING row resumes the existing Stripe checkout.
+        """Re-subscribing with a PENDING row returns the still-open session's URL.
 
-        Previously the duplicate-active check 400'd until Stripe's
-        ``incomplete_expired`` webhook (~23h) — a user who closed the payment
-        sheet was locked out of subscribing for a day.
+        Without this, the duplicate-active check would 400 until the Checkout
+        Session expires — a member who abandoned the redirect would be locked
+        out of subscribing in the meantime.
         """
         pending = MembershipSubscription.objects.create(
             user=subscriber,
             plan=online_plan,
             organization=stripe_org,
             status=MembershipSubscription.SubscriptionStatus.PENDING,
-            stripe_subscription_id="sub_pending",
+            stripe_checkout_session_id="cs_pending",
         )
         mock_retrieve.return_value = mock.MagicMock(
-            id="sub_pending",
-            status="incomplete",
-            latest_invoice={"confirmation_secret": {"client_secret": "pi_resume_secret"}},
+            id="cs_pending",
+            status="open",
+            url="https://checkout.stripe.com/c/pay/cs_pending",
         )
 
-        subscription, client_secret = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+        subscription, checkout_url = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
 
         assert subscription.pk == pending.pk
-        assert client_secret == "pi_resume_secret"
+        assert checkout_url == "https://checkout.stripe.com/c/pay/cs_pending"
         assert MembershipSubscription.objects.filter(user=subscriber, organization=stripe_org).count() == 1
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.retrieve")
     @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
     def test_expired_pending_checkout_is_cleared_and_recreated(
         self,
         mock_customer: mock.Mock,
         mock_retrieve: mock.Mock,
-        mock_cancel: mock.Mock,
         mock_create: mock.Mock,
         stripe_org: Organization,
         online_plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        """A Stripe-side expired/canceled pending checkout is cleared and a fresh one created."""
+        """A Stripe-side expired pending session is cleared and a fresh one minted."""
         stale = MembershipSubscription.objects.create(
             user=subscriber,
             plan=online_plan,
             organization=stripe_org,
             status=MembershipSubscription.SubscriptionStatus.PENDING,
-            stripe_subscription_id="sub_stale",
+            stripe_checkout_session_id="cs_stale",
         )
-        mock_retrieve.return_value = mock.MagicMock(id="sub_stale", status="incomplete_expired")
+        mock_retrieve.return_value = mock.MagicMock(id="cs_stale", status="expired")
         mock_customer.return_value = mock.MagicMock(id="cus_abc")
-        mock_create.return_value = mock.MagicMock(
-            id="sub_fresh",
-            latest_invoice={"confirmation_secret": {"client_secret": "pi_fresh_secret"}},
-        )
+        mock_create.return_value = mock.MagicMock(id="cs_fresh", url="https://checkout.stripe.com/c/pay/cs_fresh")
 
-        subscription, client_secret = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+        subscription, checkout_url = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
 
         assert subscription.pk != stale.pk
-        assert subscription.stripe_subscription_id == "sub_fresh"
-        assert client_secret == "pi_fresh_secret"
+        assert subscription.stripe_checkout_session_id == "cs_fresh"
+        assert checkout_url == "https://checkout.stripe.com/c/pay/cs_fresh"
         assert not MembershipSubscription.objects.filter(pk=stale.pk).exists()
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
-    def test_pending_but_stripe_active_raises_duplicate(
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.retrieve")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_stale_revival_row_reverts_to_expired_instead_of_deleting(
+        self,
+        mock_customer: mock.Mock,
+        mock_retrieve: mock.Mock,
+        mock_create: mock.Mock,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """A superseded PENDING row with payment history keeps its ledger.
+
+        Deleting it would cascade-delete the MembershipPayment rows a revival
+        row carries; it is reverted to EXPIRED instead (its expired_at is
+        still set from the original expiry).
+        """
+        expired_at = timezone.now() - timedelta(days=2)
+        stale = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=stripe_org,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_revival_stale",
+            expired_at=expired_at,
+        )
+        MembershipPayment.objects.create(
+            subscription=stale,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            period_start=timezone.now() - timedelta(days=40),
+            period_end=timezone.now() - timedelta(days=10),
+        )
+        mock_retrieve.return_value = mock.MagicMock(id="cs_revival_stale", status="expired")
+        mock_customer.return_value = mock.MagicMock(id="cus_abc")
+        mock_create.return_value = mock.MagicMock(id="cs_fresh2", url="https://checkout.stripe.com/c/pay/cs_fresh2")
+
+        subscription, _ = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+
+        assert subscription.pk != stale.pk
+        stale.refresh_from_db()
+        assert stale.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert stale.stripe_checkout_session_id == ""
+        assert stale.expired_at == expired_at
+        assert stale.payments.count() == 1
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.expire")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.retrieve")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_open_session_for_different_plan_is_expired_and_replaced(
+        self,
+        mock_customer: mock.Mock,
+        mock_retrieve: mock.Mock,
+        mock_create: mock.Mock,
+        mock_expire: mock.Mock,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+        tier: MembershipTier,
+        subscriber: RevelUser,
+    ) -> None:
+        """Choosing a different plan expires the old open session best-effort."""
+        other_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Yearly Online",
+            price=Decimal("100.00"),
+            currency="EUR",
+            period_unit="year",
+            period_count=1,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_other",
+            stripe_price_id="price_other",
+        )
+        stale = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=other_plan,
+            organization=stripe_org,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_other_plan",
+        )
+        mock_retrieve.return_value = mock.MagicMock(
+            id="cs_other_plan", status="open", url="https://checkout.stripe.com/c/pay/cs_other_plan"
+        )
+        mock_customer.return_value = mock.MagicMock(id="cus_abc")
+        mock_create.return_value = mock.MagicMock(id="cs_new_plan", url="https://checkout.stripe.com/c/pay/cs_new")
+
+        subscription, _ = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+
+        mock_expire.assert_called_once_with("cs_other_plan", stripe_account="acct_test_org")
+        assert subscription.pk != stale.pk
+        assert subscription.plan_id == online_plan.pk
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.retrieve")
+    def test_completed_session_raises_duplicate(
         self,
         mock_retrieve: mock.Mock,
         stripe_org: Organization,
         online_plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        """Paid on Stripe with the webhook still in flight must not create a second sub."""
+        """Session completed elsewhere with webhooks still in flight — never mint a second sub."""
         MembershipSubscription.objects.create(
             user=subscriber,
             plan=online_plan,
             organization=stripe_org,
             status=MembershipSubscription.SubscriptionStatus.PENDING,
-            stripe_subscription_id="sub_paid_lagging",
+            stripe_checkout_session_id="cs_paid_lagging",
         )
-        mock_retrieve.return_value = mock.MagicMock(id="sub_paid_lagging", status="active")
+        mock_retrieve.return_value = mock.MagicMock(id="cs_paid_lagging", status="complete")
 
+        with pytest.raises(HttpError) as exc:
+            subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+        assert exc.value.status_code == 400
+
+    def test_pending_with_linked_subscription_raises_duplicate(
+        self,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """A PENDING row that already has its Stripe Subscription linked is paid — 400."""
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=stripe_org,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_done",
+            stripe_subscription_id="sub_linked",
+        )
         with pytest.raises(HttpError) as exc:
             subscription_stripe_service.start_online_subscription(online_plan, subscriber)
         assert exc.value.status_code == 400
@@ -390,18 +507,18 @@ class TestStartOnlineSubscription:
             subscription_stripe_service.start_online_subscription(online_plan, subscriber)
         assert exc.value.status_code == 400
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
     @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
     def test_stripe_failure_rolls_back_local_row(
         self,
         mock_customer: mock.Mock,
-        mock_subscription: mock.Mock,
+        mock_session: mock.Mock,
         stripe_org: Organization,
         online_plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
         mock_customer.return_value = mock.MagicMock(id="cus_abc")
-        mock_subscription.side_effect = stripe.error.CardError("declined", "card", "card_declined")
+        mock_session.side_effect = stripe.error.CardError("declined", "card", "card_declined")
 
         with pytest.raises(HttpError) as exc:
             subscription_stripe_service.start_online_subscription(online_plan, subscriber)
@@ -409,55 +526,47 @@ class TestStartOnlineSubscription:
         assert exc.value.status_code == 502
         assert not MembershipSubscription.objects.filter(user=subscriber, organization=stripe_org).exists()
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
     @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
-    def test_missing_client_secret_cancels_stripe_and_deletes_local(
+    def test_missing_session_url_deletes_local_row(
         self,
         mock_customer: mock.Mock,
-        mock_subscription_create: mock.Mock,
-        mock_subscription_cancel: mock.Mock,
+        mock_session: mock.Mock,
         stripe_org: Organization,
         online_plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        """If Stripe returns no ``client_secret``, the user can't confirm — clean up both sides."""
+        """No session URL means the member can't pay — drop the local row so they can retry."""
         mock_customer.return_value = mock.MagicMock(id="cus_abc")
-        # Stripe accepts the create but returns a subscription without an
-        # expandable PaymentIntent (no client_secret).
-        mock_subscription_create.return_value = mock.MagicMock(id="sub_orphan", latest_invoice=None)
+        mock_session.return_value = mock.MagicMock(id="cs_orphan", url=None)
 
         with pytest.raises(HttpError) as exc:
             subscription_stripe_service.start_online_subscription(online_plan, subscriber)
 
         assert exc.value.status_code == 502
-        mock_subscription_cancel.assert_called_once_with("sub_orphan", stripe_account="acct_test_org")
         # Local row must not survive — otherwise the partial-unique index
         # blocks the user from retrying.
         assert not MembershipSubscription.objects.filter(user=subscriber, organization=stripe_org).exists()
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
     @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
     def test_idempotency_keys_are_set(
         self,
         mock_customer: mock.Mock,
-        mock_subscription: mock.Mock,
+        mock_session: mock.Mock,
         online_plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        """Customer + Subscription Stripe calls carry deterministic idempotency keys."""
+        """Customer + Checkout Session Stripe calls carry deterministic idempotency keys."""
         mock_customer.return_value = mock.MagicMock(id="cus_idem")
-        mock_subscription.return_value = mock.MagicMock(
-            id="sub_idem",
-            latest_invoice={"payment_intent": {"client_secret": "pi_secret"}},
-        )
+        mock_session.return_value = mock.MagicMock(id="cs_idem", url="https://checkout.stripe.com/c/pay/cs_idem")
 
         subscription, _ = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
 
         customer_key = mock_customer.call_args.kwargs["idempotency_key"]
         assert customer_key == f"cust:{subscriber.pk}:{online_plan.tier.organization_id}"
-        sub_key = mock_subscription.call_args.kwargs["idempotency_key"]
-        assert sub_key == f"sub:{subscription.pk}"
+        session_key = mock_session.call_args.kwargs["idempotency_key"]
+        assert session_key == f"sub-checkout:{subscription.pk}"
 
 
 # ---- cancel_online_subscription ---------------------------------------------

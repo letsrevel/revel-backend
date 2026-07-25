@@ -221,9 +221,10 @@ Where an organization sells subscription plans:
 1. Public plan listings show price, cadence, and availability — `sold_out`
    (cap reached) and `sales_status` (paused) render distinct states.
 2. `POST /api/me/organizations/{org_id}/subscribe` starts an ONLINE
-   subscription and returns a Stripe `client_secret`; the member confirms the
-   first invoice in the payment sheet. Closing the sheet is harmless —
-   re-subscribing resumes the same checkout.
+   subscription and returns a hosted Stripe Checkout `checkout_url`; the
+   member is redirected there to pay the first invoice (same UX as ticket
+   checkout). Abandoning the redirect is harmless — re-subscribing returns
+   the same open session's URL, or mints a fresh one if it expired.
 3. Members self-serve cancel (immediate or at period end), switch plans
    (upgrades prorate immediately; downgrades apply at the period boundary),
    open the Stripe billing portal, and revive a recently expired ONLINE

@@ -345,12 +345,12 @@ class SubscribeRequestSchema(Schema):
 class SubscribeResponseSchema(Schema):
     """Response to a member-initiated subscribe.
 
-    Carries the Stripe PaymentIntent ``client_secret`` so the frontend can
-    confirm the first invoice via Stripe.js.
+    Carries the hosted Stripe Checkout ``checkout_url`` the frontend
+    redirects the member to for payment.
     """
 
     subscription: MySubscriptionSchema
-    client_secret: str
+    checkout_url: str
 
 
 class MemberCancelSubscriptionSchema(Schema):
@@ -391,8 +391,9 @@ class RevivalRequestSchema(Schema):
     """Body for revival endpoints.
 
     For OFFLINE revival, provide amount + currency (+ optional notes).
-    For ONLINE revival, send an empty body — the endpoint returns a
-    client_secret to confirm the new Stripe Subscription's first payment.
+    For ONLINE revival, send an empty body — the endpoint returns a hosted
+    Stripe Checkout URL that collects the new Stripe Subscription's first
+    payment.
     """
 
     amount: Decimal | None = None
@@ -409,26 +410,27 @@ class RevivalRequestSchema(Schema):
 class RevivalResponseSchema(Schema):
     """Response from a successful member-initiated revival call.
 
-    For OFFLINE revival, ``client_secret`` is ``None``.
-    For ONLINE revival, ``client_secret`` is the Stripe PaymentIntent
-    client_secret the member must confirm to complete the renewal.
+    For OFFLINE revival, ``checkout_url`` is ``None``.
+    For ONLINE revival, ``checkout_url`` is the hosted Stripe Checkout URL
+    the member must complete to finish the renewal.
     """
 
     subscription: MySubscriptionSchema
-    client_secret: str | None = None
+    checkout_url: str | None = None
 
 
 class StaffRevivalResponseSchema(Schema):
     """Response from a successful staff-initiated revival call.
 
     Carries the admin-facing subscription view (includes user PII fields).
-    For OFFLINE revival, ``client_secret`` is ``None``.
-    For ONLINE revival, ``client_secret`` is the Stripe PaymentIntent
-    client_secret the member must confirm.
+    For OFFLINE revival, ``checkout_url`` is ``None``.
+    For ONLINE revival, ``checkout_url`` is the hosted Stripe Checkout URL
+    the member must complete — the member is also emailed the link, and the
+    URL is returned so staff can hand it over out-of-band.
     """
 
     subscription: SubscriptionSchema
-    client_secret: str | None = None
+    checkout_url: str | None = None
 
 
 class MigrationAcceptedSchema(Schema):

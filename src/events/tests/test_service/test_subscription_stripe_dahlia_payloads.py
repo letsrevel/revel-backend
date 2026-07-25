@@ -4,8 +4,7 @@ The pinned webhook endpoints render Subscription/Invoice payloads with:
 - ``current_period_{start,end}`` on subscription items, not the Subscription;
 - the subscription reference at ``invoice.parent.subscription_details``;
 - ``invoice.payment_intent`` replaced by the ``payments`` list (not embedded
-  in webhook payloads — requires an outbound expand);
-- the confirmable secret at ``latest_invoice.confirmation_secret``.
+  in webhook payloads — requires an outbound expand).
 
 The legacy top-level paths are covered by test_subscription_stripe_service.py;
 these tests pin the modern paths so a regression can't silently drop every
@@ -27,7 +26,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_service, subscription_stripe_sync
+from events.service import subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -160,18 +159,3 @@ def test_invoice_payment_intent_fetch_failure_is_tolerated(
     assert payment.stripe_payment_intent_id == ""
     pending_subscription.refresh_from_db()
     assert pending_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
-
-
-def test_extract_client_secret_prefers_confirmation_secret() -> None:
-    stripe_sub = mock.Mock(spec=stripe.Subscription)
-    stripe_sub.latest_invoice = {
-        "id": "in_x",
-        "confirmation_secret": {"client_secret": "pi_x_secret_modern", "type": "payment_intent"},
-    }
-    assert subscription_stripe_service._extract_client_secret(stripe_sub) == "pi_x_secret_modern"
-
-
-def test_extract_client_secret_falls_back_to_legacy_payment_intent() -> None:
-    stripe_sub = mock.Mock(spec=stripe.Subscription)
-    stripe_sub.latest_invoice = {"id": "in_x", "payment_intent": {"client_secret": "pi_x_secret_legacy"}}
-    assert subscription_stripe_service._extract_client_secret(stripe_sub) == "pi_x_secret_legacy"

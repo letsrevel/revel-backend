@@ -190,7 +190,7 @@ functions to avoid a cycle.
 | `record_payment` | Advances `current_period_*`, revives PENDING/PAST_DUE → ACTIVE. Refuses terminal. Dispatches `RENEWAL_SUCCEEDED` only on a real renewal (prior_status ∈ {ACTIVE, PAST_DUE}). `dispatch_renewal_notification=False` for revival callers |
 | `cancel_subscription` | `immediate=True` → CANCELLED. `immediate=False` → `cancel_at_period_end=True` and let the beat task finish it. Refuses scheduled cancel on PAUSED (frozen time would never reach the boundary). Routes ONLINE through `cancel_online_subscription` |
 | `pause_subscription` / `resume_subscription` | Local for OFFLINE; routes to Stripe `pause_collection` for ONLINE. Refuses ONLINE without `stripe_subscription_id` to keep local PAUSED in lockstep with Stripe |
-| `revive_subscription` | EXPIRED → ACTIVE (OFFLINE, with `initial_payment` — staff callers only; the member endpoint refuses OFFLINE plans) or PENDING + fresh Stripe Subscription (ONLINE). Enforces the plan cap (a revived sub re-occupies a slot) and, for member callers, `sales_status` (`enforce_sales_status=False` for staff) |
+| `revive_subscription` | EXPIRED → ACTIVE (OFFLINE, with `initial_payment` — staff callers only; the member endpoint refuses OFFLINE plans) or PENDING + hosted Checkout for a fresh Stripe Subscription (ONLINE); staff-initiated ONLINE revivals also email the member the checkout link (`SUBSCRIPTION_REVIVAL_CHECKOUT`). Enforces the plan cap (a revived sub re-occupies a slot) and, for member callers, `sales_status` (`enforce_sales_status=False` for staff) |
 | `change_plan` | Routes ONLINE to `subscription_stripe_plan_change.change_online_plan`; OFFLINE does an immediate same-org/same-currency swap |
 | `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
 | `refund_payment` | Marks payment REFUNDED. If the refund fully covers the current period → calls `cancel_subscription(immediate=True)` |
@@ -203,8 +203,8 @@ functions to avoid a cycle.
 | `ensure_customer_profile` | Get-or-create the per-(user, org) Stripe Customer. Deterministic `idempotency_key=cust:{user}:{org}` |
 | `ensure_stripe_price` | Create/refresh Stripe Product+Price for an ONLINE plan. Detects price-input changes (`_price_inputs_changed`) and archives the old Price + creates a new one (Stripe Prices are immutable) |
 | `archive_stripe_price` | Deactivates the Stripe Price when a plan is archived — existing subscribers keep paying via their own subscription's price binding |
-| `start_online_subscription` | Refuses PAUSED plans (member path), then creates local PENDING row, then Stripe Subscription with `payment_behavior='default_incomplete'`. Returns `client_secret`. Rolls back the local row if Stripe fails or returns no confirmable PaymentIntent. An existing PENDING row is resumed (same `client_secret`) when its Stripe sub is still `incomplete` on the same plan, cleared when expired/superseded, or answered with the duplicate-active 400 when Stripe already reports it live |
-| `create_revival_subscription` | Provisions a fresh Stripe Subscription for an EXPIRED row. Idempotency key scoped to `expired_at`. The old `stripe_subscription_id` survives in `historical_membership_subscription` |
+| `start_online_subscription` | Refuses PAUSED plans (member path), then creates local PENDING row, then a hosted Checkout Session (`mode='subscription'`) on the org's Connect account. Returns `checkout_url`; the session id lands on `stripe_checkout_session_id` and the Stripe Subscription is only created (and linked via `checkout.session.completed`) when the member completes the session. Rolls back the local row if Stripe fails. An existing PENDING row is resumed (same session `url`) while its session is still `open` on the same plan, expired + cleared when superseded (revival rows revert to EXPIRED instead of deleting the ledger), or answered with the duplicate-active 400 when the session already completed |
+| `create_revival_checkout` | Mints a hosted Checkout Session for a fresh Stripe Subscription on an EXPIRED row (old Stripe sub is best-effort cancelled first, `stripe_subscription_id` cleared, row → PENDING). Idempotency key scoped to `expired_at`. The old `stripe_subscription_id` survives in `historical_membership_subscription` |
 | `cancel_online_subscription`, `pause_online_subscription`, `resume_online_subscription` | Stripe mutations + local mirror. The dispatch helpers in `subscription_service` cover the OFFLINE-equivalent local-only behavior |
 | `update_subscription_price` | Single-call Stripe price swap used by `migrate_plan_subscribers`. `proration_behavior='none'` — new price takes effect at the next renewal |
 | `create_billing_portal_session` | Customer Portal URL on the org's Connect account. **Requires** an existing `CustomerProfile` (404 otherwise) — only members who have actually subscribed can get a portal session |
@@ -326,6 +326,7 @@ are re-checked inside the lock.
 
 | Event | Handler |
 |---|---|
+| `checkout.session.completed` (`mode=subscription`) | `handle_subscription_checkout_completed` — looks up the local row via `metadata.membership_subscription_id` and links `stripe_subscription_id` from `session.subscription` (the Stripe Subscription only exists once the session completes). Ticket/series-pass sessions keep their existing path |
 | `customer.subscription.created` / `.updated` / `.deleted` | `sync_subscription_from_stripe` |
 | `invoice.paid` | `record_stripe_payment_from_invoice(..., succeeded=True)` |
 | `invoice.payment_failed` | `record_stripe_payment_from_invoice(..., succeeded=False)` |
@@ -348,10 +349,10 @@ The webhook endpoint listens to Connect events (see
 |---|---|---|
 | GET | `/membership-subscriptions` | List the caller's subscriptions across orgs |
 | GET | `/organizations/{org_id}/subscription` | Caller's current non-terminal sub in this org |
-| POST | `/organizations/{org_id}/subscribe` | Start an ONLINE subscription. Returns `client_secret` for Stripe.js. An abandoned checkout (closed payment sheet) is resumed: re-subscribing returns the existing incomplete subscription's `client_secret` instead of a 400 |
+| POST | `/organizations/{org_id}/subscribe` | Start an ONLINE subscription. Returns a hosted Stripe Checkout `checkout_url` (redirect flow, same as tickets). An abandoned checkout is resumed: re-subscribing returns the still-open session's URL instead of a 400, or mints a fresh session once the old one expired |
 | POST | `/organizations/{org_id}/subscription/cancel` | Self-cancel; `immediate` flag |
 | POST | `/organizations/{org_id}/subscription/change-plan` | Self-service plan change (direction inferred from price delta). Refused into PAUSED or sold-out plans |
-| POST | `/organizations/{org_id}/subscription/revive` | Revive own EXPIRED sub within the org's revival window. **ONLINE plans only** — payment is collected by Stripe via the returned `client_secret`. OFFLINE revival is staff-only (members must never self-record money); members get a 400 directing them to the organization |
+| POST | `/organizations/{org_id}/subscription/revive` | Revive own EXPIRED sub within the org's revival window. **ONLINE plans only** — payment is collected by Stripe via the returned `checkout_url`. OFFLINE revival is staff-only (members must never self-record money); members get a 400 directing them to the organization |
 | POST | `/organizations/{org_id}/billing-portal` | Stripe Customer Portal session URL. `return_url` validated as `HttpUrl` |
 
 ### Staff-facing (`/api/organization-admin/{slug}/...`)
@@ -375,7 +376,7 @@ Guarded by `OrganizationPermission("manage_subscriptions")`.
 
 ## Notifications
 
-Six new types (`notifications/enums.py`), each with email, in-app, and
+Seven new types (`notifications/enums.py`), each with email, in-app, and
 Telegram templates under `notifications/templates/notifications/{email,in_app,telegram}/`:
 
 - `SUBSCRIPTION_RENEWAL_SUCCEEDED` — true renewals only (prior_status ∈
@@ -390,6 +391,9 @@ Telegram templates under `notifications/templates/notifications/{email,in_app,te
 - `SUBSCRIPTION_PRICE_MIGRATION_NOTICE` — Per affected sub in
   `migrate_plan_subscribers`. Skipped when the subscriber's last payment
   matched the new price already.
+- `SUBSCRIPTION_REVIVAL_CHECKOUT` — Staff-initiated ONLINE revival: staff
+  cannot pay on the member's behalf, so the member is emailed the hosted
+  Checkout link to complete the renewal themselves.
 
 Per-type opt-out via `UserNotificationPreference`. The Phase 4 migration
 back-fills default-on preferences for the six new types across all existing

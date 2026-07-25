@@ -7,16 +7,78 @@ subscription/invoice state onto the local rows via ``subscription_stripe_sync``
 and route full charge refunds through ``subscription_refunds``.
 """
 
+import uuid
+
 import stripe
 import structlog
 
-from events.models import MembershipPayment
+from events.models import MembershipPayment, MembershipSubscription
 
 logger = structlog.get_logger(__name__)
 
 
 class SubscriptionWebhookHandlersMixin:
     """Membership subscription webhook handlers (Phases 2-4)."""
+
+    def handle_subscription_checkout_completed(self, event: stripe.Event) -> None:
+        """Link the Stripe Subscription a completed Checkout Session created.
+
+        In ``mode=subscription`` the Stripe Subscription only exists once the
+        session completes, so the local PENDING row (created at session mint
+        time with ``stripe_checkout_session_id`` set) has no
+        ``stripe_subscription_id`` until this event. Everything downstream
+        (``customer.subscription.*`` sync, ``invoice.paid`` → ACTIVE + member
+        grant) keys off that id, so this link is what plugs the row into the
+        existing pipeline.
+
+        Sessions without our ``membership_subscription_id`` metadata are
+        ignored — orgs can run their own subscription checkouts on the same
+        Connect account.
+        """
+        session = event.data.object
+        raw_id = (session.get("metadata") or {}).get("membership_subscription_id")
+        if not raw_id:
+            logger.info("subscription_checkout_completed_no_metadata", session_id=session.get("id"))
+            return
+        try:
+            subscription_pk = uuid.UUID(raw_id)
+        except ValueError:
+            logger.warning(
+                "subscription_checkout_completed_bad_metadata",
+                session_id=session.get("id"),
+                membership_subscription_id=raw_id,
+            )
+            return
+
+        subscription = MembershipSubscription.objects.select_for_update().filter(pk=subscription_pk).first()
+        if subscription is None:
+            logger.warning(
+                "subscription_checkout_completed_unknown_row",
+                session_id=session.get("id"),
+                membership_subscription_id=raw_id,
+            )
+            return
+
+        stripe_sub = session.get("subscription")
+        stripe_sub_id = stripe_sub.get("id") if isinstance(stripe_sub, dict) else stripe_sub
+        if not stripe_sub_id:
+            logger.warning(
+                "subscription_checkout_completed_missing_subscription",
+                session_id=session.get("id"),
+                subscription_id=str(subscription.pk),
+            )
+            return
+        if subscription.stripe_subscription_id == stripe_sub_id:
+            return  # Idempotent redelivery.
+
+        subscription.stripe_subscription_id = stripe_sub_id
+        subscription.save(update_fields=["stripe_subscription_id", "updated_at"])
+        logger.info(
+            "subscription_checkout_completed_linked",
+            session_id=session.get("id"),
+            subscription_id=str(subscription.pk),
+            stripe_subscription_id=stripe_sub_id,
+        )
 
     def _handle_subscription_refund(
         self,

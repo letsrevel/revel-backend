@@ -93,6 +93,7 @@ class NotificationType(TextChoices):
     SUBSCRIPTION_CANCELLATION_CONFIRMED = "subscription_cancellation_confirmed"
     SUBSCRIPTION_RENEWAL_REMINDER = "subscription_renewal_reminder"
     SUBSCRIPTION_PRICE_MIGRATION_NOTICE = "subscription_price_migration_notice"
+    SUBSCRIPTION_REVIVAL_CHECKOUT = "subscription_revival_checkout"  # Staff revived: member gets the checkout link
 
 
 class DeliveryChannel(TextChoices):

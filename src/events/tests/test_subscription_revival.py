@@ -259,7 +259,7 @@ class TestOnlineRevivalSuccess:
         org.stripe_details_submitted = True
         org.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
 
-    def test_online_revival_creates_new_stripe_subscription(
+    def test_online_revival_mints_checkout_session(
         self,
         tier: MembershipTier,
         organization: Organization,
@@ -291,34 +291,135 @@ class TestOnlineRevivalSuccess:
         )
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
             patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
         ):
-            create_mock.return_value = MagicMock(
-                id="sub_new_alive",
-                latest_invoice={"payment_intent": {"client_secret": "pi_revival_secret"}},
-            )
-            result, client_secret = subscription_service.revive_subscription(sub)
+            create_mock.return_value = MagicMock(id="cs_revival", url="https://checkout.stripe.com/c/pay/cs_revival")
+            result, checkout_url = subscription_service.revive_subscription(sub)
 
         # C2: the old (possibly still-dunning) Stripe sub is closed before its
-        # id is overwritten, so a late retry success can't double-bill.
+        # id is cleared, so a late retry success can't double-bill.
         cancel_mock.assert_called_once()
         assert cancel_mock.call_args.args[0] == "sub_old_dead"
 
         result.refresh_from_db()
-        assert result.stripe_subscription_id == "sub_new_alive"
+        # The fresh Stripe Subscription only exists once the session completes;
+        # the old dead id must be cleared so sync/reconcile can't re-observe it.
+        assert result.stripe_subscription_id is None
+        assert result.stripe_checkout_session_id == "cs_revival"
         assert result.status == MembershipSubscription.SubscriptionStatus.PENDING
         assert result.current_period_start is None
         assert result.current_period_end is None
-        assert client_secret == "pi_revival_secret"
+        assert checkout_url == "https://checkout.stripe.com/c/pay/cs_revival"
 
         # Verify Stripe was called with the right parameters.
         create_mock.assert_called_once()
         call_kwargs = create_mock.call_args.kwargs
+        assert call_kwargs["mode"] == "subscription"
         assert call_kwargs["customer"] == "cus_revival_x"
-        assert call_kwargs["items"] == [{"price": "price_revival_x"}]
-        assert call_kwargs["payment_behavior"] == "default_incomplete"
+        assert call_kwargs["line_items"] == [{"price": "price_revival_x", "quantity": 1}]
         assert call_kwargs["stripe_account"] == "acct_test_xyz"
+
+    def test_online_member_revival_sends_no_checkout_notification(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """Member-initiated revival redirects the member — no checkout email."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        self._make_stripe_connected(organization)
+        CustomerProfile.objects.create(
+            user=subscriber,
+            organization=organization,
+            stripe_customer_id="cus_member_rev",
+        )
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="OnlineMonthlySelf",
+            price=Decimal("10"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_price_id="price_self_x",
+            stripe_product_id="prod_self_x",
+        )
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.EXPIRED,
+            expired_at=timezone.now() - timedelta(days=1),
+        )
+
+        with (
+            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+        ):
+            create_mock.return_value = MagicMock(id="cs_self", url="https://checkout.stripe.com/c/pay/cs_self")
+            subscription_service.revive_subscription(sub, revived_by=subscriber)
+
+        assert not Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
+        ).exists()
+
+    def test_online_staff_revival_notifies_member_with_checkout_link(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+        staff_user: RevelUser,
+    ) -> None:
+        """Staff cannot pay on the member's behalf — the member gets the link."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        self._make_stripe_connected(organization)
+        CustomerProfile.objects.create(
+            user=subscriber,
+            organization=organization,
+            stripe_customer_id="cus_staff_rev",
+        )
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="OnlineMonthlyStaff",
+            price=Decimal("10"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_price_id="price_staff_x",
+            stripe_product_id="prod_staff_x",
+        )
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.EXPIRED,
+            expired_at=timezone.now() - timedelta(days=1),
+        )
+
+        with (
+            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+        ):
+            create_mock.return_value = MagicMock(id="cs_staff", url="https://checkout.stripe.com/c/pay/cs_staff")
+            _, checkout_url = subscription_service.revive_subscription(
+                sub,
+                revived_by=staff_user,
+                enforce_sales_status=False,
+            )
+
+        assert checkout_url == "https://checkout.stripe.com/c/pay/cs_staff"
+        notification = Notification.objects.get(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
+        )
+        assert notification.context["checkout_url"] == checkout_url
+        assert notification.context["organization_name"] == organization.name
+        assert notification.context["plan_name"] == online_plan.name
 
     def test_online_revival_stripe_failure_raises_502(
         self,
@@ -354,7 +455,7 @@ class TestOnlineRevivalSuccess:
         import stripe as stripe_lib
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
             patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
         ):
             create_mock.side_effect = stripe_lib.error.APIConnectionError("network failure")
@@ -399,27 +500,20 @@ class TestOnlineRevivalSuccess:
         )
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
             patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
         ):
-            create_mock.return_value = MagicMock(
-                id="sub_meta_new",
-                latest_invoice={"payment_intent": {"client_secret": "pi_meta_secret"}},
-            )
+            create_mock.return_value = MagicMock(id="cs_meta", url="https://checkout.stripe.com/c/pay/cs_meta")
             subscription_service.revive_subscription(sub)
 
         create_kwargs = create_mock.call_args.kwargs
         assert "idempotency_key" in create_kwargs
         assert "sub-revival" in create_kwargs["idempotency_key"]
         assert str(sub.pk) in create_kwargs["idempotency_key"]
-        assert "metadata" in create_kwargs
-        meta = create_kwargs["metadata"]
-        assert meta["revel_subscription_id"] == str(sub.pk)
-        assert meta["revel_user_id"] == str(subscriber.pk)
-        assert meta["revel_org_id"] == str(organization.pk)
-        assert meta["revel_plan_id"] == str(online_plan.pk)
+        assert create_kwargs["metadata"] == {"membership_subscription_id": str(sub.pk)}
+        assert create_kwargs["subscription_data"]["metadata"] == {"membership_subscription_id": str(sub.pk)}
 
-    def test_online_revival_missing_client_secret_triggers_cleanup_and_502(
+    def test_online_revival_missing_session_url_raises_502(
         self,
         tier: MembershipTier,
         organization: Organization,
@@ -449,27 +543,25 @@ class TestOnlineRevivalSuccess:
             expired_at=timezone.now() - timedelta(days=1),
         )
 
-        stripe_sub_mock = MagicMock()
-        stripe_sub_mock.id = "sub_dangling"
-        stripe_sub_mock.latest_invoice = None
+        session_mock = MagicMock()
+        session_mock.id = "cs_dangling"
+        session_mock.url = None
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
+            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
         ):
-            create_mock.return_value = stripe_sub_mock
+            create_mock.return_value = session_mock
 
             with pytest.raises(HttpError) as ei:
                 subscription_service.revive_subscription(sub)
             assert ei.value.status_code == 502
 
-        # Cleanup was attempted on the dangling Stripe sub.
-        cancel_mock.assert_called_once()
-
         # Local row must remain EXPIRED and untouched.
         sub.refresh_from_db()
         assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
         assert sub.stripe_subscription_id is None
+        assert sub.stripe_checkout_session_id == ""
 
 
 # ---------------------------------------------------------------------------
@@ -620,7 +712,7 @@ class TestStaffReviveEndpoint:
         assert resp.status_code == 200, resp.content
         body = resp.json()
         assert body["subscription"]["status"] == MembershipSubscription.SubscriptionStatus.ACTIVE
-        assert body["client_secret"] is None
+        assert body["checkout_url"] is None
         # Staff response includes user PII.
         assert body["subscription"]["user_id"] == str(subscriber.pk)
 

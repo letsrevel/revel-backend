@@ -390,9 +390,11 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     ) -> schema.StaffRevivalResponseSchema:
         """Force-revive an EXPIRED subscription within the org's revival window.
 
-        For OFFLINE plans, include the payment amount/currency. For ONLINE plans,
-        a fresh Stripe Subscription is created — the response includes
-        ``client_secret`` for the member's confirmation step.
+        For OFFLINE plans, include the payment amount/currency. For ONLINE
+        plans, a hosted Stripe Checkout for a fresh Stripe Subscription is
+        created — the member is emailed the checkout link (staff cannot pay on
+        their behalf) and the response also returns ``checkout_url`` so staff
+        can hand it over out-of-band.
         """
         organization = self.get_one(slug)
         subscription = get_object_or_404(
@@ -408,7 +410,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 recorded_by=self.user(),
                 notes=payload.notes,
             )
-        revived, client_secret = subscription_service.revive_subscription(
+        revived, checkout_url = subscription_service.revive_subscription(
             subscription,
             initial_payment=initial,
             revived_by=self.user(),
@@ -423,7 +425,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         # (which lacks ``obj.user``/``obj.organization``), breaking serialization.
         return t.cast(
             schema.StaffRevivalResponseSchema,
-            {"subscription": revived, "client_secret": client_secret},
+            {"subscription": revived, "checkout_url": checkout_url},
         )
 
     # ---- Payments ----

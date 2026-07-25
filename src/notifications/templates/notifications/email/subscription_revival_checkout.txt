@@ -1,0 +1,11 @@
+{%load i18n %}{%trans "Hello"%} {{user.display_name}},
+
+💳 {%blocktranslate with plan=context.plan_name org=context.organization_name %}{{ org }} has set up the renewal of your {{ plan }} membership. Complete the payment to reactivate it.{%endblocktranslate%}
+
+{%trans "Plan:"%} {{context.plan_name}}
+{%trans "Amount:"%} {{context.amount}}
+
+{%trans "Complete payment:"%} {{context.checkout_url}}
+
+{%trans "The payment link expires after a short while; if it no longer works, you can restart the renewal from your membership page."%}
+{% include "notifications/email/_footer.txt" %}

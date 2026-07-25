@@ -157,6 +157,13 @@ class MembershipSubscription(TimeStampedModel):
     cancel_at_period_end = models.BooleanField(default=False)
     cancelled_at = models.DateTimeField(null=True, blank=True)
     stripe_subscription_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
+    stripe_checkout_session_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text=_("Hosted Checkout Session that will (or did) create the Stripe Subscription."),
+    )
     pending_plan = models.ForeignKey(
         MembershipSubscriptionPlan,
         on_delete=models.PROTECT,

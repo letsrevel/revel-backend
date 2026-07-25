@@ -96,6 +96,20 @@ class SubscriptionPriceMigrationNoticeTemplate(NotificationTemplate):
         return _("Upcoming price change for your %(org)s membership") % {"org": org_name}
 
 
+class SubscriptionRevivalCheckoutTemplate(NotificationTemplate):
+    """Template for SUBSCRIPTION_REVIVAL_CHECKOUT notification."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        org_name = notification.context.get("organization_name", "")
+        return _("Complete your membership renewal: %(org)s") % {"org": org_name}
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        org_name = notification.context.get("organization_name", "")
+        return _("Complete your %(org)s membership renewal") % {"org": org_name}
+
+
 # Register templates
 register_template(NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED, SubscriptionRenewalSucceededTemplate())
 register_template(NotificationType.SUBSCRIPTION_PAYMENT_FAILED, SubscriptionPaymentFailedTemplate())
@@ -103,3 +117,4 @@ register_template(NotificationType.SUBSCRIPTION_EXPIRED, SubscriptionExpiredTemp
 register_template(NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED, SubscriptionCancellationConfirmedTemplate())
 register_template(NotificationType.SUBSCRIPTION_RENEWAL_REMINDER, SubscriptionRenewalReminderTemplate())
 register_template(NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE, SubscriptionPriceMigrationNoticeTemplate())
+register_template(NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT, SubscriptionRevivalCheckoutTemplate())
