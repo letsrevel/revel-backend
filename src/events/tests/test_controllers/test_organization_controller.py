@@ -177,6 +177,9 @@ class TestListMembershipPlans:
         assert len(body) == 1
         assert body[0]["id"] == str(active.id)
         assert body[0]["payment_method"] == "offline"
+        # The frontend groups public plan cards by tier and needs the label, not just the id.
+        assert body[0]["tier_id"] == str(tier.id)
+        assert body[0]["tier_name"] == tier.name
 
     def test_anonymous_can_list_public_org_plans(self, client: Client, organization: Organization) -> None:
         organization.visibility = Organization.Visibility.PUBLIC

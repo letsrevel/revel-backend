@@ -71,6 +71,7 @@ class PublicPlanSchema(ModelSchema):
     """
 
     tier_id: UUID
+    tier_name: str
     period_unit: MembershipSubscriptionPlan.PeriodUnit
     payment_method: SubscriptionPaymentMethod
     sales_status: MembershipSubscriptionPlan.SalesStatus
@@ -102,6 +103,11 @@ class PublicPlanSchema(ModelSchema):
         if taken is None:
             taken = obj.subscriptions.exclude(status__in=MembershipSubscription.TERMINAL_STATUSES).count()
         return int(taken) >= obj.max_subscriptions
+
+    @staticmethod
+    def resolve_tier_name(obj: MembershipSubscriptionPlan) -> str:
+        """Return the parent tier's display name."""
+        return obj.tier.name
 
 
 class MemberPlanSchema(ModelSchema):
