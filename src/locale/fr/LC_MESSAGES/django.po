@@ -1833,6 +1833,12 @@ msgstr ""
 msgid "Invalid questionnaire submission."
 msgstr "Soumission de questionnaire invalide."
 
+msgid "Questionnaire not found for this organization."
+msgstr "Questionnaire introuvable pour cette organisation."
+
+msgid "This questionnaire cannot be retaken."
+msgstr "Ce questionnaire ne peut pas être repassé."
+
 msgid "This is already the contact email for this organization."
 msgstr "C'est déjà l'adresse e-mail de contact de cette organisation."
 

@@ -1821,6 +1821,12 @@ msgstr ""
 msgid "Invalid questionnaire submission."
 msgstr "Ungültige Fragebogen-Einreichung."
 
+msgid "Questionnaire not found for this organization."
+msgstr "Fragebogen für diese Organisation nicht gefunden."
+
+msgid "This questionnaire cannot be retaken."
+msgstr "Dieser Fragebogen kann nicht wiederholt werden."
+
 msgid "This is already the contact email for this organization."
 msgstr "Dies ist bereits die Kontakt-E-Mail-Adresse für diese Organisation."
 
