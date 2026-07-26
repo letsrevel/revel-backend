@@ -60,8 +60,10 @@ Specific implications:
 - **Pro:** Uniform model with ticket sales. Refunds, payouts, dispute
   handling, and Stripe Dashboard access all work the same for an org's staff.
 - **Pro:** Platform fees collected automatically via `application_fee_percent`
-  (set from `Organization.platform_fee_percent` and omitted when the org
-  shares the platform's own Stripe account).
+  (set from `Organization.platform_fee_percent` — grossed up with platform VAT
+  when applicable — and omitted when the org shares the platform's own Stripe
+  account). Percent-only by Stripe design: subscriptions have no fixed
+  `application_fee_amount` mechanism, so `platform_fee_fixed` does not apply.
 - **Pro:** Members get a Stripe-hosted Customer Portal scoped per
   organization — payment methods saved against one org never leak to another.
 - **Con:** A new Stripe Customer is created on each Connect account the user

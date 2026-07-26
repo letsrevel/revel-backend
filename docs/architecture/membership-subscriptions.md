@@ -424,7 +424,8 @@ History starts at first save after the Phase 4 migration; no backfill. See
 - [Service Layer](service-layer.md) — hybrid function/class service pattern
   this system follows.
 - [Billing & VAT](billing-and-vat.md) — Stripe Connect webhook caveat,
-  platform fee model, attendee invoicing (ticket-side, not subscription-side).
+  platform fee model (including subscription platform fees), attendee
+  invoicing (ticket-side only).
 - [Permissions](permissions.md) — `OrganizationPermission` mechanics that
   the staff subscription endpoints inherit.
 - [Notifications](notifications.md) — dispatcher and channel selection used

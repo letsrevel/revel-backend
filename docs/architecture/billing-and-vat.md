@@ -91,6 +91,15 @@ For batch purchases (multiple tickets in one Stripe session), `distribute_amount
 
 [Series pass](series-passes.md) checkouts use the same helper three ways: one Stripe session at the pass price is split into per-event `Payment` shares, platform-fee shares, and platform-fee-VAT shares — each Payment's VAT computed from its own ticket's tier rate.
 
+### Subscription Platform Fees
+
+Membership subscriptions ([memberships & subscriptions](membership-subscriptions.md)) charge the platform fee via Stripe's `application_fee_percent` on the Subscription — **percent-only**: Stripe has no fixed-fee mechanism for subscriptions, so `Organization.platform_fee_fixed` intentionally does not apply ([ADR-0013](../adr/0013-stripe-connect-direct-charges-subscriptions.md)).
+
+- **Collection**: the percent sent to Stripe is the org's `platform_fee_percent` grossed up with platform VAT when applicable (`percent × (1 + rate/100)`, capped at 100) — the same fee-plus-VAT-on-top economics as tickets. Reverse-charge and non-EU orgs get the bare percent. The grossed percent is frozen into the Stripe Subscription at Checkout; a later change to the org's VAT status does not retroactively update it.
+- **Ledger**: each `invoice.paid`/`invoice.payment_failed` records the invoice's *actual* `application_fee_amount` onto the `MembershipPayment` row, decomposed into the same `platform_fee`, `platform_fee_net`, `platform_fee_vat`, `platform_fee_vat_rate`, `platform_fee_reverse_charge` fields ticket `Payment` rows carry (`b2b_fee_vat_from_gross()` — VAT-inclusive decomposition).
+- **Invoicing**: monthly `PlatformFeeInvoice` generation aggregates fee-bearing `MembershipPayment` rows alongside ticket `Payment` rows per (org, currency); `total_subscription_payments` / `total_subscription_revenue` carry the subscription side of the stats.
+- Like ticket fees, subscription platform fees are **not refunded** when a payment is refunded.
+
 ## VIES Integration
 
 ### Service: `events.service.vies_service`
@@ -138,7 +147,7 @@ Monthly platform fee invoices are generated automatically on the **1st of each m
 
 ### Generation Pipeline
 
-1. **Aggregate** all succeeded payments for the period, grouped by (organization, currency)
+1. **Aggregate** all succeeded payments for the period — ticket `Payment` and fee-bearing `MembershipPayment` rows — grouped by (organization, currency)
 2. **Idempotency check** — skip if an invoice already exists for (org, period_start, currency)
 3. **Generate invoice number** inside `transaction.atomic()` with `SELECT FOR UPDATE`
 4. **Create invoice** with snapshots of org and platform business details
@@ -202,8 +211,8 @@ The `Organization` model stores:
 | `revenue_report_cadence` | CharField | Scheduled revenue-report cadence (`NONE`/`QUARTERLY`/`MONTHLY`, default `NONE`). **Owner-only to write** (as of 1.65.0); requires `billing_email` when not `NONE` |
 | `last_revenue_report_sent_period` | CharField | Internal scheduling bookkeeping — the last period emailed (e.g. `2026-Q1` or `2026-03`); prevents double-sends |
 
-!!! note "Online tier prerequisite"
-    Creating an online (Stripe) ticket tier requires `billing_name`, `vat_country_code`, and `billing_address` to be set on the organization (when platform fees are configured). This ensures invoices can be generated correctly from the first sale.
+!!! note "Online tier & plan prerequisite"
+    Creating an online (Stripe) ticket tier — or an ONLINE subscription plan — requires `billing_name`, `vat_country_code`, and `billing_address` to be set on the organization (when platform fees are configured). This ensures invoices can be generated correctly from the first sale. Shared check: `ticket_service.check_online_payment_prerequisites()`.
 
 ### Ticket Tier VAT Override
 
