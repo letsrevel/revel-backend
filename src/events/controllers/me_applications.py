@@ -124,9 +124,16 @@ class MeMembershipApplicationsController(UserAwareController):
         # Inject application_id so the FE can poll this exact row.
         eligibility.application_id = application.pk
 
-        return 201, schema.ApplyResponseSchema(
-            application=schema.MembershipApplicationSchema.model_validate(application, from_attributes=True),
-            eligibility=schema.MembershipEligibilitySchema.from_eligibility(eligibility),
+        # Return a dict (not a constructed schema) so Ninja's response pipeline validates the
+        # Django model through ``MembershipApplicationSchema``'s resolvers. Pre-validating the
+        # inner schema would make the outer wrap-validator re-run those resolvers against the
+        # already-validated schema instance, which no longer carries the Django relations.
+        return 201, t.cast(
+            schema.ApplyResponseSchema,
+            {
+                "application": application,
+                "eligibility": schema.MembershipEligibilitySchema.from_eligibility(eligibility),
+            },
         )
 
     @route.post(
@@ -137,7 +144,11 @@ class MeMembershipApplicationsController(UserAwareController):
     )
     def cancel(self, application_id: UUID) -> OrganizationMembershipRequest:
         """Cancel one of the caller's own applications. Idempotent on already-cancelled rows."""
-        app = get_object_or_404(OrganizationMembershipRequest, pk=application_id, user=self.user())
+        app = get_object_or_404(
+            OrganizationMembershipRequest.objects.select_related("organization", "tier"),
+            pk=application_id,
+            user=self.user(),
+        )
         return cancel_application(app)
 
     @route.get(
@@ -150,9 +161,14 @@ class MeMembershipApplicationsController(UserAwareController):
         app = get_object_or_404(OrganizationMembershipRequest, pk=application_id, user=self.user())
         advanced, eligibility = advance_application(app)
         eligibility.application_id = advanced.pk
-        return schema.ApplyResponseSchema(
-            application=schema.MembershipApplicationSchema.model_validate(advanced, from_attributes=True),
-            eligibility=schema.MembershipEligibilitySchema.from_eligibility(eligibility),
+        # See the note on ``apply``: return a dict so Ninja validates the Django model
+        # through ``MembershipApplicationSchema``'s resolvers.
+        return t.cast(
+            schema.ApplyResponseSchema,
+            {
+                "application": advanced,
+                "eligibility": schema.MembershipEligibilitySchema.from_eligibility(eligibility),
+            },
         )
 
     @route.get(

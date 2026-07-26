@@ -219,6 +219,93 @@ def test_list_applications_only_returns_own(
     assert body["count"] == 1
 
 
+# -- Account-hub display fields (issue #785) ---------------------------------------------------
+
+
+def test_list_applications_includes_display_fields(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """The applications list carries resolved org/tier display fields for the account hub."""
+    OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+    )
+    client = _client(nonmember_user)
+    response = client.get(reverse("api:list_membership_applications"))
+    assert response.status_code == 200
+    item = response.json()["results"][0]
+    assert item["organization_id"] == str(organization.id)
+    assert item["organization_name"] == organization.name
+    assert item["organization_slug"] == organization.slug
+    # No logo uploaded on the fixture org.
+    assert item["organization_logo_url"] is None
+    assert item["tier_name"] == tier.name
+
+
+def test_list_applications_tier_less_has_null_tier_name(nonmember_user: RevelUser, organization: Organization) -> None:
+    """A tier-less (legacy) application serializes ``tier_name`` as null."""
+    OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=None,
+        status=OrganizationMembershipRequest.Status.PENDING,
+    )
+    client = _client(nonmember_user)
+    response = client.get(reverse("api:list_membership_applications"))
+    assert response.status_code == 200
+    item = response.json()["results"][0]
+    assert item["tier_id"] is None
+    assert item["tier_name"] is None
+    assert item["organization_slug"] == organization.slug
+
+
+def test_get_application_includes_display_fields(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """The detail endpoint resolves the same display fields (model_validate path)."""
+    app = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+    )
+    client = _client(nonmember_user)
+    url = reverse("api:get_membership_application", kwargs={"application_id": app.id})
+    response = client.get(url)
+    assert response.status_code == 200, response.content
+    application = response.json()["application"]
+    assert application["organization_name"] == organization.name
+    assert application["organization_slug"] == organization.slug
+    assert application["organization_logo_url"] is None
+    assert application["tier_name"] == tier.name
+
+
+def test_apply_and_cancel_responses_include_display_fields(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """POST /apply and POST /cancel carry the display fields too."""
+    client = _client(nonmember_user)
+    apply_url = reverse("api:apply_for_membership", kwargs={"slug": organization.slug})
+    apply_response = client.post(apply_url, data={"tier_id": str(tier.id)}, content_type="application/json")
+    assert apply_response.status_code == 201, apply_response.content
+    application = apply_response.json()["application"]
+    assert application["organization_name"] == organization.name
+    assert application["organization_slug"] == organization.slug
+    assert application["tier_name"] == tier.name
+
+    app = OrganizationMembershipRequest.objects.get(pk=application["id"])
+    cancel_url = reverse("api:cancel_membership_application", kwargs={"application_id": app.id})
+    cancel_response = client.post(cancel_url, content_type="application/json")
+    assert cancel_response.status_code == 200, cancel_response.content
+    body = cancel_response.json()
+    assert body["organization_name"] == organization.name
+    assert body["organization_slug"] == organization.slug
+    assert body["organization_logo_url"] is None
+    assert body["tier_name"] == tier.name
+
+
 # -- S1: Pre-gate creation hardening ----------------------------------------------------------
 
 

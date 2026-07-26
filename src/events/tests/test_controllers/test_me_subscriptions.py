@@ -647,3 +647,82 @@ class TestRevivalDeadlineExposure:
 
         assert item["expired_at"] is None
         assert item["revival_deadline"] is None
+
+
+class TestGraceDeadlineExposure:
+    """Computed grace_deadline on the member-facing subscription schema (issue #785)."""
+
+    @staticmethod
+    def _past_due(sub: MembershipSubscription, period_end: datetime | None) -> MembershipSubscription:
+        sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+        sub.current_period_end = period_end
+        sub.save(update_fields=["status", "current_period_end"])
+        return sub
+
+    def _list_item(self, client: Client) -> dict[str, t.Any]:
+        response = client.get(reverse("api:list_my_membership_subscriptions"))
+        assert response.status_code == 200
+        return response.json()["results"][0]  # type: ignore[no-any-return]
+
+    def test_past_due_exposes_grace_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        organization.membership_grace_period_days = 7
+        organization.save(update_fields=["membership_grace_period_days"])
+        period_end = timezone.now() - timedelta(days=1)
+        self._past_due(their_subscription, period_end)
+
+        item = self._list_item(subscriber_client)
+
+        assert item["grace_deadline"] is not None
+        deadline = datetime.fromisoformat(item["grace_deadline"])
+        current_period_end = datetime.fromisoformat(item["current_period_end"])
+        assert deadline - current_period_end == timedelta(days=7)
+
+    def test_active_subscription_has_no_grace_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+    ) -> None:
+        their_subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
+        their_subscription.current_period_end = timezone.now() + timedelta(days=10)
+        their_subscription.save(update_fields=["status", "current_period_end"])
+
+        item = self._list_item(subscriber_client)
+
+        assert item["grace_deadline"] is None
+
+    def test_past_due_without_period_end_has_no_grace_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+    ) -> None:
+        self._past_due(their_subscription, None)
+
+        item = self._list_item(subscriber_client)
+
+        assert item["current_period_end"] is None
+        assert item["grace_deadline"] is None
+
+    def test_detail_endpoint_exposes_grace_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        organization.membership_grace_period_days = 3
+        organization.save(update_fields=["membership_grace_period_days"])
+        period_end = timezone.now() - timedelta(hours=2)
+        self._past_due(their_subscription, period_end)
+
+        url = reverse("api:get_my_organization_subscription", kwargs={"org_id": organization.id})
+        response = subscriber_client.get(url)
+
+        assert response.status_code == 200
+        body = response.json()
+        deadline = datetime.fromisoformat(body["grace_deadline"])
+        current_period_end = datetime.fromisoformat(body["current_period_end"])
+        assert deadline - current_period_end == timedelta(days=3)

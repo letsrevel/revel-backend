@@ -299,6 +299,20 @@ class MySubscriptionSchema(_BaseSubscriptionSchema):
     organization_name: str
     organization_slug: str
     organization_logo_url: str | None = None
+    grace_deadline: AwareDatetime | None = None
+
+    @staticmethod
+    def resolve_grace_deadline(obj: MembershipSubscription) -> datetime | None:
+        """Deadline to settle a failed payment before the membership expires.
+
+        ``current_period_end + org.membership_grace_period_days`` — the same arithmetic
+        the grace-expiry sweep in ``events.tasks.subscriptions`` uses to flip PAST_DUE
+        rows to EXPIRED. Returns ``None`` unless the subscription is PAST_DUE and has a
+        ``current_period_end``.
+        """
+        if obj.status != MembershipSubscription.SubscriptionStatus.PAST_DUE or obj.current_period_end is None:
+            return None
+        return obj.current_period_end + timedelta(days=obj.organization.membership_grace_period_days)
 
     @staticmethod
     def resolve_plan(obj: MembershipSubscription) -> MembershipSubscriptionPlan:
