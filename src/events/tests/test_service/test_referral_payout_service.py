@@ -12,7 +12,17 @@ from django.utils import timezone
 
 from accounts.models import Referral, ReferralCode, ReferralPayout, RevelUser
 from common.models import ExchangeRate
-from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.models import (
+    Event,
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    MembershipTier,
+    Organization,
+    Payment,
+    Ticket,
+    TicketTier,
+)
 from events.service.referral_payout_service import calculate_payouts_for_period
 from events.tasks import calculate_referral_payouts
 
@@ -107,6 +117,58 @@ def _create_payment(
     )
     if created_at:
         Payment.objects.filter(pk=payment.pk).update(created_at=created_at)
+    return payment
+
+
+@pytest.fixture
+def membership_plan(organization: Organization) -> MembershipSubscriptionPlan:
+    tier = MembershipTier.objects.create(organization=organization, name="Members")
+    return MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Monthly",
+        price=Decimal("10.00"),
+        currency="EUR",
+        payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+    )
+
+
+@pytest.fixture
+def subscription(
+    membership_plan: MembershipSubscriptionPlan,
+    organization: Organization,
+    django_user_model: t.Type[RevelUser],
+) -> MembershipSubscription:
+    member = django_user_model.objects.create_user(
+        username="member@example.com", email="member@example.com", password="pass"
+    )
+    return MembershipSubscription.objects.create(
+        user=member,
+        plan=membership_plan,
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+    )
+
+
+def _create_membership_payment(
+    subscription: MembershipSubscription,
+    *,
+    platform_fee: Decimal,
+    platform_fee_net: Decimal | None,
+    created_at: datetime.datetime,
+    status: str = MembershipPayment.PaymentStatus.SUCCEEDED,
+    currency: str = "EUR",
+) -> MembershipPayment:
+    payment = MembershipPayment.objects.create(
+        subscription=subscription,
+        amount=Decimal("10.00"),
+        currency=currency,
+        status=status,
+        period_start=created_at,
+        period_end=created_at + datetime.timedelta(days=30),
+        platform_fee=platform_fee,
+        platform_fee_net=platform_fee_net,
+    )
+    MembershipPayment.objects.filter(pk=payment.pk).update(created_at=created_at)
     return payment
 
 
@@ -527,6 +589,183 @@ def test_multi_currency_converted_to_platform_currency(
     assert result == {"created": 1, "skipped": 0}
     payout = ReferralPayout.objects.get(referral=referral)
     # €10.00 (EUR) + $10.80 / 1.08 = €10.00 → total €20.00
+    assert payout.net_platform_fees == Decimal("20.00")
+    assert payout.currency == "EUR"
+    # 20.00 * 15% = 3.00
+    assert payout.payout_amount == Decimal("3.00")
+
+
+# ---------------------------------------------------------------------------
+# Membership subscription fees
+# ---------------------------------------------------------------------------
+
+
+def test_subscription_fees_included(referral: Referral, subscription: MembershipSubscription) -> None:
+    """Subscription platform fees on the referred user's orgs count towards the payout."""
+    _create_membership_payment(
+        subscription,
+        platform_fee=Decimal("1.22"),
+        platform_fee_net=Decimal("1.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 5, 12, 0)),
+    )
+    _create_membership_payment(
+        subscription,
+        platform_fee=Decimal("2.44"),
+        platform_fee_net=Decimal("2.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 25, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 1, "skipped": 0}
+    payout = ReferralPayout.objects.get(referral=referral)
+    # Uses net fees (1 + 2 = 3), not gross (1.22 + 2.44 = 3.66)
+    assert payout.net_platform_fees == Decimal("3.00")
+    # 3.00 * 15% = 0.45
+    assert payout.payout_amount == Decimal("0.45")
+
+
+def test_ticket_and_subscription_fees_summed(
+    referral: Referral,
+    tier: TicketTier,
+    buyer: RevelUser,
+    subscription: MembershipSubscription,
+) -> None:
+    """Ticket and subscription fees are aggregated into a single payout."""
+    _create_payment(
+        tier,
+        buyer,
+        platform_fee=Decimal("12.00"),
+        platform_fee_net=Decimal("10.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+    _create_membership_payment(
+        subscription,
+        platform_fee=Decimal("2.44"),
+        platform_fee_net=Decimal("2.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 20, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 1, "skipped": 0}
+    payout = ReferralPayout.objects.get(referral=referral)
+    # 10.00 (ticket) + 2.00 (subscription) = 12.00
+    assert payout.net_platform_fees == Decimal("12.00")
+    # 12.00 * 15% = 1.80
+    assert payout.payout_amount == Decimal("1.80")
+
+
+def test_subscription_payments_outside_period_excluded(
+    referral: Referral, subscription: MembershipSubscription
+) -> None:
+    """Subscription payments outside the period are not counted."""
+    _create_membership_payment(
+        subscription,
+        platform_fee=Decimal("1.22"),
+        platform_fee_net=Decimal("1.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+    # Outside period (March)
+    _create_membership_payment(
+        subscription,
+        platform_fee=Decimal("60.00"),
+        platform_fee_net=Decimal("50.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 3, 5, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 1, "skipped": 0}
+    payout = ReferralPayout.objects.get(referral=referral)
+    assert payout.net_platform_fees == Decimal("1.00")
+
+
+@pytest.mark.parametrize(
+    "status",
+    [MembershipPayment.PaymentStatus.FAILED, MembershipPayment.PaymentStatus.REFUNDED],
+)
+def test_non_succeeded_subscription_payments_excluded(
+    referral: Referral, subscription: MembershipSubscription, status: str
+) -> None:
+    """Failed and refunded subscription payments are not counted."""
+    _create_membership_payment(
+        subscription,
+        platform_fee=Decimal("12.00"),
+        platform_fee_net=Decimal("10.00"),
+        status=status,
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 0, "skipped": 1}
+    assert not ReferralPayout.objects.exists()
+
+
+def test_zero_fee_subscription_payments_excluded(referral: Referral, subscription: MembershipSubscription) -> None:
+    """Offline-recorded membership payments carry no fee and are excluded."""
+    _create_membership_payment(
+        subscription,
+        platform_fee=Decimal("0.00"),
+        platform_fee_net=None,
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 0, "skipped": 1}
+    assert not ReferralPayout.objects.exists()
+
+
+def test_subscription_fees_converted_to_platform_currency(
+    referral: Referral,
+    membership_plan: MembershipSubscriptionPlan,
+    organization: Organization,
+    subscription: MembershipSubscription,
+    django_user_model: t.Type[RevelUser],
+) -> None:
+    """Subscription fees in a foreign currency are converted to DEFAULT_CURRENCY."""
+    ExchangeRate.objects.all().delete()
+    ExchangeRate.objects.create(base="EUR", date=PERIOD_END, rates={"USD": 1.08})
+
+    usd_plan = MembershipSubscriptionPlan.objects.create(
+        tier=membership_plan.tier,
+        name="Monthly USD",
+        price=Decimal("10.00"),
+        currency="USD",
+        payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+    )
+    usd_member = django_user_model.objects.create_user(
+        username="usd_member@example.com", email="usd_member@example.com", password="pass"
+    )
+    usd_subscription = MembershipSubscription.objects.create(
+        user=usd_member,
+        plan=usd_plan,
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+    )
+
+    # EUR fee: €10.00 net
+    _create_membership_payment(
+        subscription,
+        platform_fee=Decimal("12.00"),
+        platform_fee_net=Decimal("10.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+    # USD fee: $10.80 net → €10.00
+    _create_membership_payment(
+        usd_subscription,
+        platform_fee=Decimal("12.96"),
+        platform_fee_net=Decimal("10.80"),
+        currency="USD",
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 20, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 1, "skipped": 0}
+    payout = ReferralPayout.objects.get(referral=referral)
     assert payout.net_platform_fees == Decimal("20.00")
     assert payout.currency == "EUR"
     # 20.00 * 15% = 3.00

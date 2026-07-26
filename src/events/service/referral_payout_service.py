@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from accounts.models import Referral, ReferralPayout
 from common.service.exchange_rate_service import convert_using_rates, get_latest_rates
-from events.models import Payment
+from events.models import MembershipPayment, Payment
 
 logger = structlog.get_logger(__name__)
 
@@ -35,7 +35,15 @@ def _calculate_net_fees(
     rates: dict[str, float],
     platform_currency: str,
 ) -> Decimal:
-    """Aggregate net platform fees for a referral, converting all currencies to platform currency."""
+    """Aggregate net platform fees for a referral, converting all currencies to platform currency.
+
+    Fees come from two sources: ticket payments and membership subscription payments.
+    Ticket payments fall back to the gross ``platform_fee`` when ``platform_fee_net``
+    is null (historical rows predating the VAT breakdown). Membership payments need
+    no such fallback — every fee-bearing ``MembershipPayment`` row comes from the
+    Stripe invoice sync and always has ``platform_fee_net`` set (offline-recorded
+    rows carry a zero fee and are filtered out).
+    """
     fee_by_currency = (
         Payment.objects.filter(
             ticket__event__organization__owner=referral.referred_user,
@@ -47,8 +55,20 @@ def _calculate_net_fees(
         .annotate(total=Sum(Coalesce("platform_fee_net", "platform_fee")))
     )
 
+    membership_fee_by_currency = (
+        MembershipPayment.objects.filter(
+            subscription__organization__owner=referral.referred_user,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            created_at__gte=period_start_dt,
+            created_at__lt=period_end_dt,
+            platform_fee__gt=0,
+        )
+        .values("currency")
+        .annotate(total=Sum("platform_fee_net"))
+    )
+
     net_fees = Decimal("0")
-    for entry in fee_by_currency:
+    for entry in [*fee_by_currency, *membership_fee_by_currency]:
         amount = entry["total"] or Decimal("0")
         if amount:
             net_fees += convert_using_rates(amount, entry["currency"], platform_currency, rates)
@@ -123,11 +143,12 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
     """Calculate referral payouts for a given period.
 
     For each Referral, aggregates net platform fees (excluding VAT) from
-    succeeded payments on events owned by the referred user's organizations,
-    converts all amounts to DEFAULT_CURRENCY, then creates a ReferralPayout
-    record with the referrer's revenue share applied.
+    succeeded ticket payments on events owned by the referred user's
+    organizations and from succeeded membership subscription payments on those
+    organizations, converts all amounts to DEFAULT_CURRENCY, then creates a
+    ReferralPayout record with the referrer's revenue share applied.
 
-    Falls back to gross platform_fee for historical payments where
+    Falls back to gross platform_fee for historical ticket payments where
     platform_fee_net is null.
 
     Uses get_or_create to ensure idempotency (safe to re-run).
