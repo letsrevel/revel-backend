@@ -428,12 +428,13 @@ class TestSubscriptionPlatformFeeInvoicing:
         make_subscription: t.Callable[[], MembershipSubscription],
         site_settings: SiteSettings,
     ) -> None:
-        """Zero-fee (OFFLINE/staff-recorded) rows carry no VAT decision."""
+        """Zero-fee (OFFLINE/staff-recorded) rows carry no VAT decision and no stats."""
         mock_html_cls.return_value.write_pdf.return_value = None
         created_at = timezone.make_aware(datetime(2027, 6, 10, 12, 0))
         _create_membership_payment(
             subscription=make_subscription(),
             created_at=created_at,
+            amount=Decimal("10.00"),
             platform_fee=Decimal("2.00"),
             platform_fee_vat_rate=Decimal("0.00"),
             platform_fee_reverse_charge=True,
@@ -441,6 +442,7 @@ class TestSubscriptionPlatformFeeInvoicing:
         _create_membership_payment(
             subscription=make_subscription(),
             created_at=created_at,
+            amount=Decimal("40.00"),
             platform_fee=Decimal("0.00"),
         )
 
@@ -449,7 +451,10 @@ class TestSubscriptionPlatformFeeInvoicing:
         assert len(invoices) == 1
         assert invoices[0].reverse_charge is True
         assert invoices[0].fee_gross == Decimal("2.00")
-        assert invoices[0].total_subscription_payments == 2
+        # Zero-fee rows are excluded from the stats too: the invoice must only
+        # describe what the platform fee was actually charged against.
+        assert invoices[0].total_subscription_payments == 1
+        assert invoices[0].total_subscription_revenue == Decimal("10.00")
 
     def test_non_succeeded_membership_payments_excluded(
         self,

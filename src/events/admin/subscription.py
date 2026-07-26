@@ -80,7 +80,10 @@ class MembershipPaymentAdmin(SimpleHistoryAdmin, ModelAdmin):  # type: ignore[mi
     """Admin for MembershipPayment.
 
     ``status`` and the period fields are readonly to keep refunds and
-    period mutation flowing through the service layer.
+    period mutation flowing through the service layer. The ``platform_fee*``
+    group is readonly too: it is written as one consistent set by the fee
+    decomposition, and a partial admin edit would silently skew invoicing and
+    referral payouts.
     """
 
     list_display = ["__str__", "subscription", "amount", "currency", "status", "period_end", "created_at"]
@@ -98,6 +101,11 @@ class MembershipPaymentAdmin(SimpleHistoryAdmin, ModelAdmin):  # type: ignore[mi
         "period_end",
         "stripe_invoice_id",
         "stripe_payment_intent_id",
+        "platform_fee",
+        "platform_fee_net",
+        "platform_fee_vat",
+        "platform_fee_vat_rate",
+        "platform_fee_reverse_charge",
         "created_at",
         "updated_at",
     ]

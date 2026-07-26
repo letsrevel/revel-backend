@@ -312,8 +312,9 @@ class MembershipPayment(TimeStampedModel):
     stripe_invoice_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
     stripe_payment_intent_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
 
-    # Platform fee VAT breakdown (mirrors events.models.ticket.Payment; all
-    # nullable for OFFLINE / historical payments, which collect no fee).
+    # Platform fee VAT breakdown (mirrors events.models.ticket.Payment). The
+    # decomposition fields are nullable for OFFLINE / historical payments, which
+    # collect no fee; ``platform_fee`` and ``platform_fee_reverse_charge`` are not.
     platform_fee = models.DecimalField(
         max_digits=10,
         decimal_places=2,

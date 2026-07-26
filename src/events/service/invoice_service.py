@@ -283,9 +283,13 @@ def generate_invoices_for_period(
     )
 
     # Same aggregation over subscription fees; merged below so an org billed on
-    # both sources gets one invoice per currency instead of two.
+    # both sources gets one invoice per currency instead of two. Zero-fee rows
+    # (OFFLINE / staff-recorded) are dropped before the .values() grouping so the
+    # payment count and revenue stats only describe what the fee was charged
+    # against — matching the ticket side, which is online-only by construction.
     membership_aggregates = (
-        period_membership_payments.values(
+        period_membership_payments.filter(platform_fee__gt=0)
+        .values(
             "subscription__organization_id",
             "currency",
         )
