@@ -1,7 +1,9 @@
 """Tests for the subscription service layer."""
 
 import datetime
+import typing as t
 from decimal import Decimal
+from unittest import mock
 
 import pytest
 from django.utils import timezone
@@ -9,6 +11,7 @@ from freezegun import freeze_time
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.exceptions import BillingInfoRequiredError, StripeNotConnectedError
 from events.models import (
     MembershipPayment,
     MembershipSubscription,
@@ -103,6 +106,129 @@ class TestPlanCrud:
         with pytest.raises(HttpError) as excinfo:
             subscription_service.delete_plan(plan)
         assert excinfo.value.status_code == 400
+
+
+# ---- ONLINE plan billing-info gate -------------------------------------------
+
+
+def _connect_stripe(organization: Organization) -> None:
+    """Flip the Stripe Connect flags without touching billing info."""
+    organization.stripe_account_id = "acct_test_plan_gate"
+    organization.stripe_charges_enabled = True
+    organization.stripe_details_submitted = True
+    organization.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
+
+
+def _set_billing_info(organization: Organization) -> None:
+    """Fill in the billing fields the platform-fee invoice needs."""
+    organization.billing_name = "Acme Ltd"
+    organization.billing_address = "1 Acme St"
+    organization.vat_country_code = "AT"
+    organization.save(update_fields=["billing_name", "billing_address", "vat_country_code"])
+
+
+def _online_plan_kwargs() -> dict[str, t.Any]:
+    return {
+        "name": "Monthly Online",
+        "price": Decimal("10.00"),
+        "currency": "EUR",
+        "period_unit": "month",
+        "payment_method": MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+    }
+
+
+class TestOnlinePlanPrerequisites:
+    def test_create_online_plan_without_stripe_connect_raises(
+        self, tier: MembershipTier, organization: Organization
+    ) -> None:
+        """No Stripe Connect account → the org cannot sell subscriptions online."""
+        assert not organization.is_stripe_connected
+
+        with pytest.raises(StripeNotConnectedError):
+            subscription_service.create_plan(tier, **_online_plan_kwargs())
+
+    def test_create_online_plan_without_billing_info_raises(
+        self, tier: MembershipTier, organization: Organization
+    ) -> None:
+        """Platform fees apply but billing info is missing → the fee invoice would be unissuable."""
+        _connect_stripe(organization)
+        assert organization.platform_fee_percent > 0 or organization.platform_fee_fixed > 0
+        assert not organization.billing_name
+
+        with pytest.raises(BillingInfoRequiredError):
+            subscription_service.create_plan(tier, **_online_plan_kwargs())
+
+    def test_create_online_plan_without_platform_fees_skips_billing_check(
+        self, tier: MembershipTier, organization: Organization
+    ) -> None:
+        """Zero platform fees → no invoice to issue, so incomplete billing info is fine."""
+        _connect_stripe(organization)
+        organization.platform_fee_percent = Decimal("0")
+        organization.platform_fee_fixed = Decimal("0")
+        organization.save(update_fields=["platform_fee_percent", "platform_fee_fixed"])
+
+        with (
+            mock.patch(
+                "events.service.subscription_stripe_service.stripe.Product.create",
+                return_value=mock.MagicMock(id="prod_x"),
+            ),
+            mock.patch(
+                "events.service.subscription_stripe_service.stripe.Price.create",
+                return_value=mock.MagicMock(id="price_x"),
+            ),
+        ):
+            plan = subscription_service.create_plan(tier, **_online_plan_kwargs())
+
+        assert plan.stripe_price_id == "price_x"
+
+    def test_create_online_plan_with_complete_billing_info_succeeds(
+        self, tier: MembershipTier, organization: Organization
+    ) -> None:
+        """Connected + complete billing info → the plan is created and synced to Stripe."""
+        _connect_stripe(organization)
+        _set_billing_info(organization)
+
+        with (
+            mock.patch(
+                "events.service.subscription_stripe_service.stripe.Product.create",
+                return_value=mock.MagicMock(id="prod_ok"),
+            ),
+            mock.patch(
+                "events.service.subscription_stripe_service.stripe.Price.create",
+                return_value=mock.MagicMock(id="price_ok"),
+            ),
+        ):
+            plan = subscription_service.create_plan(tier, **_online_plan_kwargs())
+
+        assert plan.pk
+        assert plan.stripe_product_id == "prod_ok"
+        assert plan.stripe_price_id == "price_ok"
+
+    def test_offline_plan_unaffected_by_missing_billing_info(
+        self, tier: MembershipTier, organization: Organization
+    ) -> None:
+        """OFFLINE plans never touch Stripe, so the gate must not fire."""
+        assert not organization.is_stripe_connected
+        assert not organization.billing_name
+
+        plan = subscription_service.create_plan(
+            tier,
+            name="Monthly Offline",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+        )
+
+        assert plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+
+    def test_update_flipping_offline_to_online_is_gated(
+        self, plan: MembershipSubscriptionPlan, organization: Organization
+    ) -> None:
+        """Flipping an existing OFFLINE plan to ONLINE goes through the same gate."""
+        _connect_stripe(organization)
+
+        with pytest.raises(BillingInfoRequiredError):
+            subscription_service.update_plan(plan, payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE)
 
 
 # ---- create_subscription -----------------------------------------------------

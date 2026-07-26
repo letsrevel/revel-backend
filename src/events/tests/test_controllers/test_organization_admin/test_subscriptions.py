@@ -226,6 +226,41 @@ class TestCreatePlan:
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
         assert response.status_code == 422
 
+    def test_online_plan_without_stripe_connect_rejected(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        """ONLINE plans need Stripe Connect → 400."""
+        url = reverse("api:create_subscription_plan", kwargs={"slug": organization.slug, "tier_id": tier.id})
+        payload = {
+            "name": "Monthly",
+            "price": "5.00",
+            "currency": "EUR",
+            "period_unit": "month",
+            "payment_method": MembershipSubscriptionPlan.PaymentMethod.ONLINE.value,
+        }
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 400
+
+    def test_online_plan_without_billing_info_rejected(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        """ONLINE plans on a fee-bearing org need complete billing info → 422."""
+        organization.stripe_account_id = "acct_test_plan_ctrl"
+        organization.stripe_charges_enabled = True
+        organization.stripe_details_submitted = True
+        organization.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
+
+        url = reverse("api:create_subscription_plan", kwargs={"slug": organization.slug, "tier_id": tier.id})
+        payload = {
+            "name": "Monthly",
+            "price": "5.00",
+            "currency": "EUR",
+            "period_unit": "month",
+            "payment_method": MembershipSubscriptionPlan.PaymentMethod.ONLINE.value,
+        }
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 422
+
 
 class TestUpdateArchiveDeletePlan:
     def test_patch_plan(

@@ -748,6 +748,30 @@ def _set_tier_membership_restrictions(
     tier.full_clean()
 
 
+def check_online_payment_prerequisites(org: "Organization") -> None:
+    """Validate that an organization may sell anything online.
+
+    Shared by the ticket-tier gate below and the subscription-plan gate in
+    ``subscription_service``: both must keep the monthly platform-fee invoice
+    issuable, so neither may go online without Stripe Connect or (when platform
+    fees apply) complete billing info.
+
+    Args:
+        org: The owning organization.
+
+    Raises:
+        StripeNotConnectedError: If Stripe Connect is not enabled on the organization.
+        BillingInfoRequiredError: If platform fees are non-zero but billing info is incomplete.
+    """
+    if not org.is_stripe_connected:
+        raise StripeNotConnectedError
+
+    has_platform_fees = org.platform_fee_percent > 0 or org.platform_fee_fixed > 0
+    missing_billing = not org.vat_country_code or not org.billing_address or not org.billing_name
+    if has_platform_fees and missing_billing:
+        raise BillingInfoRequiredError
+
+
 def check_online_tier_prerequisites(org: "Organization", payment_method: TicketTier.PaymentMethod) -> None:
     """Validate prerequisites for creating/updating an online-payment ticket tier.
 
@@ -762,13 +786,7 @@ def check_online_tier_prerequisites(org: "Organization", payment_method: TicketT
     if payment_method != TicketTier.PaymentMethod.ONLINE:
         return
 
-    if not org.is_stripe_connected:
-        raise StripeNotConnectedError
-
-    has_platform_fees = org.platform_fee_percent > 0 or org.platform_fee_fixed > 0
-    missing_billing = not org.vat_country_code or not org.billing_address or not org.billing_name
-    if has_platform_fees and missing_billing:
-        raise BillingInfoRequiredError
+    check_online_payment_prerequisites(org)
 
 
 def _cancel_offline_ticket_core(

@@ -27,6 +27,7 @@ from events.models import (
     OrganizationMember,
 )
 from events.service.subscription_sales import ensure_plan_on_sale, ensure_plan_sales_capacity
+from events.service.ticket_service import check_online_payment_prerequisites
 from events.utils.subscription_periods import calculate_period_end
 
 logger = structlog.get_logger(__name__)
@@ -77,9 +78,19 @@ def _maybe_sync_plan_to_stripe(plan: MembershipSubscriptionPlan) -> MembershipSu
     No-op for OFFLINE plans. Stripe failures bubble up as ``HttpError`` so the
     controller can return a clean ``502``; the DB transaction rolls back along
     with the plan write so we don't leave a half-provisioned row.
+
+    Raises:
+        StripeNotConnectedError: If the organization has no Stripe Connect account.
+        BillingInfoRequiredError: If platform fees apply but billing info is incomplete.
     """
     if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         return plan
+    # ONLINE plans generate platform fees, so the org must be invoiceable — same
+    # gate ONLINE ticket tiers pass through. Runs before ``ensure_stripe_price``
+    # (whose own connectivity guard raises a generic 400) so callers get the
+    # typed exceptions and their actionable messages.
+    check_online_payment_prerequisites(plan.tier.organization)
+
     from events.service import subscription_stripe_service  # lazy: avoid cycle
 
     return subscription_stripe_service.ensure_stripe_price(plan)
