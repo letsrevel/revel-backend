@@ -1247,17 +1247,17 @@ msgstr ""
 "\"Zahl-was-du-kannst\"-Kategorien können nicht mit einem Serienpass "
 "verknüpft werden."
 
-msgid "Month"
-msgstr "Monat"
-
-msgid "Year"
-msgstr "Jahr"
-
 msgid "Online (Stripe)"
 msgstr "Online (Stripe)"
 
 msgid "Offline (staff-managed)"
 msgstr "Offline (Staff-verwaltet)"
+
+msgid "Month"
+msgstr "Monat"
+
+msgid "Year"
+msgstr "Jahr"
 
 msgid "Open"
 msgstr "Offen"
@@ -1799,7 +1799,9 @@ msgid "Your application is awaiting staff approval."
 msgstr "Dein Antrag wartet auf die Genehmigung durch den Staff."
 
 msgid "This tier requires a paid subscription. Subscribe to a plan to join."
-msgstr "Diese Stufe erfordert ein kostenpflichtiges Abonnement. Abonniere einen Plan, um beizutreten."
+msgstr ""
+"Diese Stufe erfordert ein kostenpflichtiges Abonnement. Abonniere einen "
+"Plan, um beizutreten."
 
 msgid "This plan is not configured for online checkout."
 msgstr "Dieser Plan ist nicht für den Online-Checkout konfiguriert."
@@ -2252,14 +2254,13 @@ msgid "You must connect to Stripe first."
 msgstr "Du musst dich zuerst mit Stripe verbinden."
 
 msgid ""
-"Billing information is required for online ticket sales with platform fees. "
+"Billing information is required for online payments with platform fees. "
 "Please set your billing name, country and billing address in your "
 "organization's billing settings."
 msgstr ""
-"Rechnungsinformationen sind für den Online-Ticketverkauf mit "
-"Plattformgebühren erforderlich. Bitte lege deinen Rechnungsnamen, dein Land "
-"und deine Rechnungsadresse in den Rechnungseinstellungen deiner Organisation "
-"fest."
+"Rechnungsinformationen sind für Online-Zahlungen mit Plattformgebühren "
+"erforderlich. Bitte lege deinen Rechnungsnamen, dein Land und deine "
+"Rechnungsadresse in den Rechnungseinstellungen deiner Organisation fest."
 
 msgid ""
 "This ticket is part of a series pass. Manage it through the series pass "

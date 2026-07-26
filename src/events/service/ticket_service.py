@@ -51,7 +51,7 @@ if t.TYPE_CHECKING:
 TICKET_ALREADY_CANCELLED_MESSAGE = _("Ticket already cancelled")
 STRIPE_NOT_CONNECTED_MESSAGE = _("You must connect to Stripe first.")
 BILLING_INFO_REQUIRED_MESSAGE = _(
-    "Billing information is required for online ticket sales with platform fees."
+    "Billing information is required for online payments with platform fees."
     " Please set your billing name, country and billing address"
     " in your organization's billing settings."
 )

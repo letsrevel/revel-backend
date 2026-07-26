@@ -1258,17 +1258,17 @@ msgstr ""
 "Les catégories de tickets à tarif libre ne peuvent pas être associées à un "
 "pass de série."
 
-msgid "Month"
-msgstr "Mois"
-
-msgid "Year"
-msgstr "Année"
-
 msgid "Online (Stripe)"
 msgstr "En ligne (Stripe)"
 
 msgid "Offline (staff-managed)"
 msgstr "Hors ligne (géré par le staff)"
+
+msgid "Month"
+msgstr "Mois"
+
+msgid "Year"
+msgstr "Année"
 
 msgid "Open"
 msgstr "Ouvert"
@@ -1811,7 +1811,9 @@ msgid "Your application is awaiting staff approval."
 msgstr "Ta demande est en attente d'approbation du staff."
 
 msgid "This tier requires a paid subscription. Subscribe to a plan to join."
-msgstr "Ce niveau nécessite un abonnement payant. Abonne-toi à un forfait pour rejoindre."
+msgstr ""
+"Ce niveau nécessite un abonnement payant. Abonne-toi à un forfait pour "
+"rejoindre."
 
 msgid "This plan is not configured for online checkout."
 msgstr "Ce forfait n'est pas configuré pour le paiement en ligne."
@@ -2259,13 +2261,13 @@ msgid "You must connect to Stripe first."
 msgstr "Tu dois d'abord te connecter à Stripe."
 
 msgid ""
-"Billing information is required for online ticket sales with platform fees. "
+"Billing information is required for online payments with platform fees. "
 "Please set your billing name, country and billing address in your "
 "organization's billing settings."
 msgstr ""
-"Les informations de facturation sont requises pour les ventes de tickets en "
-"ligne avec frais de plateforme. Configure ton nom, pays et adresse de "
-"facturation dans les paramètres de facturation de ton organisation."
+"Les informations de facturation sont requises pour les paiements en ligne "
+"avec frais de plateforme. Configure ton nom, pays et adresse de facturation "
+"dans les paramètres de facturation de ton organisation."
 
 msgid ""
 "This ticket is part of a series pass. Manage it through the series pass "

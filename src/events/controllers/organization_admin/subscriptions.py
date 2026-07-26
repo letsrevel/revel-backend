@@ -90,7 +90,16 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/tiers/{tier_id}/plans",
         url_name="create_subscription_plan",
-        response={201: schema.PlanSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
+        response={
+            201: schema.PlanSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            # ONLINE plans sync to Stripe on save, so they inherit the online-payment
+            # prerequisites: 400 when Stripe Connect is missing, 422 when platform
+            # fees apply but the organization's billing info is incomplete.
+            422: ResponseMessage,
+            502: ResponseMessage,
+        },
     )
     def create_plan(
         self,
@@ -107,7 +116,16 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.patch(
         "/plans/{plan_id}",
         url_name="update_subscription_plan",
-        response={200: schema.PlanSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
+        response={
+            200: schema.PlanSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            # Same online-payment prerequisites as create: patching a plan re-syncs
+            # it to Stripe, so a missing Stripe Connect answers 400 and incomplete
+            # billing info answers 422.
+            422: ResponseMessage,
+            502: ResponseMessage,
+        },
     )
     def update_plan(
         self,

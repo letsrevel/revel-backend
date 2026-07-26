@@ -1231,17 +1231,17 @@ msgstr ""
 "I livelli di biglietto a offerta libera non possono essere associati a un "
 "pass stagionale."
 
-msgid "Month"
-msgstr "Mese"
-
-msgid "Year"
-msgstr "Anno"
-
 msgid "Online (Stripe)"
 msgstr "Online (Stripe)"
 
 msgid "Offline (staff-managed)"
 msgstr "Offline (gestito dallo staff)"
+
+msgid "Month"
+msgstr "Mese"
+
+msgid "Year"
+msgstr "Anno"
 
 msgid "Open"
 msgstr "Aperto"
@@ -1775,7 +1775,9 @@ msgid "Your application is awaiting staff approval."
 msgstr "La tua richiesta è in attesa di approvazione dello staff."
 
 msgid "This tier requires a paid subscription. Subscribe to a plan to join."
-msgstr "Questo livello richiede un abbonamento a pagamento. Abbonati a un piano per aderire."
+msgstr ""
+"Questo livello richiede un abbonamento a pagamento. Abbonati a un piano per "
+"aderire."
 
 msgid "This plan is not configured for online checkout."
 msgstr "Questo piano non è configurato per il checkout online."
@@ -2219,14 +2221,14 @@ msgid "You must connect to Stripe first."
 msgstr "Devi prima connetterti a Stripe."
 
 msgid ""
-"Billing information is required for online ticket sales with platform fees. "
+"Billing information is required for online payments with platform fees. "
 "Please set your billing name, country and billing address in your "
 "organization's billing settings."
 msgstr ""
-"Le informazioni di fatturazione sono necessarie per la vendita di biglietti "
-"online con commissioni di piattaforma. Imposta il nome di fatturazione, il "
-"paese e l'indirizzo di fatturazione nelle impostazioni di fatturazione della "
-"tua organizzazione."
+"Le informazioni di fatturazione sono necessarie per i pagamenti online con "
+"commissioni di piattaforma. Imposta il nome di fatturazione, il paese e "
+"l'indirizzo di fatturazione nelle impostazioni di fatturazione della tua "
+"organizzazione."
 
 msgid ""
 "This ticket is part of a series pass. Manage it through the series pass "
