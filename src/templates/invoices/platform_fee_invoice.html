@@ -58,7 +58,7 @@
     </thead>
     <tbody>
       <tr>
-        <td>Platform fees for ticket sales &mdash; {{ period_label }}</td>
+        <td>Platform fees for ticket{% if total_subscription_payments %} &amp; membership{% endif %} sales &mdash; {{ period_label }}</td>
         <td>{{ total_tickets }}</td>
         <td>{{ fee_net|format_currency:currency }}</td>
       </tr>
@@ -103,6 +103,10 @@
       <div class="notes-text">
         Total ticket revenue: {{ total_ticket_revenue|format_currency:currency }}<br>
         Tickets sold: {{ total_tickets }}
+        {% if total_subscription_payments %}<br>
+        Membership subscription fees &mdash; {{ total_subscription_payments }} payment{{ total_subscription_payments|pluralize }}<br>
+        Total subscription revenue: {{ total_subscription_revenue|format_currency:currency }}
+        {% endif %}
       </div>
     </div>
   </div>
