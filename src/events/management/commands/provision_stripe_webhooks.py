@@ -29,6 +29,8 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 # delivers events you subscribe to.
 PLATFORM_EVENTS: tuple[str, ...] = (
     "checkout.session.completed",
+    # Abandoned membership checkouts: frees the PENDING row's cap slot.
+    "checkout.session.expired",
     "charge.refunded",
     "payment_intent.canceled",
     # Membership subscriptions live on connected accounts (direct charges,

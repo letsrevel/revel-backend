@@ -27,6 +27,16 @@ from .organization import MembershipTier, Organization
 _TERMINAL_STATUS_VALUES: tuple[str, ...] = ("cancelled", "expired")
 
 
+def _stripe_mode() -> str:
+    """Return "test" or "live", inferred from the configured secret key.
+
+    Mirrors ``events.models.ticket.Payment.stripe_mode`` — used to build
+    organizer-facing Stripe Dashboard URLs.
+    """
+    key: str = settings.STRIPE_SECRET_KEY
+    return "test" if key.startswith("sk_test_") else "live"
+
+
 class SubscriptionPaymentMethod(models.TextChoices):
     """Payment method for a subscription plan.
 
@@ -46,16 +56,25 @@ class MembershipSubscriptionPlanQuerySet(models.QuerySet["MembershipSubscription
     """QuerySet exposing the plan-list annotation helper."""
 
     def with_active_subscription_count(self) -> "MembershipSubscriptionPlanQuerySet":
-        """Annotate each plan with its count of non-terminal subscriptions.
+        """Annotate each plan with its count of occupied/reserved cap slots.
 
         Read by ``PlanSchema.resolve_active_subscription_count`` and
         ``PublicPlanSchema.resolve_sold_out`` — annotating in the queryset
-        avoids one COUNT query per serialized row (N+1).
+        avoids one COUNT query per serialized row (N+1). Counts non-terminal
+        subscriptions on the plan PLUS non-terminal subscriptions scheduled to
+        downgrade into it (``pending_plan``) — see
+        :meth:`MembershipSubscriptionPlan.occupied_slot_count`.
         """
         return self.annotate(
             active_subscription_count=models.Count(
                 "subscriptions",
                 filter=~models.Q(subscriptions__status__in=_TERMINAL_STATUS_VALUES),
+                distinct=True,
+            )
+            + models.Count(
+                "pending_subscriptions",
+                filter=~models.Q(pending_subscriptions__status__in=_TERMINAL_STATUS_VALUES),
+                distinct=True,
             )
         )
 
@@ -159,6 +178,24 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         """Convenience proxy for permission / scoping helpers."""
         return self.tier.organization_id
 
+    def occupied_slot_count(self) -> int:
+        """Count subscriptions occupying (or reserving) one of this plan's cap slots.
+
+        A slot is held by every non-terminal subscription on the plan, plus
+        every non-terminal subscription scheduled to downgrade INTO it
+        (``pending_plan``): the Stripe schedule rollover re-points ``plan``
+        with no capacity re-check, so the slot must be reserved at scheduling
+        time or the swap could push the plan over its hard cap. Cancelling the
+        subscription (or the pending change) clears ``pending_plan`` and frees
+        the reservation. Single source of truth for
+        ``ensure_plan_sales_capacity`` and the schema resolvers' fallbacks.
+        """
+        return (
+            MembershipSubscription.objects.filter(models.Q(plan=self) | models.Q(pending_plan=self))
+            .exclude(status__in=_TERMINAL_STATUS_VALUES)
+            .count()
+        )
+
 
 class MembershipSubscription(TimeStampedModel):
     """A user's subscription to a :class:`MembershipSubscriptionPlan`.
@@ -261,6 +298,17 @@ class MembershipSubscription(TimeStampedModel):
         """True if the subscription is in a terminal state."""
         return self.status in self.TERMINAL_STATUSES
 
+    def stripe_dashboard_url(self) -> str | None:
+        """Stripe Dashboard URL for the linked Subscription (None when unlinked/OFFLINE).
+
+        Like the ticket ``Payment`` helper, the URL carries no connected-account
+        segment: memberships are direct charges on the org's own Stripe account,
+        so the organizer opening it is already in the right dashboard.
+        """
+        if not self.stripe_subscription_id:
+            return None
+        return f"https://dashboard.stripe.com/{_stripe_mode()}/subscriptions/{self.stripe_subscription_id}"
+
 
 class MembershipPayment(TimeStampedModel):
     """A single payment recorded against a :class:`MembershipSubscription`.
@@ -356,6 +404,14 @@ class MembershipPayment(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"Payment {self.id} for sub {self.subscription_id} ({self.status})"
+
+    def stripe_dashboard_url(self) -> str | None:
+        """Stripe Dashboard URL for this payment (None for OFFLINE/manual rows)."""
+        if self.stripe_payment_intent_id:
+            return f"https://dashboard.stripe.com/{_stripe_mode()}/payments/{self.stripe_payment_intent_id}"
+        if self.stripe_invoice_id:
+            return f"https://dashboard.stripe.com/{_stripe_mode()}/invoices/{self.stripe_invoice_id}"
+        return None
 
 
 class CustomerProfile(TimeStampedModel):

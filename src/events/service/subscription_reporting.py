@@ -39,14 +39,6 @@ class SubscriptionMetrics(t.TypedDict):
     status_breakdown: StatusBreakdown
 
 
-_NON_TERMINAL_STATUSES: list[str] = [
-    MembershipSubscription.SubscriptionStatus.PENDING,
-    MembershipSubscription.SubscriptionStatus.ACTIVE,
-    MembershipSubscription.SubscriptionStatus.PAUSED,
-    MembershipSubscription.SubscriptionStatus.PAST_DUE,
-]
-
-
 def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
     """Compute subscription metrics for an organization.
 
@@ -123,11 +115,18 @@ def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
         mrr_currency = ""
         mrr = Decimal("0")
 
-    new_subscribers_30d = MembershipSubscription.objects.filter(
-        organization=organization,
-        created_at__gte=cutoff,
-        status__in=_NON_TERMINAL_STATUSES,
-    ).count()
+    # Acquisition is anchored on created_at, not current status: a subscriber
+    # who signed up and already churned within the window still counts (churn
+    # is tracked separately below). Only never-started rows are excluded —
+    # PENDING (mid-checkout, possibly abandoned) has not acquired anyone yet.
+    new_subscribers_30d = (
+        MembershipSubscription.objects.filter(
+            organization=organization,
+            created_at__gte=cutoff,
+        )
+        .exclude(status=statuses.PENDING)
+        .count()
+    )
 
     churned_30d = (
         MembershipSubscription.objects.filter(

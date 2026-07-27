@@ -21,7 +21,12 @@ from .ticket import Currencies
 
 
 class PlanSchema(ModelSchema):
-    """Response schema for a subscription plan (staff-facing)."""
+    """Response schema for a subscription plan (staff-facing).
+
+    Exposes the plan's Stripe Product/Price ids so organizers can locate the
+    objects backing an ONLINE plan in their Stripe Dashboard (both are empty
+    strings for OFFLINE plans).
+    """
 
     tier_id: UUID
     tier_name: str
@@ -41,21 +46,24 @@ class PlanSchema(ModelSchema):
             "period_count",
             "is_active",
             "max_subscriptions",
+            "stripe_product_id",
+            "stripe_price_id",
         ]
 
     @staticmethod
     def resolve_active_subscription_count(obj: MembershipSubscriptionPlan) -> int:
-        """Non-terminal subscriptions currently occupying cap slots.
+        """Non-terminal subscriptions currently occupying (or reserving) cap slots.
 
         Reads the ``active_subscription_count`` annotation when present (set by
         ``MembershipSubscriptionPlan.objects.with_active_subscription_count()``
-        on list querysets — avoids one COUNT per row). Falls back to a direct
-        COUNT for single-object callers that haven't annotated.
+        on list querysets — avoids one COUNT per row). Falls back to
+        ``occupied_slot_count()`` for single-object callers that haven't
+        annotated.
         """
         annotated = getattr(obj, "active_subscription_count", None)
         if annotated is not None:
             return int(annotated)
-        return obj.subscriptions.exclude(status__in=MembershipSubscription.TERMINAL_STATUSES).count()
+        return obj.occupied_slot_count()
 
     @staticmethod
     def resolve_tier_name(obj: MembershipSubscriptionPlan) -> str:
@@ -101,7 +109,7 @@ class PublicPlanSchema(ModelSchema):
             return False
         taken = getattr(obj, "active_subscription_count", None)
         if taken is None:
-            taken = obj.subscriptions.exclude(status__in=MembershipSubscription.TERMINAL_STATUSES).count()
+            taken = obj.occupied_slot_count()
         return int(taken) >= obj.max_subscriptions
 
     @staticmethod
@@ -222,7 +230,11 @@ class RefundSchema(Schema):
 
 
 class PaymentSchema(ModelSchema):
-    """Response schema for a membership payment."""
+    """Response schema for a membership payment (staff-facing).
+
+    ``stripe_dashboard_url`` mirrors the ticket admin surface: a clickable
+    "manage on Stripe" link for ONLINE payments (``None`` for OFFLINE ones).
+    """
 
     subscription_id: UUID
     status: MembershipPayment.PaymentStatus
@@ -231,6 +243,7 @@ class PaymentSchema(ModelSchema):
     occurred_at: AwareDatetime | None = None
     recorded_by_id: UUID | None = None
     recorded_by_name: str | None = None
+    stripe_dashboard_url: str | None = None
 
     class Meta:
         model = MembershipPayment
@@ -240,7 +253,14 @@ class PaymentSchema(ModelSchema):
             "currency",
             "notes",
             "created_at",
+            "stripe_invoice_id",
+            "stripe_payment_intent_id",
         ]
+
+    @staticmethod
+    def resolve_stripe_dashboard_url(obj: MembershipPayment) -> str | None:
+        """Stripe Dashboard link for this payment (None for OFFLINE/manual rows)."""
+        return obj.stripe_dashboard_url()
 
     @staticmethod
     def resolve_recorded_by_id(obj: MembershipPayment) -> UUID | None:
@@ -379,12 +399,25 @@ class MyMembershipSchema(Schema):
 
 
 class SubscriptionSchema(_BaseSubscriptionSchema):
-    """Admin-facing view: includes the member's user id + display name."""
+    """Admin-facing view: includes the member's user id + display name.
+
+    Also exposes the Stripe handles (subscription/schedule ids and a
+    Dashboard link) so organizers can manage ONLINE subscriptions on Stripe —
+    parity with the ticket admin surface.
+    """
 
     user_id: UUID
     user_display_name: str
     user_email: str
     plan: PlanSchema
+    stripe_subscription_id: str | None = None
+    stripe_schedule_id: str = ""
+    stripe_dashboard_url: str | None = None
+
+    @staticmethod
+    def resolve_stripe_dashboard_url(obj: MembershipSubscription) -> str | None:
+        """Stripe Dashboard link for the linked Subscription (None when unlinked/OFFLINE)."""
+        return obj.stripe_dashboard_url()
 
     @staticmethod
     def resolve_user_display_name(obj: MembershipSubscription) -> str:

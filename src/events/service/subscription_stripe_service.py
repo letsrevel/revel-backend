@@ -650,6 +650,11 @@ def cancel_online_subscription(
                 subscription_id=str(subscription.pk),
                 stripe_subscription_id=subscription.stripe_subscription_id,
             )
+        except stripe.error.StripeError as exc:
+            # Transient failure (network, rate limit): surface the module's
+            # normal retryable 502 instead of a bare 500, and leave local
+            # state untouched so a retry starts clean.
+            raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
         subscription.status = MembershipSubscription.SubscriptionStatus.CANCELLED
         subscription.cancelled_at = timezone.now()
         subscription.cancel_at_period_end = False
@@ -670,6 +675,10 @@ def cancel_online_subscription(
                 subscription_id=str(subscription.pk),
                 stripe_subscription_id=subscription.stripe_subscription_id,
             )
+        except stripe.error.StripeError as exc:
+            # Same retryable-502 treatment as the immediate branch: without it
+            # the local flag would record an intent Stripe never accepted.
+            raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
         subscription.cancel_at_period_end = True
         subscription.save(update_fields=["cancel_at_period_end", "updated_at"])
     return subscription

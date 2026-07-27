@@ -637,6 +637,34 @@ class TestCancelOnlineSubscription:
 
         assert result.cancel_at_period_end is True
 
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
+    def test_immediate_cancellation_wraps_transient_stripe_error(
+        self, mock_cancel: mock.Mock, online_subscription: MembershipSubscription
+    ) -> None:
+        """Transient Stripe failures surface as the module's retryable 502, leaving state untouched."""
+        mock_cancel.side_effect = stripe.error.APIConnectionError("connection reset")
+
+        with pytest.raises(HttpError) as exc:
+            subscription_stripe_service.cancel_online_subscription(online_subscription, immediate=True)
+
+        assert exc.value.status_code == 502
+        online_subscription.refresh_from_db()
+        assert online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    def test_period_end_cancellation_wraps_transient_stripe_error(
+        self, mock_modify: mock.Mock, online_subscription: MembershipSubscription
+    ) -> None:
+        """The scheduled branch must not record a cancel intent Stripe never accepted."""
+        mock_modify.side_effect = stripe.error.APIConnectionError("connection reset")
+
+        with pytest.raises(HttpError) as exc:
+            subscription_stripe_service.cancel_online_subscription(online_subscription, immediate=False)
+
+        assert exc.value.status_code == 502
+        online_subscription.refresh_from_db()
+        assert online_subscription.cancel_at_period_end is False
+
 
 # ---- sync_subscription_from_stripe ------------------------------------------
 

@@ -8,7 +8,7 @@ from celery import shared_task
 from django.db import models, transaction
 from django.utils import timezone
 
-from events.models import MembershipSubscription, MembershipSubscriptionPlan
+from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 
 if t.TYPE_CHECKING:
     from events.service.subscription_service import MigrationResult
@@ -266,6 +266,8 @@ class SubscriptionReconcileCounters(t.TypedDict):
     checked: int
     missing: int
     errors: int
+    stale_pending_cleared: int
+    ledger_backfilled: int
 
 
 @shared_task(name="events.reconcile_stripe_subscriptions")
@@ -288,14 +290,62 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
     the divergence). The Stripe retrieve happens OUTSIDE the per-row
     transaction; only the sync holds the row lock (see #458 for why no
     ``.iterator()`` + per-row commits).
+
+    Two additional repairs ride along:
+
+    - **Stale-PENDING sweep**: an abandoned ONLINE checkout leaves a PENDING
+      row (no ``stripe_subscription_id``) that holds a ``max_subscriptions``
+      cap slot. The ``checkout.session.expired`` webhook normally clears it;
+      this sweep backstops a dropped delivery, clearing rows untouched for a
+      day (sessions expire within ``PAYMENT_DEFAULT_EXPIRY_MINUTES``).
+    - **Ledger backfill**: mirroring status/period repairs *access* but not
+      the payment ledger. When the retrieved subscription's latest invoice is
+      paid and unknown locally (its ``invoice.paid`` was dropped beyond
+      Stripe's retry window), record it — revenue and the platform-fee/VAT
+      decomposition feed fee invoicing and referral payouts. Known invoice
+      ids are skipped so a REFUNDED ledger row is never resurrected.
     """
     import stripe as stripe_sdk
 
     from events.service import subscription_stripe_sync
     from events.service.subscription_stripe_payloads import _stripe_account_kwargs
+    from events.service.subscription_stripe_service import _clear_stale_pending_checkout
 
     now = timezone.now()
-    counters: SubscriptionReconcileCounters = {"checked": 0, "missing": 0, "errors": 0}
+    counters: SubscriptionReconcileCounters = {
+        "checked": 0,
+        "missing": 0,
+        "errors": 0,
+        "stale_pending_cleared": 0,
+        "ledger_backfilled": 0,
+    }
+
+    stale_pending_ids = list(
+        MembershipSubscription.objects.filter(
+            plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            updated_at__lt=now - datetime.timedelta(days=1),
+        )
+        .filter(models.Q(stripe_subscription_id="") | models.Q(stripe_subscription_id__isnull=True))
+        .values_list("id", flat=True)
+    )
+    for sub_id in stale_pending_ids:
+        with transaction.atomic():
+            sub = (
+                MembershipSubscription.objects.select_for_update()
+                .filter(
+                    pk=sub_id,
+                    status=MembershipSubscription.SubscriptionStatus.PENDING,
+                )
+                .first()
+            )
+            # Re-check inside the lock: a resumed checkout or a racing
+            # ``checkout.session.completed`` may have progressed the row.
+            if sub is None or sub.stripe_subscription_id:
+                continue
+            _clear_stale_pending_checkout(sub)
+            counters["stale_pending_cleared"] += 1
+            logger.info("subscription_reconcile_stale_pending_cleared", subscription_id=str(sub_id))
 
     candidate_ids = list(
         MembershipSubscription.objects.filter(
@@ -320,6 +370,7 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
         try:
             stripe_sub = stripe_sdk.Subscription.retrieve(
                 sub.stripe_subscription_id,
+                expand=["latest_invoice"],
                 **_stripe_account_kwargs(sub.organization),
             )
         except stripe_sdk.error.InvalidRequestError:
@@ -344,6 +395,25 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
         with transaction.atomic():
             subscription_stripe_sync.sync_subscription_from_stripe(dict(stripe_sub))
         counters["checked"] += 1
+
+        # Ledger backfill: a paid invoice we have no row for means its
+        # ``invoice.paid`` was lost for good (redelivery exhausted). The
+        # existence check keeps this a strict backfill — an already-known
+        # invoice (SUCCEEDED or REFUNDED) is never touched.
+        latest_invoice = stripe_sub.get("latest_invoice")
+        if (
+            isinstance(latest_invoice, dict)
+            and latest_invoice.get("id")
+            and latest_invoice.get("status") == "paid"
+            and not MembershipPayment.objects.filter(stripe_invoice_id=latest_invoice["id"]).exists()
+        ):
+            subscription_stripe_sync.record_stripe_payment_from_invoice(dict(latest_invoice), succeeded=True)
+            counters["ledger_backfilled"] += 1
+            logger.info(
+                "subscription_reconcile_ledger_backfilled",
+                subscription_id=str(sub_id),
+                stripe_invoice_id=latest_invoice["id"],
+            )
 
     logger.info("reconcile_stripe_subscriptions_done", **counters)
     return counters

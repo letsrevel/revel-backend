@@ -853,6 +853,92 @@ class TestOnlinePlanGuards:
         online_subscription.refresh_from_db()
         assert online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
+    def test_admin_surface_exposes_stripe_handles(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        online_subscription: MembershipSubscription,
+    ) -> None:
+        """Organizers get the Stripe ids + a Dashboard link (parity with the ticket admin)."""
+        payment = MembershipPayment.objects.create(
+            subscription=online_subscription,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now(),
+            period_end=timezone.now() + datetime.timedelta(days=30),
+            stripe_invoice_id="in_surface",
+            stripe_payment_intent_id="pi_surface",
+        )
+
+        sub_url = reverse(
+            "api:get_subscription",
+            kwargs={"slug": organization.slug, "sub_id": online_subscription.id},
+        )
+        sub_data = organization_owner_client.get(sub_url).json()
+        assert sub_data["stripe_subscription_id"] == "sub_stripe_admin"
+        assert sub_data["stripe_dashboard_url"].endswith("/subscriptions/sub_stripe_admin")
+        assert sub_data["plan"]["stripe_product_id"] == "prod_test"
+        assert sub_data["plan"]["stripe_price_id"] == "price_test"
+
+        payments_url = reverse(
+            "api:list_subscription_payments",
+            kwargs={"slug": organization.slug, "sub_id": online_subscription.id},
+        )
+        row = organization_owner_client.get(payments_url).json()["results"][0]
+        assert row["id"] == str(payment.id)
+        assert row["stripe_invoice_id"] == "in_surface"
+        assert row["stripe_payment_intent_id"] == "pi_surface"
+        assert row["stripe_dashboard_url"].endswith("/payments/pi_surface")
+
+    def test_offline_payment_has_no_dashboard_url(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        subscription_service.record_payment(
+            sub, amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
+        )
+        url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        row = organization_owner_client.get(url).json()["results"][0]
+        assert row["stripe_dashboard_url"] is None
+        assert row["stripe_invoice_id"] == ""
+        assert row["stripe_payment_intent_id"] == ""
+
+    def test_refund_payment_refuses_online_payment(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        online_subscription: MembershipSubscription,
+    ) -> None:
+        """The record-only refund endpoint never moves money — ONLINE refunds go through Stripe."""
+        payment = MembershipPayment.objects.create(
+            subscription=online_subscription,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now(),
+            period_end=timezone.now() + datetime.timedelta(days=30),
+            stripe_invoice_id="in_guard",
+            stripe_payment_intent_id="pi_guard",
+        )
+        url = reverse(
+            "api:refund_subscription_payment",
+            kwargs={"slug": organization.slug, "payment_id": payment.id},
+        )
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"notes": "should be refused"}), content_type="application/json"
+        )
+        assert response.status_code == 400
+        payment.refresh_from_db()
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        online_subscription.refresh_from_db()
+        assert online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
 
 class TestCrossOrgIsolation:
     def test_cannot_act_on_other_org_plan(

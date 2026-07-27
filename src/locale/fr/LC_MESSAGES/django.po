@@ -1000,6 +1000,13 @@ msgstr ""
 "Les paiements des abonnements ONLINE sont enregistrés automatiquement via "
 "les webhooks Stripe."
 
+msgid ""
+"ONLINE payments must be refunded from the Stripe Dashboard; the refund is "
+"recorded here automatically."
+msgstr ""
+"Les paiements ONLINE doivent être remboursés depuis le tableau de bord "
+"Stripe ; le remboursement est enregistré ici automatiquement."
+
 msgid "Invoice PDF not yet generated."
 msgstr "Le PDF de la facture n'est pas encore généré."
 

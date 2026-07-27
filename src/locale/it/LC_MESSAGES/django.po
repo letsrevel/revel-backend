@@ -976,6 +976,13 @@ msgstr ""
 "I pagamenti degli abbonamenti ONLINE vengono registrati automaticamente "
 "tramite i webhook di Stripe."
 
+msgid ""
+"ONLINE payments must be refunded from the Stripe Dashboard; the refund is "
+"recorded here automatically."
+msgstr ""
+"I pagamenti ONLINE devono essere rimborsati dalla dashboard di Stripe; il "
+"rimborso viene registrato qui automaticamente."
+
 msgid "Invoice PDF not yet generated."
 msgstr "Il PDF della fattura non è ancora stato generato."
 

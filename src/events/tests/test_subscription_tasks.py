@@ -535,7 +535,13 @@ class TestReconcileStripeSubscriptions:
         ):
             counters = reconcile_stripe_subscriptions()
 
-        assert counters == {"checked": 1, "missing": 0, "errors": 0}
+        assert counters == {
+            "checked": 1,
+            "missing": 0,
+            "errors": 0,
+            "stale_pending_cleared": 0,
+            "ledger_backfilled": 0,
+        }
         sub.refresh_from_db()
         assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
         assert sub.current_period_end is not None
@@ -559,7 +565,13 @@ class TestReconcileStripeSubscriptions:
         ):
             counters = reconcile_stripe_subscriptions()
 
-        assert counters == {"checked": 0, "missing": 1, "errors": 0}
+        assert counters == {
+            "checked": 0,
+            "missing": 1,
+            "errors": 0,
+            "stale_pending_cleared": 0,
+            "ledger_backfilled": 0,
+        }
 
     def test_old_terminal_rows_are_skipped(
         self,
@@ -580,4 +592,187 @@ class TestReconcileStripeSubscriptions:
             counters = reconcile_stripe_subscriptions()
 
         retrieve_mock.assert_not_called()
-        assert counters == {"checked": 0, "missing": 0, "errors": 0}
+        assert counters == {
+            "checked": 0,
+            "missing": 0,
+            "errors": 0,
+            "stale_pending_cleared": 0,
+            "ledger_backfilled": 0,
+        }
+
+    def test_stale_pending_checkout_is_cleared(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """An abandoned ONLINE checkout row (day-old, no Stripe sub) frees its cap slot."""
+        from unittest.mock import patch
+
+        from events.tasks.subscriptions import reconcile_stripe_subscriptions
+
+        sub = self._make_online_sub(
+            tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.PENDING, stripe_id=""
+        )
+        MembershipSubscription.objects.filter(pk=sub.pk).update(
+            stripe_checkout_session_id="cs_stale",
+            updated_at=timezone.now() - datetime.timedelta(days=2),
+        )
+        with patch("stripe.Subscription.retrieve") as retrieve_mock:
+            counters = reconcile_stripe_subscriptions()
+
+        retrieve_mock.assert_not_called()
+        assert counters["stale_pending_cleared"] == 1
+        assert not MembershipSubscription.objects.filter(pk=sub.pk).exists()
+
+    def test_stale_pending_revival_row_reverts_to_expired(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """A stale revival checkout keeps its ledger: reverted to EXPIRED, not deleted."""
+        from unittest.mock import patch
+
+        from events.models import MembershipPayment
+        from events.tasks.subscriptions import reconcile_stripe_subscriptions
+
+        sub = self._make_online_sub(
+            tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.PENDING, stripe_id=""
+        )
+        now = timezone.now()
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            period_start=now - datetime.timedelta(days=60),
+            period_end=now - datetime.timedelta(days=30),
+        )
+        MembershipSubscription.objects.filter(pk=sub.pk).update(
+            stripe_checkout_session_id="cs_stale_revival",
+            expired_at=now - datetime.timedelta(days=10),
+            updated_at=now - datetime.timedelta(days=2),
+        )
+        with patch("stripe.Subscription.retrieve"):
+            counters = reconcile_stripe_subscriptions()
+
+        assert counters["stale_pending_cleared"] == 1
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert sub.stripe_checkout_session_id == ""
+        assert sub.expired_at is not None  # revival window preserved
+
+    def test_recent_pending_checkout_is_left_alone(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """A live checkout (row touched within a day) is not swept."""
+        from unittest.mock import patch
+
+        from events.tasks.subscriptions import reconcile_stripe_subscriptions
+
+        sub = self._make_online_sub(
+            tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.PENDING, stripe_id=""
+        )
+        MembershipSubscription.objects.filter(pk=sub.pk).update(stripe_checkout_session_id="cs_live")
+        with patch("stripe.Subscription.retrieve"):
+            counters = reconcile_stripe_subscriptions()
+
+        assert counters["stale_pending_cleared"] == 0
+        assert MembershipSubscription.objects.filter(pk=sub.pk).exists()
+
+    def test_ledger_backfill_records_missed_paid_invoice(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """A paid latest_invoice unknown locally is recorded (dropped invoice.paid)."""
+        from unittest.mock import patch
+
+        from events.models import MembershipPayment
+        from events.tasks.subscriptions import reconcile_stripe_subscriptions
+
+        sub = self._make_online_sub(
+            tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.ACTIVE
+        )
+        period_start = 1_800_000_000
+        period_end = period_start + 30 * 86400
+        stripe_payload = {
+            "id": "sub_reconcile",
+            "status": "active",
+            "cancel_at_period_end": False,
+            "items": {
+                "data": [
+                    {
+                        "current_period_start": period_start,
+                        "current_period_end": period_end,
+                        "price": {"id": "price_c4"},
+                    }
+                ]
+            },
+            "latest_invoice": {
+                "id": "in_backfilled",
+                "status": "paid",
+                "subscription": "sub_reconcile",
+                "payment_intent": "pi_backfilled",
+                "currency": "eur",
+                "amount_paid": 1000,
+                "lines": {"data": [{"period": {"start": period_start, "end": period_end}}]},
+            },
+        }
+        with patch("stripe.Subscription.retrieve", return_value=stripe_payload):
+            counters = reconcile_stripe_subscriptions()
+
+        assert counters["ledger_backfilled"] == 1
+        payment = MembershipPayment.objects.get(stripe_invoice_id="in_backfilled")
+        assert payment.subscription_id == sub.pk
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        assert payment.amount == Decimal("10.00")
+
+    def test_ledger_backfill_never_touches_known_invoices(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """A known invoice id (e.g. an already-REFUNDED row) is never resurrected."""
+        from unittest.mock import patch
+
+        from events.models import MembershipPayment
+        from events.tasks.subscriptions import reconcile_stripe_subscriptions
+
+        sub = self._make_online_sub(
+            tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.ACTIVE
+        )
+        now = timezone.now()
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.REFUNDED,
+            stripe_invoice_id="in_known",
+            period_start=now - datetime.timedelta(days=30),
+            period_end=now,
+        )
+        stripe_payload = {
+            "id": "sub_reconcile",
+            "status": "active",
+            "cancel_at_period_end": False,
+            "items": {"data": [{"price": {"id": "price_c4"}}]},
+            "latest_invoice": {
+                "id": "in_known",
+                "status": "paid",
+                "subscription": "sub_reconcile",
+                "currency": "eur",
+                "amount_paid": 1000,
+            },
+        }
+        with patch("stripe.Subscription.retrieve", return_value=stripe_payload):
+            counters = reconcile_stripe_subscriptions()
+
+        assert counters["ledger_backfilled"] == 0
+        payment = MembershipPayment.objects.get(stripe_invoice_id="in_known")
+        assert payment.status == MembershipPayment.PaymentStatus.REFUNDED

@@ -25,9 +25,9 @@ from events.service.stripe_webhooks import StripeEventHandler
 pytestmark = pytest.mark.django_db
 
 
-def _session_event(session: dict[str, t.Any]) -> MagicMock:
-    """Build a mock checkout.session.completed event around ``session``."""
-    event_data = {"id": "evt_sub_checkout", "type": "checkout.session.completed", "data": {"object": session}}
+def _session_event(session: dict[str, t.Any], *, event_type: str = "checkout.session.completed") -> MagicMock:
+    """Build a mock checkout.session.* event around ``session``."""
+    event_data = {"id": "evt_sub_checkout", "type": event_type, "data": {"object": session}}
     mock_event = MagicMock(spec=stripe.Event)
     mock_event.__iter__.return_value = iter(event_data.items())
     mock_event.type = event_data["type"]
@@ -283,3 +283,71 @@ class TestSubscriptionCheckoutCompleted:
 
         pending_subscription.refresh_from_db()
         assert pending_subscription.stripe_subscription_id == "sub_meta_routed"
+
+
+class TestSubscriptionCheckoutExpired:
+    """``checkout.session.expired`` frees the cap slot an abandoned checkout holds."""
+
+    def _expired_event(self, session: dict[str, t.Any]) -> MagicMock:
+        return _session_event(session, event_type="checkout.session.expired")
+
+    def test_clears_abandoned_pending_row(self, pending_subscription: MembershipSubscription) -> None:
+        session = {
+            "id": "cs_sub_test",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+        handler = StripeEventHandler(self._expired_event(session))
+
+        assert handler.handle() is True
+        assert not MembershipSubscription.objects.filter(pk=pending_subscription.pk).exists()
+
+    def test_revival_row_reverts_to_expired(self, pending_subscription: MembershipSubscription) -> None:
+        """A row with ledger history is reverted to EXPIRED, keeping the revival window."""
+        from events.models import MembershipPayment
+
+        now = timezone.now()
+        MembershipPayment.objects.create(
+            subscription=pending_subscription,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            period_start=now,
+            period_end=now,
+        )
+        session = {
+            "id": "cs_sub_test",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+        StripeEventHandler(self._expired_event(session)).handle()
+
+        pending_subscription.refresh_from_db()
+        assert pending_subscription.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert pending_subscription.stripe_checkout_session_id == ""
+
+    def test_completed_row_is_left_alone(self, pending_subscription: MembershipSubscription) -> None:
+        """Out-of-order delivery: a linked row means the session completed — never clear it."""
+        pending_subscription.stripe_subscription_id = "sub_linked"
+        pending_subscription.save(update_fields=["stripe_subscription_id", "updated_at"])
+        session = {
+            "id": "cs_sub_test",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+        StripeEventHandler(self._expired_event(session)).handle()
+
+        pending_subscription.refresh_from_db()
+        assert pending_subscription.status == MembershipSubscription.SubscriptionStatus.PENDING
+
+    def test_superseded_session_is_ignored(self, pending_subscription: MembershipSubscription) -> None:
+        """An expiry for an OLD session must not clear a row already on a newer one."""
+        session = {
+            "id": "cs_older_session",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+        StripeEventHandler(self._expired_event(session)).handle()
+
+        assert MembershipSubscription.objects.filter(pk=pending_subscription.pk).exists()
+
+    def test_sessions_without_metadata_are_ignored(self, pending_subscription: MembershipSubscription) -> None:
+        """Ticket checkouts / org-run sessions carry no membership metadata."""
+        StripeEventHandler(self._expired_event({"id": "cs_ticket", "metadata": {}})).handle()
+
+        assert MembershipSubscription.objects.filter(pk=pending_subscription.pk).exists()

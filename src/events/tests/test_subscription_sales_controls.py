@@ -284,3 +284,78 @@ class TestPublicPlanAvailability:
             status=MembershipSubscription.SubscriptionStatus.CANCELLED
         )
         assert PublicPlanSchema.resolve_sold_out(capped_plan) is False
+
+
+class TestPendingPlanReservation:
+    """A scheduled downgrade reserves its target-plan slot at scheduling time.
+
+    The Stripe schedule rollover re-points ``plan`` with no capacity re-check
+    (``_apply_stripe_price_swap``), so the cap must count ``pending_plan``
+    reservations or the swap could push the plan over its hard limit.
+    """
+
+    def _reserving_sub(
+        self,
+        tier: MembershipTier,
+        capped_plan: MembershipSubscriptionPlan,
+        user: RevelUser,
+    ) -> MembershipSubscription:
+        source = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly downgrader source",
+            price=Decimal("20"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
+        )
+        return MembershipSubscription.objects.create(
+            user=user,
+            plan=source,
+            organization=tier.organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            pending_plan=capped_plan,
+        )
+
+    def test_pending_plan_reserves_a_cap_slot(
+        self,
+        tier: MembershipTier,
+        capped_plan: MembershipSubscriptionPlan,
+        django_user_model: t.Type[RevelUser],
+    ) -> None:
+        self._reserving_sub(tier, capped_plan, _user(1, django_user_model))
+        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
+
+        with pytest.raises(HttpError) as exc:
+            subscription_service.create_subscription(capped_plan, _user(3, django_user_model))
+        assert exc.value.status_code == 400
+        assert "sold out" in str(exc.value.message).lower()
+
+    def test_cleared_pending_plan_frees_the_reservation(
+        self,
+        tier: MembershipTier,
+        capped_plan: MembershipSubscriptionPlan,
+        django_user_model: t.Type[RevelUser],
+    ) -> None:
+        reserving = self._reserving_sub(tier, capped_plan, _user(1, django_user_model))
+        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
+
+        reserving.pending_plan = None
+        reserving.save(update_fields=["pending_plan"])
+
+        sub = subscription_service.create_subscription(capped_plan, _user(3, django_user_model))
+        assert sub.pk is not None
+
+    def test_annotation_and_resolvers_count_reservations(
+        self,
+        tier: MembershipTier,
+        capped_plan: MembershipSubscriptionPlan,
+        django_user_model: t.Type[RevelUser],
+    ) -> None:
+        self._reserving_sub(tier, capped_plan, _user(1, django_user_model))
+        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
+
+        annotated = MembershipSubscriptionPlan.objects.with_active_subscription_count().get(pk=capped_plan.pk)
+        assert getattr(annotated, "active_subscription_count", None) == 2
+        assert capped_plan.occupied_slot_count() == 2
+        assert PublicPlanSchema.resolve_sold_out(capped_plan) is True
+        assert PublicPlanSchema.resolve_sold_out(annotated) is True

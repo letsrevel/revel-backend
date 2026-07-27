@@ -987,6 +987,13 @@ msgstr ""
 "Zahlungen für ONLINE-Abonnements werden automatisch über Stripe-Webhooks "
 "erfasst."
 
+msgid ""
+"ONLINE payments must be refunded from the Stripe Dashboard; the refund is "
+"recorded here automatically."
+msgstr ""
+"ONLINE-Zahlungen müssen über das Stripe-Dashboard erstattet werden; die "
+"Erstattung wird hier automatisch erfasst."
+
 msgid "Invoice PDF not yet generated."
 msgstr "Das Rechnungs-PDF wurde noch nicht erstellt."
 

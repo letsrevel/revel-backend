@@ -476,7 +476,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/payments/{payment_id}/refund",
         url_name="refund_subscription_payment",
-        response={200: schema.MembershipPaymentSchema, 404: ResponseMessage},
+        response={200: schema.MembershipPaymentSchema, 400: ResponseMessage, 404: ResponseMessage},
     )
     def refund_payment(
         self,
@@ -484,11 +484,28 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         payment_id: UUID,
         payload: schema.RefundSchema,
     ) -> models.MembershipPayment:
-        """Mark a recorded payment as refunded (record-only in MVP)."""
+        """Mark a recorded payment as refunded (record-only in MVP).
+
+        ONLINE (Stripe) payments are refused: this endpoint never moves money,
+        so accepting one would flip the ledger to REFUNDED (and auto-cancel the
+        subscription) while the member's charge stays captured on Stripe.
+        Refund those from the Stripe Dashboard — the ``charge.refunded``
+        webhook records the refund here automatically.
+        """
         organization = self.get_one(slug)
         payment = get_object_or_404(
-            models.MembershipPayment.objects.select_related("subscription"),
+            models.MembershipPayment.objects.select_related("subscription", "subscription__plan"),
             pk=payment_id,
             subscription__organization=organization,
         )
+        if payment.subscription.plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+            raise HttpError(
+                400,
+                str(
+                    _(
+                        "ONLINE payments must be refunded from the Stripe Dashboard; "
+                        "the refund is recorded here automatically."
+                    )
+                ),
+            )
         return subscription_refunds.refund_payment(payment, recorded_by=self.user(), notes=payload.notes)

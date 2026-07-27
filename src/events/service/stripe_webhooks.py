@@ -140,6 +140,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin):
             # Membership subscriptions (Phases 2-4). Diff-based and idempotent:
             # the dedup gate skips true redeliveries, these also tolerate the
             # nightly reconciliation feeding them retrieved payloads.
+            "checkout.session.expired": self.handle_subscription_checkout_expired,
             "customer.subscription.created": self.handle_customer_subscription_created,
             "customer.subscription.updated": self.handle_customer_subscription_updated,
             "customer.subscription.deleted": self.handle_customer_subscription_deleted,

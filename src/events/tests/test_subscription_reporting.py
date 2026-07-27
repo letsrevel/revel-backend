@@ -76,6 +76,50 @@ class TestEmptyOrg:
 
 
 @pytest.mark.django_db
+class TestNewSubscribers:
+    def test_counts_by_created_at_including_churned(
+        self,
+        organization: Organization,
+        monthly_plan: MembershipSubscriptionPlan,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        """Acquisition anchors on created_at: a subscriber who already churned still counts."""
+        MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=monthly_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        churned = MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=monthly_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.CANCELLED,
+            cancelled_at=timezone.now(),
+        )
+        assert churned.created_at >= timezone.now() - timedelta(days=30)
+
+        metrics = subscription_reporting.get_organization_metrics(organization)
+        assert metrics["new_subscribers_30d"] == 2
+
+    def test_excludes_never_started_pending_rows(
+        self,
+        organization: Organization,
+        monthly_plan: MembershipSubscriptionPlan,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        """A mid-checkout (possibly abandoned) PENDING row has not acquired anyone."""
+        MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=monthly_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+        )
+        metrics = subscription_reporting.get_organization_metrics(organization)
+        assert metrics["new_subscribers_30d"] == 0
+
+
+@pytest.mark.django_db
 class TestMRRNormalization:
     def test_monthly_and_annual_sum(
         self,

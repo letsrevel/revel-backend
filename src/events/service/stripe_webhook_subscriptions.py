@@ -121,6 +121,54 @@ class SubscriptionWebhookHandlersMixin:
             stripe_invoice_id=invoice_id,
         )
 
+    def handle_subscription_checkout_expired(self, event: stripe.Event) -> None:
+        """Free the cap slot held by an abandoned ONLINE checkout.
+
+        A PENDING row is created before the member is redirected to Stripe, so
+        an abandoned session leaves a row that counts against the plan's
+        ``max_subscriptions`` cap (and its ``sold_out`` flag) until the same
+        user happens to retry. Stripe fires ``checkout.session.expired`` when
+        the session's ``expires_at`` passes — clear the stranded row then.
+        Sessions without our ``membership_subscription_id`` metadata (ticket
+        checkouts, org-run sessions) are ignored; the nightly reconcile sweep
+        backstops a dropped delivery of this event.
+        """
+        from events.service.subscription_stripe_service import _clear_stale_pending_checkout
+
+        session = event.data.object
+        raw_id = (session.get("metadata") or {}).get("membership_subscription_id")
+        if not raw_id:
+            return
+        try:
+            subscription_pk = uuid.UUID(raw_id)
+        except ValueError:
+            logger.warning(
+                "subscription_checkout_expired_bad_metadata",
+                session_id=session.get("id"),
+                membership_subscription_id=raw_id,
+            )
+            return
+        subscription = (
+            MembershipSubscription.objects.select_for_update()
+            .filter(
+                pk=subscription_pk,
+                status=MembershipSubscription.SubscriptionStatus.PENDING,
+            )
+            .first()
+        )
+        if subscription is None:
+            return  # already completed, cleared, or superseded — nothing to free
+        if subscription.stripe_subscription_id:
+            return  # session completed after all (out-of-order delivery) — leave it
+        if subscription.stripe_checkout_session_id != session.get("id"):
+            return  # row already carries a newer session — expiring the old one frees nothing
+        _clear_stale_pending_checkout(subscription)
+        logger.info(
+            "subscription_checkout_expired_cleared",
+            session_id=session.get("id"),
+            subscription_id=str(subscription_pk),
+        )
+
     def _handle_subscription_refund(
         self,
         event: stripe.Event,

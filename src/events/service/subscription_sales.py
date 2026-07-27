@@ -11,7 +11,7 @@ Two independent knobs on ``MembershipSubscriptionPlan``:
 from django.utils.translation import gettext as _
 from ninja.errors import HttpError
 
-from events.models import MembershipSubscription, MembershipSubscriptionPlan
+from events.models import MembershipSubscriptionPlan
 
 
 def ensure_plan_on_sale(plan: MembershipSubscriptionPlan) -> None:
@@ -29,22 +29,19 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     """Enforce the plan's cap on concurrent non-terminal subscriptions.
 
     The cap is the venue's "card stock": it counts PENDING/ACTIVE/PAUSED/
-    PAST_DUE subscriptions, so a cancelled or expired subscription frees its
-    slot automatically — there is no counter to drift. When a cap is set the
-    plan row is locked so concurrent creations serialize (mirrors the
-    capacity-reclaim invariants of ticket tiers); callers must already be
-    inside a transaction. Applies to staff creation too: capacity is a hard
-    limit, unlike the sales-status pause.
+    PAST_DUE subscriptions — including ones scheduled to downgrade into the
+    plan (``pending_plan`` reserves the slot, since the Stripe schedule
+    rollover re-points ``plan`` with no capacity re-check) — so a cancelled
+    or expired subscription frees its slot automatically; there is no counter
+    to drift. When a cap is set the plan row is locked so concurrent
+    creations serialize (mirrors the capacity-reclaim invariants of ticket
+    tiers); callers must already be inside a transaction. Applies to staff
+    creation too: capacity is a hard limit, unlike the sales-status pause.
     """
     if plan.max_subscriptions is None:
         return
     locked_plan = MembershipSubscriptionPlan.objects.select_for_update().get(pk=plan.pk)
     if locked_plan.max_subscriptions is None:  # changed since the unlocked read
         return
-    taken = (
-        MembershipSubscription.objects.filter(plan=locked_plan)
-        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-        .count()
-    )
-    if taken >= locked_plan.max_subscriptions:
+    if locked_plan.occupied_slot_count() >= locked_plan.max_subscriptions:
         raise HttpError(400, str(_("This plan is sold out.")))
