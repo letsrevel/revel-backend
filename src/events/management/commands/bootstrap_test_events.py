@@ -676,7 +676,7 @@ This event has:
 
         # Expired 5 days ago — inside the org's default 30-day revival window,
         # so ``revival_deadline`` lands ~25 days out and revive is offered.
-        self._seed_subscription(
+        revival_in = self._seed_subscription(
             org=org,
             plan=plan,
             email="test.revival.in@example.com",
@@ -686,6 +686,23 @@ This event has:
             current_period_end=self.now - timedelta(days=5),
             expired_at=self.now - timedelta(days=5),
         )
+
+        # Ledger entry for the last paid period (#802): ``_clear_stale_pending_checkout``
+        # deletes payment-less PENDING rows but reverts ones with payment history to
+        # EXPIRED, so an E2E spec that clicks Rejoin and abandons the hosted checkout
+        # stays re-runnable instead of losing the fixture on the next subscribe call.
+        assert revival_in.current_period_start is not None and revival_in.current_period_end is not None
+        payment = revival_in.payments.order_by("-created_at").first() or events_models.MembershipPayment(
+            subscription=revival_in
+        )
+        payment.amount = plan.price
+        payment.currency = plan.currency
+        payment.status = events_models.MembershipPayment.PaymentStatus.SUCCEEDED
+        payment.period_start = revival_in.current_period_start
+        payment.period_end = revival_in.current_period_end
+        payment.occurred_at = revival_in.current_period_start
+        payment.notes = "E2E fixture: last paid period before expiry (#802)."
+        payment.save()
 
         # Expired 60 days ago — well outside the revival window: revive is refused.
         self._seed_subscription(

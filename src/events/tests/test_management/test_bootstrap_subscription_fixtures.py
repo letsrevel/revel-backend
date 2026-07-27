@@ -9,6 +9,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.management.commands.bootstrap_test_events import ORG_ALPHA_SLUG, Command
 from events.models import (
+    MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -87,6 +88,23 @@ class TestSubscriptionFixtures:
         assert subscription.stripe_subscription_id is None
         assert subscription.stripe_checkout_session_id == ""
 
+    def test_revival_in_window_has_payment_ledger(self, org_alpha: Organization) -> None:
+        """The in-window row carries a payment so an abandoned revival checkout reverts to EXPIRED (#802).
+
+        ``_clear_stale_pending_checkout`` deletes payment-less PENDING rows; with a
+        ledger entry it reverts them instead, keeping the revive E2E spec re-runnable.
+        """
+        _run()
+        subscription = _sub(REVIVAL_IN)
+
+        payment = MembershipPayment.objects.get(subscription=subscription)
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        assert subscription.plan is not None
+        assert payment.amount == subscription.plan.price
+        assert payment.currency == "EUR"
+        assert payment.period_start == subscription.current_period_start
+        assert payment.period_end == subscription.current_period_end
+
     def test_revival_out_of_window(self, org_alpha: Organization) -> None:
         command = _run()
         subscription = _sub(REVIVAL_OUT)
@@ -134,6 +152,7 @@ class TestSubscriptionFixtures:
             assert RevelUser.objects.filter(username=email).count() == 1
             assert MembershipSubscription.objects.filter(user__username=email).count() == 1
             assert OrganizationMember.objects.filter(user__username=email).count() == 1
+        assert MembershipPayment.objects.filter(subscription__user__username=REVIVAL_IN).count() == 1
 
     def test_skips_when_org_alpha_missing(self, db: t.Any) -> None:
         """``bootstrap_test_events`` must not explode when demo data hasn't been seeded."""
