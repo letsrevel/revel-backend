@@ -197,7 +197,13 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     from notifications.enums import NotificationType
     from notifications.signals import notification_requested
 
-    today = timezone.now().date()
+    # localdate(), not now().date(): the ``__date`` lookup below renders as
+    # ``current_period_end AT TIME ZONE <settings.TIME_ZONE>)::date``, so the
+    # target must be a *local* calendar date too. Deriving it from the UTC date
+    # shifts the whole cohort by a day whenever the run happens while the UTC
+    # and local dates disagree — members would be reminded 2 (or 4) days out,
+    # and a day's cohort can be skipped entirely if the skew flips between runs.
+    today = timezone.localdate()
     target_date = today + datetime.timedelta(days=REMINDER_DAYS)
     # list(), not .iterator(): the signal handler INSERTs a Notification per row,
     # and a server-side cursor can't survive per-row commits under PgBouncer
