@@ -19,6 +19,7 @@ from events.models import (
     PermissionsSchema,
 )
 from events.models.organization import Organization as OrganizationModel
+from questionnaires.models import QuestionnaireEvaluation
 
 from .mixins import (
     CityEditMixin,
@@ -249,13 +250,49 @@ class OrganizationContactMessageSchema(ModelSchema):
         fields = ["id", "sender_email_snapshot", "subject", "message", "created_at"]
 
 
+class MembershipApplicationSubmissionInfo(Schema):
+    """Pointer to the submission that satisfied the questionnaire gate."""
+
+    id: UUID4
+    # The FE review route is keyed on the OrganizationQuestionnaire, not the raw questionnaire.
+    org_questionnaire_id: UUID4
+    evaluation_status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus | None = None
+
+
 class OrganizationMembershipRequestRetrieve(ModelSchema):
     user: MinimalRevelUserSchema
     status: MembershipRequestStatus
+    tier: "MembershipTierSchema | None" = None
+    questionnaire_submission: MembershipApplicationSubmissionInfo | None = None
 
     class Meta:
         model = OrganizationMembershipRequest
-        fields = ["id", "status", "message", "created_at", "user"]
+        fields = ["id", "status", "message", "created_at", "user", "tier"]
+
+    @staticmethod
+    def resolve_questionnaire_submission(obj: OrganizationMembershipRequest) -> dict[str, t.Any] | None:
+        """Return the attached submission plus its OrganizationQuestionnaire pk and evaluation status.
+
+        Returns a plain dict rather than a ``MembershipApplicationSubmissionInfo`` instance: Ninja's
+        response pipeline re-validates nested values, and a pre-built schema instance no longer
+        carries the Django relations the outer validator expects.
+
+        Resolves through the ``select_related`` chain set up by the admin list queryset. Yields
+        ``None`` if the OrganizationQuestionnaire is gone — a dangling pointer the FE cannot link
+        to is worse than an absent one.
+        """
+        submission = obj.questionnaire_submission
+        if submission is None:
+            return None
+        org_questionnaire = getattr(submission.questionnaire, "org_questionnaires", None)
+        if org_questionnaire is None:
+            return None
+        evaluation = getattr(submission, "evaluation", None)
+        return {
+            "id": submission.pk,
+            "org_questionnaire_id": org_questionnaire.pk,
+            "evaluation_status": evaluation.status if evaluation is not None else None,
+        }
 
 
 class ApproveMembershipRequestSchema(Schema):

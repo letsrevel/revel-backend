@@ -44,7 +44,12 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
         By default shows all requests. Use ?status=pending to filter by status.
         """
         organization = self.get_one(slug)
-        qs = OrganizationMembershipRequest.objects.filter(organization=organization).select_related("user")
+        qs = OrganizationMembershipRequest.objects.filter(organization=organization).select_related(
+            "user",
+            "tier",
+            "questionnaire_submission__evaluation",
+            "questionnaire_submission__questionnaire__org_questionnaires",
+        )
         return params.filter(qs).distinct()
 
     @route.post(
