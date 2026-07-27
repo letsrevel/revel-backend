@@ -1,5 +1,22 @@
-"""Privacy utils."""
+"""Privacy utils (GDPR Art. 15 data export).
 
+Export policy is an explicit **allowlist**: every reverse relation on
+``RevelUser`` must have an entry in :data:`EXPORT_RULES` — either included
+(optionally with a custom serializer / field excludes) or excluded with a
+documented reason. Unmapped relations are skipped at runtime (default-deny)
+and rejected by the registry guard test, so a new model with a user FK forces
+an explicit export decision instead of silently joining the export (#798).
+
+Two leak classes drove this design:
+
+* **Actor relations** — rows where the user is the acting staff member/admin
+  (``decided_by``, ``checked_in_by``, ``recorded_by``, evaluator, …) are about
+  *other* data subjects and must never appear in this user's export.
+* **Business internals** — M2M expansion of organizations dumped VAT/billing/
+  fee data to mere members; those are now reduced to id/name/slug.
+"""
+
+import dataclasses
 import io
 import typing as t
 import zipfile
@@ -9,12 +26,13 @@ import orjson
 import structlog
 from django.contrib.gis.geos import Point
 from django.core.files.base import ContentFile
-from django.db.models import ManyToManyRel, ManyToOneRel, OneToOneRel
+from django.db.models import ManyToManyRel, ManyToOneRel, Model, OneToOneRel
 from django.db.models.fields.files import FieldFile
 from django.forms.models import model_to_dict
 from django.utils import timezone
 
-from accounts.models import RevelUser, UserDataExport
+from accounts.models import ReferralPayout, ReferralPayoutStatement, RevelUser, UserDataExport
+from common.signing import generate_signed_url, is_protected_path
 from questionnaires.models import (
     FreeTextAnswer,
     MultipleChoiceAnswer,
@@ -22,6 +40,12 @@ from questionnaires.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Signed URLs inside the export must outlive the export download link (7 days,
+# see accounts/tasks/gdpr.py DATA_EXPORT_URL_EXPIRES_IN).
+EXPORT_FILE_URL_EXPIRES_IN = 7 * 24 * 60 * 60
+
+_EXPORT_FALLBACK = "[This field could not be exported]"
 
 
 def _sanitize_dict_keys(data: t.Any) -> t.Any:
@@ -43,6 +67,21 @@ def _sanitize_dict_keys(data: t.Any) -> t.Any:
     return data
 
 
+def _file_url(field_file: FieldFile) -> str | None:
+    """URL for a file field — signed (7 days) for protected paths.
+
+    Raw ``.url`` on a protected path is a dead link (the file server requires
+    a signature), so exports sign it for the same lifetime as the export
+    download link.
+    """
+    if not field_file:
+        return None
+    name = getattr(field_file, "name", None)
+    if isinstance(name, str) and is_protected_path(name):
+        return generate_signed_url(name, expires_in=EXPORT_FILE_URL_EXPIRES_IN)
+    return field_file.url
+
+
 def _default_serializer(obj: t.Any) -> t.Any:
     """Handle Django-specific types for orjson serialization.
 
@@ -61,16 +100,16 @@ def _default_serializer(obj: t.Any) -> t.Any:
     Raises:
         TypeError: If object type cannot be serialized (required by orjson)
     """
-    # Handle FileField/ImageField - convert to URL
+    # Handle FileField/ImageField - convert to (signed) URL
     if isinstance(obj, FieldFile):
         try:
-            # Return URL if file exists
-            if obj:
-                return obj.url
+            url = _file_url(obj)
+            if url is not None:
+                return url
         except Exception:
             # File doesn't exist or storage issue
             logger.debug("gdpr_export_file_url_failed", field_name=getattr(obj, "name", None))
-        return "[This field could not be exported]"
+        return _EXPORT_FALLBACK
 
     # Handle PostGIS Point - convert to GeoJSON
     if isinstance(obj, Point):
@@ -90,133 +129,97 @@ def _default_serializer(obj: t.Any) -> t.Any:
             "gdpr_export_field_serialization_fallback",
             object_type=type(obj).__name__,
         )
-        return "[This field could not be exported]"
+        return _EXPORT_FALLBACK
 
 
-def _serialize_related_objects(user: RevelUser) -> dict[str, t.Any]:
-    """Serialize all related objects for a user.
+def _dump(obj: Model, exclude: tuple[str, ...] = ()) -> dict[str, t.Any]:
+    """``model_to_dict`` plus pk and timestamps, minus ``exclude`` fields.
 
-    Args:
-        user: The user whose related objects to serialize
-
-    Returns:
-        Dictionary with all related object data
+    ``model_to_dict`` drops ``editable=False`` fields, which strips the pk and
+    ``created_at``/``updated_at`` from every row — an Art. 12(1)
+    intelligibility problem. Re-add them explicitly.
     """
-    export_data: dict[str, t.Any] = {}
+    data = {k: v for k, v in model_to_dict(obj).items() if k not in exclude}
+    data["id"] = obj.pk
+    for ts_field in ("created_at", "updated_at"):
+        if hasattr(obj, ts_field):
+            data[ts_field] = getattr(obj, ts_field)
+    return data
 
-    # Automatically discover related objects (depth 1)
-    related_objects = [
-        f
-        for f in user._meta.get_fields()
-        if isinstance(f, (OneToOneRel, ManyToOneRel, ManyToManyRel)) and f.related_model
+
+# ---------------------------------------------------------------------------
+# Custom per-relation serializers (value only; the registry supplies the key)
+# ---------------------------------------------------------------------------
+
+
+def _serialize_org_summaries(user: RevelUser, accessor: str) -> list[dict[str, t.Any]]:
+    """Organizations the user belongs to, reduced to identity fields.
+
+    Full ``Organization`` rows carry VAT/billing/fee/Stripe data that belongs
+    to the business, not to the member — the membership itself is exported via
+    the user's own ``OrganizationMember``/``OrganizationStaff`` rows.
+    """
+    return [{"id": org.pk, "name": org.name, "slug": org.slug} for org in getattr(user, accessor).all()]
+
+
+def _serialize_owned_organizations(user: RevelUser) -> list[dict[str, t.Any]]:
+    # The owner's org business data is their own (sole-trader case), but the
+    # members/staff M2M pk lists are other people's identifiers.
+    return [_dump(org, exclude=("members", "staff_members")) for org in user.owned_organizations.all()]
+
+
+def _serialize_waitlisted_events(user: RevelUser) -> list[dict[str, t.Any]]:
+    return [
+        {"id": event.pk, "name": event.name, "slug": event.slug, "start": event.start} for event in user.waitlist.all()
     ]
 
-    # Fields to skip from export (internal/privacy-sensitive)
-    skip_fields = {
-        "data_export",
-        "outstandingtoken_set",
-        "visible_attendees",
-        "visible_to",
-        "notifications",
+
+def _serialize_referral(user: RevelUser) -> dict[str, t.Any] | None:
+    """The referral that brought this user in (code string, not user ids)."""
+    referral = getattr(user, "referral", None)
+    if referral is None:
+        return None
+    return {
+        "referral_code": referral.referral_code.code,
+        "revenue_share_percent": referral.revenue_share_percent,
+        "created_at": referral.created_at,
     }
 
-    for rel in related_objects:
-        accessor_name = rel.get_accessor_name()
-        if not accessor_name or accessor_name in skip_fields:
-            continue
 
-        # Handle the questionnaire special case
-        if accessor_name == "questionnaire_submissions":
-            export_data.update(_serialize_questionnaire_data(user.id))
-            continue
-
-        # Handle dietary restrictions - expand food_item details
-        if accessor_name == "dietary_restrictions":
-            export_data[accessor_name] = _serialize_dietary_restrictions(user)
-            continue
-
-        # Handle dietary preferences - expand preference details
-        if accessor_name == "dietary_preferences":
-            export_data[accessor_name] = _serialize_dietary_preferences(user)
-            continue
-
-        value = getattr(user, accessor_name, None)
-
-        if value is not None:
-            if isinstance(rel, OneToOneRel):
-                export_data[accessor_name] = model_to_dict(value)
-            elif isinstance(rel, (ManyToOneRel, ManyToManyRel)):
-                export_data[accessor_name] = [model_to_dict(obj) for obj in value.all()]
-
-    return export_data
+def _serialize_referrals_made(user: RevelUser) -> list[dict[str, t.Any]]:
+    """Referrals generated by the user's code — without the referred users' ids."""
+    return [
+        {"revenue_share_percent": referral.revenue_share_percent, "created_at": referral.created_at}
+        for referral in user.referrals_made.all()
+    ]
 
 
-def generate_user_data_export(user: RevelUser) -> UserDataExport:
-    """Generate a data export for a user."""
-    logger.info("gdpr_export_started", user_id=str(user.id), email=user.email)
-
-    export: UserDataExport | None = None
-    try:
-        export, created = UserDataExport.objects.get_or_create(user=user)
-        if created:
-            logger.info("gdpr_export_created", user_id=str(user.id), export_id=str(export.id))
-
-        export.status = UserDataExport.UserDataExportStatus.PROCESSING
-        export.save(update_fields=["status"])
-
-        # 1. Serialize user profile fields
-        user_fields = {
-            f.name: getattr(user, f.name)
-            for f in user._meta.fields
-            if f.name not in ["password", "totp_secret_encrypted", "totp_secret"]
+def _serialize_referral_payouts(user: RevelUser) -> list[dict[str, t.Any]]:
+    return [
+        {
+            "period_start": payout.period_start,
+            "period_end": payout.period_end,
+            "net_platform_fees": payout.net_platform_fees,
+            "payout_amount": payout.payout_amount,
+            "rolled_over_amount": payout.rolled_over_amount,
+            "currency": payout.currency,
+            "status": payout.status,
+            "stripe_transfer_id": payout.stripe_transfer_id,
+            "created_at": payout.created_at,
         }
-        export_data = {"profile": user_fields}
+        for payout in ReferralPayout.objects.filter(referral__referrer=user)
+    ]
 
-        # 2. Serialize related objects
-        export_data.update(_serialize_related_objects(user))
 
-        # 3. Sanitize dict keys (orjson requires string keys) and serialize
-        sanitized_data = _sanitize_dict_keys(export_data)
-        json_bytes = orjson.dumps(
-            sanitized_data,
-            default=_default_serializer,
-            option=orjson.OPT_INDENT_2,  # Pretty print with 2-space indent
-        )
+def _serialize_referral_payout_statements(user: RevelUser) -> list[dict[str, t.Any]]:
+    statements = ReferralPayoutStatement.objects.filter(payout__referral__referrer=user)
+    return [_dump(statement, exclude=("payout",)) for statement in statements]
 
-        # 4. Create a ZIP archive in memory
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            zip_file.writestr("revel_user_data.json", json_bytes)
 
-        zip_buffer.seek(0)
+def _serialize_attendee_invoice_credit_notes(user: RevelUser) -> list[dict[str, t.Any]]:
+    from events.models import AttendeeInvoiceCreditNote
 
-        # 5. Save the ZIP to the model's FileField
-        export.file.save(f"revel_export_{user.id}.zip", ContentFile(zip_buffer.read()), save=False)
-        export.status = UserDataExport.UserDataExportStatus.READY
-        export.completed_at = timezone.now()
-        export.save(update_fields=["status", "file", "completed_at"])
-
-        logger.info(
-            "gdpr_export_completed",
-            user_id=str(user.id),
-            export_id=str(export.id),
-            file_size_bytes=export.file.size,
-            data_categories=list(export_data.keys()),
-        )
-        return export
-
-    except Exception as e:
-        logger.error(
-            "gdpr_export_failed",
-            user_id=str(user.id),
-            error=str(e),
-            error_type=type(e).__name__,
-            exc_info=True,
-        )
-        if export:
-            export.status = UserDataExport.UserDataExportStatus.FAILED
-            export.save(update_fields=["status"])
-        raise
+    return [_dump(note) for note in AttendeeInvoiceCreditNote.objects.filter(invoice__user=user)]
 
 
 def _serialize_dietary_restrictions(user: RevelUser) -> list[dict[str, t.Any]]:
@@ -306,3 +309,235 @@ def _serialize_questionnaire_data(user_id: UUID) -> dict[str, list[dict[str, t.A
         sub_data["answers"] = answers
         data.append(sub_data)
     return {"questionnaire_submissions": data}
+
+
+# ---------------------------------------------------------------------------
+# Export registry
+# ---------------------------------------------------------------------------
+
+_Serializer = t.Callable[[RevelUser], t.Any]
+
+
+@dataclasses.dataclass(frozen=True)
+class ExportRule:
+    """Export decision for one reverse relation on ``RevelUser``.
+
+    * ``include=False`` — never exported; ``reason`` documents why.
+    * ``include=True, serializer=None`` — generic ``_dump`` (minus
+      ``exclude_fields``); single object for one-to-one relations, list
+      otherwise.
+    * ``include=True, serializer=...`` — callable receives the user and
+      returns the exported value.
+    """
+
+    include: bool
+    reason: str = ""
+    serializer: _Serializer | None = None
+    exclude_fields: tuple[str, ...] = ()
+
+
+_EXCLUDED_THIRD_PARTY = "third-party data handled in a staff/admin capacity"
+_EXCLUDED_MODERATION = "moderation/fraud-prevention record — excluded pending policy decision (#798)"
+
+EXPORT_RULES: dict[str, ExportRule] = {
+    # --- accounts ---
+    "dietary_restrictions": ExportRule(include=True, serializer=_serialize_dietary_restrictions),
+    "dietary_preferences": ExportRule(include=True, serializer=_serialize_dietary_preferences),
+    "verification_reminder_tracking": ExportRule(include=True),
+    "global_bans": ExportRule(include=False, reason=_EXCLUDED_MODERATION),
+    "impersonations_received": ExportRule(include=True),  # transparency: who impersonated the user
+    "impersonations_performed": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "referral": ExportRule(include=True, serializer=_serialize_referral),
+    "referrals_made": ExportRule(include=True, serializer=_serialize_referrals_made),
+    "referral_code": ExportRule(include=True),
+    "billing_profile": ExportRule(include=True),
+    "data_export": ExportRule(include=False, reason="export bookkeeping (self-referential)"),
+    # --- django / third-party apps ---
+    "logentry_set": ExportRule(include=False, reason="admin audit log about arbitrary records"),
+    "outstandingtoken_set": ExportRule(include=False, reason="JWT session secrets"),
+    "googlessouser": ExportRule(include=True),
+    # --- common ---
+    "file_exports": ExportRule(include=False, reason="internal operational record"),
+    # --- events: data-subject rows ---
+    "tickets": ExportRule(include=True),
+    "payments": ExportRule(include=True),
+    "rsvps": ExportRule(include=True),
+    "invitations": ExportRule(include=True),
+    "event_questionnaire_submissions": ExportRule(include=True),
+    "event_bookmarks": ExportRule(include=True),
+    "event_series_follows": ExportRule(include=True),
+    "organization_follows": ExportRule(include=True),
+    "organization_memberships": ExportRule(include=True),
+    "organization_staff_memberships": ExportRule(include=True),
+    "eventwaitlist_set": ExportRule(include=True),
+    "waitlist_offers": ExportRule(include=True),
+    "whitelist_requests": ExportRule(include=True),
+    "eventinvitationrequest_set": ExportRule(include=True),
+    "organizationmembershiprequest_set": ExportRule(include=True),
+    "held_series_passes": ExportRule(include=True),
+    "membership_subscriptions": ExportRule(include=True),
+    "seat_holds": ExportRule(include=True),
+    "attendee_invoices": ExportRule(include=True),
+    "sent_contact_messages": ExportRule(include=True),
+    "general_preferences": ExportRule(include=True),
+    "potluck_items": ExportRule(include=True, exclude_fields=("created_by",)),
+    "potluckitem_set": ExportRule(include=True, exclude_fields=("assignee",)),
+    # --- events: reduced shapes ---
+    "owned_organizations": ExportRule(include=True, serializer=_serialize_owned_organizations),
+    "member_organizations": ExportRule(
+        include=True, serializer=lambda user: _serialize_org_summaries(user, "member_organizations")
+    ),
+    "staff_organizations": ExportRule(
+        include=True, serializer=lambda user: _serialize_org_summaries(user, "staff_organizations")
+    ),
+    "waitlist": ExportRule(include=True, serializer=_serialize_waitlisted_events),
+    # --- events: staff/actor and operational rows ---
+    "eventinvitationrequest_decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "organizationmembershiprequest_decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "checked_in_tickets": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "cancelled_tickets": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "recorded_membership_payments": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "eventtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
+    "organizationtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
+    "created_announcements": ExportRule(include=False, reason="organization content authored in staff capacity"),
+    "blacklist_entries": ExportRule(include=False, reason=_EXCLUDED_MODERATION),
+    "visible_attendees": ExportRule(include=False, reason="cross-user visibility flags (third-party linkage)"),
+    "visible_to": ExportRule(include=False, reason="cross-user visibility flags (third-party linkage)"),
+    # --- notifications ---
+    "notifications": ExportRule(include=False, reason="transient rendered notifications; preferences are exported"),
+    "notification_preferences": ExportRule(include=True),
+    # --- questionnaires ---
+    "questionnaire_submissions": ExportRule(
+        include=True, serializer=lambda user: _serialize_questionnaire_data(user.id)["questionnaire_submissions"]
+    ),
+    "questionnaire_files": ExportRule(include=True),
+    "questionnaireevaluation_set": ExportRule(include=False, reason="evaluations authored about other users"),
+    # --- telegram ---
+    "telegram_users": ExportRule(include=True),
+}
+
+# Data about the user that is not a direct reverse relation (depth 2).
+EXTRA_SECTIONS: dict[str, _Serializer] = {
+    "referral_payouts": _serialize_referral_payouts,
+    "referral_payout_statements": _serialize_referral_payout_statements,
+    "attendee_invoice_credit_notes": _serialize_attendee_invoice_credit_notes,
+}
+
+
+def get_user_reverse_relations() -> dict[str, OneToOneRel | ManyToOneRel | ManyToManyRel]:
+    """Map accessor name → reverse relation for every relation on ``RevelUser``."""
+    relations: dict[str, OneToOneRel | ManyToOneRel | ManyToManyRel] = {}
+    for field in RevelUser._meta.get_fields():
+        if isinstance(field, (OneToOneRel, ManyToOneRel, ManyToManyRel)) and field.related_model:
+            accessor = field.get_accessor_name()
+            if accessor:
+                relations[accessor] = field
+    return relations
+
+
+def _serialize_related_objects(user: RevelUser) -> dict[str, t.Any]:
+    """Serialize the allowlisted related objects for a user.
+
+    Args:
+        user: The user whose related objects to serialize
+
+    Returns:
+        Dictionary with all related object data
+    """
+    export_data: dict[str, t.Any] = {}
+
+    for accessor, rel in get_user_reverse_relations().items():
+        rule = EXPORT_RULES.get(accessor)
+        if rule is None:
+            # Default-deny: a relation without an export decision is skipped.
+            # The registry guard test fails first, so this only triggers if a
+            # migration lands without its export entry.
+            logger.warning("gdpr_export_unmapped_relation", accessor=accessor)
+            continue
+        if not rule.include:
+            continue
+
+        if rule.serializer is not None:
+            export_data[accessor] = rule.serializer(user)
+            continue
+
+        value = getattr(user, accessor, None)
+        if value is None:
+            continue
+        if isinstance(rel, OneToOneRel):
+            export_data[accessor] = _dump(value, exclude=rule.exclude_fields)
+        else:
+            export_data[accessor] = [_dump(obj, exclude=rule.exclude_fields) for obj in value.all()]
+
+    for section, serializer in EXTRA_SECTIONS.items():
+        export_data[section] = serializer(user)
+
+    return export_data
+
+
+def generate_user_data_export(user: RevelUser) -> UserDataExport:
+    """Generate a data export for a user."""
+    logger.info("gdpr_export_started", user_id=str(user.id), email=user.email)
+
+    export: UserDataExport | None = None
+    try:
+        export, created = UserDataExport.objects.get_or_create(user=user)
+        if created:
+            logger.info("gdpr_export_created", user_id=str(user.id), export_id=str(export.id))
+
+        export.status = UserDataExport.UserDataExportStatus.PROCESSING
+        export.save(update_fields=["status"])
+
+        # 1. Serialize user profile fields
+        user_fields = {
+            f.name: getattr(user, f.name)
+            for f in user._meta.fields
+            if f.name not in ["password", "totp_secret_encrypted", "totp_secret"]
+        }
+        export_data = {"profile": user_fields}
+
+        # 2. Serialize related objects
+        export_data.update(_serialize_related_objects(user))
+
+        # 3. Sanitize dict keys (orjson requires string keys) and serialize
+        sanitized_data = _sanitize_dict_keys(export_data)
+        json_bytes = orjson.dumps(
+            sanitized_data,
+            default=_default_serializer,
+            option=orjson.OPT_INDENT_2,  # Pretty print with 2-space indent
+        )
+
+        # 4. Create a ZIP archive in memory
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            zip_file.writestr("revel_user_data.json", json_bytes)
+
+        zip_buffer.seek(0)
+
+        # 5. Save the ZIP to the model's FileField
+        export.file.save(f"revel_export_{user.id}.zip", ContentFile(zip_buffer.read()), save=False)
+        export.status = UserDataExport.UserDataExportStatus.READY
+        export.completed_at = timezone.now()
+        export.save(update_fields=["status", "file", "completed_at"])
+
+        logger.info(
+            "gdpr_export_completed",
+            user_id=str(user.id),
+            export_id=str(export.id),
+            file_size_bytes=export.file.size,
+            data_categories=list(export_data.keys()),
+        )
+        return export
+
+    except Exception as e:
+        logger.error(
+            "gdpr_export_failed",
+            user_id=str(user.id),
+            error=str(e),
+            error_type=type(e).__name__,
+            exc_info=True,
+        )
+        if export:
+            export.status = UserDataExport.UserDataExportStatus.FAILED
+            export.save(update_fields=["status"])
+        raise
