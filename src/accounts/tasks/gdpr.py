@@ -12,12 +12,15 @@ from django.utils import timezone
 
 from accounts.models import RevelUser, UserDataExport
 from accounts.service import gdpr
+from accounts.service.gdpr import EXPORT_FILE_URL_EXPIRES_IN
 from common.models import SiteSettings
 from common.signing import generate_signed_url
 from common.tasks import send_email
 
-# 7 days in seconds for data export download links
-DATA_EXPORT_URL_EXPIRES_IN = 7 * 24 * 60 * 60
+# 7 days in seconds for data export download links. Single source of truth lives
+# in the service, which signs the file URLs *inside* the export for the same
+# lifetime; this alias is kept because it is re-exported from accounts.tasks.
+DATA_EXPORT_URL_EXPIRES_IN = EXPORT_FILE_URL_EXPIRES_IN
 
 logger = structlog.get_logger(__name__)
 
