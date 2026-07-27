@@ -23,6 +23,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
+    OrganizationMembershipRequest,
     SeriesPass,
     Ticket,
     TicketTier,
@@ -111,6 +112,37 @@ class TestResetEventsCommand:
         # The subscriber user used a non-@letsrevel.io address, so they should
         # also have been swept up by the demo-user cleanup.
         assert not RevelUser.objects.filter(pk=demo_subscriber.pk).exists()
+
+    @override_settings(DEMO_MODE=True)
+    def test_succeeds_with_tier_bearing_membership_application(
+        self,
+        demo_organization: Organization,
+        demo_subscriber: RevelUser,
+        demo_tier: MembershipTier,
+        demo_plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """Regression for issue #794.
+
+        ``OrganizationMembershipRequest.tier`` and ``.plan`` are PROTECT FKs, so
+        any application row (in any status) aborted the Organization cascade when
+        it reached ``MembershipTier``. The demo-reset path must delete
+        application rows explicitly before deleting organizations.
+        """
+        application = OrganizationMembershipRequest.objects.create(
+            organization=demo_organization,
+            user=demo_subscriber,
+            tier=demo_tier,
+            plan=demo_plan,
+            status=OrganizationMembershipRequest.Status.COMPLETED,
+        )
+
+        with patch("events.management.commands.reset_events.call_command") as mocked_call:
+            call_command("reset_events", "--no-input")
+            mocked_call.assert_called_once_with("bootstrap_events")
+
+        assert not Organization.objects.filter(pk=demo_organization.pk).exists()
+        assert not OrganizationMembershipRequest.objects.filter(pk=application.pk).exists()
+        assert not MembershipTier.objects.filter(pk=demo_tier.pk).exists()
 
     @override_settings(DEMO_MODE=True)
     def test_succeeds_with_held_series_pass(

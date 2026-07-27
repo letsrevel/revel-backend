@@ -20,6 +20,7 @@ from events.models import (
     HeldSeriesPass,
     MembershipSubscription,
     Organization,
+    OrganizationMembershipRequest,
     RecurrenceRule,
     Ticket,
 )
@@ -113,8 +114,13 @@ class Command(BaseCommand):
             # otherwise). Production lifecycle goes through the subscriptions
             # service, but the demo-reset path can shortcut by deleting
             # subscriptions directly.
+            # Membership applications PROTECT both their tier and their plan, so
+            # they have to go before the subscriptions (whose deletion only
+            # SET_NULLs the application's subscription FK) and before the org
+            # cascade reaches MembershipTier.
+            OrganizationMembershipRequest.objects.all().delete()
             MembershipSubscription.objects.all().delete()
-            self.stdout.write(self.style.SUCCESS("✓ Deleted membership subscriptions"))
+            self.stdout.write(self.style.SUCCESS("✓ Deleted membership applications and subscriptions"))
 
             # Break the SeriesPass ← HeldSeriesPass PROTECT and the
             # Ticket → HeldSeriesPass RESTRICT FKs. The Organization cascade
