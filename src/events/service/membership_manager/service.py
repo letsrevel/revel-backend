@@ -204,6 +204,8 @@ class MembershipEligibilityService:
 
         Otherwise: plain ``allowed=True`` with no ``next_step``.
         """
+        # Reset so repeated calls on one instance can't carry a stale annotation.
+        self.approval_required_annotation = False
         for gate in self._gates:
             result = gate.check()
             if result is not None:

@@ -63,6 +63,47 @@ def test_get_join_eligibility_no_gates(
     assert data["tier_id"] == str(tier.id)
 
 
+def test_get_join_eligibility_approval_required_no_application_is_apply_able(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """#787 wire contract: approval required + no application → allowed with the bare code."""
+    organization.default_requires_membership_approval = True
+    organization.save(update_fields=["default_requires_membership_approval"])
+
+    client = _client(nonmember_user)
+    url = reverse("api:get_join_eligibility", kwargs={"slug": organization.slug})
+    response = client.get(url, {"tier_id": str(tier.id)})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["allowed"] is True
+    assert data["reason_code"] == "requires_approval"
+    assert data["reason"] is None
+    assert data["next_step"] is None
+    assert data["application_id"] is None
+
+
+def test_get_join_eligibility_tier_less_pending_application_signals_wait(
+    nonmember_user: RevelUser, organization: Organization
+) -> None:
+    """#788 wire contract: tier-less PENDING application → explicit wait signal with its id."""
+    app = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=None,
+        status=OrganizationMembershipRequest.Status.PENDING,
+    )
+
+    client = _client(nonmember_user)
+    url = reverse("api:get_join_eligibility", kwargs={"slug": organization.slug})
+    response = client.get(url)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["allowed"] is True
+    assert data["next_step"] == "wait_for_approval"
+    assert data["reason_code"] == "requires_approval"
+    assert data["application_id"] == str(app.id)
+
+
 def test_apply_free_no_gates_creates_member(
     nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
 ) -> None:
