@@ -345,7 +345,11 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "dietary_preferences": ExportRule(include=True, serializer=_serialize_dietary_preferences),
     "verification_reminder_tracking": ExportRule(include=True),
     "global_bans": ExportRule(include=False, reason=_EXCLUDED_MODERATION),
-    "impersonations_received": ExportRule(include=True),  # transparency: who impersonated the user
+    # Transparency: *that* the user was impersonated and when — not the admin's
+    # identity/IP/user-agent (third-party staff data) nor the token id.
+    "impersonations_received": ExportRule(
+        include=True, exclude_fields=("admin_user", "token_jti", "ip_address", "user_agent")
+    ),
     "impersonations_performed": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "referral": ExportRule(include=True, serializer=_serialize_referral),
     "referrals_made": ExportRule(include=True, serializer=_serialize_referrals_made),
@@ -477,7 +481,7 @@ def _serialize_related_objects(user: RevelUser) -> dict[str, t.Any]:
 
 def generate_user_data_export(user: RevelUser) -> UserDataExport:
     """Generate a data export for a user."""
-    logger.info("gdpr_export_started", user_id=str(user.id), email=user.email)
+    logger.info("gdpr_export_started", user_id=str(user.id))
 
     export: UserDataExport | None = None
     try:

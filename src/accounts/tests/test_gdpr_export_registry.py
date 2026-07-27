@@ -148,6 +148,15 @@ def test_staff_export_contains_no_third_party_data(
     assert str(attendee.id) not in raw
     assert attendee.email not in raw
 
+    # The target's own export records that the impersonation happened, but not
+    # the admin's identity/IP/user-agent nor the token id.
+    attendee_data, attendee_raw = _export(attendee)
+    (impersonation_data,) = attendee_data["impersonations_received"]
+    assert impersonation_data["created_at"] is not None
+    for excluded_field in ("admin_user", "token_jti", "ip_address", "user_agent"):
+        assert excluded_field not in impersonation_data
+    assert "jti-test-1" not in attendee_raw
+
 
 @pytest.mark.django_db
 def test_member_organizations_reduced_to_identity(
