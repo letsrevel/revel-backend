@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.73.0] - 2026-07-27
+
+### Added
+- **Enterprise venue & seating — phase 1**: reserved-seating engine for venues with painted seat maps
+  - Venue-scoped `PriceCategory` seat pools; sector kinds; seat `row_label`/`row_order`/adjacency metadata for row-aware assignment
+  - `SeatHold` TTL cart holds with takeover acquisition, plus public seat-chart, availability, and hold endpoints; hold conflicts distinguish capacity from seat-unavailable (`conflict_reason`)
+  - `BEST_AVAILABLE` seat assignment: row-first best-available allocation for tiers that pick seats for the buyer
+  - Per-seat-category pricing via a `category_prices` map on ticket tiers (both assignment modes); the buyer's zone is a `price_category_id` request parameter; paint operations report which tiers they repriced, with `?preview=true` for a dry run
+  - Box-office seat overrides (`EventSeatOverride`): staff with `manage_tickets` can hold or kill individual seats with a reason
+  - Price-category CRUD for organization venue admins, with a delete guard while any tier still prices the category
+- Showcase venue seed data (`make seed`): three fully laid-out venues (~1,350-seat theatre, comedy club, music hall) with materialized seats, tiers in every seat-assignment mode, and realistic sold/pending/cancelled tickets
+
+### Fixed
+- Attendee-visibility rebuilds no longer deadlock under concurrent checkout on the same event — rebuilds are serialized per event with a transaction-scoped advisory lock, without adding any checkout latency
+
+### Removed
+- **Breaking**: `RANDOM` seat-assignment mode removed — existing tiers migrated to `BEST_AVAILABLE`
+
+### Security
+- GDPR data export rebuilt on an explicit allowlist registry — relations without a deliberate export decision are now default-denied (and rejected by a guard test)
+  - Stops third-party leakage: staff-actor rows about other people (decisions, check-ins, recorded payments, evaluations), organization business internals (VAT id, billing details) exposed to mere members, invite-token rows whose pk is the secret code, and referral counterparty ids
+  - Export completeness improved: rows now carry `id` and timestamps, subject payment/payout history is included, and protected file URLs are signed for the export-link lifetime
+- Upgraded `pymdown-extensions` to 11.0.1 (CVE-2026-61632) and `pyasn1` to 0.6.4 (CVE-2026-59885/59886)
+
 ## [1.72.1] - 2026-07-17
 
 ### Added
