@@ -25,6 +25,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     OrganizationMember,
 )
+from events.service import stripe_incidents
 from events.service.subscription_stripe_dispatch import (
     _dispatch_invoice_notifications,
     _dispatch_sync_notifications,
@@ -215,7 +216,7 @@ def sync_subscription_from_stripe(
     if not stripe_id:
         return None
     subscription = (
-        MembershipSubscription.objects.select_for_update()
+        MembershipSubscription.objects.select_for_update(of=("self",))
         .select_related("plan", "plan__tier", "organization", "user")
         .filter(stripe_subscription_id=stripe_id)
         .first()
@@ -267,17 +268,28 @@ def _apply_invoice_outcome(
     subscription: MembershipSubscription,
     *,
     succeeded: bool,
-    period_start: datetime,
-    period_end: datetime,
+    period_start: datetime | None,
+    period_end: datetime | None,
 ) -> None:
-    """Mirror an invoice outcome onto the subscription row (caller holds the lock)."""
+    """Mirror an invoice outcome onto the subscription row (caller holds the lock).
+
+    Terminal rows are frozen here exactly as they are in
+    :func:`sync_subscription_from_stripe`, :func:`_apply_stripe_price_swap` and
+    ``subscription_service.record_payment``: a CANCELLED/EXPIRED subscription
+    must never advance its period (ADR-0014). The payment row itself is still
+    written by the caller — the money genuinely moved and Stripe took its
+    application fee, so suppressing it would desync our ledger from Stripe — but
+    the member is owed a refund, which is why the caller raises an incident.
+    """
+    if subscription.is_terminal:
+        return
     if succeeded:
         # Mirror the period from the invoice line and revive PENDING/PAST_DUE.
         update_fields: list[str] = []
-        if subscription.current_period_start != period_start:
+        if period_start is not None and subscription.current_period_start != period_start:
             subscription.current_period_start = period_start
             update_fields.append("current_period_start")
-        if subscription.current_period_end != period_end:
+        if period_end is not None and subscription.current_period_end != period_end:
             subscription.current_period_end = period_end
             update_fields.append("current_period_end")
         revivable = {
@@ -307,6 +319,88 @@ def _apply_invoice_outcome(
     }:
         subscription.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
         subscription.save(update_fields=["status", "updated_at"])
+
+
+def _line_price_id(line: dict[str, t.Any]) -> str:
+    """Best-effort price id for an invoice line, across dahlia and legacy shapes."""
+    pricing = line.get("pricing") or {}
+    details = pricing.get("price_details") or {}
+    if details.get("price"):
+        return t.cast(str, details["price"])
+    price = line.get("price") or {}
+    return t.cast(str, price.get("id") or "")
+
+
+def _recurring_line_period(lines_data: list[dict[str, t.Any]], plan_price_id: str) -> dict[str, t.Any] | None:
+    """Pick the billing period from the *recurring* line of an invoice.
+
+    Stripe sorts invoice lines with "pending invoice items (including
+    prorations)" first, so ``lines.data[0]`` is the proration line on any invoice
+    carrying one — and a proration's period starts when it was calculated, not at
+    the billing anchor. Writing that onto ``current_period_start`` corrupts the
+    anchor ``_is_full_refund_of_current_period`` compares against, which silently
+    suppresses the refund auto-cancel.
+
+    Prefer the line whose price matches the plan, then the last non-proration
+    line. Returns ``None`` when the invoice carries *only* prorations (a
+    mid-cycle upgrade under ``always_invoice``): that invoice describes no
+    billing period, so the caller must leave the subscription's anchor alone and
+    let ``customer.subscription.updated`` supply the authoritative one.
+
+    Args:
+        lines_data: ``invoice["lines"]["data"]``.
+        plan_price_id: The subscription plan's current Stripe price id.
+
+    Returns:
+        The chosen line's ``period`` mapping, or ``None`` when no recurring line
+        is present.
+    """
+    if not lines_data:
+        return None
+    if plan_price_id:
+        for line in lines_data:
+            if _line_price_id(line) == plan_price_id and not line.get("proration"):
+                return t.cast(dict[str, t.Any], line.get("period") or {})
+    non_proration = [line for line in lines_data if not line.get("proration")]
+    if non_proration:
+        return t.cast(dict[str, t.Any], non_proration[-1].get("period") or {})
+    return None
+
+
+def _raise_payment_incidents(
+    subscription: MembershipSubscription,
+    payment: MembershipPayment,
+    *,
+    invoice_id: str,
+    currency: str,
+) -> None:
+    """Emit money-correctness incidents for a successfully recorded payment.
+
+    Both cases below are unrecoverable without a human: neither the nightly
+    reconcile nor a Stripe redelivery repairs them.
+
+    Args:
+        subscription: The subscription the invoice belongs to.
+        payment: The ledger row just written.
+        invoice_id: The Stripe invoice id.
+        currency: Payment currency.
+    """
+    if not payment.stripe_payment_intent_id:
+        stripe_incidents.record_subscription_payment_intent_unresolved(
+            subscription_id=str(subscription.pk),
+            stripe_invoice_id=invoice_id,
+        )
+    if subscription.is_terminal:
+        # Money changed hands for a period the member will never receive, and
+        # the row is frozen by ``_apply_invoice_outcome`` so nothing heals it.
+        stripe_incidents.record_subscription_paid_while_terminal(
+            subscription_id=str(subscription.pk),
+            status=subscription.status,
+            stripe_invoice_id=invoice_id,
+            payment_intent_id=payment.stripe_payment_intent_id,
+            amount=str(payment.amount),
+            currency=currency,
+        )
 
 
 @transaction.atomic
@@ -346,7 +440,7 @@ def record_stripe_payment_from_invoice(
     payment_intent_id = _invoice_payment_intent_id(invoice, unlocked_subscription.organization)
 
     subscription = (
-        MembershipSubscription.objects.select_for_update()
+        MembershipSubscription.objects.select_for_update(of=("self",))
         .select_related("plan", "plan__tier", "organization")
         .filter(stripe_subscription_id=stripe_sub_id)
         .first()
@@ -391,9 +485,16 @@ def record_stripe_payment_from_invoice(
         }
 
     lines_data = (invoice.get("lines") or {}).get("data") or []
-    period = (lines_data[0].get("period") if lines_data else None) or {}
-    period_start = _epoch_to_dt(period.get("start")) or timezone.now()
-    period_end = _epoch_to_dt(period.get("end")) or timezone.now()
+    recurring_period = _recurring_line_period(lines_data, subscription.plan.stripe_price_id)
+    # The payment row records what this invoice actually covered — for a
+    # proration-only invoice that is the proration window, which is correct.
+    ledger_period = (
+        recurring_period
+        if recurring_period is not None
+        else ((lines_data[0].get("period") or {}) if lines_data else {})
+    )
+    period_start = _epoch_to_dt(ledger_period.get("start")) or timezone.now()
+    period_end = _epoch_to_dt(ledger_period.get("end")) or timezone.now()
 
     if not succeeded:
         # Monotonicity guard: Stripe gives no delivery-order guarantee, and a
@@ -413,27 +514,45 @@ def record_stripe_payment_from_invoice(
             )
             return existing
 
+    defaults: dict[str, t.Any] = {
+        "subscription": subscription,
+        "amount": amount,
+        "currency": currency_code,
+        "status": (MembershipPayment.PaymentStatus.SUCCEEDED if succeeded else MembershipPayment.PaymentStatus.FAILED),
+        "period_start": period_start,
+        "period_end": period_end,
+        "raw_response": invoice,
+        **fee_fields,
+    }
+    # An unresolved intent id must never overwrite one we already hold: it is the
+    # only key ``charge.refunded`` matches membership payments on, and ONLINE
+    # payments have no manual refund path to repair it with.
+    if payment_intent_id:
+        defaults["stripe_payment_intent_id"] = payment_intent_id
+
     payment, created = MembershipPayment.objects.update_or_create(
         stripe_invoice_id=invoice_id,
-        defaults={
-            "subscription": subscription,
-            "amount": amount,
-            "currency": currency_code,
-            "status": (
-                MembershipPayment.PaymentStatus.SUCCEEDED if succeeded else MembershipPayment.PaymentStatus.FAILED
-            ),
-            "period_start": period_start,
-            "period_end": period_end,
-            "stripe_payment_intent_id": payment_intent_id,
-            "raw_response": invoice,
-            **fee_fields,
-        },
+        defaults=defaults,
     )
 
-    _apply_invoice_outcome(subscription, succeeded=succeeded, period_start=period_start, period_end=period_end)
+    if succeeded:
+        _raise_payment_incidents(subscription, payment, invoice_id=invoice_id, currency=currency_code)
+
+    _apply_invoice_outcome(
+        subscription,
+        succeeded=succeeded,
+        # ``None`` for a proration-only invoice: it describes no billing period,
+        # so the anchor stays put and ``customer.subscription.updated`` supplies it.
+        period_start=period_start if recurring_period is not None else None,
+        period_end=period_end if recurring_period is not None else None,
+    )
 
     _dispatch_invoice_notifications(
-        subscription, prior_status=prior_status, succeeded=succeeded, payment_created=created
+        subscription,
+        prior_status=prior_status,
+        succeeded=succeeded,
+        payment_created=created,
+        billing_reason=t.cast(str, invoice.get("billing_reason") or ""),
     )
 
     logger.info(

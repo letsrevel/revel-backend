@@ -34,3 +34,26 @@ STRIPE_SESSION_PAID_WITHOUT_PAYMENTS = Counter(
     "revel_stripe_session_paid_without_payments",
     "A Stripe session with a non-zero amount_total was confirmed with no matching Payment rows.",
 )
+
+# A membership invoice was paid against a locally-terminal subscription: Stripe
+# billed a member whose access we already revoked, so the money needs refunding
+# by hand. The local row is deliberately frozen, so nothing self-heals.
+SUBSCRIPTION_PAID_WHILE_TERMINAL = Counter(
+    "revel_subscription_paid_while_terminal",
+    "A Stripe invoice was paid against a CANCELLED/EXPIRED membership subscription.",
+)
+
+# The PaymentIntent behind a membership invoice could not be resolved, so the
+# ledger row cannot be matched by a later charge.refunded. ONLINE membership
+# payments have no manual refund path, so this is unrecoverable without repair.
+SUBSCRIPTION_PAYMENT_INTENT_UNRESOLVED = Counter(
+    "revel_subscription_payment_intent_unresolved",
+    "A MembershipPayment was recorded without a resolvable Stripe PaymentIntent id.",
+)
+
+# A paid mode=subscription checkout arrived carrying metadata we cannot match to
+# any local subscription row: money was captured with nothing to attach it to.
+SUBSCRIPTION_CHECKOUT_WITHOUT_ROW = Counter(
+    "revel_subscription_checkout_without_row",
+    "A completed subscription Checkout Session matched no local MembershipSubscription.",
+)

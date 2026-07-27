@@ -13,6 +13,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
+from common.schema import ErrorDetail
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import schema
 from events.models import (
@@ -74,7 +75,16 @@ class MeMembershipApplicationsController(UserAwareController):
     @route.post(
         "/organizations/{slug}/apply",
         url_name="apply_for_membership",
-        response={201: schema.ApplyResponseSchema},
+        # 400 has two shapes: a plain ``{detail}`` for the plan_id refusal, and
+        # the serialized eligibility payload when a gate refuses the application
+        # (``MembershipApplicationIneligibleError`` — see events/exception_handlers).
+        # The frontend branches on the latter to re-render the join CTA.
+        response={
+            201: schema.ApplyResponseSchema,
+            400: schema.MembershipEligibilitySchema | ErrorDetail,
+            403: ErrorDetail,
+            404: ErrorDetail,
+        },
         throttle=WriteThrottle(),
     )
     def apply(self, slug: str, payload: schema.ApplyRequestSchema) -> tuple[int, schema.ApplyResponseSchema]:

@@ -14,6 +14,7 @@ from common.models import SiteSettings
 from events import models
 from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError
 from events.models import (
+    MembershipSubscription,
     MembershipTier,
     Organization,
     OrganizationMember,
@@ -72,11 +73,63 @@ def create_membership_request(
     return OrganizationMembershipRequest.objects.create(organization=organization, user=user, message=message)
 
 
+def _assert_free_grant_allowed(membership_request: models.OrganizationMembershipRequest) -> None:
+    """Refuse a free grant that would clobber a paid or admin-imposed membership.
+
+    Mirrors the guards ``membership_manager.service._complete_free_application``
+    applies on the self-service path. The staff path needs them for the same
+    reason and one extra: the per-tier partial unique constraint lets a stale
+    tier-less PENDING application coexist with a tier-bearing one, so a queue row
+    predating the user's subscription can still be approved months later.
+
+    Args:
+        membership_request: The application being approved.
+
+    Raises:
+        HttpError: 400 when the user holds a non-terminal subscription, or when
+            their membership is PAUSED.
+    """
+    has_subscription = (
+        MembershipSubscription.objects.filter(
+            organization_id=membership_request.organization_id,
+            user_id=membership_request.user_id,
+        )
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .exists()
+    )
+    if has_subscription:
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "This user has an active subscription; approving a free application would "
+                    "overwrite their paid membership. Cancel the subscription first, or force the approval."
+                )
+            ),
+        )
+    is_paused = models.OrganizationMember.objects.filter(
+        organization_id=membership_request.organization_id,
+        user_id=membership_request.user_id,
+        status=OrganizationMember.MembershipStatus.PAUSED,
+    ).exists()
+    if is_paused:
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "This membership is paused. Resume it instead of approving a free "
+                    "application, or force the approval."
+                )
+            ),
+        )
+
+
 @transaction.atomic
 def approve_membership_request(
     membership_request: models.OrganizationMembershipRequest,
     decided_by: RevelUser,
     tier: MembershipTier | None = None,
+    force: bool = False,
 ) -> None:
     """Approve a membership application.
 
@@ -88,16 +141,28 @@ def approve_membership_request(
     - Application carries a plan → APPROVED (Phase 2 will trigger Stripe sub creation
       from a separate /pay endpoint). Phase 1 currently rejects plan-bearing applications
       at /apply, so this branch will rarely fire until Phase 2.
+
+    Args:
+        membership_request: The application to approve.
+        decided_by: The staff member approving it.
+        tier: Tier to grant when the application carries none.
+        force: Bypass the free-path safety guards. Staff may legitimately want to
+            comp a paying subscriber or correct a tier; without this the guards
+            would make that impossible.
     """
     effective_tier = membership_request.tier or tier
     if effective_tier is None:
         raise HttpError(400, str(_("A tier must be specified to approve this application.")))
     if effective_tier.organization_id != membership_request.organization_id:
         raise HttpError(400, str(_("Tier must belong to the same organization.")))
+    if membership_request.status != models.OrganizationMembershipRequest.Status.PENDING:
+        raise HttpError(400, str(_("Only pending applications can be approved.")))
 
     membership_request.decided_by = decided_by
 
     if membership_request.plan_id is None:
+        if not force:
+            _assert_free_grant_allowed(membership_request)
         # Free path: complete now.
         membership_request.status = models.OrganizationMembershipRequest.Status.COMPLETED
         update_fields = ["status", "decided_by"]

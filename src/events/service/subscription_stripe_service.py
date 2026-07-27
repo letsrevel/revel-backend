@@ -7,6 +7,7 @@ webhook handlers in :mod:`events.service.stripe_webhooks`.
 """
 
 import typing as t
+import uuid
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -405,7 +406,7 @@ def _maybe_resume_pending_checkout(
     # held across the Session.retrieve below — same accepted trade as the
     # revive path (see #702's reservation-lock precedent for tickets).
     pending = (
-        MembershipSubscription.objects.select_for_update()
+        MembershipSubscription.objects.select_for_update(of=("self",))
         .filter(
             organization=plan.tier.organization,
             user=user,
@@ -453,20 +454,38 @@ def _maybe_resume_pending_checkout(
         )
         return pending, t.cast(str, session.url)
 
-    # Different plan, or the session expired: expire the old session
-    # (best-effort) and clear the local row.
+    # Different plan, or the session expired: expire the old session, then clear
+    # the local row.
+    #
+    # The expire must succeed before the row goes. The member is holding a live,
+    # payable URL for the old session; if we drop the row while that session is
+    # still open and they then pay it, ``checkout.session.completed`` matches
+    # nothing, the dedup row still commits HANDLED so Stripe never retries, and
+    # the reconcile sweep — which walks local rows — can never discover the
+    # resulting subscription. That is captured money with no row, no membership
+    # and no ledger entry, so a failed expire has to abort instead.
     if session_status == "open":
         try:
             stripe.checkout.Session.expire(
                 pending.stripe_checkout_session_id,
                 **_stripe_account_kwargs(pending.organization),
             )
+        except stripe.error.InvalidRequestError:
+            # Almost certainly "not in status open" — the member completed the
+            # session during our round trip. Re-read rather than guess.
+            logger.warning(
+                "subscription_stripe_pending_session_expire_rejected",
+                subscription_id=str(pending.pk),
+                stripe_checkout_session_id=pending.stripe_checkout_session_id,
+            )
+            raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
         except stripe.error.StripeError:
             logger.exception(
                 "subscription_stripe_pending_session_expire_failed",
                 subscription_id=str(pending.pk),
                 stripe_checkout_session_id=pending.stripe_checkout_session_id,
             )
+            raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
     _clear_stale_pending_checkout(pending)
     return None
 
@@ -493,10 +512,19 @@ def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription,
     Local terminalization (grace expiry, revival superseding an old sub) must
     close the Stripe side too, or Smart Retries keep dunning a member who has
     already lost access locally (C1/C2 in the 2026-06-10 reassessment). Errors
-    are logged, never raised: the local state machine stays authoritative and
-    the nightly reconciliation re-observes whatever Stripe ends up with.
+    are logged, never raised: the local state machine stays authoritative.
 
-    Returns True when the cancel call succeeded (False on no-op or failure).
+    Note the nightly reconciliation does NOT repair a failed cancel — it freezes
+    terminal rows and only logs the divergence — so a caller that is about to
+    discard ``stripe_subscription_id`` (and thus the only handle back to the
+    Stripe object) must check the return value rather than assume a later sweep
+    will clean up.
+
+    Returns True when the Stripe side is known to be closed — including when it
+    was already gone (``InvalidRequestError``), so callers can treat ``False`` as
+    "the Stripe subscription may still be live and billing" rather than having to
+    re-derive that. ``False`` also covers the no-id no-op; check
+    ``stripe_subscription_id`` first when that distinction matters.
     """
     if not subscription.stripe_subscription_id:
         return False
@@ -505,6 +533,15 @@ def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription,
             subscription.stripe_subscription_id,
             **_stripe_account_kwargs(subscription.organization),
         )
+    except stripe.error.InvalidRequestError:
+        # Already cancelled or no longer exists — the desired end state holds.
+        logger.info(
+            "subscription_stripe_cancel_on_terminalize_already_done",
+            subscription_id=str(subscription.pk),
+            stripe_subscription_id=subscription.stripe_subscription_id,
+            reason=reason,
+        )
+        return True
     except stripe.error.StripeError:
         logger.exception(
             "subscription_stripe_cancel_on_terminalize_failed",
@@ -547,7 +584,16 @@ def create_revival_checkout(subscription: MembershipSubscription) -> str:
     # row expired first (grace clock beat Smart Retries). Close it before its
     # id is cleared below, or a late retry success would bill a sub whose
     # events no longer match any local row (invisible double billing, C2).
-    cancel_stripe_subscription_best_effort(subscription, reason="revival_supersedes")
+    #
+    # This one is NOT best-effort in practice: the id is cleared a few lines
+    # down, so a silent failure here leaves a live Stripe subscription that no
+    # local row references and that the nightly reconcile — which iterates local
+    # rows — can never rediscover. Fail the revival instead and let the member
+    # retry; the row is untouched, so a retry is safe.
+    if subscription.stripe_subscription_id and not cancel_stripe_subscription_best_effort(
+        subscription, reason="revival_supersedes"
+    ):
+        raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
 
     if not plan.stripe_price_id:
         plan = ensure_stripe_price(plan)
@@ -555,14 +601,16 @@ def create_revival_checkout(subscription: MembershipSubscription) -> str:
 
     customer = ensure_customer_profile(subscription.user, org)
 
-    # Scope the idempotency key to this revival attempt via expired_at so that
-    # a future revival (after a new EXPIRED transition with a fresh expired_at)
-    # gets a distinct key.
-    idempotency_key = (
-        f"sub-revival:{subscription.pk}:{int(subscription.expired_at.timestamp())}"
-        if subscription.expired_at
-        else f"sub-revival:{subscription.pk}"
-    )
+    # Per-attempt idempotency key. It cannot be anchored on ``expired_at``: an
+    # abandoned revival is reverted to EXPIRED with ``expired_at`` deliberately
+    # preserved (see ``_clear_stale_pending_checkout``), so the key would repeat
+    # while ``_create_subscription_checkout_session`` recomputes ``expires_at``
+    # from ``now()`` — same key, different params, which Stripe rejects with an
+    # idempotency error for the ~24h the key is cached, 502-ing every retry.
+    # Concurrent attempts are already serialized by the caller's row lock, and a
+    # ``mode=subscription`` session only charges on completion, so an orphaned
+    # session from a network-timeout retry cannot double-charge.
+    idempotency_key = f"sub-revival:{subscription.pk}:{uuid.uuid4().hex}"
 
     try:
         session = _create_subscription_checkout_session(subscription, customer, idempotency_key=idempotency_key)

@@ -44,6 +44,11 @@ PLATFORM_EVENTS: tuple[str, ...] = (
     # Off-session renewals blocked on SCA/3DS: the invoice stays open with no
     # immediate payment_failed, so this is the only prompt signal.
     "invoice.payment_action_required",
+    # A released schedule clears the local pending-downgrade fields. Needed
+    # because the release is irreversible on Stripe while the local clear can
+    # still be rolled back (cancel/pause raising after it), and because an org
+    # can release a schedule straight from the Stripe Dashboard.
+    "subscription_schedule.released",
 )
 CONNECT_EVENTS: tuple[str, ...] = PLATFORM_EVENTS + ("account.updated",)
 

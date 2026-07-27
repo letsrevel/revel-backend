@@ -1879,11 +1879,30 @@ msgstr "Die Organisation akzeptiert keine neuen Mitglieder."
 msgid "You are not allowed to request membership for this organization."
 msgstr "Du darfst keine Mitgliedschaft für diese Organisation beantragen."
 
+msgid ""
+"This user has an active subscription; approving a free application would "
+"overwrite their paid membership. Cancel the subscription first, or force "
+"the approval."
+msgstr ""
+"Dieser Benutzer hat ein aktives Abonnement; die Genehmigung eines "
+"kostenlosen Antrags würde seine bezahlte Mitgliedschaft überschreiben. "
+"Kündigen Sie zuerst das Abonnement oder erzwingen Sie die Genehmigung."
+
+msgid ""
+"This membership is paused. Resume it instead of approving a free "
+"application, or force the approval."
+msgstr ""
+"Diese Mitgliedschaft ist pausiert. Setzen Sie sie fort, anstatt einen "
+"kostenlosen Antrag zu genehmigen, oder erzwingen Sie die Genehmigung."
+
 msgid "A tier must be specified to approve this application."
 msgstr "Zur Genehmigung dieses Antrags muss eine Stufe angegeben werden."
 
 msgid "Tier must belong to the same organization."
 msgstr "Die Stufe muss zur selben Organisation gehören."
+
+msgid "Only pending applications can be approved."
+msgstr "Nur ausstehende Anträge können genehmigt werden."
 
 msgid "User is already a member of this organization."
 msgstr "Anwender:in ist bereits Mitglied dieser Organisation."

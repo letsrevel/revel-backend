@@ -471,7 +471,7 @@ class TestChangePlanEndpoint:
         )
         assert response.status_code == 200, response.content
         mock_modify.assert_called_once()
-        assert mock_modify.call_args.kwargs["proration_behavior"] == "create_prorations"
+        assert mock_modify.call_args.kwargs["proration_behavior"] == "always_invoice"
         body = response.json()
         assert body["plan_id"] == str(pricier_online_plan.id)
 

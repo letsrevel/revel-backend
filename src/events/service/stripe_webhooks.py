@@ -147,6 +147,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin):
             "invoice.paid": self.handle_invoice_paid,
             "invoice.payment_failed": self.handle_invoice_payment_failed,
             "invoice.payment_action_required": self.handle_invoice_payment_action_required,
+            "subscription_schedule.released": self.handle_subscription_schedule_released,
         }
         handler = handlers.get(self.event.type)
         if handler is None:

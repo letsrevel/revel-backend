@@ -382,6 +382,25 @@ class MembershipPayment(TimeStampedModel):
         default=False, help_text="Whether reverse charge applies to the platform fee (EU B2B cross-border)."
     )
 
+    # Refund audit trail (mirrors events.models.ticket.Payment). A FULL refund
+    # flips ``status`` to REFUNDED; a partial one leaves the row SUCCEEDED — the
+    # member keeps the period they partly paid for — and is recorded only here.
+    # Without these fields a partial refund left no trace at all, so the ledger
+    # silently disagreed with Stripe and the org kept being billed the full fee.
+    refund_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Amount refunded so far (cumulative, as reported by Stripe). Null when never refunded.",
+    )
+    refunded_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the most recent refund for this payment was observed."
+    )
+    stripe_refund_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="Most recent Stripe Refund id, when known."
+    )
+
     history = HistoricalRecords()
 
     class Meta:

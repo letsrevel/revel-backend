@@ -163,7 +163,9 @@ class TestChangeOnlinePlan:
         mock_modify.assert_called_once()
         kwargs = mock_modify.call_args.kwargs
         assert kwargs["items"] == [{"id": "si_test", "price": "price_year"}]
-        assert kwargs["proration_behavior"] == "create_prorations"
+        # always_invoice: the tier is granted synchronously, so the delta must be
+        # charged now rather than deferred to a next invoice a cancel could discard.
+        assert kwargs["proration_behavior"] == "always_invoice"
         assert kwargs["payment_behavior"] == "allow_incomplete"
         assert kwargs["stripe_account"] == "acct_test_org"
         result.refresh_from_db()
@@ -619,9 +621,9 @@ class TestClassifyPlanChangePeriodNormalization:
         ):
             mock_retrieve.return_value = {"items": {"data": [{"id": "si_xyz"}]}}
             subscription_stripe_plan_change.change_online_plan(sub, annual)
-        # Upgrade path: Stripe.Subscription.modify called with create_prorations.
+        # Upgrade path: Stripe.Subscription.modify called with always_invoice.
         mock_modify.assert_called_once()
-        assert mock_modify.call_args.kwargs["proration_behavior"] == "create_prorations"
+        assert mock_modify.call_args.kwargs["proration_behavior"] == "always_invoice"
         sub.refresh_from_db()
         assert sub.plan_id == annual.pk
 

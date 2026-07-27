@@ -299,6 +299,7 @@ from .subscription import (
     ChangePlanRequestSchema,
     MemberCancelSubscriptionSchema,
     MemberPlanSchema,
+    MembershipPaymentSchema,
     MigrationAcceptedSchema,
     MyMembershipSchema,
     MySubscriptionSchema,
@@ -317,9 +318,6 @@ from .subscription import (
     SubscriptionMetricsSchema,
     SubscriptionSchema,
     SubscriptionStatusBreakdownSchema,
-)
-from .subscription import (
-    PaymentSchema as MembershipPaymentSchema,
 )
 
 # Ticket and payment schemas

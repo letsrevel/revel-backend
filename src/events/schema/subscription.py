@@ -229,7 +229,14 @@ class RefundSchema(Schema):
     notes: str = ""
 
 
-class PaymentSchema(ModelSchema):
+# Named distinctly from the ticket ``PaymentSchema`` on purpose: django-ninja
+# derives OpenAPI component names from the bare class name and disambiguates a
+# clash by appending a counter. That counter follows import-encounter order, so
+# a future schema addition could silently swap which class owns the bare name —
+# re-pointing an existing type in the generated frontend client. Keep the names
+# distinct rather than relying on the alias in ``events/schema/__init__.py``,
+# which renames only the Python import and not ``cls.__name__``.
+class MembershipPaymentSchema(ModelSchema):
     """Response schema for a membership payment (staff-facing).
 
     ``stripe_dashboard_url`` mirrors the ticket admin surface: a clickable
@@ -255,6 +262,11 @@ class PaymentSchema(ModelSchema):
             "created_at",
             "stripe_invoice_id",
             "stripe_payment_intent_id",
+            # Refund audit trail: a partial refund leaves ``status`` SUCCEEDED,
+            # so without these an organizer cannot tell it happened at all.
+            "refund_amount",
+            "refunded_at",
+            "stripe_refund_id",
         ]
 
     @staticmethod

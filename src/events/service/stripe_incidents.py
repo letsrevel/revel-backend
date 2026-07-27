@@ -34,7 +34,13 @@ import typing as t
 
 import structlog
 
-from common.observability.metrics import STRIPE_SESSION_PAID_WITHOUT_PAYMENTS, STRIPE_SESSION_TOTAL_MISMATCH
+from common.observability.metrics import (
+    STRIPE_SESSION_PAID_WITHOUT_PAYMENTS,
+    STRIPE_SESSION_TOTAL_MISMATCH,
+    SUBSCRIPTION_CHECKOUT_WITHOUT_ROW,
+    SUBSCRIPTION_PAID_WHILE_TERMINAL,
+    SUBSCRIPTION_PAYMENT_INTENT_UNRESOLVED,
+)
 from events.models import Payment
 
 logger = structlog.get_logger(__name__)
@@ -150,4 +156,90 @@ def record_paid_session_without_payments(
         payment_intent_id=payment_intent_id,
         charged_minor_units=amount_total,
         currency=currency,
+    )
+
+
+def record_subscription_paid_while_terminal(
+    *,
+    subscription_id: str,
+    status: str,
+    stripe_invoice_id: str,
+    payment_intent_id: str,
+    amount: str,
+    currency: str,
+) -> None:
+    """Emit the counter and ERROR line for an invoice paid against a terminal row.
+
+    The member was billed for a period they will never receive: the local row is
+    CANCELLED/EXPIRED, so no membership is granted and the row is deliberately
+    frozen against further mutation. Nothing downstream heals this — the nightly
+    reconcile ignores terminal rows by design — so the refund has to be issued by
+    hand, and the identifiers to do it are emitted here.
+
+    Args:
+        subscription_id: The local :class:`MembershipSubscription` pk.
+        status: The terminal status the row was in when the invoice landed.
+        stripe_invoice_id: The Stripe invoice that was paid.
+        payment_intent_id: The PaymentIntent to refund (may be empty).
+        amount: What changed hands, as a decimal string.
+        currency: Payment currency.
+    """
+    SUBSCRIPTION_PAID_WHILE_TERMINAL.inc()
+    logger.error(
+        "subscription_paid_while_terminal",
+        subscription_id=subscription_id,
+        subscription_status=status,
+        stripe_invoice_id=stripe_invoice_id,
+        payment_intent_id=payment_intent_id,
+        amount=amount,
+        currency=currency,
+    )
+
+
+def record_subscription_payment_intent_unresolved(
+    *,
+    subscription_id: str,
+    stripe_invoice_id: str,
+) -> None:
+    """Emit the counter and ERROR line for a ledger row with no PaymentIntent id.
+
+    ``charge.refunded`` matches membership payments solely on
+    ``stripe_payment_intent_id``, and the org-admin refund endpoint refuses ONLINE
+    payments outright — so a row stored without an intent id can never be marked
+    REFUNDED by any path. The invoice id is enough for an operator to re-resolve
+    the intent from the Stripe dashboard and repair the row.
+
+    Args:
+        subscription_id: The local :class:`MembershipSubscription` pk.
+        stripe_invoice_id: The invoice whose PaymentIntent could not be resolved.
+    """
+    SUBSCRIPTION_PAYMENT_INTENT_UNRESOLVED.inc()
+    logger.error(
+        "subscription_payment_intent_unresolved",
+        subscription_id=subscription_id,
+        stripe_invoice_id=stripe_invoice_id,
+    )
+
+
+def record_subscription_checkout_without_row(
+    *,
+    session_id: str,
+    membership_subscription_id: str,
+) -> None:
+    """Emit the counter and ERROR line for a paid subscription session with no row.
+
+    The session completed on Stripe — a Subscription exists and will keep billing
+    — but its metadata points at no local row, so no membership is granted and no
+    ledger entry is written. The reconcile sweep walks local rows only and can
+    never discover this, and the webhook returns 200 so Stripe will not retry.
+
+    Args:
+        session_id: The completed Stripe Checkout Session.
+        membership_subscription_id: The unmatched id carried in session metadata.
+    """
+    SUBSCRIPTION_CHECKOUT_WITHOUT_ROW.inc()
+    logger.error(
+        "subscription_checkout_without_row",
+        session_id=session_id,
+        membership_subscription_id=membership_subscription_id,
     )

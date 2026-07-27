@@ -104,7 +104,7 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
     for sub_id in list(active_lapsed_ids):
         with transaction.atomic():
             sub = (
-                MembershipSubscription.objects.select_for_update()
+                MembershipSubscription.objects.select_for_update(of=("self",))
                 .select_related("plan", "plan__tier", "organization")
                 .get(pk=sub_id)
             )
@@ -144,7 +144,7 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
     for sub_id in list(past_due_ids):
         with transaction.atomic():
             sub = (
-                MembershipSubscription.objects.select_for_update()
+                MembershipSubscription.objects.select_for_update(of=("self",))
                 .select_related("plan", "plan__tier", "organization")
                 .get(pk=sub_id)
             )

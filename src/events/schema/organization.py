@@ -303,6 +303,13 @@ class ApproveMembershipRequestSchema(Schema):
     """
 
     tier_id: UUID4 | None = None
+    force: bool = Field(
+        default=False,
+        description=(
+            "Approve even when the user holds an active subscription or a paused membership. "
+            "Without this, such an approval is refused so a free grant cannot silently overwrite a paid tier."
+        ),
+    )
 
 
 class MembershipTierSchema(ModelSchema):

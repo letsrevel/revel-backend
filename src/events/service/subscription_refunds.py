@@ -61,7 +61,7 @@ def _cancel_refunded_subscription(subscription: MembershipSubscription) -> None:
     grace-expiry task — never hold a row lock across a network call.
     """
     subscription = (
-        MembershipSubscription.objects.select_for_update()
+        MembershipSubscription.objects.select_for_update(of=("self",))
         .select_related("plan", "plan__tier", "organization")
         .get(pk=subscription.pk)
     )
@@ -105,9 +105,14 @@ def refund_payment(
     if payment.status == MembershipPayment.PaymentStatus.REFUNDED:
         return payment
     payment.status = MembershipPayment.PaymentStatus.REFUNDED
+    # Keep the audit trail consistent with the partial-refund path: a full
+    # refund is still a refund, and organizers read these fields rather than
+    # inferring the amount from ``status`` alone.
+    payment.refund_amount = payment.amount
+    payment.refunded_at = timezone.now()
     if notes:
         payment.notes = (payment.notes + ("\n" if payment.notes else "") + notes).strip()
-    payment.save(update_fields=["status", "notes", "updated_at"])
+    payment.save(update_fields=["status", "notes", "refund_amount", "refunded_at", "updated_at"])
 
     logger.info(
         "membership_payment_refunded",

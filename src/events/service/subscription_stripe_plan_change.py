@@ -135,9 +135,16 @@ def _upgrade_online_subscription(
 ) -> MembershipSubscription:
     """Apply an immediate, prorated price swap on Stripe.
 
-    Stripe issues a prorated invoice on the spot. If payment fails the
-    subscription moves to ``past_due`` and the existing dunning flow takes
-    over; either way the price swap stands.
+    ``always_invoice`` — not ``create_prorations`` — because the tier is granted
+    synchronously below (the ``MembershipSubscription`` save re-points
+    ``OrganizationMember.tier``). ``create_prorations`` only queues line items
+    for the *next* invoice, so the member would hold the pricier tier for a full
+    cycle without being charged, and an immediate cancel — which Stripe defaults
+    to ``invoice_now=False, prorate=False`` — would discard the delta outright.
+    Invoicing on the spot keeps the grant and the charge together.
+
+    If that invoice's payment fails the subscription moves to ``past_due`` and
+    the existing dunning flow takes over; either way the price swap stands.
     """
     org = subscription.organization
     kwargs = _stripe_account_kwargs(org)
@@ -147,7 +154,7 @@ def _upgrade_online_subscription(
         stripe.Subscription.modify(
             stripe_sub_id,
             items=[{"id": item_id, "price": new_plan.stripe_price_id}],
-            proration_behavior="create_prorations",
+            proration_behavior="always_invoice",
             payment_behavior="allow_incomplete",
             metadata={"revel_plan_id": str(new_plan.pk)},
             **kwargs,
@@ -321,7 +328,7 @@ def change_online_plan(
 
     with transaction.atomic():
         subscription = (
-            MembershipSubscription.objects.select_for_update()
+            MembershipSubscription.objects.select_for_update(of=("self",))
             .select_related("plan", "plan__tier", "organization", "user")
             .get(pk=subscription.pk)
         )

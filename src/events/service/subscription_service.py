@@ -420,7 +420,7 @@ def cancel_subscription(
     """
     # Reload up front so the dispatch check sees committed plan/Stripe data.
     subscription = (
-        MembershipSubscription.objects.select_for_update()
+        MembershipSubscription.objects.select_for_update(of=("self",))
         .select_related("plan", "plan__tier", "organization")
         .get(pk=subscription.pk)
     )
@@ -483,7 +483,9 @@ def pause_subscription(subscription: MembershipSubscription) -> MembershipSubscr
     keep generating on the Stripe side while we believe collection is
     halted.
     """
-    subscription = MembershipSubscription.objects.select_for_update().select_related("plan").get(pk=subscription.pk)
+    subscription = (
+        MembershipSubscription.objects.select_for_update(of=("self",)).select_related("plan").get(pk=subscription.pk)
+    )
     if subscription.is_terminal:
         raise HttpError(400, str(_("Cannot pause a terminal subscription.")))
     if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
@@ -511,7 +513,7 @@ def resume_subscription(subscription: MembershipSubscription) -> MembershipSubsc
     refused outright rather than resumed locally.
     """
     subscription = (
-        MembershipSubscription.objects.select_for_update()
+        MembershipSubscription.objects.select_for_update(of=("self",))
         .select_related("plan", "plan__tier", "organization")
         .get(pk=subscription.pk)
     )
@@ -532,6 +534,15 @@ def _validate_revivable(subscription: MembershipSubscription) -> None:
     """Run all revival pre-flight checks. Caller is responsible for locking."""
     if subscription.status != MembershipSubscription.SubscriptionStatus.EXPIRED:
         raise HttpError(400, str(_("Only expired subscriptions can be revived.")))
+
+    # Same refusal as ``create_subscription``/``_validate_change_plan_target``/
+    # ``start_online_subscription``. Beyond the OFFLINE case (landing a member on
+    # a plan staff retired), ``archive_plan`` deactivates the Stripe Price and
+    # ``create_revival_checkout`` only re-provisions when the id is *empty*, not
+    # when it is inactive — so an ONLINE revival would 502 on Session.create,
+    # after having already best-effort-cancelled the old Stripe subscription.
+    if not subscription.plan.is_active:
+        raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
 
     org = subscription.organization
     if org.membership_subscription_revival_window_days == 0:
@@ -584,9 +595,10 @@ def revive_subscription(
     ATOMIC_REQUESTS the inner block exit releases only a savepoint, so the
     row lock is in fact held across the Stripe calls until the request
     commits — accepted for now (single-member blast radius; the lock also
-    serializes echo-webhooks against this mutation). Stripe
-    ``idempotency_key`` keys the session-create call to this subscription's
-    current ``expired_at`` so concurrent attempts converge.
+    serializes echo-webhooks against this mutation). That same lock is what
+    lets the session-create call use a per-attempt Stripe ``idempotency_key``:
+    concurrent attempts cannot interleave, so the key does not need to be
+    derived from row state (and must not be — see ``create_revival_checkout``).
 
     Returns:
         A ``(subscription, checkout_url)`` tuple. ``checkout_url`` is
@@ -607,7 +619,7 @@ def revive_subscription(
     """
     with transaction.atomic():
         subscription = (
-            MembershipSubscription.objects.select_for_update()
+            MembershipSubscription.objects.select_for_update(of=("self",))
             .select_related("plan", "plan__tier", "organization", "user")
             .get(pk=subscription.pk)
         )
@@ -715,7 +727,7 @@ def change_plan(
     skips the PAUSED-sales check.
     """
     subscription = (
-        MembershipSubscription.objects.select_for_update()
+        MembershipSubscription.objects.select_for_update(of=("self",))
         .select_related("plan", "plan__tier", "organization", "user")
         .get(pk=subscription.pk)
     )
