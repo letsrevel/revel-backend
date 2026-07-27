@@ -13,7 +13,7 @@ from ninja_extra.searching import Searching, searching
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.models import Tag
-from common.schema import TagSchema
+from common.schema import ErrorDetail, TagSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
@@ -181,16 +181,18 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.delete(
         "/membership-tiers/{tier_id}",
         url_name="delete_membership_tier",
-        response={204: None},
+        response={204: None, 409: ErrorDetail},
     )
     def delete_membership_tier(self, slug: str, tier_id: UUID) -> tuple[int, None]:
         """Delete a membership tier.
 
-        Members assigned to this tier will have their tier set to NULL (due to SET_NULL on the FK).
+        Members assigned to this tier will have their tier set to NULL (due to SET_NULL on the FK),
+        and the tier's subscription plans are deleted along with it. Answers 409 when a membership
+        application or a subscription still references the tier or one of its plans.
         """
         organization = self.get_one(slug)
         tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
-        tier.delete()
+        organization_service.delete_membership_tier(tier)
         return 204, None
 
     # ---- Staff ----

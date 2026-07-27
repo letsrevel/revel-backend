@@ -4,7 +4,7 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, ProtectedError
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -12,7 +12,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events import models
-from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError
+from events.exceptions import AlreadyMemberError, MembershipTierInUseError, PendingMembershipRequestExistsError
 from events.models import (
     MembershipSubscription,
     MembershipTier,
@@ -33,6 +33,14 @@ from events.models.organization import _get_default_permissions
 from events.service import blacklist_service
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
+
+# Tier-delete refusals (#804). Rendered by ``MembershipTierInUseError`` → 409.
+TIER_HAS_APPLICATIONS_MESSAGE = _(
+    "Cannot delete a tier that has membership applications. They are part of the organization's history."
+)
+TIER_HAS_SUBSCRIPTIONS_MESSAGE = _(
+    "Cannot delete a tier whose plans still have subscriptions. Archive the plans instead."
+)
 
 
 def create_membership_request(
@@ -364,6 +372,39 @@ def update_membership_tier(tier: MembershipTier, payload: "MembershipTierUpdateS
     if data.get("membership_questionnaire_id"):
         validate_membership_questionnaire(tier.organization, data["membership_questionnaire_id"])
     return update_db_instance(tier, payload)
+
+
+def delete_membership_tier(tier: MembershipTier) -> None:
+    """Delete a membership tier, refusing when protected rows still reference it.
+
+    Members are detached (``OrganizationMember.tier`` is SET_NULL) and the tier's
+    subscription plans cascade away — deleting a plan nobody subscribed to is
+    already allowed by ``subscription_service.delete_plan``. Two relations PROTECT
+    instead, and before #804 the cascade surfaced as a 500:
+
+    * ``OrganizationMembershipRequest.tier`` / ``.plan`` — applications are the
+      organization's join history.
+    * ``MembershipSubscription.plan`` / ``.pending_plan`` — subscriptions carry real
+      money, terminal ones included.
+
+    Rather than pre-querying each protected relation, the delete is attempted and the
+    ``ProtectedError`` translated. Django's collector raises it before issuing any
+    DELETE, so nothing is half-deleted, and this also closes the race with a
+    concurrent subscribe.
+
+    Args:
+        tier: The tier to delete.
+
+    Raises:
+        MembershipTierInUseError: 409 — a protected application or subscription still
+            references the tier or one of its plans.
+    """
+    try:
+        tier.delete()
+    except ProtectedError as exc:
+        if any(isinstance(obj, OrganizationMembershipRequest) for obj in exc.protected_objects):
+            raise MembershipTierInUseError(str(TIER_HAS_APPLICATIONS_MESSAGE)) from exc
+        raise MembershipTierInUseError(str(TIER_HAS_SUBSCRIPTIONS_MESSAGE)) from exc
 
 
 @transaction.atomic

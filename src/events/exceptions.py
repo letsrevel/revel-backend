@@ -91,3 +91,7 @@ class InvalidZoneSelectionError(Exception):
 
 class SeriesPassHasHoldersError(Exception):
     """Raised when deleting a SeriesPass or removing tier-link coverage would strand non-cancelled holders."""
+
+
+class MembershipTierInUseError(Exception):
+    """Raised when deleting a MembershipTier would drop protected membership applications or subscriptions."""

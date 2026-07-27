@@ -31,6 +31,7 @@ from events.exceptions import (
     InvalidStripeWebhookSignatureError,
     InvalidZoneSelectionError,
     MembershipPolicyManageSubscriptionsOnlyError,
+    MembershipTierInUseError,
     OrganizationTokenGrantInvariantError,
     OrganizationTokenMembershipTierRequiredError,
     OrganizationTokenStaffGrantForbidden,
@@ -142,6 +143,8 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     SeriesPassNotPurchasableError: make_simple_handler(409),
     # Deleting a pass / removing tier-link coverage would strand a non-cancelled holder → 409.
     SeriesPassHasHoldersError: make_simple_handler(409),
+    # Deleting a membership tier would drop a protected application or subscription → 409.
+    MembershipTierInUseError: make_simple_handler(409),
     # Books-vs-charge invariant breach (#739): a bug on our side, and one we must never
     # paper over — 500, with a generic message so the amounts stay in the logs only.
     SessionTotalMismatchError: make_static_handler(500, _("Payment processing failed. Please try again later.")),
