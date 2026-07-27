@@ -11,10 +11,11 @@ from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
+from django.db.models import CASCADE, PROTECT, RESTRICT, Model
 from django.test import override_settings
 from django.utils import timezone
 
-from accounts.models import RevelUser
+from accounts.models import Referral, ReferralCode, ReferralPayout, ReferralPayoutStatement, RevelUser
 from events.models import (
     Event,
     EventSeries,
@@ -24,10 +25,12 @@ from events.models import (
     MembershipTier,
     Organization,
     OrganizationMembershipRequest,
+    RecurrenceRule,
     SeriesPass,
     Ticket,
     TicketTier,
 )
+from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
 
@@ -197,3 +200,95 @@ class TestResetEventsCommand:
         assert not HeldSeriesPass.objects.filter(pk=held_pass.pk).exists()
         assert not Ticket.objects.filter(pk=ticket.pk).exists()
         assert not SeriesPass.objects.filter(pk=series_pass.pk).exists()
+
+
+# Every model reset_events deletes, explicitly or as a final cascade root.
+# Keep in sync with the command — the guard test below walks the deletion
+# graph from these roots.
+RESET_DELETE_ROOTS: tuple[type[Model], ...] = (
+    ReferralPayoutStatement,
+    ReferralPayout,
+    Referral,
+    ReferralCode,
+    RecurrenceRule,
+    OrganizationMembershipRequest,
+    MembershipSubscription,
+    Ticket,
+    HeldSeriesPass,
+    Organization,
+    Questionnaire,
+    RevelUser,
+)
+
+# PROTECT/RESTRICT FK edges into the reset cascade that reset_events already
+# handles, as (source model label, FK field name, target model label). Each
+# entry is either pre-deleted or nulled by the command before the edge's
+# target is deleted.
+HANDLED_PROTECTED_EDGES: frozenset[tuple[str, str, str]] = frozenset(
+    {
+        # Referral chain: pre-deleted in dependency order (statement → payout → referral → code).
+        ("accounts.ReferralPayoutStatement", "payout", "accounts.ReferralPayout"),
+        ("accounts.ReferralPayout", "referral", "accounts.Referral"),
+        ("accounts.Referral", "referral_code", "accounts.ReferralCode"),
+        ("accounts.ReferralCode", "user", "accounts.RevelUser"),
+        ("accounts.Referral", "referrer", "accounts.RevelUser"),
+        ("accounts.Referral", "referred_user", "accounts.RevelUser"),
+        # Organizations are deleted before the user sweep.
+        ("events.Organization", "owner", "accounts.RevelUser"),
+        # Series templates: FKs nulled via EventSeries.objects.update(...) first.
+        ("events.EventSeries", "template_event", "events.Event"),
+        ("events.EventSeries", "recurrence_rule", "events.RecurrenceRule"),
+        # Series passes: pass-backed tickets then held passes are pre-deleted.
+        ("events.Ticket", "held_pass", "events.HeldSeriesPass"),
+        ("events.HeldSeriesPass", "series_pass", "events.SeriesPass"),
+        # Membership applications and subscriptions are pre-deleted (issues #434, #794).
+        ("events.OrganizationMembershipRequest", "tier", "events.MembershipTier"),
+        ("events.OrganizationMembershipRequest", "plan", "events.MembershipSubscriptionPlan"),
+        ("events.MembershipSubscription", "plan", "events.MembershipSubscriptionPlan"),
+        ("events.MembershipSubscription", "pending_plan", "events.MembershipSubscriptionPlan"),
+    }
+)
+
+
+def test_no_unhandled_protected_edges_into_reset_cascade() -> None:
+    """Guard: a new PROTECT/RESTRICT FK into the reset cascade must be handled in ``reset_events``.
+
+    Every pre-cascade delete in the command was added reactively after a
+    ``ProtectedError`` in the demo reset (#434, series passes, #794). This test
+    walks the deletion graph instead: it computes the CASCADE closure of every
+    model the command deletes, then flags any PROTECT or RESTRICT FK pointing
+    at a model in that closure. PROTECT aborts a delete even when the
+    protecting rows are part of the same cascade, and RESTRICT only tolerates
+    same-operation deletes — the command runs several — so every such edge
+    needs explicit handling (a pre-delete or FK nulling) and a matching entry
+    in ``HANDLED_PROTECTED_EDGES``.
+    """
+    closure: set[type[Model]] = set(RESET_DELETE_ROOTS)
+    queue: list[type[Model]] = list(RESET_DELETE_ROOTS)
+    while queue:
+        model = queue.pop()
+        for rel in model._meta.related_objects:
+            on_delete = getattr(rel, "on_delete", None) or getattr(rel.field, "on_delete", None)
+            related_model = t.cast(type[Model], rel.related_model)
+            if on_delete is CASCADE and related_model not in closure:
+                closure.add(related_model)
+                queue.append(related_model)
+
+    hazard_edges: set[tuple[str, str, str]] = set()
+    for model in closure:
+        for rel in model._meta.related_objects:
+            on_delete = getattr(rel, "on_delete", None) or getattr(rel.field, "on_delete", None)
+            if on_delete is PROTECT or on_delete is RESTRICT:
+                source = t.cast(type[Model], rel.related_model)
+                hazard_edges.add((source._meta.label, rel.field.name, model._meta.label))
+
+    unhandled = hazard_edges - HANDLED_PROTECTED_EDGES
+    assert not unhandled, (
+        "New PROTECT/RESTRICT FK(s) point into the reset_events deletion cascade; "
+        "reset_events will crash with ProtectedError once such rows exist. Handle "
+        "each edge in the command (pre-delete or null the FK before the cascade) "
+        f"and add it to HANDLED_PROTECTED_EDGES: {sorted(unhandled)}"
+    )
+
+    stale = HANDLED_PROTECTED_EDGES - hazard_edges
+    assert not stale, f"HANDLED_PROTECTED_EDGES lists edges that no longer exist — remove them: {sorted(stale)}"
