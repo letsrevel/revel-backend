@@ -30,6 +30,10 @@ from events.models import (
     AttendeeInvoice,
     AttendeeInvoiceCreditNote,
     Event,
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    MembershipTier,
     Organization,
     OrganizationMember,
     OrganizationMembershipRequest,
@@ -289,6 +293,95 @@ def test_attendee_invoice_credit_notes_exported(
     assert note_data["credit_note_number"] == "CN-2026-1"
     (invoice_data,) = data["attendee_invoices"]
     assert invoice_data["invoice_number"] == "INV-2026-1"
+
+
+@pytest.mark.django_db
+def test_request_rows_exclude_deciding_staff_id(
+    user: RevelUser, organization: Organization, revel_user_factory: RevelUserFactory
+) -> None:
+    """The requester's own rows must not name the staff member who decided them.
+
+    ``decided_by`` is the acting organizer's identity — third-party data on a
+    row that is otherwise legitimately the requester's.
+    """
+    for accessor in (
+        "whitelist_requests",
+        "eventinvitationrequest_set",
+        "organizationmembershiprequest_set",
+    ):
+        rule = gdpr.EXPORT_RULES[accessor]
+        assert rule.include, f"{accessor} is the requester's own data and must be exported"
+        assert "decided_by" in rule.exclude_fields, f"{accessor} must not leak the deciding staff member"
+
+    requester = revel_user_factory(username="requester@example.com", email="requester@example.com")
+    request = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=requester,
+        decided_by=user,
+        status=OrganizationMembershipRequest.Status.APPROVED,
+    )
+
+    data, raw = _export(requester)
+
+    (request_data,) = data["organizationmembershiprequest_set"]
+    assert request_data["id"] == str(request.id)
+    assert request_data["status"] == OrganizationMembershipRequest.Status.APPROVED
+    assert "decided_by" not in request_data
+    assert str(user.id) not in raw
+
+
+@pytest.mark.django_db
+def test_membership_payments_exported_without_recorder_id(
+    user: RevelUser, organization: Organization, revel_user_factory: RevelUserFactory
+) -> None:
+    """Subscribers get their payment history; the staff recorder stays out of it."""
+    subscriber = revel_user_factory(username="subscriber@example.com", email="subscriber@example.com")
+    tier = MembershipTier.objects.create(organization=organization, name="Pro")
+    plan = MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Monthly",
+        price=Decimal("10.00"),
+        currency="EUR",
+        period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+        period_count=1,
+    )
+    period_start = timezone.now() - timedelta(days=30)
+    period_end = timezone.now()
+    subscription = MembershipSubscription.objects.create(
+        user=subscriber,
+        plan=plan,
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        current_period_start=period_start,
+        current_period_end=period_end,
+    )
+    MembershipPayment.objects.create(
+        subscription=subscription,
+        amount=Decimal("10.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        period_start=period_start,
+        period_end=period_end,
+        recorded_by=user,
+        notes="recorded offline",
+    )
+
+    data, raw = _export(subscriber)
+
+    (payment_data,) = data["membership_payments"]
+    assert payment_data["subscription"] == str(subscription.id)
+    assert payment_data["amount"] == "10.00"
+    assert payment_data["currency"] == "EUR"
+    assert payment_data["notes"] == "recorded offline"
+    assert "recorded_by" not in payment_data
+    assert str(user.id) not in raw
+
+    # The recorder's own export is about their organization, not the subscriber.
+    recorder_data, recorder_raw = _export(user)
+
+    assert "membership_payments" not in recorder_data or recorder_data["membership_payments"] == []
+    assert str(subscriber.id) not in recorder_raw
+    assert subscriber.email not in recorder_raw
 
 
 @pytest.mark.django_db

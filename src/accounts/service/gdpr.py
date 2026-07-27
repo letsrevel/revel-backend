@@ -41,8 +41,9 @@ from questionnaires.models import (
 
 logger = structlog.get_logger(__name__)
 
-# Signed URLs inside the export must outlive the export download link (7 days,
-# see accounts/tasks/gdpr.py DATA_EXPORT_URL_EXPIRES_IN).
+# Signed URLs inside the export share the lifetime of the export download link
+# (7 days). Single source of truth: accounts/tasks/gdpr.py aliases this as
+# DATA_EXPORT_URL_EXPIRES_IN, so the two can never drift.
 EXPORT_FILE_URL_EXPIRES_IN = 7 * 24 * 60 * 60
 
 _EXPORT_FALLBACK = "[This field could not be exported]"
@@ -133,11 +134,19 @@ def _default_serializer(obj: t.Any) -> t.Any:
 
 
 def _dump(obj: Model, exclude: tuple[str, ...] = ()) -> dict[str, t.Any]:
-    """``model_to_dict`` plus pk and timestamps, minus ``exclude`` fields.
+    """Dump a model row for export: ``model_to_dict`` minus excludes, plus pk/timestamps.
 
     ``model_to_dict`` drops ``editable=False`` fields, which strips the pk and
     ``created_at``/``updated_at`` from every row — an Art. 12(1)
-    intelligibility problem. Re-add them explicitly.
+    intelligibility problem. So this re-adds ``id`` (the pk) unconditionally,
+    and ``created_at``/``updated_at`` when the model defines them.
+
+    Args:
+        obj: The model instance to dump.
+        exclude: Field names to drop from the ``model_to_dict`` output.
+
+    Returns:
+        The row as a plain dict, ready for orjson.
     """
     data = {k: v for k, v in model_to_dict(obj).items() if k not in exclude}
     data["id"] = obj.pk
@@ -163,12 +172,16 @@ def _serialize_org_summaries(user: RevelUser, accessor: str) -> list[dict[str, t
 
 
 def _serialize_owned_organizations(user: RevelUser) -> list[dict[str, t.Any]]:
-    # The owner's org business data is their own (sole-trader case), but the
-    # members/staff M2M pk lists are other people's identifiers.
+    """Organizations the user owns, minus the member/staff rosters.
+
+    The owner's org business data is their own (sole-trader case), but the
+    members/staff M2M pk lists are other people's identifiers.
+    """
     return [_dump(org, exclude=("members", "staff_members")) for org in user.owned_organizations.all()]
 
 
 def _serialize_waitlisted_events(user: RevelUser) -> list[dict[str, t.Any]]:
+    """Events the user is waitlisted for, reduced to identity fields."""
     return [
         {"id": event.pk, "name": event.name, "slug": event.slug, "start": event.start} for event in user.waitlist.all()
     ]
@@ -195,6 +208,7 @@ def _serialize_referrals_made(user: RevelUser) -> list[dict[str, t.Any]]:
 
 
 def _serialize_referral_payouts(user: RevelUser) -> list[dict[str, t.Any]]:
+    """Payouts earned on the user's referrals, without the referral's user ids."""
     return [
         {
             "period_start": payout.period_start,
@@ -212,14 +226,31 @@ def _serialize_referral_payouts(user: RevelUser) -> list[dict[str, t.Any]]:
 
 
 def _serialize_referral_payout_statements(user: RevelUser) -> list[dict[str, t.Any]]:
+    """Per-payout statement lines for the user's referral payouts (depth 2)."""
     statements = ReferralPayoutStatement.objects.filter(payout__referral__referrer=user)
     return [_dump(statement, exclude=("payout",)) for statement in statements]
 
 
 def _serialize_attendee_invoice_credit_notes(user: RevelUser) -> list[dict[str, t.Any]]:
+    """Credit notes issued against the user's own invoices (depth 2)."""
     from events.models import AttendeeInvoiceCreditNote
 
     return [_dump(note) for note in AttendeeInvoiceCreditNote.objects.filter(invoice__user=user)]
+
+
+def _serialize_membership_payments(user: RevelUser) -> list[dict[str, t.Any]]:
+    """Payments recorded against the user's own membership subscriptions (depth 2).
+
+    ``recorded_by`` is the staff member who booked the payment — third-party
+    data — so it is stripped; ``subscription`` is kept because it links back to
+    the user's exported ``membership_subscriptions`` rows.
+    """
+    from events.models import MembershipPayment
+
+    return [
+        _dump(payment, exclude=("recorded_by",))
+        for payment in MembershipPayment.objects.filter(subscription__user=user)
+    ]
 
 
 def _serialize_dietary_restrictions(user: RevelUser) -> list[dict[str, t.Any]]:
@@ -375,9 +406,11 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "organization_staff_memberships": ExportRule(include=True),
     "eventwaitlist_set": ExportRule(include=True),
     "waitlist_offers": ExportRule(include=True),
-    "whitelist_requests": ExportRule(include=True),
-    "eventinvitationrequest_set": ExportRule(include=True),
-    "organizationmembershiprequest_set": ExportRule(include=True),
+    # ``decided_by`` is the deciding staff member's id — third-party data on the
+    # requester's own row (``UserRequestMixin``), so it is stripped here too.
+    "whitelist_requests": ExportRule(include=True, exclude_fields=("decided_by",)),
+    "eventinvitationrequest_set": ExportRule(include=True, exclude_fields=("decided_by",)),
+    "organizationmembershiprequest_set": ExportRule(include=True, exclude_fields=("decided_by",)),
     "held_series_passes": ExportRule(include=True),
     "membership_subscriptions": ExportRule(include=True),
     "seat_holds": ExportRule(include=True),
@@ -425,6 +458,7 @@ EXTRA_SECTIONS: dict[str, _Serializer] = {
     "referral_payouts": _serialize_referral_payouts,
     "referral_payout_statements": _serialize_referral_payout_statements,
     "attendee_invoice_credit_notes": _serialize_attendee_invoice_credit_notes,
+    "membership_payments": _serialize_membership_payments,
 }
 
 
