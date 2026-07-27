@@ -191,7 +191,16 @@ class TestChangeOnlinePlan:
         mock_schedule_modify.assert_called_once()
         phases = mock_schedule_modify.call_args.kwargs["phases"]
         assert phases[0]["items"][0]["price"] == "price_test"
+        # Phase 1 keeps the boundary dates and must not carry a ``duration``
+        # (Stripe rejects ``duration`` and ``end_date`` on the same phase).
+        assert phases[0]["start_date"] == 100
+        assert phases[0]["end_date"] == 200
+        assert "duration" not in phases[0]
         assert phases[1]["items"][0]["price"] == "price_lite"
+        # ``iterations`` was removed from the pinned Stripe API version (#786).
+        assert "iterations" not in phases[1]
+        assert phases[1]["duration"] == {"interval": "month", "interval_count": 1}
+        assert "end_date" not in phases[1]
         assert mock_schedule_modify.call_args.kwargs["end_behavior"] == "release"
         result.refresh_from_db()
         # Downgrade leaves current plan in place — the pending plan is queued.
@@ -569,7 +578,9 @@ class TestClassifyPlanChangePeriodNormalization:
             mock.patch(
                 "events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.create"
             ) as mock_create,
-            mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.modify"),
+            mock.patch(
+                "events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.modify"
+            ) as mock_modify,
         ):
             schedule_mock = mock.MagicMock(id="sched_cross")
             schedule_mock.get.return_value = [{"items": [{"price": "price_test"}], "start_date": 0, "end_date": 1}]
@@ -578,6 +589,10 @@ class TestClassifyPlanChangePeriodNormalization:
         sub.refresh_from_db()
         # Downgrade path: pending_plan set, plan unchanged.
         assert sub.pending_plan_id == annual.pk
+        # Phase 2's duration follows the *new* plan's cadence, not the old one.
+        phases = mock_modify.call_args.kwargs["phases"]
+        assert phases[1]["duration"] == {"interval": "year", "interval_count": 1}
+        assert "iterations" not in phases[1]
 
     def test_monthly_to_pricier_yearly_is_upgrade(
         self,

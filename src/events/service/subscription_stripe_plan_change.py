@@ -177,10 +177,10 @@ def _downgrade_online_subscription(
     """Schedule a price swap at the next renewal via a Stripe Subscription Schedule.
 
     Two-phase schedule: phase 1 keeps the current price for the rest of the
-    current period; phase 2 starts the new price at the period boundary.
+    current period; phase 2 starts the new price at the period boundary and
+    lasts one billing period of the new plan (``duration``).
     ``end_behavior='release'`` lets the subscription fall back to a normal
-    rolling renewal at the new price once the schedule's second phase
-    completes its first iteration.
+    rolling renewal at the new price once that second phase completes.
     """
     org = subscription.organization
     kwargs = _stripe_account_kwargs(org)
@@ -212,7 +212,11 @@ def _downgrade_online_subscription(
             },
             {
                 "items": [{"price": new_plan.stripe_price_id, "quantity": 1}],
-                "iterations": 1,
+                # ``iterations`` was removed by the pinned Stripe API version
+                # (>= 2025-07-30.basil rejects it with parameter_unknown); a
+                # ``duration`` of one new-plan period is the replacement. It is
+                # mutually exclusive with ``end_date``, which phase 2 has none of.
+                "duration": {"interval": new_plan.period_unit, "interval_count": new_plan.period_count},
                 "proration_behavior": "none",
             },
         ]
