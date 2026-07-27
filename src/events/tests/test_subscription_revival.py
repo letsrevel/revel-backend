@@ -14,6 +14,7 @@ from ninja_jwt.tokens import RefreshToken
 from accounts.models import RevelUser
 from events.models import (
     CustomerProfile,
+    MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -22,6 +23,7 @@ from events.models import (
 )
 from events.service import subscription_service
 from events.service.subscription_service import InitialPayment
+from events.service.subscription_stripe_service import _clear_stale_pending_checkout
 
 
 @pytest.fixture
@@ -547,6 +549,77 @@ class TestOnlineRevivalSuccess:
         assert str(sub.pk) in create_kwargs["idempotency_key"]
         assert create_kwargs["metadata"] == {"membership_subscription_id": str(sub.pk)}
         assert create_kwargs["subscription_data"]["metadata"] == {"membership_subscription_id": str(sub.pk)}
+
+    def test_second_revival_after_revert_uses_a_fresh_idempotency_key(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """A re-revive must not replay the first attempt's Stripe idempotency key.
+
+        An abandoned revival is reverted to EXPIRED with ``expired_at``
+        deliberately preserved, while the session-create payload carries a
+        freshly computed ``expires_at``. A key derived from row state would
+        therefore repeat with different params — which Stripe rejects with an
+        IdempotencyError for ~24h, 502-ing every retry (#803).
+        """
+        self._make_stripe_connected(organization)
+        CustomerProfile.objects.create(
+            user=subscriber,
+            organization=organization,
+            stripe_customer_id="cus_rekey_x",
+        )
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="OnlineMonthlyRekey",
+            price=Decimal("10"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_price_id="price_rekey_x",
+            stripe_product_id="prod_rekey_x",
+        )
+        expired_at = timezone.now() - timedelta(days=1)
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.EXPIRED,
+            expired_at=expired_at,
+        )
+        # A payment-bearing row is what makes the revert (rather than a delete)
+        # happen — the ledger cascades on delete.
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=online_plan.price,
+            currency=online_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=31),
+            period_end=expired_at,
+        )
+
+        with (
+            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+        ):
+            create_mock.return_value = MagicMock(id="cs_rekey_1", url="https://checkout.stripe.com/c/pay/cs_rekey_1")
+            subscription_service.revive_subscription(sub)
+            first_key = create_mock.call_args.kwargs["idempotency_key"]
+
+            # Member abandons the checkout: the row is reverted to EXPIRED with
+            # expired_at intact (#802), then they click Rejoin again.
+            sub.refresh_from_db()
+            _clear_stale_pending_checkout(sub)
+            sub.refresh_from_db()
+            assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+            assert sub.expired_at == expired_at
+
+            create_mock.return_value = MagicMock(id="cs_rekey_2", url="https://checkout.stripe.com/c/pay/cs_rekey_2")
+            subscription_service.revive_subscription(sub)
+            second_key = create_mock.call_args.kwargs["idempotency_key"]
+
+        assert first_key != second_key
 
     def test_online_revival_missing_session_url_raises_502(
         self,

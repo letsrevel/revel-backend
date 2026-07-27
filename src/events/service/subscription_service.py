@@ -382,8 +382,8 @@ def record_payment(
         update_fields.append("status")
         if subscription.expired_at:
             # A reactivated row consumed its expiry: a later lapse must stamp a
-            # FRESH expired_at, or the revival window/deadline math (and the
-            # sub-revival idempotency key) anchor on the stale first expiry.
+            # FRESH expired_at, or the revival window/deadline math anchors on
+            # the stale first expiry.
             # The audit trail lives in simple-history.
             subscription.expired_at = None
             update_fields.append("expired_at")
