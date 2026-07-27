@@ -27,7 +27,7 @@ from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireSubmission
 
-from .enums import MembershipReasonCode, Reasons
+from .enums import MembershipNextStep, MembershipReasonCode, Reasons
 from .gates import MEMBERSHIP_ELIGIBILITY_GATES, BaseMembershipEligibilityGate
 from .resolvers import resolve_membership_questionnaire
 from .types import MembershipApplicationIneligibleError, MembershipEligibility
@@ -124,6 +124,10 @@ class MembershipEligibilityService:
                 .first()
             )
 
+        # Set by ManualApprovalGate when approval is required but there is no
+        # application to wait on — see check_eligibility's final-allow shaping.
+        self.approval_required_annotation: bool = False
+
         self._gates: list[BaseMembershipEligibilityGate] = [gate(self) for gate in MEMBERSHIP_ELIGIBILITY_GATES]
 
     @property
@@ -181,17 +185,55 @@ class MembershipEligibilityService:
     def check_eligibility(self) -> MembershipEligibility:
         """Run the gate chain and return the first blocking/allowing verdict.
 
-        If no gate short-circuits, returns ``allowed=True`` with no ``next_step``.
+        When no gate short-circuits the result is ``allowed=True``, shaped by two
+        special cases (both still allowed, so ``/apply`` and
+        ``advance_application`` keep working):
+
+        - A tier-less **and** plan-less PENDING application — the legacy
+          staff-approval path that never auto-advances — carries
+          ``next_step=WAIT_FOR_APPROVAL``, ``reason_code=REQUIRES_APPROVAL`` and
+          its ``application_id``, so the FE stops rendering "Join" for a row
+          that is actually under review (#788). Deliberately narrow: tier-bearing
+          rows DO auto-complete in ``advance_application`` and must not claim to
+          be waiting.
+        - Otherwise, when :class:`~events.service.membership_manager.gates.ManualApprovalGate`
+          flagged ``approval_required_annotation`` (approval required, nothing to
+          wait on yet), the verdict carries ``reason_code=REQUIRES_APPROVAL``
+          with no prose and no ``next_step`` — apply-able, but the FE can frame
+          the Join CTA as "requires approval" (#787).
+
+        Otherwise: plain ``allowed=True`` with no ``next_step``.
         """
         for gate in self._gates:
             result = gate.check()
             if result is not None:
                 return result
+
+        extra: dict[str, t.Any] = {}
+        app = self.current_application
+        if (
+            app is not None
+            and app.status == OrganizationMembershipRequest.Status.PENDING
+            and app.tier_id is None
+            and app.plan_id is None
+        ):
+            extra = {
+                "next_step": MembershipNextStep.WAIT_FOR_APPROVAL,
+                "reason": _(Reasons.REQUIRES_APPROVAL),
+                "reason_code": MembershipReasonCode.REQUIRES_APPROVAL,
+                "application_id": app.pk,
+            }
+        elif self.approval_required_annotation:
+            # No prose: "your application is awaiting staff approval" would be a
+            # lie when no application exists. The code alone drives the FE.
+            extra = {"reason_code": MembershipReasonCode.REQUIRES_APPROVAL}
+
         return MembershipEligibility(
             allowed=True,
             organization_id=self.organization.pk,
             tier_id=self.tier.pk if self.tier else None,
             plan_id=self.plan.pk if self.plan else None,
+            **extra,
         )
 
 

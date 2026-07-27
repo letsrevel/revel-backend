@@ -11,8 +11,8 @@ from events.models import (
     OrganizationMembershipRequest,
     OrganizationQuestionnaire,
 )
-from events.service.membership_manager import MembershipEligibilityService
-from events.service.membership_manager.enums import MembershipNextStep
+from events.service.membership_manager import MembershipEligibilityService, advance_application
+from events.service.membership_manager.enums import MembershipNextStep, MembershipReasonCode, Reasons
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 pytestmark = pytest.mark.django_db
@@ -116,15 +116,30 @@ def test_s4_asymmetric_paid_gated(user: RevelUser, organization: Organization) -
 
 
 def test_s5_manual_approval_no_questionnaire(user: RevelUser, organization: Organization) -> None:
-    """S5: manual approval gate without any questionnaire."""
+    """S5: manual approval gate without any questionnaire.
+
+    With no application on file the verdict is apply-able but flagged
+    ``REQUIRES_APPROVAL`` (#787); once the row exists it blocks with a wait.
+    """
     tier = MembershipTier.objects.create(organization=organization, name="Member")
     organization.default_requires_membership_approval = True
     organization.save(update_fields=["default_requires_membership_approval"])
 
-    service = MembershipEligibilityService(user=user, organization=organization, tier=tier)
-    result = service.check_eligibility()
+    result = MembershipEligibilityService(user=user, organization=organization, tier=tier).check_eligibility()
+    assert result.allowed is True
+    assert result.reason_code == MembershipReasonCode.REQUIRES_APPROVAL
+    assert result.next_step is None
+
+    app = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+    )
+    result = MembershipEligibilityService(user=user, organization=organization, tier=tier).check_eligibility()
     assert result.allowed is False
     assert result.next_step == MembershipNextStep.WAIT_FOR_APPROVAL
+    assert result.application_id == app.pk
 
 
 def test_rejected_then_new_application_runs_gates_fresh(user: RevelUser, organization: Organization) -> None:
@@ -186,3 +201,55 @@ def test_s7_tier_upgrade_re_gates(user: RevelUser, organization: Organization) -
     result = service.check_eligibility()
     assert result.allowed is False
     assert result.next_step == MembershipNextStep.SUBMIT_QUESTIONNAIRE
+
+
+def test_tier_less_pending_application_signals_wait_for_approval(user: RevelUser, organization: Organization) -> None:
+    """#788: a tier-less, plan-less PENDING row is under review, not joinable.
+
+    It passes every gate (approval is NOT required here), so the final allowed
+    verdict must carry the wait signal explicitly — otherwise the org page
+    renders "Join" while the account hub says "under review".
+    """
+    app = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=user,
+        status=OrganizationMembershipRequest.Status.PENDING,
+    )
+    result = MembershipEligibilityService(user=user, organization=organization).check_eligibility()
+    assert result.allowed is True
+    assert result.next_step == MembershipNextStep.WAIT_FOR_APPROVAL
+    assert result.reason == str(Reasons.REQUIRES_APPROVAL)
+    assert result.reason_code == MembershipReasonCode.REQUIRES_APPROVAL
+    assert result.application_id == app.pk
+    assert result.tier_id is None
+
+
+def test_tier_bearing_pending_application_still_auto_completes(user: RevelUser, organization: Organization) -> None:
+    """The #788 shape must stay narrow: tier-bearing free rows still auto-complete.
+
+    Their returned eligibility must not claim "wait for approval" for a row that
+    just advanced to COMPLETED.
+    """
+    tier = MembershipTier.objects.create(organization=organization, name="Member")
+    app = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+    )
+    advanced, eligibility = advance_application(app)
+    assert advanced.status == OrganizationMembershipRequest.Status.COMPLETED
+    assert eligibility.allowed is True
+    assert eligibility.next_step is None
+    assert eligibility.reason_code is None
+
+
+def test_no_application_and_no_approval_stays_silently_allowed(user: RevelUser, organization: Organization) -> None:
+    """No annotation leakage: the plain happy path carries no reason/next_step."""
+    tier = MembershipTier.objects.create(organization=organization, name="Member")
+    result = MembershipEligibilityService(user=user, organization=organization, tier=tier).check_eligibility()
+    assert result.allowed is True
+    assert result.next_step is None
+    assert result.reason is None
+    assert result.reason_code is None
+    assert result.application_id is None

@@ -354,20 +354,47 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
 
 
 class ManualApprovalGate(BaseMembershipEligibilityGate):
-    """Gate #9: When manual-approval policy is on, only APPROVED applications pass through."""
+    """Gate #9: Enforce the manual-approval policy against the user's latest application.
+
+    When approval is required:
+
+    - APPROVED application → fall through (the staff decision is in).
+    - PENDING application → block with ``WAIT_FOR_APPROVAL`` + ``application_id``.
+    - No application (or a terminal CANCELLED/COMPLETED one) → fall through so the
+      user can actually apply, flagging
+      ``handler.approval_required_annotation`` so ``check_eligibility``'s final
+      allowed verdict carries ``reason_code=REQUIRES_APPROVAL`` (no prose, no
+      ``next_step``). Blocking here soft-locked users who had never applied: the
+      FE rendered a disabled "application pending" state with no path to the
+      Join CTA (#787).
+
+    REJECTED never reaches this gate — :class:`ApplicationStatusGate` blocks it
+    with ``next_step=REAPPLY``.
+
+    The fall-through (rather than an ``_allow``) is load-bearing: a returned
+    verdict short-circuits the chain, and :class:`PaymentReadyGate` runs *after*
+    this gate, so a plan-bearing check with no application must still reach its
+    ``PLAN_NOT_ONLINE`` block.
+    """
 
     def check(self) -> MembershipEligibility | None:
-        """Block unless the user already has an APPROVED application."""
+        """Block a PENDING application; pass through when approved or not yet applied."""
         if not resolve_requires_membership_approval(self.organization, self.tier):
             return None
         app = self.handler.current_application
+        if app and app.status == OrganizationMembershipRequest.Status.PENDING:
+            return self._block(
+                Reasons.REQUIRES_APPROVAL,
+                next_step=MembershipNextStep.WAIT_FOR_APPROVAL,
+                application_id=app.pk,
+            )
         if app and app.status == OrganizationMembershipRequest.Status.APPROVED:
             return None
-        return self._block(
-            Reasons.REQUIRES_APPROVAL,
-            next_step=MembershipNextStep.WAIT_FOR_APPROVAL,
-            application_id=app.pk if app else None,
-        )
+        # No application on file (or a terminal one): the user must be able to
+        # apply. Annotate so the final verdict still tells the FE that joining
+        # goes through staff approval.
+        self.handler.approval_required_annotation = True
+        return None
 
 
 class PaymentReadyGate(BaseMembershipEligibilityGate):
