@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.http import HttpRequest
+from django.http import Http404, HttpRequest
+from django.utils.translation import gettext_lazy as _
 from ninja_extra import NinjaExtraAPI
 
 from accounts.controllers.account import AccountController
@@ -12,7 +13,7 @@ from accounts.controllers.referral import ReferralController
 from accounts.controllers.referral_payouts import ReferralPayoutController
 from accounts.controllers.referral_stripe import ReferralStripeController
 from common.controllers import MediaValidationController, TagController
-from common.exception_handlers import ExceptionHandler, register_handlers
+from common.exception_handlers import ExceptionHandler, make_static_handler, register_handlers
 from common.models import Legal, SiteSettings
 from common.schema import BannerSchema, FeaturesSchema, LegalSchema, ResponseOk, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
@@ -23,6 +24,8 @@ from events.controllers.event_series import EventSeriesController
 from events.controllers.event_series_admin import EventSeriesAdminController
 from events.controllers.exports import ExportController
 from events.controllers.following import FollowingController
+from events.controllers.me_applications import MeMembershipApplicationsController
+from events.controllers.me_membership_questionnaire import MeMembershipQuestionnaireController
 from events.controllers.me_subscriptions import MeSubscriptionsController
 from events.controllers.organization import OrganizationController
 from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
@@ -143,6 +146,8 @@ api.register_controllers(
     UserPreferencesController,
     FollowingController,
     MeSubscriptionsController,
+    MeMembershipApplicationsController,
+    MeMembershipQuestionnaireController,
     StripeWebhookController,
     ExportController,
     # Common controllers
@@ -167,6 +172,13 @@ api.register_controllers(
 EXCEPTION_HANDLERS: dict[type[Exception], ExceptionHandler] = {
     Exception: handle_general_exception,
     ValidationError: handle_django_validation_error,
+    # ``Http404`` is app-agnostic, so it belongs here rather than in an app's
+    # table. Overrides ninja's default, which renders an untranslated
+    # ``{"detail": "Not Found"}`` that the frontend prints verbatim. Deliberately
+    # static: ``get_object_or_404`` builds its message from the model name, and
+    # the anti-enumeration 404s (a hard-blacklisted member hitting ``subscribe``)
+    # must stay indistinguishable from any other miss.
+    Http404: make_static_handler(404, _("Not found.")),
 }
 
 register_handlers(api, EXCEPTION_HANDLERS)

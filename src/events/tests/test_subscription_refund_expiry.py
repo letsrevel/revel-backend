@@ -1,0 +1,492 @@
+"""Tests for refund-triggered subscription expiry."""
+
+import typing as t
+from datetime import timedelta
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
+
+import pytest
+import stripe
+from django.utils import timezone
+
+from accounts.models import RevelUser
+from events.models import (
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    MembershipTier,
+    Organization,
+)
+from events.service import subscription_refunds
+from events.service.stripe_webhooks import StripeEventHandler
+
+
+@pytest.fixture
+def tier(organization: Organization) -> MembershipTier:
+    return MembershipTier.objects.create(organization=organization, name="Pro")
+
+
+@pytest.fixture
+def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
+    return MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Monthly",
+        price=Decimal("10"),
+        currency="EUR",
+        period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+    )
+
+
+@pytest.fixture
+def subscriber(django_user_model: t.Type[RevelUser]) -> RevelUser:
+    return django_user_model.objects.create_user(username="ref_user", email="ref_user@example.com", password="pass")
+
+
+@pytest.fixture
+def active_sub(
+    plan: MembershipSubscriptionPlan, organization: Organization, subscriber: RevelUser
+) -> MembershipSubscription:
+    return MembershipSubscription.objects.create(
+        user=subscriber,
+        plan=plan,
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        current_period_start=timezone.now() - timedelta(days=10),
+        current_period_end=timezone.now() + timedelta(days=20),
+    )
+
+
+@pytest.mark.django_db
+class TestRefundAutoCancel:
+    def test_full_refund_of_current_period_cancels_subscription(
+        self, active_sub: MembershipSubscription, plan: MembershipSubscriptionPlan
+    ) -> None:
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+        )
+        subscription_refunds.refund_payment(payment, recorded_by=None)
+        active_sub.refresh_from_db()
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert active_sub.cancelled_at is not None
+
+    def test_refund_of_old_period_does_not_cancel(
+        self, active_sub: MembershipSubscription, plan: MembershipSubscriptionPlan
+    ) -> None:
+        assert active_sub.current_period_start is not None
+        old_start = active_sub.current_period_start - timedelta(days=60)
+        old_end = active_sub.current_period_start - timedelta(days=30)
+        old_payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=old_start,
+            period_end=old_end,
+        )
+        subscription_refunds.refund_payment(old_payment, recorded_by=None)
+        active_sub.refresh_from_db()
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    def test_partial_refund_does_not_cancel(
+        self, active_sub: MembershipSubscription, plan: MembershipSubscriptionPlan
+    ) -> None:
+        """Two SUCCEEDED payments for the same period; only one refunded — not full."""
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+        )
+        small_payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=Decimal("1.00"),  # smaller than the main one
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+        )
+        subscription_refunds.refund_payment(small_payment, recorded_by=None)
+        active_sub.refresh_from_db()
+        # Only 1.00 of 11.00 refunded → not a full refund → sub still ACTIVE
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    def test_refund_on_already_cancelled_sub_is_noop(
+        self, active_sub: MembershipSubscription, plan: MembershipSubscriptionPlan
+    ) -> None:
+        """Refunding when the sub is already CANCELLED doesn't break anything."""
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        active_sub.status = MembershipSubscription.SubscriptionStatus.CANCELLED
+        active_sub.cancelled_at = timezone.now()
+        active_sub.save(update_fields=["status", "cancelled_at", "updated_at"])
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+        )
+        subscription_refunds.refund_payment(payment, recorded_by=None)
+        active_sub.refresh_from_db()
+        # cancel_subscription early-returns for terminal subs → no state change
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+
+    def test_refund_already_refunded_payment_is_idempotent(
+        self, active_sub: MembershipSubscription, plan: MembershipSubscriptionPlan
+    ) -> None:
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.REFUNDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+        )
+        result = subscription_refunds.refund_payment(payment, recorded_by=None)
+        active_sub.refresh_from_db()
+        # Already REFUNDED → early return → sub state unchanged
+        assert result.status == MembershipPayment.PaymentStatus.REFUNDED
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+
+@pytest.fixture
+def online_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
+    return MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Monthly Online",
+        price=Decimal("10"),
+        currency="EUR",
+        period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+        payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        stripe_product_id="prod_refund",
+        stripe_price_id="price_refund",
+    )
+
+
+@pytest.fixture
+def online_sub(
+    online_plan: MembershipSubscriptionPlan, organization: Organization, subscriber: RevelUser
+) -> MembershipSubscription:
+    return MembershipSubscription.objects.create(
+        user=subscriber,
+        plan=online_plan,
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        stripe_subscription_id="sub_refund_online",
+        current_period_start=timezone.now() - timedelta(days=10),
+        current_period_end=timezone.now() + timedelta(days=20),
+    )
+
+
+@pytest.mark.django_db
+class TestOnlineRefundAutoCancelLockDiscipline:
+    def _full_refund_payment(
+        self, online_sub: MembershipSubscription, online_plan: MembershipSubscriptionPlan
+    ) -> MembershipPayment:
+        assert online_sub.current_period_start is not None
+        assert online_sub.current_period_end is not None
+        return MembershipPayment.objects.create(
+            subscription=online_sub,
+            amount=online_plan.price,
+            currency=online_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=online_sub.current_period_start,
+            period_end=online_sub.current_period_end,
+        )
+
+    def test_stripe_cancel_deferred_until_after_commit(
+        self,
+        online_sub: MembershipSubscription,
+        online_plan: MembershipSubscriptionPlan,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Full-period refund terminalizes locally under the row locks; the
+        Stripe-side cancel must run only after commit — never hold a row lock
+        across a network call."""
+        payment = self._full_refund_payment(online_sub, online_plan)
+        with patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as mock_cancel:
+            with django_capture_on_commit_callbacks(execute=False) as callbacks:
+                subscription_refunds.refund_payment(payment, recorded_by=None)
+                # Still inside the transaction: local state is settled...
+                online_sub.refresh_from_db()
+                assert online_sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+                # ...but no outbound Stripe call has been made yet.
+                mock_cancel.assert_not_called()
+            for callback in callbacks:
+                callback()
+        mock_cancel.assert_called_once()
+
+    def test_online_refund_auto_cancel_fires_cancellation_confirmed_once(
+        self,
+        online_sub: MembershipSubscription,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """The refund auto-cancel path still fires CANCELLATION_CONFIRMED(immediate=True)."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        payment = self._full_refund_payment(online_sub, online_plan)
+        with patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"):
+            with django_capture_on_commit_callbacks(execute=True):
+                subscription_refunds.refund_payment(payment, recorded_by=None)
+        notifs = Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
+        )
+        assert notifs.count() == 1
+        assert notifs.first().context["immediate"] is True  # type: ignore[union-attr]
+
+
+def _subscription_charge_event(
+    payment_intent_id: str,
+    amount_cents: int,
+    amount_refunded_cents: int | None = None,
+    account: str | None = None,
+) -> stripe.Event:
+    """Build a minimal charge.refunded MagicMock compatible with StripeEventHandler.
+
+    Shaped like a payload rendered at our pinned API version (2026-03-25.dahlia):
+    ``charge.refunds`` is NOT embedded, so the handler has to resolve the refund
+    id through ``stripe.Refund.list``.
+    """
+    ev: stripe.Event = MagicMock(spec=stripe.Event)
+    ev.type = "charge.refunded"
+    ev.account = account
+    ev.data = MagicMock()
+    ev.data.object = {
+        "id": "ch_test",
+        "payment_intent": payment_intent_id,
+        "amount_refunded": amount_cents if amount_refunded_cents is None else amount_refunded_cents,
+        "amount": amount_cents,
+    }
+    # Make dict(event) serializable for raw_response — empty is fine for these tests.
+    ev.__iter__.return_value = iter([])  # type: ignore[attr-defined]
+    return ev
+
+
+@pytest.mark.django_db
+class TestChargeRefundedWebhook:
+    """Tests for charge.refunded routing to MembershipPayment."""
+
+    def test_full_refund_via_webhook_cancels_subscription(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_test_123",
+        )
+
+        amount_cents = int(plan.price * 100)
+        event = _subscription_charge_event("pi_test_123", amount_cents)
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = [{"id": "re_full_1", "amount": amount_cents}]
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        payment.refresh_from_db()
+        active_sub.refresh_from_db()
+        assert payment.status == MembershipPayment.PaymentStatus.REFUNDED
+        # Audit parity with the ticket side: the refund id is stamped even though
+        # the dahlia payload never embeds the refunds list.
+        assert payment.stripe_refund_id == "re_full_1"
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+
+    def test_partial_refund_records_refund_id_and_keeps_period(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """amount_refunded < amount: the row stays SUCCEEDED but is stamped.
+
+        The refund id has to come from ``stripe.Refund.list`` — the pinned API
+        version delivers ``charge.refunded`` with no embedded refunds, so reading
+        the payload inline left ``stripe_refund_id`` empty in production.
+        """
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_test_partial",
+        )
+
+        event = _subscription_charge_event("pi_test_partial", int(plan.price * 100), amount_refunded_cents=250)
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = [{"id": "re_partial_1", "amount": 250}]
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        list_mock.assert_called_once_with(charge="ch_test", limit=100)
+        payment.refresh_from_db()
+        active_sub.refresh_from_db()
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        assert payment.refund_amount == Decimal("2.50")
+        assert payment.refunded_at is not None
+        assert payment.stripe_refund_id == "re_partial_1"
+        # A partial refund never revokes the period.
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    def test_partial_refund_on_connected_account_uses_stripe_account_header(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """Connect deliveries must fetch the refund on the connected account."""
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_test_partial_conn",
+        )
+
+        event = _subscription_charge_event(
+            "pi_test_partial_conn", int(plan.price * 100), amount_refunded_cents=100, account="acct_conn_7"
+        )
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = [{"id": "re_partial_conn", "amount": 100}]
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        list_mock.assert_called_once_with(charge="ch_test", limit=100, stripe_account="acct_conn_7")
+        payment.refresh_from_db()
+        assert payment.stripe_refund_id == "re_partial_conn"
+
+    def test_partial_refund_without_resolvable_refund_still_records_amount(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """No refund object anywhere → the ledger still records the money moved."""
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_test_partial_norefund",
+        )
+
+        event = _subscription_charge_event("pi_test_partial_norefund", int(plan.price * 100), amount_refunded_cents=125)
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = []
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        payment.refresh_from_db()
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        assert payment.refund_amount == Decimal("1.25")
+        assert payment.stripe_refund_id == ""
+
+    def test_payload_without_amount_refunded_is_dropped_not_500(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """``amount_refunded: null`` must not reach ``from_stripe_amount``.
+
+        It would raise ``TypeError`` → webhook 500 → the dedup row rolls back and
+        Stripe retries the same doomed payload forever. Nothing can be recorded
+        from a payload with no refunded amount, so the delivery is dropped.
+        """
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_no_amount_refunded",
+        )
+
+        event = _subscription_charge_event("pi_no_amount_refunded", int(plan.price * 100))
+        event.data.object["amount_refunded"] = None
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = []
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        payment.refresh_from_db()
+        active_sub.refresh_from_db()
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        assert payment.refunded_at is None
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    def test_redelivered_refund_webhook_is_idempotent(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        # Already REFUNDED — simulates a re-delivered webhook.
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.REFUNDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_test_redelivery",
+        )
+
+        event = _subscription_charge_event("pi_test_redelivery", int(plan.price * 100))
+        with patch.object(stripe.Refund, "list") as list_mock:
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        # Idempotent bail-out happens before any outbound call.
+        list_mock.assert_not_called()
+        payment.refresh_from_db()
+        active_sub.refresh_from_db()
+        assert payment.status == MembershipPayment.PaymentStatus.REFUNDED
+        # Sub state unchanged (was ACTIVE; idempotent re-call does not cancel).
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    def test_ticket_refund_falls_through_subscription_branch(
+        self,
+        active_sub: MembershipSubscription,
+    ) -> None:
+        """A charge.refunded for a payment_intent_id that doesn't match any
+        MembershipPayment falls through to the existing ticket-refund logic.
+        Verify the subscription branch doesn't crash on a non-match.
+        """
+        event = _subscription_charge_event("pi_nonexistent_ticket_payment", 1000)
+        # The ticket-refund path logs a warning for unknown intent — that's fine.
+        StripeEventHandler(event).handle_charge_refunded(event)
+
+        active_sub.refresh_from_db()
+        # Subscription state is untouched.
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE

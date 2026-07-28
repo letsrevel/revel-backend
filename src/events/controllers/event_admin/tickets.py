@@ -115,7 +115,14 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.post(
         "/ticket-tier",
         url_name="create_ticket_tier",
-        response=schema.TicketTierDetailSchema,
+        # ONLINE tiers are gated on the online-payment prerequisites: 400 when the
+        # organization has no Stripe Connect, 422 when platform fees apply but its
+        # billing info is incomplete.
+        response={
+            200: schema.TicketTierDetailSchema,
+            400: ValidationErrorResponse,
+            422: ValidationErrorResponse,
+        },
     )
     def create_ticket_tier(self, event_id: UUID, payload: schema.TicketTierCreateSchema) -> models.TicketTier:
         """Create a new ticket tier for an event."""
@@ -125,7 +132,12 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.put(
         "/ticket-tier/{tier_id}",
         url_name="update_ticket_tier",
-        response=schema.TicketTierDetailSchema,
+        # Same gate as create when the update switches the tier to ONLINE payment.
+        response={
+            200: schema.TicketTierDetailSchema,
+            400: ValidationErrorResponse,
+            422: ValidationErrorResponse,
+        },
     )
     def update_ticket_tier(
         self, event_id: UUID, tier_id: UUID, payload: schema.TicketTierUpdateSchema

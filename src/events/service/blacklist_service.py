@@ -16,6 +16,7 @@ from rapidfuzz import fuzz
 
 from accounts.models import RevelUser
 from accounts.validators import normalize_phone_number
+from common.utils import update_or_create_with_race_protection
 from events.models import Blacklist, Organization, OrganizationMember, OrganizationStaff
 
 logger = structlog.get_logger(__name__)
@@ -70,11 +71,15 @@ def apply_blacklist_consequences(user: RevelUser, organization: Organization) ->
             user_id=str(user.id),
         )
 
-    # Create or update membership with BANNED status
-    membership, membership_created = OrganizationMember.objects.update_or_create(
-        organization=organization,
-        user=user,
-        defaults={"status": OrganizationMember.MembershipStatus.BANNED},
+    # Create or update membership with BANNED status. (org, user) is unique and
+    # TimeStampedModel.save runs full_clean, so a membership materialized
+    # concurrently (invitation claim, application approval, invoice.paid) would
+    # make a plain update_or_create raise ValidationError and leave the user
+    # unbanned; the helper re-fetches the winner and still applies BANNED.
+    membership, membership_created = update_or_create_with_race_protection(
+        OrganizationMember,
+        {"organization": organization, "user": user},
+        {"status": OrganizationMember.MembershipStatus.BANNED},
     )
 
     if membership_created:
@@ -88,6 +93,19 @@ def apply_blacklist_consequences(user: RevelUser, organization: Organization) ->
             "blacklisted_user_membership_status_set_to_banned",
             organization_id=str(organization.id),
             user_id=str(user.id),
+        )
+
+    # A ban must also stop billing: cancel any live subscription (and its Stripe
+    # side) so the member isn't charged for access they no longer have.
+    from events.service import subscription_service  # lazy: avoid cycle
+
+    cancelled = subscription_service.cancel_subscriptions_for_membership_loss(user, organization)
+    if cancelled:
+        logger.info(
+            "blacklisted_user_subscriptions_cancelled",
+            organization_id=str(organization.id),
+            user_id=str(user.id),
+            count=cancelled,
         )
 
 

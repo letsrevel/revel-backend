@@ -1,9 +1,12 @@
 """Tests for the organization service."""
 
+import typing as t
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from ninja.errors import HttpError
 
@@ -29,6 +32,28 @@ from events.models import (
     PermissionsSchema,
 )
 from events.service import organization_service
+
+
+@contextmanager
+def _force_first_lookup_miss(manager: t.Any) -> t.Iterator[None]:
+    """Make ``manager.filter(...)`` miss on its first call, then behave normally.
+
+    Simulates the concurrent double-submit the partial unique constraint now
+    catches: the racing row is already committed by the time our INSERT lands,
+    but our own lookup ran too early to see it.
+    """
+    call_count = 0
+    real_filter = manager.filter
+
+    def fake_filter(*args: t.Any, **kwargs: t.Any) -> t.Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return manager.none()
+        return real_filter(*args, **kwargs)
+
+    with patch.object(manager, "filter", side_effect=fake_filter):
+        yield
 
 
 @pytest.fixture
@@ -121,6 +146,44 @@ class TestCreateMembershipRequest:
             organization_service.create_membership_request(organization, nonmember_user)
         assert exc_info.value.status_code == 403
 
+    def test_create_membership_request_lost_race_raises_domain_error(
+        self, organization: Organization, nonmember_user: RevelUser
+    ) -> None:
+        """A concurrent double-submit must still yield the 409 domain error, not a 500.
+
+        ``unique_pending_application_per_user_org_tier`` rejects the second insert.
+        This is the ValidationError arm: ``TimeStampedModel.save`` runs ``full_clean``,
+        so ``validate_constraints`` sees the committed racing row before the INSERT.
+        """
+        existing = OrganizationMembershipRequest.objects.create(organization=organization, user=nonmember_user)
+
+        with _force_first_lookup_miss(OrganizationMembershipRequest.objects):
+            with pytest.raises(PendingMembershipRequestExistsError):
+                organization_service.create_membership_request(organization, nonmember_user)
+
+        surviving = OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user)
+        assert [row.pk for row in surviving] == [existing.pk]
+
+    def test_create_membership_request_lost_db_level_race_raises_domain_error(
+        self, organization: Organization, nonmember_user: RevelUser
+    ) -> None:
+        """The IntegrityError arm: ``full_clean`` disabled, so the unique index rejects the INSERT.
+
+        Also pins that the ambient transaction survives — the helper's savepoint is
+        what keeps the recovery re-fetch from raising ``TransactionManagementError``.
+        """
+        existing = OrganizationMembershipRequest.objects.create(organization=organization, user=nonmember_user)
+
+        with (
+            _force_first_lookup_miss(OrganizationMembershipRequest.objects),
+            patch.object(OrganizationMembershipRequest, "full_clean", return_value=None),
+        ):
+            with pytest.raises(PendingMembershipRequestExistsError):
+                organization_service.create_membership_request(organization, nonmember_user)
+
+        surviving = OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user)
+        assert [row.pk for row in surviving] == [existing.pk]
+
 
 @pytest.mark.django_db
 class TestApproveMembershipRequest:
@@ -151,8 +214,40 @@ class TestApproveMembershipRequest:
         assert member is not None
         assert member.tier == tier
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
-        assert organization_membership_request.status == OrganizationMembershipRequest.Status.APPROVED
+        assert organization_membership_request.status == OrganizationMembershipRequest.Status.COMPLETED
         assert organization_membership_request.decided_by == organization_staff_user
+
+    def test_approve_survives_lost_member_creation_race(
+        self, organization_membership_request: OrganizationMembershipRequest, organization_staff_user: RevelUser
+    ) -> None:
+        """A membership row committed concurrently must not 500 the approval.
+
+        ``(organization, user)`` is unique and ``TimeStampedModel.save`` runs
+        ``full_clean``, so a row created between the guards and our INSERT surfaces
+        as ``ValidationError`` — which Django's ``update_or_create`` does not absorb.
+        """
+        tier = MembershipTier.objects.get(
+            organization=organization_membership_request.organization, name="General membership"
+        )
+        existing = OrganizationMember.objects.create(
+            organization=organization_membership_request.organization,
+            user=organization_membership_request.user,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+
+        with patch.object(
+            OrganizationMember.objects,
+            "update_or_create",
+            side_effect=ValidationError("Organization member with this Organization and User already exists."),
+        ):
+            organization_service.approve_membership_request(
+                organization_membership_request, organization_staff_user, tier
+            )
+
+        existing.refresh_from_db()
+        assert existing.tier == tier
+        assert existing.status == OrganizationMember.MembershipStatus.ACTIVE
+        assert organization_membership_request.status == OrganizationMembershipRequest.Status.COMPLETED
 
 
 @pytest.mark.django_db
@@ -254,6 +349,40 @@ class TestMemberManagement:
         tier = MembershipTier.objects.create(organization=organization_membership.organization, name="Silver")
         with pytest.raises(AlreadyMemberError):
             organization_service.add_member(organization_membership.organization, organization_membership.user, tier)
+
+    def test_add_member_lost_race_raises_domain_error(self, organization_membership: OrganizationMember) -> None:
+        """A concurrent membership create must surface AlreadyMemberError, not a 500.
+
+        ``(organization, user)`` is unique and ``TimeStampedModel.save`` runs
+        ``full_clean``, so the bare ``create()`` used to blow up with
+        ``ValidationError`` when the pre-check ran too early to see the winner.
+        """
+        organization = organization_membership.organization
+        tier = MembershipTier.objects.create(organization=organization, name="Bronze")
+
+        with _force_first_lookup_miss(OrganizationMember.objects):
+            with pytest.raises(AlreadyMemberError):
+                organization_service.add_member(organization, organization_membership.user, tier)
+
+        surviving = OrganizationMember.objects.filter(organization=organization, user=organization_membership.user)
+        assert [row.pk for row in surviving] == [organization_membership.pk]
+
+    def test_add_member_lost_db_level_race_raises_domain_error(
+        self, organization_membership: OrganizationMember
+    ) -> None:
+        """The IntegrityError arm: ``full_clean`` disabled, so the unique index rejects the INSERT."""
+        organization = organization_membership.organization
+        tier = MembershipTier.objects.create(organization=organization, name="Copper")
+
+        with (
+            _force_first_lookup_miss(OrganizationMember.objects),
+            patch.object(OrganizationMember, "full_clean", return_value=None),
+        ):
+            with pytest.raises(AlreadyMemberError):
+                organization_service.add_member(organization, organization_membership.user, tier)
+
+        surviving = OrganizationMember.objects.filter(organization=organization, user=organization_membership.user)
+        assert [row.pk for row in surviving] == [organization_membership.pk]
 
     def test_remove_member_success(self, organization_membership: OrganizationMember) -> None:
         """Test that a member can be successfully removed."""

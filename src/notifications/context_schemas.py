@@ -609,6 +609,86 @@ class SeriesPassCancelledContext(BaseNotificationContext):
     holder_email: t.NotRequired[str]
 
 
+# ===== Subscription Contexts =====
+
+
+class SubscriptionRenewalSucceededContext(BaseNotificationContext):
+    """Context for SUBSCRIPTION_RENEWAL_SUCCEEDED notification."""
+
+    organization_name: str
+    organization_slug: str
+    plan_name: str
+    amount: str  # formatted "{amount} {currency}"
+    period_end: str  # ISO date
+    manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE /account/memberships (POST /billing-portal)
+
+
+class SubscriptionPaymentFailedContext(BaseNotificationContext):
+    """Context for SUBSCRIPTION_PAYMENT_FAILED notification."""
+
+    organization_name: str
+    organization_slug: str
+    plan_name: str
+    amount: str
+    grace_period_end: str
+    manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE /account/memberships (POST /billing-portal)
+    is_online: bool
+
+
+class SubscriptionExpiredContext(BaseNotificationContext):
+    """Context for SUBSCRIPTION_EXPIRED notification."""
+
+    organization_name: str
+    organization_slug: str
+    plan_name: str
+    expired_at: str
+    revival_window_end: t.NotRequired[str | None]
+    revival_url: t.NotRequired[str | None]
+
+
+class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
+    """Context for SUBSCRIPTION_CANCELLATION_CONFIRMED notification."""
+
+    organization_name: str
+    organization_slug: str
+    plan_name: str
+    immediate: bool
+    access_ends_at: str
+
+
+class SubscriptionRenewalReminderContext(BaseNotificationContext):
+    """Context for SUBSCRIPTION_RENEWAL_REMINDER notification."""
+
+    organization_name: str
+    organization_slug: str
+    plan_name: str
+    amount: str
+    period_end: str
+    is_online: bool
+    manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE /account/memberships (POST /billing-portal)
+
+
+class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
+    """Context for SUBSCRIPTION_REVIVAL_CHECKOUT notification."""
+
+    organization_name: str
+    organization_slug: str
+    plan_name: str
+    amount: str  # formatted "{amount} {currency}"
+    checkout_url: str  # hosted Stripe Checkout the member completes to renew
+
+
+class SubscriptionPriceMigrationNoticeContext(BaseNotificationContext):
+    """Context for SUBSCRIPTION_PRICE_MIGRATION_NOTICE notification."""
+
+    organization_name: str
+    organization_slug: str
+    plan_name: str
+    old_amount: str
+    new_amount: str
+    effective_at: str
+
+
 # Context type registry
 NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContext]] = {
     NotificationType.TICKET_CREATED: TicketCreatedContext,
@@ -657,6 +737,13 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.SERIES_PASS_PURCHASED: SeriesPassPurchasedContext,
     NotificationType.SERIES_PASS_EXTENDED: SeriesPassExtendedContext,
     NotificationType.SERIES_PASS_CANCELLED: SeriesPassCancelledContext,
+    NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED: SubscriptionRenewalSucceededContext,
+    NotificationType.SUBSCRIPTION_PAYMENT_FAILED: SubscriptionPaymentFailedContext,
+    NotificationType.SUBSCRIPTION_EXPIRED: SubscriptionExpiredContext,
+    NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED: SubscriptionCancellationConfirmedContext,
+    NotificationType.SUBSCRIPTION_RENEWAL_REMINDER: SubscriptionRenewalReminderContext,
+    NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE: SubscriptionPriceMigrationNoticeContext,
+    NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT: SubscriptionRevivalCheckoutContext,
 }
 
 

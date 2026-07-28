@@ -1,0 +1,15 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2 style="margin-top:0;">📢 {% trans "Subscription Price Update" %}</h2>
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p style="font-size:18px;">{% blocktranslate with plan=context.plan_name org=context.organization_name %}The price for your <strong>{{ plan }}</strong> subscription at <strong>{{ org }}</strong> is changing.{% endblocktranslate %}</p>
+<div class="card card--info">
+    <h3 style="margin-top:0;">💰 {% trans "Price Change Details" %}</h3>
+    <div class="info-row"><span class="label">{% trans "Plan:" %}</span> {{ context.plan_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Current price:" %}</span> {{ context.old_amount }}</div>
+    <div class="info-row"><span class="label">{% trans "New price:" %}</span> <strong>{{ context.new_amount }}</strong></div>
+    <div class="info-row"><span class="label">{% trans "Effective from:" %}</span> {{ context.effective_at }}</div>
+</div>
+<p>{% blocktranslate with old=context.old_amount new=context.new_amount date=context.effective_at %}Your subscription will move from {{ old }} to {{ new }} starting {{ date }}.{% endblocktranslate %}</p>
+{% endblock %}

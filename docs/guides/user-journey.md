@@ -198,6 +198,43 @@ The ticket acquisition flow depends on the payment method configured for the tic
 
 For event series, attendees can buy a [series pass](../architecture/series-passes.md) instead of individual tickets: one purchase (pro-rata priced by how many covered events remain) materializes a real ticket for every covered event, all drawn from the same tier capacity as direct sales. The pass has its own QR (`series:<uuid>`) accepted at check-in for any covered event, plus its own PDF and Apple Wallet downloads.
 
+### Joining an Organization (Membership Applications)
+
+Users join organizations through the membership-eligibility pipeline:
+
+1. `GET /api/me/organizations/{slug}/join-eligibility` previews the outcome —
+   the structured `next_step` (submit questionnaire, wait for approval,
+   proceed, …) drives which CTA the frontend renders.
+2. `POST /api/me/organizations/{slug}/apply` creates the application. A
+   gate-free application completes instantly (membership granted); otherwise
+   it stays PENDING and advances every time it is read
+   (`GET /api/me/applications/{id}` — poll after submitting a questionnaire).
+3. Applications can be cancelled; a rejection allows a fresh re-application.
+
+Private organizations answer 404 on both endpoints (no existence leak). See
+[Membership Eligibility](../architecture/membership-eligibility.md).
+
+### Membership Subscriptions (Member)
+
+Where an organization sells subscription plans:
+
+1. Public plan listings show price, cadence, and availability — `sold_out`
+   (cap reached) and `sales_status` (paused) render distinct states.
+2. `POST /api/me/organizations/{org_id}/subscribe` starts an ONLINE
+   subscription and returns a hosted Stripe Checkout `checkout_url`; the
+   member is redirected there to pay the first invoice (same UX as ticket
+   checkout). Abandoning the redirect is harmless — re-subscribing returns
+   the same open session's URL, or mints a fresh one if it expired.
+3. Members self-serve cancel (immediate or at period end), switch plans
+   (upgrades prorate immediately; downgrades apply at the period boundary),
+   open the Stripe billing portal, and revive a recently expired ONLINE
+   subscription. OFFLINE subscriptions are managed by the organization's staff.
+4. Failed or SCA-blocked renewals move the subscription to `PAST_DUE` and
+   notify the member with a portal link; after the org's grace period it
+   expires with a revival CTA.
+
+See [Membership Subscriptions](../architecture/membership-subscriptions.md).
+
 ### Managing Potluck Items
 
 For potluck-style events, attendees can:
@@ -239,6 +276,33 @@ flowchart TD
 | Edit organization details | `edit_organization` |
 | Invite/remove members | `manage_members` |
 | Assign staff roles | `manage_members` |
+| Manage subscription plans & subscriptions | `manage_subscriptions` |
+
+### Membership Subscriptions (Organizer)
+
+Organizations can charge recurring membership fees per tier — the "venue card"
+model. Staff with `manage_subscriptions` can:
+
+- Create plans on a tier (`Monthly`, `Annual`, …) as **OFFLINE** (cash/bank
+  transfer, staff-recorded) or **ONLINE** (Stripe on the org's Connect account).
+- Bound and pause sales: `max_subscriptions` caps concurrent non-terminal
+  subscriptions (slots free automatically when one cancels or expires);
+  `sales_status=PAUSED` stops member self-service sales while staff can still
+  manage subscriptions manually. Archived plans are retired outright.
+- Drive the lifecycle end-to-end: create OFFLINE subscriptions, record
+  payments, cancel/pause/resume/revive, refund (a full-period refund
+  auto-cancels the subscription), force-migrate subscribers after a price
+  change, and read per-org MRR/churn metrics.
+
+See [Membership Subscriptions](../architecture/membership-subscriptions.md)
+for the full architecture.
+
+### Membership Applications (Organizer)
+
+Prospective members apply through the membership-eligibility pipeline
+(questionnaire and/or manual approval, per-org and per-tier knobs). Staff
+review pending applications and approve (member materialized at the tier) or
+reject. See [Membership Eligibility](../architecture/membership-eligibility.md).
 
 ### Invitations
 

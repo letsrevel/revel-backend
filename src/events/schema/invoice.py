@@ -8,7 +8,7 @@ from uuid import UUID
 from ninja import Schema
 from pydantic import AwareDatetime
 
-from events.models.attendee_invoice import AttendeeInvoice
+from events.models.attendee_invoice import AttendeeInvoiceStatus
 from events.models.invoice import PlatformFeeInvoice
 from events.models.organization import Organization
 
@@ -86,7 +86,7 @@ class AttendeeInvoiceSchema(Schema):
 
     id: UUID
     invoice_number: str
-    status: AttendeeInvoice.InvoiceStatus
+    status: AttendeeInvoiceStatus
     total_gross: Decimal
     total_net: Decimal
     total_vat: Decimal

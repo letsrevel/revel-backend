@@ -402,6 +402,13 @@ class Organization(
         default=7,
         help_text=_("Days a PAST_DUE subscription stays valid before expiring."),
     )
+    membership_subscription_revival_window_days = models.PositiveIntegerField(
+        default=30,
+        help_text=_(
+            "Days after subscription expiry during which a member can revive in place. "
+            "Set to 0 to disable revival entirely."
+        ),
+    )
     membership_refund_policy = MarkdownField(blank=True, default="")
 
     accept_membership_requests = models.BooleanField(default=False)
@@ -417,6 +424,22 @@ class Organization(
         ),
     )
 
+    default_membership_questionnaire = models.ForeignKey(
+        "events.OrganizationQuestionnaire",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        # Must be a string literal to avoid circular import — keep in sync with
+        # OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP.
+        limit_choices_to={"questionnaire_type": "membership"},
+        help_text=_("Default membership questionnaire applied to all tiers (overridable per tier)."),
+    )
+    default_requires_membership_approval = models.BooleanField(
+        default=False,
+        help_text=_("When True, every membership application requires manual staff approval."),
+    )
+
     objects = OrganizationManager()
 
     class Meta:
@@ -426,11 +449,15 @@ class Organization(
         return self.name
 
     def clean(self) -> None:
-        """Validate contact_method invariants.
+        """Validate contact_method invariants and the default membership questionnaire.
 
         Setting contact_method to EMAIL or FORM requires a verified contact_email.
         Service-layer callers should enforce the same rule, but this safety net
         guarantees the invariant when models are saved via admin or other paths.
+
+        Additionally validates that ``default_membership_questionnaire`` (when set)
+        belongs to this organization and is of type ``MEMBERSHIP``. ``limit_choices_to``
+        is admin-only and not enforced on direct ORM ``save()``, so this check matters.
         """
         super().clean()
         if self.contact_method != self.ContactMethod.NONE and not (self.contact_email and self.contact_email_verified):
@@ -441,6 +468,23 @@ class Organization(
                     )
                 }
             )
+        if self.default_membership_questionnaire_id and self.pk:
+            # Lazy import to avoid circular dependency: questionnaire.py imports organization.py.
+            from .questionnaire import OrganizationQuestionnaire
+
+            oq = self.default_membership_questionnaire
+            if oq is not None and oq.organization_id != self.pk:
+                raise DjangoValidationError(
+                    {
+                        "default_membership_questionnaire": _(
+                            "Default membership questionnaire must belong to this organization."
+                        )
+                    }
+                )
+            if oq is not None and oq.questionnaire_type != OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP:
+                raise DjangoValidationError(
+                    {"default_membership_questionnaire": _("Membership questionnaire must be of type MEMBERSHIP.")}
+                )
 
     def is_owner_or_staff(self, user: RevelUser) -> bool:
         """Check if user is the organization owner or a staff member."""
@@ -577,6 +621,23 @@ class MembershipTier(TimeStampedModel):
         related_name="tiers",
     )
     display_order = models.PositiveIntegerField(default=0, db_index=True)
+    membership_questionnaire = models.ForeignKey(
+        "events.OrganizationQuestionnaire",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        # Must be a string literal to avoid circular import — keep in sync with
+        # OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP.
+        limit_choices_to={"questionnaire_type": "membership"},
+        help_text=_("Tier-specific membership questionnaire. NULL = inherit org default."),
+    )
+    requires_membership_approval = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_("Tier-specific manual-approval override. NULL = inherit org.default_requires_membership_approval."),
+    )
 
     class Meta:
         constraints = [
@@ -592,6 +653,23 @@ class MembershipTier(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.organization.name} - {self.name}"
+
+    def clean(self) -> None:
+        """Validate tier-level membership questionnaire references the same organization and is MEMBERSHIP type."""
+        super().clean()
+        if self.membership_questionnaire_id and self.organization_id:
+            # Lazy import to avoid circular dependency: questionnaire.py imports organization.py.
+            from .questionnaire import OrganizationQuestionnaire
+
+            oq = self.membership_questionnaire
+            if oq is not None and oq.organization_id != self.organization_id:
+                raise DjangoValidationError(
+                    {"membership_questionnaire": _("Membership questionnaire must belong to the same organization.")}
+                )
+            if oq is not None and oq.questionnaire_type != OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP:
+                raise DjangoValidationError(
+                    {"membership_questionnaire": _("Membership questionnaire must be of type MEMBERSHIP.")}
+                )
 
 
 class OrganizationMemberQuerySet(models.QuerySet["OrganizationMember"]):
@@ -726,25 +804,84 @@ class OrganizationToken(TokenMixin):
             )
 
 
+class MembershipRequestStatus(models.TextChoices):
+    """Application state machine for :class:`OrganizationMembershipRequest`.
+
+    Module-level with a distinct class name (not nested as ``Status``):
+    django-ninja dedupes OpenAPI ``components.schemas`` by bare class name with
+    last-writer-wins, so a nested ``Status`` clobbered the 3-value
+    ``UserRequestMixin.Status`` that ``WhitelistRequestSchema`` infers (#782).
+    Code keeps using the ``OrganizationMembershipRequest.Status`` idiom via the
+    class-level alias.
+    """
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+
+
 class OrganizationMembershipRequest(UserRequestMixin):
-    class Status(models.TextChoices):
-        PENDING = "pending"
-        APPROVED = "approved"
-        REJECTED = "rejected"
+    # Alias so callers keep the ``Model.Status`` idiom; the class lives at
+    # module level under a collision-free name (see its docstring, #782).
+    # The subclass deliberately widens the mixin's 3-value Status enum, so the
+    # attribute type genuinely differs from the base — hence the ignore.
+    Status = MembershipRequestStatus  # type: ignore[assignment]
+
+    # Override the inherited status field to use the expanded choices.
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="membership_requests")
+    tier = models.ForeignKey(
+        "events.MembershipTier",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="membership_applications",
+        help_text=_("Target tier. NULL = tier-less legacy application; staff picks at approval."),
+    )
+    plan = models.ForeignKey(
+        "events.MembershipSubscriptionPlan",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="membership_applications",
+        help_text=_("Target plan for paid path. NULL = free join. Phase 1 rejects non-null at /apply."),
+    )
+    subscription = models.ForeignKey(
+        "events.MembershipSubscription",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="originating_application",
+    )
+    questionnaire_submission = models.ForeignKey(
+        "questionnaires.QuestionnaireSubmission",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text=_("Submission that satisfied the questionnaire gate, if applicable."),
+    )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "user"],
-                name="unique_organization_user_membership_request",
-            )
+                fields=["organization", "user", "tier"],
+                condition=models.Q(status="pending"),
+                nulls_distinct=False,
+                name="unique_pending_application_per_user_org_tier",
+            ),
         ]
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"Membership request: {self.user_id} -> {self.organization_id} ({self.status})"
+        return f"Membership application: {self.user_id} -> {self.organization_id} ({self.status})"
 
 
 class OrganizationContactMessage(TimeStampedModel):

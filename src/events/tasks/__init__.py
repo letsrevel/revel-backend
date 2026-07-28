@@ -38,7 +38,13 @@ from events.tasks.revenue import generate_revenue_report_task, send_scheduled_re
 from events.tasks.seating import cleanup_expired_seat_holds
 from events.tasks.series_pass import materialize_series_pass_holders
 from events.tasks.stripe_webhooks import prune_stripe_webhook_events
-from events.tasks.subscriptions import expire_subscriptions_past_grace
+from events.tasks.subscriptions import (
+    expire_subscriptions_past_grace,
+    migrate_plan_subscribers,
+    reconcile_stripe_subscriptions,
+    resync_org_subscription_fees,
+    send_subscription_renewal_reminders,
+)
 from events.tasks.waitlist import (
     expire_waitlist_offers_task,
     nudge_open_waitlists_task,
@@ -65,14 +71,17 @@ __all__ = [
     "generate_revenue_report_task",
     "generate_single_series_events_task",
     "materialize_series_pass_holders",
+    "migrate_plan_subscribers",
     "notify_admin_new_organization_discord",
     "notify_admin_new_organization_pushover",
     "nudge_open_waitlists_task",
     "process_waitlist_for_event_task",
     "prune_stripe_webhook_events",
+    "reconcile_stripe_subscriptions",
     "redispatch_undelivered_invoices_task",
     "resend_announcements_to_new_signups",
     "reset_demo_data",
+    "resync_org_subscription_fees",
     "revalidate_single_vat_id_task",
     "revalidate_vat_ids_task",
     "send_guest_rsvp_confirmation",
@@ -82,5 +91,6 @@ __all__ = [
     "send_organization_contact_message_email",
     "send_scheduled_announcements",
     "send_scheduled_revenue_reports_task",
+    "send_subscription_renewal_reminders",
     "send_waitlist_offer_notification_task",
 ]

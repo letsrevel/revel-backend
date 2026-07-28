@@ -17,7 +17,9 @@ from events.models import (
     EventRSVP,
     EventWaitList,
     GeneralUserPreferences,
+    MembershipPayment,
     MembershipSubscription,
+    MembershipSubscriptionPlan,
     Organization,
     OrganizationMember,
     OrganizationStaff,
@@ -451,6 +453,54 @@ _SUBSCRIPTION_TO_MEMBER_STATUS: dict[str, str] = {
 }
 
 
+def _has_paid_current_period(subscription: MembershipSubscription) -> bool:
+    """Whether money was ever collected for the period a PAST_DUE row is honoring.
+
+    PAST_DUE maps to an ACTIVE member so Stripe's dunning grace keeps a *paying*
+    member's access while a renewal retries. A **first** invoice that fails —
+    or stalls on SCA, which ``invoice.payment_action_required`` deliberately
+    routes through the failure branch, and which async methods (SEPA) can do
+    days after the checkout completed — moves the row PENDING → PAST_DUE
+    (``subscription_stripe_sync._apply_invoice_outcome``). Without this check
+    that grace would grant, or upgrade a free member to, the paid tier with
+    zero money collected. A revival checkout is the same story on a reused row.
+
+    ``current_period_end is None`` alone is not a sound discriminator: a
+    ``customer.subscription.*`` sync mirrors Stripe's period onto a still
+    ``incomplete`` (locally PENDING) row, so an unpaid row can carry one. What
+    separates dunning from a never-paid row is a SUCCEEDED payment whose period
+    runs up to the start of the period being honored — renewal periods are
+    contiguous, while a revival's (or a first invoice's) period starts after a
+    gap, with no payment reaching it.
+    """
+    if subscription.current_period_start is None:
+        return False
+    return MembershipPayment.objects.filter(
+        subscription_id=subscription.pk,
+        status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        period_end__gte=subscription.current_period_start,
+    ).exists()
+
+
+@receiver(pre_save, sender=MembershipSubscription)
+def capture_subscription_old_status(
+    sender: type[MembershipSubscription],
+    instance: MembershipSubscription,
+    **kwargs: t.Any,
+) -> None:
+    """Stamp the committed status on the instance for :func:`sync_member_from_subscription`.
+
+    Same pre_save capture pattern as :func:`capture_event_old_status`, but the
+    attribute is stamped on *every* save because the post_save consumer needs to
+    distinguish "was PAUSED" from "was already ACTIVE", not merely "changed".
+    The UUID pk is populated before the INSERT, so a create is identified by the
+    lookup finding no committed row — leaving ``_old_status`` ``None``.
+    """
+    instance._old_status = (  # type: ignore[attr-defined]
+        MembershipSubscription.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
+    )
+
+
 @receiver(post_save, sender=MembershipSubscription)
 def sync_member_from_subscription(
     sender: type[MembershipSubscription],
@@ -461,18 +511,45 @@ def sync_member_from_subscription(
     """Sync ``OrganizationMember.status`` and ``tier`` from the subscription.
 
     Rules:
-    - Never creates an :class:`OrganizationMember` — creation belongs to
-      :func:`events.service.subscription_service.create_subscription`.
+    - Never creates an :class:`OrganizationMember`. Creation lives in
+      :func:`events.service.subscription_service.create_subscription` for the
+      OFFLINE flow, and in
+      :func:`events.service.subscription_stripe_sync._ensure_active_member`
+      for the ONLINE flow (gated on Stripe's first paid invoice / ``active``
+      status, so members don't get tier benefits before paying).
     - Leaves ``BANNED`` members untouched.
+    - Leaves a ``PAUSED`` member paused unless the subscription is itself
+      transitioning *out of* PAUSED (the staff resume paths). A staff-imposed
+      pause is mirrored onto the subscription, so any other save of a
+      still-ACTIVE row — a webhook echo sync, an uncancel, an ``invoice.paid``
+      on a row that was never PAUSED — used to silently lift the suspension.
     - Subscription tier wins: ``member.tier`` is set to ``plan.tier`` whenever
       they differ.
     - Skips syncing when a newer non-terminal subscription exists for the
       same (user, org) — older terminal rows must not clobber the effective
       subscription when, e.g., admin re-saves a historical entry after the
       user has resubscribed.
+    - For ONLINE plans in PENDING state — or in PAST_DUE without a paid
+      period behind them — returns early so a subscription doesn't grant
+      ACTIVE membership before Stripe collects the first invoice.
     """
     target_status = _SUBSCRIPTION_TO_MEMBER_STATUS.get(instance.status)
     if target_status is None:
+        return
+
+    # ONLINE plans gate ACTIVE membership on the first successful Stripe
+    # payment. PENDING is the "awaiting first invoice" state — leave the
+    # member alone until the webhook flips us to ACTIVE. A PAST_DUE row that
+    # never collected a period is the same state wearing a dunning hat (first
+    # invoice failed / stalled on SCA, revival checkout never settled), so it
+    # gets the same treatment — see :func:`_has_paid_current_period`.
+    if instance.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value and (
+        instance.status == MembershipSubscription.SubscriptionStatus.PENDING.value
+        or (
+            instance.status == MembershipSubscription.SubscriptionStatus.PAST_DUE.value
+            and not _has_paid_current_period(instance)
+        )
+    ):
         return
 
     # If a newer non-terminal subscription exists, it owns the member state.
@@ -496,6 +573,20 @@ def sync_member_from_subscription(
         return
     if member.status == OrganizationMember.MembershipStatus.BANNED:
         return
+
+    # A staff pause is only lifted by the resume paths — OFFLINE
+    # ``resume_subscription`` and ``resume_online_subscription`` both flip the
+    # row PAUSED → ACTIVE, and so does the ``customer.subscription.updated``
+    # echo that clears ``pause_collection``. Everything else that saves an
+    # already-ACTIVE row must leave the member suspended (tier still follows
+    # the plan). ``update_member(status=ACTIVE)`` is unaffected: it saves the
+    # member row directly and never routes through this signal.
+    if (
+        member.status == OrganizationMember.MembershipStatus.PAUSED
+        and target_status == OrganizationMember.MembershipStatus.ACTIVE
+        and getattr(instance, "_old_status", None) != MembershipSubscription.SubscriptionStatus.PAUSED.value
+    ):
+        target_status = member.status
 
     target_tier_id = instance.plan.tier_id
     update_fields = []

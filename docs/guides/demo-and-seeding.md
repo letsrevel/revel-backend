@@ -148,6 +148,13 @@ Users are assigned random pronouns from a seeded list (`he/him`, `she/her`, `the
 | `test.admin@example.com` | Test Admin | Owner of Eligibility Test Organization |
 | `test.staff@example.com` | Test Staff | Staff at Eligibility Test Organization |
 | `test.member@example.com` | Test Member | Member of Eligibility Test Organization |
+| `test.revival.in@example.com` | Revival InWindow | EXPIRED subscription on Org Alpha's *E2E Revival Plan*, expired 5 days ago (inside the 30-day revival window) |
+| `test.revival.out@example.com` | Revival OutOfWindow | EXPIRED subscription on the same plan, expired 60 days ago (outside the revival window) |
+| `test.pastdue@example.com` | Past Due | PAST_DUE subscription on the same plan, grace deadline 5 days out |
+
+The last three back the frontend revival / past-due E2E journeys: `EXPIRED` and `PAST_DUE` are only ever produced by Stripe webhooks and the daily
+`events.expire_subscriptions_past_grace` sweep, so no API can arrange them. They hang off **Org Alpha** (the Stripe-connected org) on a dedicated
+`E2E Revival Tier` / `E2E Revival Plan` (€10/month, ONLINE, sales open, uncapped).
 
 10 dummy users (`dummy0@test.com` through `dummy9@test.com`) and 5 ticket holders (`ticketholder0@test.com` through `ticketholder4@test.com`) are also created for capacity testing.
 

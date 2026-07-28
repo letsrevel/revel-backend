@@ -1,7 +1,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
@@ -13,11 +13,11 @@ from ninja_extra.searching import Searching, searching
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.models import Tag
-from common.schema import TagSchema
+from common.schema import ErrorDetail, TagSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
-from events.service import organization_service, update_db_instance
+from events.service import organization_service
 
 from .base import OrganizationAdminBaseController
 
@@ -54,9 +54,50 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         slug: str,
         params: t.Annotated[filters.MembershipFilterSchema, Query(...)],
     ) -> QuerySet[models.OrganizationMember]:
-        """List all members of an organization."""
+        """List all members of an organization.
+
+        Each row inlines the member's non-terminal subscription in this organization (if
+        any) so the ban/remove confirmation dialogs can warn that the action cancels it
+        and stops billing. Prefetched (subscription + annotated plan) to keep it O(1).
+        """
         organization = self.get_one(slug)
-        qs = models.OrganizationMember.objects.filter(organization=organization).select_related("user", "tier")
+        active_subscriptions = (
+            models.MembershipSubscription.objects.filter(organization=organization)
+            .exclude(status__in=models.MembershipSubscription.TERMINAL_STATUSES)
+            .select_related("user")
+            # ``SubscriptionSchema.member_status`` reads this annotation; without
+            # it the nested schema would issue one member lookup per row.
+            .annotate(
+                member_status=Subquery(
+                    models.OrganizationMember.objects.filter(
+                        organization_id=OuterRef("organization_id"),
+                        user_id=OuterRef("user_id"),
+                    ).values("status")[:1]
+                )
+            )
+            .prefetch_related(
+                # Forward-FK prefetch rather than select_related: the nested PlanSchema
+                # reads the ``active_subscription_count`` annotation, which would
+                # otherwise fall back to a COUNT per row.
+                Prefetch(
+                    "plan",
+                    queryset=models.MembershipSubscriptionPlan.objects.with_active_subscription_count().select_related(
+                        "tier"
+                    ),
+                )
+            )
+        )
+        qs = (
+            models.OrganizationMember.objects.filter(organization=organization)
+            .select_related("user", "tier")
+            .prefetch_related(
+                Prefetch(
+                    "user__membership_subscriptions",
+                    queryset=active_subscriptions,
+                    to_attr="_org_active_subs",
+                )
+            )
+        )
         return params.filter(qs).distinct()
 
     @route.put(
@@ -132,7 +173,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.get(
         "/membership-tiers",
         url_name="list_membership_tiers",
-        response=list[schema.MembershipTierSchema],
+        response=list[schema.MembershipTierAdminSchema],
         permissions=[IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
@@ -144,7 +185,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.post(
         "/membership-tiers",
         url_name="create_membership_tier",
-        response={201: schema.MembershipTierSchema},
+        response={201: schema.MembershipTierAdminSchema},
     )
     def create_membership_tier(
         self, slug: str, payload: schema.MembershipTierCreateSchema
@@ -168,7 +209,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.put(
         "/membership-tiers/{tier_id}",
         url_name="update_membership_tier",
-        response=schema.MembershipTierSchema,
+        response=schema.MembershipTierAdminSchema,
     )
     def update_membership_tier(
         self, slug: str, tier_id: UUID, payload: schema.MembershipTierUpdateSchema
@@ -176,21 +217,23 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         """Update a membership tier."""
         organization = self.get_one(slug)
         tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
-        return update_db_instance(tier, payload)
+        return organization_service.update_membership_tier(tier, payload)
 
     @route.delete(
         "/membership-tiers/{tier_id}",
         url_name="delete_membership_tier",
-        response={204: None},
+        response={204: None, 409: ErrorDetail},
     )
     def delete_membership_tier(self, slug: str, tier_id: UUID) -> tuple[int, None]:
         """Delete a membership tier.
 
-        Members assigned to this tier will have their tier set to NULL (due to SET_NULL on the FK).
+        Members assigned to this tier will have their tier set to NULL (due to SET_NULL on the FK),
+        and the tier's subscription plans are deleted along with it. Answers 409 when a membership
+        application or a subscription still references the tier or one of its plans.
         """
         organization = self.get_one(slug)
         tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
-        tier.delete()
+        organization_service.delete_membership_tier(tier)
         return 204, None
 
     # ---- Staff ----

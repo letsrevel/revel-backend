@@ -15,8 +15,19 @@ from django.db.models import F
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
 from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMismatchError
-from events.models import HeldSeriesPass, Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
+from events.models import (
+    HeldSeriesPass,
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    Organization,
+    Payment,
+    StripeWebhookEvent,
+    Ticket,
+    TicketTier,
+)
 from events.service.stripe_incidents import record_paid_session_without_payments, record_session_total_mismatch
+from events.service.stripe_webhook_subscriptions import SubscriptionWebhookHandlersMixin
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
 from notifications.signals.payment import send_refund_unmatched
@@ -112,7 +123,7 @@ def handle_event(event: stripe.Event) -> None:
     record.save(update_fields=["outcome", "updated_at"])
 
 
-class StripeEventHandler:
+class StripeEventHandler(SubscriptionWebhookHandlersMixin):
     """Handles the business logic for different types of Stripe webhook events."""
 
     def __init__(self, event: stripe.Event):
@@ -126,6 +137,17 @@ class StripeEventHandler:
             "account.updated": self.handle_account_updated,
             "charge.refunded": self.handle_charge_refunded,
             "payment_intent.canceled": self.handle_payment_intent_canceled,
+            # Membership subscriptions (Phases 2-4). Diff-based and idempotent:
+            # the dedup gate skips true redeliveries, these also tolerate the
+            # nightly reconciliation feeding them retrieved payloads.
+            "checkout.session.expired": self.handle_subscription_checkout_expired,
+            "customer.subscription.created": self.handle_customer_subscription_created,
+            "customer.subscription.updated": self.handle_customer_subscription_updated,
+            "customer.subscription.deleted": self.handle_customer_subscription_deleted,
+            "invoice.paid": self.handle_invoice_paid,
+            "invoice.payment_failed": self.handle_invoice_payment_failed,
+            "invoice.payment_action_required": self.handle_invoice_payment_action_required,
+            "subscription_schedule.released": self.handle_subscription_schedule_released,
         }
         handler = handlers.get(self.event.type)
         if handler is None:
@@ -165,6 +187,14 @@ class StripeEventHandler:
         """
         session = event.data.object
         session_id = session["id"]
+        if session.get("mode") == "subscription" or (session.get("metadata") or {}).get("membership_subscription_id"):
+            # Subscription checkouts have no Payment rows and no on_commit task
+            # to re-enqueue — instead re-run the (idempotent) link + initial-
+            # invoice backfill so a redelivery self-heals a dropped first
+            # ``invoice.paid`` (link is a no-op when already set; the backfill
+            # skips when a payment row exists).
+            self.handle_subscription_checkout_completed(event)
+            return
         if session["payment_status"] not in {"paid", "no_payment_required"}:
             return
         if not Payment.objects.filter(stripe_session_id=session_id).exists():
@@ -187,6 +217,32 @@ class StripeEventHandler:
         """
         payment_intent_id = event.data.object.get("payment_intent")
         if not payment_intent_id:
+            return
+        membership_payment = (
+            MembershipPayment.objects.filter(
+                stripe_payment_intent_id=payment_intent_id,
+                status=MembershipPayment.PaymentStatus.REFUNDED,
+            )
+            .select_related("subscription", "subscription__plan", "subscription__organization")
+            .first()
+        )
+        if membership_payment is not None:
+            # Subscription-refund redelivery: the first delivery terminalized
+            # the row and queued a post-commit best-effort Stripe cancel that
+            # may have failed (the exact window replay exists for, #492). If
+            # the local row is CANCELLED with a live Stripe link, retry the
+            # cancel — idempotent, tolerates an already-canceled Stripe sub.
+            sub = membership_payment.subscription
+            if (
+                sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+                and sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
+                and sub.stripe_subscription_id
+            ):
+                from events.service.subscription_stripe_service import cancel_stripe_subscription_best_effort
+
+                transaction.on_commit(
+                    functools.partial(cancel_stripe_subscription_best_effort, sub, reason="refund_auto_cancel_replay")
+                )
             return
         refunded = list(
             Payment.objects.filter(
@@ -211,10 +267,16 @@ class StripeEventHandler:
         """Handles the successful completion of a checkout session.
 
         Updates payment and ticket status and triggers confirmation email.
-        Supports both single-ticket and batch ticket purchases.
+        Supports both single-ticket and batch ticket purchases. Sessions in
+        ``mode=subscription`` (membership subscriptions) are dispatched to the
+        subscription handler instead — they have no Payment/Ticket rows.
         """
         session = event.data.object
         session_id = session["id"]
+
+        if session.get("mode") == "subscription" or (session.get("metadata") or {}).get("membership_subscription_id"):
+            self.handle_subscription_checkout_completed(event)
+            return
 
         if session["payment_status"] not in {"paid", "no_payment_required"}:
             logger.warning(
@@ -448,7 +510,30 @@ class StripeEventHandler:
 
     @transaction.atomic
     def handle_charge_refunded(self, event: stripe.Event) -> None:
-        """Match each refund object in the charge to its specific Payment row.
+        """Route a charge.refunded event to the subscription or ticket refund handler.
+
+        Stripe Payment Intents are per-purchase, so a matching MembershipPayment row
+        means the refund is for a subscription invoice; otherwise it is a ticket refund.
+        """
+        charge_data = event.data.object
+        payment_intent_id = charge_data.get("payment_intent")
+
+        if not payment_intent_id:
+            logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
+            return
+
+        # Phase 4: Subscription refunds — handled by subscription_service.
+        membership_payment = (
+            MembershipPayment.objects.select_for_update().filter(stripe_payment_intent_id=payment_intent_id).first()
+        )
+        if membership_payment is not None:
+            self._handle_subscription_refund(event, membership_payment)
+            return
+
+        self._handle_ticket_refunds(event, payment_intent_id)
+
+    def _handle_ticket_refunds(self, event: stripe.Event, payment_intent_id: str) -> None:
+        """Match each refund object in the charge to its specific ticket Payment row.
 
         Five-branch matching strategy (first match wins):
           1. existing stripe_refund_id on a Payment
@@ -459,11 +544,6 @@ class StripeEventHandler:
           5. ambiguous → logged, no mutation
         """
         charge_data = event.data.object
-        payment_intent_id = charge_data.get("payment_intent")
-
-        if not payment_intent_id:
-            logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
-            return
 
         # Cheap unlocked probe so unknown intents bail before any outbound call.
         if not Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).exists():

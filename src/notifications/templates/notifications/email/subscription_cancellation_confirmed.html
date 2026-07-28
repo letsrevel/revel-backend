@@ -1,0 +1,16 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2 style="margin-top:0;">📋 {% trans "Subscription Cancelled" %}</h2>
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+{% if context.immediate %}
+<p style="font-size:18px;">{% blocktranslate with plan=context.plan_name org=context.organization_name %}Your <strong>{{ plan }}</strong> subscription at <strong>{{ org }}</strong> has been cancelled effective immediately.{% endblocktranslate %}</p>
+{% else %}
+<p style="font-size:18px;">{% blocktranslate with plan=context.plan_name org=context.organization_name date=context.access_ends_at %}Your <strong>{{ plan }}</strong> subscription at <strong>{{ org }}</strong> will end on {{ date }}.{% endblocktranslate %}</p>
+{% endif %}
+<div class="card">
+    <div class="info-row"><span class="label">{% trans "Plan:" %}</span> {{ context.plan_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Access ends:" %}</span> {{ context.access_ends_at }}</div>
+</div>
+<p>{% trans "We hope to see you again in the future." %}</p>
+{% endblock %}

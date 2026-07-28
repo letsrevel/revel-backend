@@ -1,0 +1,18 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2 style="margin-top:0;">✅ {% trans "Membership Renewed" %}</h2>
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p style="font-size:18px;">{% blocktranslate with plan=context.plan_name org=context.organization_name %}Your <strong>{{ plan }}</strong> membership at <strong>{{ org }}</strong> has been successfully renewed.{% endblocktranslate %}</p>
+<div class="card">
+    <h3 style="margin-top:0;">💳 {% trans "Renewal Details" %}</h3>
+    <div class="info-row"><span class="label">{% trans "Plan:" %}</span> {{ context.plan_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Amount charged:" %}</span> <strong>{{ context.amount }}</strong></div>
+    <div class="info-row"><span class="label">{% trans "Next renewal:" %}</span> {{ context.period_end }}</div>
+</div>
+{% if context.manage_subscription_url %}
+<center>
+    <a href="{{ context.manage_subscription_url }}" class="button">{% trans "Manage Billing" %}</a>
+</center>
+{% endif %}
+{% endblock %}

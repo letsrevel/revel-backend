@@ -1,0 +1,19 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2 style="margin-top:0;">🔔 {% trans "Membership Ended" %}</h2>
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p style="font-size:18px;">{% blocktranslate with plan=context.plan_name org=context.organization_name date=context.expired_at %}Your <strong>{{ plan }}</strong> membership at <strong>{{ org }}</strong> ended on {{ date }}.{% endblocktranslate %}</p>
+<div class="card">
+    <div class="info-row"><span class="label">{% trans "Plan:" %}</span> {{ context.plan_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Ended on:" %}</span> {{ context.expired_at }}</div>
+</div>
+{% if context.revival_url and context.revival_window_end %}
+<p>{% blocktranslate with date=context.revival_window_end %}You can reactivate your membership until <strong>{{ date }}</strong>.{% endblocktranslate %}</p>
+<center>
+    <a href="{{ context.revival_url }}" class="button">{% blocktranslate with date=context.revival_window_end %}Reactivate by {{ date }}{% endblocktranslate %}</a>
+</center>
+{% else %}
+<p>{% trans "If you'd like to continue, you can start a new subscription at any time." %}</p>
+{% endif %}
+{% endblock %}

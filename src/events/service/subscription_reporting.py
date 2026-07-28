@@ -1,0 +1,213 @@
+"""Per-organization subscription reporting (MRR, churn, status breakdown).
+
+See: docs/superpowers/specs/2026-05-12-subscriptions-phase-4-design.md §9
+"""
+
+import typing as t
+from datetime import datetime, timedelta
+from decimal import Decimal
+from uuid import UUID
+
+from django.db.models import Count, Q, QuerySet
+from django.utils import timezone
+
+from events.models import (
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    Organization,
+)
+
+
+class StatusBreakdown(t.TypedDict):
+    pending: int
+    active: int
+    paused: int
+    past_due: int
+    cancelled: int
+    expired: int
+
+
+class SubscriptionMetrics(t.TypedDict):
+    as_of: datetime  # timezone-aware (timezone.now())
+    active_count: int
+    mrr: Decimal
+    mrr_currency: str
+    mixed_currency_warning: bool
+    new_subscribers_30d: int
+    churned_30d: int
+    churn_rate_30d: float
+    status_breakdown: StatusBreakdown
+
+
+def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
+    """Compute subscription metrics for an organization.
+
+    Args:
+        organization: The organization to compute metrics for.
+
+    Returns:
+        A :class:`SubscriptionMetrics` dict with MRR, churn, and status breakdown.
+    """
+    now = timezone.now()
+    cutoff = now - timedelta(days=30)
+    statuses = MembershipSubscription.SubscriptionStatus
+
+    # Single aggregate for status breakdown
+    breakdown_raw = MembershipSubscription.objects.filter(organization=organization).aggregate(
+        pending=Count("id", filter=Q(status=statuses.PENDING)),
+        active=Count("id", filter=Q(status=statuses.ACTIVE)),
+        paused=Count("id", filter=Q(status=statuses.PAUSED)),
+        past_due=Count("id", filter=Q(status=statuses.PAST_DUE)),
+        cancelled=Count("id", filter=Q(status=statuses.CANCELLED)),
+        expired=Count("id", filter=Q(status=statuses.EXPIRED)),
+    )
+    breakdown: StatusBreakdown = {
+        "pending": int(breakdown_raw["pending"]),
+        "active": int(breakdown_raw["active"]),
+        "paused": int(breakdown_raw["paused"]),
+        "past_due": int(breakdown_raw["past_due"]),
+        "cancelled": int(breakdown_raw["cancelled"]),
+        "expired": int(breakdown_raw["expired"]),
+    }
+
+    # ACTIVE + PAST_DUE count as "still paying customers"
+    active_count = breakdown["active"] + breakdown["past_due"]
+
+    # MRR: walk active/past_due subs joined with plans
+    active_subs = list(
+        MembershipSubscription.objects.filter(
+            organization=organization,
+            status__in=[statuses.ACTIVE, statuses.PAST_DUE],
+        ).select_related("plan")
+    )
+
+    # Grandfathered ONLINE subscribers keep paying their OLD Stripe price after
+    # a plan price change, so ``plan.price`` overstates their contribution.
+    # Prefer each subscriber's most recent SUCCEEDED payment amount; fall back to
+    # ``plan.price`` when there's none (OFFLINE pre-payment or brand-new PENDING).
+    # Mid-cycle upgrades bill a PRORATION invoice (billing_reason
+    # "subscription_update") whose amount is a partial-period delta, not the
+    # per-period price — those rows must not become the MRR anchor. ``contains``
+    # (``@>``) is used rather than a key-transform ``exclude`` because the latter
+    # is NULL on rows with no ``billing_reason`` (manual/OFFLINE payments) and
+    # would silently drop them.
+    # Single batched DISTINCT ON query keeps this out of the per-sub loop (N+1).
+    paid_by_sub: dict[t.Any, Decimal] = dict(
+        MembershipPayment.objects.filter(
+            subscription__in=active_subs,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        )
+        .exclude(raw_response__contains={"billing_reason": "subscription_update"})
+        .order_by("subscription_id", "-created_at")
+        .distinct("subscription_id")
+        .values_list("subscription_id", "amount")
+    )
+
+    currencies: set[str] = set()
+    mrr_total = Decimal("0")
+    for sub in active_subs:
+        currencies.add(sub.plan.currency)
+        paid = paid_by_sub.get(sub.id)
+        amount = paid if paid is not None else sub.plan.price
+        mrr_total += _normalize_to_monthly(amount, sub.plan)
+
+    mixed_currency_warning = len(currencies) > 1
+    if mixed_currency_warning:
+        mrr_currency = "MIXED"
+        mrr = Decimal("0")
+    elif currencies:
+        mrr_currency = next(iter(currencies))
+        mrr = mrr_total.quantize(Decimal("0.01"))
+    else:
+        mrr_currency = ""
+        mrr = Decimal("0")
+
+    # Acquisition is anchored on created_at, not current status: a subscriber
+    # who signed up and already churned within the window still counts (churn
+    # is tracked separately below). Only never-started rows are excluded —
+    # PENDING (mid-checkout, possibly abandoned) has not acquired anyone yet.
+    new_subscribers_30d = (
+        MembershipSubscription.objects.filter(
+            organization=organization,
+            created_at__gte=cutoff,
+        )
+        .exclude(status=statuses.PENDING)
+        .count()
+    )
+
+    churned_30d = (
+        MembershipSubscription.objects.filter(
+            organization=organization,
+            status__in=[statuses.CANCELLED, statuses.EXPIRED],
+        )
+        .filter(Q(cancelled_at__gte=cutoff) | Q(expired_at__gte=cutoff))
+        .count()
+    )
+
+    churn_denominator = active_count + churned_30d
+    churn_rate_30d = (churned_30d / churn_denominator) if churn_denominator else 0.0
+
+    return {
+        "as_of": now,
+        "active_count": active_count,
+        "mrr": mrr,
+        "mrr_currency": mrr_currency,
+        "mixed_currency_warning": mixed_currency_warning,
+        "new_subscribers_30d": new_subscribers_30d,
+        "churned_30d": churned_30d,
+        "churn_rate_30d": churn_rate_30d,
+        "status_breakdown": breakdown,
+    }
+
+
+def organization_payments(
+    organization: Organization,
+    *,
+    status: MembershipPayment.PaymentStatus | None = None,
+    plan_id: UUID | None = None,
+) -> QuerySet[MembershipPayment]:
+    """Org-wide membership payment ledger, newest first.
+
+    The reconciliation surface behind the org-admin listing: every payment the
+    organization ever took on a subscription, joined to the member and plan the
+    row is serialized with (one query per page, no N+1).
+
+    Args:
+        organization: The organization whose ledger to read.
+        status: Optional :class:`MembershipPayment.PaymentStatus` filter.
+        plan_id: Optional plan filter (the plan the subscription is billed on).
+
+    Returns:
+        A ``QuerySet`` of :class:`MembershipPayment`, newest first.
+    """
+    qs = (
+        MembershipPayment.objects.filter(subscription__organization=organization)
+        .select_related("subscription", "subscription__user", "subscription__plan", "recorded_by")
+        .order_by("-created_at", "-id")
+    )
+    if status is not None:
+        qs = qs.filter(status=status)
+    if plan_id is not None:
+        qs = qs.filter(subscription__plan_id=plan_id)
+    return qs
+
+
+def _normalize_to_monthly(amount: Decimal, plan: MembershipSubscriptionPlan) -> Decimal:
+    """Normalise ``amount`` to a monthly figure using the plan's billing period.
+
+    Annual plans are divided by (period_count * 12) months; monthly plans by
+    period_count. The returned value is unrounded; the caller quantizes the
+    running sum once to avoid accumulated rounding errors.
+
+    Args:
+        amount: The per-period amount to normalise (plan price or a paid amount).
+        plan: The :class:`MembershipSubscriptionPlan` whose period drives the math.
+
+    Returns:
+        The monthly equivalent as a :class:`Decimal` (unrounded).
+    """
+    if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.MONTH:
+        return amount / plan.period_count
+    # YEAR
+    return amount / (plan.period_count * 12)

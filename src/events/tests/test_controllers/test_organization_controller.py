@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.test.client import Client
@@ -6,7 +7,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Organization, OrganizationMember, OrganizationMembershipRequest, OrganizationToken
+from events.models import (
+    MembershipSubscriptionPlan,
+    MembershipTier,
+    Organization,
+    OrganizationMember,
+    OrganizationMembershipRequest,
+    OrganizationToken,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -133,6 +141,87 @@ def test_get_organization_by_privileged_users(
     response = organization_staff_client.get(url)
     assert response.status_code == 200
     assert response.json()["name"] == organization.name
+
+
+def test_get_organization_exposes_membership_billing_policy(client: Client, organization: Organization) -> None:
+    """The public org payload carries the billing-disclosure numbers (issue #809).
+
+    The subscribe flow tells a prospective member how long the grace period is and how
+    long they can rejoin at the old price, so both day counts must be readable anonymously.
+    """
+    organization.visibility = Organization.Visibility.PUBLIC
+    organization.membership_grace_period_days = 14
+    organization.membership_subscription_revival_window_days = 45
+    organization.membership_refund_policy = "Full refund within 7 days."
+    organization.save(
+        update_fields=[
+            "visibility",
+            "membership_grace_period_days",
+            "membership_subscription_revival_window_days",
+            "membership_refund_policy",
+        ]
+    )
+    url = reverse("api:get_organization", kwargs={"slug": organization.slug})
+
+    response = client.get(url)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["membership_grace_period_days"] == 14
+    assert data["membership_subscription_revival_window_days"] == 45
+    assert data["membership_refund_policy"] == "Full refund within 7 days."
+
+
+class TestListMembershipPlans:
+    """Public listing of an organization's active subscription plans.
+
+    Visibility piggybacks on ``get_one`` so private orgs return 404 for
+    anonymous users (same rule as ``get_organization``).
+    """
+
+    def test_lists_active_plans_only(self, client: Client, organization: Organization) -> None:
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save(update_fields=["visibility"])
+        tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        active = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+        )
+        MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Old Annual",
+            price=Decimal("100.00"),
+            currency="EUR",
+            period_unit="year",
+            is_active=False,
+        )
+
+        url = reverse("api:list_organization_membership_plans", kwargs={"slug": organization.slug})
+        response = client.get(url)
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["id"] == str(active.id)
+        assert body[0]["payment_method"] == "offline"
+        # The frontend groups public plan cards by tier and needs the label, not just the id.
+        assert body[0]["tier_id"] == str(tier.id)
+        assert body[0]["tier_name"] == tier.name
+
+    def test_anonymous_can_list_public_org_plans(self, client: Client, organization: Organization) -> None:
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save(update_fields=["visibility"])
+        url = reverse("api:list_organization_membership_plans", kwargs={"slug": organization.slug})
+        response = client.get(url)
+        assert response.status_code == 200
+
+    def test_anonymous_blocked_on_private_org(self, client: Client, organization: Organization) -> None:
+        # Default visibility is private; the endpoint inherits get_one's visibility rule.
+        url = reverse("api:list_organization_membership_plans", kwargs={"slug": organization.slug})
+        response = client.get(url)
+        assert response.status_code == 404
 
 
 def test_get_organization_not_found(client: Client) -> None:
@@ -286,6 +375,34 @@ class TestCreateOrganization:
         org = Organization.objects.get(name="Auto Verify Org", owner=nonmember_user)
         assert org.contact_email == "owner@example.com"
         assert org.contact_email_verified is True
+
+    def test_create_organization_ignores_membership_policy_fields(
+        self, nonmember_client: Client, nonmember_user: RevelUser
+    ) -> None:
+        """The day counts are readable on the public schema but writable only by admins (issue #809)."""
+        # Arrange
+        nonmember_user.email_verified = True
+        nonmember_user.save()
+
+        url = reverse("api:create_organization")
+        payload = {
+            "name": "Policy Smuggler",
+            "contact_email": "contact@smuggler.com",
+            "membership_grace_period_days": 999,
+            "membership_subscription_revival_window_days": 999,
+        }
+
+        # Act
+        response = nonmember_client.post(url, data=payload, content_type="application/json")
+
+        # Assert -- the create schema drops the unknown keys, so the model defaults survive.
+        assert response.status_code == 201
+        data = response.json()
+        assert data["membership_grace_period_days"] == 7
+        assert data["membership_subscription_revival_window_days"] == 30
+        org = Organization.objects.get(name="Policy Smuggler", owner=nonmember_user)
+        assert org.membership_grace_period_days == 7
+        assert org.membership_subscription_revival_window_days == 30
 
     def test_create_organization_without_verified_email_fails(
         self, nonmember_client: Client, nonmember_user: RevelUser

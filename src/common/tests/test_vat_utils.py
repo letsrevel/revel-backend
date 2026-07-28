@@ -6,6 +6,8 @@ Covers:
 - ``calculate_vat_exclusive``: VAT-exclusive breakdown (net → gross).
 - ``calculate_b2b_fee_vat``: All four EU VAT scenarios (same country,
   EU cross-border with valid VAT, EU without valid VAT, outside EU).
+- ``b2b_fee_vat_from_gross``: The same four scenarios, decomposing a
+  VAT-inclusive fee instead of adding VAT on top.
 - ``VATEntity`` protocol compatibility with a plain dataclass.
 """
 
@@ -18,6 +20,7 @@ import pytest
 from common.service.vat_utils import (
     B2BFeeVATBreakdown,
     VATBreakdown,
+    b2b_fee_vat_from_gross,
     calculate_b2b_fee_vat,
     calculate_vat_exclusive,
     calculate_vat_inclusive,
@@ -490,3 +493,93 @@ class TestCalculateB2BFeeVat:
             assert result.fee_vat == Decimal("0.00")
         else:
             assert result.fee_vat > Decimal("0.00")
+
+
+# ---------------------------------------------------------------------------
+# b2b_fee_vat_from_gross
+# ---------------------------------------------------------------------------
+
+
+class TestB2BFeeVatFromGross:
+    """Test B2B fee VAT decomposition from a VAT-inclusive (gross) fee.
+
+    The platform is registered in Austria (AT) with a 20% domestic VAT rate.
+    """
+
+    PLATFORM_COUNTRY = "AT"
+    PLATFORM_VAT_RATE = Decimal("20.00")
+    FEE = Decimal("10.00")
+
+    def test_same_country_decomposes_gross_into_net_and_vat(self) -> None:
+        """Austrian entity: the 10.00 collected already includes 20% VAT.
+
+        10.00 / 1.20 = 8.33 net, 1.67 VAT.
+        """
+        entity = _make_entity(vat_country_code="AT", vat_id="ATU12345678", vat_id_validated=True)
+
+        result = b2b_fee_vat_from_gross(self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
+
+        assert result.fee_gross == Decimal("10.00")
+        assert result.fee_net == Decimal("8.33")
+        assert result.fee_vat == Decimal("1.67")
+        assert result.fee_vat_rate == self.PLATFORM_VAT_RATE
+        assert result.reverse_charge is False
+
+    def test_eu_without_valid_vat_id_decomposes_gross(self) -> None:
+        """EU entity without a validated VAT ID: platform's domestic VAT applies."""
+        entity = _make_entity(vat_country_code="DE", vat_id="DE123456789", vat_id_validated=False)
+
+        result = b2b_fee_vat_from_gross(self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
+
+        assert result.fee_net == Decimal("8.33")
+        assert result.fee_vat == Decimal("1.67")
+        assert result.reverse_charge is False
+
+    def test_eu_cross_border_with_valid_vat_id_reverse_charge(self) -> None:
+        """Reverse charge: nothing to decompose, the whole fee is net."""
+        entity = _make_entity(vat_country_code="DE", vat_id="DE123456789", vat_id_validated=True)
+
+        result = b2b_fee_vat_from_gross(self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
+
+        assert result.fee_gross == self.FEE
+        assert result.fee_net == self.FEE
+        assert result.fee_vat == Decimal("0.00")
+        assert result.fee_vat_rate == Decimal("0.00")
+        assert result.reverse_charge is True
+
+    def test_outside_eu_no_vat(self) -> None:
+        """US entity: export of services, the whole fee is net."""
+        entity = _make_entity(vat_country_code="US")
+
+        result = b2b_fee_vat_from_gross(self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
+
+        assert result.fee_net == self.FEE
+        assert result.fee_vat == Decimal("0.00")
+        assert result.reverse_charge is False
+
+    def test_zero_platform_rate_leaves_fee_untouched(self) -> None:
+        """A platform with no VAT rate configured collects a pure net fee."""
+        entity = _make_entity(vat_country_code="AT")
+
+        result = b2b_fee_vat_from_gross(self.FEE, entity, self.PLATFORM_COUNTRY, Decimal("0.00"))
+
+        assert result.fee_net == self.FEE
+        assert result.fee_vat == Decimal("0.00")
+        assert result.fee_vat_rate == Decimal("0.00")
+        assert result.reverse_charge is False
+
+    def test_accounting_identity_gross_equals_net_plus_vat(self) -> None:
+        """fee_gross = fee_net + fee_vat must hold for the domestic-VAT case."""
+        entity = _make_entity(vat_country_code="AT")
+
+        result = b2b_fee_vat_from_gross(Decimal("7.77"), entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
+
+        assert result.fee_gross == result.fee_net + result.fee_vat
+
+    def test_returns_b2b_fee_vat_breakdown_dataclass(self) -> None:
+        """Return type is B2BFeeVATBreakdown frozen dataclass."""
+        entity = _make_entity(vat_country_code="AT")
+
+        result = b2b_fee_vat_from_gross(self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
+
+        assert isinstance(result, B2BFeeVATBreakdown)

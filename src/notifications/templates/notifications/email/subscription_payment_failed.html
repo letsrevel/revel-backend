@@ -1,0 +1,21 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2 style="margin-top:0;">⚠️ {% trans "Payment Failed" %}</h2>
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p style="font-size:18px;">{% blocktranslate with plan=context.plan_name org=context.organization_name %}We couldn't collect the payment for your <strong>{{ plan }}</strong> membership at <strong>{{ org }}</strong>.{% endblocktranslate %}</p>
+<div class="card card--warning">
+    <h3 style="margin-top:0;">💳 {% trans "Payment Details" %}</h3>
+    <div class="info-row"><span class="label">{% trans "Plan:" %}</span> {{ context.plan_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Amount due:" %}</span> <strong>{{ context.amount }}</strong></div>
+    <div class="info-row"><span class="label">{% trans "Grace period ends:" %}</span> <strong>{{ context.grace_period_end }}</strong></div>
+</div>
+<p>{% blocktranslate with date=context.grace_period_end %}Please resolve this before <strong>{{ date }}</strong> to keep your membership active.{% endblocktranslate %}</p>
+{% if context.is_online and context.manage_subscription_url %}
+<center>
+    <a href="{{ context.manage_subscription_url }}" class="button">{% trans "Update Payment Method" %}</a>
+</center>
+{% else %}
+<p>{% blocktranslate with org=context.organization_name url=context.organization_contact_url %}Please <a href="{{ url }}">contact {{ org }}</a> to renew your membership.{% endblocktranslate %}</p>
+{% endif %}
+{% endblock %}

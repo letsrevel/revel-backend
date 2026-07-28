@@ -9,9 +9,23 @@ from django.test.client import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
-from events.models import MembershipTier, Organization, OrganizationMember, OrganizationStaff
+from events.models import (
+    MembershipTier,
+    Organization,
+    OrganizationMember,
+    OrganizationQuestionnaire,
+    OrganizationStaff,
+)
+from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
+
+
+def _membership_questionnaire(org: Organization) -> OrganizationQuestionnaire:
+    q = Questionnaire.objects.create(name="Q", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+    return OrganizationQuestionnaire.objects.create(
+        organization=org, questionnaire=q, questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP
+    )
 
 
 class TestManageMembersAndStaff:
@@ -363,6 +377,105 @@ def test_update_membership_tier_by_owner(organization_owner_client: Client, orga
 
     tier.refresh_from_db()
     assert tier.name == "New Name"
+
+
+def test_create_membership_tier_with_eligibility_overrides(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """A tier can be created with a questionnaire override and requires_membership_approval (issue #777)."""
+    oq = _membership_questionnaire(organization)
+    url = reverse("api:create_membership_tier", kwargs={"slug": organization.slug})
+    payload = {
+        "name": "Gated",
+        "membership_questionnaire_id": str(oq.id),
+        "requires_membership_approval": True,
+    }
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["membership_questionnaire_id"] == str(oq.id)
+    assert data["requires_membership_approval"] is True
+    tier = MembershipTier.objects.get(organization=organization, name="Gated")
+    assert tier.membership_questionnaire_id == oq.id
+    assert tier.requires_membership_approval is True
+
+
+def test_create_membership_tier_rejects_cross_org_questionnaire(
+    organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """A tier questionnaire from another org is rejected with 400."""
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    other_oq = _membership_questionnaire(other_org)
+    url = reverse("api:create_membership_tier", kwargs={"slug": organization.slug})
+    payload = {"name": "Bad", "membership_questionnaire_id": str(other_oq.id)}
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    assert not MembershipTier.objects.filter(organization=organization, name="Bad").exists()
+
+
+def test_update_membership_tier_approval_tristate_set_then_inherit(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """requires_membership_approval is tri-state: settable to True, then back to null (inherit org default)."""
+    tier = MembershipTier.objects.create(organization=organization, name="Tri")
+    url = reverse("api:update_membership_tier", kwargs={"slug": organization.slug, "tier_id": tier.id})
+
+    # Set the override explicitly.
+    response = organization_owner_client.put(
+        url, data=orjson.dumps({"requires_membership_approval": True}), content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert response.json()["requires_membership_approval"] is True
+    tier.refresh_from_db()
+    assert tier.requires_membership_approval is True
+
+    # Explicit null clears the override (inherit the org default).
+    response = organization_owner_client.put(
+        url, data=orjson.dumps({"requires_membership_approval": None}), content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert response.json()["requires_membership_approval"] is None
+    tier.refresh_from_db()
+    assert tier.requires_membership_approval is None
+
+
+def test_update_membership_tier_omitting_approval_leaves_it_unchanged(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """Omitting requires_membership_approval on update does not reset the existing override."""
+    tier = MembershipTier.objects.create(organization=organization, name="Keep", requires_membership_approval=True)
+    url = reverse("api:update_membership_tier", kwargs={"slug": organization.slug, "tier_id": tier.id})
+
+    response = organization_owner_client.put(
+        url, data=orjson.dumps({"name": "Keep Renamed"}), content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    tier.refresh_from_db()
+    assert tier.name == "Keep Renamed"
+    assert tier.requires_membership_approval is True
+
+
+def test_update_membership_tier_rejects_cross_org_questionnaire(
+    organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Updating a tier with a questionnaire from another org is rejected with 400."""
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    other_oq = _membership_questionnaire(other_org)
+    tier = MembershipTier.objects.create(organization=organization, name="ToGate")
+    url = reverse("api:update_membership_tier", kwargs={"slug": organization.slug, "tier_id": tier.id})
+
+    response = organization_owner_client.put(
+        url, data=orjson.dumps({"membership_questionnaire_id": str(other_oq.id)}), content_type="application/json"
+    )
+
+    assert response.status_code == 400
+    tier.refresh_from_db()
+    assert tier.membership_questionnaire_id is None
 
 
 def test_update_membership_tier_by_staff_with_permission(

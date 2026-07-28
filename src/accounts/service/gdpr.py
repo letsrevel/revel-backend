@@ -1,11 +1,12 @@
-"""Privacy utils (GDPR Art. 15 data export).
+"""Privacy utils (GDPR Art. 15 data export, Art. 17 erasure of history mirrors).
 
-Export policy is an explicit **allowlist**: every reverse relation on
-``RevelUser`` must have an entry in :data:`EXPORT_RULES` — either included
-(optionally with a custom serializer / field excludes) or excluded with a
-documented reason. Unmapped relations are skipped at runtime (default-deny)
-and rejected by the registry guard test, so a new model with a user FK forces
-an explicit export decision instead of silently joining the export (#798).
+Export policy is an explicit **allowlist**: every relation pointing at
+``RevelUser`` — including the hidden (``related_name='+'``) ones — must have an
+entry in :data:`EXPORT_RULES`, either included (optionally with a custom
+serializer / field excludes) or excluded with a documented reason. Unmapped
+relations are skipped at runtime (default-deny) and rejected by the registry
+guard test, so a new model with a user FK forces an explicit export decision
+instead of silently joining the export (#798).
 
 Two leak classes drove this design:
 
@@ -14,6 +15,10 @@ Two leak classes drove this design:
   *other* data subjects and must never appear in this user's export.
 * **Business internals** — M2M expansion of organizations dumped VAT/billing/
   fee data to mere members; those are now reduced to id/name/slug.
+
+Erasure has its own blind spot: ``django-simple-history`` mirrors carry
+``db_constraint=False, on_delete=DO_NOTHING`` FKs, so ``user.delete()`` cannot
+reach them — see :func:`purge_user_history`.
 """
 
 import dataclasses
@@ -26,10 +31,12 @@ import orjson
 import structlog
 from django.contrib.gis.geos import Point
 from django.core.files.base import ContentFile
-from django.db.models import ManyToManyRel, ManyToOneRel, Model, OneToOneRel
+from django.db.models import CASCADE, ForeignKey, ManyToManyRel, ManyToOneRel, Model, OneToOneRel, Q
 from django.db.models.fields.files import FieldFile
 from django.forms.models import model_to_dict
 from django.utils import timezone
+from simple_history.models import registered_models
+from simple_history.utils import get_history_manager_for_model
 
 from accounts.models import ReferralPayout, ReferralPayoutStatement, RevelUser, UserDataExport
 from common.signing import generate_signed_url, is_protected_path
@@ -369,6 +376,11 @@ class ExportRule:
 
 _EXCLUDED_THIRD_PARTY = "third-party data handled in a staff/admin capacity"
 _EXCLUDED_MODERATION = "moderation/fraud-prevention record — excluded pending policy decision (#798)"
+# simple-history mirrors duplicate rows that are already exported in their live
+# form; re-exporting them would repeat the same personal data once per edit.
+# Erasure still has to reach them — see purge_user_history().
+_EXCLUDED_HISTORY_MIRROR = "simple-history mirror of a live row that is exported in its current form"
+_EXCLUDED_HISTORY_ACTOR = "simple-history actor column — audit of edits made to other subjects' rows"
 
 EXPORT_RULES: dict[str, ExportRule] = {
     # --- accounts ---
@@ -413,6 +425,9 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "organizationmembershiprequest_set": ExportRule(include=True, exclude_fields=("decided_by",)),
     "held_series_passes": ExportRule(include=True),
     "membership_subscriptions": ExportRule(include=True),
+    # Per-(user, org) Stripe Customer reference — the user's own identifier,
+    # same footing as the stripe ids on payments/membership_subscriptions.
+    "customer_profiles": ExportRule(include=True),
     "seat_holds": ExportRule(include=True),
     "attendee_invoices": ExportRule(include=True),
     "sent_contact_messages": ExportRule(include=True),
@@ -451,6 +466,37 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "questionnaireevaluation_set": ExportRule(include=False, reason="evaluations authored about other users"),
     # --- telegram ---
     "telegram_users": ExportRule(include=True),
+    # --- hidden relations (``related_name='+'``) -------------------------------
+    # These have no accessor on the user (they all report ``'+'``), so they are
+    # keyed ``<app_label>.<model>.<field>`` and can only ever be excluded — but
+    # they still need a decision on record, because a hidden FK is exactly how a
+    # model sneaks past the allowlist.
+    # Auth plumbing: group/permission assignments are access control, not
+    # personal data, and are absent from the profile section for the same reason.
+    "accounts.reveluser_groups.reveluser": ExportRule(include=False, reason="Django auth group assignment"),
+    "accounts.reveluser_user_permissions.reveluser": ExportRule(
+        include=False, reason="Django auth permission assignment"
+    ),
+    # Actor side of moderation/decision rows: these name the user as the staff
+    # member who banned/blacklisted/decided *about somebody else*. (The
+    # data-subject side of each lives under its own accessor — ``global_bans``,
+    # ``blacklist_entries``, ``whitelist_requests`` — with its own rule above.)
+    "accounts.globalban.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "events.blacklist.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "events.whitelistrequest.decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    # simple-history: ``history_user`` is the editor, ``user``/``recorded_by``
+    # mirror the live row's own FKs.
+    "common.historicallegal.history_user": ExportRule(include=False, reason=_EXCLUDED_HISTORY_ACTOR),
+    "common.historicalsitesettings.history_user": ExportRule(include=False, reason=_EXCLUDED_HISTORY_ACTOR),
+    "events.historicalmembershipsubscriptionplan.history_user": ExportRule(
+        include=False, reason=_EXCLUDED_HISTORY_ACTOR
+    ),
+    "events.historicalmembershipsubscription.history_user": ExportRule(include=False, reason=_EXCLUDED_HISTORY_ACTOR),
+    "events.historicalmembershipsubscription.user": ExportRule(include=False, reason=_EXCLUDED_HISTORY_MIRROR),
+    "events.historicalmembershippayment.history_user": ExportRule(include=False, reason=_EXCLUDED_HISTORY_ACTOR),
+    "events.historicalmembershippayment.recorded_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "events.historicalcustomerprofile.history_user": ExportRule(include=False, reason=_EXCLUDED_HISTORY_ACTOR),
+    "events.historicalcustomerprofile.user": ExportRule(include=False, reason=_EXCLUDED_HISTORY_MIRROR),
 }
 
 # Data about the user that is not a direct reverse relation (depth 2).
@@ -463,13 +509,28 @@ EXTRA_SECTIONS: dict[str, _Serializer] = {
 
 
 def get_user_reverse_relations() -> dict[str, OneToOneRel | ManyToOneRel | ManyToManyRel]:
-    """Map accessor name → reverse relation for every relation on ``RevelUser``."""
+    """Map registry key → reverse relation for every relation on ``RevelUser``.
+
+    ``include_hidden=True`` is what makes the allowlist airtight: a FK declared
+    with ``related_name='+'`` (simple-history mirrors, actor columns, auth
+    through-tables) is invisible to a plain ``get_fields()`` and would otherwise
+    never reach an export decision.
+
+    Hidden relations all report the same useless accessor (``'+'``), so they are
+    keyed ``<app_label>.<model>.<field>`` instead. They have no attribute on the
+    user, hence no way to be serialized — the registry may only exclude them.
+    """
     relations: dict[str, OneToOneRel | ManyToOneRel | ManyToManyRel] = {}
-    for field in RevelUser._meta.get_fields():
-        if isinstance(field, (OneToOneRel, ManyToOneRel, ManyToManyRel)) and field.related_model:
-            accessor = field.get_accessor_name()
-            if accessor:
-                relations[accessor] = field
+    for field in RevelUser._meta.get_fields(include_hidden=True):
+        if not (isinstance(field, (OneToOneRel, ManyToOneRel, ManyToManyRel)) and field.related_model):
+            continue
+        if field.hidden:
+            related_model = t.cast(type[Model], field.related_model)
+            relations[f"{related_model._meta.label_lower}.{field.field.name}"] = field
+            continue
+        accessor = field.get_accessor_name()
+        if accessor:
+            relations[accessor] = field
     return relations
 
 
@@ -579,3 +640,68 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
             export.status = UserDataExport.UserDataExportStatus.FAILED
             export.save(update_fields=["status"])
         raise
+
+
+# ---------------------------------------------------------------------------
+# Erasure (Art. 17) — simple-history mirrors
+# ---------------------------------------------------------------------------
+
+
+def _user_foreign_keys(model: type[Model]) -> list[ForeignKey[t.Any]]:
+    """Every FK on ``model`` that points at ``RevelUser``."""
+    return [f for f in model._meta.fields if isinstance(f, ForeignKey) and f.related_model is RevelUser]
+
+
+def purge_user_history(user_id: UUID) -> dict[str, int]:
+    """Erase a deleted user's traces from every ``django-simple-history`` table.
+
+    Historical mirrors declare their FKs ``db_constraint=False,
+    on_delete=DO_NOTHING``, so ``user.delete()`` never reaches them — and
+    simple-history's ``post_delete`` hook makes it worse by *writing a fresh
+    deletion row* for every live row the cascade removes, each still carrying
+    the user's pk alongside the Stripe customer/subscription/payment-intent ids,
+    amounts and notes it mirrored. This must therefore run **after**
+    ``user.delete()``, or the cascade re-creates what it just removed.
+
+    Each user FK follows its concrete counterpart's rule, so the mirror can
+    never be more permissive than the live table: ``CASCADE`` ⇒ drop the
+    historical row; anything else — an actor column such as ``recorded_by``, or
+    simple-history's own ``history_user`` — ⇒ null just that column, leaving
+    other data subjects' history intact.
+
+    Args:
+        user_id: pk of the erased user.
+
+    Returns:
+        ``{"deleted": n, "anonymized": n}`` row counts, for the erasure log.
+    """
+    # Only *direct* user FKs are followed here. A historical model that reaches
+    # the user through another table (``MembershipPayment`` → ``subscription``)
+    # is covered at the source instead: it is registered
+    # ``HistoricalRecords(cascade_delete_history=True)``, so its mirror is
+    # dropped by the live cascade rather than left behind a dangling FK. Any
+    # future transitively-linked history model needs the same flag.
+    deleted = 0
+    anonymized = 0
+    for model in list(registered_models.values()):
+        if not hasattr(model._meta, "simple_history_manager_attribute"):
+            continue  # m2m through-model registered without its own history manager
+        history_model = get_history_manager_for_model(model).model
+        concrete_fields = {f.name: f for f in _user_foreign_keys(model)}
+        cascade_filter = Q()
+        actor_attnames = []
+        for field in _user_foreign_keys(history_model):
+            concrete = concrete_fields.get(field.name)
+            if concrete is not None and concrete.remote_field.on_delete is CASCADE:
+                cascade_filter |= Q(**{field.attname: user_id})
+            else:
+                actor_attnames.append(field.attname)
+        if cascade_filter:
+            deleted += history_model.objects.filter(cascade_filter).delete()[0]
+        for attname in actor_attnames:
+            # One UPDATE per column: a row may name the erased user in one
+            # column and somebody else in another.
+            anonymized += history_model.objects.filter(**{attname: user_id}).update(**{attname: None})
+
+    logger.info("gdpr_history_purged", user_id=str(user_id), deleted=deleted, anonymized=anonymized)
+    return {"deleted": deleted, "anonymized": anonymized}

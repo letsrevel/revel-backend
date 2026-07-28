@@ -18,9 +18,9 @@ from events.models import (
     EventInvitationRequest,
     EventRSVP,
     EventSeries,
+    MembershipRequestStatus,
     Organization,
     OrganizationMember,
-    OrganizationMembershipRequest,
     Ticket,
     TicketTier,
     WhitelistRequest,
@@ -331,7 +331,7 @@ class QuestionnaireFilterSchema(FilterSchema):
 class MembershipRequestFilterSchema(FilterSchema):
     """Filter schema for organization membership requests."""
 
-    status: OrganizationMembershipRequest.Status | None = None
+    status: MembershipRequestStatus | None = None
 
 
 class InvitationRequestFilterSchema(FilterSchema):

@@ -26,6 +26,7 @@ class NotificationsConfig(AppConfig):
         import notifications.service.templates.rsvp_templates  # noqa: F401
         import notifications.service.templates.series_pass_templates  # noqa: F401
         import notifications.service.templates.series_templates  # noqa: F401
+        import notifications.service.templates.subscription_templates  # noqa: F401
         import notifications.service.templates.system_templates  # noqa: F401
         import notifications.service.templates.ticket_templates  # noqa: F401
         import notifications.service.templates.waitlist_templates  # noqa: F401

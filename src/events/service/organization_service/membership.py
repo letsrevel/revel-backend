@@ -4,16 +4,19 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, ProtectedError, Q
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.utils import get_or_create_with_race_protection, update_or_create_with_race_protection
 from events import models
-from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError
+from events.exceptions import AlreadyMemberError, MembershipTierInUseError, PendingMembershipRequestExistsError
 from events.models import (
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
     OrganizationMember,
@@ -23,7 +26,7 @@ from events.models import (
 )
 
 if t.TYPE_CHECKING:
-    from events.schema import MembershipTierCreateSchema
+    from events.schema import MembershipTierCreateSchema, MembershipTierUpdateSchema
 
 # Intentional cross-module use of a private helper: the name is pinned by
 # events/migrations/0001_initial.py (referenced as a field `default=`), so it
@@ -32,6 +35,30 @@ from events.models.organization import _get_default_permissions
 from events.service import blacklist_service
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
+
+# Tier-delete refusals (#804). Rendered by ``MembershipTierInUseError`` → 409.
+TIER_HAS_APPLICATIONS_MESSAGE = _(
+    "Cannot delete a tier that has membership applications. They are part of the organization's history."
+)
+TIER_HAS_SUBSCRIPTIONS_MESSAGE = _(
+    "Cannot delete a tier whose plans still have subscriptions. Archive the plans instead."
+)
+
+# Eligibility-gate config vs. paid plans (#774 Phase-1 boundary). A tier carrying
+# live subscription plans is only reachable through the direct subscription
+# endpoints (subscribe / change-plan / revive), which never run the
+# ``membership_manager`` gate stack — the free ``/apply`` path is blocked for such
+# tiers by ``TierAvailabilityGate`` (TIER_REQUIRES_SUBSCRIPTION). So a monetized
+# tier's manual-approval and membership-questionnaire overrides are configured but
+# never enforced. Phase 1 refuses the incoherent config on both sides (here, and in
+# ``subscription_service`` when a plan goes on sale) rather than growing new
+# enforcement machinery inside the payment flow. See
+# docs/architecture/membership-eligibility.md.
+TIER_GATES_ON_MONETIZED_TIER_MESSAGE = _(
+    "This tier is sold through subscription plans, and paid memberships bypass the application "
+    "pipeline — manual approval and membership questionnaires would never run. Archive the tier's "
+    "plans first, or configure these policies on a tier that has none."
+)
 
 
 def create_membership_request(
@@ -61,41 +88,184 @@ def create_membership_request(
     if models.OrganizationMember.objects.filter(organization=organization, user=user).exists():
         raise AlreadyMemberError
 
-    if OrganizationMembershipRequest.objects.filter(
-        organization=organization, user=user, status=OrganizationMembershipRequest.Status.PENDING
-    ).exists():
+    # ``unique_pending_application_per_user_org_tier`` (partial, nulls_distinct=False)
+    # turns a concurrent double-submit — double-click, or web + Telegram at once —
+    # into an IntegrityError, so a plain exists()+create() would 500 instead of
+    # returning the domain 409. The helper re-fetches the winner whether the race
+    # surfaces as IntegrityError (INSERT) or ValidationError (full_clean's
+    # validate_constraints, when the racing row is already committed).
+    application, created = get_or_create_with_race_protection(
+        OrganizationMembershipRequest,
+        Q(
+            organization=organization,
+            user=user,
+            tier__isnull=True,
+            status=OrganizationMembershipRequest.Status.PENDING,
+        ),
+        {"organization": organization, "user": user, "message": message},
+    )
+    if not created:
         raise PendingMembershipRequestExistsError
+    return application
 
-    return OrganizationMembershipRequest.objects.create(organization=organization, user=user, message=message)
+
+def _assert_free_grant_allowed(membership_request: models.OrganizationMembershipRequest, *, force: bool) -> None:
+    """Refuse a free grant that would clobber a paid or admin-imposed membership.
+
+    Mirrors the guards ``membership_manager.service._complete_free_application``
+    applies on the self-service path. The staff path needs them for the same
+    reason and one extra: the per-tier partial unique constraint lets a stale
+    tier-less PENDING application coexist with a tier-bearing one, so a queue row
+    predating the user's subscription can still be approved months later.
+
+    BANNED and hard-blacklisted users are refused **even with** ``force``: the
+    free path's ``update_or_create(status=ACTIVE)`` would otherwise silently
+    un-ban them, and lifting a ban has to stay a deliberate ``update_member`` /
+    blacklist action rather than a side effect of clearing the application queue.
+    The blacklist half mirrors ``subscription_stripe_sync._ensure_active_member``.
+
+    Args:
+        membership_request: The application being approved.
+        force: Staff explicitly overrode the safety guards.
+
+    Raises:
+        HttpError: 403 when the user is BANNED or hard-blacklisted (regardless of
+            ``force``); 400 when the user holds a non-terminal subscription, or
+            when their membership is PAUSED.
+    """
+    is_banned = models.OrganizationMember.objects.filter(
+        organization_id=membership_request.organization_id,
+        user_id=membership_request.user_id,
+        status=OrganizationMember.MembershipStatus.BANNED,
+    ).exists()
+    if is_banned:
+        raise HttpError(
+            403,
+            str(
+                _(
+                    "This user is banned from the organization. Lift the ban from the members "
+                    "list before approving an application."
+                )
+            ),
+        )
+    if blacklist_service.check_user_hard_blacklisted(membership_request.user, membership_request.organization):
+        raise HttpError(
+            403,
+            str(
+                _(
+                    "This user is blacklisted from the organization. Remove them from the "
+                    "blacklist before approving an application."
+                )
+            ),
+        )
+
+    if force:
+        return
+
+    has_subscription = (
+        MembershipSubscription.objects.filter(
+            organization_id=membership_request.organization_id,
+            user_id=membership_request.user_id,
+        )
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .exists()
+    )
+    if has_subscription:
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "This user has an active subscription; approving a free application would "
+                    "overwrite their paid membership. Cancel the subscription first, or force the approval."
+                )
+            ),
+        )
+    is_paused = models.OrganizationMember.objects.filter(
+        organization_id=membership_request.organization_id,
+        user_id=membership_request.user_id,
+        status=OrganizationMember.MembershipStatus.PAUSED,
+    ).exists()
+    if is_paused:
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "This membership is paused. Resume it instead of approving a free "
+                    "application, or force the approval."
+                )
+            ),
+        )
 
 
 @transaction.atomic
 def approve_membership_request(
-    membership_request: models.OrganizationMembershipRequest, decided_by: RevelUser, tier: MembershipTier
+    membership_request: models.OrganizationMembershipRequest,
+    decided_by: RevelUser,
+    tier: MembershipTier | None = None,
+    force: bool = False,
 ) -> None:
-    """Approve a membership request and assign tier.
+    """Approve a membership application.
+
+    An explicitly passed ``tier`` wins over the application's pre-set one: the
+    controller only forwards a tier when staff actually supplied ``tier_id``, so
+    the applicant's self-selected tier still applies when they don't — but when
+    staff disagree with that choice, their decision is what gets granted (and is
+    written back onto the row, so the application doesn't advertise a tier the
+    member never got). At least one of the two must be present.
+
+    Behavior:
+    - Application carries no plan → COMPLETED + OrganizationMember created at the chosen tier.
+    - Application carries a plan → APPROVED (Phase 2 will trigger Stripe sub creation
+      from a separate /pay endpoint). Phase 1 currently rejects plan-bearing applications
+      at /apply, so this branch will rarely fire until Phase 2.
 
     Args:
-        membership_request: The membership request to approve
-        decided_by: The user approving the request
-        tier: The membership tier to assign
+        membership_request: The application to approve.
+        decided_by: The staff member approving it.
+        tier: Tier to grant. Overrides the application's own tier when given.
+        force: Bypass the free-path safety guards. Staff may legitimately want to
+            comp a paying subscriber or correct a tier; without this the guards
+            would make that impossible. Does not bypass the BANNED / blacklist
+            refusals — see :func:`_assert_free_grant_allowed`.
     """
-    membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
+    effective_tier = tier or membership_request.tier
+    if effective_tier is None:
+        raise HttpError(400, str(_("A tier must be specified to approve this application.")))
+    if effective_tier.organization_id != membership_request.organization_id:
+        raise HttpError(400, str(_("Tier must belong to the same organization.")))
+    if membership_request.status != models.OrganizationMembershipRequest.Status.PENDING:
+        raise HttpError(400, str(_("Only pending applications can be approved.")))
+
     membership_request.decided_by = decided_by
-    membership_request.save(update_fields=["status", "decided_by"])
 
-    # Create or update membership with tier (this will trigger MEMBERSHIP_GRANTED notification via signal)
-    # Use update_or_create to ensure clean() method is called for validation
-    member, created = models.OrganizationMember.objects.update_or_create(
-        organization=membership_request.organization,
-        user=membership_request.user,
-        defaults={"tier": tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
-    )
+    if membership_request.plan_id is None:
+        _assert_free_grant_allowed(membership_request, force=force)
+        # Free path: complete now.
+        membership_request.status = models.OrganizationMembershipRequest.Status.COMPLETED
+        update_fields = ["status", "decided_by"]
+        if membership_request.tier_id != effective_tier.pk:
+            # Tier-less legacy row, or staff overrode the applicant's choice —
+            # record the tier that was actually granted.
+            membership_request.tier = effective_tier
+            update_fields.append("tier")
+        membership_request.save(update_fields=update_fields)
 
-    # Explicitly call clean to validate tier belongs to same organization
-    member.full_clean()
+        member, created = update_or_create_with_race_protection(
+            models.OrganizationMember,
+            {"organization": membership_request.organization, "user": membership_request.user},
+            {"tier": effective_tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
+        )
+        member.full_clean()
+    else:
+        # Paid path: mark APPROVED, awaiting member's /pay (Phase 2).
+        membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
+        update_fields = ["status", "decided_by"]
+        if membership_request.tier_id is None:
+            membership_request.tier = effective_tier
+            update_fields.append("tier")
+        membership_request.save(update_fields=update_fields)
+        created = False  # don't fire MEMBERSHIP_GRANTED on the paid branch yet
 
-    # Send approval notification
     def send_approval_notification() -> None:
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
         notification_requested.send(
@@ -109,12 +279,23 @@ def approve_membership_request(
             },
         )
 
-    if created:
+    if created or membership_request.plan_id is None:
         transaction.on_commit(send_approval_notification)
 
 
 def reject_membership_request(request: models.OrganizationMembershipRequest, decided_by: RevelUser) -> None:
-    """Reject a membership request."""
+    """Reject a membership request.
+
+    Only PENDING applications can be rejected, mirroring
+    :func:`approve_membership_request`. Without the guard a COMPLETED row could
+    be flipped to REJECTED while the member stays ACTIVE — the membership
+    survives, but ``/me/applications`` and ``ApplicationStatusGate`` start
+    telling the user they were rejected. The same holds for legacy APPROVED
+    rows, which under the pre-#774 flow also carry a live member.
+    """
+    if request.status != models.OrganizationMembershipRequest.Status.PENDING:
+        raise HttpError(400, str(_("Only pending applications can be rejected.")))
+
     request.status = models.OrganizationMembershipRequest.Status.REJECTED
     request.decided_by = decided_by
     request.save(update_fields=["status", "decided_by"])
@@ -150,17 +331,82 @@ def add_member(organization: Organization, user: RevelUser, tier: MembershipTier
     Raises:
         AlreadyMemberError: If the user is already a member of the organization.
     """
-    if OrganizationMember.objects.filter(organization=organization, user=user).exists():
+    # (org, user) is unique, so a membership materialized concurrently (invitation
+    # claim, application approval, subscription payment) would make a bare create()
+    # 500 instead of returning the documented domain error. The helper re-fetches
+    # the winner whether the race surfaces as IntegrityError (INSERT) or
+    # ValidationError (full_clean's validate_constraints).
+    member, created = get_or_create_with_race_protection(
+        OrganizationMember,
+        Q(organization=organization, user=user),
+        {"organization": organization, "user": user, "tier": tier},
+    )
+    if not created:
         raise AlreadyMemberError(str(_("User is already a member of this organization.")))
-    return OrganizationMember.objects.create(organization=organization, user=user, tier=tier)
+    return member
 
 
 def remove_member(organization: Organization, user: RevelUser) -> None:
-    """Remove a member from an organization."""
+    """Remove a member from an organization.
+
+    Cancels any live subscription first: without it the next ``invoice.paid``
+    re-creates the deleted member as ACTIVE, silently undoing the removal while
+    Stripe keeps billing (see ``cancel_subscriptions_for_membership_loss``).
+    """
     member = get_object_or_404(OrganizationMember, organization=organization, user=user)
+    from events.service import subscription_service  # lazy: avoid cycle
+
+    subscription_service.cancel_subscriptions_for_membership_loss(user, organization)
     member.delete()
 
 
+def _mirror_status_to_subscriptions(member: OrganizationMember, status: OrganizationMember.MembershipStatus) -> None:
+    """Mirror a staff-imposed membership status onto the member's live subscriptions.
+
+    Without this the member row and the subscription disagree, and the
+    subscription always wins: ``sync_member_from_subscription`` fires on *every*
+    subscription save (renewals bump the period), so the next ``invoice.paid``
+    flips the member back to ACTIVE — silently undoing the staff action while
+    Stripe keeps charging for access the member no longer has.
+
+    * BANNED / CANCELLED — both are revocations (``OrganizationQuerySet.for_user``
+      treats CANCELLED as "not a member"), so they terminalize the subscription
+      exactly like ``remove_member`` and the blacklist path.
+    * PAUSED — pauses the subscription too (``pause_collection`` on Stripe for
+      ONLINE plans), so nobody is charged while suspended. Subscriptions
+      ``pause_subscription`` refuses are skipped rather than raising, because
+      neither refusal leaves money on the table: a subscription already
+      scheduled for cancellation stops billing at the period boundary, and an
+      ONLINE row with no Stripe link has never billed anything.
+    * ACTIVE — deliberately not mirrored. Resuming billing is an explicit act;
+      staff use the subscription resume endpoint for it.
+    """
+    from events.service import subscription_service  # lazy: avoid cycle
+
+    if status in (OrganizationMember.MembershipStatus.BANNED, OrganizationMember.MembershipStatus.CANCELLED):
+        subscription_service.cancel_subscriptions_for_membership_loss(member.user, member.organization)
+        return
+
+    if status != OrganizationMember.MembershipStatus.PAUSED:
+        return
+
+    subscriptions = (
+        MembershipSubscription.objects.filter(user=member.user, organization=member.organization)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .select_related("plan")
+    )
+    for subscription in subscriptions:
+        if subscription.cancel_at_period_end:
+            continue
+        if (
+            subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
+            and not subscription.stripe_subscription_id
+        ):
+            continue
+        subscription_service.pause_subscription(subscription)
+
+
+@transaction.atomic
 def update_member(
     member: OrganizationMember,
     *,
@@ -169,6 +415,20 @@ def update_member(
     clear_tier: bool = False,
 ) -> OrganizationMember:
     """Update a member's status and/or tier.
+
+    A status that revokes or suspends membership is mirrored onto the member's
+    subscriptions (see :func:`_mirror_status_to_subscriptions`) — otherwise the
+    next renewal keeps billing and overwrites the staff decision.
+
+    ``@transaction.atomic`` makes the member write and the mirroring one unit.
+    Without it, a Stripe failure during the mirror (``pause_online_subscription``
+    raises ``HttpError(502)``) left the member PAUSED locally while Stripe kept
+    collecting: ninja catches ``HttpError`` *inside* the view, so no exception
+    reaches the ``ATOMIC_REQUESTS`` wrapper and the request commits anyway. The
+    savepoint rolls the member row back instead, so a 502 means nothing changed.
+    Post-commit Stripe calls are unaffected — an ``on_commit`` callback
+    registered inside a savepoint that is released still fires on the outer
+    commit (see ``cancel_subscriptions_for_membership_loss``).
 
     Args:
         member: The OrganizationMember instance to update
@@ -195,7 +455,61 @@ def update_member(
     if updated_fields:
         member.save(update_fields=updated_fields)
 
+    if status is not None:
+        _mirror_status_to_subscriptions(member, status)
+        # The subscription saves above run ``sync_member_from_subscription``,
+        # which may rewrite the member row (tier follows the plan) — re-read so
+        # the response is not stale.
+        member.refresh_from_db()
+
     return member
+
+
+def validate_membership_questionnaire(organization: Organization, questionnaire_id: UUID) -> None:
+    """Ensure ``questionnaire_id`` names a MEMBERSHIP questionnaire owned by ``organization``.
+
+    Mirrors the model-level ``clean()`` rules (org-scoped, MEMBERSHIP type) but runs before
+    ``save()`` so callers get a clean 400 for a cross-org, wrong-type, or non-existent id —
+    the model ``clean()`` would 500 on the last case when it dereferences the FK.
+
+    Args:
+        organization: The organization the questionnaire must belong to.
+        questionnaire_id: The candidate ``OrganizationQuestionnaire`` id.
+
+    Raises:
+        HttpError 400: If no matching MEMBERSHIP questionnaire exists for the organization.
+    """
+    exists = models.OrganizationQuestionnaire.objects.filter(
+        pk=questionnaire_id,
+        organization=organization,
+        questionnaire_type=models.OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+    ).exists()
+    if not exists:
+        raise HttpError(
+            400,
+            str(_("The membership questionnaire must belong to this organization and be of type MEMBERSHIP.")),
+        )
+
+
+def _assert_tier_not_monetized(tier: MembershipTier) -> None:
+    """Refuse eligibility-gate config on a tier that has live subscription plans.
+
+    "Live" means ``is_active=True`` — the same liveness filter
+    ``MembershipEligibilityService.tier_has_active_plan`` uses to decide a tier is
+    monetized. ``sales_status`` is orthogonal (a PAUSED plan is temporarily closed
+    to new sales, not retired), so it deliberately does not relax this check.
+
+    Not called from :func:`create_membership_tier`: a tier being created has no
+    plans yet, so the conflict is unreachable there.
+
+    Args:
+        tier: The tier whose gate config is being changed.
+
+    Raises:
+        HttpError 400: If the tier has at least one active subscription plan.
+    """
+    if MembershipSubscriptionPlan.objects.filter(tier=tier, is_active=True).exists():
+        raise HttpError(400, str(TIER_GATES_ON_MONETIZED_TIER_MESSAGE))
 
 
 @transaction.atomic
@@ -214,10 +528,81 @@ def create_membership_tier(organization: Organization, payload: "MembershipTierC
     Returns:
         The created ``MembershipTier``, appended after any existing tiers.
     """
+    if payload.membership_questionnaire_id:
+        validate_membership_questionnaire(organization, payload.membership_questionnaire_id)
     Organization.objects.select_for_update().filter(pk=organization.pk).first()
     current_max = MembershipTier.objects.filter(organization=organization).aggregate(m=Max("display_order"))["m"]
     display_order = 0 if current_max is None else current_max + 1
     return MembershipTier.objects.create(organization=organization, display_order=display_order, **payload.model_dump())
+
+
+@transaction.atomic
+def update_membership_tier(tier: MembershipTier, payload: "MembershipTierUpdateSchema") -> MembershipTier:
+    """Update a membership tier, validating any membership-questionnaire override first.
+
+    The tier-level questionnaire (when set) must belong to the tier's organization and be of
+    type MEMBERSHIP; a NULL override clears it (inherit the org default). Delegates the field
+    write to ``update_db_instance`` (locked, ``exclude_unset`` so tri-state fields keep their
+    "not provided vs explicit null" distinction).
+
+    Turning either eligibility gate *on* is refused once the tier carries live
+    subscription plans — see :func:`_assert_tier_not_monetized`. Only the gating
+    values trip it (``requires_membership_approval=True``, a non-null
+    questionnaire), so clearing the knobs and editing unrelated fields on an
+    already-inconsistent legacy tier both stay possible.
+
+    Args:
+        tier: The tier to update.
+        payload: The validated ``MembershipTierUpdateSchema`` payload.
+
+    Returns:
+        The updated ``MembershipTier``.
+
+    Raises:
+        HttpError 400: If ``membership_questionnaire_id`` is not a MEMBERSHIP questionnaire for the org,
+            or if a gate is being enabled on a tier that has active subscription plans.
+    """
+    from events.service import update_db_instance
+
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("membership_questionnaire_id"):
+        validate_membership_questionnaire(tier.organization, data["membership_questionnaire_id"])
+    if data.get("requires_membership_approval") or data.get("membership_questionnaire_id"):
+        _assert_tier_not_monetized(tier)
+    return update_db_instance(tier, payload)
+
+
+def delete_membership_tier(tier: MembershipTier) -> None:
+    """Delete a membership tier, refusing when protected rows still reference it.
+
+    Members are detached (``OrganizationMember.tier`` is SET_NULL) and the tier's
+    subscription plans cascade away — deleting a plan nobody subscribed to is
+    already allowed by ``subscription_service.delete_plan``. Two relations PROTECT
+    instead, and before #804 the cascade surfaced as a 500:
+
+    * ``OrganizationMembershipRequest.tier`` / ``.plan`` — applications are the
+      organization's join history.
+    * ``MembershipSubscription.plan`` / ``.pending_plan`` — subscriptions carry real
+      money, terminal ones included.
+
+    Rather than pre-querying each protected relation, the delete is attempted and the
+    ``ProtectedError`` translated. Django's collector raises it before issuing any
+    DELETE, so nothing is half-deleted, and this also closes the race with a
+    concurrent subscribe.
+
+    Args:
+        tier: The tier to delete.
+
+    Raises:
+        MembershipTierInUseError: 409 — a protected application or subscription still
+            references the tier or one of its plans.
+    """
+    try:
+        tier.delete()
+    except ProtectedError as exc:
+        if any(isinstance(obj, OrganizationMembershipRequest) for obj in exc.protected_objects):
+            raise MembershipTierInUseError(str(TIER_HAS_APPLICATIONS_MESSAGE)) from exc
+        raise MembershipTierInUseError(str(TIER_HAS_SUBSCRIPTIONS_MESSAGE)) from exc
 
 
 @transaction.atomic

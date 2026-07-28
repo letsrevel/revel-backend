@@ -86,6 +86,14 @@ class NotificationType(TextChoices):
     SERIES_PASS_PURCHASED = "series_pass_purchased"  # Notify holder + org staff/owners when a pass activates
     SERIES_PASS_EXTENDED = "series_pass_extended"  # Notify holder when their pass gains newly-covered events
     SERIES_PASS_CANCELLED = "series_pass_cancelled"  # Notify holder + org staff/owners when a pass is cancelled
+    # Subscription notifications
+    SUBSCRIPTION_RENEWAL_SUCCEEDED = "subscription_renewal_succeeded"
+    SUBSCRIPTION_PAYMENT_FAILED = "subscription_payment_failed"
+    SUBSCRIPTION_EXPIRED = "subscription_expired"
+    SUBSCRIPTION_CANCELLATION_CONFIRMED = "subscription_cancellation_confirmed"
+    SUBSCRIPTION_RENEWAL_REMINDER = "subscription_renewal_reminder"
+    SUBSCRIPTION_PRICE_MIGRATION_NOTICE = "subscription_price_migration_notice"
+    SUBSCRIPTION_REVIVAL_CHECKOUT = "subscription_revival_checkout"  # Staff revived: member gets the checkout link
 
 
 class DeliveryChannel(TextChoices):

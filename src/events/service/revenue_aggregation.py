@@ -9,7 +9,7 @@ import calendar
 import copy
 import hashlib
 import typing as t
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -22,7 +22,7 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from common.service.vat_utils import calculate_vat_inclusive
-from events.models import Organization, Payment, Ticket, TicketTier
+from events.models import MembershipPayment, Organization, Payment, Ticket, TicketTier
 from events.service.seating.pricing import recorded_or_resolved_price
 from events.utils import get_organization_timezone
 
@@ -74,6 +74,23 @@ class TxnRow:
 
 
 @dataclass(frozen=True)
+class MembershipTxnRow:
+    """A single membership payment line for the report's detail sheet."""
+
+    date: date
+    payment_id: str
+    member_email: str
+    member_name: str
+    plan: str
+    gross: Decimal
+    currency: str
+    status: str
+    refund_amount: Decimal
+    stripe_invoice_id: str
+    stripe_payment_intent_id: str
+
+
+@dataclass(frozen=True)
 class CurrencySection:
     """All data for a single currency in the report."""
 
@@ -88,11 +105,19 @@ class CurrencySection:
 
 @dataclass(frozen=True)
 class RevenueReportData:
-    """Full aggregated report data returned to callers."""
+    """Full aggregated report data returned to callers.
+
+    ``memberships``/``membership_payments`` are the org-level subscription totals
+    and ledger for the period — kept beside (never folded into) the ticket
+    ``sections``, whose VAT buckets are ticket-specific. Both are always empty for
+    an event-scoped report.
+    """
 
     scope: ReportScope
     sections: list[CurrencySection]
     generated_at: datetime
+    membership_payments: list[MembershipTxnRow] = field(default_factory=list)
+    memberships: list["MembershipFinancials"] = field(default_factory=list)
 
 
 def resolve_period(
@@ -385,6 +410,76 @@ def _process_ticket(
         )
 
 
+class _MembershipAcc:
+    """Mutable per-currency accumulator for membership subscription payments."""
+
+    def __init__(self) -> None:
+        self.gross = ZERO
+        self.platform_fee = ZERO
+        self.refunded = ZERO
+        self.payment_count = 0
+        self.transactions: list[MembershipTxnRow] = []
+
+
+def _membership_payments(scope: ReportScope) -> QuerySet[MembershipPayment]:
+    """Settled membership payments for the org — empty for an event-scoped report.
+
+    Membership money belongs to the organization, not to any single event, so a
+    per-event report must not claim it.
+    """
+    if scope.event_id is not None:
+        return MembershipPayment.objects.none()
+    return MembershipPayment.objects.select_related("subscription__user", "subscription__plan").filter(
+        subscription__organization=scope.org,
+        status__in=[MembershipPayment.PaymentStatus.SUCCEEDED, MembershipPayment.PaymentStatus.REFUNDED],
+    )
+
+
+def _aggregate_memberships(scope: ReportScope, *, include_transactions: bool = True) -> dict[str, _MembershipAcc]:
+    """Single pass over membership payments; returns accumulators keyed by currency."""
+    tz = organization_timezone(scope.org)
+    currencies: dict[str, _MembershipAcc] = {}
+    for payment in _membership_payments(scope):
+        # ``occurred_at`` is the real hand-over date for backfilled rows (see the
+        # model's help_text); ``created_at`` is the fallback, as on the ticket side.
+        sale_date = _local_date(payment.occurred_at or payment.created_at, tz)
+        refund_date = _local_date(payment.refunded_at, tz) if payment.refunded_at is not None else None
+        sale_in = _in_period(sale_date, scope)
+        refund_in = bool(payment.refund_amount and refund_date is not None and _in_period(refund_date, scope))
+        if not (sale_in or refund_in):
+            continue
+        acc = currencies.setdefault(payment.currency, _MembershipAcc())
+        if sale_in:
+            acc.gross += payment.amount
+            acc.platform_fee += payment.platform_fee
+            acc.payment_count += 1
+        if refund_in and payment.refund_amount:
+            acc.refunded += payment.refund_amount
+        if include_transactions:
+            subscription = payment.subscription
+            acc.transactions.append(
+                MembershipTxnRow(
+                    # A recurring subscription routinely straddles a period boundary. When the
+                    # row is in scope only through its refund, stamping it with the (out-of-period)
+                    # sale date puts the line outside the very period it is reported in — so a
+                    # refund-only row carries the refund date instead. Both-in-period keeps the
+                    # sale date, matching where the money is attributed above.
+                    date=sale_date if sale_in or refund_date is None else refund_date,
+                    payment_id=str(payment.id),
+                    member_email=subscription.user.email,
+                    member_name=subscription.user.get_display_name(),
+                    plan=subscription.plan.name,
+                    gross=payment.amount,
+                    currency=payment.currency,
+                    status=payment.status,
+                    refund_amount=(payment.refund_amount or ZERO) if refund_in else ZERO,
+                    stripe_invoice_id=payment.stripe_invoice_id,
+                    stripe_payment_intent_id=payment.stripe_payment_intent_id,
+                )
+            )
+    return currencies
+
+
 class _EventAgg:
     """Per-event accumulator: event metadata plus its per-currency totals."""
 
@@ -460,17 +555,28 @@ def _aggregate(scope: ReportScope, *, include_transactions: bool = True) -> dict
 
 
 def build_revenue_report_data(scope: ReportScope) -> RevenueReportData:
-    """Aggregate ticket revenue into buckets by currency and VAT rate (org-wide)."""
+    """Aggregate ticket revenue by currency and VAT rate, plus the membership ledger (org-wide)."""
     merged: dict[str, _CurrencyAcc] = {}
     for agg in _aggregate(scope).values():
         for currency, acc in agg.currencies.items():
             _merge_currency(merged.setdefault(currency, _CurrencyAcc()), acc)
     sections = [s for currency, acc in sorted(merged.items()) if (s := _currency_section(currency, acc))]
-    return RevenueReportData(scope=scope, sections=sections, generated_at=timezone.now())
+    membership_accs = sorted(_aggregate_memberships(scope).items())
+    membership_rows = sorted(
+        (row for _, acc in membership_accs for row in acc.transactions),
+        key=lambda r: r.date,
+    )
+    return RevenueReportData(
+        scope=scope,
+        sections=sections,
+        generated_at=timezone.now(),
+        membership_payments=membership_rows,
+        memberships=[_membership_financials(cur, acc) for cur, acc in membership_accs],
+    )
 
 
 def compute_revenue_data_hash(scope: ReportScope) -> str:
-    """SHA-256 over in-scope payment + offline-ticket rows for cache invalidation."""
+    """SHA-256 over in-scope payment, offline-ticket and membership rows for cache invalidation."""
     parts: list[str] = []
     for payment in _online_payments(scope).order_by("id"):
         parts.append(
@@ -491,6 +597,17 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
                     ticket.updated_at.isoformat(),
                     ticket.status,
                     str(ticket.offline_refund_amount),
+                ]
+            )
+        )
+    for membership_payment in _membership_payments(scope).order_by("id"):
+        parts.append(
+            "|".join(
+                [
+                    f"membership:{membership_payment.id}",
+                    membership_payment.updated_at.isoformat(),
+                    membership_payment.status,
+                    str(membership_payment.refund_amount),
                 ]
             )
         )
@@ -538,8 +655,40 @@ class EventFinancials:
 
 
 @dataclass(frozen=True)
+class MembershipFinancials:
+    """Per-currency membership subscription totals for the live endpoints.
+
+    ``net`` follows the ticket-side convention — gross minus refunds, with the
+    platform fee reported separately rather than deducted — so ticket and
+    membership money are addable in :class:`CombinedTotals`.
+    """
+
+    currency: str
+    gross: Decimal
+    platform_fee: Decimal
+    net: Decimal
+    payment_count: int
+    refunded_amount: Decimal
+
+
+@dataclass(frozen=True)
+class CombinedTotals:
+    """Per-currency grand total: ticket net plus membership net."""
+
+    currency: str
+    tickets_net: Decimal
+    memberships_net: Decimal
+    net: Decimal
+
+
+@dataclass(frozen=True)
 class OrganizationFinancials:
-    """Org-wide financials broken down by event, scoped to an active currency."""
+    """Org-wide financials broken down by event, scoped to an active currency.
+
+    ``totals``/``events`` are ticket money; ``memberships`` is org-level
+    subscription money kept alongside it (memberships belong to no event and
+    carry no ticket VAT buckets). ``combined_totals`` adds the two per currency.
+    """
 
     date_from: date
     date_to: date
@@ -547,6 +696,8 @@ class OrganizationFinancials:
     available_currencies: list[str]
     totals: list[CurrencyFinancials]
     events: list[EventFinancials]
+    memberships: list[MembershipFinancials]
+    combined_totals: list[CombinedTotals]
 
 
 def _currency_financials(currency: str, acc: _CurrencyAcc) -> CurrencyFinancials | None:
@@ -582,6 +733,37 @@ def _currency_financials(currency: str, acc: _CurrencyAcc) -> CurrencyFinancials
     )
 
 
+def _membership_financials(currency: str, acc: _MembershipAcc) -> MembershipFinancials:
+    """Shape one currency's membership accumulator for the API."""
+    return MembershipFinancials(
+        currency=currency,
+        gross=acc.gross,
+        platform_fee=acc.platform_fee,
+        net=acc.gross - acc.refunded,
+        payment_count=acc.payment_count,
+        refunded_amount=acc.refunded,
+    )
+
+
+def _combined_totals(
+    currencies: list[str],
+    tickets: list[CurrencyFinancials],
+    memberships: list[MembershipFinancials],
+) -> list[CombinedTotals]:
+    """Ticket net + membership net per currency, for every currency with activity."""
+    ticket_net = {cf.currency: cf.net for cf in tickets}
+    membership_net = {mf.currency: mf.net for mf in memberships}
+    return [
+        CombinedTotals(
+            currency=cur,
+            tickets_net=ticket_net.get(cur, ZERO),
+            memberships_net=membership_net.get(cur, ZERO),
+            net=ticket_net.get(cur, ZERO) + membership_net.get(cur, ZERO),
+        )
+        for cur in currencies
+    ]
+
+
 def _event_financials(agg: _EventAgg) -> EventFinancials:
     by_currency = [
         cf for currency, acc in sorted(agg.currencies.items()) if (cf := _currency_financials(currency, acc))
@@ -613,8 +795,6 @@ def organization_financials(
     events_agg = _aggregate(scope, include_transactions=False)
     event_fins = [ef for agg in events_agg.values() if (ef := _event_financials(agg)).by_currency]
 
-    available = sorted({cf.currency for ef in event_fins for cf in ef.by_currency})
-
     # Org-wide per-currency totals (roll up across events).
     merged: dict[str, _CurrencyAcc] = {}
     for agg in events_agg.values():
@@ -622,8 +802,24 @@ def organization_financials(
             _merge_currency(merged.setdefault(cur, _CurrencyAcc()), acc)
     totals_all = [cf for cur, acc in sorted(merged.items()) if (cf := _currency_financials(cur, acc))]
 
+    memberships_all = [
+        _membership_financials(cur, acc)
+        for cur, acc in sorted(_aggregate_memberships(scope, include_transactions=False).items())
+    ]
+    # A membership-only currency must still show up in the switcher and totals.
+    available = sorted({cf.currency for cf in totals_all} | {mf.currency for mf in memberships_all})
+    combined_all = _combined_totals(available, totals_all, memberships_all)
+
+    # Dominant currency = highest gross (pre-refund), tickets and memberships together.
+    gross_by_currency = dict.fromkeys(available, ZERO)
+    for cf in totals_all:
+        gross_by_currency[cf.currency] += cf.gross
+    for mf in memberships_all:
+        gross_by_currency[mf.currency] += mf.gross
     active = (
-        currency if currency is not None else (max(totals_all, key=lambda c: c.gross).currency if totals_all else None)
+        currency
+        if currency is not None
+        else (max(available, key=lambda c: gross_by_currency[c]) if available else None)
     )
 
     def _net_in(ef: EventFinancials, cur: str | None) -> Decimal:
@@ -638,8 +834,12 @@ def organization_financials(
         ]
         event_fins = [ef for ef in event_fins if ef.by_currency]
         totals = [c for c in totals_all if c.currency == currency]
+        memberships = [m for m in memberships_all if m.currency == currency]
+        combined = [c for c in combined_all if c.currency == currency]
     else:
         totals = totals_all
+        memberships = memberships_all
+        combined = combined_all
 
     reverse = order == "desc"
     if sort == "event_start":
@@ -654,4 +854,6 @@ def organization_financials(
         available_currencies=available,
         totals=totals,
         events=event_fins,
+        memberships=memberships,
+        combined_totals=combined,
     )

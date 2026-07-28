@@ -34,3 +34,63 @@ STRIPE_SESSION_PAID_WITHOUT_PAYMENTS = Counter(
     "revel_stripe_session_paid_without_payments",
     "A Stripe session with a non-zero amount_total was confirmed with no matching Payment rows.",
 )
+
+# A membership invoice was paid against a locally-terminal subscription: Stripe
+# billed a member whose access we already revoked, so the money needs refunding
+# by hand. The local row is deliberately frozen, so nothing self-heals.
+SUBSCRIPTION_PAID_WHILE_TERMINAL = Counter(
+    "revel_subscription_paid_while_terminal",
+    "A Stripe invoice was paid against a CANCELLED/EXPIRED membership subscription.",
+)
+
+# The PaymentIntent behind a membership invoice could not be resolved, so the
+# ledger row cannot be matched by a later charge.refunded. ONLINE membership
+# payments have no manual refund path, so this is unrecoverable without repair.
+SUBSCRIPTION_PAYMENT_INTENT_UNRESOLVED = Counter(
+    "revel_subscription_payment_intent_unresolved",
+    "A MembershipPayment was recorded without a resolvable Stripe PaymentIntent id.",
+)
+
+# A paid mode=subscription checkout arrived carrying metadata we cannot match to
+# any local subscription row: money was captured with nothing to attach it to.
+SUBSCRIPTION_CHECKOUT_WITHOUT_ROW = Counter(
+    "revel_subscription_checkout_without_row",
+    "A completed subscription Checkout Session matched no local MembershipSubscription.",
+)
+
+# An invoice was paid against a locally PAUSED subscription: staff paused the
+# member but an open pre-pause invoice still settled (Smart Retry, hosted invoice
+# page). We keep the money and the pause — Stripe still reports pause_collection,
+# and staff intent wins — so a human has to resume or refund.
+SUBSCRIPTION_PAID_WHILE_PAUSED = Counter(
+    "revel_subscription_paid_while_paused",
+    "A Stripe invoice was paid against a PAUSED membership subscription.",
+)
+
+# A subscription Checkout Session completed against a row that had already gone
+# terminal (immediate cancel, ban, refund auto-cancel) while it was still
+# payable: Stripe minted a Subscription we deliberately refuse to link, so the
+# money needs refunding by hand even though the Stripe side is cancelled.
+SUBSCRIPTION_CHECKOUT_WHILE_TERMINAL = Counter(
+    "revel_subscription_checkout_while_terminal",
+    "A subscription Checkout Session completed against a CANCELLED/EXPIRED membership subscription.",
+)
+
+# An invoice was paid for a hard-blacklisted user who has no OrganizationMember
+# row: a payment in flight while staff banned them. We record the money but must
+# not mint an ACTIVE member (that would un-ban them), so the sub is owed a manual
+# refund/cancel and nothing self-heals.
+SUBSCRIPTION_PAID_WHILE_BLACKLISTED = Counter(
+    "revel_subscription_paid_while_blacklisted",
+    "A Stripe invoice was paid for a hard-blacklisted user with no membership row.",
+)
+
+# The nightly stale-PENDING sweep found a day-old row whose Checkout Session
+# Stripe reports as complete: the member paid, but checkout.session.completed
+# never linked the Stripe Subscription, so there is no membership and no ledger
+# entry. The row is deliberately kept (deleting it makes the money
+# undiscoverable) and a human has to link or refund it.
+SUBSCRIPTION_CHECKOUT_PAID_BUT_UNLINKED = Counter(
+    "revel_subscription_checkout_paid_but_unlinked",
+    "A completed subscription Checkout Session was still unlinked a day later.",
+)

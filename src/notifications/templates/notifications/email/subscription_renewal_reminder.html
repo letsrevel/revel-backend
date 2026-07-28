@@ -1,0 +1,22 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2 style="margin-top:0;">🔔 {% trans "Membership Renewing Soon" %}</h2>
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p style="font-size:18px;">{% blocktranslate with plan=context.plan_name org=context.organization_name date=context.period_end amount=context.amount %}Heads up — your <strong>{{ plan }}</strong> membership at <strong>{{ org }}</strong> renews on {{ date }} for <strong>{{ amount }}</strong>.{% endblocktranslate %}</p>
+<div class="card card--warning">
+    <div class="info-row"><span class="label">{% trans "Plan:" %}</span> {{ context.plan_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Renewal date:" %}</span> {{ context.period_end }}</div>
+    <div class="info-row"><span class="label">{% trans "Amount:" %}</span> <strong>{{ context.amount }}</strong></div>
+</div>
+{% if context.is_online %}
+<p>{% trans "We'll charge your card on file on the renewal date." %}</p>
+{% if context.manage_subscription_url %}
+<center>
+    <a href="{{ context.manage_subscription_url }}" class="button">{% trans "Manage Billing" %}</a>
+</center>
+{% endif %}
+{% else %}
+<p>{% blocktranslate with org=context.organization_name url=context.organization_contact_url %}If you don't want to renew, please <a href="{{ url }}">contact {{ org }}</a> before the renewal date.{% endblocktranslate %}</p>
+{% endif %}
+{% endblock %}

@@ -9,6 +9,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, DeliveryStatus
 from notifications.models import Notification, NotificationDelivery, NotificationPreference
+from notifications.service import digest
 from notifications.service.digest import (
     NotificationDigest,
     get_digest_lookback_period,
@@ -236,6 +237,37 @@ class TestNotificationDigest:
         assert "https://example.com/events/test-0" in text_body
         assert len(text_body) > 0
         assert len(html_body) > 0
+
+
+class TestBuildNotificationUrl:
+    """Test the digest row CTA resolution (#815)."""
+
+    def test_event_url_wins(self) -> None:
+        url = digest._build_notification_url(
+            {"event_url": "https://example.com/events/x", "manage_subscription_url": "https://example.com/m"},
+            "https://example.com",
+        )
+        assert url == "https://example.com/events/x"
+
+    def test_subscription_context_falls_back_to_manage_subscription_url(self) -> None:
+        """Subscription contexts emit none of event_url/frontend_url/action_url."""
+        url = digest._build_notification_url(
+            {"manage_subscription_url": "https://example.com/account/memberships"},
+            "https://example.com",
+        )
+        assert url == "https://example.com/account/memberships"
+
+    def test_expired_subscription_context_falls_back_to_revival_url(self) -> None:
+        """OFFLINE expired subs carry revival_url but no manage_subscription_url."""
+        url = digest._build_notification_url(
+            {"revival_url": "https://example.com/account/memberships"},
+            "https://example.com",
+        )
+        assert url == "https://example.com/account/memberships"
+
+    def test_no_known_key_falls_back_to_notifications_page(self) -> None:
+        url = digest._build_notification_url({"organization_name": "Acme"}, "https://example.com")
+        assert url == "https://example.com/notifications"
 
 
 class TestGetDigestLookbackPeriod:

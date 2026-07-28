@@ -28,7 +28,11 @@ MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE = _(
 )
 
 # Subscription-policy fields on ``OrganizationEditSchema`` guarded by ``manage_subscriptions``.
-_MEMBERSHIP_POLICY_FIELDS = ("membership_grace_period_days", "membership_refund_policy")
+_MEMBERSHIP_POLICY_FIELDS = (
+    "membership_grace_period_days",
+    "membership_subscription_revival_window_days",
+    "membership_refund_policy",
+)
 
 
 @transaction.atomic
@@ -123,10 +127,16 @@ def update_organization(
     bypass that permission. The owner implicitly holds every permission.
     """
     from events.service import update_db_instance
+    from events.service.organization_service.membership import validate_membership_questionnaire
 
     data = payload.model_dump(exclude_unset=True)
     if "contact_method" in data:
         validate_contact_method(organization, Organization.ContactMethod(data["contact_method"]))
+
+    # Validate the default membership questionnaire before save so a bad id yields a clean 400
+    # (the model's clean() would otherwise 500 dereferencing a non-existent FK). NULL clears it.
+    if data.get("default_membership_questionnaire_id"):
+        validate_membership_questionnaire(organization, data["default_membership_questionnaire_id"])
 
     if (
         "revenue_report_cadence" in data
