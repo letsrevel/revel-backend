@@ -17,7 +17,7 @@ from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import schema
 from events.models import MembershipSubscription, MembershipSubscriptionPlan, Organization, OrganizationMember
-from events.service import subscription_service, subscription_stripe_service
+from events.service import subscription_service, subscription_stripe_service, subscription_uncancel
 
 
 @api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Subscriptions"], throttle=UserDefaultThrottle())
@@ -159,6 +159,33 @@ class MeSubscriptionsController(UserAwareController):
         )
         subscription = get_object_or_404(qs)
         return subscription_service.cancel_subscription(subscription, immediate=payload.immediate)
+
+    @route.post(
+        "/organizations/{org_id}/subscription/uncancel",
+        url_name="uncancel_my_membership_subscription",
+        response={
+            200: schema.MySubscriptionSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            502: ResponseMessage,
+        },
+        throttle=WriteThrottle(),
+    )
+    def uncancel_subscription(self, org_id: UUID) -> MembershipSubscription:
+        """Undo a scheduled cancellation on the caller's subscription.
+
+        Clears ``cancel_at_period_end`` so the subscription keeps renewing; for
+        ONLINE plans the same flag is cleared on Stripe. Refuses once the row is
+        terminal, or if the plan has since been archived.
+        """
+        qs = (
+            MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
+            .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+            .select_related("plan", "plan__tier", "organization")
+            .order_by("-created_at")
+        )
+        subscription = get_object_or_404(qs)
+        return subscription_uncancel.uncancel_subscription(subscription)
 
     @route.post(
         "/organizations/{org_id}/subscription/change-plan",

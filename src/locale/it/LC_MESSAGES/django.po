@@ -4978,3 +4978,6 @@ msgstr "Account Telegram bloccato collegato"
 
 msgid "Django site admin"
 msgstr "Amministrazione del sito Django"
+
+msgid "Cannot resume renewal on a cancelled or expired subscription."
+msgstr "Non puoi riattivare il rinnovo di un abbonamento annullato o scaduto."

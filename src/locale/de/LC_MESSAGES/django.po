@@ -5020,3 +5020,6 @@ msgstr "Gesperrtes Telegram-Konto verbunden"
 
 msgid "Django site admin"
 msgstr "Django-Website-Admin"
+
+msgid "Cannot resume renewal on a cancelled or expired subscription."
+msgstr "Die Verlängerung eines gekündigten oder abgelaufenen Abos kannst Du nicht wieder aktivieren."
