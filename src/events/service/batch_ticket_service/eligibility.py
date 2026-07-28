@@ -9,6 +9,12 @@ from ninja.errors import HttpError
 
 from events.models import EventInvitation, OrganizationMember, Ticket, TicketTier
 from events.service.batch_ticket_service.context import BatchTicketContext
+from events.service.event_manager import (
+    EventUserEligibility,
+    NextStep,
+    Reasons,
+    UserIsIneligibleError,
+)
 
 
 class PurchaseEligibilityMixin(BatchTicketContext):
@@ -49,6 +55,48 @@ class PurchaseEligibilityMixin(BatchTicketContext):
             return
 
         raise HttpError(403, str(_("You are not allowed to purchase from this tier.")))
+
+    def _assert_membership_tier_allowed(self) -> None:
+        """Assert the buyer holds one of the membership tiers this tier is restricted to.
+
+        Same guard as the membership-tier check in ``ticket_service.get_eligible_tiers``,
+        applied to the purchase path (#807): the tier listing hid the tier, but nothing
+        stopped a direct checkout call. Semantics are copied verbatim — an empty
+        restriction is unrestricted, only an ACTIVE membership counts, and the member's
+        tier must be one of the required ones (a member with no tier does not qualify).
+
+        Staff and org owners are exempt, consistent with ``_assert_purchasable_by``.
+
+        Raises:
+            UserIsIneligibleError: If the buyer does not hold a required membership tier.
+                Rendered as 400 + the eligibility payload, so the frontend gets the
+                ``membership_tier_required`` reason code instead of an opaque 403.
+        """
+        required_tier_ids = set(self.tier.restricted_to_membership_tiers.values_list("id", flat=True))
+        if not required_tier_ids:
+            return
+
+        org = self.event.organization
+        if org.is_owner_or_staff(self.user):
+            return
+
+        membership = OrganizationMember.objects.active_only().filter(organization=org, user=self.user).first()
+        if membership is not None and membership.tier_id in required_tier_ids:
+            return
+
+        # UPGRADE_MEMBERSHIP for members and non-members alike: the only way through is
+        # to hold one of the named tiers. BECOME_MEMBER would be a dead end — a plain
+        # membership request grants no tier, so it would not unblock the purchase.
+        raise UserIsIneligibleError(
+            message="Membership tier required.",
+            eligibility=EventUserEligibility(
+                allowed=False,
+                event_id=self.event.id,
+                reason=str(_(Reasons.MEMBERSHIP_TIER_REQUIRED)),
+                reason_code=Reasons.MEMBERSHIP_TIER_REQUIRED.code,
+                next_step=NextStep.UPGRADE_MEMBERSHIP,
+            ),
+        )
 
     def get_user_ticket_count(self) -> int:
         """Get count of user's existing non-cancelled tickets for this tier.
