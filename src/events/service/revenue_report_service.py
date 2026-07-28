@@ -100,13 +100,27 @@ _TXN_HEADERS = [
 ]
 
 
+_MEMBERSHIP_TXN_HEADERS = [
+    "date",
+    "member_email",
+    "member_name",
+    "plan",
+    "amount",
+    "currency",
+    "status",
+    "refund_amount",
+    "stripe_invoice_id",
+    "stripe_payment_intent_id",
+]
+
+
 def report_filename(scope: ReportScope, ext: str = "zip") -> str:
     """Return a canonical filename for the report bundle or one of its parts."""
     return f"revel-revenue-{scope.org.slug}-{scope.date_from}_{scope.date_to}.{ext}"
 
 
 def build_xlsx(data: RevenueReportData) -> bytes:
-    """Build the two-sheet XLSX workbook (Summary + Transactions) and return raw bytes."""
+    """Build the XLSX workbook (Summary + Transactions + Membership payments) and return raw bytes."""
     wb = Workbook()
     summary = wb.active
     assert summary is not None  # Workbook() always creates a default sheet
@@ -163,6 +177,30 @@ def build_xlsx(data: RevenueReportData) -> bytes:
     style_header_row(txns)
     auto_fit_columns(txns)
     txns.freeze_panes = "A2"
+
+    # Membership money is org-level, carries no ticket VAT bucket, and reconciles
+    # against Stripe invoices rather than checkout sessions — hence its own sheet.
+    memberships = wb.create_sheet("Membership payments")
+    memberships.append(_MEMBERSHIP_TXN_HEADERS)
+    for membership_row in data.membership_payments:
+        memberships.append(
+            [
+                membership_row.date.isoformat(),
+                membership_row.member_email,
+                membership_row.member_name,
+                membership_row.plan,
+                membership_row.gross,
+                membership_row.currency,
+                membership_row.status,
+                membership_row.refund_amount,
+                membership_row.stripe_invoice_id,
+                membership_row.stripe_payment_intent_id,
+            ]
+        )
+    _format_numeric_columns(memberships, money_cols=(5, 8))
+    style_header_row(memberships)
+    auto_fit_columns(memberships)
+    memberships.freeze_panes = "A2"
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -305,7 +343,9 @@ def deliver_scheduled_revenue_reports(now_utc: datetime) -> int:
                 continue
 
             scope = ReportScope(org=org, event_id=None, date_from=date_from, date_to=date_to)
-            if not build_revenue_report_data(scope).sections:
+            period_data = build_revenue_report_data(scope)
+            # A membership-only org has no ticket sections but still has money to report.
+            if not period_data.sections and not period_data.membership_payments:
                 continue  # skip empty periods; do not set the marker
 
             export = FileExport.objects.create(

@@ -87,8 +87,10 @@ from .export import (
 
 # Financials schemas
 from .financials import (
+    CombinedTotalsSchema,
     CurrencyFinancialsSchema,
     EventFinancialsSchema,
+    MembershipFinancialsSchema,
     OrganizationFinancialsSchema,
     RateBucketSchema,
 )
@@ -303,6 +305,7 @@ from .subscription import (
     MyMembershipSchema,
     MySubscriptionSchema,
     OrganizationMemberSchema,
+    OrganizationMembershipPaymentSchema,
     PaymentRecordSchema,
     PlanCreateSchema,
     PlanSchema,
@@ -470,6 +473,7 @@ __all__ = [
     "ConfirmPaymentSchema",
     "Coordinate2D",
     "Currencies",
+    "CombinedTotalsSchema",
     "CurrencyFinancialsSchema",
     "DirectInvitationCreateSchema",
     "DirectInvitationResponseSchema",
@@ -550,6 +554,7 @@ __all__ = [
     "MembershipApplicationSchema",
     "MembershipApplicationSubmissionInfo",
     "MembershipEligibilitySchema",
+    "MembershipFinancialsSchema",
     "MembershipPaymentSchema",
     "MembershipTierAdminSchema",
     "MembershipTierCreateSchema",
@@ -580,6 +585,7 @@ __all__ = [
     "OrganizationFollowUpdateSchema",
     "OrganizationInListSchema",
     "OrganizationMemberSchema",
+    "OrganizationMembershipPaymentSchema",
     "OrganizationMemberUpdateSchema",
     "OrganizationMembershipRequestCreateSchema",
     "OrganizationMembershipRequestRetrieve",

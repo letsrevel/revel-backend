@@ -6,8 +6,9 @@ See: docs/superpowers/specs/2026-05-12-subscriptions-phase-4-design.md §9
 import typing as t
 from datetime import datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
-from django.db.models import Count, Q
+from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
 from events.models import (
@@ -158,6 +159,38 @@ def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
         "churn_rate_30d": churn_rate_30d,
         "status_breakdown": breakdown,
     }
+
+
+def organization_payments(
+    organization: Organization,
+    *,
+    status: MembershipPayment.PaymentStatus | None = None,
+    plan_id: UUID | None = None,
+) -> QuerySet[MembershipPayment]:
+    """Org-wide membership payment ledger, newest first.
+
+    The reconciliation surface behind the org-admin listing: every payment the
+    organization ever took on a subscription, joined to the member and plan the
+    row is serialized with (one query per page, no N+1).
+
+    Args:
+        organization: The organization whose ledger to read.
+        status: Optional :class:`MembershipPayment.PaymentStatus` filter.
+        plan_id: Optional plan filter (the plan the subscription is billed on).
+
+    Returns:
+        A ``QuerySet`` of :class:`MembershipPayment`, newest first.
+    """
+    qs = (
+        MembershipPayment.objects.filter(subscription__organization=organization)
+        .select_related("subscription", "subscription__user", "subscription__plan", "recorded_by")
+        .order_by("-created_at", "-id")
+    )
+    if status is not None:
+        qs = qs.filter(status=status)
+    if plan_id is not None:
+        qs = qs.filter(subscription__plan_id=plan_id)
+    return qs
 
 
 def _normalize_to_monthly(amount: Decimal, plan: MembershipSubscriptionPlan) -> Decimal:

@@ -500,6 +500,36 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
 
     # ---- Payments ----
 
+    @route.get(
+        "/subscription-payments",
+        url_name="list_organization_subscription_payments",
+        response=PaginatedResponseSchema[schema.OrganizationMembershipPaymentSchema],
+        throttle=UserDefaultThrottle(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(
+        Searching,
+        search_fields=[
+            "subscription__user__email",
+            "subscription__user__first_name",
+            "subscription__user__last_name",
+            "subscription__user__preferred_name",
+            # Reverse lookup from a Stripe payout line back to the member it paid for.
+            "stripe_invoice_id",
+            "stripe_payment_intent_id",
+            "stripe_refund_id",
+        ],
+    )
+    def list_organization_subscription_payments(
+        self,
+        slug: str,
+        status: t.Annotated[models.MembershipPayment.PaymentStatus | None, Query(None)] = None,
+        plan_id: t.Annotated[UUID | None, Query(None)] = None,
+    ) -> QuerySet[models.MembershipPayment]:
+        """Org-wide membership payment ledger, newest first — the reconciliation surface."""
+        organization = self.get_one(slug)
+        return subscription_reporting.organization_payments(organization, status=status, plan_id=plan_id)
+
     @route.post(
         "/payments/{payment_id}/refund",
         url_name="refund_subscription_payment",

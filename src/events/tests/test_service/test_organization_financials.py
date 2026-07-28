@@ -7,7 +7,17 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.models import (
+    Event,
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    MembershipTier,
+    Organization,
+    Payment,
+    Ticket,
+    TicketTier,
+)
 from events.service.revenue_aggregation import ReportScope, organization_financials
 
 pytestmark = pytest.mark.django_db
@@ -90,5 +100,132 @@ def test_org_financials_empty_period(organization: Organization) -> None:
     fin = organization_financials(_scope(organization), currency=None, sort="revenue", order="desc")
     assert fin.events == []
     assert fin.totals == []
+    assert fin.memberships == []
+    assert fin.combined_totals == []
     assert fin.available_currencies == []
     assert fin.active_currency is None
+
+
+def _membership_payment(
+    organization: Organization,
+    user: RevelUser,
+    amount: str,
+    *,
+    currency: str = "EUR",
+    platform_fee: str = "0.00",
+    refund_amount: str | None = None,
+    plan_name: str = "Monthly",
+) -> MembershipPayment:
+    """Create a settled membership payment (with its plan + subscription) for the org."""
+    tier = MembershipTier.objects.get(organization=organization, name="General membership")
+    plan = MembershipSubscriptionPlan.objects.create(
+        tier=tier, name=plan_name, price=Decimal(amount), currency=currency, period_unit="month"
+    )
+    now = timezone.now()
+    subscription = MembershipSubscription.objects.create(
+        organization=organization,
+        user=user,
+        plan=plan,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        current_period_start=now,
+        current_period_end=now + dt.timedelta(days=30),
+    )
+    return MembershipPayment.objects.create(
+        subscription=subscription,
+        amount=Decimal(amount),
+        currency=currency,
+        status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        period_start=now,
+        period_end=now + dt.timedelta(days=30),
+        platform_fee=Decimal(platform_fee),
+        refund_amount=Decimal(refund_amount) if refund_amount is not None else None,
+        refunded_at=now if refund_amount is not None else None,
+    )
+
+
+def test_org_financials_reports_memberships_beside_tickets(
+    organization: Organization,
+    event: Event,
+    event_ticket_tier: TicketTier,
+    public_user: RevelUser,
+    member_user: RevelUser,
+) -> None:
+    """Membership money lands in its own block and in the combined totals, never in ticket totals."""
+    _online(public_user, event, event_ticket_tier, "100.00")
+    _membership_payment(organization, member_user, "30.00", platform_fee="1.50")
+
+    fin = organization_financials(_scope(organization), currency=None, sort="revenue", order="desc")
+
+    assert [t.gross for t in fin.totals] == [Decimal("100.00")]  # tickets untouched
+    assert len(fin.memberships) == 1
+    memberships = fin.memberships[0]
+    assert memberships.currency == "EUR"
+    assert memberships.gross == Decimal("30.00")
+    assert memberships.platform_fee == Decimal("1.50")
+    assert memberships.net == Decimal("30.00")
+    assert memberships.payment_count == 1
+    assert memberships.refunded_amount == Decimal("0.00")
+
+    assert len(fin.combined_totals) == 1
+    combined = fin.combined_totals[0]
+    assert (combined.tickets_net, combined.memberships_net, combined.net) == (
+        Decimal("100.00"),
+        Decimal("30.00"),
+        Decimal("130.00"),
+    )
+
+
+def test_org_financials_membership_only_org(organization: Organization, member_user: RevelUser) -> None:
+    """An org that sells nothing but memberships still reports money and a currency."""
+    _membership_payment(organization, member_user, "12.00", currency="USD")
+
+    fin = organization_financials(_scope(organization), currency=None, sort="revenue", order="desc")
+
+    assert fin.totals == []
+    assert fin.events == []
+    assert fin.available_currencies == ["USD"]
+    assert fin.active_currency == "USD"
+    assert [m.gross for m in fin.memberships] == [Decimal("12.00")]
+    assert [c.net for c in fin.combined_totals] == [Decimal("12.00")]
+
+
+def test_org_financials_membership_refund_reduces_net(organization: Organization, member_user: RevelUser) -> None:
+    """A refund is reported separately and comes off net (gross stays pre-refund)."""
+    _membership_payment(organization, member_user, "30.00", refund_amount="10.00")
+
+    fin = organization_financials(_scope(organization), currency=None, sort="revenue", order="desc")
+
+    memberships = fin.memberships[0]
+    assert memberships.gross == Decimal("30.00")
+    assert memberships.refunded_amount == Decimal("10.00")
+    assert memberships.net == Decimal("20.00")
+    assert fin.combined_totals[0].net == Decimal("20.00")
+
+
+def test_org_financials_currency_filter_scopes_memberships(
+    organization: Organization,
+    member_user: RevelUser,
+    public_user: RevelUser,
+) -> None:
+    """``?currency=`` narrows the membership block and combined totals too."""
+    _membership_payment(organization, member_user, "30.00", currency="EUR")
+    _membership_payment(organization, public_user, "40.00", currency="USD", plan_name="Monthly USD")
+
+    fin = organization_financials(_scope(organization), currency="USD", sort="revenue", order="desc")
+
+    assert [m.currency for m in fin.memberships] == ["USD"]
+    assert [c.currency for c in fin.combined_totals] == ["USD"]
+    assert set(fin.available_currencies) == {"EUR", "USD"}
+
+
+def test_org_financials_membership_outside_period_is_excluded(
+    organization: Organization, member_user: RevelUser
+) -> None:
+    """Payments outside the window contribute nothing (period filter honoured)."""
+    _membership_payment(organization, member_user, "30.00")
+    past = ReportScope(org=organization, event_id=None, date_from=dt.date(2001, 1, 1), date_to=dt.date(2001, 12, 31))
+
+    fin = organization_financials(past, currency=None, sort="revenue", order="desc")
+
+    assert fin.memberships == []
+    assert fin.combined_totals == []

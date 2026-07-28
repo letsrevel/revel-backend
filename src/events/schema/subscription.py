@@ -289,6 +289,46 @@ class MembershipPaymentSchema(ModelSchema):
         return None
 
 
+class OrganizationMembershipPaymentSchema(MembershipPaymentSchema):
+    """Org-wide payment ledger row: adds the member and plan identity.
+
+    The per-subscription listing already knows who and which plan it belongs to;
+    the org-wide reconciliation listing does not, so each row carries it (flat
+    fields, mirroring :class:`SubscriptionSchema`'s member identity).
+    """
+
+    user_id: UUID
+    user_email: str
+    user_display_name: str
+    plan_id: UUID
+    plan_name: str
+
+    @staticmethod
+    def resolve_user_id(obj: MembershipPayment) -> UUID:
+        """Return the subscriber's user id."""
+        return obj.subscription.user_id
+
+    @staticmethod
+    def resolve_user_email(obj: MembershipPayment) -> str:
+        """Return the subscriber's email."""
+        return obj.subscription.user.email
+
+    @staticmethod
+    def resolve_user_display_name(obj: MembershipPayment) -> str:
+        """Return the subscriber's display name."""
+        return obj.subscription.user.get_display_name()
+
+    @staticmethod
+    def resolve_plan_id(obj: MembershipPayment) -> UUID:
+        """Return the id of the plan billed."""
+        return obj.subscription.plan_id
+
+    @staticmethod
+    def resolve_plan_name(obj: MembershipPayment) -> str:
+        """Return the name of the plan billed."""
+        return obj.subscription.plan.name
+
+
 class _BaseSubscriptionSchema(ModelSchema):
     plan_id: UUID
     organization_id: UUID
