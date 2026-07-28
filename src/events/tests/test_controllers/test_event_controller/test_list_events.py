@@ -181,6 +181,151 @@ def test_list_events_search(
     assert len(response.json()["results"]) == 0
 
 
+@pytest.fixture
+def other_organization() -> Organization:
+    """A second organization, so slug filtering has something to exclude."""
+    owner = RevelUser.objects.create_user("other_org_owner", email="other-org-owner@example.com")
+    return Organization.objects.create(name="Other Org", slug="other-org", owner=owner)
+
+
+def _make_event(
+    organization: Organization,
+    name: str,
+    slug: str,
+    start: datetime,
+    visibility: Event.Visibility = Event.Visibility.PUBLIC,
+    event_type: Event.EventType = Event.EventType.PUBLIC,
+) -> Event:
+    return Event.objects.create(
+        name=name,
+        slug=slug,
+        organization=organization,
+        visibility=visibility,
+        event_type=event_type,
+        status=Event.EventStatus.OPEN,
+        start=start,
+        end=start + timedelta(days=1),
+    )
+
+
+def test_list_events_filter_by_organization_slug(
+    client: Client,
+    organization: Organization,
+    other_organization: Organization,
+    next_week: datetime,
+) -> None:
+    """Filtering by organization_slug returns only that organization's events."""
+    ours = _make_event(organization, "Our Event", "our-event", next_week)
+    _make_event(other_organization, "Their Event", "their-event", next_week)
+
+    response = client.get(reverse("api:list_events"), {"organization_slug": organization.slug})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(ours.id)
+
+
+def test_list_events_filter_by_organization_slug_and_id(
+    client: Client,
+    organization: Organization,
+    other_organization: Organization,
+    next_week: datetime,
+) -> None:
+    """organization_slug and organization compose with AND, not OR."""
+    ours = _make_event(organization, "Our Event", "our-event", next_week)
+    _make_event(other_organization, "Their Event", "their-event", next_week)
+    url = reverse("api:list_events")
+
+    # Consistent pair: the event is returned.
+    response = client.get(url, {"organization_slug": organization.slug, "organization": str(organization.id)})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(ours.id)
+
+    # Contradictory pair: ANDed, so nothing matches (an OR would leak both events).
+    response = client.get(url, {"organization_slug": organization.slug, "organization": str(other_organization.id)})
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
+
+
+def test_list_events_filter_by_unknown_organization_slug(
+    client: Client, organization: Organization, next_week: datetime
+) -> None:
+    """An unknown slug yields an empty page, not an error."""
+    _make_event(organization, "Our Event", "our-event", next_week)
+
+    response = client.get(reverse("api:list_events"), {"organization_slug": "does-not-exist"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 0
+    assert data["results"] == []
+
+
+def test_list_events_filter_by_organization_slug_respects_visibility(
+    client: Client,
+    member_client: Client,
+    organization: Organization,
+    next_week: datetime,
+) -> None:
+    """The slug filter narrows results without widening visibility."""
+    public_evt = _make_event(organization, "Public Party", "public-party", next_week)
+    _make_event(
+        organization,
+        "Private Affair",
+        "private-affair",
+        next_week,
+        visibility=Event.Visibility.PRIVATE,
+        event_type=Event.EventType.PRIVATE,
+    )
+    members_evt = _make_event(
+        organization,
+        "Members Gala",
+        "members-gala",
+        next_week,
+        visibility=Event.Visibility.MEMBERS_ONLY,
+        event_type=Event.EventType.MEMBERS_ONLY,
+    )
+    url = reverse("api:list_events")
+    params = {"organization_slug": organization.slug}
+
+    # Anonymous: only the public event, private and members-only stay hidden.
+    response = client.get(url, params)
+    assert response.status_code == 200
+    assert {evt["name"] for evt in response.json()["results"]} == {public_evt.name}
+
+    # Member: also sees the members-only event, still never the private one.
+    response = member_client.get(url, params)
+    assert response.status_code == 200
+    assert {evt["name"] for evt in response.json()["results"]} == {public_evt.name, members_evt.name}
+
+
+def test_calendar_events_filter_by_organization_slug(
+    client: Client,
+    organization: Organization,
+    other_organization: Organization,
+    next_week: datetime,
+) -> None:
+    """The calendar endpoint shares EventFilterSchema, so the slug filter applies there too."""
+    ours = _make_event(organization, "Our Event", "our-event", next_week)
+    _make_event(other_organization, "Their Event", "their-event", next_week)
+
+    response = client.get(
+        reverse("api:calendar_events"),
+        {
+            "organization_slug": organization.slug,
+            "month": str(next_week.month),
+            "year": str(next_week.year),
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [evt["id"] for evt in data] == [str(ours.id)]
+
+
 def test_list_events_search_no_duplicates_with_tags(
     client: Client, organization: Organization, next_week: datetime
 ) -> None:
