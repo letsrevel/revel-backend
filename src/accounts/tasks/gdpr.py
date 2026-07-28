@@ -158,7 +158,9 @@ def delete_user_account(user_id: str) -> None:
     to ensure data consistency.
 
     Any live membership subscription is cancelled first — see
-    :func:`_cancel_live_subscriptions`.
+    :func:`_cancel_live_subscriptions`. simple-history mirrors are purged
+    *afterwards*, because the cascade itself writes one deletion row per removed
+    live row — see :func:`~accounts.service.gdpr.purge_user_history`.
 
     Args:
         user_id: The UUID of the user to delete.
@@ -166,8 +168,11 @@ def delete_user_account(user_id: str) -> None:
     user = RevelUser.objects.get(id=user_id)
     logger.info("account_deletion_started", user_id=str(user.id), email=user.email)
     _cancel_live_subscriptions(user)
+    # ``delete()`` nulls the instance pk, so keep it for the history purge.
+    pk = user.pk
     try:
         user.delete()
+        gdpr.purge_user_history(pk)
         logger.info("account_deletion_completed", user_id=user_id)
     except Exception as e:
         logger.error("account_deletion_failed", user_id=user_id, error=str(e), exc_info=True)

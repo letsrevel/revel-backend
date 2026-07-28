@@ -52,12 +52,16 @@ def _export(user: RevelUser) -> tuple[dict[str, t.Any], str]:
 
 
 def test_registry_covers_all_reverse_relations() -> None:
-    """Every reverse relation on RevelUser must have an explicit export decision.
+    """Every relation pointing at RevelUser must have an explicit export decision.
 
     If this test fails after adding a model with a user FK, add an ExportRule
     for the new accessor in accounts/service/gdpr.py — include it, or exclude
     it with a documented reason. Do NOT export third-party data (rows where
     the user is the acting staff member) or secrets.
+
+    Hidden (``related_name='+'``) FKs count too, keyed
+    ``<app_label>.<model>.<field>``: registering ``HistoricalRecords()`` on a
+    user-linked model lands four of those at once.
     """
     relations = gdpr.get_user_reverse_relations()
     missing = set(relations) - set(gdpr.EXPORT_RULES)
@@ -79,6 +83,43 @@ def test_registry_shape_is_coherent() -> None:
 
     collisions = set(gdpr.EXTRA_SECTIONS) & (set(gdpr.get_user_reverse_relations()) | {"profile"})
     assert not collisions, f"EXTRA_SECTIONS keys collide with relation accessors: {sorted(collisions)}"
+
+
+def test_hidden_relations_are_registered_and_never_exported() -> None:
+    """Hidden FKs need a decision, and the only valid decision is "exclude".
+
+    A ``related_name='+'`` relation has no attribute on the user, so there is
+    nothing for the generic dump to read — an ``include=True`` rule for one
+    would blow up at export time.
+    """
+    hidden = {key for key, rel in gdpr.get_user_reverse_relations().items() if rel.hidden}
+    assert hidden <= set(gdpr.EXPORT_RULES), (
+        f"hidden relations without a decision: {sorted(hidden - set(gdpr.EXPORT_RULES))}"
+    )
+    for key in hidden:
+        assert not gdpr.EXPORT_RULES[key].include, f"hidden relation {key!r} cannot be exported"
+
+    # The simple-history mirrors added with the subscriptions integration: the
+    # subject columns *and* simple-history's own actor column.
+    assert {
+        "events.historicalmembershipsubscription.user",
+        "events.historicalmembershipsubscription.history_user",
+        "events.historicalcustomerprofile.user",
+        "events.historicalcustomerprofile.history_user",
+        "events.historicalmembershippayment.recorded_by",
+        "events.historicalmembershippayment.history_user",
+        "events.historicalmembershipsubscriptionplan.history_user",
+    } <= hidden
+
+
+def test_registry_guard_fails_when_a_hidden_decision_goes_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The guard actually bites: drop one hidden entry and it must fail."""
+    key = "events.historicalmembershipsubscription.user"
+    assert key in gdpr.get_user_reverse_relations()
+    monkeypatch.setattr(gdpr, "EXPORT_RULES", {k: v for k, v in gdpr.EXPORT_RULES.items() if k != key})
+
+    with pytest.raises(AssertionError, match=key):
+        test_registry_covers_all_reverse_relations()
 
 
 def test_actor_relations_are_excluded_by_rule() -> None:

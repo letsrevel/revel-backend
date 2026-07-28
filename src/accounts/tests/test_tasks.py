@@ -11,6 +11,7 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from accounts.models import RevelUser, UserDataExport
+from accounts.service import gdpr
 from accounts.tasks import (
     DATA_EXPORT_URL_EXPIRES_IN,
     cleanup_expired_data_exports,
@@ -255,3 +256,87 @@ def test_delete_user_account_offline_subscription_is_local_only(
     stripe_cancel.assert_not_called()
     assert not RevelUser.objects.filter(id=user_id).exists()
     assert not MembershipSubscription.objects.filter(user_id=user_id).exists()
+
+
+# --- Account deletion vs. simple-history mirrors ------------------------------
+
+
+@pytest.mark.django_db
+def test_delete_user_account_purges_simple_history(
+    subscriber: RevelUser,
+    host_organization: t.Any,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """Erasure must reach the history tables the FK cascade cannot see.
+
+    Historical mirrors use ``db_constraint=False, on_delete=DO_NOTHING``, and
+    simple-history writes a *new* deletion row for every live row the cascade
+    removes — so the purge has to run after ``user.delete()`` and still leave
+    nothing carrying the user's pk.
+    """
+    from events.models import CustomerProfile, MembershipSubscription, MembershipSubscriptionPlan
+
+    subscription = _subscribe(host_organization, subscriber, online=True, stripe_id="sub_hist_gdpr")
+    subscription.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+    subscription.save(update_fields=["status"])
+    CustomerProfile.objects.create(user=subscriber, organization=host_organization, stripe_customer_id="cus_hist_gdpr")
+    user_id = subscriber.id
+    # The user also edited a plan, which belongs to the organization: the row
+    # stays, only their authorship of it goes.
+    MembershipSubscriptionPlan.history.filter(id=subscription.plan_id).update(history_user_id=user_id)
+
+    # Several revisions each, so the purge is not just deleting a single row.
+    assert MembershipSubscription.history.filter(user_id=user_id).count() >= 2
+    assert CustomerProfile.history.filter(user_id=user_id).exists()
+
+    with patch("stripe.Subscription.cancel"):
+        with django_capture_on_commit_callbacks(execute=False):
+            delete_user_account(str(user_id))
+
+    assert not MembershipSubscription.history.filter(user_id=user_id).exists()
+    assert not CustomerProfile.history.filter(user_id=user_id).exists()
+    assert "cus_hist_gdpr" not in {row.stripe_customer_id for row in CustomerProfile.history.all()}
+    plan_history = MembershipSubscriptionPlan.history.filter(id=subscription.plan_id)
+    assert plan_history.exists()
+    assert not plan_history.filter(history_user_id=user_id).exists()
+
+
+@pytest.mark.django_db
+def test_purge_user_history_keeps_other_subjects_rows(
+    subscriber: RevelUser,
+    host_organization: t.Any,
+    revel_user_factory: t.Any,
+) -> None:
+    """Actor columns are nulled, not cascaded — another member's history survives.
+
+    ``recorded_by`` is SET_NULL on the live model, so its mirror must be nulled
+    too: deleting the row would erase a *different* data subject's payment
+    ledger along with the departing staff member.
+    """
+    from events.models import MembershipPayment, MembershipSubscription
+
+    staff = t.cast(RevelUser, revel_user_factory(username="recorder@example.com", email="recorder@example.com"))
+    other = t.cast(RevelUser, revel_user_factory(username="other@example.com", email="other@example.com"))
+    subscription = _subscribe(host_organization, other, online=False)
+    payment = MembershipPayment.objects.create(
+        subscription=subscription,
+        amount=Decimal("10.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        period_start=timezone.now() - timedelta(days=30),
+        period_end=timezone.now(),
+        recorded_by=staff,
+        notes="paid in cash",
+    )
+    # The departing staff member also edited the other member's subscription.
+    MembershipSubscription.history.filter(id=subscription.pk).update(history_user_id=staff.pk)
+
+    result = gdpr.purge_user_history(staff.pk)
+
+    assert result["deleted"] == 0
+    assert result["anonymized"] == 2
+    (payment_history,) = MembershipPayment.history.filter(id=payment.pk)
+    assert payment_history.recorded_by_id is None
+    assert payment_history.notes == "paid in cash"
+    assert MembershipSubscription.history.filter(id=subscription.pk, user_id=other.pk).exists()
+    assert not MembershipSubscription.history.filter(history_user_id=staff.pk).exists()
