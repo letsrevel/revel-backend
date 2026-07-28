@@ -262,6 +262,14 @@ def _downgrade_online_subscription(
     lasts one billing period of the new plan (``duration``).
     ``end_behavior='release'`` lets the subscription fall back to a normal
     rolling renewal at the new price once that second phase completes.
+
+    The hand-built phases carry no ``application_fee_percent`` on purpose:
+    ``from_subscription`` copies the subscription's fee into the schedule's
+    ``default_settings``, the phases rewrite below leaves ``default_settings``
+    untouched, so the phases inherit it and the subscription keeps its own fee
+    for after the release. Verified empirically against the live test-mode API
+    at pinned version 2026-03-25.dahlia on 2026-07-29 (#821); canary test:
+    ``events/tests/test_service/test_stripe_schedule_fee_integration.py``.
     """
     org = subscription.organization
     kwargs = _stripe_account_kwargs(org)
