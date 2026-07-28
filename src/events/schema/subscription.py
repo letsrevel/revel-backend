@@ -289,6 +289,33 @@ class MembershipPaymentSchema(ModelSchema):
         return None
 
 
+class MyMembershipPaymentSchema(ModelSchema):
+    """Member-facing view of one of the caller's own membership payments.
+
+    Deliberately *not* a subclass of :class:`MembershipPaymentSchema`: this is
+    the receipt a member sees, so it carries only what they paid and for which
+    period. No ``raw_response``, no platform-fee decomposition, no Stripe ids,
+    no staff ``notes`` / ``recorded_by`` — those are organizer-facing.
+    """
+
+    status: MembershipPayment.PaymentStatus
+    period_start: AwareDatetime
+    period_end: AwareDatetime
+
+    class Meta:
+        model = MembershipPayment
+        fields = [
+            "id",
+            "amount",
+            "currency",
+            "created_at",
+            # A partial refund leaves ``status`` SUCCEEDED, so without these the
+            # member cannot tell part of their money came back.
+            "refund_amount",
+            "refunded_at",
+        ]
+
+
 class OrganizationMembershipPaymentSchema(MembershipPaymentSchema):
     """Org-wide payment ledger row: adds the member and plan identity.
 

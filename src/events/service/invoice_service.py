@@ -14,6 +14,7 @@ import structlog
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
 from django.db.models import Count, QuerySet, Sum
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from common.models import SiteSettings
@@ -41,8 +42,10 @@ class CombinedAggregate(t.TypedDict):
     fee_vat: Decimal
     ticket_count: int
     ticket_revenue: Decimal
+    ticket_fee_net: Decimal
     subscription_count: int
     subscription_revenue: Decimal
+    subscription_fee_net: Decimal
 
 
 def _get_next_invoice_number(year: int) -> str:
@@ -61,8 +64,65 @@ def _get_next_credit_note_number(year: int) -> str:
     return get_next_sequential_number(PlatformFeeCreditNote, "RVL-CN-", year, "credit_note_number")
 
 
-def render_invoice_pdf(invoice: PlatformFeeInvoice) -> bytes:
-    """Render an invoice as a PDF using WeasyPrint."""
+def _period_bounds(period_start: date, period_end: date) -> tuple[datetime, datetime]:
+    """Half-open ``[start, end)`` aware datetimes for an inclusive date period."""
+    return (
+        timezone.make_aware(datetime.combine(period_start, time.min)),
+        timezone.make_aware(datetime.combine(period_end + timedelta(days=1), time.min)),
+    )
+
+
+def _recompute_fee_net_split(invoice: PlatformFeeInvoice) -> tuple[Decimal, Decimal]:
+    """Re-derive an issued invoice's ``(ticket, membership)`` net-fee split.
+
+    The split is not stored on the invoice, so the PDF-recovery path — which
+    only has the persisted row — recomputes it from the same fee-bearing
+    payments the original run aggregated (org x currency x period), applying
+    the same ``platform_fee_net`` → ``platform_fee`` fallback so pre-VAT rows
+    still land on their own line.
+
+    # ponytail: this reads live payment rows rather than a snapshot, so a
+    # regenerated PDF could disagree with the issued one if the underlying
+    # payments were mutated after issuance. Storing the two components on
+    # ``PlatformFeeInvoice`` (a migration) is the upgrade path.
+    """
+    period_start_dt, period_end_dt = _period_bounds(invoice.period_start, invoice.period_end)
+    org_id = t.cast(UUID, invoice.organization_id)
+    net = Coalesce("platform_fee_net", "platform_fee")
+    ticket_net = Payment.objects.filter(
+        status=Payment.PaymentStatus.SUCCEEDED,
+        created_at__gte=period_start_dt,
+        created_at__lt=period_end_dt,
+        ticket__event__organization_id=org_id,
+        currency=invoice.currency,
+        platform_fee__gt=0,
+    ).aggregate(total=Sum(net))["total"] or Decimal("0.00")
+    membership_net = MembershipPayment.objects.filter(
+        status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        created_at__gte=period_start_dt,
+        created_at__lt=period_end_dt,
+        subscription__organization_id=org_id,
+        currency=invoice.currency,
+        platform_fee__gt=0,
+    ).aggregate(total=Sum(net))["total"] or Decimal("0.00")
+    return ticket_net, membership_net
+
+
+def render_invoice_pdf(
+    invoice: PlatformFeeInvoice,
+    *,
+    ticket_fee_net: Decimal | None = None,
+    membership_fee_net: Decimal | None = None,
+) -> bytes:
+    """Render an invoice as a PDF using WeasyPrint.
+
+    ``ticket_fee_net`` / ``membership_fee_net`` split the invoice's ``fee_net``
+    across its two billed sources so each PDF line's amount matches its own
+    quantity. Callers that still hold the generation aggregates pass them in;
+    omitting them recomputes the split from the period's payments.
+    """
+    if ticket_fee_net is None or membership_fee_net is None:
+        ticket_fee_net, membership_fee_net = _recompute_fee_net_split(invoice)
     return render_pdf(
         "invoices/platform_fee_invoice.html",
         {
@@ -85,8 +145,10 @@ def render_invoice_pdf(invoice: PlatformFeeInvoice) -> bytes:
             "reverse_charge": invoice.reverse_charge,
             "total_tickets": invoice.total_tickets,
             "total_ticket_revenue": invoice.total_ticket_revenue,
+            "ticket_fee_net": ticket_fee_net,
             "total_subscription_payments": invoice.total_subscription_payments,
             "total_subscription_revenue": invoice.total_subscription_revenue,
+            "membership_fee_net": membership_fee_net,
         },
     )
 
@@ -208,7 +270,11 @@ def _create_org_invoice(
         return None
 
     # Generate and attach PDF outside transaction (WeasyPrint is slow)
-    pdf_bytes = render_invoice_pdf(invoice)
+    pdf_bytes = render_invoice_pdf(
+        invoice,
+        ticket_fee_net=agg["ticket_fee_net"],
+        membership_fee_net=agg["subscription_fee_net"],
+    )
     invoice.pdf_file.save(
         f"{invoice_number}.pdf",
         ContentFile(pdf_bytes),
@@ -251,8 +317,7 @@ def generate_invoices_for_period(
 
     # Use timezone-aware datetime boundaries so the created_at index is used
     # (created_at__date__gte forces a DATE() cast in SQL, bypassing the index)
-    period_start_dt = timezone.make_aware(datetime.combine(period_start, time.min))
-    period_end_dt = timezone.make_aware(datetime.combine(period_end + timedelta(days=1), time.min))
+    period_start_dt, period_end_dt = _period_bounds(period_start, period_end)
 
     period_payments = Payment.objects.filter(
         status=Payment.PaymentStatus.SUCCEEDED,
@@ -315,8 +380,10 @@ def generate_invoices_for_period(
                 fee_vat=Decimal("0.00"),
                 ticket_count=0,
                 ticket_revenue=Decimal("0.00"),
+                ticket_fee_net=Decimal("0.00"),
                 subscription_count=0,
                 subscription_revenue=Decimal("0.00"),
+                subscription_fee_net=Decimal("0.00"),
             ),
         )
 
@@ -326,19 +393,26 @@ def generate_invoices_for_period(
         slot["fee_gross"] += gross
         # The net/VAT fallbacks are applied per source, so a pre-VAT source keeps
         # falling back to its own gross rather than to the combined total.
-        slot["fee_net"] += agg["total_platform_fee_net"] or gross
+        net = agg["total_platform_fee_net"] or gross
+        slot["fee_net"] += net
         slot["fee_vat"] += agg["total_platform_fee_vat"] or Decimal("0.00")
         slot["ticket_count"] += agg["ticket_count"]
         slot["ticket_revenue"] += agg["total_amount"] or Decimal("0.00")
+        # Kept per source as well as summed: the invoice PDF bills the two
+        # sources on separate lines, so each line's amount must match its own
+        # quantity (issue: a subscription-only org read "Tickets: 0 | 14.20").
+        slot["ticket_fee_net"] += net
 
     for agg in membership_aggregates:
         slot = _slot(agg["subscription__organization_id"], agg["currency"])
         gross = agg["total_platform_fee"] or Decimal("0.00")
         slot["fee_gross"] += gross
-        slot["fee_net"] += agg["total_platform_fee_net"] or gross
+        net = agg["total_platform_fee_net"] or gross
+        slot["fee_net"] += net
         slot["fee_vat"] += agg["total_platform_fee_vat"] or Decimal("0.00")
         slot["subscription_count"] += agg["payment_count"]
         slot["subscription_revenue"] += agg["total_amount"] or Decimal("0.00")
+        slot["subscription_fee_net"] += net
 
     # Prefetch all orgs that have payments to avoid N+1 queries in the loop
     org_ids = {org_id for org_id, _ in combined}

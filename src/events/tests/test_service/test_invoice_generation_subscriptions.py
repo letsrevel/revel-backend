@@ -26,7 +26,7 @@ from events.models import (
 )
 from events.models.organization import Organization
 from events.models.ticket import Payment, Ticket, TicketTier
-from events.service.invoice_service import generate_invoices_for_period
+from events.service.invoice_service import generate_invoices_for_period, render_invoice_pdf
 
 pytestmark = pytest.mark.django_db
 
@@ -531,3 +531,159 @@ class TestSubscriptionPlatformFeeInvoicing:
             "EUR": Decimal("1.00"),
             "USD": Decimal("2.00"),
         }
+
+
+# ===========================================================================
+# PDF line rows — each quantity must be billed against its own amount
+# ===========================================================================
+
+
+def _rendered_line_rows(mock_html_cls: MagicMock) -> list[str]:
+    """Return the ``<tr>`` fragments of the rendered invoice's items table."""
+    html: str = mock_html_cls.call_args.kwargs["string"]
+    body = html.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    return body.split("<tr>")[1:]
+
+
+@patch("common.service.invoice_utils.HTML")
+class TestPlatformFeeInvoiceLineRows:
+    """Ticket and membership fees are billed on separate, self-consistent lines."""
+
+    def test_membership_only_invoice_has_no_ticket_row(
+        self,
+        mock_html_cls: MagicMock,
+        org: Organization,
+        make_subscription: t.Callable[[], MembershipSubscription],
+        site_settings: SiteSettings,
+    ) -> None:
+        """A subscription-only org must not be shown a "Tickets: 0" line."""
+        mock_html_cls.return_value.write_pdf.return_value = None
+        _create_membership_payment(
+            subscription=make_subscription(),
+            created_at=timezone.make_aware(datetime(2028, 1, 15, 12, 0)),
+            platform_fee=Decimal("3.00"),
+            platform_fee_net=Decimal("2.46"),
+            platform_fee_vat=Decimal("0.54"),
+            platform_fee_vat_rate=Decimal("22.00"),
+        )
+
+        invoices = generate_invoices_for_period(date(2028, 1, 1), date(2028, 1, 31))
+
+        rows = _rendered_line_rows(mock_html_cls)
+        assert len(rows) == 1
+        assert "membership subscriptions" in rows[0]
+        assert "ticket sales" not in rows[0]
+        # Quantity is the payment count, amount is the membership fee — which is
+        # the whole invoice here.
+        assert "<td>1</td>" in rows[0]
+        assert "€2.46" in rows[0]
+        assert invoices[0].fee_net == Decimal("2.46")
+
+    def test_mixed_invoice_has_two_rows_summing_to_fee_net(
+        self,
+        mock_html_cls: MagicMock,
+        org: Organization,
+        sub_event: Event,
+        ticket_tier: TicketTier,
+        buyer: RevelUser,
+        make_subscription: t.Callable[[], MembershipSubscription],
+        site_settings: SiteSettings,
+    ) -> None:
+        """Both sources get their own row, and the two amounts add up to the subtotal."""
+        mock_html_cls.return_value.write_pdf.return_value = None
+        created_at = timezone.make_aware(datetime(2028, 2, 10, 12, 0))
+        _create_ticket_payment(
+            event=sub_event,
+            tier=ticket_tier,
+            user=buyer,
+            suffix="_rows",
+            created_at=created_at,
+        )
+        _create_membership_payment(
+            subscription=make_subscription(),
+            created_at=created_at,
+            platform_fee=Decimal("1.00"),
+            platform_fee_net=Decimal("0.82"),
+            platform_fee_vat=Decimal("0.18"),
+            platform_fee_vat_rate=Decimal("22.00"),
+        )
+
+        invoices = generate_invoices_for_period(date(2028, 2, 1), date(2028, 2, 28))
+
+        rows = _rendered_line_rows(mock_html_cls)
+        assert len(rows) == 2
+        ticket_row, membership_row = rows
+        assert "ticket sales" in ticket_row
+        assert "<td>1</td>" in ticket_row
+        assert "€2.05" in ticket_row
+        assert "membership subscriptions" in membership_row
+        assert "<td>1</td>" in membership_row
+        assert "€0.82" in membership_row
+        # The rows reconcile with the untouched subtotal.
+        assert Decimal("2.05") + Decimal("0.82") == invoices[0].fee_net
+
+    def test_ticket_only_invoice_keeps_a_single_ticket_row(
+        self,
+        mock_html_cls: MagicMock,
+        org: Organization,
+        sub_event: Event,
+        ticket_tier: TicketTier,
+        buyer: RevelUser,
+        site_settings: SiteSettings,
+    ) -> None:
+        """The ticket-only case is unchanged: one row, quantity = tickets sold."""
+        mock_html_cls.return_value.write_pdf.return_value = None
+        _create_ticket_payment(
+            event=sub_event,
+            tier=ticket_tier,
+            user=buyer,
+            suffix="_tickets_only",
+            created_at=timezone.make_aware(datetime(2028, 3, 10, 12, 0)),
+        )
+
+        invoices = generate_invoices_for_period(date(2028, 3, 1), date(2028, 3, 31))
+
+        rows = _rendered_line_rows(mock_html_cls)
+        assert len(rows) == 1
+        assert "ticket sales" in rows[0]
+        assert "membership" not in rows[0]
+        assert "<td>1</td>" in rows[0]
+        assert "€2.05" in rows[0]
+        assert invoices[0].fee_net == Decimal("2.05")
+
+    def test_regenerated_pdf_recomputes_the_split(
+        self,
+        mock_html_cls: MagicMock,
+        org: Organization,
+        sub_event: Event,
+        ticket_tier: TicketTier,
+        buyer: RevelUser,
+        make_subscription: t.Callable[[], MembershipSubscription],
+        site_settings: SiteSettings,
+    ) -> None:
+        """The recovery path has no aggregates, so it re-derives the same two rows."""
+        mock_html_cls.return_value.write_pdf.return_value = None
+        created_at = timezone.make_aware(datetime(2028, 4, 10, 12, 0))
+        _create_ticket_payment(
+            event=sub_event,
+            tier=ticket_tier,
+            user=buyer,
+            suffix="_regen",
+            created_at=created_at,
+        )
+        _create_membership_payment(
+            subscription=make_subscription(),
+            created_at=created_at,
+            platform_fee=Decimal("1.00"),
+            platform_fee_net=Decimal("0.82"),
+            platform_fee_vat=Decimal("0.18"),
+            platform_fee_vat_rate=Decimal("22.00"),
+        )
+        invoice = generate_invoices_for_period(date(2028, 4, 1), date(2028, 4, 30))[0]
+
+        render_invoice_pdf(invoice)
+
+        rows = _rendered_line_rows(mock_html_cls)
+        assert len(rows) == 2
+        assert "€2.05" in rows[0]
+        assert "€0.82" in rows[1]

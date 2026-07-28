@@ -16,7 +16,13 @@ from common.controllers import UserAwareController
 from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import schema
-from events.models import MembershipSubscription, MembershipSubscriptionPlan, Organization, OrganizationMember
+from events.models import (
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    Organization,
+    OrganizationMember,
+)
 from events.service import subscription_service, subscription_stripe_service, subscription_uncancel
 
 
@@ -88,6 +94,25 @@ class MeSubscriptionsController(UserAwareController):
             .order_by("-created_at")
         )
         return get_object_or_404(qs)
+
+    @route.get(
+        "/organizations/{org_id}/subscription/payments",
+        url_name="list_my_membership_payments",
+        response=PaginatedResponseSchema[schema.MyMembershipPaymentSchema],
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    def list_my_subscription_payments(self, org_id: UUID) -> QuerySet[MembershipPayment]:
+        """List the caller's own membership payments in an organization, newest first.
+
+        Covers every subscription the caller has ever had in that org (including
+        terminated ones) so the billing history survives a cancel/revive cycle,
+        and both ONLINE and OFFLINE plans — an offline member has no Stripe
+        portal, so this is their only record of what they were charged.
+        """
+        return MembershipPayment.objects.filter(
+            subscription__user=self.user(),
+            subscription__organization_id=org_id,
+        ).order_by("-created_at", "-id")
 
     @route.post(
         "/organizations/{org_id}/subscribe",
