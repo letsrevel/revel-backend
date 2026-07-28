@@ -141,7 +141,7 @@ def test_delete_account_confirm(mock_confirm_delete: MagicMock, client: Client) 
 
     assert response.status_code == 200
     assert response.json()["message"] == "Your account deletion has been initiated and will be processed shortly."
-    mock_confirm_delete.assert_called_once_with("valid.deletion.token")
+    mock_confirm_delete.assert_called_once_with("valid.deletion.token", force=False)
 
 
 # transaction=True: request_password_reset dispatches send_account_email via

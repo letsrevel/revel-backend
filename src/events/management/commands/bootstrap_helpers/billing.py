@@ -389,7 +389,7 @@ def create_referral_payouts(state: BootstrapState) -> None:
                 "payout_statement_generated",
                 document_number=statement.document_number,
                 document_type=statement.document_type,
-                referrer=payout.referral.referrer.email,
+                referrer=statement.referrer_name,
                 amount=str(payout.payout_amount),
             )
         except Exception:

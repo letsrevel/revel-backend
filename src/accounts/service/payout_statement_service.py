@@ -81,7 +81,13 @@ def generate_payout_statement(payout: ReferralPayout) -> ReferralPayoutStatement
     if existing:
         return existing
 
-    referrer = payout.referral.referrer
+    referral = payout.referral
+    if referral is None:
+        # The referrer deleted their account (#796) — statements for their PAID
+        # payouts are backfilled *before* the user row goes, so a detached payout
+        # reaching here means the caller lost that ordering.
+        raise ValueError(f"Cannot generate a statement for payout {payout.id}: its referral is detached.")
+    referrer = referral.referrer
     billing_profile = referrer.billing_profile
     site = SiteSettings.get_solo()
     now = timezone.now()

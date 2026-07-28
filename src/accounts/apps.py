@@ -6,5 +6,8 @@ class AccountsConfig(AppConfig):
     name = "accounts"
 
     def ready(self) -> None:
-        """Import signal handlers when the app is ready."""
+        """Import signal handlers and register exception handlers when the app is ready."""
         import accounts.signals  # noqa: F401
+        from accounts.exception_handlers import register as register_exception_handlers
+
+        register_exception_handlers()
