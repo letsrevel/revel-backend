@@ -44,7 +44,12 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
         By default shows all requests. Use ?status=pending to filter by status.
         """
         organization = self.get_one(slug)
-        qs = OrganizationMembershipRequest.objects.filter(organization=organization).select_related("user")
+        qs = OrganizationMembershipRequest.objects.filter(organization=organization).select_related(
+            "user",
+            "tier",
+            "questionnaire_submission__evaluation",
+            "questionnaire_submission__questionnaire__org_questionnaires",
+        )
         return params.filter(qs).distinct()
 
     @route.post(
@@ -55,17 +60,22 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
     def approve_membership_request(
         self, slug: str, request_id: UUID, payload: schema.ApproveMembershipRequestSchema
     ) -> tuple[int, None]:
-        """Approve a membership request and assign tier.
+        """Approve a membership application.
 
-        Requires a tier_id to be specified. The tier must belong to the organization.
+        ``tier_id`` may be omitted if the application already carries a tier.
         """
         organization = self.get_one(slug)
-        membership_request = get_object_or_404(OrganizationMembershipRequest, pk=request_id, organization=organization)
+        membership_request = get_object_or_404(
+            OrganizationMembershipRequest.objects.select_related("tier"),
+            pk=request_id,
+            organization=organization,
+        )
 
-        # Resolve tier_id to tier object and validate it belongs to this organization
-        tier = get_object_or_404(models.MembershipTier, pk=payload.tier_id, organization=organization)
+        tier = None
+        if payload.tier_id:
+            tier = get_object_or_404(models.MembershipTier, pk=payload.tier_id, organization=organization)
 
-        organization_service.approve_membership_request(membership_request, self.user(), tier)
+        organization_service.approve_membership_request(membership_request, self.user(), tier, force=payload.force)
         return 204, None
 
     @route.post(

@@ -31,6 +31,7 @@ from events.exceptions import (
     InvalidStripeWebhookSignatureError,
     InvalidZoneSelectionError,
     MembershipPolicyManageSubscriptionsOnlyError,
+    MembershipTierInUseError,
     OrganizationTokenGrantInvariantError,
     OrganizationTokenMembershipTierRequiredError,
     OrganizationTokenStaffGrantForbidden,
@@ -41,10 +42,13 @@ from events.exceptions import (
     SeriesPassNotPurchasableError,
     SessionTotalMismatchError,
     StripeNotConnectedError,
+    SubscriptionActivationPendingError,
     TicketAlreadyCancelledError,
     TooManyItemsError,
 )
+from events.schema import SubscriptionActivationPendingSchema
 from events.service.event_manager import UserIsIneligibleError
+from events.service.membership_manager import MembershipApplicationIneligibleError
 from events.service.organization_service import (
     GRANT_INVARIANT_MESSAGE,
     MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE,
@@ -72,9 +76,59 @@ def handle_user_is_ineligible_error(request: HttpRequest, exc: Exception | t.Typ
     return Response(status=400, data=t.cast(UserIsIneligibleError, exc).eligibility.model_dump(mode="json"))
 
 
+def handle_membership_application_ineligible_error(
+    request: HttpRequest, exc: Exception | t.Type[Exception]
+) -> Response:
+    """Render a membership-application ineligibility as its eligibility payload.
+
+    Mirrors :func:`handle_user_is_ineligible_error`: the exception carries the
+    failing :class:`MembershipEligibility`, which the frontend consumes the same
+    way as a blocking ``/join-eligibility`` verdict.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``MembershipApplicationIneligibleError``.
+
+    Returns:
+        Response: A 400 response whose body is the serialized eligibility payload.
+    """
+    return Response(
+        status=400,
+        data=t.cast(MembershipApplicationIneligibleError, exc).eligibility.model_dump(mode="json"),
+    )
+
+
+def handle_subscription_activation_pending_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a paid-but-not-yet-activated subscribe attempt with a machine-readable code.
+
+    The member already completed Stripe Checkout; only the activation webhooks
+    are outstanding. The frontend cannot key on the translated ``detail``, so
+    the body carries a stable ``code`` discriminator instead.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``SubscriptionActivationPendingError`` (carries no message).
+
+    Returns:
+        Response: A 409 response shaped like ``SubscriptionActivationPendingSchema``.
+    """
+    return Response(
+        status=409,
+        data=SubscriptionActivationPendingSchema(
+            detail=str(
+                _("Your payment went through. We're still confirming your subscription — check back in a moment.")
+            )
+        ).model_dump(),
+    )
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     UserIsIneligibleError: handle_user_is_ineligible_error,
+    MembershipApplicationIneligibleError: handle_membership_application_ineligible_error,
+    # Checkout already paid, activation webhooks in flight → 409 with a stable
+    # ``code`` the frontend keys on (the translated ``detail`` is unmatchable).
+    SubscriptionActivationPendingError: handle_subscription_activation_pending_error,
     TooManyItemsError: make_static_handler(400, _("You have created too many items.")),
     AlreadyMemberError: make_static_handler(400, _("You are already a member of this organization.")),
     PendingMembershipRequestExistsError: make_static_handler(
@@ -118,6 +172,8 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     SeriesPassNotPurchasableError: make_simple_handler(409),
     # Deleting a pass / removing tier-link coverage would strand a non-cancelled holder → 409.
     SeriesPassHasHoldersError: make_simple_handler(409),
+    # Deleting a membership tier would drop a protected application or subscription → 409.
+    MembershipTierInUseError: make_simple_handler(409),
     # Books-vs-charge invariant breach (#739): a bug on our side, and one we must never
     # paper over — 500, with a generic message so the amounts stay in the logs only.
     SessionTotalMismatchError: make_static_handler(500, _("Payment processing failed. Please try again later.")),

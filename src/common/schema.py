@@ -139,6 +139,17 @@ class ResponseMessage(Schema):
     message: str
 
 
+class ErrorDetail(Schema):
+    """The body django-ninja actually renders for a bare ``HttpError``.
+
+    Distinct from :class:`ResponseMessage`: ninja's own handler and this repo's
+    ``make_simple_handler``/``make_static_handler`` both emit ``{"detail": ...}``,
+    which is also what the frontend's error helpers read.
+    """
+
+    detail: str
+
+
 class ValidationErrorResponse(Schema):
     errors: dict[str, str | list[str]]
 

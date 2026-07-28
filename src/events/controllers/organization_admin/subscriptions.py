@@ -1,19 +1,25 @@
 """Staff endpoints for managing subscription plans, subscriptions, and payments."""
 
+import typing as t
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db import transaction
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
+from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
+from common.schema import ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
-from events.service import subscription_service
+from events.service import subscription_refunds, subscription_reporting, subscription_service
 from events.service.subscription_service import InitialPayment
 
 from .base import OrganizationAdminBaseController
@@ -29,6 +35,20 @@ from .base import OrganizationAdminBaseController
 class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     """Plans, subscriptions, and payments — all staff-managed in Phase 1."""
 
+    # ---- Metrics ----
+
+    @route.get(
+        "/subscriptions/metrics",
+        url_name="get_subscription_metrics",
+        response=schema.SubscriptionMetricsSchema,
+        throttle=UserDefaultThrottle(),
+    )
+    def get_subscription_metrics(self, slug: str) -> schema.SubscriptionMetricsSchema:
+        """Per-organization subscription metrics (MRR, churn, status breakdown)."""
+        organization = self.get_one(slug)
+        metrics = subscription_reporting.get_organization_metrics(organization)
+        return schema.SubscriptionMetricsSchema.model_validate(metrics)
+
     # ---- Plans ----
 
     @route.get(
@@ -42,7 +62,11 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     ) -> QuerySet[models.MembershipSubscriptionPlan]:
         """List all subscription plans across every tier in the organization."""
         organization = self.get_one(slug)
-        qs = models.MembershipSubscriptionPlan.objects.filter(tier__organization=organization).select_related("tier")
+        qs = (
+            models.MembershipSubscriptionPlan.objects.with_active_subscription_count()
+            .filter(tier__organization=organization)
+            .select_related("tier")
+        )
         if is_active is not None:
             qs = qs.filter(is_active=is_active)
         return qs
@@ -57,12 +81,25 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         """List all subscription plans for a tier."""
         organization = self.get_one(slug)
         tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
-        return models.MembershipSubscriptionPlan.objects.filter(tier=tier).select_related("tier")
+        return (
+            models.MembershipSubscriptionPlan.objects.with_active_subscription_count()
+            .filter(tier=tier)
+            .select_related("tier")
+        )
 
     @route.post(
         "/tiers/{tier_id}/plans",
         url_name="create_subscription_plan",
-        response={201: schema.PlanSchema},
+        response={
+            201: schema.PlanSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            # ONLINE plans sync to Stripe on save, so they inherit the online-payment
+            # prerequisites: 400 when Stripe Connect is missing, 422 when platform
+            # fees apply but the organization's billing info is incomplete.
+            422: ResponseMessage,
+            502: ResponseMessage,
+        },
     )
     def create_plan(
         self,
@@ -79,7 +116,16 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.patch(
         "/plans/{plan_id}",
         url_name="update_subscription_plan",
-        response=schema.PlanSchema,
+        response={
+            200: schema.PlanSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            # Same online-payment prerequisites as create: patching a plan re-syncs
+            # it to Stripe, so a missing Stripe Connect answers 400 and incomplete
+            # billing info answers 422.
+            422: ResponseMessage,
+            502: ResponseMessage,
+        },
     )
     def update_plan(
         self,
@@ -97,9 +143,42 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         return subscription_service.update_plan(plan, **payload.model_dump(exclude_unset=True))
 
     @route.post(
+        "/plans/{plan_id}/migrate-subscribers",
+        url_name="migrate_plan_subscribers",
+        response={202: schema.MigrationAcceptedSchema, 404: ResponseMessage},
+    )
+    def migrate_plan_subscribers(self, slug: str, plan_id: UUID) -> tuple[int, schema.MigrationAcceptedSchema]:
+        """Queue a force-migrate of all non-terminal subscribers to the plan's current price.
+
+        Runs asynchronously: the migration issues one Stripe call per ONLINE
+        subscriber, so a large plan would blow the request timeout. Returns 202
+        with the number of subscribers queued; per-subscriber outcomes (migrated /
+        skipped / failed) are recorded in the worker logs. No proration is applied;
+        the new price takes effect at each subscriber's next renewal.
+        """
+        from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
+
+        organization = self.get_one(slug)
+        plan = get_object_or_404(
+            models.MembershipSubscriptionPlan.objects.select_related("tier"),
+            pk=plan_id,
+            tier__organization=organization,
+        )
+        queued = (
+            models.MembershipSubscription.objects.filter(plan=plan)
+            .exclude(status__in=models.MembershipSubscription.TERMINAL_STATUSES)
+            .count()
+        )
+        # Dispatch after commit so the worker sees the plan's committed price
+        # (request-path dispatch under ATOMIC_REQUESTS — see engineering-notes).
+        plan_id_str, user_id_str = str(plan.pk), str(self.user().pk)
+        transaction.on_commit(lambda: migrate_task.delay(plan_id_str, user_id_str))
+        return 202, schema.MigrationAcceptedSchema(queued=queued)
+
+    @route.post(
         "/plans/{plan_id}/archive",
         url_name="archive_subscription_plan",
-        response=schema.PlanSchema,
+        response={200: schema.PlanSchema, 404: ResponseMessage, 502: ResponseMessage},
     )
     def archive_plan(self, slug: str, plan_id: UUID) -> models.MembershipSubscriptionPlan:
         """Archive a plan (sets ``is_active=False``)."""
@@ -114,7 +193,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.delete(
         "/plans/{plan_id}",
         url_name="delete_subscription_plan",
-        response={204: None},
+        response={204: None, 400: ResponseMessage, 404: ResponseMessage},
     )
     def delete_plan(self, slug: str, plan_id: UUID) -> tuple[int, None]:
         """Hard-delete a plan. Blocks when subscriptions reference it."""
@@ -140,26 +219,38 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         Searching,
         search_fields=["user__email", "user__first_name", "user__last_name", "user__preferred_name", "status"],
     )
-    def list_subscriptions(self, slug: str) -> QuerySet[models.MembershipSubscription]:
-        """List all subscriptions for the organization."""
+    def list_subscriptions(
+        self,
+        slug: str,
+        status: t.Annotated[models.MembershipSubscription.SubscriptionStatus | None, Query(None)] = None,
+    ) -> QuerySet[models.MembershipSubscription]:
+        """List all subscriptions for the organization, optionally filtered by ``status``."""
         organization = self.get_one(slug)
-        return (
+        # ``plan`` rides a Prefetch (not select_related) so the nested
+        # ``PlanSchema.active_subscription_count`` reads an annotation instead
+        # of issuing one COUNT per page row.
+        plan_qs = models.MembershipSubscriptionPlan.objects.with_active_subscription_count().select_related("tier")
+        qs = (
             models.MembershipSubscription.objects.filter(organization=organization)
-            .select_related("user", "plan", "plan__tier")
+            .select_related("user", "organization")
+            .prefetch_related(Prefetch("plan", queryset=plan_qs))
             .order_by("-created_at")
         )
+        if status is not None:
+            qs = qs.filter(status=status)
+        return qs
 
     @route.get(
         "/subscriptions/{sub_id}",
         url_name="get_subscription",
-        response=schema.SubscriptionSchema,
+        response={200: schema.SubscriptionSchema, 404: ResponseMessage},
         throttle=UserDefaultThrottle(),
     )
     def get_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
         """Get a single subscription by id."""
         organization = self.get_one(slug)
         return get_object_or_404(
-            models.MembershipSubscription.objects.select_related("user", "plan", "plan__tier"),
+            models.MembershipSubscription.objects.select_related("user", "plan", "plan__tier", "organization"),
             pk=sub_id,
             organization=organization,
         )
@@ -167,20 +258,40 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions",
         url_name="create_subscription",
-        response={201: schema.SubscriptionSchema},
+        response={
+            201: schema.SubscriptionSchema,
+            400: ResponseMessage,
+            403: ResponseMessage,
+            404: ResponseMessage,
+        },
     )
     def create_subscription(
         self,
         slug: str,
         payload: schema.SubscriptionCreateSchema,
     ) -> tuple[int, models.MembershipSubscription]:
-        """Create a subscription on behalf of a user (OFFLINE flow)."""
+        """Create a subscription on behalf of a user (OFFLINE flow only).
+
+        ONLINE (Stripe) plans must be subscribed to by the member themselves
+        via ``POST /api/me/organizations/{org_id}/subscribe`` so the user can
+        confirm the first payment.
+        """
         organization = self.get_one(slug)
         plan = get_object_or_404(
             models.MembershipSubscriptionPlan.objects.select_related("tier"),
             pk=payload.plan_id,
             tier__organization=organization,
         )
+        if plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+            raise HttpError(
+                400,
+                str(
+                    _(
+                        "ONLINE plans must be subscribed to by the member directly. "
+                        "Send them to the member-facing subscribe endpoint."
+                    )
+                ),
+            )
         user = get_object_or_404(RevelUser, pk=payload.user_id)
 
         initial: InitialPayment | None = None
@@ -218,7 +329,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/payments",
         url_name="record_subscription_payment",
-        response={201: schema.MembershipPaymentSchema},
+        response={201: schema.MembershipPaymentSchema, 400: ResponseMessage, 404: ResponseMessage},
     )
     def record_payment(
         self,
@@ -226,13 +337,22 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         sub_id: UUID,
         payload: schema.PaymentRecordSchema,
     ) -> tuple[int, models.MembershipPayment]:
-        """Record a manual payment against a subscription."""
+        """Record a manual payment against an OFFLINE subscription.
+
+        ONLINE (Stripe) payments arrive via the ``invoice.paid`` webhook and
+        must not be hand-recorded — that would create duplicates.
+        """
         organization = self.get_one(slug)
         subscription = get_object_or_404(
             models.MembershipSubscription.objects.select_related("plan"),
             pk=sub_id,
             organization=organization,
         )
+        if subscription.plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+            raise HttpError(
+                400,
+                str(_("ONLINE subscription payments are recorded automatically via Stripe webhooks.")),
+            )
         payment = subscription_service.record_payment(
             subscription,
             amount=payload.amount,
@@ -247,7 +367,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/cancel",
         url_name="cancel_subscription",
-        response=schema.SubscriptionSchema,
+        response={200: schema.SubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage},
     )
     def cancel_subscription(
         self,
@@ -267,7 +387,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/pause",
         url_name="pause_subscription",
-        response=schema.SubscriptionSchema,
+        response={200: schema.SubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
     )
     def pause_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
         """Pause a subscription."""
@@ -282,7 +402,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/resume",
         url_name="resume_subscription",
-        response=schema.SubscriptionSchema,
+        response={200: schema.SubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
     )
     def resume_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
         """Resume a paused subscription."""
@@ -294,12 +414,69 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         )
         return subscription_service.resume_subscription(subscription)
 
+    @route.post(
+        "/subscriptions/{sub_id}/revive",
+        url_name="revive_subscription",
+        response={
+            200: schema.StaffRevivalResponseSchema,
+            400: ResponseMessage,
+            403: ResponseMessage,
+            404: ResponseMessage,
+            502: ResponseMessage,
+        },
+    )
+    def revive_subscription(
+        self,
+        slug: str,
+        sub_id: UUID,
+        payload: schema.RevivalRequestSchema,
+    ) -> schema.StaffRevivalResponseSchema:
+        """Force-revive an EXPIRED subscription within the org's revival window.
+
+        For OFFLINE plans, include the payment amount/currency. For ONLINE
+        plans, a hosted Stripe Checkout for a fresh Stripe Subscription is
+        created — the member is emailed the checkout link (staff cannot pay on
+        their behalf) and the response also returns ``checkout_url`` so staff
+        can hand it over out-of-band.
+        """
+        organization = self.get_one(slug)
+        subscription = get_object_or_404(
+            models.MembershipSubscription.objects.select_related("plan", "plan__tier", "organization", "user"),
+            pk=sub_id,
+            organization=organization,
+        )
+        initial: InitialPayment | None = None
+        if payload.amount is not None and payload.currency is not None:
+            initial = InitialPayment(
+                amount=payload.amount,
+                currency=payload.currency,
+                recorded_by=self.user(),
+                notes=payload.notes,
+            )
+        revived, checkout_url = subscription_service.revive_subscription(
+            subscription,
+            initial_payment=initial,
+            revived_by=self.user(),
+            # Staff bypass the PAUSED-sales gate (they ARE the org); the
+            # capacity cap still applies inside the service.
+            enforce_sales_status=False,
+        )
+        # Return a dict (not a constructed schema): Ninja's response pipeline
+        # validates it via ``StaffRevivalResponseSchema``. Pre-validating the
+        # inner ``SubscriptionSchema`` would cause Ninja's wrap-validator to
+        # re-run resolvers against the already-validated schema instance
+        # (which lacks ``obj.user``/``obj.organization``), breaking serialization.
+        return t.cast(
+            schema.StaffRevivalResponseSchema,
+            {"subscription": revived, "checkout_url": checkout_url},
+        )
+
     # ---- Payments ----
 
     @route.post(
         "/payments/{payment_id}/refund",
         url_name="refund_subscription_payment",
-        response=schema.MembershipPaymentSchema,
+        response={200: schema.MembershipPaymentSchema, 400: ResponseMessage, 404: ResponseMessage},
     )
     def refund_payment(
         self,
@@ -307,11 +484,28 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         payment_id: UUID,
         payload: schema.RefundSchema,
     ) -> models.MembershipPayment:
-        """Mark a recorded payment as refunded (record-only in MVP)."""
+        """Mark a recorded payment as refunded (record-only in MVP).
+
+        ONLINE (Stripe) payments are refused: this endpoint never moves money,
+        so accepting one would flip the ledger to REFUNDED (and auto-cancel the
+        subscription) while the member's charge stays captured on Stripe.
+        Refund those from the Stripe Dashboard — the ``charge.refunded``
+        webhook records the refund here automatically.
+        """
         organization = self.get_one(slug)
         payment = get_object_or_404(
-            models.MembershipPayment.objects.select_related("subscription"),
+            models.MembershipPayment.objects.select_related("subscription", "subscription__plan"),
             pk=payment_id,
             subscription__organization=organization,
         )
-        return subscription_service.refund_payment(payment, recorded_by=self.user(), notes=payload.notes)
+        if payment.subscription.plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+            raise HttpError(
+                400,
+                str(
+                    _(
+                        "ONLINE payments must be refunded from the Stripe Dashboard; "
+                        "the refund is recorded here automatically."
+                    )
+                ),
+            )
+        return subscription_refunds.refund_payment(payment, recorded_by=self.user(), notes=payload.notes)

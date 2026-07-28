@@ -35,7 +35,7 @@ class EventInvitationQueryset(models.QuerySet["EventInvitation"]):
 
     def for_user(self, user: RevelUser) -> t.Self:
         """Get the base invitation qs for a user."""
-        today = timezone.now().date()
+        today = timezone.localdate()
         return self.filter(Q(user=user) & (Q(event__start__date__gt=today) | Q(event__start__isnull=True)))
 
 

@@ -413,6 +413,9 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "organizationmembershiprequest_set": ExportRule(include=True, exclude_fields=("decided_by",)),
     "held_series_passes": ExportRule(include=True),
     "membership_subscriptions": ExportRule(include=True),
+    # Per-(user, org) Stripe Customer reference — the user's own identifier,
+    # same footing as the stripe ids on payments/membership_subscriptions.
+    "customer_profiles": ExportRule(include=True),
     "seat_holds": ExportRule(include=True),
     "attendee_invoices": ExportRule(include=True),
     "sent_contact_messages": ExportRule(include=True),

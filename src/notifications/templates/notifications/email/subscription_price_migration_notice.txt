@@ -1,0 +1,12 @@
+{%load i18n %}{%trans "Hello"%} {{user.display_name}},
+
+📢 {%blocktranslate with plan=context.plan_name org=context.organization_name %}The price for your {{ plan }} subscription at {{ org }} is changing.{%endblocktranslate%}
+
+{%trans "Plan:"%} {{context.plan_name}}
+{%trans "Current price:"%} {{context.old_amount}}
+{%trans "New price:"%} {{context.new_amount}}
+{%trans "Effective from:"%} {{context.effective_at}}
+
+{%blocktranslate with old=context.old_amount new=context.new_amount date=context.effective_at %}Your subscription will move from {{ old }} to {{ new }} starting {{ date }}.{%endblocktranslate%}
+
+{% include "notifications/email/_footer.txt" %}

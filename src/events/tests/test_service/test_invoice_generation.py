@@ -712,7 +712,7 @@ class TestGenerateMonthlyInvoices:
         mock_generate: MagicMock,
     ) -> None:
         """When called on March 1, it generates invoices for Feb 1-28."""
-        mock_tz.now.return_value.date.return_value = date(2026, 3, 1)
+        mock_tz.localdate.return_value = date(2026, 3, 1)
         mock_generate.return_value = []
 
         generate_monthly_invoices()
@@ -727,7 +727,7 @@ class TestGenerateMonthlyInvoices:
         mock_generate: MagicMock,
     ) -> None:
         """When called on Jan 1, it generates invoices for Dec 1-31 of the previous year."""
-        mock_tz.now.return_value.date.return_value = date(2026, 1, 1)
+        mock_tz.localdate.return_value = date(2026, 1, 1)
         mock_generate.return_value = []
 
         generate_monthly_invoices()
@@ -742,7 +742,7 @@ class TestGenerateMonthlyInvoices:
         mock_generate: MagicMock,
     ) -> None:
         """When called on March 1 of a leap year, Feb has 29 days."""
-        mock_tz.now.return_value.date.return_value = date(2028, 3, 1)
+        mock_tz.localdate.return_value = date(2028, 3, 1)
         mock_generate.return_value = []
 
         generate_monthly_invoices()
@@ -757,7 +757,7 @@ class TestGenerateMonthlyInvoices:
         mock_generate: MagicMock,
     ) -> None:
         """The return value from generate_invoices_for_period is passed through."""
-        mock_tz.now.return_value.date.return_value = date(2026, 4, 1)
+        mock_tz.localdate.return_value = date(2026, 4, 1)
         sentinel = [MagicMock(spec=PlatformFeeInvoice)]
         mock_generate.return_value = sentinel
 

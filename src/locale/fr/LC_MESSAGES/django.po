@@ -763,6 +763,9 @@ msgstr "Le numéro de téléphone doit être une chaîne de caractères."
 msgid "Number format is incorrect."
 msgstr "Le format du numéro est incorrect."
 
+msgid "Not found."
+msgstr "Introuvable."
+
 msgid "Internal Server Error."
 msgstr "Erreur interne du serveur."
 
@@ -953,6 +956,19 @@ msgstr "Seul·e le·la titulaire du ticket peut annuler ce ticket."
 msgid "Refund failed. Please try again later."
 msgstr "Le remboursement a échoué. Réessaie plus tard."
 
+msgid "Paid applications are not supported in this release."
+msgstr "Les demandes payantes ne sont pas prises en charge dans cette version."
+
+msgid "Not allowed."
+msgstr "Non autorisé."
+
+msgid ""
+"This subscription is managed by the organization. Contact them to renew your "
+"membership."
+msgstr ""
+"Cet abonnement est géré par l'organisation. Contacte-la pour renouveler ton "
+"adhésion."
+
 msgid "Organization creation is disabled on this instance."
 msgstr "La création d'organisations est désactivée sur cette instance."
 
@@ -971,11 +987,36 @@ msgstr ""
 "Seul·e le·la propriétaire de l'organisation peut modifier les permissions du "
 "staff."
 
+msgid ""
+"ONLINE plans must be subscribed to by the member directly. Send them to the "
+"member-facing subscribe endpoint."
+msgstr ""
+"Les forfaits ONLINE doivent être souscrits directement par le membre. "
+"Redirige-le vers le point de terminaison d'abonnement côté membre."
+
+msgid ""
+"ONLINE subscription payments are recorded automatically via Stripe webhooks."
+msgstr ""
+"Les paiements des abonnements ONLINE sont enregistrés automatiquement via "
+"les webhooks Stripe."
+
+msgid ""
+"ONLINE payments must be refunded from the Stripe Dashboard; the refund is "
+"recorded here automatically."
+msgstr ""
+"Les paiements ONLINE doivent être remboursés depuis le tableau de bord "
+"Stripe ; le remboursement est enregistré ici automatiquement."
+
 msgid "Invoice PDF not yet generated."
 msgstr "Le PDF de la facture n'est pas encore généré."
 
 msgid "Invoice PDF could not be generated."
 msgstr "Le PDF de la facture n'a pas pu être généré."
+
+msgid ""
+"Your payment went through. We're still confirming your subscription — check "
+"back in a moment."
+msgstr "Ton paiement a bien été effectué. Nous confirmons encore ton abonnement — reviens dans un instant."
 
 msgid "You have created too many items."
 msgstr "Tu as créé trop d'éléments."
@@ -1085,16 +1126,15 @@ msgstr "La devise est requise pour les réductions à montant fixe."
 
 msgid "Event series must belong to the same organization as the event."
 msgstr ""
-"La série d'événements doit appartenir à la même organisation que "
-"l'événement."
+"La série d'événements doit appartenir à la même organisation que l'événement."
 
 msgid "End date must be after start date."
 msgstr "La date de fin doit être postérieure à la date de début."
 
 msgid "Check-in end time must be after check-in start time."
 msgstr ""
-"L'heure de fin du check-in doit être postérieure à l'heure de début du "
-"check-in."
+"L'heure de fin du check-in doit être postérieure à l'heure de début du check-"
+"in."
 
 msgid "Venue must belong to the same organization as the event."
 msgstr "Le lieu doit appartenir à la même organisation que l'événement."
@@ -1117,11 +1157,52 @@ msgstr ""
 "d'expirer."
 
 msgid ""
+"Days after subscription expiry during which a member can revive in place. "
+"Set to 0 to disable revival entirely."
+msgstr ""
+"Nombre de jours après l'expiration de l'abonnement pendant lesquels un "
+"membre peut le réactiver sur place. Mettre à 0 pour désactiver entièrement "
+"la réactivation."
+
+msgid ""
+"Default membership questionnaire applied to all tiers (overridable per tier)."
+msgstr ""
+"Questionnaire d'adhésion par défaut appliqué à tous les niveaux (remplaçable "
+"par niveau)."
+
+msgid "When True, every membership application requires manual staff approval."
+msgstr ""
+"Si True, chaque demande d'adhésion nécessite une approbation manuelle du "
+"staff."
+
+msgid ""
 "A verified contact email is required to enable a contact method other than "
 "NONE."
 msgstr ""
 "Une adresse e-mail de contact vérifiée est requise pour activer un moyen de "
 "contact autre que NONE."
+
+msgid "Default membership questionnaire must belong to this organization."
+msgstr ""
+"Le questionnaire d'adhésion par défaut doit appartenir à cette organisation."
+
+msgid "Membership questionnaire must be of type MEMBERSHIP."
+msgstr "Le questionnaire d'adhésion doit être de type MEMBERSHIP."
+
+msgid "Tier-specific membership questionnaire. NULL = inherit org default."
+msgstr ""
+"Questionnaire d'adhésion spécifique au niveau. NULL = hérite de la valeur "
+"par défaut de l'organisation."
+
+msgid ""
+"Tier-specific manual-approval override. NULL = inherit "
+"org.default_requires_membership_approval."
+msgstr ""
+"Remplacement de l'approbation manuelle spécifique au niveau. NULL = hérite "
+"de org.default_requires_membership_approval."
+
+msgid "Membership questionnaire must belong to the same organization."
+msgstr "Le questionnaire d'adhésion doit appartenir à la même organisation."
 
 msgid "The tier must belong to the same organization as the membership."
 msgstr "Le niveau doit appartenir à la même organisation que l'adhésion."
@@ -1133,12 +1214,28 @@ msgid "Membership tier must belong to the same organization as the token."
 msgstr ""
 "Le niveau d'adhésion doit appartenir à la même organisation que le jeton."
 
+msgid ""
+"Target tier. NULL = tier-less legacy application; staff picks at approval."
+msgstr ""
+"Niveau cible. NULL = demande héritée sans niveau ; le staff choisit lors de "
+"l'approbation."
+
+msgid ""
+"Target plan for paid path. NULL = free join. Phase 1 rejects non-null at /"
+"apply."
+msgstr ""
+"Forfait cible pour le parcours payant. NULL = adhésion gratuite. La phase 1 "
+"rejette les valeurs non nulles sur /apply."
+
+msgid "Submission that satisfied the questionnaire gate, if applicable."
+msgstr ""
+"Soumission ayant satisfait le contrôle du questionnaire, le cas échéant."
+
 msgid "Token must be a single non-empty slug segment."
 msgstr "Le jeton doit être un segment de slug non vide."
 
 msgid "At-the-door payment is not supported for series passes."
-msgstr ""
-"Le paiement sur place n'est pas pris en charge pour les pass de série."
+msgstr "Le paiement sur place n'est pas pris en charge pour les pass de série."
 
 msgid "Series passes cannot be invitation-restricted."
 msgstr "Les pass de série ne peuvent pas être réservés aux invités."
@@ -1173,11 +1270,23 @@ msgstr ""
 "Les catégories de tickets à tarif libre ne peuvent pas être associées à un "
 "pass de série."
 
+msgid "Online (Stripe)"
+msgstr "En ligne (Stripe)"
+
+msgid "Offline (staff-managed)"
+msgstr "Hors ligne (géré par le staff)"
+
 msgid "Month"
 msgstr "Mois"
 
 msgid "Year"
 msgstr "Année"
+
+msgid "Open"
+msgstr "Ouvert"
+
+msgid "Paused"
+msgstr "En pause"
 
 msgid "e.g. \"Monthly\", \"Annual\""
 msgstr "par ex. \"Mensuel\", \"Annuel\""
@@ -1185,8 +1294,31 @@ msgstr "par ex. \"Mensuel\", \"Annuel\""
 msgid "ISO 4217 currency code"
 msgstr "Code devise ISO 4217"
 
-msgid "Paused"
-msgstr "En pause"
+msgid ""
+"PAUSED stops member self-service sales (subscribe, revive, plan switches "
+"into this plan) while leaving existing subscribers untouched. Orthogonal to "
+"archiving: an archived plan is retired, a paused one is temporarily closed."
+msgstr ""
+"PAUSED interrompt les ventes en libre-service pour les membres (abonnement, "
+"réactivation, changements vers ce forfait) tout en laissant les abonné·es "
+"existant·es inchangé·es. Orthogonal à l'archivage : un forfait archivé est "
+"retiré, un forfait en pause est temporairement fermé."
+
+msgid ""
+"Cap on concurrent non-terminal subscriptions (the venue's card stock). "
+"Cancelled/expired subscriptions free their slot automatically. NULL = "
+"unlimited."
+msgstr ""
+"Plafond des abonnements simultanés non terminaux (le stock de cartes du "
+"lieu). Les abonnements annulés/expirés libèrent automatiquement leur place. "
+"NULL = illimité."
+
+msgid ""
+"ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by "
+"staff."
+msgstr ""
+"Les forfaits ONLINE sont facturés via Stripe ; les forfaits OFFLINE sont "
+"suivis manuellement par le staff."
 
 msgid "Past Due"
 msgstr "En retard"
@@ -1197,10 +1329,31 @@ msgstr "Annulé"
 msgid "Expired"
 msgstr "Expiré"
 
+msgid ""
+"Hosted Checkout Session that will (or did) create the Stripe Subscription."
+msgstr ""
+"Session de Checkout hébergée qui créera (ou a créé) la Subscription Stripe."
+
+msgid "Plan that will replace ``plan`` at the next renewal (downgrade flow)."
+msgstr ""
+"Forfait qui remplacera ``plan`` au prochain renouvellement (flux de "
+"rétrogradation)."
+
+msgid ""
+"Set when status transitions to EXPIRED. Used for the revival window check."
+msgstr ""
+"Défini lorsque le statut passe à EXPIRED. Utilisé pour la vérification de la "
+"fenêtre de réactivation."
+
 msgid "Subscription organization must match the plan's tier organization."
 msgstr ""
 "L'organisation de l'abonnement doit correspondre à l'organisation du niveau "
 "de l'offre."
+
+msgid "Pending plan must belong to the same organization as the subscription."
+msgstr ""
+"Le forfait en attente doit appartenir à la même organisation que "
+"l'abonnement."
 
 msgid "Succeeded"
 msgstr "Réussi"
@@ -1217,8 +1370,8 @@ msgstr ""
 
 msgid "Ticket sales end time must be after the sales start time."
 msgstr ""
-"L'heure de fin de vente des tickets doit être postérieure à l'heure de "
-"début de vente."
+"L'heure de fin de vente des tickets doit être postérieure à l'heure de début "
+"de vente."
 
 msgid ""
 "Maximum pay-what-you-can amount must be greater than or equal to minimum "
@@ -1236,9 +1389,8 @@ msgid ""
 "If tickets are restricted to specific tiers, 'Purchasable By' must be set to "
 "'Members only' or 'Invited and Members only'."
 msgstr ""
-"Si les tickets sont réservés à des niveaux spécifiques, 'Achetable par' "
-"doit être défini sur 'Membres uniquement' ou 'Invités et membres "
-"uniquement'."
+"Si les tickets sont réservés à des niveaux spécifiques, 'Achetable par' doit "
+"être défini sur 'Membres uniquement' ou 'Invités et membres uniquement'."
 
 msgid "Sector must belong to the specified venue."
 msgstr "Le secteur doit appartenir au lieu spécifié."
@@ -1633,6 +1785,72 @@ msgstr "Tu es déjà invité·e à cet événement."
 msgid "You have already requested an invitation to this event."
 msgstr "Tu as déjà demandé une invitation pour cet événement."
 
+msgid "This organization is not available."
+msgstr "Cette organisation n'est pas disponible."
+
+msgid "You are not allowed to join this organization."
+msgstr "Tu n'es pas autorisé·e à rejoindre cette organisation."
+
+msgid "You are already a member at this tier."
+msgstr "Tu es déjà membre à ce niveau."
+
+msgid "This organization is not accepting new members."
+msgstr "Cette organisation n'accepte pas de nouveaux membres."
+
+msgid "The requested tier is not available."
+msgstr "Le niveau demandé n'est pas disponible."
+
+msgid "The requested plan is not available."
+msgstr "Le forfait demandé n'est pas disponible."
+
+msgid "Your application was rejected."
+msgstr "Ta demande a été rejetée."
+
+msgid "Membership questionnaire has not been filled."
+msgstr "Le questionnaire d'adhésion n'a pas été rempli."
+
+msgid "Membership questionnaire evaluation was insufficient."
+msgstr "L'évaluation du questionnaire d'adhésion a été insuffisante."
+
+msgid ""
+"Membership questionnaire evaluation was insufficient. You can try again "
+"later."
+msgstr ""
+"L'évaluation du questionnaire d'adhésion a été insuffisante. Tu peux "
+"réessayer plus tard."
+
+msgid "Your application is awaiting staff approval."
+msgstr "Ta demande est en attente d'approbation du staff."
+
+msgid "This tier requires a paid subscription. Subscribe to a plan to join."
+msgstr ""
+"Ce niveau nécessite un abonnement payant. Abonne-toi à un forfait pour "
+"rejoindre."
+
+msgid "This plan is not configured for online checkout."
+msgstr "Ce forfait n'est pas configuré pour le paiement en ligne."
+
+msgid "This organization cannot accept online payments yet."
+msgstr "Cette organisation ne peut pas encore accepter les paiements en ligne."
+
+msgid "You already have an active subscription in this organization."
+msgstr "Tu as déjà un abonnement actif dans cette organisation."
+
+msgid ""
+"Your membership at this tier is paused. Contact the organization to resume."
+msgstr ""
+"Ton adhésion à ce niveau est en pause. Contacte l'organisation pour la "
+"reprendre."
+
+msgid "Invalid questionnaire submission."
+msgstr "Soumission de questionnaire invalide."
+
+msgid "Questionnaire not found for this organization."
+msgstr "Questionnaire introuvable pour cette organisation."
+
+msgid "This questionnaire cannot be retaken."
+msgstr "Ce questionnaire ne peut pas être repassé."
+
 msgid "This is already the contact email for this organization."
 msgstr "C'est déjà l'adresse e-mail de contact de cette organisation."
 
@@ -1670,14 +1888,60 @@ msgstr ""
 "Tu possèdes déjà une organisation. Une seule organisation par personne en "
 "tant que propriétaire est autorisée."
 
+msgid ""
+"Cannot delete a tier that has membership applications. They are part of the "
+"organization's history."
+msgstr ""
+"Impossible de supprimer un niveau qui a des demandes d'adhésion. Elles font "
+"partie de l'historique de l'organisation."
+
+msgid ""
+"Cannot delete a tier whose plans still have subscriptions. Archive the plans "
+"instead."
+msgstr ""
+"Impossible de supprimer un niveau dont les forfaits ont encore des "
+"abonnements. Archive plutôt les forfaits."
+
 msgid "The organization does not accept new members."
 msgstr "L'organisation n'accepte pas de nouveau·elle·s membres."
 
 msgid "You are not allowed to request membership for this organization."
 msgstr "Tu n'es pas autorisé·e à demander l'adhésion à cette organisation."
 
+msgid ""
+"This user has an active subscription; approving a free application would "
+"overwrite their paid membership. Cancel the subscription first, or force the "
+"approval."
+msgstr ""
+"Cet utilisateur a un abonnement actif ; approuver une demande gratuite "
+"écraserait son adhésion payante. Annulez d'abord l'abonnement, ou forcez "
+"l'approbation."
+
+msgid ""
+"This membership is paused. Resume it instead of approving a free "
+"application, or force the approval."
+msgstr ""
+"Cette adhésion est suspendue. Reprenez-la au lieu d'approuver une demande "
+"gratuite, ou forcez l'approbation."
+
+msgid "A tier must be specified to approve this application."
+msgstr "Un niveau doit être spécifié pour approuver cette demande."
+
+msgid "Tier must belong to the same organization."
+msgstr "Le niveau doit appartenir à la même organisation."
+
+msgid "Only pending applications can be approved."
+msgstr "Seules les demandes en attente peuvent être approuvées."
+
 msgid "User is already a member of this organization."
 msgstr "L'utilisateur·rice est déjà membre de cette organisation."
+
+msgid ""
+"The membership questionnaire must belong to this organization and be of type "
+"MEMBERSHIP."
+msgstr ""
+"Le questionnaire d'adhésion doit appartenir à cette organisation et être de "
+"type MEMBERSHIP."
 
 msgid "Tier IDs must match all tiers for this organization exactly."
 msgstr ""
@@ -1895,27 +2159,20 @@ msgstr "Cette catégorie de ticket ne peut pas être achetée en ligne."
 msgid "This pass cannot be purchased online."
 msgstr "Ce pass ne peut pas être acheté en ligne."
 
-msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
-msgstr ""
-"Impossible de supprimer un forfait avec des abonnements existants. Archive-"
-"le plutôt."
+msgid "Sales for this plan are currently paused."
+msgstr "Les ventes de ce forfait sont actuellement en pause."
 
-msgid "This plan is archived and no longer accepts new subscriptions."
-msgstr "Ce forfait est archivé et n'accepte plus de nouveaux abonnements."
+msgid "This plan is sold out."
+msgstr "Ce forfait est complet."
+
+msgid "You can't rejoin this organization."
+msgstr "Tu ne peux pas rejoindre à nouveau cette organisation."
 
 msgid "This user is banned from the organization."
 msgstr "Cet·te utilisateur·rice est banni·e de l'organisation."
 
-msgid "This user already has an active subscription in this organization."
-msgstr ""
-"Cet·te utilisateur·rice a déjà un abonnement actif dans cette organisation."
-
-msgid ""
-"Cannot record a payment against a cancelled or expired subscription. Create "
-"a new subscription instead."
-msgstr ""
-"Impossible d'enregistrer un paiement pour un abonnement annulé ou expiré. "
-"Crée un nouvel abonnement à la place."
+msgid "This user is blacklisted from the organization."
+msgstr "Cette personne est sur la liste de blocage de l'organisation."
 
 msgid "occurred_at cannot be in the future."
 msgstr "occurred_at ne peut pas être dans le futur."
@@ -1934,6 +2191,32 @@ msgstr ""
 "caduque."
 
 msgid ""
+"Cannot change currency when active subscriptions exist. Archive and create a "
+"new plan instead."
+msgstr ""
+"Impossible de changer la devise lorsque des abonnements actifs existent. "
+"Archive et crée un nouveau forfait à la place."
+
+msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
+msgstr ""
+"Impossible de supprimer un forfait avec des abonnements existants. Archive-"
+"le plutôt."
+
+msgid "This plan is archived and no longer accepts new subscriptions."
+msgstr "Ce forfait est archivé et n'accepte plus de nouveaux abonnements."
+
+msgid "This user already has an active subscription in this organization."
+msgstr ""
+"Cet·te utilisateur·rice a déjà un abonnement actif dans cette organisation."
+
+msgid ""
+"Cannot record a payment against a cancelled or expired subscription. Create "
+"a new subscription instead."
+msgstr ""
+"Impossible d'enregistrer un paiement pour un abonnement annulé ou expiré. "
+"Crée un nouvel abonnement à la place."
+
+msgid ""
 "Backfilled payment would produce an already-lapsed billing period; use a "
 "more recent occurred_at."
 msgstr ""
@@ -1950,8 +2233,86 @@ msgstr ""
 msgid "Cannot pause a terminal subscription."
 msgstr "Impossible de suspendre un abonnement terminé."
 
+msgid "Cannot pause a subscription that is scheduled for cancellation."
+msgstr "Impossible de suspendre un abonnement programmé pour être annulé."
+
+msgid "This subscription has no linked Stripe record yet."
+msgstr "Cet abonnement n'a pas encore d'enregistrement Stripe associé."
+
 msgid "Only paused subscriptions can be resumed."
 msgstr "Seuls les abonnements suspendus peuvent être repris."
+
+msgid "Only expired subscriptions can be revived."
+msgstr "Seuls les abonnements expirés peuvent être réactivés."
+
+msgid "Revival is disabled for this organization."
+msgstr "La réactivation est désactivée pour cette organisation."
+
+msgid "Cannot revive a subscription without an expiry timestamp."
+msgstr "Impossible de réactiver un abonnement sans horodatage d'expiration."
+
+msgid "The revival window has elapsed. Start a new subscription instead."
+msgstr ""
+"La fenêtre de réactivation est écoulée. Commence un nouvel abonnement à la "
+"place."
+
+msgid "Offline revival requires recording an initial payment."
+msgstr ""
+"La réactivation hors ligne nécessite l'enregistrement d'un paiement initial."
+
+msgid "New plan must belong to the same organization as the subscription."
+msgstr ""
+"Le nouveau forfait doit appartenir à la même organisation que l'abonnement."
+
+msgid ""
+"Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new "
+"subscription instead."
+msgstr ""
+"Impossible de basculer entre les forfaits ONLINE et OFFLINE. Annule et crée "
+"un nouvel abonnement à la place."
+
+msgid "New plan must use the same currency as the current plan."
+msgstr "Le nouveau forfait doit utiliser la même devise que le forfait actuel."
+
+msgid "Cannot change the plan on a terminated subscription."
+msgstr "Impossible de changer le forfait d'un abonnement terminé."
+
+msgid "Resume the subscription before changing its plan."
+msgstr "Reprends l'abonnement avant de changer son forfait."
+
+msgid "This subscription is already on that plan."
+msgstr "Cet abonnement utilise déjà ce forfait."
+
+msgid "Stripe subscription has no items to update."
+msgstr "L'abonnement Stripe n'a aucun élément à mettre à jour."
+
+msgid "Stripe did not return a schedule phase to extend."
+msgstr "Stripe n'a pas renvoyé de phase de planification à prolonger."
+
+msgid "This subscription is scheduled to cancel; cannot change plan."
+msgstr ""
+"Cet abonnement est programmé pour être annulé ; impossible de changer de "
+"forfait."
+
+msgid "A plan change is already pending on this subscription."
+msgstr "Un changement de forfait est déjà en attente sur cet abonnement."
+
+msgid "Could not prepare the plan for checkout."
+msgstr "Impossible de préparer le forfait pour le paiement."
+
+msgid "This subscription is not managed by Stripe."
+msgstr "Cet abonnement n'est pas géré par Stripe."
+
+msgid "Could not sync the plan with Stripe. Please try again later."
+msgstr "Impossible de synchroniser le forfait avec Stripe. Réessaie plus tard."
+
+msgid "Could not initialize the payment. Please try again later."
+msgstr "Impossible d'initialiser le paiement. Réessaie plus tard."
+
+msgid "No billing profile exists for this organization. Subscribe first."
+msgstr ""
+"Aucun profil de facturation n'existe pour cette organisation. Abonne-toi "
+"d'abord."
 
 msgid "Ticket already cancelled"
 msgstr "Ticket déjà annulé"
@@ -1960,13 +2321,13 @@ msgid "You must connect to Stripe first."
 msgstr "Tu dois d'abord te connecter à Stripe."
 
 msgid ""
-"Billing information is required for online ticket sales with platform fees. "
+"Billing information is required for online payments with platform fees. "
 "Please set your billing name, country and billing address in your "
 "organization's billing settings."
 msgstr ""
-"Les informations de facturation sont requises pour les ventes de tickets en "
-"ligne avec frais de plateforme. Configure ton nom, pays et adresse de "
-"facturation dans les paramètres de facturation de ton organisation."
+"Les informations de facturation sont requises pour les paiements en ligne "
+"avec frais de plateforme. Configure ton nom, pays et adresse de facturation "
+"dans les paramètres de facturation de ton organisation."
 
 msgid ""
 "This ticket is part of a series pass. Manage it through the series pass "
@@ -2571,6 +2932,62 @@ msgid "New event scheduled for %(series)s"
 msgid_plural "%(count)d new events scheduled for %(series)s"
 msgstr[0] "Nouvel événement programmé pour %(series)s"
 msgstr[1] "%(count)d nouveaux événements programmés pour %(series)s"
+
+#, python-format
+msgid "Membership renewed: %(org)s"
+msgstr "Adhésion renouvelée : %(org)s"
+
+#, python-format
+msgid "Your %(org)s membership was renewed"
+msgstr "Ton adhésion à %(org)s a été renouvelée"
+
+#, python-format
+msgid "Payment failed: %(org)s membership"
+msgstr "Paiement échoué : adhésion %(org)s"
+
+#, python-format
+msgid "Action needed: payment failed for %(org)s"
+msgstr "Action requise : le paiement pour %(org)s a échoué"
+
+#, python-format
+msgid "Membership expired: %(org)s"
+msgstr "Adhésion expirée : %(org)s"
+
+#, python-format
+msgid "Your %(org)s membership has expired"
+msgstr "Ton adhésion à %(org)s a expiré"
+
+#, python-format
+msgid "Membership cancelled: %(org)s"
+msgstr "Adhésion annulée : %(org)s"
+
+#, python-format
+msgid "Your %(org)s membership has been cancelled"
+msgstr "Ton adhésion à %(org)s a été annulée"
+
+#, python-format
+msgid "Membership renews soon: %(org)s"
+msgstr "Ton adhésion se renouvelle bientôt : %(org)s"
+
+#, python-format
+msgid "Your %(org)s membership renews soon"
+msgstr "Ton adhésion à %(org)s se renouvelle bientôt"
+
+#, python-format
+msgid "Price change: %(org)s membership"
+msgstr "Changement de prix : adhésion %(org)s"
+
+#, python-format
+msgid "Upcoming price change for your %(org)s membership"
+msgstr "Changement de prix à venir pour ton adhésion %(org)s"
+
+#, python-format
+msgid "Complete your membership renewal: %(org)s"
+msgstr "Finalise le renouvellement de ton adhésion : %(org)s"
+
+#, python-format
+msgid "Complete your %(org)s membership renewal"
+msgstr "Finalise le renouvellement de ton adhésion %(org)s"
 
 msgid "System Announcement"
 msgstr "Annonce système"
@@ -3672,6 +4089,267 @@ msgstr "Ton pass de série %(pass_name)s pour %(series)s est maintenant actif."
 
 msgid "Pass Details:"
 msgstr "Détails du pass :"
+
+msgid "Subscription Cancelled"
+msgstr "Abonnement annulé"
+
+#, python-format
+msgid ""
+"Your <strong>%(plan)s</strong> subscription at <strong>%(org)s</strong> has "
+"been cancelled effective immediately."
+msgstr ""
+"Ton abonnement <strong>%(plan)s</strong> chez <strong>%(org)s</strong> a été "
+"annulé avec effet immédiat."
+
+#, python-format
+msgid ""
+"Your <strong>%(plan)s</strong> subscription at <strong>%(org)s</strong> will "
+"end on %(date)s."
+msgstr ""
+"Ton abonnement <strong>%(plan)s</strong> chez <strong>%(org)s</strong> "
+"prendra fin le %(date)s."
+
+msgid "Plan:"
+msgstr "Forfait :"
+
+msgid "Access ends:"
+msgstr "Fin de l'accès :"
+
+msgid "We hope to see you again in the future."
+msgstr "Nous espérons te revoir à l'avenir."
+
+#, python-format
+msgid ""
+"Your %(plan)s subscription at %(org)s has been cancelled effective "
+"immediately."
+msgstr "Ton abonnement %(plan)s chez %(org)s a été annulé avec effet immédiat."
+
+#, python-format
+msgid "Your %(plan)s subscription at %(org)s will end on %(date)s."
+msgstr "Ton abonnement %(plan)s chez %(org)s prendra fin le %(date)s."
+
+msgid "Membership Ended"
+msgstr "Adhésion terminée"
+
+#, python-format
+msgid ""
+"Your <strong>%(plan)s</strong> membership at <strong>%(org)s</strong> ended "
+"on %(date)s."
+msgstr ""
+"Ton adhésion <strong>%(plan)s</strong> chez <strong>%(org)s</strong> a pris "
+"fin le %(date)s."
+
+msgid "Ended on:"
+msgstr "Terminée le :"
+
+#, python-format
+msgid "You can reactivate your membership until <strong>%(date)s</strong>."
+msgstr "Tu peux réactiver ton adhésion jusqu'au <strong>%(date)s</strong>."
+
+#, python-format
+msgid "Reactivate by %(date)s"
+msgstr "Réactiver avant le %(date)s"
+
+msgid ""
+"If you'd like to continue, you can start a new subscription at any time."
+msgstr ""
+"Si tu souhaites continuer, tu peux commencer un nouvel abonnement à tout "
+"moment."
+
+#, python-format
+msgid "Your %(plan)s membership at %(org)s ended on %(date)s."
+msgstr "Ton adhésion %(plan)s chez %(org)s a pris fin le %(date)s."
+
+#, python-format
+msgid "You can reactivate your membership until %(date)s."
+msgstr "Tu peux réactiver ton adhésion jusqu'au %(date)s."
+
+msgid "Reactivate:"
+msgstr "Réactiver :"
+
+msgid "Payment Failed"
+msgstr "Paiement échoué"
+
+#, python-format
+msgid ""
+"We couldn't collect the payment for your <strong>%(plan)s</strong> "
+"membership at <strong>%(org)s</strong>."
+msgstr ""
+"Nous n'avons pas pu prélever le paiement pour ton adhésion <strong>%(plan)s</"
+"strong> chez <strong>%(org)s</strong>."
+
+msgid "Amount due:"
+msgstr "Montant dû :"
+
+msgid "Grace period ends:"
+msgstr "Fin de la période de grâce :"
+
+#, python-format
+msgid ""
+"Please resolve this before <strong>%(date)s</strong> to keep your membership "
+"active."
+msgstr ""
+"Merci de régler cela avant le <strong>%(date)s</strong> pour maintenir ton "
+"adhésion active."
+
+msgid "Update Payment Method"
+msgstr "Mettre à jour le mode de paiement"
+
+#, python-format
+msgid ""
+"Please <a href=\"%(url)s\">contact %(org)s</a> to renew your membership."
+msgstr ""
+"Merci de <a href=\"%(url)s\">contacter %(org)s</a> pour renouveler ton "
+"adhésion."
+
+#, python-format
+msgid ""
+"We couldn't collect the payment for your %(plan)s membership at %(org)s."
+msgstr ""
+"Nous n'avons pas pu prélever le paiement pour ton adhésion %(plan)s chez "
+"%(org)s."
+
+#, python-format
+msgid "Please resolve this before %(date)s to keep your membership active."
+msgstr ""
+"Merci de régler cela avant le %(date)s pour maintenir ton adhésion active."
+
+msgid "Update payment method:"
+msgstr "Mettre à jour le mode de paiement :"
+
+#, python-format
+msgid "Contact %(org)s to renew:"
+msgstr "Contacter %(org)s pour renouveler :"
+
+msgid "Subscription Price Update"
+msgstr "Mise à jour du prix de l'abonnement"
+
+#, python-format
+msgid ""
+"The price for your <strong>%(plan)s</strong> subscription at "
+"<strong>%(org)s</strong> is changing."
+msgstr ""
+"Le prix de ton abonnement <strong>%(plan)s</strong> chez <strong>%(org)s</"
+"strong> change."
+
+msgid "Price Change Details"
+msgstr "Détails du changement de prix"
+
+msgid "Current price:"
+msgstr "Prix actuel :"
+
+msgid "New price:"
+msgstr "Nouveau prix :"
+
+msgid "Effective from:"
+msgstr "En vigueur à partir du :"
+
+#, python-format
+msgid "Your subscription will move from %(old)s to %(new)s starting %(date)s."
+msgstr "Ton abonnement passera de %(old)s à %(new)s à partir du %(date)s."
+
+#, python-format
+msgid "The price for your %(plan)s subscription at %(org)s is changing."
+msgstr "Le prix de ton abonnement %(plan)s chez %(org)s change."
+
+msgid "Membership Renewing Soon"
+msgstr "Adhésion bientôt renouvelée"
+
+#, python-format
+msgid ""
+"Heads up — your <strong>%(plan)s</strong> membership at <strong>%(org)s</"
+"strong> renews on %(date)s for <strong>%(amount)s</strong>."
+msgstr ""
+"Attention — ton adhésion <strong>%(plan)s</strong> chez <strong>%(org)s</"
+"strong> se renouvelle le %(date)s pour <strong>%(amount)s</strong>."
+
+msgid "Renewal date:"
+msgstr "Date de renouvellement :"
+
+msgid "We'll charge your card on file on the renewal date."
+msgstr "Nous débiterons ta carte enregistrée à la date de renouvellement."
+
+msgid "Manage Billing"
+msgstr "Gérer la facturation"
+
+#, python-format
+msgid ""
+"If you don't want to renew, please <a href=\"%(url)s\">contact %(org)s</a> "
+"before the renewal date."
+msgstr ""
+"Si tu ne souhaites pas renouveler, merci de <a href=\"%(url)s\">contacter "
+"%(org)s</a> avant la date de renouvellement."
+
+#, python-format
+msgid ""
+"Heads up — your %(plan)s membership at %(org)s renews on %(date)s for "
+"%(amount)s."
+msgstr ""
+"Attention — ton adhésion %(plan)s chez %(org)s se renouvelle le %(date)s "
+"pour %(amount)s."
+
+msgid "Manage billing:"
+msgstr "Gérer la facturation :"
+
+#, python-format
+msgid "If you don't want to renew, please contact %(org)s:"
+msgstr "Si tu ne souhaites pas renouveler, merci de contacter %(org)s :"
+
+msgid "Membership Renewed"
+msgstr "Adhésion renouvelée"
+
+#, python-format
+msgid ""
+"Your <strong>%(plan)s</strong> membership at <strong>%(org)s</strong> has "
+"been successfully renewed."
+msgstr ""
+"Ton adhésion <strong>%(plan)s</strong> chez <strong>%(org)s</strong> a été "
+"renouvelée avec succès."
+
+msgid "Renewal Details"
+msgstr "Détails du renouvellement"
+
+msgid "Amount charged:"
+msgstr "Montant débité :"
+
+msgid "Next renewal:"
+msgstr "Prochain renouvellement :"
+
+#, python-format
+msgid "Your %(plan)s membership at %(org)s has been successfully renewed."
+msgstr "Ton adhésion %(plan)s chez %(org)s a été renouvelée avec succès."
+
+msgid "Renew Your Membership"
+msgstr "Renouvelle ton adhésion"
+
+#, python-format
+msgid ""
+"<strong>%(org)s</strong> has set up the renewal of your <strong>%(plan)s</"
+"strong> membership. Complete the payment to reactivate it."
+msgstr ""
+"<strong>%(org)s</strong> a préparé le renouvellement de ton adhésion "
+"<strong>%(plan)s</strong>. Finalise le paiement pour la réactiver."
+
+msgid "Complete payment"
+msgstr "Finaliser le paiement"
+
+msgid ""
+"The payment link expires after a short while; if it no longer works, you can "
+"restart the renewal from your membership page."
+msgstr ""
+"Le lien de paiement expire au bout d'un moment ; s'il ne fonctionne plus, tu "
+"peux relancer le renouvellement depuis la page de ton adhésion."
+
+#, python-format
+msgid ""
+"%(org)s has set up the renewal of your %(plan)s membership. Complete the "
+"payment to reactivate it."
+msgstr ""
+"%(org)s a préparé le renouvellement de ton adhésion %(plan)s. Finalise le "
+"paiement pour la réactiver."
+
+msgid "Complete payment:"
+msgstr "Finaliser le paiement :"
 
 msgid "Read More"
 msgstr "En savoir plus"

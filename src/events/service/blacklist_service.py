@@ -90,6 +90,19 @@ def apply_blacklist_consequences(user: RevelUser, organization: Organization) ->
             user_id=str(user.id),
         )
 
+    # A ban must also stop billing: cancel any live subscription (and its Stripe
+    # side) so the member isn't charged for access they no longer have.
+    from events.service import subscription_service  # lazy: avoid cycle
+
+    cancelled = subscription_service.cancel_subscriptions_for_membership_loss(user, organization)
+    if cancelled:
+        logger.info(
+            "blacklisted_user_subscriptions_cancelled",
+            organization_id=str(organization.id),
+            user_id=str(user.id),
+            count=cancelled,
+        )
+
 
 def _normalize_phone(phone: str | None) -> str | None:
     """Normalize phone number by removing non-numeric chars except + prefix."""

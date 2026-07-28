@@ -1,0 +1,1 @@
+{%load i18n %}📢 {%blocktranslate with plan=context.plan_name org=context.organization_name old=context.old_amount new=context.new_amount date=context.effective_at %}Your <b>{{ plan }}</b> subscription at <b>{{ org }}</b> is moving from {{ old }} to {{ new }} starting {{ date }}.{%endblocktranslate%}

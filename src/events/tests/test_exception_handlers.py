@@ -14,7 +14,11 @@ import typing as t
 from django.http import HttpRequest
 
 from events.exception_handlers import HANDLERS
-from events.exceptions import InvalidResourceStateError, InvalidStripeWebhookSignatureError
+from events.exceptions import (
+    InvalidResourceStateError,
+    InvalidStripeWebhookSignatureError,
+    SubscriptionActivationPendingError,
+)
 
 # The handlers ignore the request, so a typed ``None`` keeps mypy happy.
 _REQUEST = t.cast(HttpRequest, None)
@@ -32,3 +36,12 @@ def test_invalid_stripe_webhook_signature_maps_to_403() -> None:
     response = HANDLERS[InvalidStripeWebhookSignatureError](_REQUEST, InvalidStripeWebhookSignatureError())
     assert response.status_code == 403
     assert json.loads(response.content) == {"detail": "Invalid Stripe signature"}
+
+
+def test_subscription_activation_pending_maps_to_409_with_machine_readable_code() -> None:
+    """The frontend keys on ``code``; ``detail`` is translated and unmatchable."""
+    response = HANDLERS[SubscriptionActivationPendingError](_REQUEST, SubscriptionActivationPendingError())
+    assert response.status_code == 409
+    body = json.loads(response.content)
+    assert body["code"] == "subscription_activation_pending"
+    assert body["detail"]

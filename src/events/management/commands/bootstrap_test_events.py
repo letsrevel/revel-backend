@@ -1,6 +1,6 @@
 # src/events/management/commands/bootstrap_test_events.py
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import structlog
@@ -14,6 +14,10 @@ from geo.models import City
 from questionnaires import models as questionnaires_models
 
 logger = structlog.get_logger(__name__)
+
+# Org Alpha, seeded by ``bootstrap_events``: the Stripe-connected organization
+# (CONNECTED_TEST_STRIPE_ID), so revival checkouts against it reach real Stripe.
+ORG_ALPHA_SLUG = "revel-events-collective"
 
 
 class Command(BaseCommand):
@@ -53,12 +57,16 @@ class Command(BaseCommand):
         # Create some relationships to simulate sold-out scenarios
         self._create_relationships()
 
+        # Seed subscription states no API can arrange (EXPIRED / PAST_DUE)
+        self._create_subscription_fixtures()
+
         logger.info("Eligibility test events bootstrap complete!")
         logger.info("\n=== Test Users Created ===")
         logger.info(f"Random User (no org): {self.random_user.email} / password123")
         logger.info(f"Admin User: {self.admin_user.email} / password123")
         logger.info(f"Staff User: {self.staff_user.email} / password123")
         logger.info(f"Member User: {self.member_user.email} / password123")
+        logger.info("Subscription fixtures: test.revival.in@ / test.revival.out@ / test.pastdue@example.com")
         logger.info(f"\nOrganization: {self.org.name} (slug: {self.org.slug})")
 
     def _create_users(self) -> None:
@@ -625,3 +633,154 @@ This event has:
         )
 
         logger.info("Created test relationships")
+
+    def _create_subscription_fixtures(self) -> None:
+        """Seed EXPIRED / PAST_DUE subscriptions for the revival & grace journeys (issue #795).
+
+        Those two statuses are only ever produced by Stripe webhooks and the daily
+        ``events.expire_subscriptions_past_grace`` sweep, so the frontend E2E suite
+        cannot arrange them through the API. Everything hangs off Org Alpha (the
+        Stripe-connected organization) and is written idempotently so the canonical
+        reseed order stays re-runnable.
+        """
+        logger.info("Creating subscription lifecycle fixtures...")
+
+        org = events_models.Organization.objects.filter(slug=ORG_ALPHA_SLUG).first()
+        if org is None:
+            logger.warning("subscription_fixtures_skipped", reason="org_alpha_missing", slug=ORG_ALPHA_SLUG)
+            return
+
+        tier, _ = events_models.MembershipTier.objects.get_or_create(
+            organization=org,
+            name="E2E Revival Tier",
+            defaults={"description": "Tier backing the revival / past-due E2E fixtures."},
+        )
+        plan_model = events_models.MembershipSubscriptionPlan
+        plan, _ = plan_model.objects.update_or_create(
+            tier=tier,
+            name="E2E Revival Plan",
+            defaults={
+                "description": "€10/month online plan used by the revival and past-due E2E journeys.",
+                "price": Decimal("10.00"),
+                "currency": "EUR",
+                "period_unit": plan_model.PeriodUnit.MONTH,
+                "period_count": 1,
+                "is_active": True,
+                "sales_status": plan_model.SalesStatus.OPEN,
+                "max_subscriptions": None,
+                "payment_method": plan_model.PaymentMethod.ONLINE,
+            },
+        )
+
+        statuses = events_models.MembershipSubscription.SubscriptionStatus
+
+        # Expired 5 days ago — inside the org's default 30-day revival window,
+        # so ``revival_deadline`` lands ~25 days out and revive is offered.
+        revival_in = self._seed_subscription(
+            org=org,
+            plan=plan,
+            email="test.revival.in@example.com",
+            first_name="Revival",
+            last_name="InWindow",
+            status=statuses.EXPIRED,
+            current_period_end=self.now - timedelta(days=5),
+            expired_at=self.now - timedelta(days=5),
+        )
+
+        # Ledger entry for the last paid period (#802): ``_clear_stale_pending_checkout``
+        # deletes payment-less PENDING rows but reverts ones with payment history to
+        # EXPIRED, so an E2E spec that clicks Rejoin and abandons the hosted checkout
+        # stays re-runnable instead of losing the fixture on the next subscribe call.
+        assert revival_in.current_period_start is not None and revival_in.current_period_end is not None
+        payment = revival_in.payments.order_by("-created_at").first() or events_models.MembershipPayment(
+            subscription=revival_in
+        )
+        payment.amount = plan.price
+        payment.currency = plan.currency
+        payment.status = events_models.MembershipPayment.PaymentStatus.SUCCEEDED
+        payment.period_start = revival_in.current_period_start
+        payment.period_end = revival_in.current_period_end
+        payment.occurred_at = revival_in.current_period_start
+        payment.notes = "E2E fixture: last paid period before expiry (#802)."
+        payment.save()
+
+        # Expired 60 days ago — well outside the revival window: revive is refused.
+        self._seed_subscription(
+            org=org,
+            plan=plan,
+            email="test.revival.out@example.com",
+            first_name="Revival",
+            last_name="OutOfWindow",
+            status=statuses.EXPIRED,
+            current_period_end=self.now - timedelta(days=60),
+            expired_at=self.now - timedelta(days=60),
+        )
+
+        # Payment failed 2 days ago — with the org's default 7-day grace period the
+        # account-hub banner shows a deadline 5 days out.
+        self._seed_subscription(
+            org=org,
+            plan=plan,
+            email="test.pastdue@example.com",
+            first_name="Past",
+            last_name="Due",
+            status=statuses.PAST_DUE,
+            current_period_end=self.now - timedelta(days=2),
+            expired_at=None,
+        )
+
+        logger.info("Created subscription lifecycle fixtures", organization=org.slug, plan=plan.name)
+
+    def _seed_subscription(
+        self,
+        *,
+        org: events_models.Organization,
+        plan: events_models.MembershipSubscriptionPlan,
+        email: str,
+        first_name: str,
+        last_name: str,
+        status: events_models.MembershipSubscription.SubscriptionStatus,
+        current_period_end: datetime,
+        expired_at: datetime | None,
+    ) -> events_models.MembershipSubscription:
+        """Create (or reset) a single subscription fixture and its subscriber."""
+        user = RevelUser.objects.filter(username=email).first()
+        if user is None:
+            user = RevelUser.objects.create_user(
+                username=email,
+                password="password123",
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                email_verified=True,
+            )
+
+        # The real ONLINE flow creates the membership on the first paid invoice, so
+        # these one-time subscribers have one. The post_save signal below moves it to
+        # CANCELLED for expired rows and keeps it ACTIVE while in grace.
+        events_models.OrganizationMember.objects.update_or_create(
+            organization=org,
+            user=user,
+            defaults={"tier": plan.tier, "status": events_models.OrganizationMember.MembershipStatus.ACTIVE},
+        )
+
+        subscription = (
+            events_models.MembershipSubscription.objects.filter(user=user, organization=org)
+            .order_by("-created_at")
+            .first()
+        ) or events_models.MembershipSubscription(user=user, organization=org)
+        subscription.plan = plan
+        subscription.status = status
+        subscription.current_period_start = current_period_end - timedelta(days=30)
+        subscription.current_period_end = current_period_end
+        subscription.expired_at = expired_at
+        subscription.cancel_at_period_end = False
+        subscription.cancelled_at = None
+        subscription.pending_plan = None
+        # No live Stripe subscription: revive mints a fresh Checkout Session on the
+        # plan's price rather than resuming a Stripe record (#776).
+        subscription.stripe_subscription_id = None
+        subscription.stripe_checkout_session_id = ""
+        subscription.stripe_schedule_id = ""
+        subscription.save()
+        return subscription

@@ -11,6 +11,7 @@ from accounts.schema import BaseEmailJWTPayloadSchema, MemberUserSchema, Minimal
 from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
 from events import models
 from events.models import (
+    MembershipRequestStatus,
     Organization,
     OrganizationContactMessage,
     OrganizationMember,
@@ -18,6 +19,7 @@ from events.models import (
     PermissionsSchema,
 )
 from events.models.organization import Organization as OrganizationModel
+from questionnaires.models import QuestionnaireEvaluation
 
 from .mixins import (
     CityEditMixin,
@@ -58,7 +60,12 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     contact_method: Organization.ContactMethod = Organization.ContactMethod.NONE
     revenue_report_cadence: Organization.RevenueReportCadence = Organization.RevenueReportCadence.NONE
     membership_grace_period_days: t.Annotated[int, Field(ge=0)] = 7
+    membership_subscription_revival_window_days: t.Annotated[int, Field(ge=0)] = 30
     membership_refund_policy: StrippedString = ""
+    # Membership eligibility policy defaults (overridable per tier). The questionnaire id
+    # is validated (org-scoped, MEMBERSHIP type) in the service layer before persisting.
+    default_membership_questionnaire_id: UUID | None = None
+    default_requires_membership_approval: bool = False
 
 
 class OrganizationBillingInfoSchema(Schema):
@@ -158,10 +165,14 @@ class OrganizationRetrieveSchema(
     contact_method: Organization.ContactMethod
     contact_email: str | None = None
     # Member-facing subscription policy: shown to prospective subscribers before
-    # they request/pay for a membership (grace period stays admin-internal). Given a
-    # default so it's non-required in the public schema — narrower org payloads
-    # (list/minimal) that don't carry it stay structurally assignable.
+    # they request/pay for a membership. The two day counts joined the public payload
+    # in #809 (2026-07) — the pre-purchase billing disclosure needs the real numbers;
+    # they stay read-only here, writable only via the admin edit schema. Given
+    # defaults so they're non-required in the public schema — narrower org payloads
+    # (list/minimal) that don't carry them stay structurally assignable.
     membership_refund_policy: str = ""
+    membership_grace_period_days: int = 7
+    membership_subscription_revival_window_days: int = 30
 
     @staticmethod
     def resolve_contact_email(obj: Organization, context: t.Any) -> str | None:
@@ -205,7 +216,11 @@ class OrganizationAdminDetailSchema(
     revenue_report_cadence: OrganizationModel.RevenueReportCadence
     # Membership subscription policy
     membership_grace_period_days: int
+    membership_subscription_revival_window_days: int
     membership_refund_policy: str
+    # Membership eligibility policy defaults
+    default_membership_questionnaire_id: UUID | None = None
+    default_requires_membership_approval: bool
 
 
 class OrganizationPermissionsSchema(Schema):
@@ -239,19 +254,66 @@ class OrganizationContactMessageSchema(ModelSchema):
         fields = ["id", "sender_email_snapshot", "subject", "message", "created_at"]
 
 
+class MembershipApplicationSubmissionInfo(Schema):
+    """Pointer to the submission that satisfied the questionnaire gate."""
+
+    id: UUID4
+    # The FE review route is keyed on the OrganizationQuestionnaire, not the raw questionnaire.
+    org_questionnaire_id: UUID4
+    evaluation_status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus | None = None
+
+
 class OrganizationMembershipRequestRetrieve(ModelSchema):
     user: MinimalRevelUserSchema
-    status: OrganizationMembershipRequest.Status
+    status: MembershipRequestStatus
+    tier: "MembershipTierSchema | None" = None
+    questionnaire_submission: MembershipApplicationSubmissionInfo | None = None
 
     class Meta:
         model = OrganizationMembershipRequest
-        fields = ["id", "status", "message", "created_at", "user"]
+        fields = ["id", "status", "message", "created_at", "user", "tier"]
+
+    @staticmethod
+    def resolve_questionnaire_submission(obj: OrganizationMembershipRequest) -> dict[str, t.Any] | None:
+        """Return the attached submission plus its OrganizationQuestionnaire pk and evaluation status.
+
+        Returns a plain dict rather than a ``MembershipApplicationSubmissionInfo`` instance: Ninja's
+        response pipeline re-validates nested values, and a pre-built schema instance no longer
+        carries the Django relations the outer validator expects.
+
+        Resolves through the ``select_related`` chain set up by the admin list queryset. Yields
+        ``None`` if the OrganizationQuestionnaire is gone — a dangling pointer the FE cannot link
+        to is worse than an absent one.
+        """
+        submission = obj.questionnaire_submission
+        if submission is None:
+            return None
+        org_questionnaire = getattr(submission.questionnaire, "org_questionnaires", None)
+        if org_questionnaire is None:
+            return None
+        evaluation = getattr(submission, "evaluation", None)
+        return {
+            "id": submission.pk,
+            "org_questionnaire_id": org_questionnaire.pk,
+            "evaluation_status": evaluation.status if evaluation is not None else None,
+        }
 
 
 class ApproveMembershipRequestSchema(Schema):
-    """Schema for approving a membership request with required tier assignment."""
+    """Schema for approving a membership request.
 
-    tier_id: UUID4
+    ``tier_id`` is optional when the application already carries a tier (new flow).
+    Required for legacy tier-less applications.
+    """
+
+    tier_id: UUID4 | None = None
+    force: bool = Field(
+        default=False,
+        description=(
+            "Approve even when the user holds an active subscription or a paused membership. "
+            "Without this, such an approval is refused so a free grant cannot silently overwrite a paid tier."
+        ),
+    )
 
 
 class MembershipTierSchema(ModelSchema):
@@ -262,14 +324,30 @@ class MembershipTierSchema(ModelSchema):
         fields = ["id", "name", "description", "display_order"]
 
 
+class MembershipTierAdminSchema(MembershipTierSchema):
+    """Admin-facing tier view exposing the eligibility-policy overrides for form prefill.
+
+    ``requires_membership_approval`` is tri-state: ``None`` means "inherit the org default".
+    Kept separate from the member-facing ``MembershipTierSchema`` so these policy fields
+    don't leak into nested member/subscription/ticket-tier serializations.
+    """
+
+    membership_questionnaire_id: UUID | None = None
+    requires_membership_approval: bool | None = None
+
+
 class MembershipTierCreateSchema(Schema):
     name: OneToOneFiftyString
     description: str | None = None
+    membership_questionnaire_id: UUID | None = None
+    requires_membership_approval: bool | None = None
 
 
 class MembershipTierUpdateSchema(Schema):
     name: OneToOneFiftyString | None = None
     description: str | None = None
+    membership_questionnaire_id: UUID | None = None
+    requires_membership_approval: bool | None = None
 
 
 class MinimalOrganizationMemberSchema(ModelSchema):
@@ -281,13 +359,6 @@ class MinimalOrganizationMemberSchema(ModelSchema):
     class Meta:
         model = models.OrganizationMember
         fields = ["created_at", "status", "tier"]
-
-
-class OrganizationMemberSchema(Schema):
-    user: MemberUserSchema
-    member_since: AwareDatetime = Field(alias="created_at")
-    status: OrganizationMember.MembershipStatus
-    tier: MembershipTierSchema | None = None
 
 
 class OrganizationMemberUpdateSchema(Schema):

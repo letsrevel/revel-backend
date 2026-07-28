@@ -249,3 +249,66 @@ def test_handler_error_rolls_back_dedup_row() -> None:
     ):
         stripe_webhooks.handle_event(_make_event(event_id="evt_err"))
     assert not StripeWebhookEvent.objects.filter(event_id="evt_err").exists()
+
+
+def test_duplicate_subscription_refund_replay_retries_stripe_cancel(
+    organization: t.Any,
+    django_user_model: t.Any,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A redelivered subscription charge.refunded retries the best-effort Stripe cancel.
+
+    The first delivery terminalized the local row and queued a post-commit
+    ``cancel_stripe_subscription_best_effort`` that may have failed; the
+    redelivery must re-enqueue it instead of pure no-oping (same #492 window
+    as the ticket replays), or Stripe keeps billing a fully-refunded member.
+    """
+    from decimal import Decimal
+
+    from django.utils import timezone
+
+    from events.models import (
+        MembershipPayment,
+        MembershipSubscription,
+        MembershipSubscriptionPlan,
+        MembershipTier,
+    )
+
+    tier = MembershipTier.objects.create(organization=organization, name="ReplayTier")
+    plan = MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Monthly",
+        price=Decimal("10"),
+        currency="EUR",
+        period_unit="month",
+        payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+    )
+    user = django_user_model.objects.create_user(
+        username="replay_sub_user", email="replay-sub@example.com", password="pass"
+    )
+    now = timezone.now()
+    sub = MembershipSubscription.objects.create(
+        user=user,
+        plan=plan,
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.CANCELLED,
+        stripe_subscription_id="sub_replay_refund",
+        cancelled_at=now,
+    )
+    MembershipPayment.objects.create(
+        subscription=sub,
+        amount=Decimal("10"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.REFUNDED,
+        period_start=now,
+        period_end=now,
+        stripe_payment_intent_id="pi_sub_replay",
+    )
+    StripeWebhookEvent.objects.create(event_id="evt_sub_refund_replay", event_type="charge.refunded")
+    with (
+        patch("events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort") as cancel_spy,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        stripe_webhooks.handle_event(_make_refund_event("pi_sub_replay", event_id="evt_sub_refund_replay"))
+    cancel_spy.assert_called_once()
+    assert cancel_spy.call_args.args[0].pk == sub.pk

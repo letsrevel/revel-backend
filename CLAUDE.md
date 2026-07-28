@@ -97,6 +97,12 @@ This project uses a comprehensive Makefile.
 - `make bootstrap` — base data · `make seed` — test data.
 - `make nuke-db` — **DESTRUCTIVE**: reset DB, regenerate migrations (preserves special data migrations).
 - `make restart` — **DESTRUCTIVE**: delete migrations, regenerate, restart Docker, bootstrap from scratch.
+- **One migration per app per PR** — squash a branch's accumulated schema migrations before merge
+  (exceptions: data backfills and special data migrations like beat-task rows stay separate).
+- **Never hand-edit schema migrations** — squash by deleting the files and regenerating with
+  `makemigrations`; hand-written migrations are for data migrations only. Full procedure (filename
+  dependencies, `--name`, `migrate --prune`) in
+  [`docs/engineering-notes.md`](docs/engineering-notes.md#migration-squashing-one-per-app-per-pr-never-hand-edit-schema-migrations).
 
 ### Background services
 - `make run-celery` / `make run-celery-beat` / `make run-flower` / `make run-stripe` / `make run-telegram`.

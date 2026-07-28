@@ -151,7 +151,7 @@ class TestApproveMembershipRequest:
         assert member is not None
         assert member.tier == tier
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
-        assert organization_membership_request.status == OrganizationMembershipRequest.Status.APPROVED
+        assert organization_membership_request.status == OrganizationMembershipRequest.Status.COMPLETED
         assert organization_membership_request.decided_by == organization_staff_user
 
 

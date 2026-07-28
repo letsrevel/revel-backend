@@ -1,6 +1,7 @@
 from common.utils import update_db_instance
 from events.service import announcement_service as announcement_service
 from events.service import event_questionnaire_service as event_questionnaire_service
+from events.service import membership_questionnaire_service as membership_questionnaire_service
 from events.service import ticket_file_service as ticket_file_service
 from events.service import venue_service as venue_service
 from events.service.event_questionnaire_service import (
@@ -11,6 +12,7 @@ from events.service.event_questionnaire_service import (
 __all__ = [
     "announcement_service",
     "event_questionnaire_service",
+    "membership_questionnaire_service",
     "ticket_file_service",
     "update_db_instance",
     "update_organization_questionnaire",

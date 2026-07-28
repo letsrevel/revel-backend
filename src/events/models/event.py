@@ -94,7 +94,7 @@ class EventQuerySet(models.QuerySet["Event"]):
         is_allowed_special = Q(id__in=allowed_ids) if allowed_ids else Q()
 
         if not include_past:
-            today = timezone.now().date()
+            today = timezone.localdate()
             base_qs = base_qs.filter(Q(start__date__gte=today) | Q(start__isnull=True) | is_allowed_special)
 
         if user.is_superuser or user.is_staff:

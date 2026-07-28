@@ -11,6 +11,9 @@ from dateutil.relativedelta import relativedelta
 
 from events.models import MembershipSubscriptionPlan
 
+# Days before period_end at which the renewal reminder notification fires.
+REMINDER_DAYS = 3
+
 
 def calculate_period_end(
     period_start: datetime.datetime,

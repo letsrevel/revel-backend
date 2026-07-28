@@ -64,6 +64,12 @@ class PlatformFeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     total_ticket_revenue = models.DecimalField(
         max_digits=12, decimal_places=2, default=0, help_text="Total ticket revenue in this period."
     )
+    total_subscription_payments = models.PositiveIntegerField(
+        default=0, help_text="Number of membership subscription payments in this period."
+    )
+    total_subscription_revenue = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0, help_text="Total membership subscription revenue in this period."
+    )
 
     # Status & delivery
     status = models.CharField(max_length=20, choices=InvoiceStatus.choices, default=InvoiceStatus.DRAFT)

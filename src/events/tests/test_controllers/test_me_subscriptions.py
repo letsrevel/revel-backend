@@ -1,14 +1,20 @@
 """Tests for the member-facing /me subscription endpoints."""
 
+import typing as t
+from datetime import datetime, timedelta
 from decimal import Decimal
+from unittest import mock
 
 import pytest
+import stripe
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import (
+    Blacklist,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -18,6 +24,23 @@ from events.models import (
 from events.service import subscription_service
 
 pytestmark = pytest.mark.django_db
+
+
+def _make_stripe_connected(org: Organization) -> None:
+    org.stripe_account_id = "acct_test_org"
+    org.stripe_charges_enabled = True
+    org.stripe_details_submitted = True
+    # Publicly accessible so the subscribe endpoint's visibility-aware load
+    # (Organization.objects.for_user) sees the org for a non-member subscriber.
+    org.visibility = Organization.Visibility.PUBLIC
+    org.save(
+        update_fields=[
+            "stripe_account_id",
+            "stripe_charges_enabled",
+            "stripe_details_submitted",
+            "visibility",
+        ]
+    )
 
 
 @pytest.fixture
@@ -263,3 +286,505 @@ class TestListMyMemberships:
         assert response.status_code == 200
         data = response.json()
         assert data["count"] == 1
+
+
+class TestSubscribeEndpoint:
+    @pytest.fixture
+    def online_plan(self, organization: Organization, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        _make_stripe_connected(organization)
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly Online",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_test",
+            stripe_price_id="price_test",
+        )
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_subscribe_returns_checkout_url(
+        self,
+        mock_customer: mock.Mock,
+        mock_session: mock.Mock,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        mock_customer.return_value = mock.MagicMock(id="cus_x")
+        mock_session.return_value = mock.MagicMock(id="cs_x", url="https://checkout.stripe.com/c/pay/cs_x")
+
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+
+        assert response.status_code == 201, response.content
+        body = response.json()
+        assert body["checkout_url"] == "https://checkout.stripe.com/c/pay/cs_x"
+        assert body["subscription"]["plan_id"] == str(online_plan.id)
+        assert MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
+
+    def test_subscribe_refuses_offline_plan(
+        self,
+        subscriber_client: Client,
+        plan: MembershipSubscriptionPlan,  # OFFLINE fixture
+        organization: Organization,
+    ) -> None:
+        _make_stripe_connected(organization)
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(plan.id)}, content_type="application/json")
+        assert response.status_code == 400
+
+    def test_subscribe_hard_blacklisted_gets_404(
+        self,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        organization_owner_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        """A hard-blacklisted user sees the org as invisible: 404, not a distinguishable 403."""
+        Blacklist.objects.create(organization=organization, user=subscriber_user, created_by=organization_owner_user)
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 404, response.content
+        # The body must be the translated, neutral detail — never ninja's raw
+        # ``"Not Found"`` (which the frontend renders verbatim), and never
+        # anything that confirms the blacklist.
+        detail = response.json()["detail"]
+        assert detail == "Not found."
+        assert "blacklist" not in detail.lower()
+        assert not MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
+
+    def test_subscribe_with_paid_pending_checkout_returns_activation_pending_code(
+        self,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        """Checkout already paid, activation webhooks in flight → 409 with a machine-readable code.
+
+        The frontend keys on ``code`` to show a "confirming your subscription"
+        state; it cannot match the translated ``detail``.
+        """
+        MembershipSubscription.objects.create(
+            user=subscriber_user,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_done",
+            stripe_subscription_id="sub_linked",
+        )
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+
+        assert response.status_code == 409, response.content
+        body = response.json()
+        assert body["code"] == "subscription_activation_pending"
+        assert body["detail"]
+        # First person, not admin-console third person.
+        assert "This user" not in body["detail"]
+
+    def test_subscribe_unauthenticated_blocked(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = Client().post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 401
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_subscribe_stripe_failure_rolls_back(
+        self,
+        mock_customer: mock.Mock,
+        mock_session: mock.Mock,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        mock_customer.return_value = mock.MagicMock(id="cus_x")
+        mock_session.side_effect = stripe.error.CardError("declined", "card", "card_declined")
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 502
+        assert not MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
+
+
+class TestCancelMyMembershipEndpoint:
+    @pytest.fixture
+    def online_plan(self, organization: Organization, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        _make_stripe_connected(organization)
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly Online",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_test",
+            stripe_price_id="price_test",
+        )
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    def test_cancel_online_routes_to_stripe(
+        self,
+        mock_modify: mock.Mock,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        MembershipSubscription.objects.create(
+            user=subscriber_user,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_to_cancel",
+        )
+
+        url = reverse("api:cancel_my_membership_subscription", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"immediate": False}, content_type="application/json")
+        assert response.status_code == 200, response.content
+        mock_modify.assert_called_once()
+        assert response.json()["cancel_at_period_end"] is True
+
+    def test_cancel_offline_uses_phase1_path(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:cancel_my_membership_subscription", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"immediate": False}, content_type="application/json")
+        assert response.status_code == 200, response.content
+        their_subscription.refresh_from_db()
+        assert their_subscription.cancel_at_period_end is True
+
+    def test_cancel_404_when_no_active(self, subscriber_client: Client, organization: Organization) -> None:
+        url = reverse("api:cancel_my_membership_subscription", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"immediate": False}, content_type="application/json")
+        assert response.status_code == 404
+
+
+class TestChangePlanEndpoint:
+    @pytest.fixture
+    def online_plan(self, organization: Organization, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        _make_stripe_connected(organization)
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly Online",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_change",
+            stripe_price_id="price_change_a",
+        )
+
+    @pytest.fixture
+    def pricier_online_plan(self, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Premium Online",
+            price=Decimal("25.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_premium",
+            stripe_price_id="price_premium",
+        )
+
+    @pytest.fixture
+    def online_subscription(
+        self,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> MembershipSubscription:
+        return MembershipSubscription.objects.create(
+            user=subscriber_user,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_change_plan_test",
+        )
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    def test_upgrade_routes_through_stripe(
+        self,
+        mock_retrieve: mock.Mock,
+        mock_modify: mock.Mock,
+        subscriber_client: Client,
+        online_subscription: MembershipSubscription,
+        pricier_online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        mock_retrieve.return_value = {"items": {"data": [{"id": "si_swap"}]}}
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(
+            url, data={"plan_id": str(pricier_online_plan.id)}, content_type="application/json"
+        )
+        assert response.status_code == 200, response.content
+        mock_modify.assert_called_once()
+        assert mock_modify.call_args.kwargs["proration_behavior"] == "always_invoice"
+        body = response.json()
+        assert body["plan_id"] == str(pricier_online_plan.id)
+
+    def test_change_plan_refuses_cross_currency(
+        self,
+        subscriber_client: Client,
+        online_subscription: MembershipSubscription,
+        tier: MembershipTier,
+        organization: Organization,
+    ) -> None:
+        usd_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="USD Plan",
+            price=Decimal("12.00"),
+            currency="USD",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_usd",
+            stripe_price_id="price_usd",
+        )
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(usd_plan.id)}, content_type="application/json")
+        assert response.status_code == 400
+
+    def test_change_plan_404_when_no_active(
+        self,
+        subscriber_client: Client,
+        pricier_online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(
+            url, data={"plan_id": str(pricier_online_plan.id)}, content_type="application/json"
+        )
+        assert response.status_code == 404
+
+
+class TestBillingPortalEndpoint:
+    @pytest.fixture
+    def stripe_org(self, organization: Organization) -> Organization:
+        _make_stripe_connected(organization)
+        return organization
+
+    @pytest.fixture
+    def subscriber_profile(
+        self,
+        subscriber_user: RevelUser,
+        stripe_org: Organization,
+    ) -> None:
+        """Seed a CustomerProfile so the user qualifies for a portal session."""
+        from events.models import CustomerProfile
+
+        CustomerProfile.objects.create(
+            user=subscriber_user, organization=stripe_org, stripe_customer_id="cus_seeded_portal"
+        )
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
+    def test_returns_portal_url(
+        self,
+        mock_portal: mock.Mock,
+        subscriber_client: Client,
+        stripe_org: Organization,
+        subscriber_profile: None,
+    ) -> None:
+        mock_portal.return_value = mock.MagicMock(url="https://stripe.example/portal/123")
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+        response = subscriber_client.post(
+            url,
+            data={"return_url": "https://app.example/billing"},
+            content_type="application/json",
+        )
+        assert response.status_code == 201, response.content
+        body = response.json()
+        assert body["url"] == "https://stripe.example/portal/123"
+        # Pydantic's HttpUrl normalizes the URL; check the prefix instead of an exact match.
+        assert mock_portal.call_args.kwargs["return_url"].startswith("https://app.example/billing")
+
+    def test_refuses_when_no_customer_profile(
+        self,
+        subscriber_client: Client,
+        stripe_org: Organization,
+    ) -> None:
+        """Strangers who never subscribed cannot trigger a portal session."""
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+        response = subscriber_client.post(url, data={}, content_type="application/json")
+        assert response.status_code == 404
+
+    def test_rejects_invalid_return_url(
+        self,
+        subscriber_client: Client,
+        stripe_org: Organization,
+        subscriber_profile: None,
+    ) -> None:
+        """Non-http(s) ``return_url`` is rejected at the schema layer."""
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+        response = subscriber_client.post(
+            url,
+            data={"return_url": "javascript:alert(1)"},
+            content_type="application/json",
+        )
+        assert response.status_code == 422
+
+    def test_unauthenticated_blocked(self, stripe_org: Organization) -> None:
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+        response = Client().post(url, data={}, content_type="application/json")
+        assert response.status_code == 401
+
+    def test_refuses_non_connected_org(
+        self,
+        subscriber_client: Client,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={}, content_type="application/json")
+        assert response.status_code == 400
+
+
+class TestRevivalDeadlineExposure:
+    """expired_at + computed revival_deadline on the member-facing subscription schema (issue #778)."""
+
+    @staticmethod
+    def _expire(sub: MembershipSubscription) -> MembershipSubscription:
+        sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
+        sub.expired_at = timezone.now() - timedelta(days=1)
+        sub.save(update_fields=["status", "expired_at"])
+        return sub
+
+    def _list_item(self, client: Client) -> dict[str, t.Any]:
+        response = client.get(reverse("api:list_my_membership_subscriptions"))
+        assert response.status_code == 200
+        return response.json()["results"][0]  # type: ignore[no-any-return]
+
+    def test_expired_subscription_exposes_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        organization.membership_subscription_revival_window_days = 30
+        organization.save(update_fields=["membership_subscription_revival_window_days"])
+        self._expire(their_subscription)
+
+        item = self._list_item(subscriber_client)
+
+        assert item["expired_at"] is not None
+        assert item["revival_deadline"] is not None
+        expired_at = datetime.fromisoformat(item["expired_at"])
+        deadline = datetime.fromisoformat(item["revival_deadline"])
+        assert deadline - expired_at == timedelta(days=30)
+
+    def test_window_zero_yields_no_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        organization.membership_subscription_revival_window_days = 0
+        organization.save(update_fields=["membership_subscription_revival_window_days"])
+        self._expire(their_subscription)
+
+        item = self._list_item(subscriber_client)
+
+        assert item["expired_at"] is not None
+        assert item["revival_deadline"] is None
+
+    def test_non_expired_subscription_has_no_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+    ) -> None:
+        # ``their_subscription`` is active/pending, never EXPIRED.
+        item = self._list_item(subscriber_client)
+
+        assert item["expired_at"] is None
+        assert item["revival_deadline"] is None
+
+
+class TestGraceDeadlineExposure:
+    """Computed grace_deadline on the member-facing subscription schema (issue #785)."""
+
+    @staticmethod
+    def _past_due(sub: MembershipSubscription, period_end: datetime | None) -> MembershipSubscription:
+        sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+        sub.current_period_end = period_end
+        sub.save(update_fields=["status", "current_period_end"])
+        return sub
+
+    def _list_item(self, client: Client) -> dict[str, t.Any]:
+        response = client.get(reverse("api:list_my_membership_subscriptions"))
+        assert response.status_code == 200
+        return response.json()["results"][0]  # type: ignore[no-any-return]
+
+    def test_past_due_exposes_grace_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        organization.membership_grace_period_days = 7
+        organization.save(update_fields=["membership_grace_period_days"])
+        period_end = timezone.now() - timedelta(days=1)
+        self._past_due(their_subscription, period_end)
+
+        item = self._list_item(subscriber_client)
+
+        assert item["grace_deadline"] is not None
+        deadline = datetime.fromisoformat(item["grace_deadline"])
+        current_period_end = datetime.fromisoformat(item["current_period_end"])
+        assert deadline - current_period_end == timedelta(days=7)
+
+    def test_active_subscription_has_no_grace_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+    ) -> None:
+        their_subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
+        their_subscription.current_period_end = timezone.now() + timedelta(days=10)
+        their_subscription.save(update_fields=["status", "current_period_end"])
+
+        item = self._list_item(subscriber_client)
+
+        assert item["grace_deadline"] is None
+
+    def test_past_due_without_period_end_has_no_grace_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+    ) -> None:
+        self._past_due(their_subscription, None)
+
+        item = self._list_item(subscriber_client)
+
+        assert item["current_period_end"] is None
+        assert item["grace_deadline"] is None
+
+    def test_detail_endpoint_exposes_grace_deadline(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        organization.membership_grace_period_days = 3
+        organization.save(update_fields=["membership_grace_period_days"])
+        period_end = timezone.now() - timedelta(hours=2)
+        self._past_due(their_subscription, period_end)
+
+        url = reverse("api:get_my_organization_subscription", kwargs={"org_id": organization.id})
+        response = subscriber_client.get(url)
+
+        assert response.status_code == 200
+        body = response.json()
+        deadline = datetime.fromisoformat(body["grace_deadline"])
+        current_period_end = datetime.fromisoformat(body["current_period_end"])
+        assert deadline - current_period_end == timedelta(days=3)

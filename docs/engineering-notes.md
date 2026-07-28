@@ -100,6 +100,36 @@ documented requirement for that mode). Keep this in mind when iterating queryset
   (e.g. dispatching Celery tasks per row). Note that with `DISABLE_SERVER_SIDE_CURSORS`
   it degrades to a client-side fetch-all — for genuinely large streams, batch explicitly.
 
+## Calendar Dates: `timezone.localdate()`, not `timezone.now().date()`
+
+`settings.TIME_ZONE = "Europe/Vienna"` with `USE_TZ = True`, so **the DB stores UTC but
+Django's date lookups render in `TIME_ZONE`**. A `__date` lookup (`start__date`,
+`current_period_end__date`, and the `__date__gte`/`__date__gt`/`__date__range` variants)
+compiles to `(<col> AT TIME ZONE 'Europe/Vienna')::date` — a *local* calendar date. Pairing
+it with `timezone.now().date()`, which is the *UTC* calendar date, makes the two sides speak
+different calendars; they disagree for the 2 hours (1 in winter) before UTC midnight.
+
+- **Default to `timezone.localdate()`** whenever you need "today" as a calendar date. It is
+  what nearly every caller means: the date a human in the deployment's timezone would name.
+  `timezone.now().date()` is only correct if you genuinely want the UTC calendar day, and
+  nothing in this codebase does.
+- **The bug is invisible in CI and in prod for most of the day.** It only fires inside the
+  pre-UTC-midnight window, so a green test run at 10:00 is no evidence the logic is right.
+  `send_subscription_renewal_reminders` shipped with `now().date()` against
+  `current_period_end__date` and was correct only because its beat entry fires at 05:00 UTC
+  (mid-morning in Vienna); moving the schedule would have silently shifted the whole reminder
+  cohort by a day. If you must verify a date-window fix, run the test with the clock inside
+  the window (or temporarily flip `TIME_ZONE` between `UTC` and `Europe/Vienna` — identical
+  code should pass under both).
+- **Monthly period arithmetic has the same requirement.** `generate_monthly_invoices` and
+  `calculate_referral_payouts` derive "previous month" from today and then build the period
+  bounds with `timezone.make_aware(datetime.combine(day, time.min))` — i.e. **local**
+  midnights. The month must therefore be picked off the *local* calendar too, or a
+  day-1 run can bill a local month that has not finished elapsing.
+- **A caller-supplied date is fine as-is.** `events/filters.py`'s `filter_date` does
+  `Q(start__date=date.date())` on an `AwareDatetime` from the request: the date comes from the
+  caller's own offset, which is the intended contract, not from server "now".
+
 ## Online Checkout: Reserve/Session Split (`ATOMIC_REQUESTS` vs. `select_for_update`)
 
 Online checkout (`BatchTicketService.create_batch`, series-pass purchase) locks the
@@ -160,3 +190,61 @@ legacy rows that predate the split.
   handler keeps the session-id-based expiry since by then a session always exists.
 
 See issue #632 for the full design (Option F) and the task-by-task implementation log.
+
+**Membership subscriptions deliberately do NOT use the reserve/session split.** Every
+online subscription mutation (subscribe, cancel, pause/resume, change-plan, revive) takes
+`select_for_update` on the *subscription* row and — under `ATOMIC_REQUESTS` — holds it
+across its Stripe round-trips: the inner `transaction.atomic()` exit releases only a
+savepoint, never the lock (code comments in `subscription_service` /
+`subscription_stripe_plan_change` state this explicitly). This is acceptable where the
+tier-row lock was not because the contended row is **per-member**: the blast radius is one
+member's own requests, not every buyer of a hot tier. It is also currently *load-bearing*:
+the held lock is what serializes Stripe echo-webhooks against the local mutation (the
+webhook's own `select_for_update` blocks until the request commits, then its dispatch gates
+see the updated flags and suppress duplicate notifications). Don't "fix" the lock without
+replacing that serialization. The one webhook-side network call
+(`_invoice_payment_intent_id`'s `Invoice.retrieve` fallback) resolves *before* the row lock
+per the resolve-before-lock discipline above. The plan-row lock taken by
+`ensure_plan_sales_capacity` (sale caps) is scoped the same way as the tier lock — the
+lock itself only guards a count+insert, **but under `ATOMIC_REQUESTS` it survives until
+request commit**, so in `start_online_subscription` (capped plans only) it is in fact held
+across the Checkout-Session Stripe call that follows `create_subscription`. That serializes
+concurrent subscribers to a *capped* plan behind one Stripe round-trip at a time — accepted
+for now (capped-plan checkout traffic is a fraction of a hot tier's on-sale rush; the
+subscribe-path docstring carries the same NOTE). The reserve/session split is the upgrade
+path if a capped plan ever sees rush-level traffic.
+
+## Migration Squashing (one per app per PR, never hand-edit schema migrations)
+
+Branch policy: a PR introduces at most **one schema migration per app** — iterative work
+that accumulated several (tables, then a default tweak, then an `on_delete` change) gets
+squashed before merge. Data migrations are the exception and stay separate: backfills and
+"special" data migrations (beat-task `PeriodicTask` rows, seeded data) are hand-written by
+design and must not be folded into schema migrations (`make nuke-db` preserves them for the
+same reason).
+
+**Never hand-edit a schema migration to squash it** — don't append `AddField`s to an
+existing generated file or merge choices lists by hand. Hand-edited "generated" files drift
+from what `makemigrations` would produce (operation ordering, fields inline in `CreateModel`
+vs. trailing `AddField`s) and forfeit the guarantee that the migration is exactly the
+autodetector's view of the models. Manual authorship is for data migrations only. Squash by
+deleting and regenerating:
+
+1. **Delete** the branch's schema migrations for the app (all of them, including the base
+   one being squashed into).
+2. **Data migrations in between?** They reference the deleted schema migration **by
+   filename string** in `dependencies` (e.g. `("events",
+   "0101_memberships_subscriptions_integration")`). Temporarily move them out of the
+   migrations dir, regenerate with the *original* name so the reference still resolves —
+   `manage.py makemigrations <app> --name <original_name>` — then move them back. Editing
+   their `dependencies` line instead is acceptable (it's a data migration), but keeping the
+   filename is less churn.
+3. **Regenerate**: `make migrations` (or the `--name` form above). Verify with
+   `makemigrations --check --dry-run` (no changes detected) and `git diff` — expect the
+   squashed fields inline in `CreateModel` for new models and canonically-ordered
+   `AddField`s for existing ones.
+4. **Local DB bookkeeping**: if the pre-squash migrations were already applied locally,
+   there is no need to roll back (the schema is identical). Remove the stale
+   `django_migrations` rows for the now-deleted files with
+   `manage.py migrate <app> --prune`. Any other machine that had applied them does the
+   same after pulling.

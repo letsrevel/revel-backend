@@ -37,6 +37,22 @@ class InvoiceLineItemDict(t.TypedDict):
     vat_rate: str
 
 
+class AttendeeInvoiceStatus(models.TextChoices):
+    """Status of an :class:`AttendeeInvoice`.
+
+    Module-level with a distinct class name (not nested as ``InvoiceStatus``):
+    django-ninja dedupes OpenAPI ``components.schemas`` by bare class name with
+    last-writer-wins, so this 3-value enum and ``PlatformFeeInvoice``'s 4-value
+    ``InvoiceStatus`` silently clobbered each other in the generated spec
+    (#782). Code keeps using the ``AttendeeInvoice.InvoiceStatus`` idiom via
+    the class-level alias.
+    """
+
+    DRAFT = "draft"
+    ISSUED = "issued"
+    CANCELLED = "cancelled"
+
+
 class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     """Invoice issued to an attendee on behalf of an organizer.
 
@@ -48,10 +64,9 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     Once ISSUED, the invoice is immutable (can only be cancelled via credit note).
     """
 
-    class InvoiceStatus(models.TextChoices):
-        DRAFT = "draft"
-        ISSUED = "issued"
-        CANCELLED = "cancelled"
+    # Alias so callers keep the ``Model.InvoiceStatus`` idiom; the class lives
+    # at module level under a collision-free name (see its docstring, #782).
+    InvoiceStatus = AttendeeInvoiceStatus
 
     organization = models.ForeignKey(
         "events.Organization",

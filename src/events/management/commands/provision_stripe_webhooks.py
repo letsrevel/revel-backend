@@ -29,8 +29,26 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 # delivers events you subscribe to.
 PLATFORM_EVENTS: tuple[str, ...] = (
     "checkout.session.completed",
+    # Abandoned membership checkouts: frees the PENDING row's cap slot.
+    "checkout.session.expired",
     "charge.refunded",
     "payment_intent.canceled",
+    # Membership subscriptions live on connected accounts (direct charges,
+    # ADR-0012), but a host-as-org binding (#495) routes the same events
+    # through the platform endpoint — subscribe both.
+    "customer.subscription.created",
+    "customer.subscription.updated",
+    "customer.subscription.deleted",
+    "invoice.paid",
+    "invoice.payment_failed",
+    # Off-session renewals blocked on SCA/3DS: the invoice stays open with no
+    # immediate payment_failed, so this is the only prompt signal.
+    "invoice.payment_action_required",
+    # A released schedule clears the local pending-downgrade fields. Needed
+    # because the release is irreversible on Stripe while the local clear can
+    # still be rolled back (cancel/pause raising after it), and because an org
+    # can release a schedule straight from the Stripe Dashboard.
+    "subscription_schedule.released",
 )
 CONNECT_EVENTS: tuple[str, ...] = PLATFORM_EVENTS + ("account.updated",)
 
