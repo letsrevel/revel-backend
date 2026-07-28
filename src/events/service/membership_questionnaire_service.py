@@ -123,10 +123,10 @@ def _validate_resubmission(*, user: RevelUser, org_questionnaire: OrganizationQu
         raise HttpError(400, str(_("Your questionnaire has already been approved.")))
 
     # Rejected: apply the retake policy.
-    # ponytail: MembershipQuestionnaireGate does not surface exhausted attempts as a
-    # distinct verdict yet, so a user at the cap sees SUBMIT_QUESTIONNAIRE and learns
-    # about the cap from this 400. Enforcing it here is still required — without it an
-    # AUTOMATIC-mode membership questionnaire could be brute-forced.
+    # MembershipQuestionnaireGate blocks the cap ahead of the retake policy with
+    # MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED, so a user at the cap is never told to
+    # submit. Enforcing it here too is still required — the gate is advisory, and without
+    # this an AUTOMATIC-mode membership questionnaire could be brute-forced.
     if 0 < questionnaire.max_attempts <= len(submissions):
         raise HttpError(400, str(_("You have reached the maximum number of attempts.")))
 

@@ -138,6 +138,26 @@ class MembershipEligibilityService:
         return self.applications_by_tier.get(self.tier.pk)
 
     @functools.cached_property
+    def questionnaire_attempt_count(self) -> int:
+        """How many READY submissions the user has made for the resolved membership questionnaire.
+
+        Counted lazily — only :class:`~.gates.MembershipQuestionnaireGate`'s
+        rejected branch needs it, so list views (where every row builds a
+        service) pay for this query only for users who actually failed an
+        evaluation. Mirrors the queryset
+        ``events.service.membership_questionnaire_service._validate_resubmission``
+        counts against, so the gate and the submit endpoint agree on when the
+        cap is hit.
+        """
+        if self.membership_questionnaire_oq is None:
+            return 0
+        return QuestionnaireSubmission.objects.filter(
+            user=self.user,
+            questionnaire_id=self.membership_questionnaire_oq.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        ).count()
+
+    @functools.cached_property
     def _blacklist_state(self) -> _BlacklistState:
         """Compute the user's blacklist/whitelist standing once, cache the result."""
         from events.service.blacklist_service import (
@@ -245,6 +265,9 @@ class MembershipEligibilityService:
 TERMINAL_REJECTION_CODES: t.Final[frozenset[MembershipReasonCode]] = frozenset(
     {
         MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
+        # A user at the attempts cap can never satisfy the questionnaire gate again,
+        # whatever the retake policy says — as terminal as an outright failure.
+        MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,
     }
 )
 

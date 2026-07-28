@@ -1,6 +1,7 @@
 """Tests for advance_application state-advance-on-read helper."""
 
 import typing as t
+from datetime import timedelta
 
 import pytest
 from django.utils import timezone
@@ -222,6 +223,51 @@ def test_pending_with_paused_membership_stays_pending(
 
     assert result.status == OrganizationMembershipRequest.Status.PENDING
     assert eligibility.allowed is False
+
+
+def test_pending_with_exhausted_questionnaire_attempts_rejects(
+    user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """#810: the attempts cap is terminal too — the row must not linger PENDING.
+
+    Retakes are configured and the cooldown has elapsed, so before the dedicated
+    reason code this application stayed PENDING behind a SUBMIT_QUESTIONNAIRE
+    verdict the user could never satisfy.
+    """
+    q = Questionnaire.objects.create(
+        name="Q",
+        status=Questionnaire.QuestionnaireStatus.PUBLISHED,
+        can_retake_after=timedelta(hours=1),
+        max_attempts=1,
+    )
+    oq = OrganizationQuestionnaire.objects.create(
+        organization=organization,
+        questionnaire=q,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+    )
+    organization.default_membership_questionnaire = oq
+    organization.save(update_fields=["default_membership_questionnaire"])
+    submission = QuestionnaireSubmission.objects.create(
+        user=user,
+        questionnaire=q,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now() - timedelta(days=1),
+    )
+    QuestionnaireEvaluation.objects.create(
+        submission=submission,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+    )
+    app = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+    )
+
+    result, eligibility = advance_application(app)
+
+    assert result.status == OrganizationMembershipRequest.Status.REJECTED
+    assert eligibility.reason_code == MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED
 
 
 def test_pending_with_terminal_questionnaire_failure_rejects_and_notifies(
