@@ -96,12 +96,14 @@ def sync_account_status(connectable: StripeConnectMixin) -> stripe.Account | Non
     except (stripe.error.PermissionError, stripe.error.InvalidRequestError) as exc:
         # ponytail: we flag rather than clear ``stripe_account_id``. Clearing would be
         # irreversible and a misconfigured platform key (e.g. a test key in production)
-        # would wipe every live connection on the first verify call. Genuinely deleted
-        # accounts are cleared by a staff member from the Django admin.
+        # would wipe every live connection on the first verify call. An account that is
+        # genuinely gone at Stripe is unlinked by a superuser with the
+        # "Clear stale Stripe Connect account" admin action (user & organization admin).
+        # The message is not logged: Stripe embeds a truncated API key in it.
         logger.warning(
             "stripe_connect_account_inaccessible",
             stripe_account_id=connectable.stripe_account_id,
-            error=str(exc),
+            error_type=type(exc).__name__,
         )
         connectable.stripe_charges_enabled = False
         connectable.stripe_details_submitted = False

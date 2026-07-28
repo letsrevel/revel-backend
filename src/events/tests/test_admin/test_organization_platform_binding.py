@@ -1,4 +1,4 @@
-"""Tests for binding an Organization to the platform Stripe account."""
+"""Tests for the Organization admin's Stripe Connect actions."""
 
 import typing as t
 
@@ -136,4 +136,40 @@ def test_unbind_refuses_real_connect_binding(
 
     organization.refresh_from_db()
     assert organization.stripe_account_id == "acct_real_connect"  # untouched
+    assert organization.stripe_charges_enabled is True
+
+
+def test_clear_stripe_connect_account_unlinks_stale_account(
+    rf: t.Any, organization: Organization, superuser: RevelUser
+) -> None:
+    """A superuser can unlink an account that is gone at Stripe, enabling re-onboarding."""
+    organization.stripe_account_id = "acct_stale"
+    organization.stripe_charges_enabled = True
+    organization.stripe_details_submitted = True
+    organization.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
+    admin_instance = _admin()
+    request = _request_with_messages(rf, superuser)
+
+    admin_instance.clear_stripe_connect_account(request, Organization.objects.filter(pk=organization.pk))
+
+    fresh = Organization.objects.get(pk=organization.pk)
+    assert fresh.stripe_account_id is None
+    assert fresh.stripe_charges_enabled is False
+    assert fresh.stripe_details_submitted is False
+
+
+def test_clear_stripe_connect_account_requires_superuser(
+    rf: t.Any, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Non-superusers cannot unlink an account, even with admin access."""
+    organization.stripe_account_id = "acct_stale"
+    organization.stripe_charges_enabled = True
+    organization.save(update_fields=["stripe_account_id", "stripe_charges_enabled"])
+    admin_instance = _admin()
+    request = _request_with_messages(rf, organization_owner_user)
+
+    admin_instance.clear_stripe_connect_account(request, Organization.objects.filter(pk=organization.pk))
+
+    organization.refresh_from_db()
+    assert organization.stripe_account_id == "acct_stale"
     assert organization.stripe_charges_enabled is True

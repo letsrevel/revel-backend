@@ -173,7 +173,8 @@ class TestSyncAccountStatusInaccessibleAccount:
         assert connected_organization.stripe_charges_enabled is False
         assert connected_organization.stripe_details_submitted is False
         assert connected_organization.is_stripe_connected is False
-        # The ID is kept: clearing it would be irreversible if the platform key is misconfigured.
+        # The ID is kept: clearing it would be irreversible if the platform key is
+        # misconfigured — a superuser unlinks it from the admin instead.
         assert connected_organization.stripe_account_id == "acct_gone"
 
     @patch("stripe.Account.retrieve")
