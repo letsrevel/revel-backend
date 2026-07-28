@@ -42,6 +42,7 @@ from events.tasks.subscriptions import (
     expire_subscriptions_past_grace,
     migrate_plan_subscribers,
     reconcile_stripe_subscriptions,
+    resync_org_subscription_fees,
     send_subscription_renewal_reminders,
 )
 from events.tasks.waitlist import (
@@ -80,6 +81,7 @@ __all__ = [
     "redispatch_undelivered_invoices_task",
     "resend_announcements_to_new_signups",
     "reset_demo_data",
+    "resync_org_subscription_fees",
     "revalidate_single_vat_id_task",
     "revalidate_vat_ids_task",
     "send_guest_rsvp_confirmation",

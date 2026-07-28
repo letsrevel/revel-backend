@@ -147,7 +147,7 @@ class TestEffectiveApplicationFeePercent:
         """Stripe rejects >100; a 100% org grossed up by 20% must clamp."""
         stripe_org.platform_fee_percent = Decimal("100.00")
 
-        assert subscription_stripe_service._effective_application_fee_percent(stripe_org) == Decimal("100")
+        assert subscription_stripe_service.effective_application_fee_percent(stripe_org) == Decimal("100")
 
 
 # ---- fee ledger on MembershipPayment ----------------------------------------

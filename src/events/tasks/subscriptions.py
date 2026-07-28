@@ -12,6 +12,7 @@ from events.models import MembershipPayment, MembershipSubscription, MembershipS
 
 if t.TYPE_CHECKING:
     from events.service.subscription_service import MigrationResult
+    from events.service.subscription_stripe_service import FeeResyncCounters
 
 logger = structlog.get_logger(__name__)
 
@@ -423,3 +424,22 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
 
     logger.info("reconcile_stripe_subscriptions_done", **counters)
     return counters
+
+
+@shared_task(name="events.resync_org_subscription_fees")
+def resync_org_subscription_fees(org_id: str) -> "FeeResyncCounters":
+    """Resync ``application_fee_percent`` on an org's live Stripe subscriptions.
+
+    Dispatched by the :mod:`events.service.vies_service` wrappers whenever an
+    org's VAT-status change moves its effective fee percent (the VAT gross-up
+    frozen into each Stripe Subscription at Checkout). Per-subscription Stripe
+    failures are logged and counted by the service, not raised — re-running
+    is idempotent, and the ``resync_subscription_fees`` management command
+    covers stragglers (including schedule-managed rows, which are skipped
+    here so a pending downgrade is never dropped).
+    """
+    from events.models import Organization
+    from events.service.subscription_stripe_service import resync_subscription_application_fees
+
+    org = Organization.objects.get(pk=org_id)
+    return resync_subscription_application_fees(org)

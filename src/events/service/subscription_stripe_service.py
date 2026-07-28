@@ -6,6 +6,7 @@ state machine is still authoritative; Stripe events flow back via the
 webhook handlers in :mod:`events.service.stripe_webhooks`.
 """
 
+import time
 import typing as t
 import uuid
 from datetime import timedelta
@@ -216,7 +217,7 @@ def _checkout_session_urls(organization: Organization) -> dict[str, str]:
     }
 
 
-def _effective_application_fee_percent(org: Organization) -> Decimal | None:
+def effective_application_fee_percent(org: Organization) -> Decimal | None:
     """Org fee percent grossed up with platform VAT when applicable.
 
     Tickets charge the org fee + VAT on the fee (``calculate_platform_fee_vat``
@@ -244,6 +245,90 @@ def _effective_application_fee_percent(org: Organization) -> Decimal | None:
     return min(grossed, Decimal("100"))
 
 
+class FeeResyncCounters(t.TypedDict):
+    """Telemetry counters returned by :func:`resync_subscription_application_fees`."""
+
+    updated: int
+    skipped_schedule_managed: int
+    failed: int
+
+
+def resync_subscription_application_fees(org: Organization, *, sleep_seconds: float = 0.0) -> FeeResyncCounters:
+    """Push the org's *current* effective fee percent onto its live Stripe subscriptions.
+
+    The grossed-up ``application_fee_percent`` is frozen into each Stripe
+    Subscription at Checkout; when the org's VAT status later changes (VIES
+    revalidation, VAT ID set/cleared, country change) the frozen percent stops
+    matching the fee the ledger decomposition assumes. This resyncs every
+    non-terminal ONLINE subscription to the value Checkout would send today.
+    A ``None`` percent (fee-free org) clears the fee on Stripe (``""`` unsets).
+
+    Schedule-managed subscriptions (pending downgrades) are **skipped**: Stripe
+    rejects a plain ``Subscription.modify`` while a schedule is attached, and
+    releasing the schedule would silently drop the pending plan change. They
+    are counted so callers can surface them; re-run the
+    ``resync_subscription_fees`` management command once the schedule releases.
+
+    Per-subscription Stripe failures are logged and counted, not raised — one
+    bad subscription must not strand the rest of the org's resync.
+
+    Args:
+        org: The organization whose subscriptions to resync.
+        sleep_seconds: Optional pause between Stripe calls (rate limiting for
+            large backfills; the org's subscriptions all live on one Connect
+            account).
+
+    Returns:
+        Counters for updated / skipped (schedule-managed) / failed rows.
+    """
+    target = effective_application_fee_percent(org)
+    kwargs = _stripe_account_kwargs(org)
+    subscriptions = (
+        MembershipSubscription.objects.filter(
+            organization=org,
+            plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
+        .exclude(stripe_subscription_id="")
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+    )
+    counters: FeeResyncCounters = {"updated": 0, "skipped_schedule_managed": 0, "failed": 0}
+    for subscription in subscriptions:
+        if subscription.stripe_schedule_id:
+            counters["skipped_schedule_managed"] += 1
+            logger.warning(
+                "subscription_fee_resync_skipped_schedule_managed",
+                subscription_id=str(subscription.pk),
+                org_id=str(org.pk),
+                schedule_id=subscription.stripe_schedule_id,
+            )
+            continue
+        try:
+            stripe.Subscription.modify(
+                t.cast(str, subscription.stripe_subscription_id),
+                application_fee_percent=float(target) if target is not None else "",
+                **kwargs,
+            )
+        except stripe.error.StripeError as exc:
+            counters["failed"] += 1
+            logger.error(
+                "subscription_fee_resync_failed",
+                subscription_id=str(subscription.pk),
+                org_id=str(org.pk),
+                error=str(exc),
+            )
+            continue
+        counters["updated"] += 1
+        if sleep_seconds:
+            time.sleep(sleep_seconds)
+    logger.info(
+        "subscription_fee_resync_done",
+        org_id=str(org.pk),
+        target_percent=str(target) if target is not None else None,
+        **counters,
+    )
+    return counters
+
+
 def _create_subscription_checkout_session(
     subscription: MembershipSubscription,
     customer: CustomerProfile,
@@ -265,7 +350,7 @@ def _create_subscription_checkout_session(
     org = subscription.organization
     metadata = {"membership_subscription_id": str(subscription.pk)}
     subscription_data: dict[str, t.Any] = {"metadata": metadata}
-    effective_percent = _effective_application_fee_percent(org)
+    effective_percent = effective_application_fee_percent(org)
     if effective_percent is not None:
         subscription_data["application_fee_percent"] = float(effective_percent)
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
