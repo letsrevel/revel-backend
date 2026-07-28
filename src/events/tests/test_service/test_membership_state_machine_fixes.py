@@ -23,7 +23,7 @@ from events.models import (
     OrganizationMember,
     OrganizationMembershipRequest,
 )
-from events.service import subscription_service, subscription_uncancel
+from events.service import subscription_service, subscription_stripe_sync, subscription_uncancel
 from events.service.organization_service import approve_membership_request, update_member
 
 pytestmark = pytest.mark.django_db
@@ -44,6 +44,20 @@ def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
         currency="EUR",
         period_unit="month",
         period_count=1,
+    )
+
+
+@pytest.fixture
+def online_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
+    return MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Monthly Online",
+        price=Decimal("10.00"),
+        currency="EUR",
+        period_unit="month",
+        payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        stripe_product_id="prod_state_machine",
+        stripe_price_id="price_state_machine",
     )
 
 
@@ -233,6 +247,42 @@ class TestPausedMemberCannotSelfResume:
         subscription.refresh_from_db()
         assert subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED
 
+    def test_stripe_resume_echo_reactivates_a_paused_member(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """The organizer resumed from the Stripe dashboard: only the webhook echo tells us.
+
+        ``pause_collection`` cleared + ``status: active`` is the payload Stripe
+        sends; it must still lift the member's pause through the new signal gate.
+        """
+        subscription = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PAUSED,
+            stripe_subscription_id="sub_resume_echo",
+            current_period_start=timezone.now() - timedelta(days=1),
+            current_period_end=timezone.now() + timedelta(days=29),
+        )
+        member = OrganizationMember.objects.create(
+            organization=organization,
+            user=subscriber,
+            tier=online_plan.tier,
+            status=OrganizationMember.MembershipStatus.PAUSED,
+        )
+
+        subscription_stripe_sync.sync_subscription_from_stripe(
+            {"id": "sub_resume_echo", "status": "active", "pause_collection": None, "cancel_at_period_end": False}
+        )
+
+        subscription.refresh_from_db()
+        assert subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        member.refresh_from_db()
+        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+
     def test_banned_members_are_still_shielded(
         self,
         plan: MembershipSubscriptionPlan,
@@ -274,3 +324,30 @@ class TestScheduledCancelOfAPeriodLessRow:
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.CANCELLED
         assert plan.occupied_slot_count() == 0
+
+    def test_pending_row_with_an_open_checkout_session_is_not_terminalized(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """The member still holds a payable URL; dropping the row would strand the payment.
+
+        ``checkout.session.completed`` matches on the local row, so terminalizing
+        it here and letting the member pay would mint a live Stripe subscription
+        with no local mirror. These rows are reclaimed by
+        ``checkout.session.expired`` and the reconcile stale-PENDING sweep.
+        """
+        subscription = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_open_session",
+        )
+
+        out = subscription_service.cancel_subscription(subscription, immediate=False)
+
+        assert out.status == MembershipSubscription.SubscriptionStatus.PENDING
+        assert out.cancelled_at is None
+        assert out.cancel_at_period_end is True

@@ -20,6 +20,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
+    OrganizationMember,
 )
 from events.service import subscription_service, subscription_uncancel
 
@@ -256,6 +257,28 @@ class TestStaffUncancel:
         assert response.json()["cancel_at_period_end"] is False
         subscription.refresh_from_db()
         assert subscription.cancel_at_period_end is False
+
+    def test_paused_membership_is_refused(
+        self,
+        organization_owner_client: Client,
+        subscriber_user: RevelUser,
+        plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        """Renewals stay off until the organizers lift the pause — the admin path included."""
+        subscription = _scheduled_cancel(plan, subscriber_user, organization)
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=subscriber_user,
+            tier=plan.tier,
+            status=OrganizationMember.MembershipStatus.PAUSED,
+        )
+
+        response = organization_owner_client.post(_admin_url(organization, subscription))
+
+        assert response.status_code == 403, response.content
+        subscription.refresh_from_db()
+        assert subscription.cancel_at_period_end is True
 
     def test_terminal_subscription_is_refused(
         self,

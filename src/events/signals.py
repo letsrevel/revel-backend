@@ -461,14 +461,13 @@ def capture_subscription_old_status(
     """Stamp the committed status on the instance for :func:`sync_member_from_subscription`.
 
     Same pre_save capture pattern as :func:`capture_event_old_status`, but the
-    attribute is stamped on *every* save (``None`` when the row is new) because
-    the post_save consumer needs to distinguish "was PAUSED" from "was already
-    ACTIVE", not merely "changed".
+    attribute is stamped on *every* save because the post_save consumer needs to
+    distinguish "was PAUSED" from "was already ACTIVE", not merely "changed".
+    The UUID pk is populated before the INSERT, so a create is identified by the
+    lookup finding no committed row — leaving ``_old_status`` ``None``.
     """
     instance._old_status = (  # type: ignore[attr-defined]
         MembershipSubscription.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
-        if instance.pk
-        else None
     )
 
 

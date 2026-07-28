@@ -424,12 +424,9 @@ def cancel_subscription(
     """Cancel a subscription.
 
     ``immediate=False`` (default) sets ``cancel_at_period_end`` and lets the
-    grace-expiry task finish the cancellation at the period boundary.
-    ``immediate=True`` jumps straight to CANCELLED. PAUSED subscriptions
-    refuse the scheduled path — pause freezes time so the period boundary
-    would never be reached; callers must resume first or cancel immediately.
-    A row with no ``current_period_end`` has no boundary to wait for either,
-    so a scheduled cancel is upgraded to an immediate one.
+    grace-expiry task finish at the period boundary; ``immediate=True`` jumps
+    straight to CANCELLED. A scheduled cancel with no boundary to wait for is
+    refused (PAUSED) or upgraded to immediate — see the guards below.
 
     For Stripe-managed (ONLINE) subscriptions, dispatches to the Stripe
     service so the cancel is mirrored to Stripe; the webhook then settles
@@ -447,25 +444,18 @@ def cancel_subscription(
     prior_status = subscription.status
     prior_cap = subscription.cancel_at_period_end
 
-    # PAUSED refuses the scheduled path for BOTH payment methods: pause freezes
-    # time (locally for OFFLINE, via pause_collection on Stripe for ONLINE), so
-    # the period boundary the scheduled cancel waits for is never reached — the
-    # row would sit PAUSED+cancel_at_period_end forever, invisible to the
-    # grace-expiry sweep (which only selects ACTIVE/PAST_DUE).
+    # A scheduled cancel needs a period boundary to land on, and the grace-expiry sweep only selects
+    # ACTIVE-with-period / PAST_DUE. PAUSED freezes time (via pause_collection on Stripe for ONLINE), so it is
+    # refused for both payment methods; a period-less row (PENDING OFFLINE, staff-created without a payment) has
+    # nothing to resume and is cancelled now — unless it still holds a payable Checkout Session, whose live URL
+    # would outlive the row and mint a Stripe subscription with no local mirror (``checkout.session.expired``
+    # and the reconcile stale-PENDING sweep reclaim those).
     if not immediate and subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
         raise HttpError(
             400,
             str(_("Cannot schedule cancellation for a paused subscription. Resume it first, or cancel immediately.")),
         )
-
-    # Same dead-end for a row with no period boundary at all — a PENDING OFFLINE
-    # subscription staff created without an initial payment, say. There is no
-    # boundary for the scheduled cancel to land on and the grace-expiry sweep
-    # only selects ACTIVE-with-period / PAST_DUE rows, so the row would sit
-    # non-terminal forever, holding a plan cap slot. Unlike PAUSED there is
-    # nothing to resume first, so the cancel is simply performed now; the
-    # dispatch gates below then send the immediate-cancel notification.
-    if not immediate and subscription.current_period_end is None:
+    if not immediate and subscription.current_period_end is None and not subscription.stripe_checkout_session_id:
         immediate = True
 
     if (
