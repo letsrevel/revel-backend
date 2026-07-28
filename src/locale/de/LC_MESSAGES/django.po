@@ -1003,7 +1003,9 @@ msgstr "Rechnungs-PDF konnte nicht erstellt werden."
 msgid ""
 "Your payment went through. We're still confirming your subscription — check "
 "back in a moment."
-msgstr "Deine Zahlung war erfolgreich. Wir bestätigen dein Abonnement gerade noch – schau in einem Moment wieder vorbei."
+msgstr ""
+"Deine Zahlung war erfolgreich. Wir bestätigen dein Abonnement gerade noch – "
+"schau in einem Moment wieder vorbei."
 
 msgid "You have created too many items."
 msgstr "Du hast zu viele Elemente erstellt."
@@ -1899,6 +1901,20 @@ msgid "You are not allowed to request membership for this organization."
 msgstr "Du darfst keine Mitgliedschaft für diese Organisation beantragen."
 
 msgid ""
+"This user is banned from the organization. Lift the ban from the members "
+"list before approving an application."
+msgstr ""
+"Diese:r Anwender:in ist aus der Organisation gesperrt. Heben Sie die Sperre "
+"in der Mitgliederliste auf, bevor Sie einen Antrag genehmigen."
+
+msgid ""
+"This user is blacklisted from the organization. Remove them from the "
+"blacklist before approving an application."
+msgstr ""
+"Diese:r Anwender:in steht auf der Blacklist der Organisation. Entfernen Sie "
+"den Eintrag von der Blacklist, bevor Sie einen Antrag genehmigen."
+
+msgid ""
 "This user has an active subscription; approving a free application would "
 "overwrite their paid membership. Cancel the subscription first, or force the "
 "approval."
@@ -2148,21 +2164,6 @@ msgstr "Diese Ticket-Kategorie kann nicht online gekauft werden."
 msgid "This pass cannot be purchased online."
 msgstr "Dieser Pass kann nicht online gekauft werden."
 
-msgid "Sales for this plan are currently paused."
-msgstr "Der Verkauf für diesen Plan ist derzeit pausiert."
-
-msgid "This plan is sold out."
-msgstr "Dieser Plan ist ausverkauft."
-
-msgid "You can't rejoin this organization."
-msgstr "Du kannst dieser Organisation nicht wieder beitreten."
-
-msgid "This user is banned from the organization."
-msgstr "Diese:r Anwender:in ist aus der Organisation gesperrt."
-
-msgid "This user is blacklisted from the organization."
-msgstr "Diese:r Anwender:in steht auf der Blacklist der Organisation."
-
 msgid "occurred_at cannot be in the future."
 msgstr "occurred_at darf nicht in der Zukunft liegen."
 
@@ -2179,21 +2180,15 @@ msgstr ""
 "occurred_at darf nicht vor dem abgelaufenen Zeitraumende des Abonnements "
 "liegen."
 
-msgid ""
-"Cannot change currency when active subscriptions exist. Archive and create a "
-"new plan instead."
-msgstr ""
-"Die Währung kann nicht geändert werden, solange aktive Abonnements bestehen. "
-"Archiviere den Plan und erstelle stattdessen einen neuen."
-
-msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
-msgstr ""
-"Ein Plan mit bestehenden Abonnements kann nicht gelöscht werden. Archiviere "
-"ihn stattdessen."
-
 msgid "This plan is archived and no longer accepts new subscriptions."
 msgstr ""
 "Dieser Plan ist archiviert und akzeptiert keine neuen Abonnements mehr."
+
+msgid "This user is banned from the organization."
+msgstr "Diese:r Anwender:in ist aus der Organisation gesperrt."
+
+msgid "This user is blacklisted from the organization."
+msgstr "Diese:r Anwender:in steht auf der Blacklist der Organisation."
 
 msgid "This user already has an active subscription in this organization."
 msgstr ""
@@ -2213,6 +2208,27 @@ msgid ""
 msgstr ""
 "Eine nachgetragene Zahlung würde einen bereits abgelaufenen "
 "Abrechnungszeitraum erzeugen; verwende ein neueres occurred_at."
+
+msgid "Sales for this plan are currently paused."
+msgstr "Der Verkauf für diesen Plan ist derzeit pausiert."
+
+msgid "This plan is sold out."
+msgstr "Dieser Plan ist ausverkauft."
+
+msgid "You can't rejoin this organization."
+msgstr "Du kannst dieser Organisation nicht wieder beitreten."
+
+msgid ""
+"Cannot change currency when active subscriptions exist. Archive and create a "
+"new plan instead."
+msgstr ""
+"Die Währung kann nicht geändert werden, solange aktive Abonnements bestehen. "
+"Archiviere den Plan und erstelle stattdessen einen neuen."
+
+msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
+msgstr ""
+"Ein Plan mit bestehenden Abonnements kann nicht gelöscht werden. Archiviere "
+"ihn stattdessen."
 
 msgid ""
 "Cannot schedule cancellation for a paused subscription. Resume it first, or "
@@ -2273,6 +2289,11 @@ msgstr "Setze das Abonnement fort, bevor du seinen Plan änderst."
 msgid "This subscription is already on that plan."
 msgstr "Dieses Abonnement nutzt bereits diesen Plan."
 
+msgid "Could not sync the plan with Stripe. Please try again later."
+msgstr ""
+"Der Plan konnte nicht mit Stripe synchronisiert werden. Bitte versuche es "
+"später erneut."
+
 msgid "Stripe subscription has no items to update."
 msgstr "Das Stripe-Abonnement hat keine zu aktualisierenden Positionen."
 
@@ -2293,11 +2314,6 @@ msgstr "Der Plan konnte nicht für den Checkout vorbereitet werden."
 msgid "This subscription is not managed by Stripe."
 msgstr "Dieses Abonnement wird nicht von Stripe verwaltet."
 
-msgid "Could not sync the plan with Stripe. Please try again later."
-msgstr ""
-"Der Plan konnte nicht mit Stripe synchronisiert werden. Bitte versuche es "
-"später erneut."
-
 msgid "Could not initialize the payment. Please try again later."
 msgstr ""
 "Die Zahlung konnte nicht initialisiert werden. Bitte versuche es später "
@@ -2306,6 +2322,18 @@ msgstr ""
 msgid "No billing profile exists for this organization. Subscribe first."
 msgstr ""
 "Für diese Organisation existiert kein Rechnungsprofil. Abonniere zuerst."
+
+msgid ""
+"This membership is suspended. Contact the organizers to have it restored "
+"first."
+msgstr ""
+"Diese Mitgliedschaft ist ausgesetzt. Wende dich zunächst an die "
+"Veranstalter:innen, um sie wiederherstellen zu lassen."
+
+msgid "Cannot resume renewal on a cancelled or expired subscription."
+msgstr ""
+"Die Verlängerung eines gekündigten oder abgelaufenen Abos kannst Du nicht "
+"wieder aktivieren."
 
 msgid "Ticket already cancelled"
 msgstr "Ticket bereits storniert"
@@ -5020,6 +5048,3 @@ msgstr "Gesperrtes Telegram-Konto verbunden"
 
 msgid "Django site admin"
 msgstr "Django-Website-Admin"
-
-msgid "Cannot resume renewal on a cancelled or expired subscription."
-msgstr "Die Verlängerung eines gekündigten oder abgelaufenen Abos kannst Du nicht wieder aktivieren."

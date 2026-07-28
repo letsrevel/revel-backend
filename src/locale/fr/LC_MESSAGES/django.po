@@ -1016,7 +1016,9 @@ msgstr "Le PDF de la facture n'a pas pu être généré."
 msgid ""
 "Your payment went through. We're still confirming your subscription — check "
 "back in a moment."
-msgstr "Ton paiement a bien été effectué. Nous confirmons encore ton abonnement — reviens dans un instant."
+msgstr ""
+"Ton paiement a bien été effectué. Nous confirmons encore ton abonnement — "
+"reviens dans un instant."
 
 msgid "You have created too many items."
 msgstr "Tu as créé trop d'éléments."
@@ -1909,6 +1911,20 @@ msgid "You are not allowed to request membership for this organization."
 msgstr "Tu n'es pas autorisé·e à demander l'adhésion à cette organisation."
 
 msgid ""
+"This user is banned from the organization. Lift the ban from the members "
+"list before approving an application."
+msgstr ""
+"Cet·te utilisateur·rice est banni·e de l'organisation. Levez le bannissement "
+"depuis la liste des membres avant d'approuver une demande."
+
+msgid ""
+"This user is blacklisted from the organization. Remove them from the "
+"blacklist before approving an application."
+msgstr ""
+"Cette personne est sur la liste de blocage de l'organisation. Retirez-la de "
+"la liste de blocage avant d'approuver une demande."
+
+msgid ""
 "This user has an active subscription; approving a free application would "
 "overwrite their paid membership. Cancel the subscription first, or force the "
 "approval."
@@ -2159,21 +2175,6 @@ msgstr "Cette catégorie de ticket ne peut pas être achetée en ligne."
 msgid "This pass cannot be purchased online."
 msgstr "Ce pass ne peut pas être acheté en ligne."
 
-msgid "Sales for this plan are currently paused."
-msgstr "Les ventes de ce forfait sont actuellement en pause."
-
-msgid "This plan is sold out."
-msgstr "Ce forfait est complet."
-
-msgid "You can't rejoin this organization."
-msgstr "Tu ne peux pas rejoindre à nouveau cette organisation."
-
-msgid "This user is banned from the organization."
-msgstr "Cet·te utilisateur·rice est banni·e de l'organisation."
-
-msgid "This user is blacklisted from the organization."
-msgstr "Cette personne est sur la liste de blocage de l'organisation."
-
 msgid "occurred_at cannot be in the future."
 msgstr "occurred_at ne peut pas être dans le futur."
 
@@ -2190,20 +2191,14 @@ msgstr ""
 "occurred_at ne peut pas être antérieur à la fin de la période d'abonnement "
 "caduque."
 
-msgid ""
-"Cannot change currency when active subscriptions exist. Archive and create a "
-"new plan instead."
-msgstr ""
-"Impossible de changer la devise lorsque des abonnements actifs existent. "
-"Archive et crée un nouveau forfait à la place."
-
-msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
-msgstr ""
-"Impossible de supprimer un forfait avec des abonnements existants. Archive-"
-"le plutôt."
-
 msgid "This plan is archived and no longer accepts new subscriptions."
 msgstr "Ce forfait est archivé et n'accepte plus de nouveaux abonnements."
+
+msgid "This user is banned from the organization."
+msgstr "Cet·te utilisateur·rice est banni·e de l'organisation."
+
+msgid "This user is blacklisted from the organization."
+msgstr "Cette personne est sur la liste de blocage de l'organisation."
 
 msgid "This user already has an active subscription in this organization."
 msgstr ""
@@ -2222,6 +2217,27 @@ msgid ""
 msgstr ""
 "Un paiement rétroactif produirait une période de facturation déjà caduque ; "
 "utilise un occurred_at plus récent."
+
+msgid "Sales for this plan are currently paused."
+msgstr "Les ventes de ce forfait sont actuellement en pause."
+
+msgid "This plan is sold out."
+msgstr "Ce forfait est complet."
+
+msgid "You can't rejoin this organization."
+msgstr "Tu ne peux pas rejoindre à nouveau cette organisation."
+
+msgid ""
+"Cannot change currency when active subscriptions exist. Archive and create a "
+"new plan instead."
+msgstr ""
+"Impossible de changer la devise lorsque des abonnements actifs existent. "
+"Archive et crée un nouveau forfait à la place."
+
+msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
+msgstr ""
+"Impossible de supprimer un forfait avec des abonnements existants. Archive-"
+"le plutôt."
 
 msgid ""
 "Cannot schedule cancellation for a paused subscription. Resume it first, or "
@@ -2283,6 +2299,9 @@ msgstr "Reprends l'abonnement avant de changer son forfait."
 msgid "This subscription is already on that plan."
 msgstr "Cet abonnement utilise déjà ce forfait."
 
+msgid "Could not sync the plan with Stripe. Please try again later."
+msgstr "Impossible de synchroniser le forfait avec Stripe. Réessaie plus tard."
+
 msgid "Stripe subscription has no items to update."
 msgstr "L'abonnement Stripe n'a aucun élément à mettre à jour."
 
@@ -2303,9 +2322,6 @@ msgstr "Impossible de préparer le forfait pour le paiement."
 msgid "This subscription is not managed by Stripe."
 msgstr "Cet abonnement n'est pas géré par Stripe."
 
-msgid "Could not sync the plan with Stripe. Please try again later."
-msgstr "Impossible de synchroniser le forfait avec Stripe. Réessaie plus tard."
-
 msgid "Could not initialize the payment. Please try again later."
 msgstr "Impossible d'initialiser le paiement. Réessaie plus tard."
 
@@ -2313,6 +2329,17 @@ msgid "No billing profile exists for this organization. Subscribe first."
 msgstr ""
 "Aucun profil de facturation n'existe pour cette organisation. Abonne-toi "
 "d'abord."
+
+msgid ""
+"This membership is suspended. Contact the organizers to have it restored "
+"first."
+msgstr ""
+"Cette adhésion est suspendue. Contacte d'abord l'équipe d'organisation pour "
+"la faire rétablir."
+
+msgid "Cannot resume renewal on a cancelled or expired subscription."
+msgstr ""
+"Tu ne peux pas réactiver le renouvellement d'un abonnement annulé ou expiré."
 
 msgid "Ticket already cancelled"
 msgstr "Ticket déjà annulé"
@@ -5011,6 +5038,3 @@ msgstr "Compte Telegram banni connecté"
 
 msgid "Django site admin"
 msgstr "Administration du site Django"
-
-msgid "Cannot resume renewal on a cancelled or expired subscription."
-msgstr "Tu ne peux pas réactiver le renouvellement d'un abonnement annulé ou expiré."

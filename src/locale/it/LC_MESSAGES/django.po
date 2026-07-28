@@ -992,7 +992,9 @@ msgstr "Impossibile generare il PDF della fattura."
 msgid ""
 "Your payment went through. We're still confirming your subscription — check "
 "back in a moment."
-msgstr "Il tuo pagamento è andato a buon fine. Stiamo ancora confermando il tuo abbonamento: ricontrolla tra un attimo."
+msgstr ""
+"Il tuo pagamento è andato a buon fine. Stiamo ancora confermando il tuo "
+"abbonamento: ricontrolla tra un attimo."
 
 msgid "You have created too many items."
 msgstr "Hai creato troppi elementi."
@@ -1874,6 +1876,20 @@ msgid "You are not allowed to request membership for this organization."
 msgstr "Non ti è consentito richiedere l'iscrizione a questa organizzazione."
 
 msgid ""
+"This user is banned from the organization. Lift the ban from the members "
+"list before approving an application."
+msgstr ""
+"Questo utente è bloccato dall'organizzazione. Rimuovi il blocco dall'elenco "
+"dei membri prima di approvare una richiesta."
+
+msgid ""
+"This user is blacklisted from the organization. Remove them from the "
+"blacklist before approving an application."
+msgstr ""
+"Questo utente è nella blacklist dell'organizzazione. Rimuovilo dalla "
+"blacklist prima di approvare una richiesta."
+
+msgid ""
 "This user has an active subscription; approving a free application would "
 "overwrite their paid membership. Cancel the subscription first, or force the "
 "approval."
@@ -2121,21 +2137,6 @@ msgstr "Questo livello di biglietto non può essere acquistato online."
 msgid "This pass cannot be purchased online."
 msgstr "Questo pass non può essere acquistato online."
 
-msgid "Sales for this plan are currently paused."
-msgstr "Le vendite per questo piano sono attualmente in pausa."
-
-msgid "This plan is sold out."
-msgstr "Questo piano è esaurito."
-
-msgid "You can't rejoin this organization."
-msgstr "Non puoi rientrare in questa organizzazione."
-
-msgid "This user is banned from the organization."
-msgstr "Questo utente è bloccato dall'organizzazione."
-
-msgid "This user is blacklisted from the organization."
-msgstr "Questo utente è nella blacklist dell'organizzazione."
-
 msgid "occurred_at cannot be in the future."
 msgstr "occurred_at non può essere nel futuro."
 
@@ -2152,19 +2153,14 @@ msgstr ""
 "occurred_at non può essere antecedente alla fine del periodo decaduto "
 "dell'abbonamento."
 
-msgid ""
-"Cannot change currency when active subscriptions exist. Archive and create a "
-"new plan instead."
-msgstr ""
-"Impossibile cambiare la valuta quando esistono abbonamenti attivi. Archivia "
-"e crea un nuovo piano invece."
-
-msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
-msgstr ""
-"Impossibile eliminare un piano con abbonamenti esistenti. Archivialo invece."
-
 msgid "This plan is archived and no longer accepts new subscriptions."
 msgstr "Questo piano è archiviato e non accetta più nuovi abbonamenti."
+
+msgid "This user is banned from the organization."
+msgstr "Questo utente è bloccato dall'organizzazione."
+
+msgid "This user is blacklisted from the organization."
+msgstr "Questo utente è nella blacklist dell'organizzazione."
 
 msgid "This user already has an active subscription in this organization."
 msgstr "Questo utente ha già un abbonamento attivo in questa organizzazione."
@@ -2182,6 +2178,26 @@ msgid ""
 msgstr ""
 "Il pagamento retroattivo produrrebbe un periodo di fatturazione già "
 "decaduto; usa un occurred_at più recente."
+
+msgid "Sales for this plan are currently paused."
+msgstr "Le vendite per questo piano sono attualmente in pausa."
+
+msgid "This plan is sold out."
+msgstr "Questo piano è esaurito."
+
+msgid "You can't rejoin this organization."
+msgstr "Non puoi rientrare in questa organizzazione."
+
+msgid ""
+"Cannot change currency when active subscriptions exist. Archive and create a "
+"new plan instead."
+msgstr ""
+"Impossibile cambiare la valuta quando esistono abbonamenti attivi. Archivia "
+"e crea un nuovo piano invece."
+
+msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
+msgstr ""
+"Impossibile eliminare un piano con abbonamenti esistenti. Archivialo invece."
 
 msgid ""
 "Cannot schedule cancellation for a paused subscription. Resume it first, or "
@@ -2243,6 +2259,10 @@ msgstr "Riprendi l'abbonamento prima di cambiarne il piano."
 msgid "This subscription is already on that plan."
 msgstr "Questo abbonamento è già su quel piano."
 
+msgid "Could not sync the plan with Stripe. Please try again later."
+msgstr ""
+"Impossibile sincronizzare il piano con Stripe. Per favore riprova più tardi."
+
 msgid "Stripe subscription has no items to update."
 msgstr "L'abbonamento Stripe non ha elementi da aggiornare."
 
@@ -2263,10 +2283,6 @@ msgstr "Impossibile preparare il piano per il checkout."
 msgid "This subscription is not managed by Stripe."
 msgstr "Questo abbonamento non è gestito da Stripe."
 
-msgid "Could not sync the plan with Stripe. Please try again later."
-msgstr ""
-"Impossibile sincronizzare il piano con Stripe. Per favore riprova più tardi."
-
 msgid "Could not initialize the payment. Please try again later."
 msgstr "Impossibile inizializzare il pagamento. Per favore riprova più tardi."
 
@@ -2274,6 +2290,16 @@ msgid "No billing profile exists for this organization. Subscribe first."
 msgstr ""
 "Non esiste un profilo di fatturazione per questa organizzazione. Prima "
 "abbonati."
+
+msgid ""
+"This membership is suspended. Contact the organizers to have it restored "
+"first."
+msgstr ""
+"Questa iscrizione è sospesa. Contatta prima gli organizzatori per farla "
+"ripristinare."
+
+msgid "Cannot resume renewal on a cancelled or expired subscription."
+msgstr "Non puoi riattivare il rinnovo di un abbonamento annullato o scaduto."
 
 msgid "Ticket already cancelled"
 msgstr "Biglietto già annullato"
@@ -4978,6 +5004,3 @@ msgstr "Account Telegram bloccato collegato"
 
 msgid "Django site admin"
 msgstr "Amministrazione del sito Django"
-
-msgid "Cannot resume renewal on a cancelled or expired subscription."
-msgstr "Non puoi riattivare il rinnovo di un abbonamento annullato o scaduto."
