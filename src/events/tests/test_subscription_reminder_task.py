@@ -1,7 +1,7 @@
 """Tests for the send_subscription_renewal_reminders Celery beat task."""
 
 import typing as t
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
@@ -53,6 +53,11 @@ def make_sub(
         status: str,
         cancel_at_period_end: bool = False,
     ) -> MembershipSubscription:
+        # A local-calendar-day offset, not a 24h-multiple delta: the task compares
+        # ``current_period_end__date`` (rendered in settings.TIME_ZONE) against
+        # ``timezone.localdate() + REMINDER_DAYS``. Anchoring at local noon keeps the
+        # resulting date exact across both Europe/Vienna DST transitions.
+        period_end_day = timezone.localdate() + timedelta(days=period_end_offset_days)
         return MembershipSubscription.objects.create(
             user=subscriber,
             plan=plan,
@@ -60,7 +65,7 @@ def make_sub(
             status=status,
             cancel_at_period_end=cancel_at_period_end,
             current_period_start=timezone.now(),
-            current_period_end=timezone.now() + timedelta(days=period_end_offset_days),
+            current_period_end=timezone.make_aware(datetime.combine(period_end_day, time(12, 0))),
         )
 
     return _make

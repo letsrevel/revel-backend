@@ -93,7 +93,7 @@ class DashboardController(UserAwareController):
         qs = self.get_user_related_events(params, include_past=include_past)
 
         # Filter to upcoming events only
-        today = timezone.now().date()
+        today = timezone.localdate()
         qs = qs.filter(Q(start__date__gte=today) | Q(start__isnull=True))
 
         # No .distinct() needed - get_user_related_events already filters by unique IDs

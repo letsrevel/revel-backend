@@ -422,7 +422,7 @@ def generate_monthly_invoices() -> list[PlatformFeeInvoice]:
 
     Intended to be called on the 1st of each month.
     """
-    today = timezone.now().date()
+    today = timezone.localdate()
     # Previous month
     first_of_current = today.replace(day=1)
     last_of_previous = first_of_current - timedelta(days=1)

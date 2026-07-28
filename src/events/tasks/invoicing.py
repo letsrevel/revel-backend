@@ -308,7 +308,7 @@ def calculate_referral_payouts() -> "PayoutResult":
     """
     import calendar
 
-    today = timezone.now().date()
+    today = timezone.localdate()
     # Previous month
     if today.month == 1:
         year, month = today.year - 1, 12

@@ -100,6 +100,36 @@ documented requirement for that mode). Keep this in mind when iterating queryset
   (e.g. dispatching Celery tasks per row). Note that with `DISABLE_SERVER_SIDE_CURSORS`
   it degrades to a client-side fetch-all — for genuinely large streams, batch explicitly.
 
+## Calendar Dates: `timezone.localdate()`, not `timezone.now().date()`
+
+`settings.TIME_ZONE = "Europe/Vienna"` with `USE_TZ = True`, so **the DB stores UTC but
+Django's date lookups render in `TIME_ZONE`**. A `__date` lookup (`start__date`,
+`current_period_end__date`, and the `__date__gte`/`__date__gt`/`__date__range` variants)
+compiles to `(<col> AT TIME ZONE 'Europe/Vienna')::date` — a *local* calendar date. Pairing
+it with `timezone.now().date()`, which is the *UTC* calendar date, makes the two sides speak
+different calendars; they disagree for the 2 hours (1 in winter) before UTC midnight.
+
+- **Default to `timezone.localdate()`** whenever you need "today" as a calendar date. It is
+  what nearly every caller means: the date a human in the deployment's timezone would name.
+  `timezone.now().date()` is only correct if you genuinely want the UTC calendar day, and
+  nothing in this codebase does.
+- **The bug is invisible in CI and in prod for most of the day.** It only fires inside the
+  pre-UTC-midnight window, so a green test run at 10:00 is no evidence the logic is right.
+  `send_subscription_renewal_reminders` shipped with `now().date()` against
+  `current_period_end__date` and was correct only because its beat entry fires at 05:00 UTC
+  (mid-morning in Vienna); moving the schedule would have silently shifted the whole reminder
+  cohort by a day. If you must verify a date-window fix, run the test with the clock inside
+  the window (or temporarily flip `TIME_ZONE` between `UTC` and `Europe/Vienna` — identical
+  code should pass under both).
+- **Monthly period arithmetic has the same requirement.** `generate_monthly_invoices` and
+  `calculate_referral_payouts` derive "previous month" from today and then build the period
+  bounds with `timezone.make_aware(datetime.combine(day, time.min))` — i.e. **local**
+  midnights. The month must therefore be picked off the *local* calendar too, or a
+  day-1 run can bill a local month that has not finished elapsing.
+- **A caller-supplied date is fine as-is.** `events/filters.py`'s `filter_date` does
+  `Q(start__date=date.date())` on an `AwareDatetime` from the request: the date comes from the
+  caller's own offset, which is the intended contract, not from server "now".
+
 ## Online Checkout: Reserve/Session Split (`ATOMIC_REQUESTS` vs. `select_for_update`)
 
 Online checkout (`BatchTicketService.create_batch`, series-pass purchase) locks the
