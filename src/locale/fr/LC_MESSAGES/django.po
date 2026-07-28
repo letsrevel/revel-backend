@@ -5011,3 +5011,6 @@ msgstr "Compte Telegram banni connecté"
 
 msgid "Django site admin"
 msgstr "Administration du site Django"
+
+msgid "Cannot resume renewal on a cancelled or expired subscription."
+msgstr "Tu ne peux pas réactiver le renouvellement d'un abonnement annulé ou expiré."
