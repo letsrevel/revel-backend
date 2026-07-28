@@ -1,0 +1,18 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "Referral Payouts Forfeited — Admin Notice" %}</h2>
+<div class="card card--danger">
+  <p>{% trans "A user deleted their account and forfeited unpaid referral payouts." %}</p>
+  <p class="info-row"><b>{% trans "User:" %}</b> {{ user_email }} ({{ user_id }})</p>
+  <p class="info-row"><b>{% trans "Forfeited:" %}</b> {{ unpaid_count }} × {{ unpaid_total }} {{ currency }}</p>
+  <p class="info-row"><b>{% trans "Of which failed transfers:" %}</b> {{ failed_total }} {{ currency }}</p>
+  <p>{% trans "Itemization (these rows have been deleted):" %}</p>
+  <ul>
+    {% for item in items %}
+    <li>{{ item.payout_id }} | {{ item.period_start }} — {{ item.period_end }} | {{ item.amount }} {{ item.currency }} | {{ item.status }}</li>
+    {% endfor %}
+  </ul>
+  <p>{% trans "Paid payouts and their statements were retained for accounting purposes." %}</p>
+</div>
+{% endblock %}

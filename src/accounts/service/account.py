@@ -14,10 +14,12 @@ from ninja import Schema
 from ninja.errors import HttpError
 
 from accounts import schema, tasks
+from accounts.exceptions import ReferralForfeitureConfirmationRequiredError
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import blacklist_user_tokens, check_blacklist, create_token
 from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.password_validation import validate_password
+from accounts.service.referral_cleanup import assess_referral_forfeiture
 from common.testing import (
     TOKEN_TYPE_DELETION,
     TOKEN_TYPE_EMAIL_CHANGE,
@@ -500,7 +502,7 @@ def confirm_email_change(token: str) -> RevelUser:
 
 
 @transaction.atomic
-def confirm_account_deletion(token: str) -> None:
+def confirm_account_deletion(token: str, force: bool = False) -> None:
     """Confirm and execute account deletion.
 
     This function validates the deletion token and enqueues a background task
@@ -509,9 +511,14 @@ def confirm_account_deletion(token: str) -> None:
 
     Args:
         token (str): The account deletion token.
+        force (bool): Acknowledge the reported consequences (unpaid referral
+            payouts) and proceed anyway.
 
     Raises:
         HttpError: If the user owns organizations (requires manual intervention).
+        ReferralForfeitureConfirmationRequiredError: If deleting would forfeit
+            unpaid referral earnings and ``force`` was not set. The token is not
+            burned, so the user can re-submit it with ``force=True``.
     """
     payload = token_to_payload(token, schema.DeleteAccountJWTPayloadSchema)
     check_blacklist(payload.jti)
@@ -533,7 +540,21 @@ def confirm_account_deletion(token: str) -> None:
             ),
         )
 
-    logger.info("account_deletion_confirmed", user_id=str(user.id), email=user.email)
+    # Referral forfeiture needs explicit acknowledgement. UX only — the deletion
+    # task re-derives the state and is authoritative. Runs before blacklist_token
+    # so the 409 leaves the token usable for the forced re-submission.
+    if not force:
+        forfeiture = assess_referral_forfeiture(user)
+        if forfeiture is not None:
+            logger.info(
+                "account_deletion_requires_referral_confirmation",
+                user_id=str(user.id),
+                unpaid_count=forfeiture.unpaid_count,
+                unpaid_total=str(forfeiture.unpaid_total),
+            )
+            raise ReferralForfeitureConfirmationRequiredError(forfeiture)
+
+    logger.info("account_deletion_confirmed", user_id=str(user.id), email=user.email, force=force)
     blacklist_token(token)
     # Enqueue the deletion as a background task to handle heavy operations
     transaction.on_commit(lambda: tasks.delete_user_account.delay(str(user.id)))

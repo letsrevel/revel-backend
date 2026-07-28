@@ -431,7 +431,14 @@ class Referral(TimeStampedModel):
         editable=False,
         help_text="Denormalized from referral_code.user; set automatically on save",
     )
-    referred_user = models.OneToOneField(RevelUser, on_delete=models.PROTECT, related_name="referral")
+    referred_user = models.OneToOneField(
+        RevelUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="referral",
+        help_text="Nulled when the referred user deletes their account; the referrer's payout history survives.",
+    )
     revenue_share_percent = models.DecimalField(
         max_digits=5,
         decimal_places=2,
@@ -455,7 +462,9 @@ class Referral(TimeStampedModel):
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
-        return f"{self.referrer.username} → {self.referred_user.username} ({self.revenue_share_percent}%)"
+        referred = self.referred_user
+        referred_name = referred.username if referred is not None else "(deleted user)"
+        return f"{self.referrer.username} → {referred_name} ({self.revenue_share_percent}%)"
 
 
 class ReferralPayout(TimeStampedModel):
@@ -473,7 +482,14 @@ class ReferralPayout(TimeStampedModel):
         FAILED = "failed", "Failed"
         ROLLED_OVER = "rolled_over", "Rolled Over"
 
-    referral = models.ForeignKey(Referral, on_delete=models.PROTECT, related_name="payouts")
+    referral = models.ForeignKey(
+        Referral,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="payouts",
+        help_text="Nulled when the referrer deletes their account; PAID payouts and their statements are retained.",
+    )
     period_start = models.DateField(db_index=True)
     period_end = models.DateField(db_index=True)
     net_platform_fees = models.DecimalField(
@@ -506,7 +522,9 @@ class ReferralPayout(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.referral} | {self.period_start} | {self.payout_amount} {self.currency} ({self.status})"
+        referral = self.referral
+        label = str(referral) if referral is not None else "(detached referral)"
+        return f"{label} | {self.period_start} | {self.payout_amount} {self.currency} ({self.status})"
 
 
 class ReferralPayoutStatement(EmailDeliverableMixin, TimeStampedModel):

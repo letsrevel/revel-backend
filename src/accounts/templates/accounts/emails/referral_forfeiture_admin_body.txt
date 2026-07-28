@@ -1,0 +1,10 @@
+{% load i18n %}{% trans "A user deleted their account and forfeited unpaid referral payouts." %}
+
+{% blocktrans %}User: {{ user_email }} ({{ user_id }}){% endblocktrans %}
+{% blocktrans %}Forfeited: {{ unpaid_count }} payout(s), {{ unpaid_total }} {{ currency }}{% endblocktrans %}
+{% blocktrans %}Of which failed transfers: {{ failed_total }} {{ currency }}{% endblocktrans %}
+
+{% trans "Itemization (these rows have been deleted):" %}
+{% for item in items %}- {{ item.payout_id }} | {{ item.period_start }} — {{ item.period_end }} | {{ item.amount }} {{ item.currency }} | {{ item.status }}
+{% endfor %}
+{% trans "Paid payouts and their statements were retained for accounting purposes." %}
