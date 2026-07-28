@@ -42,6 +42,7 @@ class MembershipReasonCode(StrEnum):
     MEMBERSHIP_QUESTIONNAIRE_PENDING = "membership_questionnaire_pending"
     MEMBERSHIP_QUESTIONNAIRE_FAILED = "membership_questionnaire_failed"
     MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN = "membership_questionnaire_retake_cooldown"
+    MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED = "membership_questionnaire_attempts_exhausted"
     REQUIRES_APPROVAL = "requires_approval"
     TIER_REQUIRES_SUBSCRIPTION = "tier_requires_subscription"
     PLAN_NOT_ONLINE = "plan_not_online"
@@ -73,6 +74,9 @@ class Reasons(StrEnum):
     MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN = gettext_noop(
         "Membership questionnaire evaluation was insufficient. You can try again later."
     )
+    # Deliberately the same msgid the submit endpoint's 400 uses: the verdict and
+    # the refusal a user would hit by submitting anyway must read identically.
+    MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED = gettext_noop("You have reached the maximum number of attempts.")
     REQUIRES_APPROVAL = gettext_noop("Your application is awaiting staff approval.")
     TIER_REQUIRES_SUBSCRIPTION = gettext_noop("This tier requires a paid subscription. Subscribe to a plan to join.")
     PLAN_NOT_ONLINE = gettext_noop("This plan is not configured for online checkout.")
