@@ -277,6 +277,10 @@ class TestStaffUncancel:
         response = organization_owner_client.post(_admin_url(organization, subscription))
 
         assert response.status_code == 403, response.content
+        # The reader IS the organizer — the copy must not tell them to contact
+        # the organizers (that message is the member-facing variant).
+        assert "Contact the organizers" not in response.json()["detail"]
+        assert "Restore the member" in response.json()["detail"]
         subscription.refresh_from_db()
         assert subscription.cancel_at_period_end is True
 
@@ -390,6 +394,32 @@ class TestServiceGuards:
             subscription_uncancel.uncancel_subscription(subscription)
 
         assert exc_info.value.status_code == 400
+
+    def test_suspended_membership_copy_is_caller_appropriate(
+        self,
+        subscriber_user: RevelUser,
+        plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        """Members are told to contact the organizers; organizers are told to restore the member."""
+        subscription = _scheduled_cancel(plan, subscriber_user, organization)
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=subscriber_user,
+            tier=plan.tier,
+            status=OrganizationMember.MembershipStatus.PAUSED,
+        )
+
+        with pytest.raises(HttpError) as member_exc:
+            subscription_uncancel.uncancel_subscription(subscription)
+        with pytest.raises(HttpError) as staff_exc:
+            subscription_uncancel.uncancel_subscription(subscription, staff=True)
+
+        assert member_exc.value.status_code == 403
+        assert staff_exc.value.status_code == 403
+        assert "Contact the organizers" in str(member_exc.value.message)
+        assert "Contact the organizers" not in str(staff_exc.value.message)
+        assert "Restore the member" in str(staff_exc.value.message)
 
     def test_archived_plan_does_not_block_an_unscheduled_row(
         self,

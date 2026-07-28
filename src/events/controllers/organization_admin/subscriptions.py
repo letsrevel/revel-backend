@@ -4,7 +4,7 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Prefetch, QuerySet
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
@@ -248,6 +248,17 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             models.MembershipSubscription.objects.filter(organization=organization)
             .select_related("user", "organization")
             .prefetch_related(Prefetch("plan", queryset=plan_qs))
+            # ``SubscriptionSchema.member_status`` reads this annotation so the
+            # list stays one query; without it the resolver falls back to a
+            # lookup per row.
+            .annotate(
+                member_status=Subquery(
+                    models.OrganizationMember.objects.filter(
+                        organization_id=OuterRef("organization_id"),
+                        user_id=OuterRef("user_id"),
+                    ).values("status")[:1]
+                )
+            )
             .order_by("-created_at")
         )
         if status is not None:
@@ -424,7 +435,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             pk=sub_id,
             organization=organization,
         )
-        return subscription_uncancel.uncancel_subscription(subscription)
+        return subscription_uncancel.uncancel_subscription(subscription, staff=True)
 
     @route.post(
         "/subscriptions/{sub_id}/pause",

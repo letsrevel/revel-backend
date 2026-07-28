@@ -2360,6 +2360,12 @@ msgstr ""
 "Für diese Organisation existiert kein Rechnungsprofil. Abonniere zuerst."
 
 msgid ""
+"This membership is suspended. Restore the member before resuming renewals."
+msgstr ""
+"Diese Mitgliedschaft ist ausgesetzt. Reaktiviere das Mitglied, bevor die "
+"Verlängerung wieder aufgenommen wird."
+
+msgid ""
 "This membership is suspended. Contact the organizers to have it restored "
 "first."
 msgstr ""

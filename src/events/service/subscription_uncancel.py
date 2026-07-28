@@ -47,7 +47,7 @@ def _uncancel_on_stripe(subscription: MembershipSubscription, stripe_subscriptio
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
 
 
-def _assert_membership_allows_renewal(subscription: MembershipSubscription) -> None:
+def _assert_membership_allows_renewal(subscription: MembershipSubscription, *, staff: bool) -> None:
     """Refuse to restart renewals for a suspended or banned member.
 
     A staff-imposed PAUSE (or ban) suspends access, and
@@ -57,7 +57,8 @@ def _assert_membership_allows_renewal(subscription: MembershipSubscription) -> N
     not currently have, and (before the ``sync_member_from_subscription`` fix)
     handing the member a way to clear their own suspension. Membership has to be
     restored first; that is an organizer action, so both the member-facing and
-    the staff endpoint are refused here.
+    the staff endpoint are refused here — with caller-appropriate copy, since
+    "contact the organizers" is wrong advice when the reader *is* the organizer.
     """
     member_status = (
         OrganizationMember.objects.filter(
@@ -71,15 +72,21 @@ def _assert_membership_allows_renewal(subscription: MembershipSubscription) -> N
         OrganizationMember.MembershipStatus.PAUSED,
         OrganizationMember.MembershipStatus.BANNED,
     ):
-        raise HttpError(
-            403,
-            str(_("This membership is suspended. Contact the organizers to have it restored first.")),
+        message = (
+            _("This membership is suspended. Restore the member before resuming renewals.")
+            if staff
+            else _("This membership is suspended. Contact the organizers to have it restored first.")
         )
+        raise HttpError(403, str(message))
 
 
 @transaction.atomic
-def uncancel_subscription(subscription: MembershipSubscription) -> MembershipSubscription:
+def uncancel_subscription(subscription: MembershipSubscription, *, staff: bool = False) -> MembershipSubscription:
     """Clear ``cancel_at_period_end`` so the subscription renews again.
+
+    ``staff`` only selects the copy of the suspended-membership 403 (the staff
+    endpoint's reader *is* the organizer); the refusal itself is identical for
+    both callers.
 
     Refuses a terminal row — the cancellation already happened, so there is
     nothing left to undo — a row whose plan has since been archived, with the
@@ -112,7 +119,7 @@ def uncancel_subscription(subscription: MembershipSubscription) -> MembershipSub
         # Same refusal as ``create_subscription`` / ``_validate_revivable``:
         # keeping the renewal alive would go on billing a retired plan.
         raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
-    _assert_membership_allows_renewal(subscription)
+    _assert_membership_allows_renewal(subscription, staff=staff)
 
     if (
         subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE

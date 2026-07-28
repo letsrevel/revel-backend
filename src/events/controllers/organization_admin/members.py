@@ -1,7 +1,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import Prefetch, QuerySet
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
@@ -65,6 +65,16 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
             models.MembershipSubscription.objects.filter(organization=organization)
             .exclude(status__in=models.MembershipSubscription.TERMINAL_STATUSES)
             .select_related("user")
+            # ``SubscriptionSchema.member_status`` reads this annotation; without
+            # it the nested schema would issue one member lookup per row.
+            .annotate(
+                member_status=Subquery(
+                    models.OrganizationMember.objects.filter(
+                        organization_id=OuterRef("organization_id"),
+                        user_id=OuterRef("user_id"),
+                    ).values("status")[:1]
+                )
+            )
             .prefetch_related(
                 # Forward-FK prefetch rather than select_related: the nested PlanSchema
                 # reads the ``active_subscription_count`` annotation, which would

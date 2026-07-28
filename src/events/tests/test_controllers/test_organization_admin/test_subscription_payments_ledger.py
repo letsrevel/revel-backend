@@ -147,6 +147,32 @@ class TestLedgerContents:
         assert row["subscription_id"] == str(subscription.id)
         assert row["stripe_invoice_id"] == "in_row"
         assert row["stripe_payment_intent_id"] == "pi_row"
+        # The ledger's in-place refund action keys on this: ONLINE rows must be
+        # refunded through Stripe, OFFLINE rows through the in-app endpoint.
+        assert row["payment_method"] == "offline"
+
+    def test_rows_carry_the_plans_payment_method(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        tier: MembershipTier,
+        member_user: RevelUser,
+    ) -> None:
+        """An ONLINE plan's rows say so, so the ledger can withhold the in-app refund."""
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly Online",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
+        subscription = _subscription(organization, online_plan, member_user)
+        _payment(subscription, stripe_invoice_id="in_online_pm")
+
+        row = organization_owner_client.get(_url(organization)).json()["results"][0]
+
+        assert row["payment_method"] == "online"
 
     def test_rows_carry_the_platform_fee_decomposition(
         self,

@@ -733,7 +733,13 @@ def _validate_change_plan_target(
     *,
     enforce_sales_status: bool,
 ) -> None:
-    """Validate ``new_plan`` as a switch target for ``subscription``."""
+    """Validate ``new_plan`` as a switch target for ``subscription``.
+
+    Not the whole story for the member-facing endpoint: the OFFLINE
+    payment-method refusal lives in ``me_subscriptions.change_plan`` (trust
+    boundary — staff manage OFFLINE plans), so don't conclude that guard is
+    missing when tracing from here.
+    """
     if new_plan.tier.organization_id != subscription.organization_id:
         raise HttpError(400, str(_("New plan must belong to the same organization as the subscription.")))
     if not new_plan.is_active:

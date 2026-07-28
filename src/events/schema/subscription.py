@@ -243,6 +243,12 @@ class MembershipPaymentSchema(ModelSchema):
 
     ``stripe_dashboard_url`` mirrors the ticket admin surface: a clickable
     "manage on Stripe" link for ONLINE payments (``None`` for OFFLINE ones).
+
+    The platform fee is **never reduced by refunds**: Revel keeps its fee when a
+    payment is refunded (mirroring Stripe keeping its processing fee — nothing
+    ever sets ``refund_application_fee``), so the ``platform_fee*``
+    decomposition always reflects the original charge. Frontends can state this
+    affirmatively rather than hedge.
     """
 
     subscription_id: UUID
@@ -337,6 +343,7 @@ class OrganizationMembershipPaymentSchema(MembershipPaymentSchema):
     user_display_name: str
     plan_id: UUID
     plan_name: str
+    payment_method: SubscriptionPaymentMethod
 
     @staticmethod
     def resolve_user_id(obj: MembershipPayment) -> UUID:
@@ -362,6 +369,17 @@ class OrganizationMembershipPaymentSchema(MembershipPaymentSchema):
     def resolve_plan_name(obj: MembershipPayment) -> str:
         """Return the name of the plan billed."""
         return obj.subscription.plan.name
+
+    @staticmethod
+    def resolve_payment_method(obj: MembershipPayment) -> str:
+        """Payment method of the plan billed.
+
+        Lets the ledger distinguish ONLINE rows (refunds must go through
+        Stripe — the in-app refund endpoint 400s) from OFFLINE rows (where the
+        in-app refund is the correct action). The ledger queryset
+        ``select_related``s ``subscription__plan``, so this is join-backed.
+        """
+        return obj.subscription.plan.payment_method
 
 
 class _BaseSubscriptionSchema(ModelSchema):
@@ -500,6 +518,7 @@ class SubscriptionSchema(_BaseSubscriptionSchema):
     user_display_name: str
     user_email: str
     plan: PlanSchema
+    member_status: OrganizationMember.MembershipStatus | None = None
     stripe_subscription_id: str | None = None
     stripe_checkout_session_id: str = ""
     stripe_schedule_id: str = ""
@@ -509,6 +528,28 @@ class SubscriptionSchema(_BaseSubscriptionSchema):
     def resolve_stripe_dashboard_url(obj: MembershipSubscription) -> str | None:
         """Stripe Dashboard link: the Subscription, else its Checkout Session (None when OFFLINE)."""
         return obj.stripe_dashboard_url()
+
+    @staticmethod
+    def resolve_member_status(obj: MembershipSubscription) -> str | None:
+        """Membership status of the subscriber's member row (``None`` when no row exists).
+
+        Lets the admin drawer pre-gate actions that 403 for PAUSED/BANNED
+        members (e.g. uncancel) instead of translating the error after the
+        fact. List endpoints annotate ``member_status`` onto the queryset
+        (one correlated subquery, no N+1); single-object responses fall back
+        to one lookup.
+        """
+        annotated = getattr(obj, "member_status", None)
+        if annotated is not None:
+            return t.cast(str, annotated)
+        return (
+            OrganizationMember.objects.filter(
+                organization_id=obj.organization_id,
+                user_id=obj.user_id,
+            )
+            .values_list("status", flat=True)
+            .first()
+        )
 
     @staticmethod
     def resolve_user_display_name(obj: MembershipSubscription) -> str:
@@ -590,6 +631,11 @@ class SubscriptionActivationPendingSchema(Schema):
     machine-readable discriminator the frontend keys on to render a
     "confirming your subscription" state instead of an error — ``detail`` is
     translated and must never be matched on.
+
+    The frontend branches on ``code == "subscription_activation_pending"``
+    (member dialog and admin drawer both render it as "paid, activating — not
+    cancelled"): renaming the code value is a breaking change; rewording or
+    retranslating ``detail`` is always safe.
     """
 
     detail: str

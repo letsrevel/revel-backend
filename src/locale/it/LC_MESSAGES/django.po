@@ -2328,6 +2328,12 @@ msgstr ""
 "abbonati."
 
 msgid ""
+"This membership is suspended. Restore the member before resuming renewals."
+msgstr ""
+"Questa iscrizione è sospesa. Riattiva il membro prima di riprendere i "
+"rinnovi."
+
+msgid ""
 "This membership is suspended. Contact the organizers to have it restored "
 "first."
 msgstr ""
