@@ -7,7 +7,7 @@ and handles invoice numbering and delivery.
 import typing as t
 from collections import Counter
 from datetime import date, datetime, time, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 import structlog
@@ -81,15 +81,25 @@ def _recompute_fee_net_split(invoice: PlatformFeeInvoice) -> tuple[Decimal, Deci
     the same ``platform_fee_net`` → ``platform_fee`` fallback so pre-VAT rows
     still land on their own line.
 
-    # ponytail: this reads live payment rows rather than a snapshot, so a
-    # regenerated PDF could disagree with the issued one if the underlying
-    # payments were mutated after issuance. Storing the two components on
-    # ``PlatformFeeInvoice`` (a migration) is the upgrade path.
+    The recomputed pair is then rescaled onto the invoice's *persisted*
+    ``fee_net``, so the two line rows always add up to the subtotal printed
+    right below them no matter what the live rows now say.
+
+    # ponytail: the live rows can legitimately no longer sum to the issued
+    # subtotal — a refund flips a contributing payment to REFUNDED after
+    # issuance (a first-class flow: that is what PlatformFeeCreditNote is
+    # for), so a raw recompute would regenerate a filed PDF whose lines do
+    # not reconcile with its own total. Apportioning the persisted subtotal
+    # keeps the document internally consistent at the cost of an approximate
+    # split (only on regeneration; the issue-time render is exact). Storing
+    # the two components on ``PlatformFeeInvoice`` (a migration) is the
+    # upgrade path. NOTE: the filters below duplicate the aggregation filters
+    # in ``generate_invoices_for_period`` — change one, change both.
     """
     period_start_dt, period_end_dt = _period_bounds(invoice.period_start, invoice.period_end)
     org_id = t.cast(UUID, invoice.organization_id)
     net = Coalesce("platform_fee_net", "platform_fee")
-    ticket_net = Payment.objects.filter(
+    ticket_net: Decimal = Payment.objects.filter(
         status=Payment.PaymentStatus.SUCCEEDED,
         created_at__gte=period_start_dt,
         created_at__lt=period_end_dt,
@@ -97,7 +107,7 @@ def _recompute_fee_net_split(invoice: PlatformFeeInvoice) -> tuple[Decimal, Deci
         currency=invoice.currency,
         platform_fee__gt=0,
     ).aggregate(total=Sum(net))["total"] or Decimal("0.00")
-    membership_net = MembershipPayment.objects.filter(
+    membership_net: Decimal = MembershipPayment.objects.filter(
         status=MembershipPayment.PaymentStatus.SUCCEEDED,
         created_at__gte=period_start_dt,
         created_at__lt=period_end_dt,
@@ -105,6 +115,22 @@ def _recompute_fee_net_split(invoice: PlatformFeeInvoice) -> tuple[Decimal, Deci
         currency=invoice.currency,
         platform_fee__gt=0,
     ).aggregate(total=Sum(net))["total"] or Decimal("0.00")
+
+    recomputed = ticket_net + membership_net
+    if recomputed != invoice.fee_net:
+        # Weight by the recomputed amounts; if every contributing payment has
+        # since vanished from the live query, fall back to the stored counts.
+        ticket_weight, weight_total = (
+            (ticket_net, recomputed)
+            if recomputed > 0
+            else (Decimal(invoice.total_tickets), Decimal(invoice.total_tickets + invoice.total_subscription_payments))
+        )
+        ticket_net = (
+            (invoice.fee_net * ticket_weight / weight_total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if weight_total > 0
+            else invoice.fee_net
+        )
+        membership_net = invoice.fee_net - ticket_net
     return ticket_net, membership_net
 
 

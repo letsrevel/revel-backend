@@ -7,6 +7,7 @@ Tests cover:
 - Non-succeeded membership payments are excluded
 """
 
+import re
 import typing as t
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -26,7 +27,11 @@ from events.models import (
 )
 from events.models.organization import Organization
 from events.models.ticket import Payment, Ticket, TicketTier
-from events.service.invoice_service import generate_invoices_for_period, render_invoice_pdf
+from events.service.invoice_service import (
+    ensure_invoice_pdf_exists,
+    generate_invoices_for_period,
+    render_invoice_pdf,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -545,6 +550,12 @@ def _rendered_line_rows(mock_html_cls: MagicMock) -> list[str]:
     return body.split("<tr>")[1:]
 
 
+def _row_amount(row: str) -> Decimal:
+    """Parse the billed amount out of a rendered line row (its last cell)."""
+    cells = re.findall(r"<td>(.*?)</td>", row, flags=re.DOTALL)
+    return Decimal(re.sub(r"[^\d.\-]", "", cells[-1]))
+
+
 @patch("common.service.invoice_utils.HTML")
 class TestPlatformFeeInvoiceLineRows:
     """Ticket and membership fees are billed on separate, self-consistent lines."""
@@ -615,12 +626,12 @@ class TestPlatformFeeInvoiceLineRows:
         ticket_row, membership_row = rows
         assert "ticket sales" in ticket_row
         assert "<td>1</td>" in ticket_row
-        assert "€2.05" in ticket_row
+        assert _row_amount(ticket_row) == Decimal("2.05")
         assert "membership subscriptions" in membership_row
         assert "<td>1</td>" in membership_row
-        assert "€0.82" in membership_row
+        assert _row_amount(membership_row) == Decimal("0.82")
         # The rows reconcile with the untouched subtotal.
-        assert Decimal("2.05") + Decimal("0.82") == invoices[0].fee_net
+        assert _row_amount(ticket_row) + _row_amount(membership_row) == invoices[0].fee_net
 
     def test_ticket_only_invoice_keeps_a_single_ticket_row(
         self,
@@ -685,5 +696,53 @@ class TestPlatformFeeInvoiceLineRows:
 
         rows = _rendered_line_rows(mock_html_cls)
         assert len(rows) == 2
-        assert "€2.05" in rows[0]
-        assert "€0.82" in rows[1]
+        assert _row_amount(rows[0]) == Decimal("2.05")
+        assert _row_amount(rows[1]) == Decimal("0.82")
+
+    def test_regenerated_pdf_still_reconciles_after_a_refund(
+        self,
+        mock_html_cls: MagicMock,
+        org: Organization,
+        sub_event: Event,
+        ticket_tier: TicketTier,
+        buyer: RevelUser,
+        make_subscription: t.Callable[[], MembershipSubscription],
+        site_settings: SiteSettings,
+    ) -> None:
+        """A post-issuance refund must not desync a regenerated PDF from its own subtotal.
+
+        Refunds flip contributing payments out of SUCCEEDED after the invoice was
+        filed (the platform fee itself is settled by a credit note, not by
+        rewriting the invoice), so the recomputed split is rescaled onto the
+        persisted ``fee_net`` — the rows always add up to the printed subtotal.
+        """
+        mock_html_cls.return_value.write_pdf.return_value = None
+        created_at = timezone.make_aware(datetime(2028, 5, 10, 12, 0))
+        ticket_payment = _create_ticket_payment(
+            event=sub_event,
+            tier=ticket_tier,
+            user=buyer,
+            suffix="_refunded",
+            created_at=created_at,
+        )
+        _create_membership_payment(
+            subscription=make_subscription(),
+            created_at=created_at,
+            platform_fee=Decimal("1.00"),
+            platform_fee_net=Decimal("0.82"),
+            platform_fee_vat=Decimal("0.18"),
+            platform_fee_vat_rate=Decimal("22.00"),
+        )
+        invoice = generate_invoices_for_period(date(2028, 5, 1), date(2028, 5, 31))[0]
+        assert invoice.fee_net == Decimal("2.87")
+
+        # The ticket is refunded after the invoice was issued.
+        Payment.objects.filter(pk=ticket_payment.pk).update(status=Payment.PaymentStatus.REFUNDED)
+
+        # Recovery sweep (#616): the PDF went missing and is rebuilt from the row alone.
+        invoice.pdf_file.delete(save=True)
+        ensure_invoice_pdf_exists(invoice)
+
+        rows = _rendered_line_rows(mock_html_cls)
+        assert len(rows) == 2
+        assert _row_amount(rows[0]) + _row_amount(rows[1]) == invoice.fee_net
