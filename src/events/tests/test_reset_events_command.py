@@ -227,12 +227,11 @@ RESET_DELETE_ROOTS: tuple[type[Model], ...] = (
 HANDLED_PROTECTED_EDGES: frozenset[tuple[str, str, str]] = frozenset(
     {
         # Referral chain: pre-deleted in dependency order (statement → payout → referral → code).
+        # (payout→referral and referral→referred_user became SET_NULL in #818.)
         ("accounts.ReferralPayoutStatement", "payout", "accounts.ReferralPayout"),
-        ("accounts.ReferralPayout", "referral", "accounts.Referral"),
         ("accounts.Referral", "referral_code", "accounts.ReferralCode"),
         ("accounts.ReferralCode", "user", "accounts.RevelUser"),
         ("accounts.Referral", "referrer", "accounts.RevelUser"),
-        ("accounts.Referral", "referred_user", "accounts.RevelUser"),
         # Organizations are deleted before the user sweep.
         ("events.Organization", "owner", "accounts.RevelUser"),
         # Series templates: FKs nulled via EventSeries.objects.update(...) first.
