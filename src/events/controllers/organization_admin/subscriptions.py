@@ -19,7 +19,12 @@ from common.schema import ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
-from events.service import subscription_refunds, subscription_reporting, subscription_service
+from events.service import (
+    subscription_refunds,
+    subscription_reporting,
+    subscription_service,
+    subscription_uncancel,
+)
 from events.service.subscription_service import InitialPayment
 
 from .base import OrganizationAdminBaseController
@@ -383,6 +388,21 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             organization=organization,
         )
         return subscription_service.cancel_subscription(subscription, immediate=payload.immediate)
+
+    @route.post(
+        "/subscriptions/{sub_id}/uncancel",
+        url_name="uncancel_subscription",
+        response={200: schema.SubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
+    )
+    def uncancel_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
+        """Undo a scheduled cancellation, so the subscription keeps renewing."""
+        organization = self.get_one(slug)
+        subscription = get_object_or_404(
+            models.MembershipSubscription.objects.select_related("plan", "plan__tier", "user"),
+            pk=sub_id,
+            organization=organization,
+        )
+        return subscription_uncancel.uncancel_subscription(subscription)
 
     @route.post(
         "/subscriptions/{sub_id}/pause",
