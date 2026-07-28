@@ -6,6 +6,7 @@ from datetime import timedelta
 import structlog
 from celery import shared_task
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -154,13 +155,20 @@ def delete_user_account(user_id: str) -> None:
     """Delete a user account and all associated data in the background.
 
     This task is designed to handle heavy deletion operations that may involve
-    many database relationships. The deletion is performed in a transaction
-    to ensure data consistency.
+    many database relationships.
 
     Any live membership subscription is cancelled first — see
-    :func:`_cancel_live_subscriptions`. simple-history mirrors are purged
-    *afterwards*, because the cascade itself writes one deletion row per removed
-    live row — see :func:`~accounts.service.gdpr.purge_user_history`.
+    :func:`_cancel_live_subscriptions`, which must stay *outside* the
+    transaction so its ``on_commit`` Stripe cancel actually fires.
+
+    The cascade and the simple-history purge then run inside **one** explicit
+    transaction. Both halves are needed for the erasure to be complete, and a
+    Celery worker runs in autocommit (``ATOMIC_REQUESTS`` only covers HTTP), so
+    without this ``user.delete()`` would commit on its own and a crash before
+    the purge would strand history rows carrying the user's pk with no retry
+    path — the retry would die on ``RevelUser.DoesNotExist``. The purge runs
+    after the delete, because the cascade itself writes one deletion row per
+    removed live row (see :func:`~accounts.service.gdpr.purge_user_history`).
 
     Args:
         user_id: The UUID of the user to delete.
@@ -171,8 +179,9 @@ def delete_user_account(user_id: str) -> None:
     # ``delete()`` nulls the instance pk, so keep it for the history purge.
     pk = user.pk
     try:
-        user.delete()
-        gdpr.purge_user_history(pk)
+        with transaction.atomic():
+            user.delete()
+            gdpr.purge_user_history(pk)
         logger.info("account_deletion_completed", user_id=user_id)
     except Exception as e:
         logger.error("account_deletion_failed", user_id=user_id, error=str(e), exc_info=True)

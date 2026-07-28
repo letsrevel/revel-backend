@@ -477,9 +477,10 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "accounts.reveluser_user_permissions.reveluser": ExportRule(
         include=False, reason="Django auth permission assignment"
     ),
-    # Actor side of moderation/decision rows — the counterpart accessors
-    # (``global_bans``, ``blacklist_entries``, ``whitelist_requests``) hold the
-    # data-subject side.
+    # Actor side of moderation/decision rows: these name the user as the staff
+    # member who banned/blacklisted/decided *about somebody else*. (The
+    # data-subject side of each lives under its own accessor — ``global_bans``,
+    # ``blacklist_entries``, ``whitelist_requests`` — with its own rule above.)
     "accounts.globalban.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "events.blacklist.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "events.whitelistrequest.decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
@@ -674,14 +675,12 @@ def purge_user_history(user_id: UUID) -> dict[str, int]:
     Returns:
         ``{"deleted": n, "anonymized": n}`` row counts, for the erasure log.
     """
-    # ponytail: only *direct* user FKs are followed. A historical model reached
-    # from the user through another table (``HistoricalMembershipPayment`` →
-    # ``subscription``) keeps rows whose parent the cascade removed; they retain
-    # no user pk, but do retain Stripe ids and notes behind a dangling FK. To
-    # close that, either register those children with
-    # ``HistoricalRecords(cascade_delete_history=True)`` so the mirror follows
-    # the live cascade, or resolve the chain here before deleting the parents'
-    # historical rows.
+    # Only *direct* user FKs are followed here. A historical model that reaches
+    # the user through another table (``MembershipPayment`` → ``subscription``)
+    # is covered at the source instead: it is registered
+    # ``HistoricalRecords(cascade_delete_history=True)``, so its mirror is
+    # dropped by the live cascade rather than left behind a dangling FK. Any
+    # future transitively-linked history model needs the same flag.
     deleted = 0
     anonymized = 0
     for model in list(registered_models.values()):

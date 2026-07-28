@@ -302,6 +302,68 @@ def test_delete_user_account_purges_simple_history(
 
 
 @pytest.mark.django_db
+def test_delete_user_account_removes_payment_history_reached_via_subscription(
+    subscriber: RevelUser,
+    host_organization: t.Any,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A payment names its data subject only through ``subscription``.
+
+    ``purge_user_history`` follows user FKs and cannot see those rows, so
+    ``MembershipPayment`` is registered ``cascade_delete_history=True`` and its
+    mirror goes with the live row instead of surviving behind a dangling FK
+    with the Stripe ids and notes still on it.
+    """
+    from events.models import MembershipPayment
+
+    subscription = _subscribe(host_organization, subscriber, online=False)
+    payment = MembershipPayment.objects.create(
+        subscription=subscription,
+        amount=Decimal("42.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        period_start=timezone.now() - timedelta(days=30),
+        period_end=timezone.now(),
+        notes="paid at the door, receipt #7",
+        stripe_invoice_id="in_hist_gdpr",
+        stripe_payment_intent_id="pi_hist_gdpr",
+    )
+    payment.status = MembershipPayment.PaymentStatus.REFUNDED
+    payment.save(update_fields=["status"])
+    user_id = subscriber.id
+
+    assert MembershipPayment.history.filter(id=payment.pk).count() >= 2
+
+    with django_capture_on_commit_callbacks(execute=False):
+        delete_user_account(str(user_id))
+
+    assert not MembershipPayment.history.filter(id=payment.pk).exists()
+    surviving = list(MembershipPayment.history.all())
+    assert "pi_hist_gdpr" not in {row.stripe_payment_intent_id for row in surviving}
+    assert "in_hist_gdpr" not in {row.stripe_invoice_id for row in surviving}
+    assert "paid at the door, receipt #7" not in {row.notes for row in surviving}
+
+
+@pytest.mark.django_db
+def test_delete_user_account_rolls_back_when_the_history_purge_fails(subscriber: RevelUser) -> None:
+    """The cascade and the purge commit together or not at all.
+
+    A Celery worker runs in autocommit, so without the explicit ``atomic`` the
+    delete would commit on its own and a failing purge would strand history
+    rows carrying the user's pk — unrecoverable, since a retry dies on
+    ``RevelUser.DoesNotExist``.
+    """
+    user_id = subscriber.id
+
+    with patch.object(gdpr, "purge_user_history", side_effect=RuntimeError("purge exploded")) as purge:
+        with pytest.raises(RuntimeError, match="purge exploded"):
+            delete_user_account(str(user_id))
+
+    purge.assert_called_once_with(user_id)
+    assert RevelUser.objects.filter(id=user_id).exists()
+
+
+@pytest.mark.django_db
 def test_purge_user_history_keeps_other_subjects_rows(
     subscriber: RevelUser,
     host_organization: t.Any,

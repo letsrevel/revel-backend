@@ -408,7 +408,13 @@ class MembershipPayment(TimeStampedModel):
         max_length=255, blank=True, default="", help_text="Most recent Stripe Refund id, when known."
     )
 
-    history = HistoricalRecords()
+    # ``cascade_delete_history`` is the GDPR leg: a payment reaches its data
+    # subject only through ``subscription``, so a user erasure would otherwise
+    # leave history rows carrying Stripe ids, amounts and ``notes`` behind a
+    # dangling FK — invisible to a purge that follows user FKs. Dropping the
+    # mirror with the live row keeps it reachable. Nothing deletes payments
+    # directly, so this only ever fires on a cascade (user/subscription/org).
+    history = HistoricalRecords(cascade_delete_history=True)
 
     class Meta:
         ordering = ["-created_at"]
