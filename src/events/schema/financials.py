@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime
+from pydantic import AwareDatetime, Field
 
 
 class RateBucketSchema(Schema):
@@ -18,11 +18,25 @@ class RateBucketSchema(Schema):
 
 
 class CurrencyFinancialsSchema(Schema):
+    """Ticket money for one currency. Ticket scope only — membership revenue is not included here.
+
+    Every figure below is derived from ticket payments; membership subscription money is
+    reported separately in ``MembershipFinancialsSchema`` and is never folded into these totals.
+    """
+
     currency: str
     gross: Decimal
     refunds: Decimal
     net: Decimal
-    net_taxable: Decimal
+    net_taxable: Decimal = Field(
+        ...,
+        description=(
+            "VAT taxable base for TICKET revenue only, in this currency. Membership revenue is "
+            "excluded: subscription plans carry no VAT rate, so no VAT treatment is applied to "
+            "membership money and it cannot be added to this figure. Do not use this value as a "
+            "total taxable turnover without consulting your tax advisor."
+        ),
+    )
     vat: Decimal
     sold_count: int
     refunded_count: int
@@ -37,10 +51,15 @@ class EventFinancialsSchema(Schema):
 
 
 class MembershipFinancialsSchema(Schema):
-    """Membership subscription money for one currency.
+    """Membership subscription money for one currency, reported GROSS with no VAT treatment.
 
     ``net`` is gross minus refunds (the platform fee is reported, not deducted),
     matching the ticket-side convention so the two are addable.
+
+    VAT caveat: subscription plans carry no VAT rate, so none of these amounts are
+    VAT-decomposed — ``gross``/``net`` are gross-of-VAT figures. Consequently membership
+    revenue is excluded from ``CurrencyFinancialsSchema.net_taxable``, which is ticket
+    scope only. Do not present these numbers as a taxable base.
     """
 
     currency: str
@@ -52,7 +71,12 @@ class MembershipFinancialsSchema(Schema):
 
 
 class CombinedTotalsSchema(Schema):
-    """Grand total for one currency: ticket net plus membership net."""
+    """Grand total for one currency: ticket net plus membership net.
+
+    This is a cash-flow total, not a tax figure: ``memberships_net`` is gross of VAT (see
+    ``MembershipFinancialsSchema``), so ``net`` mixes a VAT-decomposed ticket component with
+    an untreated membership one and must not be filed as taxable turnover.
+    """
 
     currency: str
     tickets_net: Decimal

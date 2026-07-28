@@ -172,6 +172,29 @@ def test_membership_sheet_carries_the_reconciliation_columns(
 
 
 @pytest.mark.django_db
+def test_membership_sheet_labels_revenue_as_gross_and_out_of_scope(
+    membership_report_data: svc.RevenueReportData,
+) -> None:
+    """The sheet says membership money is gross and excluded from taxable turnover."""
+    wb = load_workbook(io.BytesIO(svc.build_xlsx(membership_report_data)))
+    sheet = wb["Membership payments"]
+    notes = [
+        str(row[0].value)
+        for row in sheet.iter_rows(min_row=2, max_col=1)
+        if row[0].value and "membership revenue is reported gross" in str(row[0].value)
+    ]
+    assert len(notes) == 1, "membership VAT note missing from the sheet"
+    assert "no VAT treatment is applied" in notes[0]
+    assert "excluded from the Net taxable turnover figures" in notes[0]
+    assert "tax advisor" in notes[0]
+    # The note sits below the data block: headers and the first payment row are untouched,
+    # so machine parsers keyed off row 1 / row 2 keep working.
+    assert sheet["A1"].value == "date"
+    assert sheet["B2"].value == "member@example.com"
+    assert sheet["A2"].value == membership_report_data.membership_payments[0].date.isoformat()
+
+
+@pytest.mark.django_db
 def test_membership_only_org_still_produces_a_report(membership_report_data: svc.RevenueReportData) -> None:
     """No tickets at all: the ticket sections are empty but the ledger is not."""
     assert membership_report_data.sections == []
@@ -195,11 +218,27 @@ def test_pdf_shows_membership_summary_instead_of_no_revenue(
 
 
 @pytest.mark.django_db
+def test_pdf_labels_membership_revenue_as_gross_and_out_of_scope(
+    membership_report_data: svc.RevenueReportData,
+) -> None:
+    """The membership table carries the gross / not-taxable-turnover caveat."""
+    html = render_to_string(
+        "reports/revenue_vat_report.html",
+        {"data": membership_report_data, "org": membership_report_data.scope.org},
+    )
+    assert "Membership revenue is reported gross" in html
+    assert "no VAT treatment is applied" in html
+    assert "excluded from the net taxable turnover figures" in html
+    assert "Consult your tax advisor." in html
+
+
+@pytest.mark.django_db
 def test_pdf_omits_the_membership_table_without_memberships(report_data: svc.RevenueReportData) -> None:
-    """Ticket-only orgs see the report exactly as before."""
+    """Ticket-only orgs see the report exactly as before: no membership table, no membership caveat."""
     html = render_to_string("reports/revenue_vat_report.html", {"data": report_data, "org": report_data.scope.org})
     assert "Memberships" not in html
     assert "No revenue in this period" not in html
+    assert "Membership revenue is reported gross" not in html
 
 
 @pytest.mark.django_db

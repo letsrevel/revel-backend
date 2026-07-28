@@ -114,6 +114,16 @@ _MEMBERSHIP_TXN_HEADERS = [
 ]
 
 
+# Membership plans carry no VAT rate, so nothing on this sheet is VAT-decomposed and the money
+# is deliberately absent from the ticket-scope "Net taxable turnover" totals on Summary. Say so
+# on the sheet itself: an organizer pasting these amounts into a VAT return would under-report.
+_MEMBERSHIP_VAT_NOTE = (
+    "Note: membership revenue is reported gross — no VAT treatment is applied. These amounts are "
+    "excluded from the Net taxable turnover figures on the Summary sheet, which cover ticket "
+    "revenue only. Consult your tax advisor."
+)
+
+
 def report_filename(scope: ReportScope, ext: str = "zip") -> str:
     """Return a canonical filename for the report bundle or one of its parts."""
     return f"revel-revenue-{scope.org.slug}-{scope.date_from}_{scope.date_to}.{ext}"
@@ -201,6 +211,10 @@ def build_xlsx(data: RevenueReportData) -> bytes:
     style_header_row(memberships)
     auto_fit_columns(memberships)
     memberships.freeze_panes = "A2"
+    # Appended after styling on purpose: the note must not widen column A, join the autofilter
+    # range, or shift the header/data rows that machine parsers key off.
+    memberships.append([])
+    memberships.append([_MEMBERSHIP_VAT_NOTE])
 
     buf = io.BytesIO()
     wb.save(buf)
