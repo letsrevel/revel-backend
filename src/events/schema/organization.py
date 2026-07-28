@@ -357,13 +357,6 @@ class MinimalOrganizationMemberSchema(ModelSchema):
         fields = ["created_at", "status", "tier"]
 
 
-class OrganizationMemberSchema(Schema):
-    user: MemberUserSchema
-    member_since: AwareDatetime = Field(alias="created_at")
-    status: OrganizationMember.MembershipStatus
-    tier: MembershipTierSchema | None = None
-
-
 class OrganizationMemberUpdateSchema(Schema):
     status: OrganizationMember.MembershipStatus | None = None
     tier_id: UUID4 | None = None

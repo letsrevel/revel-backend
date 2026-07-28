@@ -1,7 +1,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
@@ -54,9 +54,40 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         slug: str,
         params: t.Annotated[filters.MembershipFilterSchema, Query(...)],
     ) -> QuerySet[models.OrganizationMember]:
-        """List all members of an organization."""
+        """List all members of an organization.
+
+        Each row inlines the member's non-terminal subscription in this organization (if
+        any) so the ban/remove confirmation dialogs can warn that the action cancels it
+        and stops billing. Prefetched (subscription + annotated plan) to keep it O(1).
+        """
         organization = self.get_one(slug)
-        qs = models.OrganizationMember.objects.filter(organization=organization).select_related("user", "tier")
+        active_subscriptions = (
+            models.MembershipSubscription.objects.filter(organization=organization)
+            .exclude(status__in=models.MembershipSubscription.TERMINAL_STATUSES)
+            .select_related("user")
+            .prefetch_related(
+                # Forward-FK prefetch rather than select_related: the nested PlanSchema
+                # reads the ``active_subscription_count`` annotation, which would
+                # otherwise fall back to a COUNT per row.
+                Prefetch(
+                    "plan",
+                    queryset=models.MembershipSubscriptionPlan.objects.with_active_subscription_count().select_related(
+                        "tier"
+                    ),
+                )
+            )
+        )
+        qs = (
+            models.OrganizationMember.objects.filter(organization=organization)
+            .select_related("user", "tier")
+            .prefetch_related(
+                Prefetch(
+                    "user__membership_subscriptions",
+                    queryset=active_subscriptions,
+                    to_attr="_org_active_subs",
+                )
+            )
+        )
         return params.filter(qs).distinct()
 
     @route.put(

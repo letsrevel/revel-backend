@@ -7,6 +7,7 @@ from uuid import UUID
 from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, Field, HttpUrl, model_validator
 
+from accounts.schema import MemberUserSchema
 from events.models import (
     MembershipPayment,
     MembershipSubscription,
@@ -445,6 +446,45 @@ class SubscriptionSchema(_BaseSubscriptionSchema):
     def resolve_plan(obj: MembershipSubscription) -> MembershipSubscriptionPlan:
         """Return the plan for nested serialization."""
         return obj.plan
+
+
+class OrganizationMemberSchema(Schema):
+    """Org-admin view of a single member row, with their live subscription inlined.
+
+    ``subscription`` is the member's non-terminal subscription in this organization
+    (``None`` when they have none) — at most one exists, per the
+    ``one_active_subscription_per_user_org`` constraint. Banning, blacklisting or
+    removing a member cancels it and stops Stripe billing, so the admin confirmation
+    dialogs need it to warn truthfully. Mirrors :class:`MyMembershipSchema` on the
+    member-facing side.
+
+    Lives here rather than in ``schema/organization.py`` because that module is
+    imported by this one; the nested subscription would be a circular import.
+    """
+
+    user: MemberUserSchema
+    member_since: AwareDatetime = Field(alias="created_at")
+    status: OrganizationMember.MembershipStatus
+    tier: MembershipTierSchema | None = None
+    subscription: SubscriptionSchema | None = None
+
+    @staticmethod
+    def resolve_subscription(obj: OrganizationMember) -> MembershipSubscription | None:
+        """Return the member's non-terminal subscription in this organization, if any.
+
+        Reads the ``_org_active_subs`` prefetch when present (set by the members-list
+        queryset — avoids one query per row); falls back to a lookup for the
+        single-object endpoints that return a member straight from the service layer.
+        """
+        prefetched: list[MembershipSubscription] | None = getattr(obj.user, "_org_active_subs", None)
+        if prefetched is not None:
+            return prefetched[0] if prefetched else None
+        return (
+            MembershipSubscription.objects.filter(user_id=obj.user_id, organization_id=obj.organization_id)
+            .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+            .select_related("user", "plan", "plan__tier")
+            .first()
+        )
 
 
 class SubscribeRequestSchema(Schema):
