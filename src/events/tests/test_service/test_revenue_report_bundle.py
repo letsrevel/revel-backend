@@ -7,6 +7,7 @@ import zipfile
 from decimal import Decimal
 
 import pytest
+from django.template.loader import render_to_string
 from django.utils import timezone
 from openpyxl import load_workbook
 
@@ -175,6 +176,46 @@ def test_membership_only_org_still_produces_a_report(membership_report_data: svc
     """No tickets at all: the ticket sections are empty but the ledger is not."""
     assert membership_report_data.sections == []
     assert len(membership_report_data.membership_payments) == 1
+    assert [m.gross for m in membership_report_data.memberships] == [Decimal("30.00")]
+
+
+@pytest.mark.django_db
+def test_pdf_shows_membership_summary_instead_of_no_revenue(
+    membership_report_data: svc.RevenueReportData,
+) -> None:
+    """A membership-only org must not be told "No revenue in this period" (the mailed PDF)."""
+    html = render_to_string(
+        "reports/revenue_vat_report.html",
+        {"data": membership_report_data, "org": membership_report_data.scope.org},
+    )
+    assert "Memberships" in html
+    assert "No revenue in this period" not in html
+    assert "30.00" in html  # gross
+    assert "5.00" in html  # refunded
+
+
+@pytest.mark.django_db
+def test_pdf_omits_the_membership_table_without_memberships(report_data: svc.RevenueReportData) -> None:
+    """Ticket-only orgs see the report exactly as before."""
+    html = render_to_string("reports/revenue_vat_report.html", {"data": report_data, "org": report_data.scope.org})
+    assert "Memberships" not in html
+    assert "No revenue in this period" not in html
+
+
+@pytest.mark.django_db
+def test_event_scoped_report_carries_no_membership_rows(membership_report_data: svc.RevenueReportData) -> None:
+    """Membership money is org-level: an event-scoped report must not claim it."""
+    org = membership_report_data.scope.org
+    now = timezone.now()
+    event = Event.objects.create(
+        organization=org, name="Scoped", slug="scoped", start=now, end=now + dt.timedelta(hours=1)
+    )
+    scope = svc.ReportScope(org=org, event_id=event.id, date_from=dt.date(2000, 1, 1), date_to=dt.date(2100, 1, 1))
+
+    data = svc.build_revenue_report_data(scope)
+
+    assert data.membership_payments == []
+    assert data.memberships == []
 
 
 @pytest.mark.django_db

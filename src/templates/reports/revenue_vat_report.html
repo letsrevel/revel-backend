@@ -60,9 +60,35 @@
       </tr>
     </tbody>
   </table>
-  {% empty %}
-  <p>No revenue in this period.</p>
   {% endfor %}
+
+  {% if data.memberships %}
+  <h2>Memberships</h2>
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th>Currency</th><th class="num">Payments</th><th class="num">Gross</th><th class="num">Refunded</th><th class="num">Platform fee</th><th class="num">Net</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in data.memberships %}
+      <tr>
+        <td>{{ m.currency }}</td>
+        <td class="num">{{ m.payment_count }}</td>
+        <td class="num">{{ m.gross|format_number }}</td>
+        <td class="num">−{{ m.refunded_amount|format_number }}</td>
+        <td class="num">{{ m.platform_fee|format_number }}</td>
+        <td class="num">{{ m.net|format_number }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="foot">Membership subscription revenue, per currency. Net is gross minus refunds; the platform fee is shown for information and is billed separately. Per-payment detail is in the "Membership payments" sheet of the XLSX.</p>
+  {% endif %}
+
+  {% if not data.sections and not data.memberships %}
+  <p>No revenue in this period.</p>
+  {% endif %}
 
   <p class="foot">Bank payouts are net of Stripe processing fees and Revel platform fees, which are booked separately from their respective monthly invoices.</p>
 </body>

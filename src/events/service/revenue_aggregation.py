@@ -106,15 +106,17 @@ class CurrencySection:
 class RevenueReportData:
     """Full aggregated report data returned to callers.
 
-    ``membership_payments`` is the org-level subscription ledger for the period —
-    kept beside (never folded into) the ticket ``sections``, whose VAT buckets are
-    ticket-specific. Always empty for an event-scoped report.
+    ``memberships``/``membership_payments`` are the org-level subscription totals
+    and ledger for the period — kept beside (never folded into) the ticket
+    ``sections``, whose VAT buckets are ticket-specific. Both are always empty for
+    an event-scoped report.
     """
 
     scope: ReportScope
     sections: list[CurrencySection]
     generated_at: datetime
     membership_payments: list[MembershipTxnRow] = field(default_factory=list)
+    memberships: list["MembershipFinancials"] = field(default_factory=list)
 
 
 def resolve_period(
@@ -554,8 +556,9 @@ def build_revenue_report_data(scope: ReportScope) -> RevenueReportData:
         for currency, acc in agg.currencies.items():
             _merge_currency(merged.setdefault(currency, _CurrencyAcc()), acc)
     sections = [s for currency, acc in sorted(merged.items()) if (s := _currency_section(currency, acc))]
+    membership_accs = sorted(_aggregate_memberships(scope).items())
     membership_rows = sorted(
-        (row for _, acc in sorted(_aggregate_memberships(scope).items()) for row in acc.transactions),
+        (row for _, acc in membership_accs for row in acc.transactions),
         key=lambda r: r.date,
     )
     return RevenueReportData(
@@ -563,6 +566,7 @@ def build_revenue_report_data(scope: ReportScope) -> RevenueReportData:
         sections=sections,
         generated_at=timezone.now(),
         membership_payments=membership_rows,
+        memberships=[_membership_financials(cur, acc) for cur, acc in membership_accs],
     )
 
 

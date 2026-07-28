@@ -202,6 +202,23 @@ def test_org_financials_membership_refund_reduces_net(organization: Organization
     assert fin.combined_totals[0].net == Decimal("20.00")
 
 
+def test_org_financials_fully_refunded_membership_still_counts_toward_gross(
+    organization: Organization, member_user: RevelUser
+) -> None:
+    """A fully refunded payment keeps its original amount in gross; net goes to zero."""
+    payment = _membership_payment(organization, member_user, "30.00", refund_amount="30.00")
+    payment.status = MembershipPayment.PaymentStatus.REFUNDED
+    payment.save(update_fields=["status"])
+
+    fin = organization_financials(_scope(organization), currency=None, sort="revenue", order="desc")
+
+    memberships = fin.memberships[0]
+    assert memberships.gross == Decimal("30.00")
+    assert memberships.payment_count == 1
+    assert memberships.refunded_amount == Decimal("30.00")
+    assert memberships.net == Decimal("0.00")
+
+
 def test_org_financials_currency_filter_scopes_memberships(
     organization: Organization,
     member_user: RevelUser,
