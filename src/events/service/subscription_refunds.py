@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
+from events.service import subscription_service, subscription_stripe_service
 
 logger = structlog.get_logger(__name__)
 
@@ -75,15 +76,11 @@ def _cancel_refunded_subscription(subscription: MembershipSubscription) -> None:
         subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
         and subscription.stripe_subscription_id
     ):
-        from events.service import subscription_stripe_service  # lazy: avoid cycle
-
         transaction.on_commit(
             lambda: subscription_stripe_service.cancel_stripe_subscription_best_effort(
                 subscription, reason="refund_auto_cancel"
             )
         )
-    from events.service import subscription_service  # lazy: avoid cycle
-
     subscription_service._dispatch_cancellation_confirmed(subscription, immediate=True)
 
 

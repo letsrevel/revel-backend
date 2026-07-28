@@ -26,6 +26,7 @@ from events.models import (
     OrganizationMember,
 )
 from events.service import stripe_incidents
+from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.subscription_stripe_dispatch import (
     _dispatch_invoice_notifications,
     _dispatch_sync_notifications,
@@ -71,8 +72,6 @@ def _ensure_active_member(subscription: MembershipSubscription) -> None:
     ).first()
     if existing is not None:
         return
-
-    from events.service.blacklist_service import check_user_hard_blacklisted  # lazy: avoid cycle
 
     if check_user_hard_blacklisted(subscription.user, subscription.organization):
         stripe_incidents.record_subscription_paid_while_blacklisted(

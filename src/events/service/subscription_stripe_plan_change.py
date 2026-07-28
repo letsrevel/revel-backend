@@ -12,7 +12,6 @@ from decimal import Decimal
 
 import stripe
 import structlog
-from django.conf import settings
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -22,21 +21,10 @@ from events.models import (
     MembershipSubscriptionPlan,
     Organization,
 )
-from events.service.subscription_stripe_payloads import _is_subscription_gone
+from events.service.subscription_stripe_base import ensure_stripe_price
+from events.service.subscription_stripe_payloads import _is_subscription_gone, _stripe_account_kwargs
 
 logger = structlog.get_logger(__name__)
-
-
-# ---- Stripe-account helpers (mirrors subscription_stripe_service) ------------
-# Duplicated here to avoid a circular import: subscription_stripe_service
-# re-exports change_online_plan, while this module provides it.
-
-
-def _stripe_account_kwargs(organization: Organization) -> dict[str, str]:
-    """Return ``stripe_account=...`` kwargs for a Connect API call."""
-    if organization.stripe_account_id and organization.stripe_account_id != settings.STRIPE_ACCOUNT:
-        return {"stripe_account": organization.stripe_account_id}
-    return {}
 
 
 # ---- Internal helpers --------------------------------------------------------
@@ -374,9 +362,6 @@ def _ensure_new_plan_has_stripe_price(new_plan: MembershipSubscriptionPlan) -> N
     """
     if new_plan.stripe_price_id:
         return
-    # Lazy import to avoid a circular dependency with subscription_stripe_service.
-    from events.service.subscription_stripe_service import ensure_stripe_price  # noqa: PLC0415
-
     ensure_stripe_price(new_plan)
     new_plan.refresh_from_db()
     if not new_plan.stripe_price_id:

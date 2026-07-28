@@ -30,12 +30,21 @@ from events.models import (
     MembershipSubscriptionPlan,
     Organization,
 )
-from events.service import subscription_sales, subscription_service
+from events.service import subscription_core, subscription_sales
+from events.service.subscription_stripe_base import (
+    _require_stripe_connected,
+)
+from events.service.subscription_stripe_base import (
+    ensure_stripe_price as ensure_stripe_price,
+)
 from events.service.subscription_stripe_payloads import (
     _is_subscription_gone,
     _stripe_account_kwargs,
 )
-from events.utils.currency import to_stripe_amount
+from events.service.subscription_stripe_plan_change import (
+    release_online_schedule,
+    resolve_refused_cancel,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -44,15 +53,6 @@ logger = structlog.get_logger(__name__)
 # module's import side effects to set the pin.
 stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe.api_version = settings.STRIPE_API_VERSION
-
-
-# ---- Stripe-account helpers --------------------------------------------------
-
-
-def _require_stripe_connected(organization: Organization) -> None:
-    """Raise 400 if the organization has not finished Stripe Connect onboarding."""
-    if not organization.is_stripe_connected:
-        raise HttpError(400, str(_("This organization is not configured to accept payments.")))
 
 
 # ---- Customer profile --------------------------------------------------------
@@ -97,82 +97,8 @@ def ensure_customer_profile(user: RevelUser, organization: Organization) -> Cust
 
 
 # ---- Product + Price provisioning -------------------------------------------
-
-
-def _price_inputs_changed(plan: MembershipSubscriptionPlan, price: stripe.Price) -> bool:
-    """True when ``plan``'s pricing inputs no longer match the Stripe Price."""
-    if not price.active:
-        return True
-    if price.unit_amount != to_stripe_amount(plan.price, plan.currency):
-        return True
-    if (price.currency or "").upper() != plan.currency.upper():
-        return True
-    recurring = price.recurring or {}
-    if recurring.get("interval") != plan.period_unit:
-        return True
-    if recurring.get("interval_count") != plan.period_count:
-        return True
-    return False
-
-
-def ensure_stripe_price(plan: MembershipSubscriptionPlan) -> MembershipSubscriptionPlan:
-    """Create or sync the Stripe Product + Price for an ONLINE plan.
-
-    Stripe Prices are immutable on the dimensions we care about (unit amount,
-    currency, recurring interval). When any of those change we archive the
-    existing Price and create a fresh one.
-
-    A no-op for OFFLINE plans.
-    """
-    if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-        return plan
-
-    org = plan.tier.organization
-    _require_stripe_connected(org)
-    kwargs = _stripe_account_kwargs(org)
-    update_fields: list[str] = []
-
-    try:
-        if not plan.stripe_product_id:
-            product = stripe.Product.create(
-                name=f"{plan.tier.name} — {plan.name}",
-                description=plan.description or None,
-                metadata={"revel_plan_id": str(plan.pk)},
-                **kwargs,
-            )
-            plan.stripe_product_id = t.cast(str, product.id)
-            update_fields.append("stripe_product_id")
-
-        needs_new_price = not plan.stripe_price_id
-        if not needs_new_price:
-            existing_price = stripe.Price.retrieve(plan.stripe_price_id, **kwargs)
-            if _price_inputs_changed(plan, existing_price):
-                if existing_price.active:
-                    stripe.Price.modify(plan.stripe_price_id, active=False, **kwargs)
-                needs_new_price = True
-
-        if needs_new_price:
-            new_price = stripe.Price.create(
-                product=plan.stripe_product_id,
-                unit_amount=to_stripe_amount(plan.price, plan.currency),
-                currency=plan.currency.lower(),
-                recurring={"interval": plan.period_unit, "interval_count": plan.period_count},
-                metadata={"revel_plan_id": str(plan.pk)},
-                **kwargs,
-            )
-            plan.stripe_price_id = t.cast(str, new_price.id)
-            update_fields.append("stripe_price_id")
-    except stripe.error.StripeError as exc:
-        logger.error(
-            "subscription_stripe_price_sync_failed",
-            plan_id=str(plan.pk),
-            error=str(exc),
-        )
-        raise HttpError(502, str(_("Could not sync the plan with Stripe. Please try again later."))) from exc
-
-    if update_fields:
-        plan.save(update_fields=[*update_fields, "updated_at"])
-    return plan
+# ``ensure_stripe_price`` lives in :mod:`subscription_stripe_base` (shared with
+# ``subscription_stripe_plan_change``) and is re-exported via the import above.
 
 
 def archive_stripe_price(plan: MembershipSubscriptionPlan) -> None:
@@ -379,7 +305,7 @@ def start_online_subscription(
 ) -> tuple[MembershipSubscription, str]:
     """Start an ONLINE subscription via hosted Stripe Checkout.
 
-    Creates the local row via :func:`subscription_service.create_subscription`
+    Creates the local row via :func:`subscription_core.create_subscription`
     (re-using its BANNED / duplicate-active checks and member sync), then
     creates a Checkout Session (``mode=subscription``) on the org's Connect
     account. The Stripe Subscription itself is only created when the member
@@ -434,7 +360,7 @@ def start_online_subscription(
     # transaction) — a ``checkout.session.completed`` webhook cannot race us
     # here because the member can only reach the session via the URL this
     # request returns after commit.
-    subscription = subscription_service.create_subscription(plan, user)
+    subscription = subscription_core.create_subscription(plan, user)
 
     try:
         session = _create_subscription_checkout_session(
@@ -630,8 +556,6 @@ def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription,
     except stripe.error.InvalidRequestError as exc:
         # Already gone → the desired end state holds. Schedule-managed (pending
         # downgrade) → release the schedule and retry once. Anything else → False.
-        from events.service.subscription_stripe_plan_change import resolve_refused_cancel  # lazy: avoid cycle
-
         return resolve_refused_cancel(subscription, exc, reason=reason)
     except stripe.error.StripeError:
         logger.exception(
@@ -790,8 +714,6 @@ def cancel_online_subscription(
     # A pending downgrade makes the subscription schedule-managed on Stripe,
     # which rejects a plain cancel/modify. Release the schedule first (clears
     # stripe_schedule_id + pending_plan locally) so the cancel can proceed.
-    from events.service.subscription_stripe_plan_change import release_online_schedule  # lazy: avoid cycle
-
     release_online_schedule(subscription)
 
     if immediate:
@@ -899,8 +821,6 @@ def pause_online_subscription(subscription: MembershipSubscription) -> Membershi
     # A pending downgrade makes the subscription schedule-managed on Stripe,
     # which rejects ``pause_collection``. Release the schedule first (clears
     # stripe_schedule_id + pending_plan locally) so the pause can proceed.
-    from events.service.subscription_stripe_plan_change import release_online_schedule  # lazy: avoid cycle
-
     release_online_schedule(subscription)
 
     try:

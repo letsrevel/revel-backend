@@ -4,8 +4,6 @@ Function-based service per the project's hybrid conventions. Stripe-specific
 logic is intentionally absent; it lands in a separate Phase 2 module.
 """
 
-import dataclasses
-import datetime
 import functools
 import typing as t
 from datetime import timedelta
@@ -13,66 +11,43 @@ from decimal import Decimal
 
 import structlog
 from django.db import transaction
-from django.db.models import ProtectedError, Q
+from django.db.models import ProtectedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from common.utils import get_or_create_with_race_protection
 from events.models import (
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
-    OrganizationMember,
+)
+from events.service import subscription_stripe_plan_change, subscription_stripe_service
+
+# ``create_subscription`` / ``record_payment`` / ``InitialPayment`` live in
+# :mod:`events.service.subscription_core` (so the Stripe service can use them
+# without importing this orchestrator back); re-exported here so existing call
+# sites (controllers, tasks, tests) keep importing them from this module.
+from events.service.subscription_core import (
+    InitialPayment as InitialPayment,
+)
+from events.service.subscription_core import (
+    create_subscription as create_subscription,
+)
+from events.service.subscription_core import (
+    record_payment as record_payment,
 )
 from events.service.subscription_sales import (
     ensure_member_not_excluded,
     ensure_plan_on_sale,
     ensure_plan_sales_capacity,
 )
+from events.service.subscription_stripe_base import ensure_stripe_price
 from events.service.ticket_service import check_online_payment_prerequisites
-from events.utils.subscription_periods import calculate_period_end
 
 logger = structlog.get_logger(__name__)
-
-
-@dataclasses.dataclass
-class InitialPayment:
-    """Payload bundling the optional first payment recorded with a subscription."""
-
-    amount: Decimal
-    currency: str
-    recorded_by: RevelUser
-    notes: str = ""
-
-
-def _validate_occurred_at(
-    subscription: MembershipSubscription,
-    occurred_at: datetime.datetime,
-    now: datetime.datetime,
-) -> None:
-    """Reject occurred_at values that don't belong to the subscription's timeline."""
-    if occurred_at > now:
-        raise HttpError(400, str(_("occurred_at cannot be in the future.")))
-    if occurred_at < subscription.created_at:
-        raise HttpError(400, str(_("occurred_at cannot predate the subscription.")))
-    if subscription.current_period_start and occurred_at < subscription.current_period_start:
-        raise HttpError(
-            400,
-            str(_("occurred_at cannot predate the start of the current billing period.")),
-        )
-    if (
-        subscription.current_period_end
-        and subscription.current_period_end < now
-        and occurred_at < subscription.current_period_end
-    ):
-        raise HttpError(
-            400,
-            str(_("occurred_at cannot predate the lapsed period end of the subscription.")),
-        )
 
 
 # ---- Plan operations ---------------------------------------------------------
@@ -97,9 +72,7 @@ def _maybe_sync_plan_to_stripe(plan: MembershipSubscriptionPlan) -> MembershipSu
     # typed exceptions and their actionable messages.
     check_online_payment_prerequisites(plan.tier.organization)
 
-    from events.service import subscription_stripe_service  # lazy: avoid cycle
-
-    return subscription_stripe_service.ensure_stripe_price(plan)
+    return ensure_stripe_price(plan)
 
 
 @transaction.atomic
@@ -184,8 +157,6 @@ def archive_plan(plan: MembershipSubscriptionPlan) -> MembershipSubscriptionPlan
         plan.is_active = False
         plan.save(update_fields=["is_active", "updated_at"])
     if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-        from events.service import subscription_stripe_service
-
         subscription_stripe_service.archive_stripe_price(plan)
     return plan
 
@@ -209,210 +180,6 @@ def delete_plan(plan: MembershipSubscriptionPlan) -> None:
 
 
 # ---- Subscription operations -------------------------------------------------
-
-
-@transaction.atomic
-def create_subscription(
-    plan: MembershipSubscriptionPlan,
-    user: RevelUser,
-    *,
-    initial_payment: InitialPayment | None = None,
-) -> MembershipSubscription:
-    """Create a subscription for ``user`` on ``plan``.
-
-    Refuses if the user is BANNED in the organization, or already has a
-    non-terminal subscription there, or the plan's subscription cap is
-    reached. Ensures an :class:`OrganizationMember` exists at the plan's
-    tier in the same transaction.
-    """
-    organization = plan.tier.organization
-
-    if not plan.is_active:
-        raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
-
-    # Refuse BANNED.
-    banned = OrganizationMember.objects.filter(
-        organization=organization,
-        user=user,
-        status=OrganizationMember.MembershipStatus.BANNED,
-    ).exists()
-    if banned:
-        raise HttpError(403, str(_("This user is banned from the organization.")))
-
-    # Refuse hard-blacklisted (defense-in-depth: the member-facing controller
-    # already 404s an invisible org, but staff-initiated and other call sites
-    # reach the service directly). Same helper the membership BlacklistGate uses.
-    from events.service.blacklist_service import check_user_hard_blacklisted  # lazy: avoid cycle
-
-    if check_user_hard_blacklisted(user, organization):
-        raise HttpError(403, str(_("This user is blacklisted from the organization.")))
-
-    # Refuse duplicate active subscription.
-    duplicate = (
-        MembershipSubscription.objects.filter(organization=organization, user=user)
-        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-        .exists()
-    )
-    if duplicate:
-        raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
-
-    ensure_plan_sales_capacity(plan)
-
-    # Ensure membership exists at plan.tier (don't overwrite BANNED — guarded above).
-    # ONLINE plans gate ACTIVE membership on the first successful Stripe payment,
-    # so we don't grant tier benefits up front: that work moves into the
-    # ``invoice.paid`` / ``customer.subscription.updated`` webhook handlers.
-    if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
-        OrganizationMember.objects.update_or_create(
-            organization=organization,
-            user=user,
-            defaults={
-                "tier": plan.tier,
-                "status": OrganizationMember.MembershipStatus.ACTIVE,
-            },
-        )
-
-    # The partial-unique index protects against a race where two requests both
-    # pass the duplicate check above; the helper re-fetches the winner whether
-    # the race surfaces as IntegrityError (INSERT) or ValidationError
-    # (TimeStampedModel.save's full_clean sees the committed racing row).
-    subscription, created = get_or_create_with_race_protection(
-        MembershipSubscription,
-        Q(user=user, organization=organization) & ~Q(status__in=MembershipSubscription.TERMINAL_STATUSES),
-        defaults={
-            "user": user,
-            "plan": plan,
-            "organization": organization,
-            "status": MembershipSubscription.SubscriptionStatus.PENDING,
-        },
-    )
-    if not created:
-        raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
-
-    if initial_payment is not None:
-        record_payment(
-            subscription,
-            amount=initial_payment.amount,
-            currency=initial_payment.currency,
-            recorded_by=initial_payment.recorded_by,
-            notes=initial_payment.notes,
-        )
-        # record_payment mutates a freshly-locked instance; refresh ours so
-        # callers see the advanced period and ACTIVE status without a manual
-        # refresh_from_db().
-        subscription.refresh_from_db()
-
-    return subscription
-
-
-@transaction.atomic
-def record_payment(
-    subscription: MembershipSubscription,
-    *,
-    amount: Decimal,
-    currency: str,
-    recorded_by: RevelUser | None,
-    notes: str = "",
-    status: str = MembershipPayment.PaymentStatus.SUCCEEDED,
-    occurred_at: datetime.datetime | None = None,
-    dispatch_renewal_notification: bool = True,
-) -> MembershipPayment:
-    """Record a payment and advance the subscription's billing period.
-
-    A SUCCEEDED payment advances the period and resets PENDING/PAST_DUE to
-    ACTIVE. Terminal subscriptions (CANCELLED, EXPIRED) refuse the payment
-    entirely — staff must create a fresh subscription instead.
-
-    ``occurred_at`` lets staff backfill historical payments. When set, it
-    becomes the anchor for ``period_start`` / ``period_end`` and is persisted
-    on the row so callers can render ``occurred_at ?? created_at`` consistently.
-
-    ``dispatch_renewal_notification`` controls whether a
-    SUBSCRIPTION_RENEWAL_SUCCEEDED notification is fired.  Pass ``False`` when
-    the caller will handle the notification itself (e.g. the H1 revival flow)
-    or when the payment is the *first* payment of a new subscription (prior
-    status was PENDING — handled automatically by the gate below).
-    """
-    subscription = MembershipSubscription.objects.select_for_update().get(pk=subscription.pk)
-    prior_status = subscription.status
-    if subscription.is_terminal:
-        raise HttpError(
-            400,
-            str(
-                _(
-                    "Cannot record a payment against a cancelled or expired subscription. "
-                    "Create a new subscription instead."
-                )
-            ),
-        )
-    plan = subscription.plan
-    now = timezone.now()
-
-    if occurred_at is not None:
-        _validate_occurred_at(subscription, occurred_at, now)
-
-    anchor = occurred_at or now
-
-    advance = status == MembershipPayment.PaymentStatus.SUCCEEDED
-    period_start = (
-        subscription.current_period_end
-        if (advance and subscription.current_period_end and subscription.current_period_end > anchor)
-        else anchor
-    )
-    period_end = calculate_period_end(period_start, plan) if advance else (subscription.current_period_end or anchor)
-
-    if advance and occurred_at is not None and period_end < now:
-        # Refuse backfills that would leave the subscription ACTIVE with an already-lapsed
-        # period (callers checking only ``status`` would grant access until the expiry beat).
-        raise HttpError(
-            400,
-            str(_("Backfilled payment would produce an already-lapsed billing period; use a more recent occurred_at.")),
-        )
-
-    payment = MembershipPayment.objects.create(
-        subscription=subscription,
-        amount=amount,
-        currency=currency,
-        status=status,
-        period_start=period_start,
-        period_end=period_end,
-        occurred_at=occurred_at,
-        recorded_by=recorded_by,
-        notes=notes,
-    )
-
-    if not advance:
-        return payment
-
-    update_fields = ["current_period_start", "current_period_end", "updated_at"]
-    subscription.current_period_start = period_start
-    subscription.current_period_end = period_end
-
-    revivable = {
-        MembershipSubscription.SubscriptionStatus.PENDING.value,
-        MembershipSubscription.SubscriptionStatus.PAST_DUE.value,
-    }
-    if subscription.status in revivable:
-        subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
-        update_fields.append("status")
-        if subscription.expired_at:
-            # A reactivated row consumed its expiry: a later lapse must stamp a
-            # FRESH expired_at, or the revival window/deadline math anchors on
-            # the stale first expiry.
-            # The audit trail lives in simple-history.
-            subscription.expired_at = None
-            update_fields.append("expired_at")
-
-    subscription.save(update_fields=update_fields)
-
-    _renewal_eligible_statuses = {
-        MembershipSubscription.SubscriptionStatus.ACTIVE.value,
-        MembershipSubscription.SubscriptionStatus.PAST_DUE.value,
-    }
-    if dispatch_renewal_notification and prior_status in _renewal_eligible_statuses:
-        _dispatch_renewal_succeeded(subscription)
-
-    return payment
 
 
 @transaction.atomic
@@ -462,9 +229,6 @@ def cancel_subscription(
         subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
         and subscription.stripe_subscription_id
     ):
-        # Lazy import to avoid a service<->stripe-service cycle.
-        from events.service import subscription_stripe_service
-
         subscription = subscription_stripe_service.cancel_online_subscription(subscription, immediate=immediate)
         # cancel_online_subscription mirrors local state synchronously, so the
         # dispatch gates below apply uniformly to both branches.
@@ -515,8 +279,6 @@ def cancel_subscriptions_for_membership_loss(user: RevelUser, organization: Orga
     # ponytail: refunds stay manual. Bans are for cause, so no money is returned
     # here (the platform fee is never refunded by design); staff retain the
     # org-admin refund endpoint for the rare good-faith removal.
-    from events.service import subscription_stripe_service  # lazy: avoid cycle
-
     subscription_ids = list(
         MembershipSubscription.objects.filter(user=user, organization=organization)
         .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
@@ -576,8 +338,6 @@ def pause_subscription(subscription: MembershipSubscription) -> MembershipSubscr
     if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         if not subscription.stripe_subscription_id:
             raise HttpError(400, str(_("This subscription has no linked Stripe record yet.")))
-        from events.service import subscription_stripe_service  # lazy: avoid cycle
-
         return subscription_stripe_service.pause_online_subscription(subscription)
     if subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
         return subscription
@@ -607,8 +367,6 @@ def resume_subscription(subscription: MembershipSubscription) -> MembershipSubsc
     if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         if not subscription.stripe_subscription_id:
             raise HttpError(400, str(_("This subscription has no linked Stripe record yet.")))
-        from events.service import subscription_stripe_service  # lazy: avoid cycle
-
         return subscription_stripe_service.resume_online_subscription(subscription)
     subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
     subscription.save(update_fields=["status", "updated_at"])
@@ -751,8 +509,6 @@ def revive_subscription(
     # ONLINE branch — the inner atomic block has exited, but under production
     # ATOMIC_REQUESTS the row lock is STILL held across the Stripe call until
     # the request commits (see docstring; accepted, single-member blast radius).
-    from events.service import subscription_stripe_service  # lazy: avoid cycle
-
     checkout_url = subscription_stripe_service.create_revival_checkout(subscription)
     # Stripe call mutated and saved the subscription — refresh local state.
     subscription.refresh_from_db()
@@ -822,8 +578,6 @@ def change_plan(
     _validate_change_plan_target(subscription, new_plan, enforce_sales_status=enforce_sales_status)
 
     if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-        from events.service import subscription_stripe_plan_change  # lazy: avoid cycle
-
         return subscription_stripe_plan_change.change_online_plan(subscription, new_plan)
 
     if subscription.is_terminal:
@@ -878,8 +632,6 @@ def migrate_plan_subscribers(
     idempotency anchor that keeps a re-run (staff double-click, acks_late
     redelivery) from re-spamming subscribers.
     """
-    from events.service import subscription_stripe_service  # lazy: avoid cycle
-
     result: MigrationResult = {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}
     qs = (
         MembershipSubscription.objects.filter(plan=plan)

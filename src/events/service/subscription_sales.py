@@ -13,6 +13,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import MembershipSubscriptionPlan, Organization, OrganizationMember
+from events.service.blacklist_service import check_user_hard_blacklisted
 
 
 def ensure_plan_on_sale(plan: MembershipSubscriptionPlan) -> None:
@@ -66,8 +67,6 @@ def ensure_member_not_excluded(user: RevelUser, organization: Organization, *, m
         if member_facing:
             raise HttpError(403, str(_("You can't rejoin this organization.")))
         raise HttpError(403, str(_("This user is banned from the organization.")))
-
-    from events.service.blacklist_service import check_user_hard_blacklisted  # lazy: avoid cycle
 
     if check_user_hard_blacklisted(user, organization):
         if member_facing:
