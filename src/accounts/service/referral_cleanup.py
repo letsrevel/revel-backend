@@ -154,6 +154,16 @@ def cleanup_referral_data(user: RevelUser) -> ReferralForfeitureSummary | None:
         if any(p.status == _Status.PENDING for p in locked):
             raise ReferralPayoutInFlightError(f"user {user.id} has pending referral payouts")
 
+        # Invariant: no payout may be detached while PAID and statement-less.
+        # A row that was CALCULATED at the pre-check can have been claimed,
+        # transferred and turned PAID in the meantime — and once detached, the
+        # async statement task skips it and the backstop sweep excludes it, so
+        # the document would never be issued (BAO §132). Re-run the backfill on
+        # the locked snapshot, which is the committed truth. Normally a no-op:
+        # the pre-check backfill above already covers the steady state and keeps
+        # the PDF render out of the lock.
+        _backfill_missing_statements(ReferralPayout.objects.filter(id__in=[p.id for p in locked]))
+
         summary = _summarize(locked)
         doomed_ids = [p.id for p in locked if p.status != _Status.PAID]
         retained_ids = [p.id for p in locked if p.status == _Status.PAID]

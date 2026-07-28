@@ -35,6 +35,7 @@ from accounts.models import (
     UserBillingProfile,
 )
 from accounts.service import account as account_service
+from accounts.service import referral_cleanup
 from accounts.service.referral_cleanup import assess_referral_forfeiture, cleanup_referral_data
 from accounts.tasks import delete_old_inactive_accounts, delete_user_account
 from common.models import SiteSettings
@@ -295,6 +296,85 @@ def test_statements_are_backfilled_before_the_user_disappears(
     paid.refresh_from_db()
     assert ReferralPayoutStatement.objects.filter(payout=paid).exists()
     assert paid.referral_id is None
+
+
+def test_paid_transition_after_the_precheck_still_gets_a_statement(
+    referrer: RevelUser, referral: Referral, billing_profile: UserBillingProfile, site_settings: SiteSettings
+) -> None:
+    """Invariant: no payout may be detached while PAID and statement-less.
+
+    Reproduces the window between cleanup's unlocked pre-check and its
+    ``select_for_update`` block: the beat task claims a CALCULATED payout,
+    transfers it, and it turns PAID. Detaching it statement-less would strand the
+    document forever (the async task skips detached rows, the backstop excludes
+    them), so the in-lock backfill has to catch it.
+    """
+    payout = _payout(referral, _Status.CALCULATED, "20.00")
+    real_backfill = referral_cleanup._backfill_missing_statements
+    calls: list[int] = []
+
+    def _transfer_in_the_window(payouts: t.Any) -> None:
+        real_backfill(payouts)
+        calls.append(1)
+        if len(calls) == 1:
+            # ...the pre-check saw CALCULATED and did nothing; now the beat task
+            # finishes the Stripe transfer, before cleanup takes its lock.
+            ReferralPayout.objects.filter(id=payout.id).update(status=_Status.PAID)
+
+    with patch.object(referral_cleanup, "_backfill_missing_statements", side_effect=_transfer_in_the_window):
+        cleanup_referral_data(referrer)
+
+    payout.refresh_from_db()
+    assert payout.status == _Status.PAID
+    assert payout.referral_id is None
+    assert ReferralPayoutStatement.objects.filter(payout=payout).exists()
+
+
+def test_statement_generation_returns_the_winner_of_a_concurrent_create(
+    referrer: RevelUser, referral: Referral, billing_profile: UserBillingProfile, site_settings: SiteSettings
+) -> None:
+    """The beat backstop and the deletion backfill can target the same payout.
+
+    ``ReferralPayoutStatement.payout`` is a unique OneToOne, so the loser must
+    return the winner's row — an IntegrityError here would abort a GDPR erasure
+    with no retry, which is the failure class #796 exists to remove.
+    """
+    from accounts.service import payout_statement_service
+
+    paid = _payout(referral, _Status.PAID, "20.00")
+    real_vat = payout_statement_service._determine_vat_treatment
+
+    def _concurrent_insert(*args: t.Any, **kwargs: t.Any) -> t.Any:
+        """Land the competing statement after the idempotency check, before ours."""
+        result = real_vat(*args, **kwargs)
+        if not ReferralPayoutStatement.objects.filter(payout=paid).exists():
+            _statement(paid, "RVL-RP-2026-000099")
+        return result
+
+    with patch.object(payout_statement_service, "_determine_vat_treatment", side_effect=_concurrent_insert):
+        statement = payout_statement_service.generate_payout_statement(paid)
+
+    assert statement.document_number == "RVL-RP-2026-000099"
+    assert ReferralPayoutStatement.objects.filter(payout=paid).count() == 1
+
+
+def test_statement_generation_reraises_a_non_race_integrity_error(
+    referrer: RevelUser, referral: Referral, billing_profile: UserBillingProfile, site_settings: SiteSettings
+) -> None:
+    """Only a uniqueness race is swallowed — a real DB failure must still surface."""
+    from django.db import IntegrityError
+
+    from accounts.service import payout_statement_service
+
+    paid = _payout(referral, _Status.PAID, "20.00")
+
+    with (
+        patch.object(payout_statement_service, "_get_next_statement_number", side_effect=IntegrityError("boom")),
+        pytest.raises(IntegrityError),
+    ):
+        payout_statement_service.generate_payout_statement(paid)
+
+    assert not ReferralPayoutStatement.objects.filter(payout=paid).exists()
 
 
 def test_backfill_survives_a_missing_billing_profile(referrer: RevelUser, referral: Referral) -> None:

@@ -7,8 +7,9 @@ statements for B2C/individual referrers, with correct Austrian VAT treatment.
 from decimal import Decimal
 
 import structlog
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from accounts.models import ReferralPayout, ReferralPayoutStatement, UserBillingProfile
@@ -63,9 +64,11 @@ def _determine_vat_treatment(
 def generate_payout_statement(payout: ReferralPayout) -> ReferralPayoutStatement:
     """Generate a payout statement (or self-billing invoice) for a single payout.
 
-    Idempotent: returns the existing statement if one already exists for this payout.
-    Determines B2B vs B2C from the referrer's billing profile, calculates VAT,
-    renders a PDF, and persists the statement.
+    Idempotent *and* concurrency-safe: returns the existing statement if one
+    already exists, and returns the winner's row if a concurrent caller creates
+    it between the check and the insert. Determines B2B vs B2C from the
+    referrer's billing profile, calculates VAT, renders a PDF, and persists the
+    statement.
 
     Args:
         payout: The ``ReferralPayout`` to create a statement for.
@@ -95,31 +98,50 @@ def generate_payout_statement(payout: ReferralPayout) -> ReferralPayoutStatement
 
     doc_type, vat = _determine_vat_treatment(payout, billing_profile, site)
 
-    with transaction.atomic():
-        document_number = _get_next_statement_number(year)
-        statement = ReferralPayoutStatement.objects.create(
-            payout=payout,
-            document_type=doc_type,
-            document_number=document_number,
-            # Fee breakdown
-            amount_gross=vat.fee_gross,
-            amount_net=vat.fee_net,
-            amount_vat=vat.fee_vat,
-            vat_rate=vat.fee_vat_rate,
-            currency=payout.currency,
-            reverse_charge=vat.reverse_charge,
-            # Referrer snapshot
-            referrer_name=billing_profile.billing_name or referrer.get_display_name(),
-            referrer_address=billing_profile.billing_address,
-            referrer_vat_id=billing_profile.vat_id,
-            referrer_country=billing_profile.vat_country_code,
-            # Platform snapshot
-            platform_business_name=site.platform_business_name,
-            platform_business_address=site.platform_business_address,
-            platform_vat_id=site.platform_vat_id,
-            # Delivery
-            issued_at=now,
+    try:
+        with transaction.atomic():
+            document_number = _get_next_statement_number(year)
+            statement = ReferralPayoutStatement.objects.create(
+                payout=payout,
+                document_type=doc_type,
+                document_number=document_number,
+                # Fee breakdown
+                amount_gross=vat.fee_gross,
+                amount_net=vat.fee_net,
+                amount_vat=vat.fee_vat,
+                vat_rate=vat.fee_vat_rate,
+                currency=payout.currency,
+                reverse_charge=vat.reverse_charge,
+                # Referrer snapshot
+                referrer_name=billing_profile.billing_name or referrer.get_display_name(),
+                referrer_address=billing_profile.billing_address,
+                referrer_vat_id=billing_profile.vat_id,
+                referrer_country=billing_profile.vat_country_code,
+                # Platform snapshot
+                platform_business_name=site.platform_business_name,
+                platform_business_address=site.platform_business_address,
+                platform_vat_id=site.platform_vat_id,
+                # Delivery
+                issued_at=now,
+            )
+    except IntegrityError, ValidationError:
+        # Lost the race for this payout's statement. Two callers legitimately
+        # target the same PAID-without-statement row: the 5-minute
+        # ``_redispatch_missing_statements`` backstop and the account-deletion
+        # backfill (#796). ``payout`` is a unique OneToOne, so the loser must
+        # return the winner's row — letting the error escape would abort a GDPR
+        # erasure with no retry. Surfaces as ``IntegrityError`` (concurrent
+        # INSERT) or ``ValidationError`` (``TimeStampedModel.save`` runs
+        # ``full_clean``, so an already-committed row fails ``validate_unique``).
+        existing = ReferralPayoutStatement.objects.filter(payout=payout).first()
+        if existing is None:
+            raise  # not a uniqueness race — a real failure
+        logger.info(
+            "payout_statement_race_lost",
+            payout_id=str(payout.id),
+            document_number=existing.document_number,
         )
+        return existing
 
     # Generate PDF outside transaction (WeasyPrint is slow)
     _render_and_save_statement_pdf(statement)

@@ -109,12 +109,20 @@ def delete_user_account(user_id: str) -> None:
     """Delete a user account and all associated data in the background.
 
     This task is designed to handle heavy deletion operations that may involve
-    many database relationships. The deletion is performed in a transaction
-    to ensure data consistency.
+    many database relationships.
 
-    Referral rows PROTECT the user, so the referral graph is torn down first
-    (see :mod:`accounts.service.referral_cleanup`). A payout that is mid-transfer
-    defers the whole deletion via Celery retry rather than racing Stripe.
+    Runs in two independently-committed phases: referral teardown (referral rows
+    PROTECT the user, so the graph must go first — see
+    :mod:`accounts.service.referral_cleanup`), then ``user.delete()``. They are
+    deliberately not one transaction: the cleanup issues statement PDFs, whose
+    file writes cannot be rolled back, and holding row locks across the whole
+    cascade would fight the disbursement task. Safe because the cleanup is
+    idempotent — if the process dies between the phases, or the task is retried
+    or re-triggered, the second run re-derives the state, finds nothing left to
+    tear down, and proceeds to the delete.
+
+    A payout that is mid-transfer defers the whole deletion via Celery retry
+    rather than racing Stripe.
 
     Args:
         user_id: The UUID of the user to delete.
