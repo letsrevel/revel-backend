@@ -103,6 +103,8 @@ def stripe_verify_account(organization: Organization) -> Organization:
     details if they are currently empty (fallback for orgs without a VAT ID).
     """
     account = sync_account_status(organization)
+    if account is None:  # account not accessible: already flagged as not connected
+        return organization
 
     # Organization-specific: auto-fill billing details from Stripe
     update_fields: list[str] = []

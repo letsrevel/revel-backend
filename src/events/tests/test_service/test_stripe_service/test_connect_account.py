@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 import stripe
 
+from common.service.stripe_connect_service import sync_account_status
 from events.models import Organization
 from events.service import stripe_service
 
@@ -129,3 +130,81 @@ class TestGetAccountDetails:
         # Act & Assert
         with pytest.raises(stripe.error.APIError):
             stripe_service.get_account_details(account_id)
+
+
+class TestSyncAccountStatusInaccessibleAccount:
+    """``sync_account_status`` must not blow up when the stored account is unreachable."""
+
+    @pytest.fixture
+    def connected_organization(self, organization: Organization) -> Organization:
+        organization.stripe_account_id = "acct_gone"
+        organization.stripe_charges_enabled = True
+        organization.stripe_details_submitted = True
+        organization.save(
+            update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted", "updated_at"]
+        )
+        return organization
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            stripe.error.PermissionError("The provided key does not have access to account 'acct_gone'"),
+            stripe.error.InvalidRequestError("No such account: 'acct_gone'", param="account"),
+        ],
+        ids=["permission_error", "invalid_request_error"],
+    )
+    @patch("stripe.Account.retrieve")
+    def test_flags_account_as_not_connected(
+        self,
+        mock_stripe_retrieve: Mock,
+        error: stripe.error.StripeError,
+        connected_organization: Organization,
+    ) -> None:
+        """An inaccessible account returns ``None`` and resets the connection flags."""
+        # Arrange
+        mock_stripe_retrieve.side_effect = error
+
+        # Act
+        result = sync_account_status(connected_organization)
+
+        # Assert
+        assert result is None
+        connected_organization.refresh_from_db()
+        assert connected_organization.stripe_charges_enabled is False
+        assert connected_organization.stripe_details_submitted is False
+        assert connected_organization.is_stripe_connected is False
+        # The ID is kept: clearing it would be irreversible if the platform key is misconfigured.
+        assert connected_organization.stripe_account_id == "acct_gone"
+
+    @patch("stripe.Account.retrieve")
+    def test_verify_account_returns_organization_without_billing_autofill(
+        self,
+        mock_stripe_retrieve: Mock,
+        connected_organization: Organization,
+    ) -> None:
+        """``stripe_verify_account`` degrades gracefully instead of raising."""
+        # Arrange
+        mock_stripe_retrieve.side_effect = stripe.error.PermissionError("no access")
+
+        # Act
+        result = stripe_service.stripe_verify_account(connected_organization)
+
+        # Assert
+        assert result is connected_organization
+        assert result.stripe_charges_enabled is False
+        assert result.stripe_details_submitted is False
+        assert result.billing_address == ""
+
+    @patch("stripe.Account.retrieve")
+    def test_other_stripe_errors_still_propagate(
+        self,
+        mock_stripe_retrieve: Mock,
+        connected_organization: Organization,
+    ) -> None:
+        """Unexpected Stripe failures must not be swallowed."""
+        # Arrange
+        mock_stripe_retrieve.side_effect = stripe.error.APIError("boom")
+
+        # Act & Assert
+        with pytest.raises(stripe.error.APIError):
+            sync_account_status(connected_organization)

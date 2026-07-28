@@ -4,6 +4,7 @@ import typing as t
 from unittest.mock import Mock, patch
 
 import pytest
+import stripe
 from django.test.client import Client
 from django.urls import reverse
 from ninja_jwt.tokens import RefreshToken
@@ -175,3 +176,42 @@ class TestReferralStripeVerify:
     ) -> None:
         response = referrer_client.get(self.url)
         assert response.status_code == 400
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            stripe.error.PermissionError("The provided key 'sk_test_…' does not have access to account 'acct_stale'"),
+            stripe.error.InvalidRequestError("No such account: 'acct_stale'", param="account"),
+        ],
+        ids=["permission_error", "invalid_request_error"],
+    )
+    @patch("common.service.stripe_connect_service.stripe.Account.retrieve")
+    def test_inaccessible_account_reports_not_connected_instead_of_500(
+        self,
+        mock_retrieve: Mock,
+        error: stripe.error.StripeError,
+        referrer_client: Client,
+        referral_code: ReferralCode,
+        referrer: RevelUser,
+    ) -> None:
+        """A deleted/revoked/stale connected account must not 500 (see #694)."""
+        referrer.stripe_account_id = "acct_stale"
+        referrer.stripe_charges_enabled = True
+        referrer.stripe_details_submitted = True
+        referrer.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
+
+        mock_retrieve.side_effect = error
+
+        response = referrer_client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "is_connected": False,
+            "charges_enabled": False,
+            "details_submitted": False,
+        }
+
+        referrer.refresh_from_db()
+        assert referrer.stripe_charges_enabled is False
+        assert referrer.stripe_details_submitted is False
+        assert referrer.is_stripe_connected is False
