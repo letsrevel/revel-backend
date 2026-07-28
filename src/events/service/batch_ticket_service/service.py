@@ -68,9 +68,14 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
 
         Raises:
             HttpError: If validation fails or ticket creation fails.
+            UserIsIneligibleError: If the tier is gated to membership tiers the buyer
+                does not hold.
         """
         # Validate purchasability (invitation-linked restrictions, membership, etc.)
         self._assert_purchasable_by()
+        # ...and the membership *tier* the organizer gated this tier to (#807). Runs
+        # second so the coarser purchasable_by 403 still answers first.
+        self._assert_membership_tier_allowed()
 
         # Validate batch size
         self.validate_batch_size(len(items))
