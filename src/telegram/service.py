@@ -101,6 +101,16 @@ def disconnect_account(user: RevelUser) -> None:
         )
 
 
+async def _fetch_bot_username() -> str:
+    """Fetch the bot username from the Telegram API, closing the HTTP session."""
+    bot = get_bot()
+    try:
+        bot_user = await bot.get_me()
+        return bot_user.username or ""
+    finally:
+        await bot.session.close()
+
+
 def get_bot_name() -> str:
     """Get the bot name with caching.
 
@@ -116,10 +126,7 @@ def get_bot_name() -> str:
     if cached_name is not None:
         return str(cached_name)
 
-    # Fetch from Telegram API
-    bot = get_bot()
-    bot_name_obj = async_to_sync(bot.get_me)()
-    bot_name: str = bot_name_obj.username or ""
+    bot_name = async_to_sync(_fetch_bot_username)()
 
     # Cache for 24 hours
     cache.set(cache_key, bot_name, timeout=86400)

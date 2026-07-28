@@ -257,7 +257,37 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     autocomplete_fields = ["groups"]
 
     # Actions
-    actions = ["send_verification_email", "send_password_reset_email", "ban_selected_users"]
+    actions = [
+        "send_verification_email",
+        "send_password_reset_email",
+        "ban_selected_users",
+        "clear_stripe_connect_account",
+    ]
+
+    @admin.action(description="Clear stale Stripe Connect account (superuser only)")
+    def clear_stripe_connect_account(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
+        """Detach a stale Connect account so the referrer can re-onboard from scratch.
+
+        Nothing is deleted at Stripe — this only drops the local link. Account
+        status sync deliberately flags rather than clears the id (a misconfigured
+        platform key would otherwise wipe every live connection), so an account
+        that is genuinely gone at Stripe is unlinked here by a human.
+        """
+        if not request.user.is_superuser:
+            self.message_user(request, "Superuser required.", level=messages.ERROR)
+            return
+        cleared = 0
+        for target_user in queryset.exclude(stripe_account_id__isnull=True):
+            target_user.stripe_account_id = None
+            target_user.stripe_charges_enabled = False
+            target_user.stripe_details_submitted = False
+            target_user.save(
+                update_fields=target_user._stripe_update_fields(
+                    "stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"
+                )
+            )
+            cleared += 1
+        self.message_user(request, f"Cleared the Stripe Connect account of {cleared} user(s).")
 
     @admin.action(description="Send verification email")
     def send_verification_email(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:

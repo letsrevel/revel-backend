@@ -64,7 +64,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     search_fields = ["name", "slug", "owner__username"]
     autocomplete_fields = ["owner", "city", "staff_members", "members"]
     prepopulated_fields = {"slug": ("name",)}
-    actions = ["bind_platform_stripe_account", "unbind_platform_stripe_account"]
+    actions = ["bind_platform_stripe_account", "unbind_platform_stripe_account", "clear_stripe_connect_account"]
 
     tabs = [
         ("Settings", ["Settings", "Social"]),
@@ -190,6 +190,31 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                 )
             )
             self.message_user(request, f"{org.slug} unbound from platform Stripe account.", level=messages.SUCCESS)
+
+    @admin.action(description="Clear stale Stripe Connect account (superuser only)")
+    def clear_stripe_connect_account(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> None:
+        """Detach a stale Connect account so the org can re-onboard from scratch.
+
+        Nothing is deleted at Stripe — this only drops the local link. Account
+        status sync deliberately flags rather than clears the id (a misconfigured
+        platform key would otherwise wipe every live connection), so an account
+        that is genuinely gone at Stripe is unlinked here by a human.
+        """
+        if not request.user.is_superuser:
+            self.message_user(request, "Superuser required.", level=messages.ERROR)
+            return
+        cleared = 0
+        for org in queryset.exclude(stripe_account_id__isnull=True):
+            org.stripe_account_id = None
+            org.stripe_charges_enabled = False
+            org.stripe_details_submitted = False
+            org.save(
+                update_fields=org._stripe_update_fields(
+                    "stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"
+                )
+            )
+            cleared += 1
+        self.message_user(request, f"Cleared the Stripe Connect account of {cleared} organization(s).")
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[models.Organization]:
         qs: QuerySet[models.Organization] = super().get_queryset(request)
