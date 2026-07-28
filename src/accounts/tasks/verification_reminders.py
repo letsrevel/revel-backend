@@ -9,6 +9,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 
 from accounts.models import EmailVerificationReminderTracking, RevelUser
+from accounts.service.referral_cleanup import cleanup_referral_data
 from common.models import SiteSettings
 from common.tasks import send_email
 
@@ -326,9 +327,16 @@ def delete_old_inactive_accounts() -> dict[str, t.Any]:
                 if tracking.deactivation_email_sent_at
                 else None,
             }
+            # Per-user isolation: one undeletable account must not strand every
+            # account behind it in the sweep (mirrors process_referral_payouts).
+            try:
+                cleanup_referral_data(user)
+                logger.warning("deleting_old_inactive_account", **user_info)
+                user.delete()  # This will cascade delete the tracking record too
+            except Exception as exc:
+                logger.error("old_inactive_account_deletion_failed", error=str(exc), exc_info=True, **user_info)
+                continue
             deleted_users.append(user_info)
-            logger.warning("deleting_old_inactive_account", **user_info)
-            user.delete()  # This will cascade delete the tracking record too
 
     logger.info("old_inactive_accounts_deleted", count=len(deleted_users))
     return {"count": len(deleted_users), "deleted_users": deleted_users}

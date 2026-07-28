@@ -150,6 +150,19 @@ msgid "Only active referrers can connect a Stripe account."
 msgstr ""
 "Seuls les profils de parrainage actifs peuvent connecter un compte Stripe."
 
+#, python-format
+msgid ""
+"Deleting your account will permanently forfeit %(count)s unpaid referral "
+"payout(s) totalling %(total)s %(currency)s, of which %(failed)s %(currency)s "
+"comes from failed transfers. Contact support before deleting if you want "
+"these paid out, or re-submit with force=true to delete anyway."
+msgstr ""
+"La suppression de votre compte entraînera la perte définitive de %(count)s "
+"versement(s) de parrainage impayé(s), pour un total de %(total)s "
+"%(currency)s, dont %(failed)s %(currency)s provenant de transferts échoués. "
+"Contactez l'assistance avant la suppression si vous souhaitez les percevoir, "
+"ou renvoyez la demande avec force=true pour supprimer malgré tout."
+
 msgid "Global Ban"
 msgstr "Bannissement global"
 
@@ -684,6 +697,45 @@ msgstr "Demande de réinitialisation de mot de passe."
 
 msgid "Password reset request"
 msgstr "Demande de réinitialisation de mot de passe"
+
+msgid "Referral Payouts Forfeited — Admin Notice"
+msgstr "Versements de parrainage perdus — Avis aux administrateur·rice·s"
+
+msgid "A user deleted their account and forfeited unpaid referral payouts."
+msgstr ""
+"Un·e utilisateur·rice a supprimé son compte et perdu ses versements de "
+"parrainage impayés."
+
+msgid "Forfeited:"
+msgstr "Perdus :"
+
+msgid "Of which failed transfers:"
+msgstr "Dont transferts échoués :"
+
+msgid "Itemization (these rows have been deleted):"
+msgstr "Détail (ces lignes ont été supprimées) :"
+
+msgid ""
+"Paid payouts and their statements were retained for accounting purposes."
+msgstr ""
+"Les versements déjà effectués et leurs relevés ont été conservés à des fins "
+"comptables."
+
+#, python-format
+msgid "User: %(user_email)s (%(user_id)s)"
+msgstr "Utilisateur·rice : %(user_email)s (%(user_id)s)"
+
+#, python-format
+msgid "Forfeited: %(unpaid_count)s payout(s), %(unpaid_total)s %(currency)s"
+msgstr "Perdus : %(unpaid_count)s versement(s), %(unpaid_total)s %(currency)s"
+
+#, python-format
+msgid "Of which failed transfers: %(failed_total)s %(currency)s"
+msgstr "Dont transferts échoués : %(failed_total)s %(currency)s"
+
+msgid "Referral payouts forfeited by an account deletion"
+msgstr ""
+"Versements de parrainage perdus à la suite de la suppression d'un compte"
 
 #, python-format
 msgid "Referral payout statement %(document_number)s"

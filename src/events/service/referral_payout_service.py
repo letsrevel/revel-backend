@@ -173,7 +173,10 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
     exchange_rate = get_latest_rates()
     rates = exchange_rate.rates
 
-    for referral in Referral.objects.select_related("referred_user").iterator():
+    # ``referred_user`` is nulled when a referred user deletes their account
+    # (#796): the row is kept so the referrer's payout history stays linked, but
+    # there is no longer a user whose organizations could earn new fees.
+    for referral in Referral.objects.filter(referred_user__isnull=False).select_related("referred_user").iterator():
         net_fees = _calculate_net_fees(referral, period_start_dt, period_end_dt, rates, platform_currency)
 
         if not net_fees:

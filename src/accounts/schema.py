@@ -226,6 +226,24 @@ class DeleteAccountSchema(Schema):
 
 class DeleteAccountConfirmSchema(Schema):
     token: str
+    force: bool = Field(
+        default=False,
+        description=(
+            "Acknowledge the consequences reported by a previous 409 "
+            "(e.g. forfeiting unpaid referral payouts) and delete anyway."
+        ),
+    )
+
+
+class ReferralForfeitureSchema(Schema):
+    """409 body returned when account deletion would forfeit unpaid referral payouts."""
+
+    detail: str
+    code: str
+    unpaid_count: int
+    unpaid_total: Decimal
+    failed_total: Decimal
+    currency: str
 
 
 class PasswordResetSchema(PasswordMixin):

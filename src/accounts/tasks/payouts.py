@@ -1,5 +1,6 @@
 """Task for processing referral payouts via Stripe Transfer."""
 
+import typing as t
 from datetime import timedelta
 
 import stripe
@@ -11,7 +12,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
-from accounts.models import ReferralPayout, ReferralPayoutStatement, RevelUser
+from accounts.models import Referral, ReferralPayout, ReferralPayoutStatement, RevelUser
 from common.models import SiteSettings
 from common.tasks import send_email
 from events.utils.currency import to_stripe_amount
@@ -61,6 +62,11 @@ def _redispatch_missing_statements() -> None:
     """
     missing_ids = list(
         ReferralPayout.objects.filter(status=ReferralPayout.ReferralPayoutStatus.PAID)
+        # ``referral`` is nulled when the referrer deletes their account (#796).
+        # Those payouts are retained for accounting only — there is no longer a
+        # referrer to snapshot or email, and the cleanup already issued any
+        # missing statement synchronously before the user row disappeared.
+        .filter(referral__isnull=False)
         .filter(Q(statement__isnull=True) | Q(statement__email_sent_at__isnull=True))
         .values_list("id", flat=True)
     )
@@ -128,7 +134,13 @@ def process_referral_payouts() -> dict[str, int]:
     _redispatch_missing_statements()
 
     payout_ids = list(
-        ReferralPayout.objects.filter(status=ReferralPayout.ReferralPayoutStatus.CALCULATED)
+        ReferralPayout.objects.filter(
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
+            # Detached payouts (referrer deleted, #796) are retained PAID history
+            # with nobody left to pay; excluding them here makes the invariant the
+            # cast below relies on explicit.
+            referral__isnull=False,
+        )
         .order_by("period_start")
         .values_list("id", flat=True)
     )
@@ -152,7 +164,7 @@ def process_referral_payouts() -> dict[str, int]:
         payout = ReferralPayout.objects.select_related("referral__referrer__billing_profile", "referral__referrer").get(
             id=payout_id
         )
-        referrer = payout.referral.referrer
+        referrer = t.cast(Referral, payout.referral).referrer
 
         skip_reason = _validate_payout_eligibility(payout, referrer)
         if skip_reason:
@@ -241,7 +253,13 @@ def generate_and_send_payout_statement(payout_id: str) -> None:
     if payout.status != ReferralPayout.ReferralPayoutStatus.PAID:
         logger.warning("payout_statement_skipped_non_paid", payout_id=payout_id, status=payout.status)
         return
-    referrer = payout.referral.referrer
+    referral = payout.referral
+    if referral is None:
+        # The referrer deleted their account (#796). Their statements were issued
+        # synchronously during cleanup and there is nobody left to email.
+        logger.warning("payout_statement_skipped_detached_referral", payout_id=payout_id)
+        return
+    referrer = referral.referrer
     statement = generate_payout_statement(payout)
     _send_payout_statement_email(payout, statement, referrer)
 

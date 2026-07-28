@@ -156,7 +156,7 @@ class AccountController(UserAwareController):
     @route.post(
         "/delete-confirm",
         tags=["Account"],
-        response=ResponseMessage,
+        response={200: ResponseMessage, 409: schema.ReferralForfeitureSchema},
         url_name="delete-account-confirm",
         auth=None,
     )
@@ -167,8 +167,12 @@ class AccountController(UserAwareController):
         This action is irreversible and deletes all user data. The deletion is processed
         asynchronously in the background. The deletion token is single-use and expires
         after a set period.
+
+        Returns 409 with a `referral_forfeiture_confirmation_required` payload when the
+        account holds unpaid referral payouts that deletion would forfeit. The token is
+        not consumed — re-submit it with `force=true` to proceed.
         """
-        account_service.confirm_account_deletion(payload.token)
+        account_service.confirm_account_deletion(payload.token, force=payload.force)
         return ResponseMessage(
             message=str(_("Your account deletion has been initiated and will be processed shortly."))
         )

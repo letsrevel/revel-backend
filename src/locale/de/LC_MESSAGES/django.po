@@ -145,6 +145,20 @@ msgstr "Kontoauszugs-PDF wurde noch nicht erstellt."
 msgid "Only active referrers can connect a Stripe account."
 msgstr "Nur aktive Referrers können ein Stripe-Konto verbinden."
 
+#, python-format
+msgid ""
+"Deleting your account will permanently forfeit %(count)s unpaid referral "
+"payout(s) totalling %(total)s %(currency)s, of which %(failed)s %(currency)s "
+"comes from failed transfers. Contact support before deleting if you want "
+"these paid out, or re-submit with force=true to delete anyway."
+msgstr ""
+"Wenn Sie Ihr Konto löschen, verfallen %(count)s unbezahlte "
+"Empfehlungsvergütung(en) über insgesamt %(total)s %(currency)s endgültig, "
+"davon %(failed)s %(currency)s aus fehlgeschlagenen Überweisungen. Wenden Sie "
+"sich vor dem Löschen an den Support, wenn Sie diese ausgezahlt bekommen "
+"möchten, oder senden Sie die Anfrage mit force=true erneut, um trotzdem zu "
+"löschen."
+
 msgid "Global Ban"
 msgstr "Globale Sperre"
 
@@ -679,6 +693,46 @@ msgstr "Passwort-Zurücksetzungsanfrage."
 
 msgid "Password reset request"
 msgstr "Passwort-Zurücksetzungsanfrage"
+
+msgid "Referral Payouts Forfeited — Admin Notice"
+msgstr "Verfallene Empfehlungsvergütungen — Hinweis für Administrator:innen"
+
+msgid "A user deleted their account and forfeited unpaid referral payouts."
+msgstr ""
+"Ein:e Anwender:in hat das Konto gelöscht und dabei unbezahlte "
+"Empfehlungsvergütungen verfallen lassen."
+
+msgid "Forfeited:"
+msgstr "Verfallen:"
+
+msgid "Of which failed transfers:"
+msgstr "Davon aus fehlgeschlagenen Überweisungen:"
+
+msgid "Itemization (these rows have been deleted):"
+msgstr "Aufstellung (diese Einträge wurden gelöscht):"
+
+msgid ""
+"Paid payouts and their statements were retained for accounting purposes."
+msgstr ""
+"Bereits ausgezahlte Vergütungen und die zugehörigen Abrechnungen wurden zu "
+"Buchhaltungszwecken aufbewahrt."
+
+#, python-format
+msgid "User: %(user_email)s (%(user_id)s)"
+msgstr "Anwender:in: %(user_email)s (%(user_id)s)"
+
+#, python-format
+msgid "Forfeited: %(unpaid_count)s payout(s), %(unpaid_total)s %(currency)s"
+msgstr ""
+"Verfallen: %(unpaid_count)s Vergütung(en), %(unpaid_total)s %(currency)s"
+
+#, python-format
+msgid "Of which failed transfers: %(failed_total)s %(currency)s"
+msgstr ""
+"Davon aus fehlgeschlagenen Überweisungen: %(failed_total)s %(currency)s"
+
+msgid "Referral payouts forfeited by an account deletion"
+msgstr "Durch eine Kontolöschung verfallene Empfehlungsvergütungen"
 
 #, python-format
 msgid "Referral payout statement %(document_number)s"

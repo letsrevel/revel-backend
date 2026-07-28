@@ -1,0 +1,1 @@
+{% load i18n %}{% trans "Referral payouts forfeited by an account deletion" %}

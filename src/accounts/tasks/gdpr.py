@@ -11,9 +11,11 @@ from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils import timezone
 
+from accounts.exceptions import ReferralPayoutInFlightError
 from accounts.models import RevelUser, UserDataExport
 from accounts.service import gdpr
 from accounts.service.gdpr import EXPORT_FILE_URL_EXPIRES_IN
+from accounts.service.referral_cleanup import cleanup_referral_data
 from common.models import SiteSettings
 from common.signing import generate_signed_url
 from common.tasks import send_email
@@ -150,7 +152,13 @@ def _cancel_live_subscriptions(user: RevelUser) -> None:
             )
 
 
-@shared_task(name="accounts.tasks.delete_user_account")
+@shared_task(
+    name="accounts.tasks.delete_user_account",
+    autoretry_for=(ReferralPayoutInFlightError,),
+    retry_backoff=300,
+    retry_backoff_max=3600,
+    max_retries=12,
+)
 def delete_user_account(user_id: str) -> None:
     """Delete a user account and all associated data in the background.
 
@@ -159,7 +167,15 @@ def delete_user_account(user_id: str) -> None:
 
     Any live membership subscription is cancelled first — see
     :func:`_cancel_live_subscriptions`, which must stay *outside* the
-    transaction so its ``on_commit`` Stripe cancel actually fires.
+    transaction so its ``on_commit`` Stripe cancel actually fires. Referral
+    teardown follows as its own independently-committed phase (referral rows
+    PROTECT the user, so the graph must go before the cascade — see
+    :mod:`accounts.service.referral_cleanup`): the cleanup issues statement
+    PDFs, whose file writes cannot be rolled back, and holding row locks across
+    the whole cascade would fight the disbursement task. Safe because both
+    phases are idempotent — if the process dies between them, or the task is
+    retried or re-triggered, the second run re-derives the state, finds nothing
+    left to tear down, and proceeds to the delete.
 
     The cascade and the simple-history purge then run inside **one** explicit
     transaction. Both halves are needed for the erasure to be complete, and a
@@ -170,19 +186,29 @@ def delete_user_account(user_id: str) -> None:
     after the delete, because the cascade itself writes one deletion row per
     removed live row (see :func:`~accounts.service.gdpr.purge_user_history`).
 
+    A payout that is mid-transfer defers the whole deletion via Celery retry
+    rather than racing Stripe.
+
     Args:
         user_id: The UUID of the user to delete.
     """
     user = RevelUser.objects.get(id=user_id)
-    logger.info("account_deletion_started", user_id=str(user.id), email=user.email)
+    # Deliberately no email here: this log outlives the erasure it records.
+    logger.info("account_deletion_started", user_id=str(user.id))
     _cancel_live_subscriptions(user)
     # ``delete()`` nulls the instance pk, so keep it for the history purge.
     pk = user.pk
     try:
+        cleanup_referral_data(user)
         with transaction.atomic():
             user.delete()
             gdpr.purge_user_history(pk)
         logger.info("account_deletion_completed", user_id=user_id)
+    except ReferralPayoutInFlightError:
+        # Benign: a Stripe transfer is in flight. Retried with backoff; stale
+        # PENDING rows are reclaimed after an hour by process_referral_payouts.
+        logger.info("account_deletion_deferred_pending_payout", user_id=user_id)
+        raise
     except Exception as e:
         logger.error("account_deletion_failed", user_id=user_id, error=str(e), exc_info=True)
         raise

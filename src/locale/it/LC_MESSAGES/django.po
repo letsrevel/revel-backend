@@ -143,6 +143,20 @@ msgstr "Il PDF del rendiconto non è ancora stato generato."
 msgid "Only active referrers can connect a Stripe account."
 msgstr "Solo i referrer attivi possono collegare un account Stripe."
 
+#, python-format
+msgid ""
+"Deleting your account will permanently forfeit %(count)s unpaid referral "
+"payout(s) totalling %(total)s %(currency)s, of which %(failed)s %(currency)s "
+"comes from failed transfers. Contact support before deleting if you want "
+"these paid out, or re-submit with force=true to delete anyway."
+msgstr ""
+"L'eliminazione del tuo account comporterà la perdita definitiva di %(count)s "
+"compenso/i referral non ancora corrisposto/i, per un totale di %(total)s "
+"%(currency)s, di cui %(failed)s %(currency)s derivanti da trasferimenti "
+"falliti. Contatta l'assistenza prima di eliminare l'account se desideri "
+"riceverli, oppure invia di nuovo la richiesta con force=true per eliminarlo "
+"comunque."
+
 msgid "Global Ban"
 msgstr "Blocco globale"
 
@@ -669,6 +683,44 @@ msgstr "Richiesta reimpostazione password."
 
 msgid "Password reset request"
 msgstr "Richiesta reimpostazione password"
+
+msgid "Referral Payouts Forfeited — Admin Notice"
+msgstr "Compensi referral persi — Avviso per gli amministratori"
+
+msgid "A user deleted their account and forfeited unpaid referral payouts."
+msgstr ""
+"Un utente ha eliminato il proprio account perdendo i compensi referral non "
+"corrisposti."
+
+msgid "Forfeited:"
+msgstr "Persi:"
+
+msgid "Of which failed transfers:"
+msgstr "Di cui da trasferimenti falliti:"
+
+msgid "Itemization (these rows have been deleted):"
+msgstr "Dettaglio (queste righe sono state eliminate):"
+
+msgid ""
+"Paid payouts and their statements were retained for accounting purposes."
+msgstr ""
+"I compensi già corrisposti e i relativi rendiconti sono stati conservati per "
+"finalità contabili."
+
+#, python-format
+msgid "User: %(user_email)s (%(user_id)s)"
+msgstr "Utente: %(user_email)s (%(user_id)s)"
+
+#, python-format
+msgid "Forfeited: %(unpaid_count)s payout(s), %(unpaid_total)s %(currency)s"
+msgstr "Persi: %(unpaid_count)s compenso/i, %(unpaid_total)s %(currency)s"
+
+#, python-format
+msgid "Of which failed transfers: %(failed_total)s %(currency)s"
+msgstr "Di cui da trasferimenti falliti: %(failed_total)s %(currency)s"
+
+msgid "Referral payouts forfeited by an account deletion"
+msgstr "Compensi referral persi a seguito dell'eliminazione di un account"
 
 #, python-format
 msgid "Referral payout statement %(document_number)s"
