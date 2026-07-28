@@ -575,8 +575,18 @@ class TestRecordPaymentOccurredAt:
 
 
 class TestLifecycle:
-    def test_cancel_at_period_end(self, plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+    def test_cancel_at_period_end(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        # The initial payment gives the row a period boundary to cancel at;
+        # without one the scheduled cancel is upgraded to an immediate one.
+        sub = subscription_service.create_subscription(
+            plan,
+            subscriber,
+            initial_payment=subscription_service.InitialPayment(
+                amount=plan.price, currency=plan.currency, recorded_by=recorder
+            ),
+        )
         out = subscription_service.cancel_subscription(sub, immediate=False)
         assert out.cancel_at_period_end is True
         assert out.status != MembershipSubscription.SubscriptionStatus.CANCELLED

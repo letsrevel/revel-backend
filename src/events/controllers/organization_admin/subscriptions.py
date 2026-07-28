@@ -392,7 +392,14 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/uncancel",
         url_name="uncancel_subscription",
-        response={200: schema.SubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage, 502: ResponseMessage},
+        # 403: refused while the membership is PAUSED / BANNED — restore it first.
+        response={
+            200: schema.SubscriptionSchema,
+            400: ResponseMessage,
+            403: ResponseMessage,
+            404: ResponseMessage,
+            502: ResponseMessage,
+        },
     )
     def uncancel_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
         """Undo a scheduled cancellation, so the subscription keeps renewing."""

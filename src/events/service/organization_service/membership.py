@@ -82,7 +82,7 @@ def create_membership_request(
     return OrganizationMembershipRequest.objects.create(organization=organization, user=user, message=message)
 
 
-def _assert_free_grant_allowed(membership_request: models.OrganizationMembershipRequest) -> None:
+def _assert_free_grant_allowed(membership_request: models.OrganizationMembershipRequest, *, force: bool) -> None:
     """Refuse a free grant that would clobber a paid or admin-imposed membership.
 
     Mirrors the guards ``membership_manager.service._complete_free_application``
@@ -91,13 +91,50 @@ def _assert_free_grant_allowed(membership_request: models.OrganizationMembership
     tier-less PENDING application coexist with a tier-bearing one, so a queue row
     predating the user's subscription can still be approved months later.
 
+    BANNED and hard-blacklisted users are refused **even with** ``force``: the
+    free path's ``update_or_create(status=ACTIVE)`` would otherwise silently
+    un-ban them, and lifting a ban has to stay a deliberate ``update_member`` /
+    blacklist action rather than a side effect of clearing the application queue.
+    The blacklist half mirrors ``subscription_stripe_sync._ensure_active_member``.
+
     Args:
         membership_request: The application being approved.
+        force: Staff explicitly overrode the safety guards.
 
     Raises:
-        HttpError: 400 when the user holds a non-terminal subscription, or when
-            their membership is PAUSED.
+        HttpError: 403 when the user is BANNED or hard-blacklisted (regardless of
+            ``force``); 400 when the user holds a non-terminal subscription, or
+            when their membership is PAUSED.
     """
+    is_banned = models.OrganizationMember.objects.filter(
+        organization_id=membership_request.organization_id,
+        user_id=membership_request.user_id,
+        status=OrganizationMember.MembershipStatus.BANNED,
+    ).exists()
+    if is_banned:
+        raise HttpError(
+            403,
+            str(
+                _(
+                    "This user is banned from the organization. Lift the ban from the members "
+                    "list before approving an application."
+                )
+            ),
+        )
+    if blacklist_service.check_user_hard_blacklisted(membership_request.user, membership_request.organization):
+        raise HttpError(
+            403,
+            str(
+                _(
+                    "This user is blacklisted from the organization. Remove them from the "
+                    "blacklist before approving an application."
+                )
+            ),
+        )
+
+    if force:
+        return
+
     has_subscription = (
         MembershipSubscription.objects.filter(
             organization_id=membership_request.organization_id,
@@ -157,7 +194,8 @@ def approve_membership_request(
         tier: Tier to grant when the application carries none.
         force: Bypass the free-path safety guards. Staff may legitimately want to
             comp a paying subscriber or correct a tier; without this the guards
-            would make that impossible.
+            would make that impossible. Does not bypass the BANNED / blacklist
+            refusals — see :func:`_assert_free_grant_allowed`.
     """
     effective_tier = membership_request.tier or tier
     if effective_tier is None:
@@ -170,8 +208,7 @@ def approve_membership_request(
     membership_request.decided_by = decided_by
 
     if membership_request.plan_id is None:
-        if not force:
-            _assert_free_grant_allowed(membership_request)
+        _assert_free_grant_allowed(membership_request, force=force)
         # Free path: complete now.
         membership_request.status = models.OrganizationMembershipRequest.Status.COMPLETED
         update_fields = ["status", "decided_by"]

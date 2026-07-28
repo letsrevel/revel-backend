@@ -166,6 +166,8 @@ class MeSubscriptionsController(UserAwareController):
         response={
             200: schema.MySubscriptionSchema,
             400: ResponseMessage,
+            # Refused while the membership is PAUSED / BANNED by the organizers.
+            403: ErrorDetail,
             404: ResponseMessage,
             502: ResponseMessage,
         },

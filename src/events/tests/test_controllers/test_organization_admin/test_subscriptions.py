@@ -557,7 +557,15 @@ class TestSubscriptionEndpoints:
         subscriber: RevelUser,
     ) -> None:
         """The default (``immediate=False``) path flips ``cancel_at_period_end`` and leaves status alone."""
-        sub = subscription_service.create_subscription(plan, subscriber)
+        # The initial payment gives the row a period boundary to cancel at;
+        # without one the scheduled cancel is upgraded to an immediate one.
+        sub = subscription_service.create_subscription(
+            plan,
+            subscriber,
+            initial_payment=subscription_service.InitialPayment(
+                amount=plan.price, currency=plan.currency, recorded_by=organization.owner
+            ),
+        )
         url = reverse("api:cancel_subscription", kwargs={"slug": organization.slug, "sub_id": sub.id})
         response = organization_owner_client.post(
             url, data=orjson.dumps({"immediate": False}), content_type="application/json"

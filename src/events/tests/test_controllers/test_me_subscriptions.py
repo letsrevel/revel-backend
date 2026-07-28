@@ -446,6 +446,10 @@ class TestCancelMyMembershipEndpoint:
             organization=organization,
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
             stripe_subscription_id="sub_to_cancel",
+            # A period boundary to cancel at: without one the scheduled cancel
+            # is upgraded to an immediate one (see ``cancel_subscription``).
+            current_period_start=timezone.now(),
+            current_period_end=timezone.now() + timedelta(days=30),
         )
 
         url = reverse("api:cancel_my_membership_subscription", kwargs={"org_id": organization.id})
@@ -460,6 +464,12 @@ class TestCancelMyMembershipEndpoint:
         their_subscription: MembershipSubscription,
         organization: Organization,
     ) -> None:
+        # A period boundary to cancel at: without one the scheduled cancel is
+        # upgraded to an immediate one (see ``cancel_subscription``).
+        their_subscription.current_period_start = timezone.now()
+        their_subscription.current_period_end = timezone.now() + timedelta(days=30)
+        their_subscription.save(update_fields=["current_period_start", "current_period_end"])
+
         url = reverse("api:cancel_my_membership_subscription", kwargs={"org_id": organization.id})
         response = subscriber_client.post(url, data={"immediate": False}, content_type="application/json")
         assert response.status_code == 200, response.content

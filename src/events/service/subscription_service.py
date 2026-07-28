@@ -428,6 +428,8 @@ def cancel_subscription(
     ``immediate=True`` jumps straight to CANCELLED. PAUSED subscriptions
     refuse the scheduled path — pause freezes time so the period boundary
     would never be reached; callers must resume first or cancel immediately.
+    A row with no ``current_period_end`` has no boundary to wait for either,
+    so a scheduled cancel is upgraded to an immediate one.
 
     For Stripe-managed (ONLINE) subscriptions, dispatches to the Stripe
     service so the cancel is mirrored to Stripe; the webhook then settles
@@ -455,6 +457,16 @@ def cancel_subscription(
             400,
             str(_("Cannot schedule cancellation for a paused subscription. Resume it first, or cancel immediately.")),
         )
+
+    # Same dead-end for a row with no period boundary at all — a PENDING OFFLINE
+    # subscription staff created without an initial payment, say. There is no
+    # boundary for the scheduled cancel to land on and the grace-expiry sweep
+    # only selects ACTIVE-with-period / PAST_DUE rows, so the row would sit
+    # non-terminal forever, holding a plan cap slot. Unlike PAUSED there is
+    # nothing to resume first, so the cancel is simply performed now; the
+    # dispatch gates below then send the immediate-cancel notification.
+    if not immediate and subscription.current_period_end is None:
+        immediate = True
 
     if (
         subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE

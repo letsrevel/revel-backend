@@ -452,6 +452,26 @@ _SUBSCRIPTION_TO_MEMBER_STATUS: dict[str, str] = {
 }
 
 
+@receiver(pre_save, sender=MembershipSubscription)
+def capture_subscription_old_status(
+    sender: type[MembershipSubscription],
+    instance: MembershipSubscription,
+    **kwargs: t.Any,
+) -> None:
+    """Stamp the committed status on the instance for :func:`sync_member_from_subscription`.
+
+    Same pre_save capture pattern as :func:`capture_event_old_status`, but the
+    attribute is stamped on *every* save (``None`` when the row is new) because
+    the post_save consumer needs to distinguish "was PAUSED" from "was already
+    ACTIVE", not merely "changed".
+    """
+    instance._old_status = (  # type: ignore[attr-defined]
+        MembershipSubscription.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
+        if instance.pk
+        else None
+    )
+
+
 @receiver(post_save, sender=MembershipSubscription)
 def sync_member_from_subscription(
     sender: type[MembershipSubscription],
@@ -469,6 +489,11 @@ def sync_member_from_subscription(
       for the ONLINE flow (gated on Stripe's first paid invoice / ``active``
       status, so members don't get tier benefits before paying).
     - Leaves ``BANNED`` members untouched.
+    - Leaves a ``PAUSED`` member paused unless the subscription is itself
+      transitioning *out of* PAUSED (the staff resume paths). A staff-imposed
+      pause is mirrored onto the subscription, so any other save of a
+      still-ACTIVE row — a webhook echo sync, an uncancel, an ``invoice.paid``
+      on a row that was never PAUSED — used to silently lift the suspension.
     - Subscription tier wins: ``member.tier`` is set to ``plan.tier`` whenever
       they differ.
     - Skips syncing when a newer non-terminal subscription exists for the
@@ -513,6 +538,20 @@ def sync_member_from_subscription(
         return
     if member.status == OrganizationMember.MembershipStatus.BANNED:
         return
+
+    # A staff pause is only lifted by the resume paths — OFFLINE
+    # ``resume_subscription`` and ``resume_online_subscription`` both flip the
+    # row PAUSED → ACTIVE, and so does the ``customer.subscription.updated``
+    # echo that clears ``pause_collection``. Everything else that saves an
+    # already-ACTIVE row must leave the member suspended (tier still follows
+    # the plan). ``update_member(status=ACTIVE)`` is unaffected: it saves the
+    # member row directly and never routes through this signal.
+    if (
+        member.status == OrganizationMember.MembershipStatus.PAUSED
+        and target_status == OrganizationMember.MembershipStatus.ACTIVE
+        and getattr(instance, "_old_status", None) != MembershipSubscription.SubscriptionStatus.PAUSED.value
+    ):
+        target_status = member.status
 
     target_tier_id = instance.plan.tier_id
     update_fields = []

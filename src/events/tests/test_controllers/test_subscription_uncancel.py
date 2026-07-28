@@ -313,7 +313,18 @@ class TestStuckStateResolved:
         organization: Organization,
     ) -> None:
         """The exact deadlock from #808: a scheduled cancel could be neither paused nor undone."""
-        subscription = subscription_service.create_subscription(plan, subscriber_user)
+        # The initial payment gives the row a period boundary — without one the
+        # scheduled cancel is upgraded to an immediate one (see
+        # ``cancel_subscription``) and there is nothing left to undo.
+        subscription = subscription_service.create_subscription(
+            plan,
+            subscriber_user,
+            initial_payment=subscription_service.InitialPayment(
+                amount=plan.price,
+                currency=plan.currency,
+                recorded_by=organization.owner,
+            ),
+        )
         subscription_service.cancel_subscription(subscription, immediate=False)
 
         pause_url = reverse("api:pause_subscription", kwargs={"slug": organization.slug, "sub_id": subscription.id})
