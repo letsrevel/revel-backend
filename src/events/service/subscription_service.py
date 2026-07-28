@@ -9,6 +9,7 @@ import typing as t
 from datetime import timedelta
 from decimal import Decimal
 
+import stripe
 import structlog
 from django.db import transaction
 from django.db.models import ProtectedError
@@ -17,6 +18,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.exceptions import SubscriptionActivationPendingError
 from events.models import (
     MembershipPayment,
     MembershipSubscription,
@@ -45,6 +47,7 @@ from events.service.subscription_sales import (
     ensure_plan_sales_capacity,
 )
 from events.service.subscription_stripe_base import ensure_stripe_price
+from events.service.subscription_stripe_payloads import _stripe_account_kwargs
 from events.service.ticket_service import check_online_payment_prerequisites
 
 logger = structlog.get_logger(__name__)
@@ -182,6 +185,71 @@ def delete_plan(plan: MembershipSubscriptionPlan) -> None:
 # ---- Subscription operations -------------------------------------------------
 
 
+def _expire_open_checkout_before_terminalizing(subscription: MembershipSubscription) -> None:
+    """Kill the payable Checkout Session an immediate cancel is about to strand.
+
+    An ONLINE row that carries a ``stripe_checkout_session_id`` but no
+    ``stripe_subscription_id`` has a live hosted Checkout the member can still
+    complete from an open tab. Terminalizing locally without expiring it means
+    Stripe mints a Subscription that keeps billing while the local row is
+    frozen: the completed-session handler refuses to link it (see
+    :meth:`SubscriptionWebhookHandlersMixin.handle_subscription_checkout_completed`)
+    and the reconcile sweep walks local rows, so nothing ever closes it.
+
+    Same discipline as ``subscription_stripe_service._maybe_resume_pending_checkout``:
+    expire first, and abort the cancel when the expire fails un-confirmably. A
+    rejected expire is re-read rather than guessed at — the member completing
+    the session mid-round-trip surfaces as the 409
+    ``subscription_activation_pending`` (money has moved; cancel once the
+    activation webhooks land), anything else as the module's retryable 502.
+
+    The Stripe round trip happens under this member's row lock — the documented
+    single-member blast radius the subscribe/revive paths already accept — and
+    must, since the row must not be terminalized before the session is dead.
+    """
+    if subscription.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        return
+    if subscription.stripe_subscription_id or not subscription.stripe_checkout_session_id:
+        return
+
+    session_id = subscription.stripe_checkout_session_id
+    kwargs = _stripe_account_kwargs(subscription.organization)
+    try:
+        stripe.checkout.Session.expire(session_id, **kwargs)
+    except stripe.error.InvalidRequestError:
+        # Almost certainly "not in status open": already expired (nothing to
+        # strand) or completed during our round trip (money moved). Re-read.
+        try:
+            session = stripe.checkout.Session.retrieve(session_id, **kwargs)
+        except stripe.error.StripeError:
+            logger.exception(
+                "subscription_cancel_session_retrieve_failed",
+                subscription_id=str(subscription.pk),
+                stripe_checkout_session_id=session_id,
+            )
+            raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
+        if session.get("status") == "complete":
+            logger.warning(
+                "subscription_cancel_session_already_complete",
+                subscription_id=str(subscription.pk),
+                stripe_checkout_session_id=session_id,
+            )
+            raise SubscriptionActivationPendingError
+        return
+    except stripe.error.StripeError:
+        logger.exception(
+            "subscription_cancel_session_expire_failed",
+            subscription_id=str(subscription.pk),
+            stripe_checkout_session_id=session_id,
+        )
+        raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
+    logger.info(
+        "subscription_cancel_session_expired",
+        subscription_id=str(subscription.pk),
+        stripe_checkout_session_id=session_id,
+    )
+
+
 @transaction.atomic
 def cancel_subscription(
     subscription: MembershipSubscription,
@@ -233,6 +301,9 @@ def cancel_subscription(
         # cancel_online_subscription mirrors local state synchronously, so the
         # dispatch gates below apply uniformly to both branches.
     elif immediate:
+        # No Stripe subscription to cancel, but there may still be a live
+        # Checkout Session minting one — kill it before the row goes terminal.
+        _expire_open_checkout_before_terminalizing(subscription)
         subscription.status = MembershipSubscription.SubscriptionStatus.CANCELLED
         subscription.cancelled_at = timezone.now()
         subscription.cancel_at_period_end = False

@@ -340,11 +340,22 @@ def _validate_change_plan_state(
     subscription: MembershipSubscription,
     new_plan: MembershipSubscriptionPlan,
 ) -> None:
-    """Pre-flight checks shared by upgrade and downgrade routing."""
+    """Pre-flight checks shared by upgrade and downgrade routing.
+
+    PAST_DUE is refused alongside the other non-steady states: an upgrade
+    invoices only the proration delta (``always_invoice``), and when *that*
+    invoice settles ``_apply_invoice_outcome`` revives the row to ACTIVE
+    (PAST_DUE is in its revivable set) while the lapsed renewal invoice stays
+    unpaid and the period anchor stays in the past — a false ACTIVE that also
+    grants the pricier tier and clears the dunning warning. Settling the
+    outstanding invoice (Customer Portal) is the documented remediation.
+    """
     if subscription.is_terminal:
         raise HttpError(400, str(_("Cannot change the plan on a terminated subscription.")))
     if subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
         raise HttpError(400, str(_("Resume the subscription before changing its plan.")))
+    if subscription.status == MembershipSubscription.SubscriptionStatus.PAST_DUE:
+        raise HttpError(400, str(_("Settle the outstanding payment before changing plans.")))
     if subscription.cancel_at_period_end:
         raise HttpError(400, str(_("This subscription is scheduled to cancel; cannot change plan.")))
     if subscription.pending_plan_id:

@@ -259,6 +259,57 @@ class TestChangeOnlinePlan:
             subscription_stripe_plan_change.change_online_plan(sub, cheaper_plan)
         assert exc.value.status_code == 400
 
+    @mock.patch("events.service.subscription_stripe_plan_change.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription_stripe_plan_change.stripe.Subscription.retrieve")
+    def test_refuses_upgrade_when_past_due(
+        self,
+        mock_retrieve: mock.Mock,
+        mock_modify: mock.Mock,
+        online_plan: MembershipSubscriptionPlan,
+        pricier_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """A lapsed renewal must be settled first.
+
+        Without the guard the ``always_invoice`` upgrade charges only the
+        proration delta, and that invoice's ``invoice.paid`` revives the row to
+        ACTIVE (PAST_DUE is revivable) with the renewal still unpaid — while
+        already granting the pricier tier.
+        """
+        sub = _make_online_subscription(online_plan, subscriber)
+        sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+        sub.current_period_end = timezone.now() - timedelta(days=1)
+        sub.save(update_fields=["status", "current_period_end"])
+        mock_retrieve.return_value = {"items": {"data": [{"id": "si_test"}]}}
+
+        with pytest.raises(HttpError) as exc:
+            subscription_stripe_plan_change.change_online_plan(sub, pricier_plan)
+
+        assert exc.value.status_code == 400
+        mock_modify.assert_not_called()
+        sub.refresh_from_db()
+        assert sub.plan_id == online_plan.pk
+
+    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.create")
+    def test_refuses_downgrade_when_past_due(
+        self,
+        mock_schedule_create: mock.Mock,
+        online_plan: MembershipSubscriptionPlan,
+        cheaper_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        sub = _make_online_subscription(online_plan, subscriber)
+        sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+        sub.save(update_fields=["status"])
+
+        with pytest.raises(HttpError) as exc:
+            subscription_stripe_plan_change.change_online_plan(sub, cheaper_plan)
+
+        assert exc.value.status_code == 400
+        mock_schedule_create.assert_not_called()
+        sub.refresh_from_db()
+        assert sub.pending_plan_id is None
+
 
 # ---- pause_online_subscription / resume_online_subscription -----------------
 

@@ -372,7 +372,13 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/cancel",
         url_name="cancel_subscription",
-        response={200: schema.SubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage},
+        response={
+            200: schema.SubscriptionSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            409: schema.SubscriptionActivationPendingSchema,
+            502: ResponseMessage,
+        },
     )
     def cancel_subscription(
         self,

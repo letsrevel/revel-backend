@@ -1,6 +1,7 @@
 """Tests for the subscription-expiry beat task."""
 
 import datetime
+import typing as t
 from decimal import Decimal
 
 import pytest
@@ -305,6 +306,97 @@ class TestExpireSubscriptions:
             notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
         ).exists()
 
+    def test_past_due_with_cancel_at_period_end_terminalizes_cancelled(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """A member who scheduled a cancel while PAST_DUE terminalizes as CANCELLED.
+
+        ``cancel_subscription`` accepts PAST_DUE, so the grace-expiry pass has to
+        honour the same choice the period-boundary pass does. EXPIRED here would
+        contradict the CANCELLATION_CONFIRMED the member already received (a
+        revive CTA for a subscription they chose to end) and would stamp
+        ``expired_at``, dropping them into the revival window chosen
+        cancellations are meant to stay out of.
+        """
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        sub = _make_active_sub(plan, subscriber, period_end, cancel_at_period_end=True)
+        sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+        sub.save()
+
+        # 10 days past period_end, default grace is 7.
+        with freeze_time("2026-05-11 13:00:00"):
+            counters = expire_subscriptions_past_grace()
+
+        assert counters == {"cancelled_at_period_end": 1, "past_due": 0, "expired_after_grace": 0}
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert sub.cancelled_at is not None
+        assert sub.expired_at is None
+        assert not Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
+        ).exists()
+
+    def test_zero_grace_does_not_cascade_active_to_expired_in_one_run(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """With grace=0 a single run may take a lapsed ACTIVE row no further than PAST_DUE.
+
+        Step 3 re-queries PAST_DUE rows, and a zero-day grace window is satisfied
+        the moment the period lapses — so without the same-run skip one pass would
+        walk ACTIVE → PAST_DUE → EXPIRED, terminalizing an ONLINE member whose
+        renewal charge is merely in flight between the reconcile and expiry runs.
+        Grace must mean "at least until the next run sees you PAST_DUE".
+        """
+        organization.membership_grace_period_days = 0
+        organization.save(update_fields=["membership_grace_period_days"])
+
+        period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        sub = _make_active_sub(plan, subscriber, period_end)
+
+        with freeze_time("2026-05-02 04:00:00"):
+            first = expire_subscriptions_past_grace()
+
+        assert first == {"cancelled_at_period_end": 0, "past_due": 1, "expired_after_grace": 0}
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PAST_DUE
+        assert sub.expired_at is None
+
+        # The next night's run finds it already PAST_DUE and expires it.
+        with freeze_time("2026-05-03 04:00:00"):
+            second = expire_subscriptions_past_grace()
+
+        assert second["expired_after_grace"] == 1
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+
+    def test_long_lapsed_active_row_does_not_expire_in_the_same_run(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """Same invariant with the default 7-day grace: a stalled beat catching up
+        on a row lapsed 40 days ago still only moves it to PAST_DUE this run."""
+        period_end = datetime.datetime(2026, 4, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        sub = _make_active_sub(plan, subscriber, period_end)
+
+        with freeze_time("2026-05-11 13:00:00"):
+            counters = expire_subscriptions_past_grace()
+
+        assert counters == {"cancelled_at_period_end": 0, "past_due": 1, "expired_after_grace": 0}
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PAST_DUE
+
     def test_online_lapsed_does_not_fire_notification(
         self,
         organization: Organization,
@@ -573,6 +665,81 @@ class TestReconcileStripeSubscriptions:
             "ledger_backfilled": 0,
         }
 
+    def _terminal_row_payload(self, stripe_status: str) -> dict[str, t.Any]:
+        return {
+            "id": "sub_reconcile",
+            "status": stripe_status,
+            "cancel_at_period_end": False,
+            "items": {"data": [{"price": {"id": "price_c4"}}]},
+        }
+
+    def test_terminal_row_still_live_on_stripe_is_cancelled_again(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """A terminalization cancel that failed transiently is retried here.
+
+        Without the retry the Stripe subscription keeps dunning a member who has
+        already lost access locally, and a Smart Retry that succeeds bills a
+        frozen row (paid_while_terminal — refundable only by hand).
+        """
+        from unittest.mock import patch
+
+        from events.tasks.subscriptions import reconcile_stripe_subscriptions
+
+        self._make_online_sub(tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.EXPIRED)
+        with (
+            patch("stripe.Subscription.retrieve", return_value=self._terminal_row_payload("past_due")),
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
+        ):
+            counters = reconcile_stripe_subscriptions()
+
+        assert counters["checked"] == 1
+        cancel_mock.assert_called_once()
+        assert cancel_mock.call_args.args[0] == "sub_reconcile"
+
+    def test_terminal_row_already_closed_on_stripe_is_not_cancelled_again(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """No pointless Stripe write when the two sides already agree."""
+        from unittest.mock import patch
+
+        from events.tasks.subscriptions import reconcile_stripe_subscriptions
+
+        self._make_online_sub(tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.EXPIRED)
+        with (
+            patch("stripe.Subscription.retrieve", return_value=self._terminal_row_payload("canceled")),
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
+        ):
+            reconcile_stripe_subscriptions()
+
+        cancel_mock.assert_not_called()
+
+    def test_live_non_terminal_row_is_never_cancelled_by_reconcile(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """The repair is scoped to terminal rows — an ACTIVE member is untouched."""
+        from unittest.mock import patch
+
+        from events.tasks.subscriptions import reconcile_stripe_subscriptions
+
+        self._make_online_sub(tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.ACTIVE)
+        with (
+            patch("stripe.Subscription.retrieve", return_value=self._terminal_row_payload("active")),
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
+        ):
+            reconcile_stripe_subscriptions()
+
+        cancel_mock.assert_not_called()
+
     def test_old_terminal_rows_are_skipped(
         self,
         tier: MembershipTier,
@@ -607,7 +774,7 @@ class TestReconcileStripeSubscriptions:
         subscriber: RevelUser,
     ) -> None:
         """An abandoned ONLINE checkout row (day-old, no Stripe sub) frees its cap slot."""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         from events.tasks.subscriptions import reconcile_stripe_subscriptions
 
@@ -618,7 +785,13 @@ class TestReconcileStripeSubscriptions:
             stripe_checkout_session_id="cs_stale",
             updated_at=timezone.now() - datetime.timedelta(days=2),
         )
-        with patch("stripe.Subscription.retrieve") as retrieve_mock:
+        with (
+            patch("stripe.Subscription.retrieve") as retrieve_mock,
+            patch(
+                "events.service.subscription_stripe_service.stripe.checkout.Session.retrieve",
+                return_value=MagicMock(id="cs_stale", status="expired"),
+            ),
+        ):
             counters = reconcile_stripe_subscriptions()
 
         retrieve_mock.assert_not_called()
@@ -632,7 +805,7 @@ class TestReconcileStripeSubscriptions:
         subscriber: RevelUser,
     ) -> None:
         """A stale revival checkout keeps its ledger: reverted to EXPIRED, not deleted."""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         from events.models import MembershipPayment
         from events.tasks.subscriptions import reconcile_stripe_subscriptions
@@ -653,7 +826,13 @@ class TestReconcileStripeSubscriptions:
             expired_at=now - datetime.timedelta(days=10),
             updated_at=now - datetime.timedelta(days=2),
         )
-        with patch("stripe.Subscription.retrieve"):
+        with (
+            patch("stripe.Subscription.retrieve"),
+            patch(
+                "events.service.subscription_stripe_service.stripe.checkout.Session.retrieve",
+                return_value=MagicMock(id="cs_stale_revival", status="expired"),
+            ),
+        ):
             counters = reconcile_stripe_subscriptions()
 
         assert counters["stale_pending_cleared"] == 1

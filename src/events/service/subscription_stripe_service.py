@@ -21,6 +21,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from common.service.vat_utils import b2b_vat_context
 from common.utils import get_or_create_with_race_protection
 from events.exceptions import SubscriptionActivationPendingError
@@ -136,8 +137,6 @@ def _checkout_session_urls(organization: Organization) -> dict[str, str]:
     Mirrors the ticket checkout convention (``stripe_service._create_stripe_session``):
     redirect back to the org page with a query flag the frontend reads.
     """
-    from common.models import SiteSettings  # lazy: avoid import cycle
-
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     return {
         "success_url": f"{frontend_base_url}/org/{organization.slug}?membership_success=true",
@@ -157,8 +156,6 @@ def effective_application_fee_percent(org: Organization) -> Decimal | None:
     Returns:
         The percent to send to Stripe, or ``None`` when no fee applies.
     """
-    from common.models import SiteSettings  # lazy: avoid import cycle
-
     if not org.platform_fee_percent:
         return None
     if not org.stripe_account_id or org.stripe_account_id == settings.STRIPE_ACCOUNT:
@@ -526,6 +523,61 @@ def _clear_stale_pending_checkout(pending: MembershipSubscription) -> None:
     pending.save(update_fields=["status", "stripe_checkout_session_id", "updated_at"])
 
 
+StalePendingVerdict = t.Literal["clear", "paid", "skip"]
+
+
+def classify_stale_pending_checkout(pending: MembershipSubscription) -> StalePendingVerdict:
+    """Ask Stripe whether an untouched PENDING row's Checkout Session is really dead.
+
+    Age alone does not make a PENDING row abandoned. If
+    ``checkout.session.completed`` kept failing — every redelivery rolls the
+    link back — the session can be ``complete`` with money captured while the
+    row still looks like a dropped redirect. Clearing it there destroys the only
+    handle back to the payment: later webhooks match no row, and the reconcile
+    sweep walks local rows, so the member is left with a charge, no membership
+    and no ledger entry. Same hazard :func:`_maybe_resume_pending_checkout`
+    guards on the member-facing path, so it is observed the same way.
+
+    Makes a Stripe round trip: call it OUTSIDE the row lock, then re-check the
+    row inside the lock before acting on the verdict.
+
+    Returns:
+        ``"clear"`` — nothing was ever payable (no session id) or Stripe reports
+        the session ``expired``: the row only holds a cap slot.
+        ``"paid"`` — the session is ``complete``: keep the row and raise an
+        incident; the webhook or a later reconcile can still link it.
+        ``"skip"`` — the retrieve failed, or the session is still ``open`` (it
+        carries an ``expires_at``, so it dies on its own). Leave the row for the
+        next nightly run.
+    """
+    if not pending.stripe_checkout_session_id:
+        return "clear"
+    try:
+        session = stripe.checkout.Session.retrieve(
+            pending.stripe_checkout_session_id,
+            **_stripe_account_kwargs(pending.organization),
+        )
+    except stripe.error.StripeError:
+        logger.exception(
+            "subscription_stale_pending_session_retrieve_failed",
+            subscription_id=str(pending.pk),
+            stripe_checkout_session_id=pending.stripe_checkout_session_id,
+        )
+        return "skip"
+    session_status = t.cast(str, session.status or "")
+    if session_status == "complete":
+        return "paid"
+    if session_status == "expired":
+        return "clear"
+    logger.info(
+        "subscription_stale_pending_session_not_settled",
+        subscription_id=str(pending.pk),
+        stripe_checkout_session_id=pending.stripe_checkout_session_id,
+        session_status=session_status,
+    )
+    return "skip"
+
+
 def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription, *, reason: str) -> bool:
     """Best-effort ``stripe.Subscription.cancel`` for a locally-terminalized row.
 
@@ -534,11 +586,12 @@ def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription,
     already lost access locally (C1/C2 in the 2026-06-10 reassessment). Errors
     are logged, never raised: the local state machine stays authoritative.
 
-    Note the nightly reconciliation does NOT repair a failed cancel — it freezes
-    terminal rows and only logs the divergence — so a caller that is about to
-    discard ``stripe_subscription_id`` (and thus the only handle back to the
-    Stripe object) must check the return value rather than assume a later sweep
-    will clean up.
+    The nightly reconciliation retries a failed cancel — it re-issues this call
+    for any terminal row Stripe still reports as live — but only while the row
+    still *carries* ``stripe_subscription_id``. A caller about to discard that id
+    (and thus the only handle back to the Stripe object) is outside that safety
+    net and must check the return value rather than assume a later sweep will
+    clean up.
 
     Returns True when the Stripe side is known to be closed — already gone, or
     cancelled after releasing a downgrade schedule Stripe was refusing over — so

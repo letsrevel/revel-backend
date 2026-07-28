@@ -78,6 +78,7 @@ class MembershipTxnRow:
     """A single membership payment line for the report's detail sheet."""
 
     date: date
+    payment_id: str
     member_email: str
     member_name: str
     plan: str
@@ -441,12 +442,10 @@ def _aggregate_memberships(scope: ReportScope, *, include_transactions: bool = T
     for payment in _membership_payments(scope):
         # ``occurred_at`` is the real hand-over date for backfilled rows (see the
         # model's help_text); ``created_at`` is the fallback, as on the ticket side.
-        sale_in = _in_period(_local_date(payment.occurred_at or payment.created_at, tz), scope)
-        refund_in = bool(
-            payment.refund_amount
-            and payment.refunded_at is not None
-            and _in_period(_local_date(payment.refunded_at, tz), scope)
-        )
+        sale_date = _local_date(payment.occurred_at or payment.created_at, tz)
+        refund_date = _local_date(payment.refunded_at, tz) if payment.refunded_at is not None else None
+        sale_in = _in_period(sale_date, scope)
+        refund_in = bool(payment.refund_amount and refund_date is not None and _in_period(refund_date, scope))
         if not (sale_in or refund_in):
             continue
         acc = currencies.setdefault(payment.currency, _MembershipAcc())
@@ -460,7 +459,13 @@ def _aggregate_memberships(scope: ReportScope, *, include_transactions: bool = T
             subscription = payment.subscription
             acc.transactions.append(
                 MembershipTxnRow(
-                    date=_local_date(payment.occurred_at or payment.created_at, tz),
+                    # A recurring subscription routinely straddles a period boundary. When the
+                    # row is in scope only through its refund, stamping it with the (out-of-period)
+                    # sale date puts the line outside the very period it is reported in — so a
+                    # refund-only row carries the refund date instead. Both-in-period keeps the
+                    # sale date, matching where the money is attributed above.
+                    date=sale_date if sale_in or refund_date is None else refund_date,
+                    payment_id=str(payment.id),
                     member_email=subscription.user.email,
                     member_name=subscription.user.get_display_name(),
                     plan=subscription.plan.name,

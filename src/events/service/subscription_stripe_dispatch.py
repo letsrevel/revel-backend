@@ -5,16 +5,42 @@ and SUBSCRIPTION_EXPIRED notifications based on state transitions and webhook re
 """
 
 from datetime import timedelta
+from decimal import Decimal
 
 from django.utils import timezone
 
-from events.models import MembershipSubscription
+from events.models import MembershipPayment, MembershipSubscription
 from events.service import subscription_service
 
 # Stripe abandons an unpaid first subscription invoice after ~23h
 # (``incomplete`` → ``incomplete_expired``). That, not the org's grace window,
 # is the deadline a first-invoice failure must quote to the member.
 _FIRST_INVOICE_RECOVERY_HOURS = 23
+
+
+def _is_revival_first_payment(subscription: MembershipSubscription) -> bool:
+    """True when this ``invoice.paid`` is the first payment of a *revived* subscription.
+
+    A revival re-uses the member's existing row: ``create_revival_checkout``
+    flips an EXPIRED row — which still carries its previous life's payment
+    ledger — back to PENDING, so its first ``invoice.paid`` looks exactly like a
+    first-ever purchase on status alone. The ledger tells them apart: a
+    first-ever purchase has only the payment the caller just wrote, a revival
+    has older successful ones too.
+
+    The distinction is load-bearing. A first-ever purchase is announced by
+    MEMBERSHIP_GRANTED (the ``OrganizationMember`` row is *created*, firing the
+    post_save signal), so a renewal notification on top would double-notify. A
+    revival only updates the member's existing row, so without this gate the
+    member is charged and told nothing at all.
+    """
+    return (
+        MembershipPayment.objects.filter(
+            subscription=subscription,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        ).count()
+        > 1
+    )
 
 
 def _dispatch_sync_notifications(
@@ -45,6 +71,8 @@ def _dispatch_invoice_notifications(
     payment_created: bool,
     payment_recovered: bool = False,
     billing_reason: str = "",
+    amount: Decimal | None = None,
+    currency: str = "",
 ) -> None:
     """Dispatch RENEWAL_SUCCEEDED or PAYMENT_FAILED based on prior → final status transition.
 
@@ -63,15 +91,23 @@ def _dispatch_invoice_notifications(
         billing_reason: The invoice's Stripe ``billing_reason``. A mid-cycle
             upgrade invoices immediately (``subscription_update``) and must not
             be announced to the member as a renewal.
+        amount: What the invoice actually moved (``amount_paid``) or, for a
+            failure, what it asked for (``amount_due``). Quoting the plan's
+            list price instead misprices every grandfathered subscriber.
+        currency: ISO code for ``amount``.
     """
     S = MembershipSubscription.SubscriptionStatus
+    # A zero/absent figure carries no information (a failed invoice moved
+    # nothing, and older payloads omit the field) — let the helpers fall back.
+    amount = amount or None
     if succeeded:
-        if (
-            (payment_created or payment_recovered)
-            and prior_status in {S.ACTIVE.value, S.PAST_DUE.value}
-            and billing_reason != "subscription_update"
-        ):
-            subscription_service._dispatch_renewal_succeeded(subscription)
+        if (payment_created or payment_recovered) and billing_reason != "subscription_update":
+            # A revival's first invoice arrives as PENDING → ACTIVE like a
+            # first-ever purchase, but only the latter is announced by
+            # MEMBERSHIP_GRANTED, so the revival needs this dispatch.
+            revived = prior_status == S.PENDING.value and _is_revival_first_payment(subscription)
+            if revived or prior_status in {S.ACTIVE.value, S.PAST_DUE.value}:
+                subscription_service._dispatch_renewal_succeeded(subscription, amount=amount, currency=currency)
     elif payment_created and prior_status in {S.ACTIVE.value, S.PENDING.value}:
         # PENDING is the first-invoice case (async payment methods, SCA): the row
         # is moved to PAST_DUE just like ACTIVE, so per ADR-0015 the member is
@@ -84,4 +120,10 @@ def _dispatch_invoice_notifications(
             grace_period_end = (subscription.current_period_end or timezone.now()) + timedelta(
                 days=subscription.organization.membership_grace_period_days
             )
-        subscription_service._dispatch_payment_failed(subscription, grace_period_end=grace_period_end, is_online=True)
+        subscription_service._dispatch_payment_failed(
+            subscription,
+            grace_period_end=grace_period_end,
+            is_online=True,
+            amount=amount,
+            currency=currency,
+        )

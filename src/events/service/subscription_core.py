@@ -268,6 +268,9 @@ def record_payment(
         MembershipSubscription.SubscriptionStatus.PAST_DUE.value,
     }
     if dispatch_renewal_notification and prior_status in _renewal_eligible_statuses:
-        _dispatch_renewal_succeeded(subscription)
+        # Quote what was actually recorded: staff pick the amount (and the
+        # subscriber may be grandfathered on an older price), so ``plan.price``
+        # would put a figure in the receipt that nobody paid.
+        _dispatch_renewal_succeeded(subscription, amount=amount, currency=currency)
 
     return payment

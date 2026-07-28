@@ -6,12 +6,17 @@ from decimal import Decimal
 from unittest import mock
 
 import pytest
+import stripe
 from django.utils import timezone
 from freezegun import freeze_time
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.exceptions import BillingInfoRequiredError, StripeNotConnectedError
+from events.exceptions import (
+    BillingInfoRequiredError,
+    StripeNotConnectedError,
+    SubscriptionActivationPendingError,
+)
 from events.models import (
     Blacklist,
     MembershipPayment,
@@ -823,3 +828,102 @@ class TestRefundPayment:
         subscription_refunds.refund_payment(payment, recorded_by=recorder)
         again = subscription_refunds.refund_payment(payment, recorded_by=recorder)
         assert again.status == MembershipPayment.PaymentStatus.REFUNDED
+
+
+# ---- immediate cancel vs. a still-payable Checkout Session --------------------
+
+
+class TestImmediateCancelExpiresCheckout:
+    """An immediate cancel must kill the Checkout Session it would otherwise strand.
+
+    An ONLINE PENDING row carries a live hosted Checkout the member can still
+    complete from an open tab. Terminalizing locally without expiring it lets
+    Stripe mint a Subscription that keeps billing while the local row is frozen.
+    """
+
+    @pytest.fixture
+    def online_pending(self, tier: MembershipTier, subscriber: RevelUser) -> MembershipSubscription:
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Online Pending",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            period_count=1,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_cancel",
+            stripe_price_id="price_cancel",
+        )
+        return MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=online_plan.tier.organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_still_open",
+        )
+
+    def test_expires_open_session_before_terminalizing(self, online_pending: MembershipSubscription) -> None:
+        with mock.patch("stripe.checkout.Session.expire") as mock_expire:
+            cancelled = subscription_service.cancel_subscription(online_pending, immediate=True)
+
+        mock_expire.assert_called_once()
+        assert mock_expire.call_args.args[0] == "cs_still_open"
+        assert cancelled.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+
+    def test_aborts_when_session_turned_out_complete(self, online_pending: MembershipSubscription) -> None:
+        """Expire rejected + the session reads ``complete``: the member paid mid-cancel."""
+        with (
+            mock.patch(
+                "stripe.checkout.Session.expire",
+                side_effect=stripe.error.InvalidRequestError("not in status open", "session"),
+            ),
+            mock.patch("stripe.checkout.Session.retrieve", return_value={"status": "complete"}),
+            pytest.raises(SubscriptionActivationPendingError),
+        ):
+            subscription_service.cancel_subscription(online_pending, immediate=True)
+
+        online_pending.refresh_from_db()
+        assert online_pending.status == MembershipSubscription.SubscriptionStatus.PENDING
+        assert online_pending.cancelled_at is None
+
+    def test_already_expired_session_lets_the_cancel_through(self, online_pending: MembershipSubscription) -> None:
+        with (
+            mock.patch(
+                "stripe.checkout.Session.expire",
+                side_effect=stripe.error.InvalidRequestError("not in status open", "session"),
+            ),
+            mock.patch("stripe.checkout.Session.retrieve", return_value={"status": "expired"}),
+        ):
+            cancelled = subscription_service.cancel_subscription(online_pending, immediate=True)
+
+        assert cancelled.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+
+    def test_transient_stripe_failure_aborts_with_502(self, online_pending: MembershipSubscription) -> None:
+        with (
+            mock.patch("stripe.checkout.Session.expire", side_effect=stripe.error.APIConnectionError("boom")),
+            pytest.raises(HttpError) as exc,
+        ):
+            subscription_service.cancel_subscription(online_pending, immediate=True)
+
+        assert exc.value.status_code == 502
+        online_pending.refresh_from_db()
+        assert online_pending.status == MembershipSubscription.SubscriptionStatus.PENDING
+
+    def test_offline_row_never_calls_stripe(self, plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        with mock.patch("stripe.checkout.Session.expire") as mock_expire:
+            cancelled = subscription_service.cancel_subscription(sub, immediate=True)
+
+        mock_expire.assert_not_called()
+        assert cancelled.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+
+    def test_staff_service_path_still_swaps_offline_plans(
+        self, plan: MembershipSubscriptionPlan, tier: MembershipTier, subscriber: RevelUser
+    ) -> None:
+        """The member-endpoint OFFLINE refusal is a controller guard, not a service one."""
+        sub = subscription_service.create_subscription(plan, subscriber)
+        annual = subscription_service.create_plan(
+            tier, name="Annual offline", price=Decimal("100.00"), currency="EUR", period_unit="year"
+        )
+        moved = subscription_service.change_plan(sub, annual, enforce_sales_status=False)
+        assert moved.plan_id == annual.pk

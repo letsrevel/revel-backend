@@ -4,13 +4,14 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Max, ProtectedError
+from django.db.models import Max, ProtectedError, Q
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.utils import get_or_create_with_race_protection
 from events import models
 from events.exceptions import AlreadyMemberError, MembershipTierInUseError, PendingMembershipRequestExistsError
 from events.models import (
@@ -71,15 +72,25 @@ def create_membership_request(
     if models.OrganizationMember.objects.filter(organization=organization, user=user).exists():
         raise AlreadyMemberError
 
-    if OrganizationMembershipRequest.objects.filter(
-        organization=organization,
-        user=user,
-        tier__isnull=True,
-        status=OrganizationMembershipRequest.Status.PENDING,
-    ).exists():
+    # ``unique_pending_application_per_user_org_tier`` (partial, nulls_distinct=False)
+    # turns a concurrent double-submit — double-click, or web + Telegram at once —
+    # into an IntegrityError, so a plain exists()+create() would 500 instead of
+    # returning the domain 409. The helper re-fetches the winner whether the race
+    # surfaces as IntegrityError (INSERT) or ValidationError (full_clean's
+    # validate_constraints, when the racing row is already committed).
+    application, created = get_or_create_with_race_protection(
+        OrganizationMembershipRequest,
+        Q(
+            organization=organization,
+            user=user,
+            tier__isnull=True,
+            status=OrganizationMembershipRequest.Status.PENDING,
+        ),
+        {"organization": organization, "user": user, "message": message},
+    )
+    if not created:
         raise PendingMembershipRequestExistsError
-
-    return OrganizationMembershipRequest.objects.create(organization=organization, user=user, message=message)
+    return application
 
 
 def _assert_free_grant_allowed(membership_request: models.OrganizationMembershipRequest, *, force: bool) -> None:
@@ -352,6 +363,7 @@ def _mirror_status_to_subscriptions(member: OrganizationMember, status: Organiza
         subscription_service.pause_subscription(subscription)
 
 
+@transaction.atomic
 def update_member(
     member: OrganizationMember,
     *,
@@ -364,6 +376,16 @@ def update_member(
     A status that revokes or suspends membership is mirrored onto the member's
     subscriptions (see :func:`_mirror_status_to_subscriptions`) — otherwise the
     next renewal keeps billing and overwrites the staff decision.
+
+    ``@transaction.atomic`` makes the member write and the mirroring one unit.
+    Without it, a Stripe failure during the mirror (``pause_online_subscription``
+    raises ``HttpError(502)``) left the member PAUSED locally while Stripe kept
+    collecting: ninja catches ``HttpError`` *inside* the view, so no exception
+    reaches the ``ATOMIC_REQUESTS`` wrapper and the request commits anyway. The
+    savepoint rolls the member row back instead, so a 502 means nothing changed.
+    Post-commit Stripe calls are unaffected — an ``on_commit`` callback
+    registered inside a savepoint that is released still fires on the outer
+    commit (see ``cancel_subscriptions_for_membership_loss``).
 
     Args:
         member: The OrganizationMember instance to update

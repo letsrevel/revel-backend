@@ -63,6 +63,7 @@ def _payment(
     status: str = MembershipPayment.PaymentStatus.SUCCEEDED,
     stripe_invoice_id: str = "",
     stripe_payment_intent_id: str = "",
+    **fee_fields: t.Any,
 ) -> MembershipPayment:
     now = timezone.now()
     return MembershipPayment.objects.create(
@@ -74,6 +75,7 @@ def _payment(
         period_end=now + datetime.timedelta(days=30),
         stripe_invoice_id=stripe_invoice_id,
         stripe_payment_intent_id=stripe_payment_intent_id,
+        **fee_fields,
     )
 
 
@@ -145,6 +147,53 @@ class TestLedgerContents:
         assert row["subscription_id"] == str(subscription.id)
         assert row["stripe_invoice_id"] == "in_row"
         assert row["stripe_payment_intent_id"] == "pi_row"
+
+    def test_rows_carry_the_platform_fee_decomposition(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        member_user: RevelUser,
+    ) -> None:
+        """Organizer payment rows must expose the fee breakdown, as ticket payments do.
+
+        ``amount`` is gross, so without these an organizer cannot reconcile a
+        payout or account for the fee's VAT.
+        """
+        _payment(
+            _subscription(organization, plan, member_user),
+            platform_fee=Decimal("1.00"),
+            platform_fee_net=Decimal("0.82"),
+            platform_fee_vat=Decimal("0.18"),
+            platform_fee_vat_rate=Decimal("20.00"),
+            platform_fee_reverse_charge=True,
+        )
+
+        row = organization_owner_client.get(_url(organization)).json()["results"][0]
+
+        assert row["platform_fee"] == "1.00"
+        assert row["platform_fee_net"] == "0.82"
+        assert row["platform_fee_vat"] == "0.18"
+        assert row["platform_fee_vat_rate"] == "20.00"
+        assert row["platform_fee_reverse_charge"] is True
+
+    def test_offline_rows_report_a_zero_fee_and_null_decomposition(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        member_user: RevelUser,
+    ) -> None:
+        """OFFLINE payments collect no fee: gross 0, decomposition null (not absent)."""
+        _payment(_subscription(organization, plan, member_user))
+
+        row = organization_owner_client.get(_url(organization)).json()["results"][0]
+
+        assert row["platform_fee"] == "0.00"
+        assert row["platform_fee_net"] is None
+        assert row["platform_fee_vat"] is None
+        assert row["platform_fee_vat_rate"] is None
+        assert row["platform_fee_reverse_charge"] is False
 
     def test_other_org_payments_are_not_listed(
         self,

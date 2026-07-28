@@ -1,5 +1,7 @@
 """Tests for the organization service."""
 
+import typing as t
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,6 +31,28 @@ from events.models import (
     PermissionsSchema,
 )
 from events.service import organization_service
+
+
+@contextmanager
+def _force_first_lookup_miss(manager: t.Any) -> t.Iterator[None]:
+    """Make ``manager.filter(...)`` miss on its first call, then behave normally.
+
+    Simulates the concurrent double-submit the partial unique constraint now
+    catches: the racing row is already committed by the time our INSERT lands,
+    but our own lookup ran too early to see it.
+    """
+    call_count = 0
+    real_filter = manager.filter
+
+    def fake_filter(*args: t.Any, **kwargs: t.Any) -> t.Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return manager.none()
+        return real_filter(*args, **kwargs)
+
+    with patch.object(manager, "filter", side_effect=fake_filter):
+        yield
 
 
 @pytest.fixture
@@ -120,6 +144,44 @@ class TestCreateMembershipRequest:
         with pytest.raises(HttpError) as exc_info:
             organization_service.create_membership_request(organization, nonmember_user)
         assert exc_info.value.status_code == 403
+
+    def test_create_membership_request_lost_race_raises_domain_error(
+        self, organization: Organization, nonmember_user: RevelUser
+    ) -> None:
+        """A concurrent double-submit must still yield the 409 domain error, not a 500.
+
+        ``unique_pending_application_per_user_org_tier`` rejects the second insert.
+        This is the ValidationError arm: ``TimeStampedModel.save`` runs ``full_clean``,
+        so ``validate_constraints`` sees the committed racing row before the INSERT.
+        """
+        existing = OrganizationMembershipRequest.objects.create(organization=organization, user=nonmember_user)
+
+        with _force_first_lookup_miss(OrganizationMembershipRequest.objects):
+            with pytest.raises(PendingMembershipRequestExistsError):
+                organization_service.create_membership_request(organization, nonmember_user)
+
+        surviving = OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user)
+        assert [row.pk for row in surviving] == [existing.pk]
+
+    def test_create_membership_request_lost_db_level_race_raises_domain_error(
+        self, organization: Organization, nonmember_user: RevelUser
+    ) -> None:
+        """The IntegrityError arm: ``full_clean`` disabled, so the unique index rejects the INSERT.
+
+        Also pins that the ambient transaction survives — the helper's savepoint is
+        what keeps the recovery re-fetch from raising ``TransactionManagementError``.
+        """
+        existing = OrganizationMembershipRequest.objects.create(organization=organization, user=nonmember_user)
+
+        with (
+            _force_first_lookup_miss(OrganizationMembershipRequest.objects),
+            patch.object(OrganizationMembershipRequest, "full_clean", return_value=None),
+        ):
+            with pytest.raises(PendingMembershipRequestExistsError):
+                organization_service.create_membership_request(organization, nonmember_user)
+
+        surviving = OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user)
+        assert [row.pk for row in surviving] == [existing.pk]
 
 
 @pytest.mark.django_db

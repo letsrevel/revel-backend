@@ -14,10 +14,12 @@ roll back a webhook transaction). Never mutates subscription state.
 
 import typing as t
 from datetime import timedelta
+from decimal import Decimal
 
 from django.utils import timezone
 
-from events.models import MembershipSubscription, MembershipSubscriptionPlan
+from common.models import SiteSettings
+from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 from events.utils import format_organization_datetime
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
@@ -26,6 +28,48 @@ from notifications.signals import notification_requested
 def _format_money(amount: t.Any, currency: str) -> str:
     """Format an amount with its currency for display in notifications."""
     return f"{amount} {currency}"
+
+
+def _charged_money(
+    plan: MembershipSubscriptionPlan,
+    amount: Decimal | None,
+    currency: str,
+) -> str:
+    """Format the amount actually charged, falling back to the plan's list price.
+
+    ``plan.price`` is only an approximation of what a given member pays: a price
+    change mints a NEW Stripe Price and leaves existing subscribers on the old
+    one (grandfathering; ``migrate_plan_subscribers`` is the opt-in remedy), and
+    OFFLINE payments carry whatever amount staff recorded. Callers that know the
+    real figure pass it; ``None`` means "unknown" and keeps the old behaviour.
+
+    The amount is quantized to the plan price's scale so a Stripe-derived figure
+    (``from_stripe_amount`` divides, dropping trailing zeros: 1000 → ``10``)
+    renders like every other money string members see.
+    """
+    if amount is None:
+        return _format_money(plan.price, plan.currency)
+    return _format_money(amount.quantize(plan.price), currency or plan.currency)
+
+
+def last_paid_amounts(subscriptions: t.Iterable[MembershipSubscription]) -> dict[t.Any, Decimal]:
+    """Map subscription id → the amount of its last real (non-proration) payment.
+
+    Single query (Postgres ``DISTINCT ON``) so callers can resolve a whole
+    cohort without an N+1. Mirrors the anchor ``migrate_plan_subscribers`` uses:
+    proration invoices from a mid-cycle upgrade are a partial-period delta, not
+    the subscriber's per-period price, so they can never anchor a quote.
+    """
+    return dict(
+        MembershipPayment.objects.filter(
+            subscription__in=subscriptions,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        )
+        .exclude(raw_response__contains={"billing_reason": "subscription_update"})
+        .order_by("subscription_id", "-created_at")
+        .distinct("subscription_id")
+        .values_list("subscription_id", "amount")
+    )
 
 
 def _common_subscription_context(subscription: MembershipSubscription) -> dict[str, t.Any]:
@@ -40,8 +84,6 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
     portal session here: dispatch runs inside a locked webhook transaction and
     must issue no Stripe network calls.
     """
-    from common.models import SiteSettings  # lazy: avoid import cycle
-
     org = subscription.organization
     plan = subscription.plan
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
@@ -56,12 +98,23 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
     return ctx
 
 
-def _dispatch_renewal_succeeded(subscription: MembershipSubscription) -> None:
-    """Fire SUBSCRIPTION_RENEWAL_SUCCEEDED for a renewal payment."""
+def _dispatch_renewal_succeeded(
+    subscription: MembershipSubscription,
+    *,
+    amount: Decimal | None = None,
+    currency: str = "",
+) -> None:
+    """Fire SUBSCRIPTION_RENEWAL_SUCCEEDED for a renewal payment.
+
+    ``amount``/``currency`` are what actually changed hands (the Stripe
+    invoice's ``amount_paid``, or the amount staff recorded offline). Left
+    unset, the notification quotes the plan's current list price, which is
+    wrong for a grandfathered subscriber — pass them whenever known.
+    """
     plan = subscription.plan
     ctx = _common_subscription_context(subscription)
     ctx.update(
-        amount=_format_money(plan.price, plan.currency),
+        amount=_charged_money(plan, amount, currency),
         period_end=(subscription.current_period_end.date().isoformat() if subscription.current_period_end else ""),
     )
     notification_requested.send(
@@ -77,17 +130,23 @@ def _dispatch_payment_failed(
     *,
     grace_period_end: t.Any,
     is_online: bool,
+    amount: Decimal | None = None,
+    currency: str = "",
 ) -> None:
     """Fire SUBSCRIPTION_PAYMENT_FAILED when a renewal payment fails.
 
     For ONLINE subscriptions the context carries ``manage_subscription_url``
     (built in :func:`_common_subscription_context`), which the payment-failed
     templates surface as an "Update Payment Method" CTA.
+
+    ``amount``/``currency`` are the sum at stake (the failed invoice's
+    ``amount_due``); unset falls back to the plan's list price, which a
+    grandfathered subscriber does not owe.
     """
     plan = subscription.plan
     ctx = _common_subscription_context(subscription)
     ctx.update(
-        amount=_format_money(plan.price, plan.currency),
+        amount=_charged_money(plan, amount, currency),
         # Org-local, human-readable — never raw UTC isoformat (#511/#542).
         grace_period_end=format_organization_datetime(grace_period_end, subscription.organization),
         is_online=is_online,
@@ -102,8 +161,6 @@ def _dispatch_payment_failed(
 
 def _dispatch_subscription_expired(subscription: MembershipSubscription) -> None:
     """Fire SUBSCRIPTION_EXPIRED with a revival CTA if within window."""
-    from common.models import SiteSettings  # lazy: avoid import cycle
-
     org = subscription.organization
     revival_window_end: t.Any = None
     revival_url: str | None = None

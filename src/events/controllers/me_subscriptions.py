@@ -162,7 +162,15 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscription/cancel",
         url_name="cancel_my_membership_subscription",
-        response={200: schema.MySubscriptionSchema, 400: ResponseMessage, 404: ResponseMessage},
+        response={
+            200: schema.MySubscriptionSchema,
+            400: ResponseMessage,
+            404: ResponseMessage,
+            # The Checkout Session backing a PENDING row was paid mid-cancel:
+            # the money moved, so the cancel waits for the activation webhooks.
+            409: schema.SubscriptionActivationPendingSchema,
+            502: ResponseMessage,
+        },
         throttle=WriteThrottle(),
     )
     def cancel_subscription(
@@ -243,6 +251,20 @@ class MeSubscriptionsController(UserAwareController):
             .order_by("-created_at")
         )
         subscription = get_object_or_404(qs)
+
+        # Trust boundary: members must never self-record money — the same rule
+        # that keeps ``revive`` staff-only for OFFLINE plans. An offline swap is
+        # immediate and fee-free (the member sync re-points ``member.tier`` at
+        # once, bypassing the tier's questionnaire gates), and the *next*
+        # staff-recorded payment derives its period from the plan the row is on
+        # — so a self-service Monthly→Annual switch turns one monthly payment
+        # into twelve months of membership.
+        if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+            raise HttpError(
+                400,
+                str(_("This subscription is managed by the organization. Contact them to change your plan.")),
+            )
+
         new_plan = get_object_or_404(
             MembershipSubscriptionPlan.objects.select_related("tier", "tier__organization"),
             pk=payload.plan_id,

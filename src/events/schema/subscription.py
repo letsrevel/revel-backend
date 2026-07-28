@@ -264,6 +264,14 @@ class MembershipPaymentSchema(ModelSchema):
             "created_at",
             "stripe_invoice_id",
             "stripe_payment_intent_id",
+            # Platform-fee decomposition, mirroring the ticket ``PaymentSchema``:
+            # ``amount`` alone is gross, so without these an organizer cannot
+            # reconcile a payout or account for the fee's VAT.
+            "platform_fee",
+            "platform_fee_net",
+            "platform_fee_vat",
+            "platform_fee_vat_rate",
+            "platform_fee_reverse_charge",
             # Refund audit trail: a partial refund leaves ``status`` SUCCEEDED,
             # so without these an organizer cannot tell it happened at all.
             "refund_amount",

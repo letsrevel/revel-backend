@@ -196,6 +196,116 @@ class TestProrationDoesNotCorruptPeriodAnchor:
         assert int(sub.current_period_end.timestamp()) == recurring_end
 
 
+class TestStalePaidInvoiceDoesNotRewindThePeriod:
+    """The billing anchor only ever moves forward on the success path.
+
+    Stripe gives no delivery-order guarantee, and an *open* invoice from an
+    earlier cycle can be paid (hosted invoice page, late dunning retry) after a
+    later cycle already settled. Rewinding ``current_period_end`` into the past
+    makes the grace-expiry beat flip a paid-up member to PAST_DUE, and corrupts
+    the anchor ``_is_full_refund_of_current_period`` matches on.
+    """
+
+    @staticmethod
+    def _dt(epoch: int) -> datetime.datetime:
+        return datetime.datetime.fromtimestamp(epoch, tz=datetime.UTC)
+
+    def test_older_invoice_does_not_rewind_an_active_row(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        member_user: RevelUser,
+    ) -> None:
+        now = int(time.time())
+        current_start, current_end = self._dt(now - 5 * 86400), self._dt(now + 25 * 86400)
+        sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=online_plan,
+            organization=online_plan.tier.organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_stale",
+            current_period_start=current_start,
+            current_period_end=current_end,
+        )
+
+        subscription_stripe_sync.record_stripe_payment_from_invoice(
+            _invoice(
+                "sub_stale",
+                invoice_id="in_stale",
+                lines=[{"period": {"start": now - 35 * 86400, "end": now - 5 * 86400}}],
+            ),
+            succeeded=True,
+        )
+
+        sub.refresh_from_db()
+        assert sub.current_period_start == current_start
+        assert sub.current_period_end == current_end
+        # The ledger row still records the period that invoice actually covered.
+        payment = MembershipPayment.objects.get(stripe_invoice_id="in_stale")
+        assert int(payment.period_end.timestamp()) == now - 5 * 86400
+
+    def test_renewal_still_advances_the_period(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        member_user: RevelUser,
+    ) -> None:
+        now = int(time.time())
+        sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=online_plan,
+            organization=online_plan.tier.organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_renew",
+            current_period_start=self._dt(now - 30 * 86400),
+            current_period_end=self._dt(now),
+        )
+
+        subscription_stripe_sync.record_stripe_payment_from_invoice(
+            _invoice(
+                "sub_renew",
+                invoice_id="in_renew",
+                lines=[{"period": {"start": now, "end": now + 30 * 86400}}],
+            ),
+            succeeded=True,
+        )
+
+        sub.refresh_from_db()
+        assert sub.current_period_start == self._dt(now)
+        assert sub.current_period_end == self._dt(now + 30 * 86400)
+
+    def test_revival_advances_from_the_previous_lifes_elapsed_period(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        member_user: RevelUser,
+    ) -> None:
+        """A revival reuses the row, so its stale (elapsed) anchor must not block."""
+        now = int(time.time())
+        sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=online_plan,
+            organization=online_plan.tier.organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_subscription_id="sub_revived",
+            current_period_start=self._dt(now - 70 * 86400),
+            current_period_end=self._dt(now - 40 * 86400),
+            expired_at=self._dt(now - 40 * 86400),
+        )
+
+        subscription_stripe_sync.record_stripe_payment_from_invoice(
+            _invoice(
+                "sub_revived",
+                invoice_id="in_revived",
+                lines=[{"period": {"start": now, "end": now + 30 * 86400}}],
+            ),
+            succeeded=True,
+        )
+
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        assert sub.expired_at is None
+        assert sub.current_period_start == self._dt(now)
+        assert sub.current_period_end == self._dt(now + 30 * 86400)
+
+
 class TestUnresolvedPaymentIntentIsNotPersisted:
     """An empty intent id must never overwrite one already stored.
 

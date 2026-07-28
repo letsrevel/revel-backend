@@ -294,6 +294,40 @@ def sync_subscription_from_stripe(
     return subscription
 
 
+def _forward_only_period(
+    subscription: MembershipSubscription,
+    period_start: datetime | None,
+    period_end: datetime | None,
+) -> tuple[datetime | None, datetime | None]:
+    """Drop a paid invoice's period when it would rewind the local anchor.
+
+    Monotonicity guard for the success path, mirroring the stale-``payment_failed``
+    guard in :func:`record_stripe_payment_from_invoice`: Stripe gives no delivery-order
+    guarantee, and an *open* invoice from an earlier cycle can still be paid (hosted
+    invoice page, late dunning retry) after a later cycle already settled. Rewinding
+    ``current_period_end`` into the past corrupts the anchor
+    ``subscription_refunds._is_full_refund_of_current_period`` matches on, and makes
+    the grace-expiry beat flip a paid-up member to PAST_DUE until the nightly
+    reconcile heals it.
+
+    No flow legitimately rewinds: nothing passes ``billing_cycle_anchor="now"`` to
+    Stripe, a scheduled downgrade's phase 2 starts at phase 1's end, a revival's row
+    carries an already-elapsed period, and a fresh row has no anchor at all. The two
+    bounds move together or not at all — half an update is worse than none.
+    """
+    if period_end is None or subscription.current_period_end is None:
+        return period_start, period_end
+    if period_end > subscription.current_period_end:
+        return period_start, period_end
+    logger.info(
+        "subscription_stale_invoice_period_ignored",
+        subscription_id=str(subscription.pk),
+        current_period_end=subscription.current_period_end.isoformat(),
+        invoice_period_end=period_end.isoformat(),
+    )
+    return None, None
+
+
 def _apply_invoice_outcome(
     subscription: MembershipSubscription,
     *,
@@ -316,6 +350,8 @@ def _apply_invoice_outcome(
     if succeeded:
         # Mirror the period from the invoice line and revive PENDING/PAST_DUE.
         update_fields: list[str] = []
+        # The anchor only ever moves forward — see :func:`_forward_only_period`.
+        period_start, period_end = _forward_only_period(subscription, period_start, period_end)
         if period_start is not None and subscription.current_period_start != period_start:
             subscription.current_period_start = period_start
             update_fields.append("current_period_start")
@@ -361,6 +397,22 @@ def _line_price_id(line: dict[str, t.Any]) -> str:
     return t.cast(str, price.get("id") or "")
 
 
+def _line_is_proration(line: dict[str, t.Any]) -> bool:
+    """Whether an invoice line is a proration, across dahlia and legacy shapes.
+
+    The pinned API version dropped the line's top-level ``proration`` flag: it
+    now lives under ``parent.subscription_item_details`` (subscription lines) or
+    ``parent.invoice_item_details`` (invoice-item lines). Reading only the legacy
+    field makes *every* proration on a dahlia payload look like a recurring line.
+    """
+    parent = line.get("parent") or {}
+    for details_key in ("subscription_item_details", "invoice_item_details"):
+        details = parent.get(details_key) or {}
+        if details.get("proration"):
+            return True
+    return bool(line.get("proration"))
+
+
 def _recurring_line_period(lines_data: list[dict[str, t.Any]], plan_price_id: str) -> dict[str, t.Any] | None:
     """Pick the billing period from the *recurring* line of an invoice.
 
@@ -389,9 +441,9 @@ def _recurring_line_period(lines_data: list[dict[str, t.Any]], plan_price_id: st
         return None
     if plan_price_id:
         for line in lines_data:
-            if _line_price_id(line) == plan_price_id and not line.get("proration"):
+            if _line_price_id(line) == plan_price_id and not _line_is_proration(line):
                 return t.cast(dict[str, t.Any], line.get("period") or {})
-    non_proration = [line for line in lines_data if not line.get("proration")]
+    non_proration = [line for line in lines_data if not _line_is_proration(line)]
     if non_proration:
         return t.cast(dict[str, t.Any], non_proration[-1].get("period") or {})
     return None
@@ -617,6 +669,11 @@ def record_stripe_payment_from_invoice(
         payment_created=created,
         payment_recovered=payment_recovered,
         billing_reason=t.cast(str, invoice.get("billing_reason") or ""),
+        # Quote what this invoice actually moved — grandfathered subscribers sit
+        # on an older Stripe Price than ``plan.price``. A failure moved nothing,
+        # so the sum at stake is ``amount_due``.
+        amount=amount if succeeded else from_stripe_amount(int(invoice.get("amount_due") or 0), currency_code),
+        currency=currency_code,
     )
 
     logger.info(

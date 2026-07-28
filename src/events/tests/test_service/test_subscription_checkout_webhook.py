@@ -7,6 +7,7 @@ the handler links ``session.subscription`` onto the local PENDING row via
 
 import typing as t
 from decimal import Decimal
+from unittest import mock
 from unittest.mock import MagicMock
 
 import pytest
@@ -176,6 +177,118 @@ class TestInitialInvoiceBackfill:
             StripeEventHandler(_session_event(session)).handle()
 
         assert MembershipPayment.objects.filter(subscription=pending_subscription).count() == 1
+
+
+class TestRedeliveredCheckoutSelfHeal:
+    """``stripe_webhooks.replay`` routes redelivered subscription checkouts back here.
+
+    The whole point is re-running the idempotent initial-invoice backfill, so
+    the already-linked branch must not short-circuit past it.
+    """
+
+    def test_redelivery_backfills_invoice_that_was_still_open_first_time(
+        self,
+        pending_subscription: MembershipSubscription,
+    ) -> None:
+        from events.models import MembershipPayment
+
+        session = {
+            "id": "cs_sub_test",
+            "mode": "subscription",
+            "payment_status": "paid",
+            "subscription": "sub_replay",
+            "invoice": "in_replay",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+        open_invoice = _paid_invoice_payload("sub_replay", invoice_id="in_replay")
+        open_invoice["status"] = "open"
+        # First delivery: the invoice hasn't settled yet, so nothing is recorded.
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(stripe.Invoice, "retrieve", classmethod(lambda cls, *a, **kw: open_invoice))
+            StripeEventHandler(_session_event(session)).handle()
+
+        pending_subscription.refresh_from_db()
+        assert pending_subscription.stripe_subscription_id == "sub_replay"
+        assert not MembershipPayment.objects.filter(subscription=pending_subscription).exists()
+
+        # Its ``invoice.paid`` never arrived. Stripe's redelivery of the checkout
+        # event is the self-heal — the row is already linked, but the backfill
+        # must still run.
+        paid_invoice = _paid_invoice_payload("sub_replay", invoice_id="in_replay")
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(stripe.Invoice, "retrieve", classmethod(lambda cls, *a, **kw: paid_invoice))
+            StripeEventHandler(_session_event(session)).handle()
+            # A further redelivery must not duplicate the ledger row.
+            StripeEventHandler(_session_event(session)).handle()
+
+        pending_subscription.refresh_from_db()
+        assert MembershipPayment.objects.filter(subscription=pending_subscription).count() == 1
+        assert pending_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+
+class TestCheckoutCompletedAgainstTerminalRow:
+    """A session paid after the row went terminal must not resurrect it."""
+
+    def _terminalize(self, subscription: MembershipSubscription) -> None:
+        subscription.status = MembershipSubscription.SubscriptionStatus.CANCELLED
+        subscription.cancelled_at = timezone.now()
+        subscription.save(update_fields=["status", "cancelled_at", "updated_at"])
+
+    def test_does_not_link_and_cancels_the_stripe_subscription(
+        self,
+        pending_subscription: MembershipSubscription,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        from events.models import MembershipPayment
+
+        self._terminalize(pending_subscription)
+        session = {
+            "id": "cs_sub_test",
+            "mode": "subscription",
+            "payment_status": "paid",
+            "subscription": "sub_after_cancel",
+            "invoice": "in_after_cancel",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+        with (
+            mock.patch(
+                "events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort"
+            ) as mock_cancel,
+            mock.patch("events.service.stripe_incidents.record_subscription_checkout_while_terminal") as mock_incident,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            StripeEventHandler(_session_event(session)).handle()
+
+        pending_subscription.refresh_from_db()
+        # Frozen: no link, no ledger row, no membership.
+        assert pending_subscription.stripe_subscription_id is None
+        assert pending_subscription.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert not MembershipPayment.objects.filter(subscription=pending_subscription).exists()
+        # ...but the orphan Stripe subscription is closed and an operator is told.
+        mock_incident.assert_called_once()
+        assert mock_incident.call_args.kwargs["stripe_subscription_id"] == "sub_after_cancel"
+        mock_cancel.assert_called_once()
+        assert mock_cancel.call_args.args[0].stripe_subscription_id == "sub_after_cancel"
+
+    def test_does_not_hit_stripe_under_the_row_lock(
+        self,
+        pending_subscription: MembershipSubscription,
+    ) -> None:
+        """The cancel is deferred to ``on_commit`` — nothing fires inside the handler."""
+        self._terminalize(pending_subscription)
+        session = {
+            "id": "cs_sub_test",
+            "mode": "subscription",
+            "payment_status": "paid",
+            "subscription": "sub_after_cancel",
+            "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
+        }
+        with mock.patch(
+            "events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort"
+        ) as mock_cancel:
+            StripeEventHandler(_session_event(session)).handle()
+
+        mock_cancel.assert_not_called()
 
 
 class TestSubscriptionCheckoutCompleted:

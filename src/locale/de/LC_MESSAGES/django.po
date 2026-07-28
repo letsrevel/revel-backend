@@ -953,6 +953,13 @@ msgid "Not allowed."
 msgstr "Nicht erlaubt."
 
 msgid ""
+"This subscription is managed by the organization. Contact them to change "
+"your plan."
+msgstr ""
+"Dieses Abonnement wird von der Organisation verwaltet. Wende dich an sie, um "
+"deinen Plan zu ändern."
+
+msgid ""
 "This subscription is managed by the organization. Contact them to renew your "
 "membership."
 msgstr ""
@@ -2299,6 +2306,9 @@ msgstr "Das Stripe-Abonnement hat keine zu aktualisierenden Positionen."
 
 msgid "Stripe did not return a schedule phase to extend."
 msgstr "Stripe hat keine Zeitplanphase zum Verlängern zurückgegeben."
+
+msgid "Settle the outstanding payment before changing plans."
+msgstr "Begleiche die ausstehende Zahlung, bevor du den Plan wechselst."
 
 msgid "This subscription is scheduled to cancel; cannot change plan."
 msgstr ""

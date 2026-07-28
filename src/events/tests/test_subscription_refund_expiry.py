@@ -410,6 +410,41 @@ class TestChargeRefundedWebhook:
         assert payment.refund_amount == Decimal("1.25")
         assert payment.stripe_refund_id == ""
 
+    def test_payload_without_amount_refunded_is_dropped_not_500(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """``amount_refunded: null`` must not reach ``from_stripe_amount``.
+
+        It would raise ``TypeError`` → webhook 500 → the dedup row rolls back and
+        Stripe retries the same doomed payload forever. Nothing can be recorded
+        from a payload with no refunded amount, so the delivery is dropped.
+        """
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_no_amount_refunded",
+        )
+
+        event = _subscription_charge_event("pi_no_amount_refunded", int(plan.price * 100))
+        event.data.object["amount_refunded"] = None
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = []
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        payment.refresh_from_db()
+        active_sub.refresh_from_db()
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        assert payment.refunded_at is None
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
     def test_redelivered_refund_webhook_is_idempotent(
         self,
         active_sub: MembershipSubscription,

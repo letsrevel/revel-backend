@@ -5,7 +5,7 @@ contains the type-registration smoke tests for now.
 """
 
 import typing as t
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -14,12 +14,14 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
+    MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
 )
 from events.service import subscription_service
+from events.service.subscription_notifications import last_paid_amounts
 from events.utils import format_organization_datetime
 from notifications.context_schemas import (
     NOTIFICATION_CONTEXT_SCHEMAS,
@@ -172,6 +174,50 @@ class TestDispatchHelpers:
         assert n.context["plan_name"] == helper_subscription.plan.name
         assert "10.00 EUR" in n.context["amount"]
 
+    def test_renewal_succeeded_quotes_charged_amount_not_plan_price(
+        self, helper_subscription: MembershipSubscription
+    ) -> None:
+        """A grandfathered subscriber's receipt must quote what they paid.
+
+        Regression: the helper always quoted ``plan.price``. Raising a plan's
+        price mints a NEW Stripe Price and leaves existing subscribers on the
+        old one, so every one of them was told they had been charged the new
+        (higher) figure.
+        """
+        assert helper_subscription.plan.price == Decimal("10.00")
+        subscription_service._dispatch_renewal_succeeded(helper_subscription, amount=Decimal("8.00"), currency="EUR")
+        n = Notification.objects.get(
+            user=helper_subscription.user,
+            notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        )
+        assert n.context["amount"] == "8.00 EUR"
+
+    def test_renewal_succeeded_falls_back_to_plan_price_when_amount_unknown(
+        self, helper_subscription: MembershipSubscription
+    ) -> None:
+        """Callers with no real figure keep the pre-existing behaviour."""
+        subscription_service._dispatch_renewal_succeeded(helper_subscription, amount=None)
+        n = Notification.objects.get(
+            user=helper_subscription.user,
+            notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        )
+        assert n.context["amount"] == "10.00 EUR"
+
+    def test_payment_failed_quotes_amount_at_stake(self, helper_subscription: MembershipSubscription) -> None:
+        """The failed-payment warning quotes the invoice's amount, not plan.price."""
+        subscription_service._dispatch_payment_failed(
+            helper_subscription,
+            grace_period_end=timezone.now() + timedelta(days=7),
+            is_online=True,
+            amount=Decimal("8.00"),
+            currency="EUR",
+        )
+        n = Notification.objects.get(
+            user=helper_subscription.user,
+            notification_type=NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
+        )
+        assert n.context["amount"] == "8.00 EUR"
+
     def test_payment_failed_includes_is_online(self, helper_subscription: MembershipSubscription) -> None:
         subscription_service._dispatch_payment_failed(
             helper_subscription,
@@ -314,6 +360,29 @@ class TestOfflineDispatchSites:
             user=nonmember_user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
         ).exists()
+
+    def test_renewal_succeeded_quotes_the_recorded_amount(
+        self,
+        helper_subscription: MembershipSubscription,
+        nonmember_user: RevelUser,
+    ) -> None:
+        """OFFLINE staff pick the amount — the receipt must quote *that*.
+
+        Regression: ``record_payment`` accepts an arbitrary amount (a discount,
+        a grandfathered price, a part payment) but the receipt always quoted
+        ``plan.price``, telling the member they paid a sum they never did.
+        """
+        subscription_service.record_payment(
+            helper_subscription,
+            amount=Decimal("7.50"),
+            currency="EUR",
+            recorded_by=None,
+        )
+        n = Notification.objects.get(
+            user=nonmember_user,
+            notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        )
+        assert n.context["amount"] == "7.50 EUR"
 
     def test_renewal_succeeded_fires_on_past_due_renewal(
         self,
@@ -469,3 +538,54 @@ class TestOnlineCancelDispatch:
         )
         assert notifs.count() == 1
         assert notifs.first().context["immediate"] is True  # type: ignore[union-attr]
+
+
+# ===========================================================================
+# Last-paid-amount anchor (renewal reminders quote it instead of plan.price)
+# ===========================================================================
+
+
+@pytest.mark.django_db
+class TestLastPaidAmounts:
+    @staticmethod
+    def _pay(
+        subscription: MembershipSubscription,
+        amount: str,
+        *,
+        billing_reason: str,
+        created_at: datetime,
+        status: str = MembershipPayment.PaymentStatus.SUCCEEDED,
+    ) -> MembershipPayment:
+        payment = MembershipPayment.objects.create(
+            subscription=subscription,
+            amount=Decimal(amount),
+            currency="EUR",
+            status=status,
+            period_start=created_at,
+            period_end=created_at + timedelta(days=30),
+            raw_response={"billing_reason": billing_reason},
+        )
+        # created_at is auto_now_add — pin it so DISTINCT ON's ordering is exact.
+        MembershipPayment.objects.filter(pk=payment.pk).update(created_at=created_at)
+        return payment
+
+    def test_returns_latest_non_proration_succeeded_amount(self, helper_subscription: MembershipSubscription) -> None:
+        now = timezone.now()
+        self._pay(helper_subscription, "8.00", billing_reason="subscription_cycle", created_at=now - timedelta(days=60))
+        self._pay(helper_subscription, "9.00", billing_reason="subscription_cycle", created_at=now - timedelta(days=30))
+        # A mid-cycle upgrade's proration is a partial-period delta, never the
+        # subscriber's per-period price — it must not become the anchor.
+        self._pay(helper_subscription, "1.50", billing_reason="subscription_update", created_at=now - timedelta(days=1))
+        # Nor may a failed attempt.
+        self._pay(
+            helper_subscription,
+            "99.00",
+            billing_reason="subscription_cycle",
+            created_at=now,
+            status=MembershipPayment.PaymentStatus.FAILED,
+        )
+
+        assert last_paid_amounts([helper_subscription]) == {helper_subscription.id: Decimal("9.00")}
+
+    def test_subscription_without_payments_is_absent(self, helper_subscription: MembershipSubscription) -> None:
+        assert last_paid_amounts([helper_subscription]) == {}

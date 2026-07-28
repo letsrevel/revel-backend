@@ -580,6 +580,31 @@ class TestChangePlanEndpoint:
         )
         assert response.status_code == 404
 
+    def test_change_plan_refuses_offline_subscription(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        tier: MembershipTier,
+        organization: Organization,
+    ) -> None:
+        """Members must not self-switch an OFFLINE plan.
+
+        The swap is immediate and fee-free locally, and the next staff-recorded
+        payment derives its period from the plan the row is on — so a
+        self-service Monthly→Annual switch would buy twelve months with one
+        monthly payment (and re-point ``member.tier`` past its gates).
+        """
+        original_plan_id = their_subscription.plan_id
+        annual = subscription_service.create_plan(
+            tier, name="Annual", price=Decimal("100.00"), currency="EUR", period_unit="year"
+        )
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(annual.id)}, content_type="application/json")
+
+        assert response.status_code == 400, response.content
+        their_subscription.refresh_from_db()
+        assert their_subscription.plan_id == original_plan_id
+
 
 class TestBillingPortalEndpoint:
     @pytest.fixture

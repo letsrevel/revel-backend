@@ -15,7 +15,9 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+import stripe
 from django.utils import timezone
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import (
@@ -244,6 +246,41 @@ class TestMemberUpdateAndRemoveCancelSubscription:
         assert modify.call_args.kwargs["pause_collection"] == {"behavior": "void"}
         sub.refresh_from_db()
         assert sub.status == MembershipSubscription.SubscriptionStatus.PAUSED
+
+    def test_stripe_pause_failure_does_not_persist_the_paused_member(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """A 502 from Stripe must leave the member un-paused.
+
+        ninja catches ``HttpError`` *inside* the view, so under ATOMIC_REQUESTS
+        the request transaction commits regardless: before ``update_member``
+        became atomic the member was persisted PAUSED while Stripe kept
+        collecting, and the caller was told 502.
+        """
+        member = OrganizationMember.objects.create(organization=organization, user=member_user, status=_MEMBER_ACTIVE)
+        sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=online_plan,
+            organization=organization,
+            status=_ACTIVE,
+            stripe_subscription_id="sub_pause_boom",
+        )
+
+        with patch(
+            "events.service.subscription_stripe_service.stripe.Subscription.modify",
+            side_effect=stripe.error.APIConnectionError("boom"),
+        ):
+            with pytest.raises(HttpError) as exc:
+                organization_service.update_member(member, status=OrganizationMember.MembershipStatus.PAUSED)
+
+        assert exc.value.status_code == 502
+        member.refresh_from_db()
+        assert member.status == _MEMBER_ACTIVE
+        sub.refresh_from_db()
+        assert sub.status == _ACTIVE
 
     def test_paused_member_is_not_reactivated_by_the_next_renewal(
         self,

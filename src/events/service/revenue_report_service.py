@@ -102,6 +102,7 @@ _TXN_HEADERS = [
 
 _MEMBERSHIP_TXN_HEADERS = [
     "date",
+    "payment_id",
     "member_email",
     "member_name",
     "plan",
@@ -196,6 +197,7 @@ def build_xlsx(data: RevenueReportData) -> bytes:
         memberships.append(
             [
                 membership_row.date.isoformat(),
+                membership_row.payment_id,
                 membership_row.member_email,
                 membership_row.member_name,
                 membership_row.plan,
@@ -207,7 +209,7 @@ def build_xlsx(data: RevenueReportData) -> bytes:
                 membership_row.stripe_payment_intent_id,
             ]
         )
-    _format_numeric_columns(memberships, money_cols=(5, 8))
+    _format_numeric_columns(memberships, money_cols=(6, 9))
     style_header_row(memberships)
     auto_fit_columns(memberships)
     memberships.freeze_panes = "A2"

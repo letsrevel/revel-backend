@@ -7,12 +7,14 @@ subscription/invoice state onto the local rows via ``subscription_stripe_sync``
 and route full charge refunds through ``subscription_refunds``.
 """
 
+import functools
 import typing as t
 import uuid
 
 import stripe
 import structlog
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from events.models import MembershipPayment, MembershipSubscription
@@ -20,6 +22,22 @@ from events.service import stripe_incidents
 from events.utils.currency import from_stripe_amount
 
 logger = structlog.get_logger(__name__)
+
+
+def _cancel_unlinked_stripe_subscription(subscription: MembershipSubscription, stripe_sub_id: str) -> None:
+    """Close a Stripe Subscription we refused to link onto a terminal row.
+
+    Runs post-commit (see the caller) so the Stripe call never happens under the
+    row lock. ``stripe_sub_id`` is stamped on the in-memory instance only — the
+    terminal row must not carry a link the rest of the pipeline would act on —
+    which is all ``cancel_stripe_subscription_best_effort`` needs to address the
+    Stripe object. Best-effort by construction: a failure is logged there and the
+    incident line already recorded the id an operator needs.
+    """
+    from events.service.subscription_stripe_service import cancel_stripe_subscription_best_effort
+
+    subscription.stripe_subscription_id = stripe_sub_id
+    cancel_stripe_subscription_best_effort(subscription, reason="checkout_completed_while_terminal")
 
 
 class SubscriptionWebhookHandlersMixin:
@@ -125,8 +143,32 @@ class SubscriptionWebhookHandlersMixin:
                 subscription_id=str(subscription.pk),
             )
             return
+        if subscription.is_terminal:
+            # The row was terminalized (immediate cancel, ban, refund
+            # auto-cancel) while this session was still payable, and the member
+            # paid it anyway. Linking would revive a deliberately frozen row and
+            # grant a membership nobody is entitled to; leaving the new Stripe
+            # Subscription unreferenced would let it bill forever, since
+            # reconcile walks local rows. So: alert, and close the Stripe side
+            # after commit — never a network call under this row lock.
+            stripe_incidents.record_subscription_checkout_while_terminal(
+                subscription_id=str(subscription.pk),
+                status=subscription.status,
+                session_id=str(session.get("id") or ""),
+                stripe_subscription_id=stripe_sub_id,
+            )
+            transaction.on_commit(functools.partial(_cancel_unlinked_stripe_subscription, subscription, stripe_sub_id))
+            return
+
         if subscription.stripe_subscription_id == stripe_sub_id:
-            return  # Idempotent redelivery.
+            # Idempotent redelivery — the link already stands. The backfill below
+            # still runs: ``stripe_webhooks.replay`` routes redelivered
+            # subscription checkouts back through this handler precisely so a
+            # dropped first ``invoice.paid`` self-heals, and returning here would
+            # make that dead code. The backfill is a no-op once the invoice has a
+            # ledger row, so redelivery stays idempotent.
+            self._backfill_initial_invoice(session, subscription)
+            return
 
         subscription.stripe_subscription_id = stripe_sub_id
         subscription.save(update_fields=["stripe_subscription_id", "updated_at"])
@@ -313,7 +355,17 @@ class SubscriptionWebhookHandlersMixin:
         # (see _latest_refund_id), so a Stripe failure aborts the delivery before
         # the ledger is touched rather than between two writes.
         refund_id = self._latest_refund_id(charge_data)
-        if amount is None or amount_refunded is None or amount_refunded < amount:
+        if amount_refunded is None:
+            # Nothing to record, and ``from_stripe_amount(None, ...)`` would
+            # TypeError into a 500 — which rolls the dedup row back and puts
+            # Stripe into a retry loop that can never succeed. Drop instead.
+            logger.warning(
+                "stripe_subscription_refund_amount_missing",
+                payment_intent_id=charge_data.get("payment_intent"),
+                membership_payment_id=str(membership_payment.id),
+            )
+            return
+        if amount is None or amount_refunded < amount:
             # Partial refund: the member keeps the period they partly paid for,
             # so the row stays SUCCEEDED and the auto-cancel must not fire. It
             # still gets recorded — otherwise the refund leaves no trace at all

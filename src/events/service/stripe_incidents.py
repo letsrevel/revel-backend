@@ -37,6 +37,8 @@ import structlog
 from common.observability.metrics import (
     STRIPE_SESSION_PAID_WITHOUT_PAYMENTS,
     STRIPE_SESSION_TOTAL_MISMATCH,
+    SUBSCRIPTION_CHECKOUT_PAID_BUT_UNLINKED,
+    SUBSCRIPTION_CHECKOUT_WHILE_TERMINAL,
     SUBSCRIPTION_CHECKOUT_WITHOUT_ROW,
     SUBSCRIPTION_PAID_WHILE_BLACKLISTED,
     SUBSCRIPTION_PAID_WHILE_PAUSED,
@@ -323,4 +325,70 @@ def record_subscription_checkout_without_row(
         "subscription_checkout_without_row",
         session_id=session_id,
         membership_subscription_id=membership_subscription_id,
+    )
+
+
+def record_subscription_checkout_while_terminal(
+    *,
+    subscription_id: str,
+    status: str,
+    session_id: str,
+    stripe_subscription_id: str,
+) -> None:
+    """Emit the counter and ERROR line for a checkout completed against a terminal row.
+
+    The member paid a Checkout Session that was still live when the local row
+    went terminal (immediate cancel, ban, refund auto-cancel). The handler
+    refuses to link the resulting Stripe Subscription — a terminal row stays
+    frozen, and linking would grant a membership nobody is entitled to — and
+    instead cancels it on Stripe after commit. The Stripe side therefore stops
+    billing, but the first invoice has already been charged and no local ledger
+    row exists for it, so the refund has to be issued by hand.
+
+    Args:
+        subscription_id: The local :class:`MembershipSubscription` pk.
+        status: The terminal status the row was in when the session completed.
+        session_id: The completed Stripe Checkout Session.
+        stripe_subscription_id: The Stripe Subscription the session minted.
+    """
+    SUBSCRIPTION_CHECKOUT_WHILE_TERMINAL.inc()
+    logger.error(
+        "subscription_checkout_while_terminal",
+        subscription_id=subscription_id,
+        subscription_status=status,
+        session_id=session_id,
+        stripe_subscription_id=stripe_subscription_id,
+    )
+
+
+def record_subscription_checkout_paid_but_unlinked(
+    *,
+    subscription_id: str,
+    organization_id: str,
+    user_id: str,
+    session_id: str,
+) -> None:
+    """Emit the counter and ERROR line for a paid checkout that never linked its row.
+
+    The nightly stale-PENDING sweep found a row untouched for a day whose Checkout
+    Session Stripe reports as ``complete``: the member was charged and a Stripe
+    Subscription exists, but ``checkout.session.completed`` never landed the link
+    (redeliveries exhausted, or each one rolled back). Nothing self-heals — the
+    reconcile pass keys on ``stripe_subscription_id``, which is still empty — so
+    the sweep deliberately leaves the row in place as the only handle back to the
+    money, and a human has to link the Stripe Subscription or refund the session.
+
+    Args:
+        subscription_id: The local :class:`MembershipSubscription` pk.
+        organization_id: The organization the subscription belongs to.
+        user_id: The paying member (id only — no email in incident logs).
+        session_id: The completed Stripe Checkout Session.
+    """
+    SUBSCRIPTION_CHECKOUT_PAID_BUT_UNLINKED.inc()
+    logger.error(
+        "subscription_checkout_paid_but_unlinked",
+        subscription_id=subscription_id,
+        organization_id=organization_id,
+        user_id=user_id,
+        session_id=session_id,
     )

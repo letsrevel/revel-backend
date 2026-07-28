@@ -141,11 +141,12 @@ def membership_report_data(db: t.Any) -> svc.RevenueReportData:
 def test_membership_sheet_carries_the_reconciliation_columns(
     membership_report_data: svc.RevenueReportData,
 ) -> None:
-    """The membership sheet lists member, plan, amount, refund and both Stripe ids."""
+    """The membership sheet lists the payment id, member, plan, amount, refund and Stripe ids."""
     wb = load_workbook(io.BytesIO(svc.build_xlsx(membership_report_data)))
     sheet = wb["Membership payments"]
     assert [c.value for c in sheet[1]] == [
         "date",
+        "payment_id",
         "member_email",
         "member_name",
         "plan",
@@ -157,7 +158,7 @@ def test_membership_sheet_carries_the_reconciliation_columns(
         "stripe_payment_intent_id",
     ]
     row = [c.value for c in sheet[2]]
-    assert row[1:] == [
+    assert row[2:] == [
         "member@example.com",
         "Mia Member",
         "Gold",
@@ -168,7 +169,7 @@ def test_membership_sheet_carries_the_reconciliation_columns(
         "in_test_sheet",
         "pi_test_sheet",
     ]
-    assert sheet["E2"].number_format == "#,##0.00"  # amount
+    assert sheet["F2"].number_format == "#,##0.00"  # amount
 
 
 @pytest.mark.django_db
@@ -190,7 +191,7 @@ def test_membership_sheet_labels_revenue_as_gross_and_out_of_scope(
     # The note sits below the data block: headers and the first payment row are untouched,
     # so machine parsers keyed off row 1 / row 2 keep working.
     assert sheet["A1"].value == "date"
-    assert sheet["B2"].value == "member@example.com"
+    assert sheet["C2"].value == "member@example.com"
     assert sheet["A2"].value == membership_report_data.membership_payments[0].date.isoformat()
 
 
@@ -200,6 +201,90 @@ def test_membership_only_org_still_produces_a_report(membership_report_data: svc
     assert membership_report_data.sections == []
     assert len(membership_report_data.membership_payments) == 1
     assert [m.gross for m in membership_report_data.memberships] == [Decimal("30.00")]
+
+
+_MAY = dt.datetime(2026, 5, 15, 12, 0, tzinfo=dt.timezone.utc)
+_JUNE_2ND = dt.datetime(2026, 6, 2, 12, 0, tzinfo=dt.timezone.utc)
+_JUNE_15TH = dt.datetime(2026, 6, 15, 12, 0, tzinfo=dt.timezone.utc)
+_JUNE_SCOPE = (dt.date(2026, 6, 1), dt.date(2026, 6, 30))
+
+
+def _org_with_membership_payment(
+    slug: str, *, occurred_at: dt.datetime, refunded_at: dt.datetime
+) -> tuple[Organization, MembershipPayment]:
+    """An org whose only money is one membership payment, sold and refunded at fixed instants."""
+    owner = RevelUser.objects.create_user(username=f"{slug}-o", email=f"{slug}-o@example.com", password="x")
+    member = RevelUser.objects.create_user(username=f"{slug}-m", email=f"{slug}-m@example.com", password="x")
+    org = Organization.objects.create(name=slug, slug=slug, owner=owner, vat_country_code="AT")
+    tier = MembershipTier.objects.get(organization=org, name="General membership")
+    plan = MembershipSubscriptionPlan.objects.create(
+        tier=tier, name="Gold", price=Decimal("30.00"), currency="EUR", period_unit="month"
+    )
+    sub = MembershipSubscription.objects.create(
+        organization=org,
+        user=member,
+        plan=plan,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        current_period_start=occurred_at,
+        current_period_end=occurred_at + dt.timedelta(days=30),
+    )
+    payment = MembershipPayment.objects.create(
+        subscription=sub,
+        amount=Decimal("30.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.REFUNDED,
+        period_start=occurred_at,
+        period_end=occurred_at + dt.timedelta(days=30),
+        occurred_at=occurred_at,
+        refund_amount=Decimal("30.00"),
+        refunded_at=refunded_at,
+    )
+    return org, payment
+
+
+@pytest.mark.django_db
+def test_refund_only_membership_row_carries_the_refund_date() -> None:
+    """Sold in May, refunded in June: June's ledger line must not be stamped with the May sale date."""
+    org, payment = _org_with_membership_payment("refund-only", occurred_at=_MAY, refunded_at=_JUNE_15TH)
+    scope = svc.ReportScope(org=org, event_id=None, date_from=_JUNE_SCOPE[0], date_to=_JUNE_SCOPE[1])
+
+    data = svc.build_revenue_report_data(scope)
+
+    (row,) = data.membership_payments
+    assert row.date == dt.date(2026, 6, 15)
+    assert row.refund_amount == Decimal("30.00")
+    assert row.payment_id == str(payment.id)
+    # Only the refund is in scope, so the sale contributes nothing to the period's gross.
+    assert [m.gross for m in data.memberships] == [Decimal("0.00")]
+    # And the sheet the organizer actually opens carries that same in-period date.
+    sheet = load_workbook(io.BytesIO(svc.build_xlsx(data)))["Membership payments"]
+    assert sheet["A2"].value == "2026-06-15"
+
+
+@pytest.mark.django_db
+def test_membership_row_sold_and_refunded_in_period_keeps_the_sale_date() -> None:
+    """Both legs in scope: the line keeps the sale date, matching where the gross is attributed."""
+    org, _ = _org_with_membership_payment("same-period", occurred_at=_JUNE_2ND, refunded_at=_JUNE_15TH)
+    scope = svc.ReportScope(org=org, event_id=None, date_from=_JUNE_SCOPE[0], date_to=_JUNE_SCOPE[1])
+
+    data = svc.build_revenue_report_data(scope)
+
+    (row,) = data.membership_payments
+    assert row.date == dt.date(2026, 6, 2)
+    assert [m.gross for m in data.memberships] == [Decimal("30.00")]
+
+
+@pytest.mark.django_db
+def test_offline_membership_payment_is_still_identifiable_on_the_sheet() -> None:
+    """No Stripe ids at all: payment_id is the only join key back to the API ledger."""
+    org, payment = _org_with_membership_payment("offline-id", occurred_at=_JUNE_2ND, refunded_at=_JUNE_15TH)
+    scope = svc.ReportScope(org=org, event_id=None, date_from=_JUNE_SCOPE[0], date_to=_JUNE_SCOPE[1])
+
+    sheet = load_workbook(io.BytesIO(svc.build_xlsx(svc.build_revenue_report_data(scope))))["Membership payments"]
+
+    assert sheet["J2"].value in (None, "")  # stripe_invoice_id
+    assert sheet["K2"].value in (None, "")  # stripe_payment_intent_id
+    assert sheet["B2"].value == str(payment.id)
 
 
 @pytest.mark.django_db
