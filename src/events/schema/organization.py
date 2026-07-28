@@ -165,10 +165,14 @@ class OrganizationRetrieveSchema(
     contact_method: Organization.ContactMethod
     contact_email: str | None = None
     # Member-facing subscription policy: shown to prospective subscribers before
-    # they request/pay for a membership (grace period stays admin-internal). Given a
-    # default so it's non-required in the public schema — narrower org payloads
-    # (list/minimal) that don't carry it stay structurally assignable.
+    # they request/pay for a membership. The two day counts joined the public payload
+    # in #809 (2026-07) — the pre-purchase billing disclosure needs the real numbers;
+    # they stay read-only here, writable only via the admin edit schema. Given
+    # defaults so they're non-required in the public schema — narrower org payloads
+    # (list/minimal) that don't carry them stay structurally assignable.
     membership_refund_policy: str = ""
+    membership_grace_period_days: int = 7
+    membership_subscription_revival_window_days: int = 30
 
     @staticmethod
     def resolve_contact_email(obj: Organization, context: t.Any) -> str | None:

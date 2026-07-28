@@ -318,7 +318,20 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
     def _handle_rejected(
         self, questionnaire: "Questionnaire", submission: QuestionnaireSubmission
     ) -> MembershipEligibility:
-        """Apply retake cooldown logic for a rejected evaluation."""
+        """Apply the attempts cap, then the retake cooldown, for a rejected evaluation.
+
+        Order mirrors ``_validate_resubmission`` in
+        :mod:`events.service.membership_questionnaire_service` exactly: the cap
+        outranks the retake policy there, so it must outrank it here too — a
+        gate that promised SUBMIT_QUESTIONNAIRE (or a cooldown that expires into
+        one) to a user at the cap would send them to a guaranteed 400.
+        """
+        if 0 < questionnaire.max_attempts <= self.handler.questionnaire_attempt_count:
+            return self._block(
+                Reasons.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,
+                questionnaire_id=questionnaire.pk,
+            )
+
         if questionnaire.can_retake_after is not None and submission.submitted_at is not None:
             retry_on = submission.submitted_at + questionnaire.can_retake_after
             if retry_on > timezone.now():
