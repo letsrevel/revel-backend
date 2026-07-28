@@ -146,7 +146,7 @@ class TestInvoicePaidRenewal:
             user=subscriber, notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED
         )
         assert notif.context["manage_subscription_url"].endswith(
-            f"/organizations/{online_plan.tier.organization.slug}/subscription"
+            f"/org/{online_plan.tier.organization.slug}/subscription"
         )
 
     def test_past_due_to_active_renewal_fires_renewal_succeeded(
@@ -251,7 +251,7 @@ class TestInvoicePaymentFailed:
         )
         assert notif.context["is_online"] is True
         assert notif.context["manage_subscription_url"].endswith(
-            f"/organizations/{online_plan.tier.organization.slug}/subscription"
+            f"/org/{online_plan.tier.organization.slug}/subscription"
         )
 
     def test_already_past_due_redelivery_does_not_double_fire(

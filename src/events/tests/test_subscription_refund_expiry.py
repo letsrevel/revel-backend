@@ -253,17 +253,27 @@ class TestOnlineRefundAutoCancelLockDiscipline:
         assert notifs.first().context["immediate"] is True  # type: ignore[union-attr]
 
 
-def _subscription_charge_event(payment_intent_id: str, amount_cents: int) -> stripe.Event:
-    """Build a minimal charge.refunded MagicMock compatible with StripeEventHandler."""
+def _subscription_charge_event(
+    payment_intent_id: str,
+    amount_cents: int,
+    amount_refunded_cents: int | None = None,
+    account: str | None = None,
+) -> stripe.Event:
+    """Build a minimal charge.refunded MagicMock compatible with StripeEventHandler.
+
+    Shaped like a payload rendered at our pinned API version (2026-03-25.dahlia):
+    ``charge.refunds`` is NOT embedded, so the handler has to resolve the refund
+    id through ``stripe.Refund.list``.
+    """
     ev: stripe.Event = MagicMock(spec=stripe.Event)
     ev.type = "charge.refunded"
+    ev.account = account
     ev.data = MagicMock()
     ev.data.object = {
         "id": "ch_test",
         "payment_intent": payment_intent_id,
-        "amount_refunded": amount_cents,
+        "amount_refunded": amount_cents if amount_refunded_cents is None else amount_refunded_cents,
         "amount": amount_cents,
-        "refunds": {"data": [{"id": "re_test_1", "amount": amount_cents}]},
     }
     # Make dict(event) serializable for raw_response — empty is fine for these tests.
     ev.__iter__.return_value = iter([])  # type: ignore[attr-defined]
@@ -291,13 +301,114 @@ class TestChargeRefundedWebhook:
             stripe_payment_intent_id="pi_test_123",
         )
 
-        event = _subscription_charge_event("pi_test_123", int(plan.price * 100))
-        StripeEventHandler(event).handle_charge_refunded(event)
+        amount_cents = int(plan.price * 100)
+        event = _subscription_charge_event("pi_test_123", amount_cents)
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = [{"id": "re_full_1", "amount": amount_cents}]
+            StripeEventHandler(event).handle_charge_refunded(event)
 
         payment.refresh_from_db()
         active_sub.refresh_from_db()
         assert payment.status == MembershipPayment.PaymentStatus.REFUNDED
+        # Audit parity with the ticket side: the refund id is stamped even though
+        # the dahlia payload never embeds the refunds list.
+        assert payment.stripe_refund_id == "re_full_1"
         assert active_sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+
+    def test_partial_refund_records_refund_id_and_keeps_period(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """amount_refunded < amount: the row stays SUCCEEDED but is stamped.
+
+        The refund id has to come from ``stripe.Refund.list`` — the pinned API
+        version delivers ``charge.refunded`` with no embedded refunds, so reading
+        the payload inline left ``stripe_refund_id`` empty in production.
+        """
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_test_partial",
+        )
+
+        event = _subscription_charge_event("pi_test_partial", int(plan.price * 100), amount_refunded_cents=250)
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = [{"id": "re_partial_1", "amount": 250}]
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        list_mock.assert_called_once_with(charge="ch_test", limit=100)
+        payment.refresh_from_db()
+        active_sub.refresh_from_db()
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        assert payment.refund_amount == Decimal("2.50")
+        assert payment.refunded_at is not None
+        assert payment.stripe_refund_id == "re_partial_1"
+        # A partial refund never revokes the period.
+        assert active_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    def test_partial_refund_on_connected_account_uses_stripe_account_header(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """Connect deliveries must fetch the refund on the connected account."""
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_test_partial_conn",
+        )
+
+        event = _subscription_charge_event(
+            "pi_test_partial_conn", int(plan.price * 100), amount_refunded_cents=100, account="acct_conn_7"
+        )
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = [{"id": "re_partial_conn", "amount": 100}]
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        list_mock.assert_called_once_with(charge="ch_test", limit=100, stripe_account="acct_conn_7")
+        payment.refresh_from_db()
+        assert payment.stripe_refund_id == "re_partial_conn"
+
+    def test_partial_refund_without_resolvable_refund_still_records_amount(
+        self,
+        active_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """No refund object anywhere → the ledger still records the money moved."""
+        assert active_sub.current_period_start is not None
+        assert active_sub.current_period_end is not None
+        payment = MembershipPayment.objects.create(
+            subscription=active_sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=active_sub.current_period_start,
+            period_end=active_sub.current_period_end,
+            stripe_payment_intent_id="pi_test_partial_norefund",
+        )
+
+        event = _subscription_charge_event("pi_test_partial_norefund", int(plan.price * 100), amount_refunded_cents=125)
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = []
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        payment.refresh_from_db()
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        assert payment.refund_amount == Decimal("1.25")
+        assert payment.stripe_refund_id == ""
 
     def test_redelivered_refund_webhook_is_idempotent(
         self,
@@ -318,8 +429,11 @@ class TestChargeRefundedWebhook:
         )
 
         event = _subscription_charge_event("pi_test_redelivery", int(plan.price * 100))
-        StripeEventHandler(event).handle_charge_refunded(event)
+        with patch.object(stripe.Refund, "list") as list_mock:
+            StripeEventHandler(event).handle_charge_refunded(event)
 
+        # Idempotent bail-out happens before any outbound call.
+        list_mock.assert_not_called()
         payment.refresh_from_db()
         active_sub.refresh_from_db()
         assert payment.status == MembershipPayment.PaymentStatus.REFUNDED

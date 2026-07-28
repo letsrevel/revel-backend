@@ -47,6 +47,7 @@ flowchart TD
     G6{"6. TierAvailabilityGate<br/>Tier belongs to org? Plan active & on tier?"}
     G6 -->|"Yes"| G7
     G6 -->|"No"| Rejected5([Rejected: tier/plan_unavailable])
+    G6 -->|"Free apply + tier has an active plan"| Rejected5b([Rejected: tier_requires_subscription])
 
     G7{"7. ApplicationStatusGate<br/>Latest application REJECTED?"}
     G7 -->|"No"| G8
@@ -57,8 +58,8 @@ flowchart TD
     G8 -->|"Missing / Pending / Failed"| Rejected7([Rejected: questionnaire status])
 
     G9{"9. ManualApprovalGate<br/>Approval policy satisfied?"}
-    G9 -->|"Not required / APPROVED"| G10
-    G9 -->|"Awaiting staff"| Rejected8([Rejected: requires_approval])
+    G9 -->|"Not required / APPROVED / no application yet<br/>(annotates requires_approval)"| G10
+    G9 -->|"PENDING application — awaiting staff"| Rejected8([Rejected: requires_approval])
 
     G10{"10. PaymentReadyGate<br/>Plan-bearing application?"}
     G10 -->|"No plan"| Eligible
@@ -73,6 +74,7 @@ flowchart TD
     style Rejected3b fill:#c62828,color:#fff
     style Rejected4 fill:#c62828,color:#fff
     style Rejected5 fill:#c62828,color:#fff
+    style Rejected5b fill:#c62828,color:#fff
     style Rejected6 fill:#c62828,color:#fff
     style Rejected7 fill:#c62828,color:#fff
     style Rejected8 fill:#c62828,color:#fff
@@ -146,7 +148,8 @@ The organization must have `accept_membership_requests=True`. Otherwise blocks w
 Sanity-checks the target tier and (optional) plan:
 
 - The tier must belong to this organization → otherwise `TIER_UNAVAILABLE`.
-- When a plan is supplied: it must be `is_active` and belong to the target tier → otherwise `PLAN_UNAVAILABLE`.
+- **Free apply (`plan is None`) against a monetized tier** — one that carries at least one active subscription plan — blocks with `TIER_REQUIRES_SUBSCRIPTION`. A free `/apply` must not hand out a paid tier's benefits without payment; the user is directed to subscribe to a plan instead.
+- When a plan **is** supplied: it must be `is_active` and belong to the target tier → otherwise `PLAN_UNAVAILABLE`. Plan-bearing applications fall through to `PaymentReadyGate`.
 
 **Source:** `events/service/membership_manager/gates.py`: `TierAvailabilityGate`
 
@@ -180,7 +183,10 @@ Evaluation against the user's most recent `READY` submission:
 - **Rejected** → retake policy branches:
     - `can_retake_after` set and cooldown still running → `MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN` with `next_step=WAIT_TO_RETAKE_QUESTIONNAIRE` and `retry_on`.
     - Cooldown elapsed → treated as missing (resubmit).
-    - No retake configured → **terminal failure** `MEMBERSHIP_QUESTIONNAIRE_FAILED`, no `next_step`. This is the only reason code in `TERMINAL_REJECTION_CODES` (see [State machine](#application-state-machine)).
+    - No retake configured → **terminal failure** `MEMBERSHIP_QUESTIONNAIRE_FAILED`, no `next_step`.
+    - Attempts cap reached → **terminal failure** `MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED`, no `next_step`: whatever the retake policy says, the user can never satisfy the gate again.
+
+Those last two — `MEMBERSHIP_QUESTIONNAIRE_FAILED` and `MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED` — are the two reason codes in `TERMINAL_REJECTION_CODES` (see [State machine](#application-state-machine)).
 
 **Source:** `events/service/membership_manager/gates.py`: `MembershipQuestionnaireGate`
 
@@ -188,7 +194,18 @@ Evaluation against the user's most recent `READY` submission:
 
 ### 9. ManualApprovalGate
 
-When the resolved manual-approval policy is on (tier-level `requires_membership_approval` override when not `NULL`, else org `default_requires_membership_approval`), only users whose current application is already `APPROVED` pass. Everyone else blocks with `REQUIRES_APPROVAL`, `next_step=WAIT_FOR_APPROVAL`, and the pending `application_id` when one exists.
+When the resolved manual-approval policy is on (tier-level `requires_membership_approval` override when not `NULL`, else org `default_requires_membership_approval`):
+
+- **`APPROVED` application** → falls through (the staff decision is in).
+- **`PENDING` application** → blocks with `REQUIRES_APPROVAL`, `next_step=WAIT_FOR_APPROVAL`, and the `application_id` to poll.
+- **No application on file** (or only a terminal `CANCELLED`/`COMPLETED` one) → **falls through** so the user can actually apply. Blocking here soft-locked users who had never applied: the frontend rendered a disabled "application pending" state with no path to the Join CTA (#787). Instead the gate sets `handler.approval_required_annotation`, so `check_eligibility()`'s final *allowing* verdict carries `reason_code=REQUIRES_APPROVAL` with no prose and no `next_step` — the frontend can still say "joining goes through staff approval" while offering the Join CTA.
+
+`REJECTED` never reaches this gate — `ApplicationStatusGate` blocks it first with `next_step=REAPPLY`.
+
+!!! note "The fall-through is deliberate, not an `_allow`"
+    A returned verdict short-circuits the chain, and `PaymentReadyGate` runs *after* this
+    gate — so a plan-bearing check with no application must still fall through to reach its
+    `PLAN_NOT_ONLINE` block.
 
 **Source:** `events/service/membership_manager/gates.py`: `ManualApprovalGate`
 
@@ -282,12 +299,14 @@ As in the event pipeline, reasons are emitted in two forms: `reason` (translated
 | `already_active_member` | "You are already a member at this tier." |
 | `not_accepting_requests` | "This organization is not accepting new members." |
 | `tier_unavailable` | "The requested tier is not available." |
+| `tier_requires_subscription` | "This tier requires a paid subscription. Subscribe to a plan to join." |
 | `plan_unavailable` | "The requested plan is not available." |
 | `application_rejected` | "Your application was rejected." |
 | `membership_questionnaire_missing` | "Membership questionnaire has not been filled." |
 | `membership_questionnaire_pending` | "Waiting for questionnaire evaluation." |
 | `membership_questionnaire_failed` | "Membership questionnaire evaluation was insufficient." |
 | `membership_questionnaire_retake_cooldown` | "Membership questionnaire evaluation was insufficient. You can try again later." |
+| `membership_questionnaire_attempts_exhausted` | "You have reached the maximum number of attempts." |
 | `requires_approval` | "Your application is awaiting staff approval." |
 | `plan_not_online` | "This plan is not configured for online checkout." |
 | `org_not_stripe_connected` | "This organization cannot accept online payments yet." *(reserved for Phase 2)* |
@@ -345,6 +364,9 @@ stateDiagram-v2
 TERMINAL_REJECTION_CODES: t.Final[frozenset[ReasonCode]] = frozenset(
     {
         ReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
+        # A user at the attempts cap can never satisfy the questionnaire gate again,
+        # whatever the retake policy says — as terminal as an outright failure.
+        ReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,
     }
 )
 ```

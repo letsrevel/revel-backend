@@ -202,9 +202,13 @@ member's own requests, not every buyer of a hot tier. It is also currently *load
 the held lock is what serializes Stripe echo-webhooks against the local mutation (the
 webhook's own `select_for_update` blocks until the request commits, then its dispatch gates
 see the updated flags and suppress duplicate notifications). Don't "fix" the lock without
-replacing that serialization. The one webhook-side network call
-(`_invoice_payment_intent_id`'s `Invoice.retrieve` fallback) resolves *before* the row lock
-per the resolve-before-lock discipline above. The plan-row lock taken by
+replacing that serialization. Two webhook-side network calls exist, and only one follows the
+resolve-before-lock discipline above: `_invoice_payment_intent_id`'s `Invoice.retrieve`
+fallback resolves *before* the row lock, but `_backfill_initial_invoice`'s `Invoice.retrieve`
+(on `checkout.session.completed`, self-healing a dropped `invoice.paid`) runs **while holding
+the member's row lock** — the same accepted single-member-blast-radius trade as the request-side
+mutations, and it is guarded: it is skipped entirely when the invoice id is already recorded, and
+a Stripe failure propagates so the whole delivery rolls back and Stripe redelivers. The plan-row lock taken by
 `ensure_plan_sales_capacity` (sale caps) is scoped the same way as the tier lock — the
 lock itself only guards a count+insert, **but under `ATOMIC_REQUESTS` it survives until
 request commit**, so in `start_online_subscription` (capped plans only) it is in fact held

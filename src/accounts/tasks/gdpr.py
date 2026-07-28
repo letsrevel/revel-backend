@@ -96,6 +96,59 @@ def _notify_user_data_export_ready(data_export: UserDataExport) -> None:
     send_email(to=data_export.user.email, subject=subject, body=body, html_body=html_body)
 
 
+def _cancel_live_subscriptions(user: RevelUser) -> None:
+    """Stop billing before the rows holding the Stripe handles are cascaded away.
+
+    ``MembershipSubscription`` and ``CustomerProfile`` are ``on_delete=CASCADE``,
+    so deleting the user destroys ``stripe_subscription_id`` — the only handle
+    back to a Subscription that would otherwise keep charging their card on the
+    organization's connected account, and one the nightly reconciliation (which
+    walks local rows) can never rediscover.
+
+    Runs *before* ``user.delete()`` and outside any surrounding atomic block, so
+    ``cancel_subscriptions_for_membership_loss`` commits and fires its
+    ``on_commit`` Stripe cancel while the rows still exist. That callback closes
+    over the already-loaded subscription (and its ``select_related``
+    organization), so it never re-reads a row the cascade is about to remove.
+
+    Failures are logged and swallowed: a GDPR erasure must not be blocked by
+    Stripe being unreachable. The identifiers needed to close a subscription by
+    hand are emitted up front, since the local rows will not survive this task.
+    """
+    from events.models import MembershipSubscription
+    from events.service import subscription_service
+
+    live = list(
+        MembershipSubscription.objects.filter(user=user)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .select_related("organization")
+    )
+    if not live:
+        return
+    logger.info(
+        "account_deletion_cancelling_subscriptions",
+        user_id=str(user.id),
+        subscriptions=[
+            {
+                "subscription_id": str(subscription.pk),
+                "organization_id": str(subscription.organization_id),
+                "stripe_subscription_id": subscription.stripe_subscription_id,
+            }
+            for subscription in live
+        ],
+    )
+    organizations = {subscription.organization_id: subscription.organization for subscription in live}
+    for organization in organizations.values():
+        try:
+            subscription_service.cancel_subscriptions_for_membership_loss(user, organization)
+        except Exception:
+            logger.exception(
+                "account_deletion_subscription_cancel_failed",
+                user_id=str(user.id),
+                organization_id=str(organization.pk),
+            )
+
+
 @shared_task(name="accounts.tasks.delete_user_account")
 def delete_user_account(user_id: str) -> None:
     """Delete a user account and all associated data in the background.
@@ -104,11 +157,15 @@ def delete_user_account(user_id: str) -> None:
     many database relationships. The deletion is performed in a transaction
     to ensure data consistency.
 
+    Any live membership subscription is cancelled first — see
+    :func:`_cancel_live_subscriptions`.
+
     Args:
         user_id: The UUID of the user to delete.
     """
     user = RevelUser.objects.get(id=user_id)
     logger.info("account_deletion_started", user_id=str(user.id), email=user.email)
+    _cancel_live_subscriptions(user)
     try:
         user.delete()
         logger.info("account_deletion_completed", user_id=user_id)

@@ -8,6 +8,7 @@ payment intent into the ``payments`` list. Each reader tries the modern path
 first and falls back to the legacy field for old fixtures / unpinned tooling.
 """
 
+import re
 import typing as t
 from datetime import datetime
 from datetime import timezone as _utc
@@ -36,6 +37,33 @@ def _stripe_account_kwargs(organization: Organization) -> dict[str, str]:
     if organization.stripe_account_id and organization.stripe_account_id != settings.STRIPE_ACCOUNT:
         return {"stripe_account": organization.stripe_account_id}
     return {}
+
+
+# Stripe has no error code for "this subscription is already canceled" — only
+# ``resource_missing`` (unknown id) is machine-readable — so the canceled
+# variant is matched on its message ("This subscription has been canceled.",
+# "A canceled subscription can only update its cancellation_details.", …).
+_ALREADY_CANCELED_RE = re.compile(r"cancell?ed subscription|subscription[^.]{0,40}cancell?ed", re.IGNORECASE)
+
+
+def _is_subscription_gone(exc: stripe.error.InvalidRequestError) -> bool:
+    """Return True when ``exc`` means the Stripe Subscription is already gone.
+
+    Stripe raises :class:`InvalidRequestError` for many unrelated reasons — most
+    dangerously when the subscription is *schedule-managed* (a downgrade
+    schedule is still running), where it refuses ``cancel_at_period_end`` and
+    ``pause_collection``. Treating that as "already canceled" would record a
+    cancellation locally that Stripe never accepted, and the member would keep
+    being billed — hence the explicit schedule guard below. Only a missing
+    resource or an explicitly canceled subscription means the caller's desired
+    end state already holds; anything else must stay a hard failure.
+    """
+    if exc.code == "resource_missing":
+        return True
+    message = str(exc) or ""
+    if "schedule" in message.lower():
+        return False
+    return bool(_ALREADY_CANCELED_RE.search(message))
 
 
 def _epoch_to_dt(epoch: int | None) -> datetime | None:

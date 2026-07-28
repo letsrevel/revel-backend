@@ -49,10 +49,10 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
         "organization_name": org.name,
         "organization_slug": org.slug,
         "plan_name": plan.name,
-        "organization_contact_url": f"{frontend_base_url}/organizations/{org.slug}/contact",
+        "organization_contact_url": f"{frontend_base_url}/org/{org.slug}/contact",
     }
     if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value:
-        ctx["manage_subscription_url"] = f"{frontend_base_url}/organizations/{org.slug}/subscription"
+        ctx["manage_subscription_url"] = f"{frontend_base_url}/org/{org.slug}/subscription"
     return ctx
 
 
@@ -110,7 +110,7 @@ def _dispatch_subscription_expired(subscription: MembershipSubscription) -> None
     if subscription.expired_at and org.membership_subscription_revival_window_days > 0:
         revival_window_end = subscription.expired_at + timedelta(days=org.membership_subscription_revival_window_days)
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
-        revival_url = f"{frontend_base_url}/organizations/{org.slug}/subscription/revive"
+        revival_url = f"{frontend_base_url}/org/{org.slug}/subscription/revive"
     ctx = _common_subscription_context(subscription)
     # Org-local, human-readable — never raw UTC isoformat (#511/#542).
     ctx["expired_at"] = format_organization_datetime(subscription.expired_at, org)

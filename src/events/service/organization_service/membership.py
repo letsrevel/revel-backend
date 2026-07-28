@@ -15,6 +15,7 @@ from events import models
 from events.exceptions import AlreadyMemberError, MembershipTierInUseError, PendingMembershipRequestExistsError
 from events.models import (
     MembershipSubscription,
+    MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
     OrganizationMember,
@@ -268,6 +269,52 @@ def remove_member(organization: Organization, user: RevelUser) -> None:
     member.delete()
 
 
+def _mirror_status_to_subscriptions(member: OrganizationMember, status: OrganizationMember.MembershipStatus) -> None:
+    """Mirror a staff-imposed membership status onto the member's live subscriptions.
+
+    Without this the member row and the subscription disagree, and the
+    subscription always wins: ``sync_member_from_subscription`` fires on *every*
+    subscription save (renewals bump the period), so the next ``invoice.paid``
+    flips the member back to ACTIVE — silently undoing the staff action while
+    Stripe keeps charging for access the member no longer has.
+
+    * BANNED / CANCELLED — both are revocations (``OrganizationQuerySet.for_user``
+      treats CANCELLED as "not a member"), so they terminalize the subscription
+      exactly like ``remove_member`` and the blacklist path.
+    * PAUSED — pauses the subscription too (``pause_collection`` on Stripe for
+      ONLINE plans), so nobody is charged while suspended. Subscriptions
+      ``pause_subscription`` refuses are skipped rather than raising, because
+      neither refusal leaves money on the table: a subscription already
+      scheduled for cancellation stops billing at the period boundary, and an
+      ONLINE row with no Stripe link has never billed anything.
+    * ACTIVE — deliberately not mirrored. Resuming billing is an explicit act;
+      staff use the subscription resume endpoint for it.
+    """
+    from events.service import subscription_service  # lazy: avoid cycle
+
+    if status in (OrganizationMember.MembershipStatus.BANNED, OrganizationMember.MembershipStatus.CANCELLED):
+        subscription_service.cancel_subscriptions_for_membership_loss(member.user, member.organization)
+        return
+
+    if status != OrganizationMember.MembershipStatus.PAUSED:
+        return
+
+    subscriptions = (
+        MembershipSubscription.objects.filter(user=member.user, organization=member.organization)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .select_related("plan")
+    )
+    for subscription in subscriptions:
+        if subscription.cancel_at_period_end:
+            continue
+        if (
+            subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
+            and not subscription.stripe_subscription_id
+        ):
+            continue
+        subscription_service.pause_subscription(subscription)
+
+
 def update_member(
     member: OrganizationMember,
     *,
@@ -276,6 +323,10 @@ def update_member(
     clear_tier: bool = False,
 ) -> OrganizationMember:
     """Update a member's status and/or tier.
+
+    A status that revokes or suspends membership is mirrored onto the member's
+    subscriptions (see :func:`_mirror_status_to_subscriptions`) — otherwise the
+    next renewal keeps billing and overwrites the staff decision.
 
     Args:
         member: The OrganizationMember instance to update
@@ -302,12 +353,12 @@ def update_member(
     if updated_fields:
         member.save(update_fields=updated_fields)
 
-    # Banning a member must also stop their billing, mirroring the blacklist
-    # path — otherwise the next renewal keeps charging a banned member.
-    if status == OrganizationMember.MembershipStatus.BANNED:
-        from events.service import subscription_service  # lazy: avoid cycle
-
-        subscription_service.cancel_subscriptions_for_membership_loss(member.user, member.organization)
+    if status is not None:
+        _mirror_status_to_subscriptions(member, status)
+        # The subscription saves above run ``sync_member_from_subscription``,
+        # which may rewrite the member row (tier follows the plan) — re-read so
+        # the response is not stale.
+        member.refresh_from_db()
 
     return member
 

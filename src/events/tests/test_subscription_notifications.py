@@ -263,7 +263,7 @@ class TestDispatchHelpers:
             user=nonmember_user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
         )
-        assert n.context["manage_subscription_url"].endswith(f"/organizations/{organization.slug}/subscription")
+        assert n.context["manage_subscription_url"].endswith(f"/org/{organization.slug}/subscription")
 
     def test_expired_omits_revival_when_expired_at_none(self, helper_subscription: MembershipSubscription) -> None:
         assert helper_subscription.expired_at is None

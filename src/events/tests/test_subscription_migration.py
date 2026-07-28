@@ -339,6 +339,61 @@ class TestMigratePlanSubscribers:
             == 1
         )
 
+    def test_proration_invoice_is_not_quoted_as_the_old_price(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """A mid-cycle upgrade's proration delta must not anchor the notice.
+
+        The subscriber pays a full period, then a proration invoice lands for a
+        mid-cycle upgrade. The price-migration notice must quote the full-period
+        amount as "your old price", not the (much smaller) proration delta.
+        """
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        old_price = offline_plan.price
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=old_price,
+            currency=offline_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+            raw_response={"billing_reason": "subscription_cycle"},
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("2"),
+            currency=offline_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now(),
+            period_end=timezone.now() + timedelta(days=1),
+            raw_response={"billing_reason": "subscription_update"},
+        )
+        offline_plan.price = old_price + Decimal("5")
+        offline_plan.save(update_fields=["price"])
+
+        result = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert result["migrated"] == 1
+
+        notification = Notification.objects.get(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+        )
+        # The full-period amount, not the 2.00 proration delta.
+        assert Decimal(notification.context["old_amount"].split()[0]) == old_price
+        assert Decimal(notification.context["new_amount"].split()[0]) == offline_plan.price
+
     def test_skips_price_migration_notification_when_no_prior_payment(
         self,
         offline_plan: MembershipSubscriptionPlan,

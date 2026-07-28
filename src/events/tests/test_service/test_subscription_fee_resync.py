@@ -73,7 +73,7 @@ def _make_sub(
     plan: MembershipSubscriptionPlan,
     username: str,
     *,
-    stripe_subscription_id: str = "",
+    stripe_subscription_id: str | None = None,
     status: str = MembershipSubscription.SubscriptionStatus.ACTIVE,
     stripe_schedule_id: str = "",
 ) -> MembershipSubscription:
@@ -180,6 +180,29 @@ class TestResyncService:
 
         assert counters == {"updated": 0, "skipped_schedule_managed": 0, "failed": 0}
         mock_modify.assert_not_called()
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    def test_null_subscription_id_does_not_strand_live_rows(
+        self,
+        mock_modify: mock.Mock,
+        site_settings: SiteSettings,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """A NULL (mid-checkout/revival) row must be excluded, not passed to Stripe.
+
+        ``exclude(stripe_subscription_id="")`` alone keeps NULL rows, and the
+        ``-created_at`` ordering puts the freshest one first — a ``modify(None)``
+        TypeError would escape the StripeError handler and kill the whole resync.
+        """
+        _make_sub(online_plan, "resync_linked", stripe_subscription_id="sub_linked")
+        _make_sub(online_plan, "resync_pending", status=MembershipSubscription.SubscriptionStatus.PENDING)
+
+        counters = subscription_stripe_service.resync_subscription_application_fees(stripe_org)
+
+        assert counters == {"updated": 1, "skipped_schedule_managed": 0, "failed": 0}
+        assert mock_modify.call_count == 1
+        assert mock_modify.call_args.args[0] == "sub_linked"
 
     @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
     def test_stripe_failure_is_counted_and_does_not_strand_the_rest(

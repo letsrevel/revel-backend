@@ -28,7 +28,7 @@ from events.service.membership_manager import (
     apply_for_membership,
     cancel_application,
 )
-from events.service.membership_manager.enums import MembershipNextStep
+from events.service.membership_manager.enums import MembershipNextStep, Reasons
 
 
 @api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Applications"], throttle=UserDefaultThrottle())
@@ -84,6 +84,7 @@ class MeMembershipApplicationsController(UserAwareController):
             400: schema.MembershipEligibilitySchema | ErrorDetail,
             403: ErrorDetail,
             404: ErrorDetail,
+            409: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -123,6 +124,13 @@ class MeMembershipApplicationsController(UserAwareController):
             MembershipNextStep.REQUIRES_INVITATION,
         }:
             raise HttpError(403, preview.reason or _("Not allowed."))
+        # ALREADY_MEMBER is an *allowing* verdict (the eligibility service answers
+        # "you're already in at this tier" for preview purposes), but there is
+        # nothing to apply for: creating a row here would mint a junk PENDING
+        # application on every call — queue noise, and tier.on_delete=PROTECT
+        # means those rows permanently block deleting the tier.
+        if preview.next_step == MembershipNextStep.ALREADY_MEMBER:
+            raise HttpError(409, _(Reasons.ALREADY_ACTIVE_MEMBER))
 
         application, eligibility = apply_for_membership(
             user=user,

@@ -299,15 +299,22 @@ class MembershipSubscription(TimeStampedModel):
         return self.status in self.TERMINAL_STATUSES
 
     def stripe_dashboard_url(self) -> str | None:
-        """Stripe Dashboard URL for the linked Subscription (None when unlinked/OFFLINE).
+        """Stripe Dashboard URL for this subscription (None when OFFLINE/unlinked).
 
-        Like the ticket ``Payment`` helper, the URL carries no connected-account
-        segment: memberships are direct charges on the org's own Stripe account,
-        so the organizer opening it is already in the right dashboard.
+        Mirrors the ticket ``Payment`` helper: once the Stripe Subscription exists we
+        link straight to it, but a PENDING row that only has a Checkout Session falls
+        back to the session page — that is exactly the "member says they paid but it
+        still shows PENDING" case an organizer needs to inspect.
+
+        Like the ticket helper, the URL carries no connected-account segment:
+        memberships are direct charges on the org's own Stripe account, so the
+        organizer opening it is already in the right dashboard.
         """
-        if not self.stripe_subscription_id:
-            return None
-        return f"https://dashboard.stripe.com/{_stripe_mode()}/subscriptions/{self.stripe_subscription_id}"
+        if self.stripe_subscription_id:
+            return f"https://dashboard.stripe.com/{_stripe_mode()}/subscriptions/{self.stripe_subscription_id}"
+        if self.stripe_checkout_session_id:
+            return f"https://dashboard.stripe.com/{_stripe_mode()}/checkout/sessions/{self.stripe_checkout_session_id}"
+        return None
 
 
 class MembershipPayment(TimeStampedModel):

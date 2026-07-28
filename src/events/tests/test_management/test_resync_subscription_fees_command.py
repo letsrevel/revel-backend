@@ -98,6 +98,32 @@ def test_live_run_pushes_percent(
 
 
 @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+def test_null_subscription_id_rows_are_excluded(
+    mock_modify: mock.Mock,
+    site_settings: SiteSettings,
+    online_sub: MembershipSubscription,
+) -> None:
+    """A mid-checkout row (NULL stripe_subscription_id) must never reach Stripe.
+
+    ``exclude(stripe_subscription_id="")`` alone keeps NULL rows, which would
+    blow up on ``Subscription.modify(None, ...)`` and abort the whole run.
+    """
+    user = RevelUser.objects.create_user(username="cmd_pending", email="cmd_pending@example.com", password="pass")
+    MembershipSubscription.objects.create(
+        user=user,
+        plan=online_sub.plan,
+        organization=online_sub.organization,
+        status=MembershipSubscription.SubscriptionStatus.PENDING,
+    )
+
+    output = _run("--sleep", "0")
+
+    assert mock_modify.call_count == 1
+    assert mock_modify.call_args.args[0] == "sub_cmd"
+    assert "Done: 1 updated, 0 schedule-managed skipped, 0 failed." in output
+
+
+@mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
 def test_failures_surface_as_command_error(
     mock_modify: mock.Mock,
     site_settings: SiteSettings,

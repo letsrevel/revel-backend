@@ -25,6 +25,10 @@ logger = structlog.get_logger(__name__)
 class SubscriptionWebhookHandlersMixin:
     """Membership subscription webhook handlers (Phases 2-4)."""
 
+    if t.TYPE_CHECKING:
+        # Provided by the host StripeEventHandler; declared for mypy only.
+        def _resolve_refunds(self, charge_data: dict[str, t.Any]) -> list[dict[str, t.Any]]: ...
+
     @staticmethod
     def _event_account_owns(event: stripe.Event, subscription: MembershipSubscription) -> bool:
         """Whether this delivery's connected account owns ``subscription``.
@@ -226,11 +230,33 @@ class SubscriptionWebhookHandlersMixin:
             subscription_id=str(subscription_pk),
         )
 
+    def _latest_refund_id(self, charge_data: t.Any) -> str:
+        """Return the id of the charge's most recent refund, or ``""`` if it has none.
+
+        Reading ``charge_data["refunds"]["data"]`` inline is not enough: at our
+        pinned API version the ``charge.refunded`` payload doesn't embed the
+        refunds list at all, so the audit field ended up empty on every
+        production refund. :meth:`_resolve_refunds` (on the host handler) is the
+        ticket side's answer to the same problem — it short-circuits on an
+        embedded list and otherwise fetches outbound with the connected-account
+        header. Stripe returns refunds newest-first in both cases, so the head
+        is the refund this delivery is about.
+
+        The fetch runs while holding this member's row lock — the documented
+        single-member-blast-radius trade for the subscription webhook paths — and
+        a Stripe failure propagates so Stripe redelivers the event.
+
+        Args:
+            charge_data: The Stripe ``charge.refunded`` ``data.object``.
+        """
+        refunds = self._resolve_refunds(charge_data)
+        return t.cast(str, refunds[0].get("id") or "") if refunds else ""
+
     @staticmethod
     def _record_partial_refund(
-        charge_data: t.Any,
         membership_payment: MembershipPayment,
         amount_refunded: int,
+        refund_id: str,
     ) -> None:
         """Stamp the refund audit trail for a partially-refunded membership charge.
 
@@ -240,15 +266,14 @@ class SubscriptionWebhookHandlersMixin:
         fee invoice needs a credit note, which is a separate decision.
 
         Args:
-            charge_data: The Stripe ``charge.refunded`` ``data.object``.
             membership_payment: The matched ledger row.
             amount_refunded: Cumulative refunded amount, in minor units.
+            refund_id: The Stripe refund id, from :meth:`_latest_refund_id`.
         """
-        refunds = (charge_data.get("refunds") or {}).get("data") or []
         membership_payment.refund_amount = from_stripe_amount(amount_refunded, membership_payment.currency)
         membership_payment.refunded_at = timezone.now()
-        if refunds:
-            membership_payment.stripe_refund_id = t.cast(str, refunds[0].get("id") or "")
+        if refund_id:
+            membership_payment.stripe_refund_id = refund_id
         membership_payment.save(
             update_fields=["refund_amount", "refunded_at", "stripe_refund_id", "updated_at"],
         )
@@ -284,6 +309,10 @@ class SubscriptionWebhookHandlersMixin:
         charge_data = event.data.object
         amount = charge_data.get("amount")
         amount_refunded = charge_data.get("amount_refunded")
+        # Resolved once, before either branch writes: it may be an outbound call
+        # (see _latest_refund_id), so a Stripe failure aborts the delivery before
+        # the ledger is touched rather than between two writes.
+        refund_id = self._latest_refund_id(charge_data)
         if amount is None or amount_refunded is None or amount_refunded < amount:
             # Partial refund: the member keeps the period they partly paid for,
             # so the row stays SUCCEEDED and the auto-cancel must not fire. It
@@ -291,7 +320,7 @@ class SubscriptionWebhookHandlersMixin:
             # and our ledger silently disagrees with Stripe. ``amount_refunded``
             # is cumulative, so a later top-up refund that reaches the full
             # charge falls through to the branch below and flips to REFUNDED.
-            self._record_partial_refund(charge_data, membership_payment, amount_refunded)
+            self._record_partial_refund(membership_payment, amount_refunded, refund_id)
             logger.info(
                 "stripe_subscription_partial_refund_recorded",
                 payment_intent_id=charge_data.get("payment_intent"),
@@ -301,7 +330,14 @@ class SubscriptionWebhookHandlersMixin:
             )
             return
 
-        subscription_refunds.refund_payment(membership_payment, recorded_by=None)
+        payment = subscription_refunds.refund_payment(membership_payment, recorded_by=None)
+        if refund_id:
+            # Parity with the ticket side (_apply_refund_to_payment), which stamps
+            # the refund id on every refund it applies. refund_payment is shared
+            # with staff-recorded refunds, which have no Stripe refund to point at,
+            # so the id is stamped here rather than inside it.
+            payment.stripe_refund_id = refund_id
+            payment.save(update_fields=["stripe_refund_id", "updated_at"])
 
         logger.info(
             "stripe_subscription_refund_processed",

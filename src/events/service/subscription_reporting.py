@@ -85,12 +85,19 @@ def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
     # a plan price change, so ``plan.price`` overstates their contribution.
     # Prefer each subscriber's most recent SUCCEEDED payment amount; fall back to
     # ``plan.price`` when there's none (OFFLINE pre-payment or brand-new PENDING).
+    # Mid-cycle upgrades bill a PRORATION invoice (billing_reason
+    # "subscription_update") whose amount is a partial-period delta, not the
+    # per-period price — those rows must not become the MRR anchor. ``contains``
+    # (``@>``) is used rather than a key-transform ``exclude`` because the latter
+    # is NULL on rows with no ``billing_reason`` (manual/OFFLINE payments) and
+    # would silently drop them.
     # Single batched DISTINCT ON query keeps this out of the per-sub loop (N+1).
     paid_by_sub: dict[t.Any, Decimal] = dict(
         MembershipPayment.objects.filter(
             subscription__in=active_subs,
             status=MembershipPayment.PaymentStatus.SUCCEEDED,
         )
+        .exclude(raw_response__contains={"billing_reason": "subscription_update"})
         .order_by("subscription_id", "-created_at")
         .distinct("subscription_id")
         .values_list("subscription_id", "amount")

@@ -674,6 +674,60 @@ class TestCancelOnlineSubscription:
 
         assert result.cancel_at_period_end is True
 
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    def test_period_end_cancellation_tolerates_resource_missing(
+        self, mock_modify: mock.Mock, online_subscription: MembershipSubscription
+    ) -> None:
+        """A subscription Stripe no longer knows about is already in the desired end state."""
+        mock_modify.side_effect = stripe.error.InvalidRequestError(
+            "No such subscription: 'sub_abc'", param=None, code="resource_missing"
+        )
+
+        result = subscription_stripe_service.cancel_online_subscription(online_subscription, immediate=False)
+
+        assert result.cancel_at_period_end is True
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    def test_period_end_cancellation_does_not_swallow_other_invalid_requests(
+        self, mock_modify: mock.Mock, online_subscription: MembershipSubscription
+    ) -> None:
+        """A rejection that is NOT "already gone" leaves Stripe billing — never record the intent.
+
+        The canonical case is a schedule-managed subscription (a downgrade
+        schedule still running), which Stripe refuses to modify. Swallowing it
+        marked the row cancelled locally while Stripe renewed it indefinitely.
+        """
+        mock_modify.side_effect = stripe.error.InvalidRequestError(
+            "This subscription is managed by a subscription schedule and cannot be updated directly.",
+            param="cancel_at_period_end",
+        )
+
+        with pytest.raises(HttpError) as exc:
+            subscription_stripe_service.cancel_online_subscription(online_subscription, immediate=False)
+
+        assert exc.value.status_code == 502
+        online_subscription.refresh_from_db()
+        assert online_subscription.cancel_at_period_end is False
+        assert online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
+    def test_immediate_cancellation_does_not_swallow_other_invalid_requests(
+        self, mock_cancel: mock.Mock, online_subscription: MembershipSubscription
+    ) -> None:
+        """Same guard on the immediate branch: no local terminalization Stripe refused."""
+        mock_cancel.side_effect = stripe.error.InvalidRequestError(
+            "This subscription is managed by a subscription schedule and cannot be updated directly.",
+            param=None,
+        )
+
+        with pytest.raises(HttpError) as exc:
+            subscription_stripe_service.cancel_online_subscription(online_subscription, immediate=True)
+
+        assert exc.value.status_code == 502
+        online_subscription.refresh_from_db()
+        assert online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        assert online_subscription.cancelled_at is None
+
     @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
     def test_immediate_cancellation_wraps_transient_stripe_error(
         self, mock_cancel: mock.Mock, online_subscription: MembershipSubscription

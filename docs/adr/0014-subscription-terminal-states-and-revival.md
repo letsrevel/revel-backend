@@ -48,10 +48,12 @@ window.**
 - New field `Organization.membership_subscription_revival_window_days`
   (default 30; `0` disables revival entirely for the org).
 - New field `MembershipSubscription.expired_at` is stamped on every
-  transition into EXPIRED: the Celery grace-expiry beat, and
+  transition into EXPIRED: the Celery grace-expiry beat;
   `customer.subscription.deleted` arriving while the row is PAST_DUE without
   a member-chosen `cancel_at_period_end` (Stripe dunning outran the local
-  grace clock — an involuntary lapse). A chosen cancel (immediate or
+  grace clock — an involuntary lapse); and a Stripe `incomplete_expired`
+  status, which `_STRIPE_STATUS_MAP` translates straight to EXPIRED (the
+  first payment never completed — also involuntary). A chosen cancel (immediate or
   scheduled) lands CANCELLED and never stamps `expired_at`: revival is
   deliberately reserved for involuntary lapses. It is cleared again on every
   transition back to ACTIVE (revival consumed the window; a later lapse
@@ -72,8 +74,15 @@ window.**
   create a **fresh** Stripe Subscription on the plan's *current*
   `stripe_price_id` and overwrite `stripe_subscription_id`. The previous id
   lives on in `historical_membership_subscription` (simple-history). The
-  idempotency key is scoped to `expired_at` so a future revival (after
-  another EXPIRED transition with a fresh timestamp) gets a distinct key.
+  Stripe idempotency key is **per attempt** (`sub-revival:{pk}:{uuid4}`), not
+  scoped to `expired_at`: an abandoned revival checkout is reverted to EXPIRED
+  with `expired_at` deliberately preserved, so an `expired_at`-scoped key would
+  repeat on the retry while the Checkout Session's `expires_at` is recomputed
+  from `now()` — same key, different params, which Stripe rejects for the ~24h
+  the key is cached, 502-ing every retry. Safety comes from elsewhere:
+  concurrent attempts are serialized by the caller's row lock, and a
+  `mode=subscription` session only charges on completion, so an orphaned
+  session from a timed-out retry cannot double-charge.
 
 ### What revival is *not*
 
@@ -102,5 +111,7 @@ window.**
   affordance for their state.
 - **Con:** Revival pricing uses the plan's *current* price, not the
   grandfathered price the member previously paid. This is intentional —
-  revival is re-engagement, and locking lapsed customers to old prices
-  would degrade reporting (MRR computed from current `plan.price`).
+  revival is re-engagement, and locking lapsed customers to old prices adds
+  another grandfathered cohort for reporting to carry (MRR values each
+  subscriber at their latest successful non-proration payment, falling back
+  to `plan.price`).

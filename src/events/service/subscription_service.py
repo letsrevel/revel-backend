@@ -888,12 +888,15 @@ def migrate_plan_subscribers(
 
     # Single-query lookup for the subscriber's last SUCCEEDED payment amount,
     # to avoid N+1 inside the migration loop. Postgres DISTINCT ON picks the
-    # most-recent row per subscription according to the ORDER BY.
+    # most-recent row per subscription according to the ORDER BY. Proration
+    # invoices from a mid-cycle upgrade are a partial-period delta, never the
+    # subscriber's old per-period price, so they cannot anchor the notice.
     old_price_by_sub: dict[t.Any, Decimal] = dict(
         MembershipPayment.objects.filter(
             subscription__in=qs,
             status=MembershipPayment.PaymentStatus.SUCCEEDED,
         )
+        .exclude(raw_response__contains={"billing_reason": "subscription_update"})
         .order_by("subscription_id", "-created_at")
         .distinct("subscription_id")
         .values_list("subscription_id", "amount")

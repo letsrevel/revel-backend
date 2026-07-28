@@ -485,6 +485,54 @@ def test_apply_user_with_active_subscription_cannot_self_promote_via_free_apply(
     ).exists()
 
 
+def test_apply_active_member_at_target_tier_returns_409_without_creating_a_row(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """An ACTIVE member at the target tier has nothing to apply for → 409, no application row.
+
+    The eligibility service answers ALREADY_MEMBER with allowed=True (it is a
+    preview verdict), so without the controller short-circuit every call minted
+    a fresh application row that immediately completed — queue noise, and
+    ``MembershipTier`` is PROTECTed by those rows, so the tier could never be
+    deleted afterwards.
+    """
+    OrganizationMember.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=tier,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+    client = _client(nonmember_user)
+    url = reverse("api:apply_for_membership", kwargs={"slug": organization.slug})
+    response = client.post(url, data={"tier_id": str(tier.id)}, content_type="application/json")
+
+    assert response.status_code == 409, response.content
+    assert response.json()["detail"] == "You are already a member at this tier."
+    assert not OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user).exists()
+
+
+def test_apply_after_becoming_member_is_idempotent(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """Re-applying after the free path granted membership never adds another row."""
+    client = _client(nonmember_user)
+    url = reverse("api:apply_for_membership", kwargs={"slug": organization.slug})
+    assert client.post(url, data={"tier_id": str(tier.id)}, content_type="application/json").status_code == 201
+    count_after_join = OrganizationMembershipRequest.objects.filter(
+        organization=organization, user=nonmember_user
+    ).count()
+    assert count_after_join == 1
+
+    for _attempt in range(2):
+        response = client.post(url, data={"tier_id": str(tier.id)}, content_type="application/json")
+        assert response.status_code == 409, response.content
+
+    assert (
+        OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user).count()
+        == count_after_join
+    )
+
+
 # -- T1: cancel endpoint coverage gaps --------------------------------------------------------
 
 

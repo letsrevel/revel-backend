@@ -158,6 +158,15 @@ def _apply_stripe_price_swap(
     instance in place but does not save. Terminal rows are frozen — late
     webhook events for a cancelled/expired subscription must not rewrite
     the historical plan FK.
+
+    ``stripe_schedule_id`` is deliberately left alone. A scheduled downgrade's
+    swap lands at the phase-1→2 rollover, but Stripe keeps managing the
+    subscription until phase 2 *ends* — a full billing period later. Clearing
+    the id here would make ``release_online_schedule`` a no-op for that whole
+    period, and the member's cancel would then be rejected by Stripe (a
+    schedule-managed subscription refuses ``cancel_at_period_end``) while we
+    happily recorded it locally. ``handle_subscription_schedule_released``
+    clears the id when Stripe actually releases the schedule.
     """
     if subscription.is_terminal:
         return []
@@ -176,9 +185,6 @@ def _apply_stripe_price_swap(
     if subscription.pending_plan_id == new_plan.pk:
         subscription.pending_plan = None
         changed.append("pending_plan")
-    if subscription.stripe_schedule_id:
-        subscription.stripe_schedule_id = ""
-        changed.append("stripe_schedule_id")
     return changed
 
 

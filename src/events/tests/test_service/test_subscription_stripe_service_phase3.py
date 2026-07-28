@@ -452,7 +452,7 @@ class TestSyncPauseCollectionAndPlanSwap:
         online_subscription.refresh_from_db()
         assert online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
-    def test_price_swap_repoints_plan_and_clears_pending(
+    def test_price_swap_repoints_plan_and_keeps_schedule_id(
         self,
         online_plan: MembershipSubscriptionPlan,
         online_subscription: MembershipSubscription,
@@ -482,7 +482,10 @@ class TestSyncPauseCollectionAndPlanSwap:
         online_subscription.refresh_from_db()
         assert online_subscription.plan_id == new_plan.pk
         assert online_subscription.pending_plan_id is None
-        assert online_subscription.stripe_schedule_id == ""
+        # The swap only means phase 1 → phase 2; Stripe still manages the
+        # subscription until phase 2 ends, so the schedule id must survive
+        # until ``customer.subscription_schedule.released`` actually arrives.
+        assert online_subscription.stripe_schedule_id == "sub_sched_phase"
 
     def test_price_swap_to_unknown_price_is_ignored(
         self,
@@ -810,6 +813,34 @@ class TestScheduleReleaseOnCancelPause:
         assert result.status == MembershipSubscription.SubscriptionStatus.PAUSED
         assert result.stripe_schedule_id == ""
         assert result.pending_plan_id is None
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    def test_cancel_after_price_swap_still_releases_schedule(
+        self,
+        mock_release: mock.Mock,
+        mock_modify: mock.Mock,
+        scheduled_subscription: MembershipSubscription,
+        target_plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """Phase 2 of a downgrade schedule: the swap happened, the schedule is still live.
+
+        ``_apply_stripe_price_swap`` has re-pointed ``plan`` and cleared
+        ``pending_plan``, but Stripe only releases the schedule a full billing
+        period later. The cancel must still release it, or Stripe rejects the
+        ``cancel_at_period_end`` modify and keeps billing the member.
+        """
+        scheduled_subscription.plan = target_plan
+        scheduled_subscription.pending_plan = None
+        scheduled_subscription.save(update_fields=["plan", "pending_plan"])
+
+        result = subscription_stripe_service.cancel_online_subscription(scheduled_subscription, immediate=False)
+
+        mock_release.assert_called_once_with("sub_sched_xyz", stripe_account="acct_test_org")
+        assert mock_modify.call_args.kwargs["cancel_at_period_end"] is True
+        result.refresh_from_db()
+        assert result.cancel_at_period_end is True
+        assert result.stripe_schedule_id == ""
 
     @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
     @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")

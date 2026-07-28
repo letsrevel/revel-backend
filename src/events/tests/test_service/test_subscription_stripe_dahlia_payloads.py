@@ -26,7 +26,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_sync
+from events.service import subscription_stripe_payloads, subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -159,3 +159,29 @@ def test_invoice_payment_intent_fetch_failure_is_tolerated(
     assert payment.stripe_payment_intent_id == ""
     pending_subscription.refresh_from_db()
     assert pending_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+
+@pytest.mark.parametrize(
+    ("message", "code", "expected"),
+    [
+        ("No such subscription: 'sub_x'", "resource_missing", True),
+        ("This subscription has been canceled.", None, True),
+        ("A canceled subscription can only update its cancellation_details.", None, True),
+        ("You cannot update a subscription that is canceled.", None, True),
+        (
+            "You cannot set `cancel_at_period_end` on a subscription managed by a subscription schedule.",
+            None,
+            False,
+        ),
+        ("This subscription is managed by a subscription schedule.", None, False),
+        ("Invalid `proration_behavior`: must be one of always_invoice, create_prorations, none", None, False),
+    ],
+)
+def test_is_subscription_gone_classification(message: str, code: str | None, expected: bool) -> None:
+    """Only a missing/canceled subscription counts as gone — never a schedule-managed refusal.
+
+    Swallowing the schedule-managed rejection is what let a member's cancel
+    no-op on Stripe while the local row said "cancelled" (they kept being billed).
+    """
+    exc = stripe.error.InvalidRequestError(message, param=None, code=code)
+    assert subscription_stripe_payloads._is_subscription_gone(exc) is expected

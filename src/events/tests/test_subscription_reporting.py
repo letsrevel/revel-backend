@@ -227,6 +227,77 @@ class TestMRRGrandfathering:
 
 
 @pytest.mark.django_db
+class TestMRRProrationInvoices:
+    """A mid-cycle upgrade bills a proration delta, which is not a per-period price."""
+
+    def test_proration_row_is_not_the_mrr_anchor(
+        self,
+        organization: Organization,
+        monthly_plan: MembershipSubscriptionPlan,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        """The latest full-period payment wins over a newer proration invoice."""
+        from events.models import MembershipPayment
+
+        sub = MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=monthly_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("20.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+            raw_response={"billing_reason": "subscription_cycle"},
+        )
+        # Mid-cycle upgrade: Stripe issues a small proration invoice.
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("5.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now(),
+            period_end=timezone.now() + timedelta(days=1),
+            raw_response={"billing_reason": "subscription_update"},
+        )
+
+        metrics = subscription_reporting.get_organization_metrics(organization)
+        assert metrics["mrr"] == Decimal("20.00")
+
+    def test_only_proration_payment_falls_back_to_plan_price(
+        self,
+        organization: Organization,
+        monthly_plan: MembershipSubscriptionPlan,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        """With no full-period payment to anchor on, ``plan.price`` is used."""
+        from events.models import MembershipPayment
+
+        sub = MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=monthly_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("2.50"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now(),
+            period_end=timezone.now() + timedelta(days=1),
+            raw_response={"billing_reason": "subscription_update"},
+        )
+
+        metrics = subscription_reporting.get_organization_metrics(organization)
+        assert metrics["mrr"] == monthly_plan.price
+
+
+@pytest.mark.django_db
 class TestMixedCurrency:
     def test_mixed_currency_flag(
         self,

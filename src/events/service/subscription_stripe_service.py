@@ -32,6 +32,7 @@ from events.models import (
 )
 from events.service import subscription_sales, subscription_service
 from events.service.subscription_stripe_payloads import (
+    _is_subscription_gone,
     _stripe_account_kwargs,
 )
 from events.utils.currency import to_stripe_amount
@@ -290,6 +291,7 @@ def resync_subscription_application_fees(org: Organization, *, sleep_seconds: fl
             plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
         )
         .exclude(stripe_subscription_id="")
+        .exclude(stripe_subscription_id__isnull=True)
         .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
     )
     counters: FeeResyncCounters = {"updated": 0, "skipped_schedule_managed": 0, "failed": 0}
@@ -740,6 +742,28 @@ def create_revival_checkout(subscription: MembershipSubscription) -> str:
     return t.cast(str, session.url)
 
 
+def _tolerate_gone_or_raise(subscription: MembershipSubscription, exc: stripe.error.InvalidRequestError) -> None:
+    """Swallow Stripe's refusal only when the subscription is already gone.
+
+    Tolerated case: the sub was canceled/deleted Stripe-side (staff used the
+    Dashboard and this call races the ``deleted`` webhook, or it runs inside
+    the ``charge.refunded`` auto-cancel). The caller's intent is "make it
+    canceled", so local terminalization proceeds; raising would 500 the
+    request/webhook and wedge Stripe redelivery in a retry loop.
+
+    Anything else — most importantly a *schedule-managed* subscription, which
+    Stripe refuses to modify — means Stripe is still billing, so it surfaces as
+    the module's retryable 502 and local state stays untouched.
+    """
+    if not _is_subscription_gone(exc):
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+    logger.info(
+        "subscription_stripe_cancel_already_terminal",
+        subscription_id=str(subscription.pk),
+        stripe_subscription_id=subscription.stripe_subscription_id,
+    )
+
+
 def cancel_online_subscription(
     subscription: MembershipSubscription,
     *,
@@ -774,18 +798,8 @@ def cancel_online_subscription(
             # ``Subscription.cancel`` is the documented runtime API; the type stubs
             # don't expose it as a classmethod, hence the ignore.
             stripe.Subscription.cancel(subscription.stripe_subscription_id, **kwargs)  # type: ignore[attr-defined]
-        except stripe.error.InvalidRequestError:
-            # Already canceled/gone on Stripe (e.g. staff canceled in the Dashboard
-            # and this call races the ``customer.subscription.deleted`` webhook, or
-            # runs inside the ``charge.refunded`` auto-cancel). The caller's intent
-            # is "make it canceled" — proceed with local terminalization; raising
-            # here would 500 the request/webhook and (in the webhook case) roll
-            # back the dedup row into a permanent Stripe retry loop.
-            logger.info(
-                "subscription_stripe_cancel_already_terminal",
-                subscription_id=str(subscription.pk),
-                stripe_subscription_id=subscription.stripe_subscription_id,
-            )
+        except stripe.error.InvalidRequestError as exc:
+            _tolerate_gone_or_raise(subscription, exc)
         except stripe.error.StripeError as exc:
             # Transient failure (network, rate limit): surface the module's
             # normal retryable 502 instead of a bare 500, and leave local
@@ -802,15 +816,10 @@ def cancel_online_subscription(
                 cancel_at_period_end=True,
                 **kwargs,
             )
-        except stripe.error.InvalidRequestError:
-            # Same race as above: a Stripe-side already-canceled sub cannot be
-            # modified. The local flag still records the member's intent; the
-            # ``deleted`` webhook / nightly reconcile terminalizes the row.
-            logger.info(
-                "subscription_stripe_cancel_already_terminal",
-                subscription_id=str(subscription.pk),
-                stripe_subscription_id=subscription.stripe_subscription_id,
-            )
+        except stripe.error.InvalidRequestError as exc:
+            # Same tolerance as the immediate branch: record the member's intent
+            # only when Stripe has nothing left to cancel.
+            _tolerate_gone_or_raise(subscription, exc)
         except stripe.error.StripeError as exc:
             # Same retryable-502 treatment as the immediate branch: without it
             # the local flag would record an intent Stripe never accepted.

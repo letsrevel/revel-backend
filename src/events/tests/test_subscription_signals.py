@@ -131,6 +131,25 @@ class TestSyncMemberFromSubscription:
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.PAUSED
 
+    def test_resumed_subscription_reactivates_member(
+        self,
+        organization: Organization,
+        subscriber: RevelUser,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """Subscription-driven pause → resume must still flip the member back to ACTIVE."""
+        sub = subscription_service.create_subscription(plan, subscriber)
+        subscription_service.pause_subscription(sub)
+        assert (
+            OrganizationMember.objects.get(organization=organization, user=subscriber).status
+            == OrganizationMember.MembershipStatus.PAUSED
+        )
+
+        subscription_service.resume_subscription(sub)
+
+        member = OrganizationMember.objects.get(organization=organization, user=subscriber)
+        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+
     def test_stale_terminal_subscription_does_not_overwrite_active(
         self,
         organization: Organization,

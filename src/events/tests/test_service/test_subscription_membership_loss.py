@@ -2,18 +2,20 @@
 
 Banning or removing a member used to leave their subscription untouched: Stripe
 kept charging a banned member, and a *removed* member was silently re-created as
-ACTIVE by the next ``invoice.paid``. These tests pin the three coherence points
-that now terminalize the subscription — blacklist, ``update_member`` → BANNED,
-``remove_member`` — plus the webhook-side defense-in-depth that refuses to
-re-mint a hard-blacklisted member.
+ACTIVE by the next ``invoice.paid``. These tests pin the coherence points
+that now stop the billing — blacklist, ``update_member`` → BANNED / CANCELLED /
+PAUSED, ``remove_member`` — plus the webhook-side defense-in-depth that refuses
+to re-mint a hard-blacklisted member.
 """
 
 import time
 import typing as t
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
@@ -155,7 +157,7 @@ class TestBlacklistCancelsSubscription:
 
 
 class TestMemberUpdateAndRemoveCancelSubscription:
-    """``update_member`` → BANNED and ``remove_member`` terminalize the subscription."""
+    """``update_member`` and ``remove_member`` mirror the staff decision onto the subscription."""
 
     def test_update_member_to_banned_cancels_subscription(
         self,
@@ -173,12 +175,41 @@ class TestMemberUpdateAndRemoveCancelSubscription:
         sub.refresh_from_db()
         assert sub.status == _CANCELLED
 
-    def test_update_member_to_non_banned_status_leaves_subscription(
+    def test_update_member_to_cancelled_cancels_subscription(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """CANCELLED is a revocation (``for_user`` treats it as no membership) — stop billing."""
+        member = OrganizationMember.objects.create(organization=organization, user=member_user, status=_MEMBER_ACTIVE)
+        sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=online_plan,
+            organization=organization,
+            status=_ACTIVE,
+            stripe_subscription_id="sub_staff_cancel",
+        )
+
+        with patch("events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort") as cancel:
+            with django_capture_on_commit_callbacks(execute=True):
+                organization_service.update_member(member, status=OrganizationMember.MembershipStatus.CANCELLED)
+
+        sub.refresh_from_db()
+        assert sub.status == _CANCELLED
+        assert sub.cancelled_at is not None
+        cancel.assert_called_once()
+        member.refresh_from_db()
+        assert member.status == OrganizationMember.MembershipStatus.CANCELLED
+
+    def test_update_member_to_paused_pauses_subscription(
         self,
         organization: Organization,
         member_user: RevelUser,
         offline_plan: MembershipSubscriptionPlan,
     ) -> None:
+        """A suspended member must not keep paying for access they no longer have."""
         member = OrganizationMember.objects.create(organization=organization, user=member_user, status=_MEMBER_ACTIVE)
         sub = MembershipSubscription.objects.create(
             user=member_user, plan=offline_plan, organization=organization, status=_ACTIVE
@@ -187,7 +218,109 @@ class TestMemberUpdateAndRemoveCancelSubscription:
         organization_service.update_member(member, status=OrganizationMember.MembershipStatus.PAUSED)
 
         sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PAUSED
+        member.refresh_from_db()
+        assert member.status == OrganizationMember.MembershipStatus.PAUSED
+
+    def test_update_member_to_paused_pauses_collection_on_stripe(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+    ) -> None:
+        member = OrganizationMember.objects.create(organization=organization, user=member_user, status=_MEMBER_ACTIVE)
+        sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=online_plan,
+            organization=organization,
+            status=_ACTIVE,
+            stripe_subscription_id="sub_staff_pause",
+        )
+
+        with patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as modify:
+            organization_service.update_member(member, status=OrganizationMember.MembershipStatus.PAUSED)
+
+        modify.assert_called_once()
+        assert modify.call_args.kwargs["pause_collection"] == {"behavior": "void"}
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PAUSED
+
+    def test_paused_member_is_not_reactivated_by_the_next_renewal(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """The regression: every subscription save re-syncs the member status.
+
+        Before the fix the subscription stayed ACTIVE, so the next renewal save
+        flipped the staff-paused member back to ACTIVE.
+        """
+        member = OrganizationMember.objects.create(organization=organization, user=member_user, status=_MEMBER_ACTIVE)
+        sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=online_plan,
+            organization=organization,
+            status=_ACTIVE,
+            stripe_subscription_id="sub_renewal",
+        )
+
+        with patch("events.service.subscription_stripe_service.stripe.Subscription.modify"):
+            organization_service.update_member(member, status=OrganizationMember.MembershipStatus.PAUSED)
+
+        # Simulate the next billing-cycle write (renewals bump the period bounds).
+        sub.refresh_from_db()
+        sub.current_period_start = timezone.now()
+        sub.current_period_end = timezone.now() + timedelta(days=30)
+        sub.save(update_fields=["current_period_start", "current_period_end", "updated_at"])
+
+        member.refresh_from_db()
+        assert member.status == OrganizationMember.MembershipStatus.PAUSED
+
+    def test_update_member_to_paused_skips_subscription_scheduled_for_cancellation(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        offline_plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """``pause_subscription`` refuses these; billing already ends at the period boundary."""
+        member = OrganizationMember.objects.create(organization=organization, user=member_user, status=_MEMBER_ACTIVE)
+        sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=offline_plan,
+            organization=organization,
+            status=_ACTIVE,
+            cancel_at_period_end=True,
+        )
+
+        organization_service.update_member(member, status=OrganizationMember.MembershipStatus.PAUSED)
+
+        sub.refresh_from_db()
         assert sub.status == _ACTIVE
+        member.refresh_from_db()
+        assert member.status == OrganizationMember.MembershipStatus.PAUSED
+
+    def test_update_member_to_paused_skips_online_subscription_without_stripe_link(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """Nothing to pause on Stripe — checkout never completed, so nothing is billing."""
+        member = OrganizationMember.objects.create(organization=organization, user=member_user, status=_MEMBER_ACTIVE)
+        sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+        )
+
+        organization_service.update_member(member, status=OrganizationMember.MembershipStatus.PAUSED)
+
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PENDING
+        member.refresh_from_db()
+        assert member.status == OrganizationMember.MembershipStatus.PAUSED
 
     def test_remove_member_cancels_subscription_before_delete(
         self,

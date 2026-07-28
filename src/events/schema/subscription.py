@@ -415,9 +415,10 @@ class MyMembershipSchema(Schema):
 class SubscriptionSchema(_BaseSubscriptionSchema):
     """Admin-facing view: includes the member's user id + display name.
 
-    Also exposes the Stripe handles (subscription/schedule ids and a
-    Dashboard link) so organizers can manage ONLINE subscriptions on Stripe —
-    parity with the ticket admin surface.
+    Also exposes the Stripe handles (subscription/checkout-session/schedule ids
+    and a Dashboard link) so organizers can manage ONLINE subscriptions on
+    Stripe — parity with the ticket admin surface. The Checkout Session id is
+    what makes a PENDING (not-yet-linked) subscription inspectable.
     """
 
     user_id: UUID
@@ -425,12 +426,13 @@ class SubscriptionSchema(_BaseSubscriptionSchema):
     user_email: str
     plan: PlanSchema
     stripe_subscription_id: str | None = None
+    stripe_checkout_session_id: str = ""
     stripe_schedule_id: str = ""
     stripe_dashboard_url: str | None = None
 
     @staticmethod
     def resolve_stripe_dashboard_url(obj: MembershipSubscription) -> str | None:
-        """Stripe Dashboard link for the linked Subscription (None when unlinked/OFFLINE)."""
+        """Stripe Dashboard link: the Subscription, else its Checkout Session (None when OFFLINE)."""
         return obj.stripe_dashboard_url()
 
     @staticmethod

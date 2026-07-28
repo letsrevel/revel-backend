@@ -64,6 +64,7 @@ class Command(BaseCommand):
                 plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
             )
             .exclude(stripe_subscription_id="")
+            .exclude(stripe_subscription_id__isnull=True)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
         )
         orgs = Organization.objects.filter(pk__in=eligible.values("organization_id")).order_by("slug")
