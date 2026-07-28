@@ -756,6 +756,9 @@ msgstr "Die Telefonnummer muss eine Zeichenkette sein."
 msgid "Number format is incorrect."
 msgstr "Das Nummernformat ist nicht korrekt."
 
+msgid "Not found."
+msgstr "Nicht gefunden."
+
 msgid "Internal Server Error."
 msgstr "Interner Serverfehler."
 
@@ -946,9 +949,6 @@ msgstr ""
 msgid "Paid applications are not supported in this release."
 msgstr "Kostenpflichtige Anträge werden in dieser Version nicht unterstützt."
 
-msgid "Not found."
-msgstr "Nicht gefunden."
-
 msgid "Not allowed."
 msgstr "Nicht erlaubt."
 
@@ -999,6 +999,11 @@ msgstr "Das Rechnungs-PDF wurde noch nicht erstellt."
 
 msgid "Invoice PDF could not be generated."
 msgstr "Rechnungs-PDF konnte nicht erstellt werden."
+
+msgid ""
+"Your payment went through. We're still confirming your subscription — check "
+"back in a moment."
+msgstr "Deine Zahlung war erfolgreich. Wir bestätigen dein Abonnement gerade noch – schau in einem Moment wieder vorbei."
 
 msgid "You have created too many items."
 msgstr "Du hast zu viele Elemente erstellt."
@@ -2149,6 +2154,15 @@ msgstr "Der Verkauf für diesen Plan ist derzeit pausiert."
 msgid "This plan is sold out."
 msgstr "Dieser Plan ist ausverkauft."
 
+msgid "You can't rejoin this organization."
+msgstr "Du kannst dieser Organisation nicht wieder beitreten."
+
+msgid "This user is banned from the organization."
+msgstr "Diese:r Anwender:in ist aus der Organisation gesperrt."
+
+msgid "This user is blacklisted from the organization."
+msgstr "Diese:r Anwender:in steht auf der Blacklist der Organisation."
+
 msgid "occurred_at cannot be in the future."
 msgstr "occurred_at darf nicht in der Zukunft liegen."
 
@@ -2180,12 +2194,6 @@ msgstr ""
 msgid "This plan is archived and no longer accepts new subscriptions."
 msgstr ""
 "Dieser Plan ist archiviert und akzeptiert keine neuen Abonnements mehr."
-
-msgid "This user is banned from the organization."
-msgstr "Diese:r Anwender:in ist aus der Organisation gesperrt."
-
-msgid "This user is blacklisted from the organization."
-msgstr "Diese:r Anwender:in steht auf der Blacklist der Organisation."
 
 msgid "This user already has an active subscription in this organization."
 msgstr ""

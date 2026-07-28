@@ -78,6 +78,20 @@ def payload(plan: MembershipSubscriptionPlan, staff_user: RevelUser) -> InitialP
     )
 
 
+def _apply_revival_refusal(refusal: str, organization: Organization, user: RevelUser, staff: RevelUser) -> None:
+    """Put ``user`` into the BANNED or hard-blacklisted state named by ``refusal``.
+
+    The blacklist variant matches by email on purpose: a user-FK entry also flips
+    the member row to BANNED, which would short-circuit the branch under test.
+    """
+    if refusal == "banned":
+        OrganizationMember.objects.create(
+            user=user, organization=organization, status=OrganizationMember.MembershipStatus.BANNED
+        )
+        return
+    Blacklist.objects.create(organization=organization, email=user.email, created_by=staff)
+
+
 @pytest.mark.django_db
 class TestRevivalRefusals:
     def test_non_expired_subscription(
@@ -199,6 +213,62 @@ class TestRevivalRefusals:
         with pytest.raises(HttpError) as ei:
             subscription_service.revive_subscription(expired_sub, initial_payment=payload)
         assert ei.value.status_code == 403
+
+    @pytest.mark.parametrize("refusal", ["banned", "blacklisted"])
+    def test_staff_caller_keeps_the_specific_reason(
+        self,
+        refusal: str,
+        expired_sub: MembershipSubscription,
+        organization: Organization,
+        subscriber: RevelUser,
+        staff_user: RevelUser,
+        payload: InitialPayment,
+    ) -> None:
+        """The admin console is where "banned" vs "blacklisted" is actionable — keep the detail."""
+        _apply_revival_refusal(refusal, organization, subscriber, staff_user)
+        with pytest.raises(HttpError) as ei:
+            subscription_service.revive_subscription(expired_sub, initial_payment=payload, revived_by=staff_user)
+        assert ei.value.status_code == 403
+        assert refusal in str(ei.value)
+
+    @pytest.mark.parametrize("refusal", ["banned", "blacklisted"])
+    def test_member_caller_gets_one_neutral_non_disclosing_refusal(
+        self,
+        refusal: str,
+        expired_sub: MembershipSubscription,
+        organization: Organization,
+        subscriber: RevelUser,
+        staff_user: RevelUser,
+        payload: InitialPayment,
+    ) -> None:
+        """The member's own page must not confirm the blacklist, nor speak in the third person."""
+        _apply_revival_refusal(refusal, organization, subscriber, staff_user)
+        with pytest.raises(HttpError) as ei:
+            subscription_service.revive_subscription(expired_sub, initial_payment=payload, revived_by=subscriber)
+        assert ei.value.status_code == 403
+        message = str(ei.value)
+        assert message == "You can't rejoin this organization."
+        assert "blacklist" not in message.lower()
+        assert "banned" not in message.lower()
+
+    def test_member_caller_duplicate_active_speaks_first_person(
+        self,
+        expired_sub: MembershipSubscription,
+        plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        payload: InitialPayment,
+    ) -> None:
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        with pytest.raises(HttpError) as ei:
+            subscription_service.revive_subscription(expired_sub, initial_payment=payload, revived_by=subscriber)
+        assert ei.value.status_code == 400
+        assert str(ei.value) == "You already have an active subscription in this organization."
 
     def test_offline_requires_initial_payment(self, expired_sub: MembershipSubscription) -> None:
         with pytest.raises(HttpError) as ei:
@@ -740,12 +810,36 @@ class TestSelfReviveEndpoint:
         organization: Organization,
         subscriber: RevelUser,
     ) -> None:
-        """No EXPIRED subscription in org → 404."""
+        """No EXPIRED subscription in org → 404 with a translated, neutral detail."""
         client = _auth_client(subscriber)
         url = f"/api/me/organizations/{organization.pk}/subscription/revive"
         resp = client.post(url, data={}, content_type="application/json")
 
         assert resp.status_code == 404
+        # Not ninja's untranslated ``"Not Found"``, which the frontend prints verbatim.
+        assert resp.json() == {"detail": "Not found."}
+
+    @pytest.mark.parametrize("refusal", ["banned", "blacklisted"])
+    def test_member_revive_refusal_is_403_with_neutral_copy(
+        self,
+        refusal: str,
+        plan: MembershipSubscriptionPlan,
+        expired_sub: MembershipSubscription,
+        organization: Organization,
+        subscriber: RevelUser,
+        staff_user: RevelUser,
+    ) -> None:
+        """The endpoint really can answer 403 (now declared) and says the same thing either way."""
+        plan.payment_method = MembershipSubscriptionPlan.PaymentMethod.ONLINE
+        plan.save(update_fields=["payment_method"])
+        _apply_revival_refusal(refusal, organization, subscriber, staff_user)
+
+        client = _auth_client(subscriber)
+        url = f"/api/me/organizations/{organization.pk}/subscription/revive"
+        resp = client.post(url, data={}, content_type="application/json")
+
+        assert resp.status_code == 403, resp.content
+        assert resp.json() == {"detail": "You can't rejoin this organization."}
 
     def test_unauthenticated_returns_401(
         self,

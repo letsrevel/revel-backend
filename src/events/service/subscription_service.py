@@ -28,7 +28,11 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service.subscription_sales import ensure_plan_on_sale, ensure_plan_sales_capacity
+from events.service.subscription_sales import (
+    ensure_member_not_excluded,
+    ensure_plan_on_sale,
+    ensure_plan_sales_capacity,
+)
 from events.service.ticket_service import check_online_payment_prerequisites
 from events.utils.subscription_periods import calculate_period_end
 
@@ -609,8 +613,12 @@ def resume_subscription(subscription: MembershipSubscription) -> MembershipSubsc
     return subscription
 
 
-def _validate_revivable(subscription: MembershipSubscription) -> None:
-    """Run all revival pre-flight checks. Caller is responsible for locking."""
+def _validate_revivable(subscription: MembershipSubscription, *, member_facing: bool) -> None:
+    """Run all revival pre-flight checks. Caller is responsible for locking.
+
+    ``member_facing`` (the subscriber is the caller) puts refusals in the first
+    person; see ``ensure_member_not_excluded`` for the non-disclosure rule.
+    """
     if subscription.status != MembershipSubscription.SubscriptionStatus.EXPIRED:
         raise HttpError(400, str(_("Only expired subscriptions can be revived.")))
 
@@ -641,20 +649,11 @@ def _validate_revivable(subscription: MembershipSubscription) -> None:
         .exists()
     )
     if has_other_active:
+        if member_facing:
+            raise HttpError(400, str(_("You already have an active subscription in this organization.")))
         raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
 
-    banned = OrganizationMember.objects.filter(
-        organization=org,
-        user=subscription.user,
-        status=OrganizationMember.MembershipStatus.BANNED,
-    ).exists()
-    if banned:
-        raise HttpError(403, str(_("This user is banned from the organization.")))
-
-    from events.service.blacklist_service import check_user_hard_blacklisted  # lazy: avoid cycle
-
-    if check_user_hard_blacklisted(subscription.user, org):
-        raise HttpError(403, str(_("This user is blacklisted from the organization.")))
+    ensure_member_not_excluded(subscription.user, org, member_facing=member_facing)
 
 
 def revive_subscription(
@@ -707,7 +706,10 @@ def revive_subscription(
             .select_related("plan", "plan__tier", "organization", "user")
             .get(pk=subscription.pk)
         )
-        _validate_revivable(subscription)
+        # Same "is this the subscriber themself?" test the checkout-email
+        # dispatch below uses — here it decides the voice of every refusal.
+        is_subscriber = revived_by is not None and revived_by.pk == subscription.user_id
+        _validate_revivable(subscription, member_facing=is_subscriber)
         if enforce_sales_status:
             ensure_plan_on_sale(subscription.plan)
         # The EXPIRED row is terminal so it doesn't count against the cap —

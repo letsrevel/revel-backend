@@ -763,6 +763,9 @@ msgstr "Le numéro de téléphone doit être une chaîne de caractères."
 msgid "Number format is incorrect."
 msgstr "Le format du numéro est incorrect."
 
+msgid "Not found."
+msgstr "Introuvable."
+
 msgid "Internal Server Error."
 msgstr "Erreur interne du serveur."
 
@@ -956,9 +959,6 @@ msgstr "Le remboursement a échoué. Réessaie plus tard."
 msgid "Paid applications are not supported in this release."
 msgstr "Les demandes payantes ne sont pas prises en charge dans cette version."
 
-msgid "Not found."
-msgstr "Introuvable."
-
 msgid "Not allowed."
 msgstr "Non autorisé."
 
@@ -1012,6 +1012,11 @@ msgstr "Le PDF de la facture n'est pas encore généré."
 
 msgid "Invoice PDF could not be generated."
 msgstr "Le PDF de la facture n'a pas pu être généré."
+
+msgid ""
+"Your payment went through. We're still confirming your subscription — check "
+"back in a moment."
+msgstr "Ton paiement a bien été effectué. Nous confirmons encore ton abonnement — reviens dans un instant."
 
 msgid "You have created too many items."
 msgstr "Tu as créé trop d'éléments."
@@ -2160,6 +2165,15 @@ msgstr "Les ventes de ce forfait sont actuellement en pause."
 msgid "This plan is sold out."
 msgstr "Ce forfait est complet."
 
+msgid "You can't rejoin this organization."
+msgstr "Tu ne peux pas rejoindre à nouveau cette organisation."
+
+msgid "This user is banned from the organization."
+msgstr "Cet·te utilisateur·rice est banni·e de l'organisation."
+
+msgid "This user is blacklisted from the organization."
+msgstr "Cette personne est sur la liste de blocage de l'organisation."
+
 msgid "occurred_at cannot be in the future."
 msgstr "occurred_at ne peut pas être dans le futur."
 
@@ -2190,12 +2204,6 @@ msgstr ""
 
 msgid "This plan is archived and no longer accepts new subscriptions."
 msgstr "Ce forfait est archivé et n'accepte plus de nouveaux abonnements."
-
-msgid "This user is banned from the organization."
-msgstr "Cet·te utilisateur·rice est banni·e de l'organisation."
-
-msgid "This user is blacklisted from the organization."
-msgstr "Cette personne est sur la liste de blocage de l'organisation."
 
 msgid "This user already has an active subscription in this organization."
 msgstr ""

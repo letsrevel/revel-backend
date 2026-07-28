@@ -11,7 +11,8 @@ Two independent knobs on ``MembershipSubscriptionPlan``:
 from django.utils.translation import gettext as _
 from ninja.errors import HttpError
 
-from events.models import MembershipSubscriptionPlan
+from accounts.models import RevelUser
+from events.models import MembershipSubscriptionPlan, Organization, OrganizationMember
 
 
 def ensure_plan_on_sale(plan: MembershipSubscriptionPlan) -> None:
@@ -45,3 +46,30 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
         return
     if locked_plan.occupied_slot_count() >= locked_plan.max_subscriptions:
         raise HttpError(400, str(_("This plan is sold out.")))
+
+
+def ensure_member_not_excluded(user: RevelUser, organization: Organization, *, member_facing: bool) -> None:
+    """Refuse a BANNED or hard-blacklisted user with the wording its audience needs.
+
+    ``member_facing`` (the subscriber is the caller) collapses both cases into
+    one neutral, first-person sentence: the member-facing subscribe path hides
+    a hard blacklist behind a 404 (``Organization.objects.for_user()``), so no
+    other member-facing path may confirm one. Staff callers keep the specific
+    reason — the admin console is where the distinction is actionable.
+    """
+    banned = OrganizationMember.objects.filter(
+        organization=organization,
+        user=user,
+        status=OrganizationMember.MembershipStatus.BANNED,
+    ).exists()
+    if banned:
+        if member_facing:
+            raise HttpError(403, str(_("You can't rejoin this organization.")))
+        raise HttpError(403, str(_("This user is banned from the organization.")))
+
+    from events.service.blacklist_service import check_user_hard_blacklisted  # lazy: avoid cycle
+
+    if check_user_hard_blacklisted(user, organization):
+        if member_facing:
+            raise HttpError(403, str(_("You can't rejoin this organization.")))
+        raise HttpError(403, str(_("This user is blacklisted from the organization.")))

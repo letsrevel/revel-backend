@@ -13,7 +13,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import schema
 from events.models import MembershipSubscription, MembershipSubscriptionPlan, Organization, OrganizationMember
@@ -95,7 +95,8 @@ class MeSubscriptionsController(UserAwareController):
         response={
             201: schema.SubscribeResponseSchema,
             400: ResponseMessage,
-            404: ResponseMessage,
+            404: ErrorDetail,
+            409: schema.SubscriptionActivationPendingSchema,
             502: ResponseMessage,
         },
         throttle=WriteThrottle(),
@@ -202,7 +203,9 @@ class MeSubscriptionsController(UserAwareController):
         response={
             200: schema.RevivalResponseSchema,
             400: ResponseMessage,
-            404: ResponseMessage,
+            # ``_validate_revivable`` refuses BANNED / blacklisted members here.
+            403: ErrorDetail,
+            404: ErrorDetail,
             502: ResponseMessage,
         },
         throttle=WriteThrottle(),

@@ -23,6 +23,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from common.service.vat_utils import b2b_vat_context
 from common.utils import get_or_create_with_race_protection
+from events.exceptions import SubscriptionActivationPendingError
 from events.models import (
     CustomerProfile,
     MembershipSubscription,
@@ -479,10 +480,12 @@ def _maybe_resume_pending_checkout(
     row (expiring its session best-effort), letting the caller mint a fresh
     session.
 
-    Raises the duplicate-active 400 when the session already completed or the
-    Stripe Subscription is already linked (payment confirmed but the
-    activation webhooks haven't landed yet) — creating a second subscription
-    there would double-charge.
+    Raises :class:`SubscriptionActivationPendingError` (409, carrying the
+    ``subscription_activation_pending`` code) when the session already
+    completed or the Stripe Subscription is already linked (payment confirmed
+    but the activation webhooks haven't landed yet) — creating a second
+    subscription there would double-charge, and the frontend needs to tell
+    that apart from a plain duplicate-subscription refusal.
     """
     # Locked read: two concurrent subscribes (double-submit, stale-tab retry
     # with a different plan) must not diverge — one expiring the session while
@@ -506,7 +509,7 @@ def _maybe_resume_pending_checkout(
     if pending.stripe_subscription_id:
         # A PENDING row only gets its Stripe Subscription id when its session
         # completed — payment is done, activation webhooks are in flight.
-        raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
+        raise SubscriptionActivationPendingError
 
     if not pending.stripe_checkout_session_id:
         # Stranded local row from a failed session-create call: clear and start over.
@@ -529,7 +532,7 @@ def _maybe_resume_pending_checkout(
     session_status = t.cast(str, session.status or "")
     if session_status == "complete":
         # Paid on Stripe, webhooks still in flight — never create a second sub.
-        raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
+        raise SubscriptionActivationPendingError
 
     if session_status == "open" and pending.plan_id == plan.pk and session.url:
         logger.info(
@@ -563,7 +566,7 @@ def _maybe_resume_pending_checkout(
                 subscription_id=str(pending.pk),
                 stripe_checkout_session_id=pending.stripe_checkout_session_id,
             )
-            raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
+            raise SubscriptionActivationPendingError
         except stripe.error.StripeError:
             logger.exception(
                 "subscription_stripe_pending_session_expire_failed",

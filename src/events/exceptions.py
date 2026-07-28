@@ -95,3 +95,14 @@ class SeriesPassHasHoldersError(Exception):
 
 class MembershipTierInUseError(Exception):
     """Raised when deleting a MembershipTier would drop protected membership applications or subscriptions."""
+
+
+class SubscriptionActivationPendingError(Exception):
+    """Raised when a subscribe attempt hits a PENDING row whose Checkout Session was already paid.
+
+    Distinct from a plain duplicate-subscription refusal: the money is already
+    taken and only the activation webhooks are outstanding, so the frontend
+    must show a "confirming your subscription" state rather than an error. The
+    handler renders a machine-readable ``code`` for exactly that reason — see
+    :class:`events.schema.SubscriptionActivationPendingSchema`.
+    """

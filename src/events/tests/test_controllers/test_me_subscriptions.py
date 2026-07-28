@@ -350,7 +350,43 @@ class TestSubscribeEndpoint:
         url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
         response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
         assert response.status_code == 404, response.content
+        # The body must be the translated, neutral detail — never ninja's raw
+        # ``"Not Found"`` (which the frontend renders verbatim), and never
+        # anything that confirms the blacklist.
+        detail = response.json()["detail"]
+        assert detail == "Not found."
+        assert "blacklist" not in detail.lower()
         assert not MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
+
+    def test_subscribe_with_paid_pending_checkout_returns_activation_pending_code(
+        self,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        """Checkout already paid, activation webhooks in flight → 409 with a machine-readable code.
+
+        The frontend keys on ``code`` to show a "confirming your subscription"
+        state; it cannot match the translated ``detail``.
+        """
+        MembershipSubscription.objects.create(
+            user=subscriber_user,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_done",
+            stripe_subscription_id="sub_linked",
+        )
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+
+        assert response.status_code == 409, response.content
+        body = response.json()
+        assert body["code"] == "subscription_activation_pending"
+        assert body["detail"]
+        # First person, not admin-console third person.
+        assert "This user" not in body["detail"]
 
     def test_subscribe_unauthenticated_blocked(
         self,

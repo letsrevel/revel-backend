@@ -10,6 +10,7 @@ from django.utils import timezone
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.exceptions import SubscriptionActivationPendingError
 from events.models import (
     CustomerProfile,
     MembershipPayment,
@@ -456,7 +457,7 @@ class TestStartOnlineSubscription:
         assert subscription.plan_id == online_plan.pk
 
     @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.retrieve")
-    def test_completed_session_raises_duplicate(
+    def test_completed_session_raises_activation_pending(
         self,
         mock_retrieve: mock.Mock,
         stripe_org: Organization,
@@ -473,17 +474,54 @@ class TestStartOnlineSubscription:
         )
         mock_retrieve.return_value = mock.MagicMock(id="cs_paid_lagging", status="complete")
 
-        with pytest.raises(HttpError) as exc:
+        with pytest.raises(SubscriptionActivationPendingError):
             subscription_stripe_service.start_online_subscription(online_plan, subscriber)
-        assert exc.value.status_code == 400
 
-    def test_pending_with_linked_subscription_raises_duplicate(
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.expire")
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.retrieve")
+    def test_expire_rejected_raises_activation_pending(
+        self,
+        mock_retrieve: mock.Mock,
+        mock_expire: mock.Mock,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+        tier: MembershipTier,
+        subscriber: RevelUser,
+    ) -> None:
+        """The member completed the old session mid-round-trip: expire is rejected → activation pending."""
+        other_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Yearly Online",
+            price=Decimal("100.00"),
+            currency="EUR",
+            period_unit="year",
+            period_count=1,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_other",
+            stripe_price_id="price_other",
+        )
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=other_plan,
+            organization=stripe_org,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_other_plan",
+        )
+        mock_retrieve.return_value = mock.MagicMock(
+            id="cs_other_plan", status="open", url="https://checkout.stripe.com/c/pay/cs_other_plan"
+        )
+        mock_expire.side_effect = stripe.error.InvalidRequestError("not in status open", param=None)
+
+        with pytest.raises(SubscriptionActivationPendingError):
+            subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+
+    def test_pending_with_linked_subscription_raises_activation_pending(
         self,
         stripe_org: Organization,
         online_plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        """A PENDING row that already has its Stripe Subscription linked is paid — 400."""
+        """A PENDING row that already has its Stripe Subscription linked is paid — activation pending."""
         MembershipSubscription.objects.create(
             user=subscriber,
             plan=online_plan,
@@ -492,9 +530,8 @@ class TestStartOnlineSubscription:
             stripe_checkout_session_id="cs_done",
             stripe_subscription_id="sub_linked",
         )
-        with pytest.raises(HttpError) as exc:
+        with pytest.raises(SubscriptionActivationPendingError):
             subscription_stripe_service.start_online_subscription(online_plan, subscriber)
-        assert exc.value.status_code == 400
 
     def test_refuses_archived_plan(
         self,

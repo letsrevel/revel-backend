@@ -1,5 +1,6 @@
 """Subscription, plan, and payment schemas (Phase 1)."""
 
+import typing as t
 from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -502,6 +503,20 @@ class SubscribeResponseSchema(Schema):
 
     subscription: MySubscriptionSchema
     checkout_url: str
+
+
+class SubscriptionActivationPendingSchema(Schema):
+    """Refusal body for a subscribe attempt whose checkout was already paid.
+
+    The member completed Stripe Checkout and the activation webhooks are still
+    in flight, so a second subscription must not be created. ``code`` is the
+    machine-readable discriminator the frontend keys on to render a
+    "confirming your subscription" state instead of an error — ``detail`` is
+    translated and must never be matched on.
+    """
+
+    detail: str
+    code: t.Literal["subscription_activation_pending"] = "subscription_activation_pending"
 
 
 class MemberCancelSubscriptionSchema(Schema):

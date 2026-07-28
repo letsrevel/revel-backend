@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.http import HttpRequest
+from django.http import Http404, HttpRequest
+from django.utils.translation import gettext_lazy as _
 from ninja_extra import NinjaExtraAPI
 
 from accounts.controllers.account import AccountController
@@ -12,7 +13,7 @@ from accounts.controllers.referral import ReferralController
 from accounts.controllers.referral_payouts import ReferralPayoutController
 from accounts.controllers.referral_stripe import ReferralStripeController
 from common.controllers import MediaValidationController, TagController
-from common.exception_handlers import ExceptionHandler, register_handlers
+from common.exception_handlers import ExceptionHandler, make_static_handler, register_handlers
 from common.models import Legal, SiteSettings
 from common.schema import BannerSchema, FeaturesSchema, LegalSchema, ResponseOk, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
@@ -171,6 +172,13 @@ api.register_controllers(
 EXCEPTION_HANDLERS: dict[type[Exception], ExceptionHandler] = {
     Exception: handle_general_exception,
     ValidationError: handle_django_validation_error,
+    # ``Http404`` is app-agnostic, so it belongs here rather than in an app's
+    # table. Overrides ninja's default, which renders an untranslated
+    # ``{"detail": "Not Found"}`` that the frontend prints verbatim. Deliberately
+    # static: ``get_object_or_404`` builds its message from the model name, and
+    # the anti-enumeration 404s (a hard-blacklisted member hitting ``subscribe``)
+    # must stay indistinguishable from any other miss.
+    Http404: make_static_handler(404, _("Not found.")),
 }
 
 register_handlers(api, EXCEPTION_HANDLERS)
