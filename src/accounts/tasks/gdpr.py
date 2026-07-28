@@ -128,7 +128,8 @@ def delete_user_account(user_id: str) -> None:
         user_id: The UUID of the user to delete.
     """
     user = RevelUser.objects.get(id=user_id)
-    logger.info("account_deletion_started", user_id=str(user.id), email=user.email)
+    # Deliberately no email here: this log outlives the erasure it records.
+    logger.info("account_deletion_started", user_id=str(user.id))
     try:
         cleanup_referral_data(user)
         user.delete()

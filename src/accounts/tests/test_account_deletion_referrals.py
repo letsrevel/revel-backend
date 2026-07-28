@@ -388,6 +388,41 @@ def test_backfill_survives_a_missing_billing_profile(referrer: RevelUser, referr
     assert not ReferralPayoutStatement.objects.filter(payout=paid).exists()
 
 
+def test_backfill_heals_a_statement_whose_pdf_was_lost(
+    referrer: RevelUser, referral: Referral, site_settings: SiteSettings
+) -> None:
+    """A statement committed without its PDF must get one before detachment.
+
+    The PDF is rendered outside the statement's creating transaction, so a crash
+    can leave the row PDF-less. After detachment the backstop sweep excludes the
+    payout (``referral__isnull=False``), so cleanup is the last chance to render
+    the BAO §132 document.
+    """
+    paid = _payout(referral, _Status.PAID, "20.00")
+    statement = _statement(paid, "RVL-RP-2026-00042")
+    assert not statement.pdf_file
+
+    cleanup_referral_data(referrer)
+
+    statement.refresh_from_db()
+    paid.refresh_from_db()
+    assert paid.referral_id is None
+    assert statement.pdf_file
+
+
+def test_notification_failure_does_not_block_erasure(
+    referrer: RevelUser, referral: Referral, superuser: RevelUser
+) -> None:
+    """An SMTP outage on the admin email must not strand the Art. 17 deletion."""
+    _payout(referral, _Status.CALCULATED, "10.00")
+
+    with patch("accounts.service.referral_cleanup.send_email", side_effect=RuntimeError("smtp down")) as mock_send:
+        delete_user_account(str(referrer.id))
+
+    mock_send.assert_called_once()
+    assert not RevelUser.objects.filter(id=referrer.id).exists()
+
+
 def test_pending_payout_defers_cleanup(referrer: RevelUser, referral: Referral) -> None:
     """A Stripe transfer may be in flight — never race it."""
     _payout(referral, _Status.PENDING, "10.00")

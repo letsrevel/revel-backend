@@ -34,7 +34,14 @@ from django.db.models import Q, QuerySet
 from django.template.loader import render_to_string
 
 from accounts.exceptions import ReferralPayoutInFlightError
-from accounts.models import Referral, ReferralCode, ReferralPayout, RevelUser, UserBillingProfile
+from accounts.models import (
+    Referral,
+    ReferralCode,
+    ReferralPayout,
+    ReferralPayoutStatement,
+    RevelUser,
+    UserBillingProfile,
+)
 from common.models import SiteSettings
 from common.tasks import send_email
 
@@ -197,7 +204,29 @@ def cleanup_referral_data(user: RevelUser) -> ReferralForfeitureSummary | None:
     if not summary.items:
         return None
 
-    _notify_admins_of_forfeiture(user, summary)
+    try:
+        _notify_admins_of_forfeiture(user, summary)
+    except Exception:
+        # The forfeited rows are already deleted, so a task-level failure here
+        # would strand the erasure (SMTP is not in ``autoretry_for``) while a
+        # retry finds nothing left to notify about. The Art. 17 deletion must
+        # not hinge on an internal email — log the itemization as the fallback
+        # trace and proceed.
+        logger.exception(
+            "referral_forfeiture_notification_failed",
+            user_id=str(user.id),
+            items=[
+                {
+                    "payout_id": item.payout_id,
+                    "period_start": item.period_start.isoformat(),
+                    "period_end": item.period_end.isoformat(),
+                    "amount": str(item.amount),
+                    "currency": item.currency,
+                    "status": item.status,
+                }
+                for item in summary.items
+            ],
+        )
     return summary
 
 
@@ -207,7 +236,10 @@ def _backfill_missing_statements(payouts: QuerySet[ReferralPayout]) -> None:
     Must run before the user is deleted: the generator snapshots the referrer's
     billing profile, which CASCADEs away with the user.
     """
-    from accounts.service.payout_statement_service import generate_payout_statement
+    from accounts.service.payout_statement_service import (
+        ensure_payout_statement_pdf_exists,
+        generate_payout_statement,
+    )
 
     unissued = payouts.filter(status=_Status.PAID, statement__isnull=True).select_related(
         "referral__referrer__billing_profile", "referral__referrer"
@@ -220,6 +252,16 @@ def _backfill_missing_statements(payouts: QuerySet[ReferralPayout]) -> None:
             # only happens if it was removed afterwards. Log loudly, but never let
             # it block an Art. 17 erasure — the transfer itself stays on record.
             logger.error("payout_statement_backfill_skipped_no_billing", payout_id=str(payout.id))
+
+    # A statement row can exist without its PDF (worker crash between the row
+    # commit and the out-of-transaction render). Normally the delivery path
+    # self-heals it, but once the payout is detached the backstop sweep excludes
+    # it, so the document would never be rendered (BAO §132). Heal it now.
+    issued = ReferralPayoutStatement.objects.filter(payout__in=payouts.filter(status=_Status.PAID)).select_related(
+        "payout"
+    )
+    for statement in issued:
+        ensure_payout_statement_pdf_exists(statement)
 
 
 def _notify_admins_of_forfeiture(user: RevelUser, summary: ReferralForfeitureSummary) -> None:
