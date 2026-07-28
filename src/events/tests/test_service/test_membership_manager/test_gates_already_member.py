@@ -65,6 +65,53 @@ def test_active_at_different_tier_falls_through(
     assert result.next_step is None
 
 
+def test_tier_less_check_from_active_member_returns_already_member(
+    user: RevelUser, organization: Organization, tier_a: MembershipTier
+) -> None:
+    """A tier-less application from an active member has nothing to grant.
+
+    Such a row never auto-completes (``advance_application`` leaves tier-less
+    rows PENDING), so it would sit in the staff queue until someone approves it
+    and silently overwrites the member's tier. The legacy sibling endpoint
+    refuses with AlreadyMemberError; the gate mirrors that.
+    """
+    OrganizationMember.objects.create(
+        organization=organization,
+        user=user,
+        tier=tier_a,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+    service = MembershipEligibilityService(user=user, organization=organization, tier=None)
+    result = service.check_eligibility()
+    assert result.allowed is True
+    assert result.next_step == MembershipNextStep.ALREADY_MEMBER
+    assert result.tier_id is None
+
+
+def test_tier_less_check_from_non_member_falls_through(user: RevelUser, organization: Organization) -> None:
+    """The legacy tier-less path stays open for everyone who is not already in."""
+    service = MembershipEligibilityService(user=user, organization=organization, tier=None)
+    result = service.check_eligibility()
+    assert result.allowed is True
+    assert result.next_step is None
+
+
+def test_tier_less_check_from_cancelled_member_falls_through(
+    user: RevelUser, organization: Organization, tier_a: MembershipTier
+) -> None:
+    """Only ACTIVE short-circuits — a cancelled member may re-apply tier-less."""
+    OrganizationMember.objects.create(
+        organization=organization,
+        user=user,
+        tier=tier_a,
+        status=OrganizationMember.MembershipStatus.CANCELLED,
+    )
+    service = MembershipEligibilityService(user=user, organization=organization, tier=None)
+    result = service.check_eligibility()
+    assert result.allowed is True
+    assert result.next_step is None
+
+
 def test_cancelled_membership_does_not_short_circuit(
     user: RevelUser, organization: Organization, tier_a: MembershipTier
 ) -> None:

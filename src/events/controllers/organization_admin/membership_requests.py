@@ -62,7 +62,8 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
     ) -> tuple[int, None]:
         """Approve a membership application.
 
-        ``tier_id`` may be omitted if the application already carries a tier.
+        ``tier_id`` may be omitted if the application already carries a tier; when
+        given it overrides the tier the applicant selected.
         """
         organization = self.get_one(slug)
         membership_request = get_object_or_404(
@@ -84,7 +85,7 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
         response={204: None},
     )
     def reject_membership_request(self, slug: str, request_id: UUID) -> tuple[int, None]:
-        """Reject a membership request."""
+        """Reject a membership request. Only pending applications can be rejected."""
         organization = self.get_one(slug)
         membership_request = get_object_or_404(OrganizationMembershipRequest, pk=request_id, organization=organization)
         organization_service.reject_membership_request(membership_request, self.user())

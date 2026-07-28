@@ -179,7 +179,8 @@ def record_payment(
 
     A SUCCEEDED payment advances the period and resets PENDING/PAST_DUE to
     ACTIVE. Terminal subscriptions (CANCELLED, EXPIRED) refuse the payment
-    entirely — staff must create a fresh subscription instead.
+    entirely — staff must create a fresh subscription instead. ``currency``
+    must match the plan's currency (we never convert between currencies).
 
     ``occurred_at`` lets staff backfill historical payments. When set, it
     becomes the anchor for ``period_start`` / ``period_end`` and is persisted
@@ -204,6 +205,11 @@ def record_payment(
             ),
         )
     plan = subscription.plan
+    if currency.upper() != plan.currency.upper():
+        # Reporting reads the currency off the plan (metrics/MRR) *and* off the
+        # payment row (revenue report), so a mismatched row silently corrupts
+        # both — and no FX conversion exists to reconcile them afterwards.
+        raise HttpError(400, str(_("Payment currency must match the plan's currency.")))
     now = timezone.now()
 
     if occurred_at is not None:

@@ -242,7 +242,13 @@ def test_submit_no_evaluation_required_does_not_queue(
     nonmember_client: Client,
     organization: Organization,
 ) -> None:
-    """``requires_evaluation=False`` submissions are stored without triggering the LLM."""
+    """``requires_evaluation=False`` submissions are stored without triggering the LLM.
+
+    Uses ``transaction=True`` — the mirror image of the test above — so that
+    ``assert_not_called`` stays meaningful: the dispatch is an ``on_commit``
+    callback, which in default pytest-django mode never fires, and the assertion
+    would pass even if the ``requires_evaluation`` gate were removed.
+    """
     q = _questionnaire("No eval")
     organization.default_membership_questionnaire = _wrap(organization, q, requires_evaluation=False)
     organization.save(update_fields=["default_membership_questionnaire"])

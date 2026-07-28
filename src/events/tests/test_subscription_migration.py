@@ -612,7 +612,7 @@ class TestMigratePlanSubscribersTask:
         from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
 
         result = migrate_task.run(str(uuid.uuid4()), str(organization_owner_user.pk))
-        assert result == {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}
+        assert result == {"migrated": 0, "skipped": 0, "skipped_schedule_managed": 0, "failed": 0, "errors": []}
 
     def test_task_no_ops_when_user_missing(self, offline_plan: MembershipSubscriptionPlan) -> None:
         import uuid
@@ -620,4 +620,4 @@ class TestMigratePlanSubscribersTask:
         from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
 
         result = migrate_task.run(str(offline_plan.pk), str(uuid.uuid4()))
-        assert result == {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}
+        assert result == {"migrated": 0, "skipped": 0, "skipped_schedule_managed": 0, "failed": 0, "errors": []}

@@ -28,8 +28,9 @@ from notifications.signals import notification_requested
 #: live membership (manage / cancel, which is where the Stripe billing portal is
 #: opened from) plus the rejoin CTA for expired-but-in-window ONLINE subscriptions,
 #: so it answers all seven subscription notifications' implied next action. Per-org
-#: deep links such as ``/org/<slug>/subscription`` are not routes and render a 404 —
-#: do not reintroduce them without a corresponding frontend route.
+#: deep links such as ``/org/<slug>/subscription`` and ``/org/<slug>/contact`` are
+#: not routes and render a 404 (there is no catch-all) — do not reintroduce them
+#: without a corresponding frontend route. Only ``/org/<slug>`` itself exists.
 MEMBERSHIPS_PATH = "/account/memberships"
 
 
@@ -85,7 +86,11 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
 
     Includes an absolute ``organization_contact_url`` so email and Telegram
     templates render clickable links instead of relative paths that break in
-    those clients. For ONLINE (Stripe-managed) subscriptions it also carries a
+    those clients. It points at the organization's public page — the frontend
+    renders the contact form inline there and has no ``/org/<slug>/contact``
+    route (see :data:`MEMBERSHIPS_PATH`). For OFFLINE plans this is the only
+    CTA in the payment-failed and renewal-reminder templates, so it must
+    resolve. For ONLINE (Stripe-managed) subscriptions it also carries a
     ``manage_subscription_url`` pointing at :data:`MEMBERSHIPS_PATH`, from which
     the frontend calls ``POST /billing-portal`` to mint a Stripe Customer Portal
     session on demand. We deliberately do **not** create a portal session here:
@@ -99,7 +104,7 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
         "organization_name": org.name,
         "organization_slug": org.slug,
         "plan_name": plan.name,
-        "organization_contact_url": f"{frontend_base_url}/org/{org.slug}/contact",
+        "organization_contact_url": f"{frontend_base_url}/org/{org.slug}",
     }
     if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value:
         ctx["manage_subscription_url"] = f"{frontend_base_url}{MEMBERSHIPS_PATH}"

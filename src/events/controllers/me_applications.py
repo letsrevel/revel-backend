@@ -113,7 +113,10 @@ class MeMembershipApplicationsController(UserAwareController):
         # pending) still create the OMR — it's the polling record that drives
         # state-advance-on-read. A latest-row REJECTED verdict carries
         # next_step=REAPPLY and likewise passes: the fresh PENDING row created
-        # below supersedes the rejected one (see ApplicationStatusGate).
+        # below supersedes the rejected one — unless the cause of that rejection
+        # is still terminal, in which case ApplicationStatusGate surfaces the
+        # terminal verdict (next_step=None) and we 403 here rather than minting a
+        # row that would be auto-rejected (and re-notified) on its first read.
         if not Organization.objects.for_user(user).filter(pk=organization.pk).exists():
             # Treat invisible orgs as 404 to avoid org-existence enumeration.
             raise HttpError(404, _("Not found."))

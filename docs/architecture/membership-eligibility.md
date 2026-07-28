@@ -215,7 +215,7 @@ When the resolved manual-approval policy is on (tier-level `requires_membership_
 
 The final pre-payment readiness check. A no-op when no plan is supplied.
 
-**Phase 1 boundary:** any plan-bearing application blocks here with `PLAN_NOT_ONLINE`. Paid memberships currently flow through the **direct subscription endpoints** (`POST /api/me/organizations/{org_id}/subscribe` — see [Membership Subscriptions](membership-subscriptions.md)), not through the application pipeline; `POST /apply` additionally rejects `plan_id` with a 400 before the gates even run.
+**Phase 1 boundary:** any plan-bearing application blocks here with `PLAN_NOT_ONLINE`. Paid memberships currently flow through the **direct subscription endpoints** (`POST /api/me/organizations/{org_id}/subscribe` — see [Membership Subscriptions](membership-subscriptions.md)), not through the application pipeline; `POST /apply` additionally rejects `plan_id` with a 400 before the gates even run. Because those endpoints never run this pipeline, a monetized tier's own gate config would be inert — so it is refused at configuration time instead, see [Tier gates and subscription plans are mutually exclusive](#tier-gates-and-subscription-plans-are-mutually-exclusive-phase-1).
 
 !!! info "The Phase-2 seam"
     The enums already reserve the members `MembershipNextStep.PROCEED_TO_PAYMENT` and
@@ -471,6 +471,24 @@ Two membership policies can be set at the organization level and overridden per 
 | Manual approval | `Organization.default_requires_membership_approval` | `MembershipTier.requires_membership_approval` (nullable boolean) | Tier value wins when **not `NULL`**; `NULL` → inherit org default |
 
 Model-level `clean()` validation guarantees the questionnaire FK belongs to the same organization and is of type `MEMBERSHIP`.
+
+### Tier gates and subscription plans are mutually exclusive (Phase 1)
+
+Both policies are enforced **only** by this gate pipeline, and the pipeline runs only on the free `/apply` path. Paid memberships are granted by the direct subscription endpoints (`subscribe` / `change-plan` / `revive` → Stripe webhooks → `sync_member_from_subscription`), which never call it. So on a monetized tier — one carrying at least one `is_active` plan — a tier-level `requires_membership_approval` or `membership_questionnaire` would be *configured but never enforced*: `TierAvailabilityGate` already blocks free `/apply` against such a tier with `TIER_REQUIRES_SUBSCRIPTION`, leaving subscribing as the only way in.
+
+Rather than let organizers configure gates that silently do nothing, Phase 1 **validates the configuration** and keeps the two mutually exclusive. Both directions of the mutation are refused with a `400`:
+
+| Mutation | Guard | Refused when |
+|---|---|---|
+| Enable a tier gate (`PATCH` tier with `requires_membership_approval=True` or a `membership_questionnaire_id`) | `organization_service.membership._assert_tier_not_monetized` | The tier has ≥1 `is_active` subscription plan |
+| Put a plan on sale on a tier (`create_plan` with `is_active=True`, or `update_plan` flipping `is_active` False → True) | `subscription_service._assert_tier_ungated` | The tier sets either gate override |
+
+Notes and deliberate limits:
+
+- **Mutations only.** Existing rows are not migrated or mutated; a legacy tier already in the inconsistent state keeps working, and unrelated edits to it (renames, clearing the knobs) still succeed. Only turning a gate *on*, or putting a plan on sale, is refused.
+- **Liveness filter is `is_active`**, matching `MembershipEligibilityService.tier_has_active_plan`. `sales_status=PAUSED` is orthogonal (temporarily closed, not retired) and does not relax the check; an `is_active=False` plan does not monetize the tier.
+- **Org-level defaults are not validated.** `Organization.default_requires_membership_approval` / `default_membership_questionnaire` are equally inert on a monetized tier, but they apply org-wide — refusing on them would block every paid tier in such an organization. A tier that wants the org default suppressed can set `requires_membership_approval=False` explicitly.
+- **Not enforcement.** The alternative — running the gate stack inside `subscribe`/`change_plan`/`revive` — was deliberately *not* taken in Phase 1: it would insert questionnaire/approval waits into a Stripe money path (checkout redirect, webhook activation, refund semantics on a rejected-after-payment applicant) with no application row to track the outcome. Phase 2, which routes paid joins through the application pipeline (`PROCEED_TO_PAYMENT`), is where the gates start applying to paid tiers — at which point both guards can be dropped.
 
 ---
 

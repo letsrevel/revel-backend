@@ -34,8 +34,9 @@ from events.service.subscription_stripe_dispatch import (
     _dispatch_sync_notifications,
 )
 from events.service.subscription_stripe_payloads import (
+    InvoicePaymentDetails,
     _epoch_to_dt,
-    _invoice_payment_intent_id,
+    _invoice_payment_details,
     _invoice_subscription_id,
     _subscription_period_epochs,
 )
@@ -173,14 +174,32 @@ def _apply_period_dates(
     subscription: MembershipSubscription,
     stripe_subscription: dict[str, t.Any],
 ) -> list[str]:
-    """Mirror Stripe's ``current_period_*`` epochs onto the local row in place."""
+    """Mirror Stripe's ``current_period_*`` epochs onto the local row in place.
+
+    Forward-only, exactly like the invoice path — see :func:`_forward_only_period`
+    for the hazard and for why nothing legitimately rewinds. This function is the
+    *primary* writer of the anchor (every ``customer.subscription.*`` event and
+    the nightly reconcile land here), and webhook dedup is by Stripe event id
+    only, so a redelivered ``customer.subscription.updated`` from the previous
+    cycle — Stripe retries for up to 3 days — would otherwise rewind an anchor
+    that ``invoice.paid`` had already advanced.
+
+    The guard applies whatever the resolved status is: a payload driving the row
+    terminal (``customer.subscription.deleted``) carries the period it is leaving,
+    which is the one already on the row, and a frozen row's anchor is history
+    nobody should rewrite either.
+    """
     changed: list[str] = []
     start_epoch, end_epoch = _subscription_period_epochs(stripe_subscription)
-    new_start = _epoch_to_dt(start_epoch)
+    new_start, new_end = _forward_only_period(
+        subscription,
+        _epoch_to_dt(start_epoch),
+        _epoch_to_dt(end_epoch),
+        source="subscription_sync",
+    )
     if new_start and subscription.current_period_start != new_start:
         subscription.current_period_start = new_start
         changed.append("current_period_start")
-    new_end = _epoch_to_dt(end_epoch)
     if new_end and subscription.current_period_end != new_end:
         subscription.current_period_end = new_end
         changed.append("current_period_end")
@@ -339,32 +358,55 @@ def _forward_only_period(
     subscription: MembershipSubscription,
     period_start: datetime | None,
     period_end: datetime | None,
+    *,
+    source: str = "invoice",
 ) -> tuple[datetime | None, datetime | None]:
-    """Drop a paid invoice's period when it would rewind the local anchor.
+    """Drop an inbound payload's period when it would rewind the local anchor.
 
-    Monotonicity guard for the success path, mirroring the stale-``payment_failed``
-    guard in :func:`record_stripe_payment_from_invoice`: Stripe gives no delivery-order
-    guarantee, and an *open* invoice from an earlier cycle can still be paid (hosted
-    invoice page, late dunning retry) after a later cycle already settled. Rewinding
+    Monotonicity guard shared by both writers of ``current_period_*`` — the paid
+    invoice (:func:`_apply_invoice_outcome`) and the Subscription mirror
+    (:func:`_apply_period_dates`) — mirroring the stale-``payment_failed`` guard in
+    :func:`record_stripe_payment_from_invoice`: Stripe gives no delivery-order
+    guarantee, an *open* invoice from an earlier cycle can still be paid (hosted
+    invoice page, late dunning retry) after a later cycle already settled, and a
+    ``customer.subscription.updated`` is redelivered for up to 3 days. Rewinding
     ``current_period_end`` into the past corrupts the anchor
-    ``subscription_refunds._is_full_refund_of_current_period`` matches on, and makes
-    the grace-expiry beat flip a paid-up member to PAST_DUE until the nightly
-    reconcile heals it.
+    ``subscription_refunds._is_full_refund_of_current_period`` matches on (the
+    refund auto-cancel then silently no-ops, leaving a refunded member subscribed
+    and still billed), misfires the renewal reminder, and makes the grace-expiry
+    beat flip a paid-up member to PAST_DUE.
 
     No flow legitimately rewinds: nothing passes ``billing_cycle_anchor="now"`` to
-    Stripe, a scheduled downgrade's phase 2 starts at phase 1's end, a revival's row
-    carries an already-elapsed period, and a fresh row has no anchor at all. The two
-    bounds move together or not at all — half an update is worse than none.
+    Stripe (pause/resume and both plan-change directions keep the anchor), a
+    scheduled downgrade's phase 2 starts at phase 1's end, a revival's row carries
+    an already-elapsed period, and a fresh row has no anchor at all. The two bounds
+    move together or not at all — half an update is worse than none.
+
+    The accepted tradeoff — same one the invoice path took — is that a local anchor
+    somehow *ahead* of Stripe's truth can no longer be corrected backwards by the
+    nightly reconcile. Healing the realistic direction still works: a rewound anchor
+    is behind Stripe, so the next reconcile's forward move repairs it.
+
+    Args:
+        subscription: The row being mirrored (its anchor is the floor).
+        period_start: Candidate period start from the payload.
+        period_end: Candidate period end from the payload.
+        source: Which payload family this came from, for the skip log.
+
+    Returns:
+        The pair unchanged when it moves the anchor forward (or there is no anchor
+        yet), else ``(None, None)`` so the caller writes neither bound.
     """
     if period_end is None or subscription.current_period_end is None:
         return period_start, period_end
     if period_end > subscription.current_period_end:
         return period_start, period_end
     logger.info(
-        "subscription_stale_invoice_period_ignored",
+        "subscription_stale_period_ignored",
+        source=source,
         subscription_id=str(subscription.pk),
         current_period_end=subscription.current_period_end.isoformat(),
-        invoice_period_end=period_end.isoformat(),
+        payload_period_end=period_end.isoformat(),
     )
     return None, None
 
@@ -549,6 +591,55 @@ def _raise_payment_incidents(
         )
 
 
+def _platform_fee_fields(
+    subscription: MembershipSubscription,
+    payment_details: InvoicePaymentDetails,
+    *,
+    succeeded: bool,
+    currency_code: str,
+    invoice_id: str,
+) -> dict[str, t.Any]:
+    """Decompose the collected application fee into the ledger's fee fields.
+
+    The application fee is what Revel actually collected — the VAT-grossed
+    ``application_fee_percent`` set at Checkout time — so it is the gross fee
+    and gets decomposed back into net + VAT for our accounting. The pinned
+    dahlia API version removed the Invoice's readable ``application_fee_amount``;
+    the fee rides the PaymentIntent resolved in the caller's pre-lock phase.
+    """
+    if succeeded and payment_details.application_fee_minor is None:
+        # Unknown is not zero: the PaymentIntent could not be read (Stripe
+        # unreachable), so the ledger under-reports the fee for this invoice.
+        # Recording the payment anyway keeps the member's money on the books —
+        # the fee must never crash the webhook.
+        logger.warning(
+            "subscription_invoice_application_fee_unresolved",
+            stripe_invoice_id=invoice_id,
+            stripe_payment_intent_id=payment_details.payment_intent_id,
+        )
+    fee_minor = (payment_details.application_fee_minor or 0) if succeeded else 0
+    fee_gross = from_stripe_amount(fee_minor, currency_code) if fee_minor else Decimal("0.00")
+    if fee_gross:
+        site = SiteSettings.get_solo()
+        fee_breakdown = b2b_fee_vat_from_gross(
+            fee_gross, subscription.organization, site.platform_vat_country, site.platform_vat_rate
+        )
+        return {
+            "platform_fee": fee_breakdown.fee_gross,
+            "platform_fee_net": fee_breakdown.fee_net,
+            "platform_fee_vat": fee_breakdown.fee_vat,
+            "platform_fee_vat_rate": fee_breakdown.fee_vat_rate,
+            "platform_fee_reverse_charge": fee_breakdown.reverse_charge,
+        }
+    return {
+        "platform_fee": Decimal("0.00"),
+        "platform_fee_net": None,
+        "platform_fee_vat": None,
+        "platform_fee_vat_rate": None,
+        "platform_fee_reverse_charge": False,
+    }
+
+
 @transaction.atomic
 def record_stripe_payment_from_invoice(
     invoice: dict[str, t.Any],
@@ -573,7 +664,7 @@ def record_stripe_payment_from_invoice(
 
     # Resolve everything that may hit the network BEFORE taking the row lock
     # (same discipline as the ticket-refund path / #632 reserve-session split):
-    # _invoice_payment_intent_id can fall back to a stripe.Invoice.retrieve,
+    # _invoice_payment_details can fall back to a stripe.Invoice.retrieve,
     # and with the pinned dahlia API version the legacy ``payment_intent``
     # field is absent, so that fallback fires on essentially every renewal.
     unlocked_subscription = (
@@ -583,7 +674,8 @@ def record_stripe_payment_from_invoice(
     )
     if unlocked_subscription is None:
         return None
-    payment_intent_id = _invoice_payment_intent_id(invoice, unlocked_subscription.organization)
+    payment_details = _invoice_payment_details(invoice, unlocked_subscription.organization, need_fee=succeeded)
+    payment_intent_id = payment_details.payment_intent_id
 
     subscription = (
         MembershipSubscription.objects.select_for_update(of=("self",))
@@ -604,31 +696,13 @@ def record_stripe_payment_from_invoice(
         amount_minor = 0
     amount = from_stripe_amount(amount_minor, currency_code) if amount_minor else Decimal("0")
 
-    # Stripe's ``application_fee_amount`` is what Revel actually collected — the
-    # VAT-grossed ``application_fee_percent`` set at Checkout time — so it is the
-    # gross fee and gets decomposed back into net + VAT for our accounting.
-    fee_minor = int(invoice.get("application_fee_amount") or 0) if succeeded else 0
-    fee_gross = from_stripe_amount(fee_minor, currency_code) if fee_minor else Decimal("0.00")
-    if fee_gross:
-        site = SiteSettings.get_solo()
-        fee_breakdown = b2b_fee_vat_from_gross(
-            fee_gross, subscription.organization, site.platform_vat_country, site.platform_vat_rate
-        )
-        fee_fields: dict[str, t.Any] = {
-            "platform_fee": fee_breakdown.fee_gross,
-            "platform_fee_net": fee_breakdown.fee_net,
-            "platform_fee_vat": fee_breakdown.fee_vat,
-            "platform_fee_vat_rate": fee_breakdown.fee_vat_rate,
-            "platform_fee_reverse_charge": fee_breakdown.reverse_charge,
-        }
-    else:
-        fee_fields = {
-            "platform_fee": Decimal("0.00"),
-            "platform_fee_net": None,
-            "platform_fee_vat": None,
-            "platform_fee_vat_rate": None,
-            "platform_fee_reverse_charge": False,
-        }
+    fee_fields = _platform_fee_fields(
+        subscription,
+        payment_details,
+        succeeded=succeeded,
+        currency_code=currency_code,
+        invoice_id=invoice_id,
+    )
 
     lines_data = (invoice.get("lines") or {}).get("data") or []
     recurring_period = _recurring_line_period(lines_data, subscription.plan.stripe_price_id)

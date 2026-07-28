@@ -13,6 +13,7 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from events.models import (
     MembershipPayment,
     MembershipSubscription,
@@ -315,6 +316,28 @@ class TestDispatchHelpers:
         # land on the member's memberships page, which is.
         assert n.context["manage_subscription_url"].endswith("/account/memberships")
         assert f"/org/{organization.slug}/subscription" not in n.context["manage_subscription_url"]
+
+    def test_contact_url_points_at_the_organization_page(
+        self, helper_subscription: MembershipSubscription, organization: Organization
+    ) -> None:
+        """The OFFLINE dunning CTA must land on /org/<slug>, the only route that exists.
+
+        The frontend renders the contact form inline on the organization page;
+        there is no /org/<slug>/contact route (and no catch-all), so a deep link
+        would 404 the one CTA an offline subscriber in dunning gets.
+        """
+        assert helper_subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE.value
+        subscription_service._dispatch_payment_failed(
+            helper_subscription,
+            grace_period_end=timezone.now() + timedelta(days=7),
+            is_online=False,
+        )
+        n = Notification.objects.get(
+            user=helper_subscription.user,
+            notification_type=NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
+        )
+        base_url = SiteSettings.get_solo().frontend_base_url
+        assert n.context["organization_contact_url"] == f"{base_url}/org/{organization.slug}"
 
     def test_expired_omits_revival_when_expired_at_none(self, helper_subscription: MembershipSubscription) -> None:
         assert helper_subscription.expired_at is None

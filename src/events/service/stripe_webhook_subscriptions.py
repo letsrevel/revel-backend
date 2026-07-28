@@ -214,7 +214,14 @@ class SubscriptionWebhookHandlersMixin:
             return
         if MembershipPayment.objects.filter(stripe_invoice_id=invoice_id).exists():
             return
-        invoice = stripe.Invoice.retrieve(invoice_id, **_stripe_account_kwargs(subscription.organization))
+        # Expand down to the PaymentIntent so record_stripe_payment_from_invoice
+        # can read the intent id and the collected application fee (not readable
+        # on the Invoice at the pinned dahlia API version) without a second fetch.
+        invoice = stripe.Invoice.retrieve(
+            invoice_id,
+            expand=["payments.data.payment.payment_intent"],
+            **_stripe_account_kwargs(subscription.organization),
+        )
         if invoice.get("status") != "paid":
             return
         subscription_stripe_sync.record_stripe_payment_from_invoice(dict(invoice), succeeded=True)

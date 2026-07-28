@@ -27,7 +27,7 @@ from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireSubmission
 
-from .enums import MembershipNextStep, MembershipReasonCode, Reasons
+from .enums import TERMINAL_REJECTION_CODES, MembershipNextStep, MembershipReasonCode, Reasons
 from .gates import MEMBERSHIP_ELIGIBILITY_GATES, BaseMembershipEligibilityGate
 from .resolvers import resolve_membership_questionnaire
 from .types import MembershipApplicationIneligibleError, MembershipEligibility
@@ -257,19 +257,6 @@ class MembershipEligibilityService:
             plan_id=self.plan.pk if self.plan else None,
             **extra,
         )
-
-
-#: Reasons that genuinely terminate an application — the user has no in-app
-#: recourse on THIS row (they can still re-apply; see ApplicationStatusGate).
-#: Everything else leaves the row PENDING.
-TERMINAL_REJECTION_CODES: t.Final[frozenset[MembershipReasonCode]] = frozenset(
-    {
-        MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
-        # A user at the attempts cap can never satisfy the questionnaire gate again,
-        # whatever the retake policy says — as terminal as an outright failure.
-        MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,
-    }
-)
 
 
 def _notify_rejection(application: OrganizationMembershipRequest) -> None:

@@ -55,6 +55,35 @@ logger = structlog.get_logger(__name__)
 
 # ---- Plan operations ---------------------------------------------------------
 
+# Plan-side half of the Phase-1 gate/plan exclusion (#774). Paid memberships are
+# granted by the subscription flow, which never runs the ``membership_manager``
+# gate stack, so a tier's manual-approval / membership-questionnaire override goes
+# silently inert the moment the tier is monetized. The tier-side half lives in
+# ``organization_service.membership._assert_tier_not_monetized``; together they keep
+# the two mutually exclusive. See docs/architecture/membership-eligibility.md.
+PLAN_ON_GATED_TIER_MESSAGE = _(
+    "This tier requires manual approval or a membership questionnaire, and paid subscriptions "
+    "bypass both. Clear those settings on the tier before putting a plan on sale."
+)
+
+
+# ponytail: caps at the tier's own overrides — the org-wide defaults
+# (``default_requires_membership_approval`` / ``default_membership_questionnaire``) are
+# equally inert on a monetized tier, but refusing on them would block every paid tier in
+# such an org. Lift this, and drop both guards, once subscribe/change-plan/revive
+# actually run the gate stack (Phase 2).
+def _assert_tier_ungated(tier: MembershipTier) -> None:
+    """Refuse to put a plan on sale on a tier that configures eligibility gates.
+
+    Args:
+        tier: The tier the plan hangs off.
+
+    Raises:
+        HttpError 400: If the tier sets either eligibility-gate override.
+    """
+    if tier.requires_membership_approval or tier.membership_questionnaire_id:
+        raise HttpError(400, str(PLAN_ON_GATED_TIER_MESSAGE))
+
 
 def _maybe_sync_plan_to_stripe(plan: MembershipSubscriptionPlan) -> MembershipSubscriptionPlan:
     """Provision (or refresh) the Stripe Product+Price for an ONLINE plan.
@@ -97,7 +126,13 @@ def create_plan(
 
     For ONLINE plans, also provisions the matching Stripe Product+Price on
     the organization's Connect account.
+
+    Refuses an active plan on a tier that configures eligibility gates — see
+    :func:`_assert_tier_ungated`. An ``is_active=False`` plan does not monetize
+    the tier (nothing can be sold off it), so it is allowed.
     """
+    if is_active:
+        _assert_tier_ungated(tier)
     plan = MembershipSubscriptionPlan.objects.create(
         tier=tier,
         name=name,
@@ -128,9 +163,17 @@ def update_plan(
     Refuses currency changes when the plan has any non-terminal subscriptions
     — cross-currency migration is risky and out of roadmap; staff must archive
     and create a new plan instead.
+
+    Un-archiving (``is_active`` False → True) re-monetizes the tier, so it goes
+    through the same gate check :func:`create_plan` applies; otherwise archiving
+    a plan, configuring the gates, and un-archiving would walk straight back into
+    the inert-config state.
     """
     if not fields:
         return plan
+
+    if fields.get("is_active") and not plan.is_active:
+        _assert_tier_ungated(plan.tier)
 
     new_currency = fields.get("currency")
     if new_currency is not None and new_currency.upper() != plan.currency.upper():
@@ -342,16 +385,18 @@ def cancel_subscription(
 
     # A scheduled cancel needs a period boundary to land on, and the grace-expiry sweep only selects
     # ACTIVE-with-period / PAST_DUE. PAUSED freezes time (via pause_collection on Stripe for ONLINE), so it is
-    # refused for both payment methods; a period-less row (PENDING OFFLINE, staff-created without a payment) has
-    # nothing to resume and is cancelled now — unless it still holds a payable Checkout Session, whose live URL
-    # would outlive the row and mint a Stripe subscription with no local mirror (``checkout.session.expired``
-    # and the reconcile stale-PENDING sweep reclaim those).
+    # refused for both payment methods; a period-less row (PENDING OFFLINE, or an ONLINE row still sitting on an
+    # unpaid Checkout Session) has nothing to wait for and is cancelled now — the immediate branch below expires
+    # that still-payable session first, so the live URL cannot outlive the row. The one period-less row that IS
+    # schedulable is one whose Stripe Subscription is already linked (the member paid; ``invoice.paid`` has not
+    # been mirrored yet): Stripe owns that boundary, so ``cancel_at_period_end`` there honours the period they
+    # just paid for instead of terminalizing it away.
     if not immediate and subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
         raise HttpError(
             400,
             str(_("Cannot schedule cancellation for a paused subscription. Resume it first, or cancel immediately.")),
         )
-    if not immediate and subscription.current_period_end is None and not subscription.stripe_checkout_session_id:
+    if not immediate and subscription.current_period_end is None and not subscription.stripe_subscription_id:
         immediate = True
 
     if (
@@ -622,6 +667,21 @@ def revive_subscription(
             if initial_payment is None:
                 raise HttpError(400, str(_("Offline revival requires recording an initial payment.")))
 
+            # Materialize the membership the way ``create_subscription`` does for
+            # OFFLINE plans. ``sync_member_from_subscription`` deliberately never
+            # *creates* an OrganizationMember, and the row can genuinely be gone by
+            # now: ``remove_member`` deletes it while leaving this (terminal, hence
+            # skipped by ``cancel_subscriptions_for_membership_loss``) EXPIRED
+            # subscription behind. Without this the revival records the payment and
+            # reports an ACTIVE subscriber with no membership, tier or access.
+            # ``_validate_revivable`` has already refused BANNED / hard-blacklisted
+            # users, and the helper leaves a staff-PAUSED member paused.
+            from events.service.subscription_stripe_sync import (  # lazy: avoid import cycle
+                _ensure_active_member,
+            )
+
+            _ensure_active_member(subscription)
+
             subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
             # Revival consumed the expiry — clear it so a future lapse opens a
             # fresh revival window (history keeps the old value for audit).
@@ -746,6 +806,7 @@ class MigrationResult(t.TypedDict):
 
     migrated: int
     skipped: int
+    skipped_schedule_managed: int
     failed: int
     errors: list[MigrationError]
 
@@ -772,8 +833,19 @@ def migrate_plan_subscribers(
     writes nothing to an OFFLINE row, so the notification ledger is the
     idempotency anchor that keeps a re-run (staff double-click, acks_late
     redelivery) from re-spamming subscribers.
+
+    Schedule-managed ONLINE subs (a pending downgrade) are counted under
+    ``skipped_schedule_managed`` and never touched — same carve-out, and same
+    reasons, as :func:`subscription_stripe_service.resync_subscription_application_fees`.
+    Re-run the migration once their schedule releases.
     """
-    result: MigrationResult = {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}
+    result: MigrationResult = {
+        "migrated": 0,
+        "skipped": 0,
+        "skipped_schedule_managed": 0,
+        "failed": 0,
+        "errors": [],
+    }
     qs = (
         MembershipSubscription.objects.filter(plan=plan)
         .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
@@ -800,6 +872,21 @@ def migrate_plan_subscribers(
     for sub in qs:
         try:
             if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+                if sub.stripe_schedule_id:
+                    # Stripe rejects a plain ``Subscription.modify`` while a schedule
+                    # is attached, and releasing the schedule would silently drop the
+                    # pending plan change. Without this the modify 502s straight into
+                    # ``failed``, where a staff-triggered batch (202 + logs only)
+                    # reads as a Stripe outage rather than the deliberate carve-out
+                    # it is.
+                    result["skipped_schedule_managed"] += 1
+                    logger.warning(
+                        "migrate_plan_subscribers_skipped_schedule_managed",
+                        plan_id=str(plan.pk),
+                        subscription_id=str(sub.pk),
+                        schedule_id=sub.stripe_schedule_id,
+                    )
+                    continue
                 changed = subscription_stripe_service.update_subscription_price(sub)
                 if not changed:
                     result["skipped"] += 1

@@ -44,6 +44,22 @@ TIER_HAS_SUBSCRIPTIONS_MESSAGE = _(
     "Cannot delete a tier whose plans still have subscriptions. Archive the plans instead."
 )
 
+# Eligibility-gate config vs. paid plans (#774 Phase-1 boundary). A tier carrying
+# live subscription plans is only reachable through the direct subscription
+# endpoints (subscribe / change-plan / revive), which never run the
+# ``membership_manager`` gate stack — the free ``/apply`` path is blocked for such
+# tiers by ``TierAvailabilityGate`` (TIER_REQUIRES_SUBSCRIPTION). So a monetized
+# tier's manual-approval and membership-questionnaire overrides are configured but
+# never enforced. Phase 1 refuses the incoherent config on both sides (here, and in
+# ``subscription_service`` when a plan goes on sale) rather than growing new
+# enforcement machinery inside the payment flow. See
+# docs/architecture/membership-eligibility.md.
+TIER_GATES_ON_MONETIZED_TIER_MESSAGE = _(
+    "This tier is sold through subscription plans, and paid memberships bypass the application "
+    "pipeline — manual approval and membership questionnaires would never run. Archive the tier's "
+    "plans first, or configure these policies on a tier that has none."
+)
+
 
 def create_membership_request(
     organization: Organization, user: RevelUser, message: str | None = None
@@ -190,8 +206,12 @@ def approve_membership_request(
 ) -> None:
     """Approve a membership application.
 
-    Uses the application's pre-set ``tier`` when present; otherwise requires the
-    caller to pass ``tier`` explicitly.
+    An explicitly passed ``tier`` wins over the application's pre-set one: the
+    controller only forwards a tier when staff actually supplied ``tier_id``, so
+    the applicant's self-selected tier still applies when they don't — but when
+    staff disagree with that choice, their decision is what gets granted (and is
+    written back onto the row, so the application doesn't advertise a tier the
+    member never got). At least one of the two must be present.
 
     Behavior:
     - Application carries no plan → COMPLETED + OrganizationMember created at the chosen tier.
@@ -202,13 +222,13 @@ def approve_membership_request(
     Args:
         membership_request: The application to approve.
         decided_by: The staff member approving it.
-        tier: Tier to grant when the application carries none.
+        tier: Tier to grant. Overrides the application's own tier when given.
         force: Bypass the free-path safety guards. Staff may legitimately want to
             comp a paying subscriber or correct a tier; without this the guards
             would make that impossible. Does not bypass the BANNED / blacklist
             refusals — see :func:`_assert_free_grant_allowed`.
     """
-    effective_tier = membership_request.tier or tier
+    effective_tier = tier or membership_request.tier
     if effective_tier is None:
         raise HttpError(400, str(_("A tier must be specified to approve this application.")))
     if effective_tier.organization_id != membership_request.organization_id:
@@ -223,7 +243,9 @@ def approve_membership_request(
         # Free path: complete now.
         membership_request.status = models.OrganizationMembershipRequest.Status.COMPLETED
         update_fields = ["status", "decided_by"]
-        if membership_request.tier_id is None:
+        if membership_request.tier_id != effective_tier.pk:
+            # Tier-less legacy row, or staff overrode the applicant's choice —
+            # record the tier that was actually granted.
             membership_request.tier = effective_tier
             update_fields.append("tier")
         membership_request.save(update_fields=update_fields)
@@ -262,7 +284,18 @@ def approve_membership_request(
 
 
 def reject_membership_request(request: models.OrganizationMembershipRequest, decided_by: RevelUser) -> None:
-    """Reject a membership request."""
+    """Reject a membership request.
+
+    Only PENDING applications can be rejected, mirroring
+    :func:`approve_membership_request`. Without the guard a COMPLETED row could
+    be flipped to REJECTED while the member stays ACTIVE — the membership
+    survives, but ``/me/applications`` and ``ApplicationStatusGate`` start
+    telling the user they were rejected. The same holds for legacy APPROVED
+    rows, which under the pre-#774 flow also carry a live member.
+    """
+    if request.status != models.OrganizationMembershipRequest.Status.PENDING:
+        raise HttpError(400, str(_("Only pending applications can be rejected.")))
+
     request.status = models.OrganizationMembershipRequest.Status.REJECTED
     request.decided_by = decided_by
     request.save(update_fields=["status", "decided_by"])
@@ -458,6 +491,27 @@ def validate_membership_questionnaire(organization: Organization, questionnaire_
         )
 
 
+def _assert_tier_not_monetized(tier: MembershipTier) -> None:
+    """Refuse eligibility-gate config on a tier that has live subscription plans.
+
+    "Live" means ``is_active=True`` — the same liveness filter
+    ``MembershipEligibilityService.tier_has_active_plan`` uses to decide a tier is
+    monetized. ``sales_status`` is orthogonal (a PAUSED plan is temporarily closed
+    to new sales, not retired), so it deliberately does not relax this check.
+
+    Not called from :func:`create_membership_tier`: a tier being created has no
+    plans yet, so the conflict is unreachable there.
+
+    Args:
+        tier: The tier whose gate config is being changed.
+
+    Raises:
+        HttpError 400: If the tier has at least one active subscription plan.
+    """
+    if MembershipSubscriptionPlan.objects.filter(tier=tier, is_active=True).exists():
+        raise HttpError(400, str(TIER_GATES_ON_MONETIZED_TIER_MESSAGE))
+
+
 @transaction.atomic
 def create_membership_tier(organization: Organization, payload: "MembershipTierCreateSchema") -> MembershipTier:
     """Create a membership tier, appending it at the bottom of the organization's ordering.
@@ -491,6 +545,12 @@ def update_membership_tier(tier: MembershipTier, payload: "MembershipTierUpdateS
     write to ``update_db_instance`` (locked, ``exclude_unset`` so tri-state fields keep their
     "not provided vs explicit null" distinction).
 
+    Turning either eligibility gate *on* is refused once the tier carries live
+    subscription plans — see :func:`_assert_tier_not_monetized`. Only the gating
+    values trip it (``requires_membership_approval=True``, a non-null
+    questionnaire), so clearing the knobs and editing unrelated fields on an
+    already-inconsistent legacy tier both stay possible.
+
     Args:
         tier: The tier to update.
         payload: The validated ``MembershipTierUpdateSchema`` payload.
@@ -499,13 +559,16 @@ def update_membership_tier(tier: MembershipTier, payload: "MembershipTierUpdateS
         The updated ``MembershipTier``.
 
     Raises:
-        HttpError 400: If ``membership_questionnaire_id`` is not a MEMBERSHIP questionnaire for the org.
+        HttpError 400: If ``membership_questionnaire_id`` is not a MEMBERSHIP questionnaire for the org,
+            or if a gate is being enabled on a tier that has active subscription plans.
     """
     from events.service import update_db_instance
 
     data = payload.model_dump(exclude_unset=True)
     if data.get("membership_questionnaire_id"):
         validate_membership_questionnaire(tier.organization, data["membership_questionnaire_id"])
+    if data.get("requires_membership_approval") or data.get("membership_questionnaire_id"):
+        _assert_tier_not_monetized(tier)
     return update_db_instance(tier, payload)
 
 

@@ -1876,6 +1876,17 @@ msgstr ""
 "Impossibile eliminare un livello i cui piani hanno ancora abbonamenti. "
 "Archivia invece i piani."
 
+msgid ""
+"This tier is sold through subscription plans, and paid memberships bypass "
+"the application pipeline — manual approval and membership questionnaires "
+"would never run. Archive the tier's plans first, or configure these policies "
+"on a tier that has none."
+msgstr ""
+"Questo livello è venduto tramite piani di abbonamento e le iscrizioni a "
+"pagamento saltano la procedura di richiesta: l'approvazione manuale e i "
+"questionari di iscrizione non verrebbero mai eseguiti. Archivia prima i "
+"piani del livello oppure configura queste regole su un livello senza piani."
+
 msgid "The organization does not accept new members."
 msgstr "L'organizzazione non accetta nuovi membri."
 
@@ -1920,6 +1931,9 @@ msgstr "Il livello deve appartenere alla stessa organizzazione."
 
 msgid "Only pending applications can be approved."
 msgstr "Solo le richieste in sospeso possono essere approvate."
+
+msgid "Only pending applications can be rejected."
+msgstr "Solo le richieste in sospeso possono essere rifiutate."
 
 msgid "User is already a member of this organization."
 msgstr "L'utente è già membro di questa organizzazione."
@@ -2179,6 +2193,9 @@ msgstr ""
 "Impossibile registrare un pagamento su un abbonamento annullato o scaduto. "
 "Crea un nuovo abbonamento invece."
 
+msgid "Payment currency must match the plan's currency."
+msgstr "La valuta del pagamento deve corrispondere a quella del piano."
+
 msgid ""
 "Backfilled payment would produce an already-lapsed billing period; use a "
 "more recent occurred_at."
@@ -2194,6 +2211,15 @@ msgstr "Questo piano è esaurito."
 
 msgid "You can't rejoin this organization."
 msgstr "Non puoi rientrare in questa organizzazione."
+
+msgid ""
+"This tier requires manual approval or a membership questionnaire, and paid "
+"subscriptions bypass both. Clear those settings on the tier before putting a "
+"plan on sale."
+msgstr ""
+"Questo livello richiede l'approvazione manuale o un questionario di "
+"iscrizione, e gli abbonamenti a pagamento saltano entrambi. Rimuovi queste "
+"impostazioni dal livello prima di mettere in vendita un piano."
 
 msgid ""
 "Cannot change currency when active subscriptions exist. Archive and create a "

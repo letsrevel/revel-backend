@@ -114,43 +114,86 @@ def _invoice_subscription_id(invoice: dict[str, t.Any]) -> str:
     return _as_stripe_id(invoice.get("subscription"))
 
 
-def _invoice_payment_intent_id(invoice: dict[str, t.Any], organization: Organization) -> str:
-    """Extract the PaymentIntent id from an Invoice payload, fetching if needed.
+class InvoicePaymentDetails(t.NamedTuple):
+    """PaymentIntent id and collected application fee resolved from an Invoice."""
 
-    Pre-basil payloads carry ``invoice.payment_intent``. From 2025-03-31.basil
-    an invoice can have multiple partial payments and the field moved to the
-    ``payments`` list (``payments.data[].payment.payment_intent``), which
-    webhook payloads do NOT embed — so fall back to an outbound
-    ``stripe.Invoice.retrieve(..., expand=["payments"])``. Best-effort: the id
-    feeds refund routing (charge.refunded → MembershipPayment matching) and
-    audit, so an empty string is tolerated rather than failing the webhook.
+    payment_intent_id: str
+    application_fee_minor: int | None
+    """Minor-unit application fee; ``None`` when it could not be resolved."""
+
+
+def _scan_payment_entries(payments_obj: t.Any, invoice_fee: int | None) -> InvoicePaymentDetails | None:
+    """Pick the first resolvable PaymentIntent out of an invoice's ``payments`` list.
+
+    ``invoice_fee``, when known (legacy readable field), overrides the
+    per-intent fee; otherwise the fee is only known when the intent is an
+    expanded PaymentIntent object.
     """
-    legacy = _as_stripe_id(invoice.get("payment_intent"))
-    if legacy:
-        return legacy
+    data = (payments_obj or {}).get("data") or []
+    for entry in data:
+        intent = (entry.get("payment") or {}).get("payment_intent")
+        intent_id = _as_stripe_id(intent)
+        if not intent_id:
+            continue
+        if invoice_fee is not None:
+            return InvoicePaymentDetails(intent_id, invoice_fee)
+        if isinstance(intent, dict):  # expanded PaymentIntent
+            return InvoicePaymentDetails(intent_id, int(intent.get("application_fee_amount") or 0))
+        return InvoicePaymentDetails(intent_id, None)
+    return None
 
-    def _scan(payments_obj: t.Any) -> str:
-        data = (payments_obj or {}).get("data") or []
-        for entry in data:
-            intent = _as_stripe_id((entry.get("payment") or {}).get("payment_intent"))
-            if intent:
-                return intent
-        return ""
 
-    found = _scan(invoice.get("payments"))
-    if found:
+def _invoice_payment_details(
+    invoice: dict[str, t.Any],
+    organization: Organization,
+    *,
+    need_fee: bool = False,
+) -> InvoicePaymentDetails:
+    """Resolve the PaymentIntent id (and application fee) from an Invoice payload.
+
+    Pre-basil payloads carry ``invoice.payment_intent`` and a readable
+    ``invoice.application_fee_amount``. From 2025-03-31.basil an invoice can
+    have multiple partial payments and both moved behind the ``payments`` list:
+    the intent at ``payments.data[].payment.payment_intent`` and the collected
+    fee *only* on that PaymentIntent — and webhook payloads do NOT embed
+    ``payments``, so fall back to an outbound ``stripe.Invoice.retrieve`` that
+    expands down to the PaymentIntent. Best-effort: the id feeds refund routing
+    (charge.refunded → MembershipPayment matching) and audit, the fee feeds the
+    VAT ledger and referral payouts, so an empty id / ``None`` fee is tolerated
+    rather than failing the webhook.
+
+    Args:
+        invoice: The Stripe ``invoice.*`` payload (``data.object`` or a retrieve).
+        organization: The owning org, for the Connect ``stripe_account`` header.
+        need_fee: When ``True`` (a paid invoice), an embedded-but-unexpanded
+            intent reference is not enough — the fee has to be read off the
+            expanded PaymentIntent, so the outbound fallback still fires.
+    """
+    raw_invoice_fee = invoice.get("application_fee_amount")
+    invoice_fee = int(raw_invoice_fee) if raw_invoice_fee is not None else None
+    if invoice_fee is not None:
+        need_fee = False  # the legacy readable field is authoritative
+    legacy_intent = _as_stripe_id(invoice.get("payment_intent"))
+    if legacy_intent:
+        # Pre-basil shape: the invoice-level fee field travels with it
+        # (absent/None simply means no fee was collected).
+        return InvoicePaymentDetails(legacy_intent, invoice_fee or 0)
+
+    found = _scan_payment_entries(invoice.get("payments"), invoice_fee)
+    if found is not None and not (need_fee and found.application_fee_minor is None):
         return found
 
+    unresolved = found or InvoicePaymentDetails("", invoice_fee)
     invoice_id = invoice.get("id")
     if not invoice_id:
-        return ""
+        return unresolved
     try:
         retrieved = stripe.Invoice.retrieve(
             invoice_id,
-            expand=["payments"],
+            expand=["payments.data.payment.payment_intent"],
             **_stripe_account_kwargs(organization),
         )
     except stripe.error.StripeError:
         logger.warning("subscription_invoice_payments_fetch_failed", stripe_invoice_id=invoice_id)
-        return ""
-    return _scan(dict(retrieved).get("payments"))
+        return unresolved
+    return _scan_payment_entries(dict(retrieved).get("payments"), invoice_fee) or unresolved

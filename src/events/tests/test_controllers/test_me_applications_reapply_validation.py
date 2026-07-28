@@ -3,6 +3,7 @@
 Split from test_me_applications.py to respect the 1000-line file limit.
 """
 
+import typing as t
 import uuid
 
 import pytest
@@ -112,6 +113,88 @@ def test_join_eligibility_after_rejection_returns_reapply(
     assert body["allowed"] is False
     assert body["next_step"] == "reapply"
     assert body["reason_code"] == "application_rejected"
+
+
+def _terminally_rejected_state(
+    user: RevelUser, organization: Organization, tier: MembershipTier
+) -> OrganizationMembershipRequest:
+    """A REJECTED application whose cause — a failed, non-retakeable questionnaire — still stands."""
+    q = _membership_questionnaire(organization)
+    submission = QuestionnaireSubmission.objects.create(
+        user=user,
+        questionnaire=q,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now(),
+    )
+    QuestionnaireEvaluation.objects.create(
+        submission=submission,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+    )
+    return OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.REJECTED,
+    )
+
+
+def test_apply_after_terminal_questionnaire_rejection_is_forbidden(
+    nonmember_user: RevelUser,
+    organization: Organization,
+    tier: MembershipTier,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """Re-applying after a still-terminal rejection must 403, not mint another doomed row.
+
+    Before the fix the REAPPLY next_step passed the controller's hard-block set,
+    a fresh PENDING row was created, the questionnaire gate re-rejected it on its
+    first read and another MEMBERSHIP_REQUEST_REJECTED notification went out —
+    once per POST, unbounded (the rows also PROTECT the tier against deletion).
+    """
+    from notifications.enums import NotificationType
+    from notifications.signals import notification_requested
+
+    rejected = _terminally_rejected_state(nonmember_user, organization, tier)
+
+    received: list[dict[str, object]] = []
+
+    def _collect(sender: object, **kwargs: object) -> None:
+        received.append(kwargs)
+
+    client = _client(nonmember_user)
+    url = reverse("api:apply_for_membership", kwargs={"slug": organization.slug})
+    notification_requested.connect(_collect)
+    try:
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(url, data={"tier_id": str(tier.id)}, content_type="application/json")
+    finally:
+        notification_requested.disconnect(_collect)
+
+    assert response.status_code == 403, response.content
+    # No junk row: the rejected one is still the only application on file.
+    assert list(
+        OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user).values_list(
+            "pk", flat=True
+        )
+    ) == [rejected.pk]
+    assert not any(kw.get("notification_type") == NotificationType.MEMBERSHIP_REQUEST_REJECTED for kw in received)
+
+
+def test_join_eligibility_after_terminal_rejection_reports_the_questionnaire_failure(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """The preview must name the real blocker so the FE stops rendering a re-apply CTA."""
+    _terminally_rejected_state(nonmember_user, organization, tier)
+
+    client = _client(nonmember_user)
+    url = reverse("api:get_join_eligibility", kwargs={"slug": organization.slug})
+    response = client.get(url, {"tier_id": str(tier.id)})
+
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert body["allowed"] is False
+    assert body["next_step"] is None
+    assert body["reason_code"] == "membership_questionnaire_failed"
 
 
 # ---- B3: questionnaire_submission_id must be validated, not blindly persisted ----

@@ -135,7 +135,18 @@ def _dahlia_line(
 def test_invoice_paid_resolves_subscription_via_parent_details(
     pending_subscription: MembershipSubscription,
 ) -> None:
-    payments = {"data": [{"payment": {"type": "payment_intent", "payment_intent": "pi_dahlia"}}]}
+    payments = {
+        "data": [
+            {
+                "payment": {
+                    "type": "payment_intent",
+                    # Expanded PaymentIntent — the shape a deep-expanded retrieve
+                    # (e.g. the checkout backfill) passes through.
+                    "payment_intent": {"id": "pi_dahlia", "application_fee_amount": None},
+                }
+            }
+        ]
+    }
     payment = subscription_stripe_sync.record_stripe_payment_from_invoice(_dahlia_invoice(payments), succeeded=True)
     assert payment is not None
     assert payment.subscription_id == pending_subscription.pk
@@ -148,8 +159,25 @@ def test_invoice_paid_resolves_subscription_via_parent_details(
 def test_invoice_without_embedded_payments_fetches_outbound(
     pending_subscription: MembershipSubscription,
 ) -> None:
-    """Webhook payloads don't embed ``payments`` — resolve via Invoice.retrieve."""
-    retrieved = {"payments": {"data": [{"payment": {"type": "payment_intent", "payment_intent": "pi_fetched"}}]}}
+    """Webhook payloads don't embed ``payments`` — resolve via Invoice.retrieve.
+
+    The pinned dahlia version also removed the Invoice's readable
+    ``application_fee_amount``, so the same fetch must expand down to the
+    PaymentIntent and surface the collected fee (a zero fee here would silently
+    drop every ONLINE membership fee from revenue and referral payouts).
+    """
+    retrieved = {
+        "payments": {
+            "data": [
+                {
+                    "payment": {
+                        "type": "payment_intent",
+                        "payment_intent": {"id": "pi_fetched", "application_fee_amount": 180},
+                    }
+                }
+            ]
+        }
+    }
     with mock.patch(
         "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
         return_value=retrieved,
@@ -159,10 +187,39 @@ def test_invoice_without_embedded_payments_fetches_outbound(
         )
     assert payment is not None
     assert payment.stripe_payment_intent_id == "pi_fetched"
+    assert payment.platform_fee == Decimal("1.80")
     mock_retrieve.assert_called_once()
-    assert mock_retrieve.call_args.kwargs.get("expand") == ["payments"]
+    assert mock_retrieve.call_args.kwargs.get("expand") == ["payments.data.payment.payment_intent"]
     # Direct-charge Connect call must target the org's account.
     assert mock_retrieve.call_args.kwargs.get("stripe_account") == "acct_test_org"
+
+
+def test_embedded_unexpanded_payment_still_resolves_fee_outbound(
+    pending_subscription: MembershipSubscription,
+) -> None:
+    """A payments list with a bare intent id gives no fee — a paid invoice fetches it."""
+    payments = {"data": [{"payment": {"type": "payment_intent", "payment_intent": "pi_bare"}}]}
+    retrieved = {
+        "payments": {
+            "data": [
+                {
+                    "payment": {
+                        "type": "payment_intent",
+                        "payment_intent": {"id": "pi_bare", "application_fee_amount": 180},
+                    }
+                }
+            ]
+        }
+    }
+    with mock.patch(
+        "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
+        return_value=retrieved,
+    ) as mock_retrieve:
+        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(_dahlia_invoice(payments), succeeded=True)
+    assert payment is not None
+    assert payment.stripe_payment_intent_id == "pi_bare"
+    assert payment.platform_fee == Decimal("1.80")
+    mock_retrieve.assert_called_once()
 
 
 def test_invoice_payment_intent_fetch_failure_is_tolerated(
@@ -242,7 +299,16 @@ class TestDahliaProrationDetection:
 
         subscription_stripe_sync.record_stripe_payment_from_invoice(
             _dahlia_invoice(
-                {"data": [{"payment": {"type": "payment_intent", "payment_intent": "pi_proration"}}]},
+                {
+                    "data": [
+                        {
+                            "payment": {
+                                "type": "payment_intent",
+                                "payment_intent": {"id": "pi_proration", "application_fee_amount": None},
+                            }
+                        }
+                    ]
+                },
                 invoice_id="in_dahlia_proration",
                 lines=[
                     _dahlia_line(price_id="price_test", start=self.ANCHOR, end=self.ANCHOR + 20 * 86400, proration=True)

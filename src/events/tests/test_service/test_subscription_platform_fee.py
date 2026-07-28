@@ -3,18 +3,21 @@
 Covers the two halves of the fee flow:
 - ``_effective_application_fee_percent``: the VAT-grossed percent sent to
   Stripe at Checkout-session creation.
-- ``record_stripe_payment_from_invoice``: decomposing the collected
-  ``application_fee_amount`` back into net + VAT on the ledger row.
+- ``record_stripe_payment_from_invoice``: decomposing the collected fee — read
+  off the invoice's PaymentIntent at the pinned dahlia API version — back into
+  net + VAT on the ledger row.
 """
 
 from decimal import Decimal
 from unittest import mock
 
 import pytest
+import stripe
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import (
+    MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -154,6 +157,17 @@ class TestEffectiveApplicationFeePercent:
 
 
 class TestRecordedPlatformFee:
+    """The pinned dahlia API version removed the Invoice's readable
+    ``application_fee_amount``: the collected fee is only readable off the
+    invoice's PaymentIntent (``payments.data[].payment.payment_intent``), which
+    webhook payloads don't embed — so the fee rides the same outbound
+    ``Invoice.retrieve`` fallback that resolves the intent id. These payloads
+    are dahlia-shaped on purpose: a legacy-shaped fixture would mask a
+    regression where every ONLINE payment records a zero fee.
+    """
+
+    RETRIEVE = "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve"
+
     @pytest.fixture
     def subscription(
         self,
@@ -170,14 +184,31 @@ class TestRecordedPlatformFee:
 
     @staticmethod
     def _invoice(invoice_id: str, **extra: object) -> dict[str, object]:
+        """A dahlia-shaped invoice: no readable ``application_fee_amount`` or
+        top-level ``payment_intent``/``subscription``, and no embedded ``payments``."""
         return {
             "id": invoice_id,
-            "subscription": "sub_fee",
+            "parent": {"subscription_details": {"subscription": "sub_fee"}},
             "amount_paid": 1000,
             "currency": "eur",
-            "payment_intent": "pi_fee",
             "lines": {"data": [{"period": {"start": 1_800_000_000, "end": 1_800_000_000 + 30 * 86400}}]},
             **extra,
+        }
+
+    @staticmethod
+    def _retrieved(fee_minor: int | None) -> dict[str, object]:
+        """What the deep-expanded ``Invoice.retrieve`` fallback returns."""
+        return {
+            "payments": {
+                "data": [
+                    {
+                        "payment": {
+                            "type": "payment_intent",
+                            "payment_intent": {"id": "pi_fee", "application_fee_amount": fee_minor},
+                        }
+                    }
+                ]
+            }
         }
 
     def test_domestic_fee_is_decomposed_into_net_and_vat(
@@ -185,17 +216,22 @@ class TestRecordedPlatformFee:
         site_settings: SiteSettings,
         subscription: MembershipSubscription,
     ) -> None:
-        """1.80 EUR collected at 20% VAT = 1.50 net + 0.30 VAT."""
-        invoice = self._invoice("in_fee", application_fee_amount=180)
-
-        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        """Dahlia ``invoice.paid``: 1.80 EUR off the PaymentIntent = 1.50 net + 0.30 VAT."""
+        with mock.patch(self.RETRIEVE, return_value=self._retrieved(180)) as mock_retrieve:
+            payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
+                self._invoice("in_fee"), succeeded=True
+            )
 
         assert payment is not None
+        assert payment.stripe_payment_intent_id == "pi_fee"
         assert payment.platform_fee == Decimal("1.80")
         assert payment.platform_fee_net == Decimal("1.50")
         assert payment.platform_fee_vat == Decimal("0.30")
         assert payment.platform_fee_vat_rate == Decimal("20.00")
         assert payment.platform_fee_reverse_charge is False
+        # Direct-charge Connect call, expanded down to the PaymentIntent.
+        assert mock_retrieve.call_args.kwargs.get("expand") == ["payments.data.payment.payment_intent"]
+        assert mock_retrieve.call_args.kwargs.get("stripe_account") == "acct_test_org"
 
     def test_reverse_charge_fee_is_all_net(
         self,
@@ -205,9 +241,10 @@ class TestRecordedPlatformFee:
     ) -> None:
         """Reverse charge: no VAT was collected, so the whole fee is net."""
         _reverse_charge(stripe_org)
-        invoice = self._invoice("in_fee_rc", application_fee_amount=150)
-
-        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
+        with mock.patch(self.RETRIEVE, return_value=self._retrieved(150)):
+            payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
+                self._invoice("in_fee_rc"), succeeded=True
+            )
 
         assert payment is not None
         assert payment.platform_fee == Decimal("1.50")
@@ -220,10 +257,11 @@ class TestRecordedPlatformFee:
         site_settings: SiteSettings,
         subscription: MembershipSubscription,
     ) -> None:
-        """A fee-free org's invoice leaves the VAT breakdown null."""
-        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
-            self._invoice("in_no_fee"), succeeded=True
-        )
+        """A fee-free org's PaymentIntent carries no fee — VAT breakdown stays null."""
+        with mock.patch(self.RETRIEVE, return_value=self._retrieved(None)):
+            payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
+                self._invoice("in_no_fee"), succeeded=True
+            )
 
         assert payment is not None
         assert payment.platform_fee == Decimal("0.00")
@@ -238,10 +276,43 @@ class TestRecordedPlatformFee:
         subscription: MembershipSubscription,
     ) -> None:
         """Nothing changed hands on a failed invoice, so no fee was collected."""
-        invoice = self._invoice("in_fee_failed", amount_paid=0, amount_due=1000, application_fee_amount=180)
+        invoice = self._invoice("in_fee_failed", amount_paid=0, amount_due=1000)
 
-        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False)
+        with mock.patch(self.RETRIEVE, return_value=self._retrieved(180)):
+            payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False)
 
         assert payment is not None
+        assert payment.platform_fee == Decimal("0.00")
+        assert payment.platform_fee_net is None
+
+    def test_legacy_invoice_fee_field_is_still_honored(
+        self,
+        site_settings: SiteSettings,
+        subscription: MembershipSubscription,
+    ) -> None:
+        """A pre-basil payload's readable fee field wins — no outbound fetch."""
+        invoice = self._invoice("in_fee_legacy", payment_intent="pi_legacy", application_fee_amount=180)
+
+        with mock.patch(self.RETRIEVE, side_effect=AssertionError("must not fetch")):
+            payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
+
+        assert payment is not None
+        assert payment.stripe_payment_intent_id == "pi_legacy"
+        assert payment.platform_fee == Decimal("1.80")
+        assert payment.platform_fee_net == Decimal("1.50")
+
+    def test_fee_fetch_failure_records_payment_with_zero_fee(
+        self,
+        site_settings: SiteSettings,
+        subscription: MembershipSubscription,
+    ) -> None:
+        """Stripe unreachable: the payment row must land anyway, fee at zero."""
+        with mock.patch(self.RETRIEVE, side_effect=stripe.error.StripeError("boom")):
+            payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
+                self._invoice("in_fee_down"), succeeded=True
+            )
+
+        assert payment is not None
+        assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
         assert payment.platform_fee == Decimal("0.00")
         assert payment.platform_fee_net is None

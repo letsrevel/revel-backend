@@ -1,4 +1,11 @@
-"""Verify membership-application notifications still fire end-to-end."""
+"""Verify membership-application notifications still fire end-to-end.
+
+Uses ``transaction=True`` module-wide because every dispatch here happens via
+``transaction.on_commit`` (``notifications.signals.membership`` for the created
+notification, ``events.service.organization_service.membership`` for the approved
+and rejected ones); in default pytest-django mode the wrapping transaction is
+rolled back and those callbacks never fire.
+"""
 
 from unittest.mock import patch
 

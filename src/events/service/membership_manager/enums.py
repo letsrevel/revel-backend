@@ -1,5 +1,6 @@
 """Enums for the membership eligibility system."""
 
+import typing as t
 from enum import StrEnum
 
 from django.utils.translation import gettext_noop
@@ -49,6 +50,22 @@ class MembershipReasonCode(StrEnum):
     ORG_NOT_STRIPE_CONNECTED = "org_not_stripe_connected"
     DUPLICATE_ACTIVE_SUBSCRIPTION = "duplicate_active_subscription"
     MEMBERSHIP_PAUSED = "membership_paused"
+
+
+#: Reasons that genuinely terminate an application — the user has no in-app
+#: recourse on THIS row. Everything else leaves the row PENDING.
+#: Two consumers, which is why this lives here rather than in ``service``:
+#: ``advance_application`` auto-rejects a PENDING row carrying one of these
+#: codes, and :class:`~.gates.ApplicationStatusGate` refuses to offer REAPPLY
+#: when the cause of a past rejection is still one of them.
+TERMINAL_REJECTION_CODES: t.Final[frozenset[MembershipReasonCode]] = frozenset(
+    {
+        MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
+        # A user at the attempts cap can never satisfy the questionnaire gate again,
+        # whatever the retake policy says — as terminal as an outright failure.
+        MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,
+    }
+)
 
 
 class Reasons(StrEnum):

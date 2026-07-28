@@ -17,6 +17,7 @@ from events.models import (
     EventRSVP,
     EventWaitList,
     GeneralUserPreferences,
+    MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     Organization,
@@ -452,6 +453,35 @@ _SUBSCRIPTION_TO_MEMBER_STATUS: dict[str, str] = {
 }
 
 
+def _has_paid_current_period(subscription: MembershipSubscription) -> bool:
+    """Whether money was ever collected for the period a PAST_DUE row is honoring.
+
+    PAST_DUE maps to an ACTIVE member so Stripe's dunning grace keeps a *paying*
+    member's access while a renewal retries. A **first** invoice that fails —
+    or stalls on SCA, which ``invoice.payment_action_required`` deliberately
+    routes through the failure branch, and which async methods (SEPA) can do
+    days after the checkout completed — moves the row PENDING → PAST_DUE
+    (``subscription_stripe_sync._apply_invoice_outcome``). Without this check
+    that grace would grant, or upgrade a free member to, the paid tier with
+    zero money collected. A revival checkout is the same story on a reused row.
+
+    ``current_period_end is None`` alone is not a sound discriminator: a
+    ``customer.subscription.*`` sync mirrors Stripe's period onto a still
+    ``incomplete`` (locally PENDING) row, so an unpaid row can carry one. What
+    separates dunning from a never-paid row is a SUCCEEDED payment whose period
+    runs up to the start of the period being honored — renewal periods are
+    contiguous, while a revival's (or a first invoice's) period starts after a
+    gap, with no payment reaching it.
+    """
+    if subscription.current_period_start is None:
+        return False
+    return MembershipPayment.objects.filter(
+        subscription_id=subscription.pk,
+        status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        period_end__gte=subscription.current_period_start,
+    ).exists()
+
+
 @receiver(pre_save, sender=MembershipSubscription)
 def capture_subscription_old_status(
     sender: type[MembershipSubscription],
@@ -499,9 +529,9 @@ def sync_member_from_subscription(
       same (user, org) — older terminal rows must not clobber the effective
       subscription when, e.g., admin re-saves a historical entry after the
       user has resubscribed.
-    - For ONLINE plans in PENDING state, returns early so a freshly-created
-      subscription doesn't grant ACTIVE membership before Stripe collects
-      the first invoice.
+    - For ONLINE plans in PENDING state — or in PAST_DUE without a paid
+      period behind them — returns early so a subscription doesn't grant
+      ACTIVE membership before Stripe collects the first invoice.
     """
     target_status = _SUBSCRIPTION_TO_MEMBER_STATUS.get(instance.status)
     if target_status is None:
@@ -509,10 +539,16 @@ def sync_member_from_subscription(
 
     # ONLINE plans gate ACTIVE membership on the first successful Stripe
     # payment. PENDING is the "awaiting first invoice" state — leave the
-    # member alone until the webhook flips us to ACTIVE.
-    if (
+    # member alone until the webhook flips us to ACTIVE. A PAST_DUE row that
+    # never collected a period is the same state wearing a dunning hat (first
+    # invoice failed / stalled on SCA, revival checkout never settled), so it
+    # gets the same treatment — see :func:`_has_paid_current_period`.
+    if instance.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value and (
         instance.status == MembershipSubscription.SubscriptionStatus.PENDING.value
-        and instance.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value
+        or (
+            instance.status == MembershipSubscription.SubscriptionStatus.PAST_DUE.value
+            and not _has_paid_current_period(instance)
+        )
     ):
         return
 

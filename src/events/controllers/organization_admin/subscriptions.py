@@ -222,7 +222,16 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(
         Searching,
-        search_fields=["user__email", "user__first_name", "user__last_name", "user__preferred_name", "status"],
+        search_fields=[
+            "user__email",
+            "user__first_name",
+            "user__last_name",
+            "user__preferred_name",
+            "status",
+            # Reverse lookup from a Stripe dashboard id back to the member it belongs to.
+            "stripe_subscription_id",
+            "stripe_checkout_session_id",
+        ],
     )
     def list_subscriptions(
         self,

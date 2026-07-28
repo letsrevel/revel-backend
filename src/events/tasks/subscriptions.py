@@ -312,7 +312,13 @@ def migrate_plan_subscribers(plan_id: str, initiated_by_id: str) -> "MigrationRe
     from accounts.models import RevelUser
     from events.service import subscription_service
 
-    empty: MigrationResult = {"migrated": 0, "skipped": 0, "failed": 0, "errors": []}
+    empty: MigrationResult = {
+        "migrated": 0,
+        "skipped": 0,
+        "skipped_schedule_managed": 0,
+        "failed": 0,
+        "errors": [],
+    }
     plan = MembershipSubscriptionPlan.objects.select_related("tier__organization").filter(pk=plan_id).first()
     if plan is None:
         logger.warning("migrate_plan_subscribers_task_plan_missing", plan_id=plan_id)

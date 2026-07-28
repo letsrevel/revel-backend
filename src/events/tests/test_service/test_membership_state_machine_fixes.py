@@ -8,6 +8,7 @@ could be scheduled to cancel there anyway.
 
 from datetime import timedelta
 from decimal import Decimal
+from unittest import mock
 
 import pytest
 from django.utils import timezone
@@ -325,18 +326,22 @@ class TestScheduledCancelOfAPeriodLessRow:
         assert member.status == OrganizationMember.MembershipStatus.CANCELLED
         assert plan.occupied_slot_count() == 0
 
-    def test_pending_row_with_an_open_checkout_session_is_not_terminalized(
+    def test_pending_row_with_an_open_checkout_session_expires_it_and_terminalizes(
         self,
         online_plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
         organization: Organization,
     ) -> None:
-        """The member still holds a payable URL; dropping the row would strand the payment.
+        """The payable URL is killed first, then the row goes terminal.
 
-        ``checkout.session.completed`` matches on the local row, so terminalizing
-        it here and letting the member pay would mint a live Stripe subscription
-        with no local mirror. These rows are reclaimed by
-        ``checkout.session.expired`` and the reconcile stale-PENDING sweep.
+        This row used to be carved out of the period-less upgrade because the
+        member still held a payable Checkout URL. That left the worst of both:
+        CANCELLATION_CONFIRMED fired, the row stayed non-terminal holding its
+        cap slot, and paying the session afterwards re-activated it with
+        ``cancel_at_period_end`` silently reset. ``cancel_subscription`` now
+        expires the session first (409ing if it turns out to be complete), so
+        the cancel is honest — see
+        ``test_subscription_cancel_open_checkout.py``.
         """
         subscription = MembershipSubscription.objects.create(
             user=subscriber,
@@ -346,8 +351,10 @@ class TestScheduledCancelOfAPeriodLessRow:
             stripe_checkout_session_id="cs_open_session",
         )
 
-        out = subscription_service.cancel_subscription(subscription, immediate=False)
+        with mock.patch("stripe.checkout.Session.expire") as mock_expire:
+            out = subscription_service.cancel_subscription(subscription, immediate=False)
 
-        assert out.status == MembershipSubscription.SubscriptionStatus.PENDING
-        assert out.cancelled_at is None
-        assert out.cancel_at_period_end is True
+        mock_expire.assert_called_once()
+        assert out.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert out.cancelled_at is not None
+        assert out.cancel_at_period_end is False

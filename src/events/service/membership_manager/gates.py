@@ -22,7 +22,7 @@ from events.models import (
 )
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
 
-from .enums import MembershipNextStep, Reasons
+from .enums import TERMINAL_REJECTION_CODES, MembershipNextStep, Reasons
 from .resolvers import resolve_requires_membership_approval
 from .types import MembershipEligibility
 
@@ -53,6 +53,12 @@ class BaseMembershipEligibilityGate(abc.ABC):
             MembershipEligibility (blocking or allowing) to short-circuit the chain,
             None to fall through to the next gate.
         """
+
+    def _has_active_membership(self) -> bool:
+        """True when the user has any ACTIVE membership in this org (at any tier)."""
+        return any(
+            m.status == OrganizationMember.MembershipStatus.ACTIVE for m in self.handler.user_memberships.values()
+        )
 
     def _allow(self, **extra: t.Any) -> MembershipEligibility:
         """Build an allowing eligibility with this gate's (org, tier, plan) context preset.
@@ -154,13 +160,22 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
     applying at a different tier. PAUSED is admin/Stripe-imposed and the user
     must contact the org to resume.
 
+    A **tier-less** application (``tier is None``, the legacy staff-approval
+    path) from a user who is already an ACTIVE member likewise short-circuits
+    ALREADY_MEMBER: such a row never auto-completes, so it just sits PENDING
+    until staff approve it — at which point the member's existing tier is
+    silently overwritten with whatever tier staff pick, with no signal that the
+    "applicant" was already active. The legacy sibling endpoint
+    (``organization_service.membership.create_membership_request``) refuses
+    outright with ``AlreadyMemberError``; this mirrors it.
+
     When the user is applying via the free path (``plan is None``) but already has
     a non-terminal :class:`MembershipSubscription` in this org, block — they
     cannot self-promote a paid membership through the free flow.
     """
 
     def check(self) -> MembershipEligibility | None:
-        """Allow with ALREADY_MEMBER at target tier; block PAUSED / free-promotion bypass."""
+        """Allow with ALREADY_MEMBER at target tier (or tier-less); block PAUSED / free-promotion bypass."""
         # Free-apply bypass guard: a user with a non-terminal subscription must not
         # be able to clobber their paid membership via the free path.
         if self.plan is None and self.handler.has_non_terminal_subscription:
@@ -172,6 +187,10 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
             return self._block(Reasons.MEMBERSHIP_PAUSED)
 
         if self.tier is None:
+            # Tier-less: there is no target tier to compare against, so any
+            # ACTIVE membership means there is nothing left to apply for.
+            if self._has_active_membership():
+                return self._allow(next_step=MembershipNextStep.ALREADY_MEMBER)
             return None
         membership = self.handler.user_memberships.get(self.tier.pk)
         if membership is None:
@@ -230,8 +249,9 @@ class ApplicationStatusGate(BaseMembershipEligibilityGate):
     remaining gates evaluate the fresh attempt from scratch.
 
     Practical effect: REJECTED is terminal for the **row**, but not for the
-    user's ability to reapply. Orgs that want to permanently block a user must
-    add them to the blacklist.
+    user's ability to reapply — *unless* the cause of the rejection is itself
+    still terminal (see ``check``). Orgs that want to permanently block a user
+    must add them to the blacklist.
     """
 
     def check(self) -> MembershipEligibility | None:
@@ -239,17 +259,31 @@ class ApplicationStatusGate(BaseMembershipEligibilityGate):
         app = self.handler.current_application
         if app is None:
             return None
-        if app.status == OrganizationMembershipRequest.Status.REJECTED:
-            # REAPPLY tells the controller (and FE) that a fresh POST /apply is
-            # the recourse: the new PENDING row supersedes this REJECTED one.
-            # Without it the controller's hard-block set (next_step=None) made
-            # the documented re-apply path unreachable via the API.
-            return self._block(
-                Reasons.APPLICATION_REJECTED,
-                next_step=MembershipNextStep.REAPPLY,
-                application_id=app.pk,
-            )
-        return None
+        if app.status != OrganizationMembershipRequest.Status.REJECTED:
+            return None
+
+        # Offering REAPPLY is only honest while the cause is recoverable. A
+        # still-terminal questionnaire verdict re-fires on the fresh PENDING row
+        # at its very first read: ``advance_application`` flips it straight back
+        # to REJECTED and sends another MEMBERSHIP_REQUEST_REJECTED notification.
+        # Unthrottled that is an unbounded junk-row + notification loop, and the
+        # rows PROTECT the tier so they also wedge tier deletion. Surfacing the
+        # terminal verdict (next_step=None) makes the controller's hard-block set
+        # 403 instead, as its comment promises.
+        questionnaire_verdict = MembershipQuestionnaireGate(self.handler).check()
+        if questionnaire_verdict is not None and questionnaire_verdict.reason_code in TERMINAL_REJECTION_CODES:
+            questionnaire_verdict.application_id = app.pk
+            return questionnaire_verdict
+
+        # REAPPLY tells the controller (and FE) that a fresh POST /apply is
+        # the recourse: the new PENDING row supersedes this REJECTED one.
+        # Without it the controller's hard-block set (next_step=None) made
+        # the documented re-apply path unreachable via the API.
+        return self._block(
+            Reasons.APPLICATION_REJECTED,
+            next_step=MembershipNextStep.REAPPLY,
+            application_id=app.pk,
+        )
 
 
 class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
@@ -264,7 +298,7 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
         # members_exempt grandfathers existing members: any user with an ACTIVE membership
         # at any tier in this org skips the questionnaire. Orgs that want to re-gate tier
         # upgrades set members_exempt=False on the resolved questionnaire.
-        if questionnaire_oq.members_exempt and self._user_is_active_member():
+        if questionnaire_oq.members_exempt and self._has_active_membership():
             return None
 
         questionnaire = questionnaire_oq.questionnaire
@@ -282,12 +316,6 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
             return self._block_pending(questionnaire.pk)
 
         return self._evaluate(questionnaire_oq, questionnaire, submission, evaluation)
-
-    def _user_is_active_member(self) -> bool:
-        """True when the user has any ACTIVE membership in this org."""
-        return any(
-            m.status == OrganizationMember.MembershipStatus.ACTIVE for m in self.handler.user_memberships.values()
-        )
 
     def _evaluate(
         self,
