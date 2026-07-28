@@ -2155,6 +2155,9 @@ msgstr "Questo piano è archiviato e non accetta più nuovi abbonamenti."
 msgid "This user is banned from the organization."
 msgstr "Questo utente è bloccato dall'organizzazione."
 
+msgid "This user is blacklisted from the organization."
+msgstr "Questo utente è nella blacklist dell'organizzazione."
+
 msgid "This user already has an active subscription in this organization."
 msgstr "Questo utente ha già un abbonamento attivo in questa organizzazione."
 
@@ -2181,6 +2184,9 @@ msgstr ""
 
 msgid "Cannot pause a terminal subscription."
 msgstr "Impossibile mettere in pausa un abbonamento in stato terminale."
+
+msgid "Cannot pause a subscription that is scheduled for cancellation."
+msgstr "Impossibile mettere in pausa un abbonamento programmato per l'annullamento."
 
 msgid "This subscription has no linked Stripe record yet."
 msgstr "Questo abbonamento non ha ancora un record Stripe collegato."

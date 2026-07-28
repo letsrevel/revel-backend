@@ -110,7 +110,10 @@ class MeSubscriptionsController(UserAwareController):
         Returns the local subscription row plus a hosted Stripe Checkout
         ``checkout_url`` the frontend redirects the member to for payment.
         """
-        organization = get_object_or_404(Organization, pk=org_id)
+        # Visibility-aware load: hard-blacklisted users get a 404 (the org is
+        # invisible to them) rather than a distinguishable 403, matching the
+        # anti-enumeration posture of the other member-facing entry points.
+        organization = get_object_or_404(Organization.objects.for_user(self.user()), pk=org_id)
         plan = get_object_or_404(
             MembershipSubscriptionPlan.objects.select_related("tier", "tier__organization"),
             pk=payload.plan_id,

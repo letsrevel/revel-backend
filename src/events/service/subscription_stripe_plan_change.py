@@ -303,8 +303,10 @@ def change_online_plan(
 ) -> MembershipSubscription:
     """Switch the plan on an ONLINE subscription.
 
-    Same-currency check, then routes to :func:`_upgrade_online_subscription`
-    or :func:`_downgrade_online_subscription` based on price delta.
+    Routes to :func:`_upgrade_online_subscription` or
+    :func:`_downgrade_online_subscription` based on the monthly-equivalent
+    price delta. Currency parity is enforced upstream by
+    ``subscription_service._validate_change_plan_target``.
 
     Validation runs under a ``select_for_update`` lock taken in an inner
     ``transaction.atomic()``. NOTE: under production ATOMIC_REQUESTS the

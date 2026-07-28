@@ -13,6 +13,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import (
+    Blacklist,
     CustomerProfile,
     MembershipPayment,
     MembershipSubscription,
@@ -181,6 +182,20 @@ class TestRevivalRefusals:
             organization=organization,
             status=OrganizationMember.MembershipStatus.BANNED,
         )
+        with pytest.raises(HttpError) as ei:
+            subscription_service.revive_subscription(expired_sub, initial_payment=payload)
+        assert ei.value.status_code == 403
+
+    def test_hard_blacklisted_user_refused(
+        self,
+        expired_sub: MembershipSubscription,
+        organization: Organization,
+        subscriber: RevelUser,
+        staff_user: RevelUser,
+        payload: InitialPayment,
+    ) -> None:
+        """A hard-blacklisted user cannot revive, mirroring the create_subscription guard."""
+        Blacklist.objects.create(organization=organization, user=subscriber, created_by=staff_user)
         with pytest.raises(HttpError) as ei:
             subscription_service.revive_subscription(expired_sub, initial_payment=payload)
         assert ei.value.status_code == 403

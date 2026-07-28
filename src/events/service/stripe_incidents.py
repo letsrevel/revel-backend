@@ -38,6 +38,7 @@ from common.observability.metrics import (
     STRIPE_SESSION_PAID_WITHOUT_PAYMENTS,
     STRIPE_SESSION_TOTAL_MISMATCH,
     SUBSCRIPTION_CHECKOUT_WITHOUT_ROW,
+    SUBSCRIPTION_PAID_WHILE_BLACKLISTED,
     SUBSCRIPTION_PAID_WHILE_TERMINAL,
     SUBSCRIPTION_PAYMENT_INTENT_UNRESOLVED,
 )
@@ -218,6 +219,42 @@ def record_subscription_payment_intent_unresolved(
         "subscription_payment_intent_unresolved",
         subscription_id=subscription_id,
         stripe_invoice_id=stripe_invoice_id,
+    )
+
+
+def record_subscription_paid_while_blacklisted(
+    *,
+    subscription_id: str,
+    organization_id: str,
+    user_id: str,
+    user_email: str,
+    stripe_subscription_id: str,
+) -> None:
+    """Emit the counter and ERROR line for an invoice paid by a hard-blacklisted user.
+
+    The member was banned (or their entry hard-matched) while a renewal was in
+    flight, so their ``OrganizationMember`` row is gone and re-creating it would
+    silently un-ban them. We keep the payment (the money moved) but grant no
+    membership, so the row is owed a manual refund/cancel that nothing downstream
+    issues — the identifiers to do it by hand are emitted here. With ban/removal
+    now cancelling the subscription up front, this is only reachable as a rare
+    race (payment landing between the ban and the best-effort Stripe cancel).
+
+    Args:
+        subscription_id: The local :class:`MembershipSubscription` pk.
+        organization_id: The organization the user is blacklisted in.
+        user_id: The blacklisted user.
+        user_email: The blacklisted user's email (to locate them in Stripe).
+        stripe_subscription_id: The Stripe subscription still billing them.
+    """
+    SUBSCRIPTION_PAID_WHILE_BLACKLISTED.inc()
+    logger.error(
+        "subscription_paid_while_blacklisted",
+        subscription_id=subscription_id,
+        organization_id=organization_id,
+        user_id=user_id,
+        user_email=user_email,
+        stripe_subscription_id=stripe_subscription_id,
     )
 
 

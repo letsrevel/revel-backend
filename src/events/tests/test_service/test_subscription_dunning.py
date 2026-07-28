@@ -196,6 +196,37 @@ class TestInvoicePaidRenewal:
 
         assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
 
+    def test_dunning_recovery_on_same_invoice_fires_renewal_succeeded(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """A dunning/SCA recovery flips the same invoice FAILED → SUCCEEDED and must fire once.
+
+        ``invoice.payment_failed`` creates a FAILED row and moves the sub to
+        PAST_DUE. When the member completes 3DS / Stripe's retry succeeds,
+        ``invoice.paid`` arrives for the SAME invoice id — ``update_or_create``
+        matches (created=False), so the plain payment_created gate would never
+        announce the recovery. The ``payment_recovered`` gate must still fire
+        RENEWAL_SUCCEEDED exactly once.
+        """
+        sub = _make_online_sub(online_plan, subscriber, stripe_id="sub_recover")
+        failed_invoice = _invoice_payload("sub_recover", invoice_id="in_recover", succeeded=False)
+
+        subscription_stripe_sync.record_stripe_payment_from_invoice(failed_invoice, succeeded=False)
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PAST_DUE
+        assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
+
+        paid_invoice = _invoice_payload("sub_recover", invoice_id="in_recover", succeeded=True)
+        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(paid_invoice, succeeded=True)
+
+        assert payment is not None
+        assert payment.status == payment.PaymentStatus.SUCCEEDED
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
+
 
 # ---- invoice.payment_failed — PAYMENT_FAILED ---------------------------------
 
@@ -237,6 +268,27 @@ class TestInvoicePaymentFailed:
         subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False)
 
         assert not _has_notification(subscriber, NotificationType.SUBSCRIPTION_PAYMENT_FAILED)
+
+    def test_second_failure_on_same_invoice_does_not_double_fire(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """A second payment_failed for the same invoice (created=False) must stay suppressed.
+
+        Guards that the recovery fix did not loosen the failure branch: the row
+        already exists, so ``payment_created`` is False and no second
+        PAYMENT_FAILED should be sent.
+        """
+        _make_online_sub(online_plan, subscriber, stripe_id="sub_fail3")
+        invoice = _invoice_payload("sub_fail3", invoice_id="in_fail3", succeeded=False)
+
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False)
+        # Same invoice re-fails (created=False on the second pass).
+        subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=False)
+
+        # Exactly one PAYMENT_FAILED — the helper asserts count == 1.
+        assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_PAYMENT_FAILED)
 
     def test_payment_action_required_routes_through_failed_branch(
         self,

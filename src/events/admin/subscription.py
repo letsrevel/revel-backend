@@ -93,6 +93,8 @@ class MembershipPaymentAdmin(SimpleHistoryAdmin, ModelAdmin):  # type: ignore[mi
         "subscription__user__username",
         "subscription__user__email",
         "subscription__organization__name",
+        "stripe_invoice_id",
+        "stripe_payment_intent_id",
     ]
     autocomplete_fields = ["subscription", "recorded_by"]
     readonly_fields = [

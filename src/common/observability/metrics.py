@@ -57,3 +57,12 @@ SUBSCRIPTION_CHECKOUT_WITHOUT_ROW = Counter(
     "revel_subscription_checkout_without_row",
     "A completed subscription Checkout Session matched no local MembershipSubscription.",
 )
+
+# An invoice was paid for a hard-blacklisted user who has no OrganizationMember
+# row: a payment in flight while staff banned them. We record the money but must
+# not mint an ACTIVE member (that would un-ban them), so the sub is owed a manual
+# refund/cancel and nothing self-heals.
+SUBSCRIPTION_PAID_WHILE_BLACKLISTED = Counter(
+    "revel_subscription_paid_while_blacklisted",
+    "A Stripe invoice was paid for a hard-blacklisted user with no membership row.",
+)

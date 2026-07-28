@@ -14,6 +14,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import (
+    Blacklist,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -29,7 +30,17 @@ def _make_stripe_connected(org: Organization) -> None:
     org.stripe_account_id = "acct_test_org"
     org.stripe_charges_enabled = True
     org.stripe_details_submitted = True
-    org.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
+    # Publicly accessible so the subscribe endpoint's visibility-aware load
+    # (Organization.objects.for_user) sees the org for a non-member subscriber.
+    org.visibility = Organization.Visibility.PUBLIC
+    org.save(
+        update_fields=[
+            "stripe_account_id",
+            "stripe_charges_enabled",
+            "stripe_details_submitted",
+            "visibility",
+        ]
+    )
 
 
 @pytest.fixture
@@ -325,6 +336,21 @@ class TestSubscribeEndpoint:
         url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
         response = subscriber_client.post(url, data={"plan_id": str(plan.id)}, content_type="application/json")
         assert response.status_code == 400
+
+    def test_subscribe_hard_blacklisted_gets_404(
+        self,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        organization_owner_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        """A hard-blacklisted user sees the org as invisible: 404, not a distinguishable 403."""
+        Blacklist.objects.create(organization=organization, user=subscriber_user, created_by=organization_owner_user)
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 404, response.content
+        assert not MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
 
     def test_subscribe_unauthenticated_blocked(
         self,

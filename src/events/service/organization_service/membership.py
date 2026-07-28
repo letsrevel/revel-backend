@@ -255,8 +255,16 @@ def add_member(organization: Organization, user: RevelUser, tier: MembershipTier
 
 
 def remove_member(organization: Organization, user: RevelUser) -> None:
-    """Remove a member from an organization."""
+    """Remove a member from an organization.
+
+    Cancels any live subscription first: without it the next ``invoice.paid``
+    re-creates the deleted member as ACTIVE, silently undoing the removal while
+    Stripe keeps billing (see ``cancel_subscriptions_for_membership_loss``).
+    """
     member = get_object_or_404(OrganizationMember, organization=organization, user=user)
+    from events.service import subscription_service  # lazy: avoid cycle
+
+    subscription_service.cancel_subscriptions_for_membership_loss(user, organization)
     member.delete()
 
 
@@ -293,6 +301,13 @@ def update_member(
 
     if updated_fields:
         member.save(update_fields=updated_fields)
+
+    # Banning a member must also stop their billing, mirroring the blacklist
+    # path — otherwise the next renewal keeps charging a banned member.
+    if status == OrganizationMember.MembershipStatus.BANNED:
+        from events.service import subscription_service  # lazy: avoid cycle
+
+        subscription_service.cancel_subscriptions_for_membership_loss(member.user, member.organization)
 
     return member
 

@@ -55,10 +55,35 @@ def _ensure_active_member(subscription: MembershipSubscription) -> None:
     responsibility belongs to :func:`subscription_service.create_subscription`
     for the OFFLINE flow. For ONLINE plans, the equivalent moment is the
     first successful invoice / Stripe ``active`` status — both of which land
-    in this module's webhook helpers. We use ``get_or_create`` so that an
-    existing BANNED row stays BANNED (the post-save signal then preserves
-    that state when it fires).
+    in this module's webhook helpers.
+
+    An existing row (BANNED included) is left untouched. When no row exists we
+    normally create one — a plain removal now cancels the subscription up front,
+    so a later ``invoice.paid`` is a genuine re-subscribe. The one exception is a
+    *hard-blacklisted* user: minting an ACTIVE member would silently un-ban them,
+    so we record the payment (money already moved) and raise an incident for the
+    manual refund/cancel instead. This is a rare race (payment in flight while
+    staff ban) now that ban/removal cancels the subscription.
     """
+    existing = OrganizationMember.objects.filter(
+        organization=subscription.organization,
+        user=subscription.user,
+    ).first()
+    if existing is not None:
+        return
+
+    from events.service.blacklist_service import check_user_hard_blacklisted  # lazy: avoid cycle
+
+    if check_user_hard_blacklisted(subscription.user, subscription.organization):
+        stripe_incidents.record_subscription_paid_while_blacklisted(
+            subscription_id=str(subscription.pk),
+            organization_id=str(subscription.organization_id),
+            user_id=str(subscription.user_id),
+            user_email=subscription.user.email,
+            stripe_subscription_id=subscription.stripe_subscription_id or "",
+        )
+        return
+
     OrganizationMember.objects.get_or_create(
         organization=subscription.organization,
         user=subscription.user,
@@ -530,10 +555,21 @@ def record_stripe_payment_from_invoice(
     if payment_intent_id:
         defaults["stripe_payment_intent_id"] = payment_intent_id
 
+    # Capture the row's status BEFORE the upsert so we can tell a dunning/SCA
+    # recovery (FAILED → SUCCEEDED on the SAME invoice, so ``created`` is False)
+    # apart from a plain ``invoice.paid`` redelivery (already SUCCEEDED). We hold
+    # the per-member lock, so no race with a concurrent write. Strictly == FAILED:
+    # a redelivered paid invoice (SUCCEEDED) or a terminal-refunded row (REFUNDED)
+    # must not count as a recovery.
+    prior_payment_status = (
+        MembershipPayment.objects.filter(stripe_invoice_id=invoice_id).values_list("status", flat=True).first()
+    )
+
     payment, created = MembershipPayment.objects.update_or_create(
         stripe_invoice_id=invoice_id,
         defaults=defaults,
     )
+    payment_recovered = succeeded and not created and prior_payment_status == MembershipPayment.PaymentStatus.FAILED
 
     if succeeded:
         _raise_payment_incidents(subscription, payment, invoice_id=invoice_id, currency=currency_code)
@@ -552,6 +588,7 @@ def record_stripe_payment_from_invoice(
         prior_status=prior_status,
         succeeded=succeeded,
         payment_created=created,
+        payment_recovered=payment_recovered,
         billing_reason=t.cast(str, invoice.get("billing_reason") or ""),
     )
 

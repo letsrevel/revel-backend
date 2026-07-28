@@ -43,6 +43,7 @@ def _dispatch_invoice_notifications(
     prior_status: str,
     succeeded: bool,
     payment_created: bool,
+    payment_recovered: bool = False,
     billing_reason: str = "",
 ) -> None:
     """Dispatch RENEWAL_SUCCEEDED or PAYMENT_FAILED based on prior → final status transition.
@@ -53,6 +54,12 @@ def _dispatch_invoice_notifications(
         succeeded: True for invoice.paid; False for invoice.payment_failed.
         payment_created: True if the payment row was newly created; False if updated.
             Ensures duplicate dispatches on webhook re-delivery are suppressed.
+        payment_recovered: True when this ``invoice.paid`` flipped an *existing*
+            FAILED row to SUCCEEDED — i.e. a dunning/SCA recovery on the same
+            invoice, where ``payment_created`` is False (the row already existed)
+            but the member did just recover and is owed RENEWAL_SUCCEEDED. A plain
+            paid-invoice redelivery has a prior SUCCEEDED row, so this stays False
+            and the redelivery dedup is preserved.
         billing_reason: The invoice's Stripe ``billing_reason``. A mid-cycle
             upgrade invoices immediately (``subscription_update``) and must not
             be announced to the member as a renewal.
@@ -60,7 +67,7 @@ def _dispatch_invoice_notifications(
     S = MembershipSubscription.SubscriptionStatus
     if succeeded:
         if (
-            payment_created
+            (payment_created or payment_recovered)
             and prior_status in {S.ACTIVE.value, S.PAST_DUE.value}
             and billing_reason != "subscription_update"
         ):

@@ -13,6 +13,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.exceptions import BillingInfoRequiredError, StripeNotConnectedError
 from events.models import (
+    Blacklist,
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -260,6 +261,31 @@ class TestCreateSubscription:
         with pytest.raises(HttpError) as excinfo:
             subscription_service.create_subscription(plan, subscriber)
         assert excinfo.value.status_code == 403
+
+    def test_refuses_hard_blacklisted_user(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+        recorder: RevelUser,
+    ) -> None:
+        """A hard-blacklisted user is refused with 403, mirroring the BANNED guard."""
+        Blacklist.objects.create(organization=organization, user=subscriber, created_by=recorder)
+        with pytest.raises(HttpError) as excinfo:
+            subscription_service.create_subscription(plan, subscriber)
+        assert excinfo.value.status_code == 403
+
+    def test_soft_blacklist_does_not_block(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+        recorder: RevelUser,
+    ) -> None:
+        """A name-only (fuzzy) blacklist entry is not a hard block and must not refuse."""
+        Blacklist.objects.create(organization=organization, first_name="Some", last_name="Name", created_by=recorder)
+        sub = subscription_service.create_subscription(plan, subscriber)
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PENDING
 
     def test_refuses_duplicate_active_subscription(
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser
@@ -640,6 +666,63 @@ class TestLifecycle:
         sub.refresh_from_db()
         assert sub.cancel_at_period_end is False
         assert sub.status == MembershipSubscription.SubscriptionStatus.PAUSED
+
+    def test_pause_blocked_when_cancel_scheduled(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        recorder: RevelUser,
+    ) -> None:
+        """The reverse of the PAUSED-cancel guard.
+
+        A subscription with a scheduled cancel cannot be paused — pausing would
+        freeze it PAUSED+cancel_at_period_end forever, invisible to the
+        grace-expiry sweep (which only selects ACTIVE/PAST_DUE).
+        """
+        sub = subscription_service.create_subscription(
+            plan,
+            subscriber,
+            initial_payment=InitialPayment(amount=Decimal("10.00"), currency="EUR", recorded_by=recorder),
+        )
+        subscription_service.cancel_subscription(sub, immediate=False)
+        with pytest.raises(HttpError) as excinfo:
+            subscription_service.pause_subscription(sub)
+        assert excinfo.value.status_code == 400
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        assert sub.cancel_at_period_end is True
+
+    def test_pause_blocked_when_cancel_scheduled_online(
+        self,
+        tier: MembershipTier,
+        subscriber: RevelUser,
+    ) -> None:
+        """The scheduled-cancel pause guard gates the ONLINE branch too, before any Stripe call."""
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Online Cancel Scheduled",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            period_count=1,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=online_plan.tier.organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_cancel_scheduled",
+            cancel_at_period_end=True,
+        )
+        with mock.patch("events.service.subscription_stripe_service.pause_online_subscription") as mock_pause:
+            with pytest.raises(HttpError) as excinfo:
+                subscription_service.pause_subscription(sub)
+        assert excinfo.value.status_code == 400
+        mock_pause.assert_not_called()
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        assert sub.cancel_at_period_end is True
 
     def test_pause_online_without_stripe_id_is_refused(
         self,

@@ -6,24 +6,26 @@ logic is intentionally absent; it lands in a separate Phase 2 module.
 
 import dataclasses
 import datetime
+import functools
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
 
 import structlog
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError, transaction
-from django.db.models import ProtectedError
+from django.db import transaction
+from django.db.models import ProtectedError, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.utils import get_or_create_with_race_protection
 from events.models import (
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
+    Organization,
     OrganizationMember,
 )
 from events.service.subscription_sales import ensure_plan_on_sale, ensure_plan_sales_capacity
@@ -233,6 +235,14 @@ def create_subscription(
     if banned:
         raise HttpError(403, str(_("This user is banned from the organization.")))
 
+    # Refuse hard-blacklisted (defense-in-depth: the member-facing controller
+    # already 404s an invisible org, but staff-initiated and other call sites
+    # reach the service directly). Same helper the membership BlacklistGate uses.
+    from events.service.blacklist_service import check_user_hard_blacklisted  # lazy: avoid cycle
+
+    if check_user_hard_blacklisted(user, organization):
+        raise HttpError(403, str(_("This user is blacklisted from the organization.")))
+
     # Refuse duplicate active subscription.
     duplicate = (
         MembershipSubscription.objects.filter(organization=organization, user=user)
@@ -258,21 +268,22 @@ def create_subscription(
             },
         )
 
-    try:
-        subscription = MembershipSubscription.objects.create(
-            user=user,
-            plan=plan,
-            organization=organization,
-            status=MembershipSubscription.SubscriptionStatus.PENDING,
-        )
-    except (IntegrityError, DjangoValidationError) as exc:
-        # The partial-unique index protects against a race where two requests
-        # both pass the duplicate check above. Depending on timing the race
-        # surfaces as IntegrityError (unique violation at INSERT) or as
-        # ValidationError (TimeStampedModel.save runs full_clean, whose
-        # validate_constraints sees the racing row once committed). Convert
-        # both to the same clean 400.
-        raise HttpError(400, str(_("This user already has an active subscription in this organization."))) from exc
+    # The partial-unique index protects against a race where two requests both
+    # pass the duplicate check above; the helper re-fetches the winner whether
+    # the race surfaces as IntegrityError (INSERT) or ValidationError
+    # (TimeStampedModel.save's full_clean sees the committed racing row).
+    subscription, created = get_or_create_with_race_protection(
+        MembershipSubscription,
+        Q(user=user, organization=organization) & ~Q(status__in=MembershipSubscription.TERMINAL_STATUSES),
+        defaults={
+            "user": user,
+            "plan": plan,
+            "organization": organization,
+            "status": MembershipSubscription.SubscriptionStatus.PENDING,
+        },
+    )
+    if not created:
+        raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
 
     if initial_payment is not None:
         record_payment(
@@ -473,6 +484,68 @@ def cancel_subscription(
 
 
 @transaction.atomic
+def cancel_subscriptions_for_membership_loss(user: RevelUser, organization: Organization) -> int:
+    """Terminalize a user's subscriptions when they lose membership (ban / removal).
+
+    Banning or removing a member must also stop their billing. Without this the
+    next ``invoice.paid`` keeps charging a banned member (who now gets nothing)
+    and, worse, re-creates a *removed* member as ACTIVE via
+    :func:`subscription_stripe_sync._ensure_active_member` — silently undoing the
+    staff action while billing continues.
+
+    Mirrors :func:`subscription_refunds._cancel_refunded_subscription`: reload
+    each non-terminal row under a ``select_for_update(of=("self",))`` lock,
+    terminalize it locally (CANCELLED + ``cancelled_at``, clear
+    ``cancel_at_period_end``), and for ONLINE rows with a linked Stripe
+    subscription schedule a best-effort Stripe cancel *after commit* — never a
+    network call under the row lock. The member is told their subscription was
+    cancelled (same dispatch as any immediate cancel).
+
+    Normally at most one non-terminal subscription exists per (user,
+    organization), but this loops defensively.
+
+    Returns the number of subscriptions cancelled.
+    """
+    # ponytail: refunds stay manual. Bans are for cause, so no money is returned
+    # here (the platform fee is never refunded by design); staff retain the
+    # org-admin refund endpoint for the rare good-faith removal.
+    from events.service import subscription_stripe_service  # lazy: avoid cycle
+
+    subscription_ids = list(
+        MembershipSubscription.objects.filter(user=user, organization=organization)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .values_list("pk", flat=True)
+    )
+    cancelled = 0
+    for sub_id in subscription_ids:
+        subscription = (
+            MembershipSubscription.objects.select_for_update(of=("self",))
+            .select_related("plan", "plan__tier", "organization")
+            .get(pk=sub_id)
+        )
+        if subscription.is_terminal:
+            continue
+        subscription.status = MembershipSubscription.SubscriptionStatus.CANCELLED
+        subscription.cancelled_at = timezone.now()
+        subscription.cancel_at_period_end = False
+        subscription.save(update_fields=["status", "cancelled_at", "cancel_at_period_end", "updated_at"])
+        if (
+            subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
+            and subscription.stripe_subscription_id
+        ):
+            transaction.on_commit(
+                functools.partial(
+                    subscription_stripe_service.cancel_stripe_subscription_best_effort,
+                    subscription,
+                    reason="membership_loss",
+                )
+            )
+        _dispatch_cancellation_confirmed(subscription, immediate=True)
+        cancelled += 1
+    return cancelled
+
+
+@transaction.atomic
 def pause_subscription(subscription: MembershipSubscription) -> MembershipSubscription:
     """Pause a non-terminal subscription.
 
@@ -488,6 +561,12 @@ def pause_subscription(subscription: MembershipSubscription) -> MembershipSubscr
     )
     if subscription.is_terminal:
         raise HttpError(400, str(_("Cannot pause a terminal subscription.")))
+    # Guard the reverse of ``cancel_subscription``'s PAUSED refusal: pausing a
+    # subscription with a scheduled cancel would freeze it PAUSED+cancel_at_period_end,
+    # invisible to the grace-expiry sweep (ACTIVE/PAST_DUE only). Placed before the
+    # ONLINE dispatch so it covers both payment methods and never reaches Stripe.
+    if subscription.cancel_at_period_end:
+        raise HttpError(400, str(_("Cannot pause a subscription that is scheduled for cancellation.")))
     if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         if not subscription.stripe_subscription_id:
             raise HttpError(400, str(_("This subscription has no linked Stripe record yet.")))
@@ -571,6 +650,11 @@ def _validate_revivable(subscription: MembershipSubscription) -> None:
     ).exists()
     if banned:
         raise HttpError(403, str(_("This user is banned from the organization.")))
+
+    from events.service.blacklist_service import check_user_hard_blacklisted  # lazy: avoid cycle
+
+    if check_user_hard_blacklisted(subscription.user, org):
+        raise HttpError(403, str(_("This user is blacklisted from the organization.")))
 
 
 def revive_subscription(
