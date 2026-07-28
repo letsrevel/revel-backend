@@ -119,7 +119,7 @@ def _teardown(sandbox: _Sandbox) -> None:
         schedule = live.get("schedule")
         schedule_id = schedule.get("id") if isinstance(schedule, dict) else schedule
         if schedule_id:
-            stripe.SubscriptionSchedule.release(schedule_id, **kwargs)  # type: ignore[arg-type]
+            stripe.SubscriptionSchedule.release(schedule_id, **kwargs)
 
     _safely("release schedule", _release_any_schedule)
     _safely("cancel subscription", lambda: stripe.Subscription.cancel(sandbox.subscription_id, **kwargs))  # type: ignore[attr-defined]
@@ -275,7 +275,7 @@ def test_scheduled_downgrade_keeps_application_fee_percent(
     evidence["probe_default_settings_fee"] = _fee_of(probe.get("default_settings"))
     evidence["probe_phase_fees"] = _phase_fees(probe)
     # Release so the subscription is unmanaged again and ② can create its own schedule.
-    stripe.SubscriptionSchedule.release(probe.id, **kwargs)  # type: ignore[arg-type]
+    stripe.SubscriptionSchedule.release(probe.id, **kwargs)
 
     # ② The real production code path, unmocked, against the real API.
     subscription_stripe_plan_change._downgrade_online_subscription(subscription, new_plan)
