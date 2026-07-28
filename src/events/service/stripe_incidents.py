@@ -39,6 +39,7 @@ from common.observability.metrics import (
     STRIPE_SESSION_TOTAL_MISMATCH,
     SUBSCRIPTION_CHECKOUT_WITHOUT_ROW,
     SUBSCRIPTION_PAID_WHILE_BLACKLISTED,
+    SUBSCRIPTION_PAID_WHILE_PAUSED,
     SUBSCRIPTION_PAID_WHILE_TERMINAL,
     SUBSCRIPTION_PAYMENT_INTENT_UNRESOLVED,
 )
@@ -190,6 +191,49 @@ def record_subscription_paid_while_terminal(
         "subscription_paid_while_terminal",
         subscription_id=subscription_id,
         subscription_status=status,
+        stripe_invoice_id=stripe_invoice_id,
+        payment_intent_id=payment_intent_id,
+        amount=amount,
+        currency=currency,
+    )
+
+
+def record_subscription_paid_while_paused(
+    *,
+    subscription_id: str,
+    organization_id: str,
+    user_id: str,
+    stripe_invoice_id: str,
+    payment_intent_id: str,
+    amount: str,
+    currency: str,
+) -> None:
+    """Emit the counter and ERROR line for an invoice paid against a PAUSED row.
+
+    Staff paused the subscription, but an invoice that was already open when the
+    pause landed still settled (a Smart Retry, or the member paying from the
+    hosted invoice page). The payment is recorded and the period advances, yet
+    the row deliberately stays PAUSED — Stripe still reports ``pause_collection``
+    and staff intent wins — so the member is not resumed and no member-facing
+    notification fires (the dispatch gates only speak for ACTIVE/PAST_DUE/PENDING
+    transitions). Nothing downstream reconciles that, so ops has to decide
+    between resuming the membership and refunding the invoice.
+
+    Args:
+        subscription_id: The local :class:`MembershipSubscription` pk.
+        organization_id: The organization the paused subscription belongs to.
+        user_id: The paying member (id only — no email in incident logs).
+        stripe_invoice_id: The Stripe invoice that was paid.
+        payment_intent_id: The PaymentIntent to refund (may be empty).
+        amount: What changed hands, as a decimal string.
+        currency: Payment currency.
+    """
+    SUBSCRIPTION_PAID_WHILE_PAUSED.inc()
+    logger.error(
+        "subscription_paid_while_paused",
+        subscription_id=subscription_id,
+        organization_id=organization_id,
+        user_id=user_id,
         stripe_invoice_id=stripe_invoice_id,
         payment_intent_id=payment_intent_id,
         amount=amount,

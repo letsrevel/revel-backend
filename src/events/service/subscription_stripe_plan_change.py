@@ -22,6 +22,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     Organization,
 )
+from events.service.subscription_stripe_payloads import _is_subscription_gone
 
 logger = structlog.get_logger(__name__)
 
@@ -115,6 +116,91 @@ def release_online_schedule(subscription: MembershipSubscription) -> None:
         subscription.pending_plan = None
         update_fields.append("pending_plan")
     subscription.save(update_fields=update_fields)
+
+
+def resolve_refused_cancel(
+    subscription: MembershipSubscription,
+    exc: stripe.error.InvalidRequestError,
+    *,
+    reason: str,
+) -> bool:
+    """Decide what a refused best-effort ``Subscription.cancel`` actually means.
+
+    Stripe raises :class:`InvalidRequestError` both when the subscription is
+    already gone (cancelled/deleted — the caller's desired end state) and when it
+    is *schedule-managed*, i.e. a pending downgrade is still attached. Reading
+    the latter as success left Stripe billing a member who had already lost
+    access locally, so the two are told apart here: a schedule is released (a row
+    being terminalized has no use for its pending downgrade) and the cancel
+    retried **once**, which is why this resolver lives next to
+    :func:`release_online_schedule`.
+
+    Best-effort like its caller
+    (:func:`subscription_stripe_service.cancel_stripe_subscription_best_effort`):
+    every failure — including the 502 :func:`release_online_schedule` raises on a
+    hard Stripe error — is logged and reported as ``False`` so callers keep
+    treating the Stripe subscription as possibly still live and billing.
+
+    Args:
+        subscription: The locally-terminalized row whose Stripe sub must close.
+        exc: The refusal ``Subscription.cancel`` raised.
+        reason: The caller's terminalization reason, for the log line.
+
+    Returns:
+        True when the Stripe subscription is known to be closed.
+    """
+    if _is_subscription_gone(exc):
+        logger.info(
+            "subscription_stripe_cancel_on_terminalize_already_done",
+            subscription_id=str(subscription.pk),
+            stripe_subscription_id=subscription.stripe_subscription_id,
+            reason=reason,
+        )
+        return True
+
+    if not subscription.stripe_schedule_id and "schedule" not in str(exc).lower():
+        logger.error(
+            "subscription_stripe_cancel_on_terminalize_failed",
+            subscription_id=str(subscription.pk),
+            stripe_subscription_id=subscription.stripe_subscription_id,
+            reason=reason,
+            error=str(exc),
+        )
+        return False
+
+    try:
+        release_online_schedule(subscription)
+        stripe.Subscription.cancel(  # type: ignore[attr-defined]
+            subscription.stripe_subscription_id,
+            **_stripe_account_kwargs(subscription.organization),
+        )
+    except stripe.error.InvalidRequestError as retry_exc:
+        if not _is_subscription_gone(retry_exc):
+            logger.error(
+                "subscription_stripe_cancel_on_terminalize_failed",
+                subscription_id=str(subscription.pk),
+                stripe_subscription_id=subscription.stripe_subscription_id,
+                reason=reason,
+                error=str(retry_exc),
+            )
+            return False
+    except stripe.error.StripeError, HttpError:
+        logger.exception(
+            "subscription_stripe_cancel_on_terminalize_failed",
+            subscription_id=str(subscription.pk),
+            stripe_subscription_id=subscription.stripe_subscription_id,
+            reason=reason,
+        )
+        return False
+
+    logger.info(
+        "subscription_stripe_cancelled_on_terminalize",
+        subscription_id=str(subscription.pk),
+        stripe_subscription_id=subscription.stripe_subscription_id,
+        reason=reason,
+        after_schedule_release=True,
+    )
+    return True
 
 
 def _retrieve_subscription_item_id(stripe_subscription_id: str, org: Organization) -> str:

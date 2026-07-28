@@ -407,8 +407,10 @@ def _raise_payment_incidents(
 ) -> None:
     """Emit money-correctness incidents for a successfully recorded payment.
 
-    Both cases below are unrecoverable without a human: neither the nightly
-    reconcile nor a Stripe redelivery repairs them.
+    Every case below is unrecoverable without a human: neither the nightly
+    reconcile nor a Stripe redelivery repairs them. ``subscription`` still
+    carries its pre-invoice status — the caller applies the outcome afterwards —
+    which is what makes the PAUSED check below meaningful.
 
     Args:
         subscription: The subscription the invoice belongs to.
@@ -427,6 +429,20 @@ def _raise_payment_incidents(
         stripe_incidents.record_subscription_paid_while_terminal(
             subscription_id=str(subscription.pk),
             status=subscription.status,
+            stripe_invoice_id=invoice_id,
+            payment_intent_id=payment.stripe_payment_intent_id,
+            amount=str(payment.amount),
+            currency=currency,
+        )
+    elif subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED.value:
+        # An invoice that was open when staff paused still settled. We keep the
+        # pause (Stripe still reports pause_collection; staff intent wins), so
+        # the member stays PAUSED with money on the clock and no notification
+        # fires — ops decides between resuming and refunding.
+        stripe_incidents.record_subscription_paid_while_paused(
+            subscription_id=str(subscription.pk),
+            organization_id=str(subscription.organization_id),
+            user_id=str(subscription.user_id),
             stripe_invoice_id=invoice_id,
             payment_intent_id=payment.stripe_payment_intent_id,
             amount=str(payment.amount),
@@ -530,18 +546,24 @@ def record_stripe_payment_from_invoice(
     if not succeeded:
         # Monotonicity guard: Stripe gives no delivery-order guarantee, and a
         # failed→retried→paid invoice emits both events. A late-arriving
-        # ``payment_failed`` must never downgrade a payment row already
-        # recorded as SUCCEEDED (the sub's status would self-heal via the
-        # nightly reconcile, but the corrupted ledger row would not).
+        # ``payment_failed`` must never downgrade a payment row that already
+        # settled (the sub's status would self-heal via the nightly reconcile,
+        # but the corrupted ledger row would not). REFUNDED counts as settled:
+        # rewriting it to FAILED/amount=0 would leave the refund fields claiming
+        # a refund of a payment the row says never succeeded.
         existing = MembershipPayment.objects.filter(
             stripe_invoice_id=invoice_id,
-            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            status__in=(
+                MembershipPayment.PaymentStatus.SUCCEEDED,
+                MembershipPayment.PaymentStatus.REFUNDED,
+            ),
         ).first()
         if existing is not None:
             logger.info(
                 "subscription_stripe_stale_payment_failed_ignored",
                 subscription_id=str(subscription.pk),
                 stripe_invoice_id=invoice_id,
+                existing_status=existing.status,
             )
             return existing
 

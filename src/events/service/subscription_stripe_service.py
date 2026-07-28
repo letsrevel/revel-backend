@@ -501,6 +501,10 @@ def _maybe_resume_pending_checkout(
             organization=plan.tier.organization,
             user=user,
             status=MembershipSubscription.SubscriptionStatus.PENDING,
+            # ONLINE only: a staff-created OFFLINE PENDING row owns no Checkout
+            # Session and would simply be deleted here; leaving it alone lets
+            # ``create_subscription``'s duplicate-active check refuse the subscribe.
+            plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
         )
         .select_related("plan", "organization")
         .first()
@@ -610,11 +614,11 @@ def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription,
     Stripe object) must check the return value rather than assume a later sweep
     will clean up.
 
-    Returns True when the Stripe side is known to be closed — including when it
-    was already gone (``InvalidRequestError``), so callers can treat ``False`` as
-    "the Stripe subscription may still be live and billing" rather than having to
-    re-derive that. ``False`` also covers the no-id no-op; check
-    ``stripe_subscription_id`` first when that distinction matters.
+    Returns True when the Stripe side is known to be closed — already gone, or
+    cancelled after releasing a downgrade schedule Stripe was refusing over — so
+    callers can treat ``False`` as "the Stripe subscription may still be live and
+    billing" rather than having to re-derive that. ``False`` also covers the
+    no-id no-op; check ``stripe_subscription_id`` first when that matters.
     """
     if not subscription.stripe_subscription_id:
         return False
@@ -623,15 +627,12 @@ def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription,
             subscription.stripe_subscription_id,
             **_stripe_account_kwargs(subscription.organization),
         )
-    except stripe.error.InvalidRequestError:
-        # Already cancelled or no longer exists — the desired end state holds.
-        logger.info(
-            "subscription_stripe_cancel_on_terminalize_already_done",
-            subscription_id=str(subscription.pk),
-            stripe_subscription_id=subscription.stripe_subscription_id,
-            reason=reason,
-        )
-        return True
+    except stripe.error.InvalidRequestError as exc:
+        # Already gone → the desired end state holds. Schedule-managed (pending
+        # downgrade) → release the schedule and retry once. Anything else → False.
+        from events.service.subscription_stripe_plan_change import resolve_refused_cancel  # lazy: avoid cycle
+
+        return resolve_refused_cancel(subscription, exc, reason=reason)
     except stripe.error.StripeError:
         logger.exception(
             "subscription_stripe_cancel_on_terminalize_failed",

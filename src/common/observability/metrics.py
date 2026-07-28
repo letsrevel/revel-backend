@@ -58,6 +58,15 @@ SUBSCRIPTION_CHECKOUT_WITHOUT_ROW = Counter(
     "A completed subscription Checkout Session matched no local MembershipSubscription.",
 )
 
+# An invoice was paid against a locally PAUSED subscription: staff paused the
+# member but an open pre-pause invoice still settled (Smart Retry, hosted invoice
+# page). We keep the money and the pause — Stripe still reports pause_collection,
+# and staff intent wins — so a human has to resume or refund.
+SUBSCRIPTION_PAID_WHILE_PAUSED = Counter(
+    "revel_subscription_paid_while_paused",
+    "A Stripe invoice was paid against a PAUSED membership subscription.",
+)
+
 # An invoice was paid for a hard-blacklisted user who has no OrganizationMember
 # row: a payment in flight while staff banned them. We record the money but must
 # not mint an ACTIVE member (that would un-ban them), so the sub is owed a manual
