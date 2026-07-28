@@ -15,10 +15,12 @@ import stripe
 import structlog
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from common.models import SiteSettings
 from common.service.vat_utils import b2b_fee_vat_from_gross
+from common.utils import get_or_create_with_race_protection
 from events.models import (
     MembershipPayment,
     MembershipSubscription,
@@ -49,8 +51,21 @@ stripe.api_version = settings.STRIPE_API_VERSION
 # ---- Webhook helpers --------------------------------------------------------
 
 
-def _ensure_active_member(subscription: MembershipSubscription) -> None:
-    """Make sure an :class:`OrganizationMember` exists for an ONLINE subscriber.
+MemberActivation = t.Literal["created", "existing", "blocked"]
+"""What :func:`_ensure_active_member` did, so the notification gates can dedupe.
+
+``"created"`` — the row was minted by this activation, so ``OrganizationMember``'s
+post_save signal already announced it with MEMBERSHIP_GRANTED.
+``"existing"`` — the member was already there (a revival, or a free member
+upgrading to a paid plan): nothing announced the payment, so the invoice
+dispatcher owes them the confirmation.
+``"blocked"`` — hard-blacklisted: no membership, an incident instead, and
+certainly no "welcome" notification.
+"""
+
+
+def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivation:
+    """Make sure an ACTIVE :class:`OrganizationMember` exists for an ONLINE subscriber.
 
     Phase 1's signal-driven sync intentionally never *creates* members; that
     responsibility belongs to :func:`subscription_service.create_subscription`
@@ -58,20 +73,40 @@ def _ensure_active_member(subscription: MembershipSubscription) -> None:
     first successful invoice / Stripe ``active`` status — both of which land
     in this module's webhook helpers.
 
-    An existing row (BANNED included) is left untouched. When no row exists we
-    normally create one — a plain removal now cancels the subscription up front,
-    so a later ``invoice.paid`` is a genuine re-subscribe. The one exception is a
-    *hard-blacklisted* user: minting an ACTIVE member would silently un-ban them,
-    so we record the payment (money already moved) and raise an incident for the
-    manual refund/cancel instead. This is a rare race (payment in flight while
-    staff ban) now that ban/removal cancels the subscription.
+    A CANCELLED row is reactivated: a lapsed member who pays again is owed
+    their membership back, and until now that depended entirely on
+    ``signals.sync_member_from_subscription`` firing — which it only does when
+    the subscription row itself changed, so an activation that touched no field
+    (a redelivered ``customer.subscription.updated`` on an already-ACTIVE row)
+    left the member CANCELLED. The status/tier written here are exactly what
+    that signal maps an ACTIVE subscription to, so the two agree and whichever
+    runs second is a no-op. Every other existing row (BANNED and PAUSED
+    included — a staff pause outranks Stripe) is left untouched.
+
+    When no row exists we normally create one — a plain removal now cancels the
+    subscription up front, so a later ``invoice.paid`` is a genuine re-subscribe.
+    The one exception is a *hard-blacklisted* user: minting an ACTIVE member
+    would silently un-ban them, so we record the payment (money already moved)
+    and raise an incident for the manual refund/cancel instead. This is a rare
+    race (payment in flight while staff ban) now that ban/removal cancels the
+    subscription.
+
+    Returns:
+        Which of the three cases applied — see :data:`MemberActivation`.
     """
     existing = OrganizationMember.objects.filter(
         organization=subscription.organization,
         user=subscription.user,
     ).first()
     if existing is not None:
-        return
+        if existing.status == OrganizationMember.MembershipStatus.CANCELLED:
+            existing.status = OrganizationMember.MembershipStatus.ACTIVE
+            update_fields = ["status", "updated_at"]
+            if existing.tier_id != subscription.plan.tier_id:
+                existing.tier_id = subscription.plan.tier_id
+                update_fields.append("tier")
+            existing.save(update_fields=update_fields)
+        return "existing"
 
     if check_user_hard_blacklisted(subscription.user, subscription.organization):
         stripe_incidents.record_subscription_paid_while_blacklisted(
@@ -81,16 +116,22 @@ def _ensure_active_member(subscription: MembershipSubscription) -> None:
             user_email=subscription.user.email,
             stripe_subscription_id=subscription.stripe_subscription_id or "",
         )
-        return
+        return "blocked"
 
-    OrganizationMember.objects.get_or_create(
-        organization=subscription.organization,
-        user=subscription.user,
-        defaults={
+    # A concurrent webhook may be minting the same row; the loser reads the
+    # winner's row back. Either way the row did not exist when we started, so
+    # MEMBERSHIP_GRANTED has fired for it — "created" from the notifier's angle.
+    get_or_create_with_race_protection(
+        OrganizationMember,
+        Q(organization=subscription.organization, user=subscription.user),
+        {
+            "organization": subscription.organization,
+            "user": subscription.user,
             "tier": subscription.plan.tier,
             "status": OrganizationMember.MembershipStatus.ACTIVE,
         },
     )
+    return "created"
 
 
 _STRIPE_STATUS_MAP: dict[str, str] = {
@@ -334,7 +375,7 @@ def _apply_invoice_outcome(
     succeeded: bool,
     period_start: datetime | None,
     period_end: datetime | None,
-) -> None:
+) -> MemberActivation | None:
     """Mirror an invoice outcome onto the subscription row (caller holds the lock).
 
     Terminal rows are frozen here exactly as they are in
@@ -344,9 +385,15 @@ def _apply_invoice_outcome(
     written by the caller — the money genuinely moved and Stripe took its
     application fee, so suppressing it would desync our ledger from Stripe — but
     the member is owed a refund, which is why the caller raises an incident.
+
+    Returns:
+        The :func:`_ensure_active_member` outcome when the invoice left the
+        subscription ACTIVE, else ``None`` (frozen row, failure, still paused):
+        the caller's notification gates need to know whether the member row was
+        *created* here — and therefore already announced by MEMBERSHIP_GRANTED.
     """
     if subscription.is_terminal:
-        return
+        return None
     if succeeded:
         # Mirror the period from the invoice line and revive PENDING/PAST_DUE.
         update_fields: list[str] = []
@@ -376,8 +423,8 @@ def _apply_invoice_outcome(
         if subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE.value:
             # Guarded: a payment recorded against a non-revivable (e.g.
             # EXPIRED) row must not mint an ACTIVE OrganizationMember.
-            _ensure_active_member(subscription)
-        return
+            return _ensure_active_member(subscription)
+        return None
     # Mirror PAST_DUE; the grace-expiry Celery task takes over from here.
     if subscription.status in {
         MembershipSubscription.SubscriptionStatus.ACTIVE.value,
@@ -385,6 +432,7 @@ def _apply_invoice_outcome(
     }:
         subscription.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
         subscription.save(update_fields=["status", "updated_at"])
+    return None
 
 
 def _line_price_id(line: dict[str, t.Any]) -> str:
@@ -653,7 +701,7 @@ def record_stripe_payment_from_invoice(
     if succeeded:
         _raise_payment_incidents(subscription, payment, invoice_id=invoice_id, currency=currency_code)
 
-    _apply_invoice_outcome(
+    member_activation = _apply_invoice_outcome(
         subscription,
         succeeded=succeeded,
         # ``None`` for a proration-only invoice: it describes no billing period,
@@ -668,6 +716,10 @@ def record_stripe_payment_from_invoice(
         succeeded=succeeded,
         payment_created=created,
         payment_recovered=payment_recovered,
+        # Only "existing" means nobody has told the member anything yet: a
+        # created row already fired MEMBERSHIP_GRANTED, and a blocked one is
+        # getting an incident + refund rather than a welcome.
+        member_pre_existed=member_activation == "existing",
         billing_reason=t.cast(str, invoice.get("billing_reason") or ""),
         # Quote what this invoice actually moved — grandfathered subscribers sit
         # on an older Stripe Price than ``plan.price``. A failure moved nothing,

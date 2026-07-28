@@ -20,7 +20,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from common.utils import get_or_create_with_race_protection
+from common.utils import get_or_create_with_race_protection, update_or_create_with_race_protection
 from events.models import (
     MembershipPayment,
     MembershipSubscription,
@@ -121,10 +121,10 @@ def create_subscription(
     # so we don't grant tier benefits up front: that work moves into the
     # ``invoice.paid`` / ``customer.subscription.updated`` webhook handlers.
     if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
-        OrganizationMember.objects.update_or_create(
-            organization=organization,
-            user=user,
-            defaults={
+        update_or_create_with_race_protection(
+            OrganizationMember,
+            {"organization": organization, "user": user},
+            {
                 "tier": plan.tier,
                 "status": OrganizationMember.MembershipStatus.ACTIVE,
             },

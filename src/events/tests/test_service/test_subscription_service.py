@@ -7,6 +7,7 @@ from unittest import mock
 
 import pytest
 import stripe
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from freezegun import freeze_time
 from ninja.errors import HttpError
@@ -251,6 +252,37 @@ class TestCreateSubscription:
         member = OrganizationMember.objects.get(organization=plan.tier.organization, user=subscriber)
         assert member.tier_id == tier.pk
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+
+    def test_survives_lost_member_creation_race(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+        tier: MembershipTier,
+    ) -> None:
+        """A membership row committed concurrently must not 500 the OFFLINE subscribe.
+
+        ``(organization, user)`` is unique and ``TimeStampedModel.save`` runs
+        ``full_clean``, so a row created between our lookup and our INSERT surfaces
+        as ``ValidationError`` — which Django's ``update_or_create`` does not absorb.
+        """
+        existing = OrganizationMember.objects.create(
+            organization=organization,
+            user=subscriber,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+
+        with mock.patch.object(
+            OrganizationMember.objects,
+            "update_or_create",
+            side_effect=DjangoValidationError("Organization member with this Organization and User already exists."),
+        ):
+            sub = subscription_service.create_subscription(plan, subscriber)
+
+        assert sub.status == MembershipSubscription.SubscriptionStatus.PENDING
+        existing.refresh_from_db()
+        assert existing.tier_id == tier.pk
+        assert existing.status == OrganizationMember.MembershipStatus.ACTIVE
 
     def test_refuses_when_user_banned(
         self,

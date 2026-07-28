@@ -9,38 +9,13 @@ from decimal import Decimal
 
 from django.utils import timezone
 
-from events.models import MembershipPayment, MembershipSubscription
+from events.models import MembershipSubscription
 from events.service import subscription_service
 
 # Stripe abandons an unpaid first subscription invoice after ~23h
 # (``incomplete`` → ``incomplete_expired``). That, not the org's grace window,
 # is the deadline a first-invoice failure must quote to the member.
 _FIRST_INVOICE_RECOVERY_HOURS = 23
-
-
-def _is_revival_first_payment(subscription: MembershipSubscription) -> bool:
-    """True when this ``invoice.paid`` is the first payment of a *revived* subscription.
-
-    A revival re-uses the member's existing row: ``create_revival_checkout``
-    flips an EXPIRED row — which still carries its previous life's payment
-    ledger — back to PENDING, so its first ``invoice.paid`` looks exactly like a
-    first-ever purchase on status alone. The ledger tells them apart: a
-    first-ever purchase has only the payment the caller just wrote, a revival
-    has older successful ones too.
-
-    The distinction is load-bearing. A first-ever purchase is announced by
-    MEMBERSHIP_GRANTED (the ``OrganizationMember`` row is *created*, firing the
-    post_save signal), so a renewal notification on top would double-notify. A
-    revival only updates the member's existing row, so without this gate the
-    member is charged and told nothing at all.
-    """
-    return (
-        MembershipPayment.objects.filter(
-            subscription=subscription,
-            status=MembershipPayment.PaymentStatus.SUCCEEDED,
-        ).count()
-        > 1
-    )
 
 
 def _dispatch_sync_notifications(
@@ -70,6 +45,7 @@ def _dispatch_invoice_notifications(
     succeeded: bool,
     payment_created: bool,
     payment_recovered: bool = False,
+    member_pre_existed: bool = False,
     billing_reason: str = "",
     amount: Decimal | None = None,
     currency: str = "",
@@ -88,6 +64,14 @@ def _dispatch_invoice_notifications(
             but the member did just recover and is owed RENEWAL_SUCCEEDED. A plain
             paid-invoice redelivery has a prior SUCCEEDED row, so this stays False
             and the redelivery dedup is preserved.
+        member_pre_existed: True when the payment left the subscription ACTIVE
+            *and* the member's ``OrganizationMember`` row already existed — so
+            nothing was created and MEMBERSHIP_GRANTED never fired. This is what
+            tells a first payment that needs its own confirmation (a revival, or
+            a free member upgrading to a paid plan) apart from a brand-new
+            subscriber, whose row is created and announced by the post_save
+            signal. Left False when the row was created or the user is
+            hard-blacklisted (incident + refund, no welcome).
         billing_reason: The invoice's Stripe ``billing_reason``. A mid-cycle
             upgrade invoices immediately (``subscription_update``) and must not
             be announced to the member as a renewal.
@@ -102,11 +86,14 @@ def _dispatch_invoice_notifications(
     amount = amount or None
     if succeeded:
         if (payment_created or payment_recovered) and billing_reason != "subscription_update":
-            # A revival's first invoice arrives as PENDING → ACTIVE like a
-            # first-ever purchase, but only the latter is announced by
-            # MEMBERSHIP_GRANTED, so the revival needs this dispatch.
-            revived = prior_status == S.PENDING.value and _is_revival_first_payment(subscription)
-            if revived or prior_status in {S.ACTIVE.value, S.PAST_DUE.value}:
+            # A first invoice arrives as PENDING → ACTIVE whether the payer is a
+            # brand-new subscriber, a revived one, or an existing free member
+            # upgrading to a paid plan. Only the first is announced by
+            # MEMBERSHIP_GRANTED (their member row is *created*); the other two
+            # merely update an existing row, so without this they are charged
+            # and told nothing at all.
+            first_payment_of_existing_member = prior_status == S.PENDING.value and member_pre_existed
+            if first_payment_of_existing_member or prior_status in {S.ACTIVE.value, S.PAST_DUE.value}:
                 subscription_service._dispatch_renewal_succeeded(subscription, amount=amount, currency=currency)
     elif payment_created and prior_status in {S.ACTIVE.value, S.PENDING.value}:
         # PENDING is the first-invoice case (async payment methods, SCA): the row

@@ -14,7 +14,7 @@ from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
-from common.utils import get_or_create_with_race_protection
+from common.utils import get_or_create_with_race_protection, update_or_create_with_race_protection
 from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -550,10 +550,10 @@ def _complete_free_application(application: OrganizationMembershipRequest) -> No
             ),
         )
 
-    OrganizationMember.objects.update_or_create(
-        organization=application.organization,
-        user=application.user,
-        defaults={
+    update_or_create_with_race_protection(
+        OrganizationMember,
+        {"organization": application.organization, "user": application.user},
+        {
             "tier": application.tier,
             "status": OrganizationMember.MembershipStatus.ACTIVE,
         },

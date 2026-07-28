@@ -11,7 +11,10 @@ Tests cover:
 - Phone number normalization
 """
 
+from unittest.mock import patch
+
 import pytest
+from django.core.exceptions import ValidationError
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -877,6 +880,35 @@ class TestUpdateAndRemove:
 
         membership = OrganizationMember.objects.get(organization=blacklist_org, user=target_user)
         assert membership.status == OrganizationMember.MembershipStatus.BANNED
+
+    def test_apply_consequences_survives_lost_membership_creation_race(
+        self,
+        blacklist_org: Organization,
+        target_user: RevelUser,
+    ) -> None:
+        """A membership materialized concurrently must not stop the ban from landing.
+
+        ``(organization, user)`` is unique on ``OrganizationMember`` and
+        ``TimeStampedModel.save`` runs ``full_clean``, so a row committed by a
+        concurrent invitation claim / application approval between our lookup and
+        our INSERT surfaces as ``ValidationError`` — which Django's own
+        ``update_or_create`` does not absorb. The user would be left unbanned.
+        """
+        existing = OrganizationMember.objects.create(
+            organization=blacklist_org,
+            user=target_user,
+            status=OrganizationMember.MembershipStatus.ACTIVE,
+        )
+
+        with patch.object(
+            OrganizationMember.objects,
+            "update_or_create",
+            side_effect=ValidationError("Organization member with this Organization and User already exists."),
+        ):
+            blacklist_service.apply_blacklist_consequences(target_user, blacklist_org)
+
+        existing.refresh_from_db()
+        assert existing.status == OrganizationMember.MembershipStatus.BANNED
 
     def test_remove_from_blacklist_without_user_is_noop(
         self,

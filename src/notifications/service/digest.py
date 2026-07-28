@@ -179,8 +179,10 @@ def _humanize_notification_type(notification_type: str) -> str:
 def _build_notification_url(context: dict[str, t.Any], frontend_base_url: str) -> str:
     """Derive a CTA link for a digest row from its notification context.
 
-    Prefers the most specific link available (event, then a generic action URL),
-    falling back to the user's notifications page.
+    Prefers the most specific link available (event, then a generic action URL,
+    then the subscription CTAs), falling back to the user's notifications page.
+    Subscription contexts emit none of the first three keys, so without the
+    subscription entries a digest row for them would lose its link entirely.
 
     Args:
         context: The notification's stored context.
@@ -189,7 +191,13 @@ def _build_notification_url(context: dict[str, t.Any], frontend_base_url: str) -
     Returns:
         Absolute URL for the digest row's call to action.
     """
-    url = context.get("event_url") or context.get("frontend_url") or context.get("action_url")
+    url = (
+        context.get("event_url")
+        or context.get("frontend_url")
+        or context.get("action_url")
+        or context.get("manage_subscription_url")
+        or context.get("revival_url")
+    )
     if isinstance(url, str) and url:
         return url
     return f"{frontend_base_url}/notifications"

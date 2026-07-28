@@ -239,7 +239,9 @@ class TestDispatchHelpers:
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
         )
-        assert n.context.get("revival_url") is not None
+        # #815: must be a route that actually exists in the frontend, not a
+        # per-org deep link that 404s.
+        assert n.context["revival_url"].endswith("/account/memberships")
         assert n.context.get("revival_window_end") is not None
 
     def test_expired_omits_revival_when_window_zero(
@@ -293,7 +295,7 @@ class TestDispatchHelpers:
     def test_renewal_succeeded_online_includes_manage_subscription_url(
         self, helper_plan: MembershipSubscriptionPlan, organization: Organization, nonmember_user: RevelUser
     ) -> None:
-        """ONLINE plans carry a manage_subscription_url pointing at the FE subscription page."""
+        """ONLINE plans carry a manage_subscription_url pointing at the FE memberships page."""
         helper_plan.payment_method = MembershipSubscriptionPlan.PaymentMethod.ONLINE
         helper_plan.save(update_fields=["payment_method"])
         sub = MembershipSubscription.objects.create(
@@ -309,7 +311,10 @@ class TestDispatchHelpers:
             user=nonmember_user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
         )
-        assert n.context["manage_subscription_url"].endswith(f"/org/{organization.slug}/subscription")
+        # #815: /org/<slug>/subscription is not a frontend route — the CTA must
+        # land on the member's memberships page, which is.
+        assert n.context["manage_subscription_url"].endswith("/account/memberships")
+        assert f"/org/{organization.slug}/subscription" not in n.context["manage_subscription_url"]
 
     def test_expired_omits_revival_when_expired_at_none(self, helper_subscription: MembershipSubscription) -> None:
         assert helper_subscription.expired_at is None

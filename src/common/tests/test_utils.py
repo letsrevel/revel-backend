@@ -8,11 +8,12 @@ import piexif
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import InMemoryUploadedFile
+from django.db import IntegrityError
 from django.db.models import Q
 from PIL import Image
 
 from common.models import Tag
-from common.utils import get_or_create_with_race_protection, strip_exif
+from common.utils import get_or_create_with_race_protection, strip_exif, update_or_create_with_race_protection
 
 
 @contextmanager
@@ -194,3 +195,77 @@ class TestGetOrCreateWithRaceProtection:
         with mock.patch.object(Tag.objects, "create", side_effect=failing_create):
             with pytest.raises(ValidationError):
                 get_or_create_with_race_protection(Tag, Q(name="race-tag-d"), {"name": "race-tag-d"})
+
+
+class TestUpdateOrCreateWithRaceProtection:
+    """Tests for update_or_create_with_race_protection.
+
+    Django's ``update_or_create`` already recovers from an ``IntegrityError`` at
+    INSERT, but not from the ``ValidationError`` that ``TimeStampedModel.save``'s
+    ``full_clean`` raises when a racing row committed first. The wrapper must
+    absorb that, re-fetch the winner, and still apply ``defaults`` to it.
+    """
+
+    @pytest.mark.django_db
+    def test_creates_when_absent(self) -> None:
+        """Happy path: creates the row with lookup + defaults merged, created=True."""
+        tag, created = update_or_create_with_race_protection(Tag, {"name": "uoc-tag-a"}, {"description": "fresh"})
+
+        assert created is True
+        assert tag.name == "uoc-tag-a"
+        assert tag.description == "fresh"
+
+    @pytest.mark.django_db
+    def test_updates_when_present(self) -> None:
+        """Happy path: updates the existing row in place with created=False."""
+        existing = Tag.objects.create(name="uoc-tag-b", description="old")
+
+        tag, created = update_or_create_with_race_protection(Tag, {"name": "uoc-tag-b"}, {"description": "new"})
+
+        assert created is False
+        assert tag.pk == existing.pk
+        existing.refresh_from_db()
+        assert existing.description == "new"
+
+    @pytest.mark.django_db
+    def test_recovers_from_validationerror_race_and_applies_defaults(self) -> None:
+        """A lost creation race still leaves the winner carrying the requested defaults."""
+        existing = Tag.objects.create(name="uoc-tag-c", description="old")
+
+        with mock.patch.object(
+            Tag.objects,
+            "update_or_create",
+            side_effect=ValidationError("Tag with this Name already exists."),
+        ):
+            tag, created = update_or_create_with_race_protection(Tag, {"name": "uoc-tag-c"}, {"description": "new"})
+
+        assert created is False
+        assert tag.pk == existing.pk
+        existing.refresh_from_db()
+        assert existing.description == "new"
+
+    @pytest.mark.django_db
+    def test_recovers_from_integrityerror_race(self) -> None:
+        """The IntegrityError arm is covered too, for constraints Django's own retry misses."""
+        existing = Tag.objects.create(name="uoc-tag-d", description="old")
+
+        with mock.patch.object(
+            Tag.objects,
+            "update_or_create",
+            side_effect=IntegrityError("duplicate key value violates unique constraint"),
+        ):
+            tag, created = update_or_create_with_race_protection(Tag, {"name": "uoc-tag-d"}, {"description": "new"})
+
+        assert created is False
+        assert tag.pk == existing.pk
+
+    @pytest.mark.django_db
+    def test_reraises_non_race_validationerror(self) -> None:
+        """A genuine (non-uniqueness) ValidationError still propagates when no row appears."""
+        with mock.patch.object(
+            Tag.objects,
+            "update_or_create",
+            side_effect=ValidationError("some other validation error"),
+        ):
+            with pytest.raises(ValidationError):
+                update_or_create_with_race_protection(Tag, {"name": "uoc-tag-e"}, {"description": "x"})

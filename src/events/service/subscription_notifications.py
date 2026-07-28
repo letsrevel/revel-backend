@@ -24,6 +24,14 @@ from events.utils import format_organization_datetime
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
+#: The one member-facing subscription surface in the frontend (#815). It lists every
+#: live membership (manage / cancel, which is where the Stripe billing portal is
+#: opened from) plus the rejoin CTA for expired-but-in-window ONLINE subscriptions,
+#: so it answers all seven subscription notifications' implied next action. Per-org
+#: deep links such as ``/org/<slug>/subscription`` are not routes and render a 404 —
+#: do not reintroduce them without a corresponding frontend route.
+MEMBERSHIPS_PATH = "/account/memberships"
+
 
 def _format_money(amount: t.Any, currency: str) -> str:
     """Format an amount with its currency for display in notifications."""
@@ -78,11 +86,11 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
     Includes an absolute ``organization_contact_url`` so email and Telegram
     templates render clickable links instead of relative paths that break in
     those clients. For ONLINE (Stripe-managed) subscriptions it also carries a
-    ``manage_subscription_url`` pointing at the member's subscription page,
-    from which the frontend calls ``POST /billing-portal`` to mint a Stripe
-    Customer Portal session on demand. We deliberately do **not** create a
-    portal session here: dispatch runs inside a locked webhook transaction and
-    must issue no Stripe network calls.
+    ``manage_subscription_url`` pointing at :data:`MEMBERSHIPS_PATH`, from which
+    the frontend calls ``POST /billing-portal`` to mint a Stripe Customer Portal
+    session on demand. We deliberately do **not** create a portal session here:
+    dispatch runs inside a locked webhook transaction and must issue no Stripe
+    network calls.
     """
     org = subscription.organization
     plan = subscription.plan
@@ -94,7 +102,7 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
         "organization_contact_url": f"{frontend_base_url}/org/{org.slug}/contact",
     }
     if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value:
-        ctx["manage_subscription_url"] = f"{frontend_base_url}/org/{org.slug}/subscription"
+        ctx["manage_subscription_url"] = f"{frontend_base_url}{MEMBERSHIPS_PATH}"
     return ctx
 
 
@@ -167,7 +175,7 @@ def _dispatch_subscription_expired(subscription: MembershipSubscription) -> None
     if subscription.expired_at and org.membership_subscription_revival_window_days > 0:
         revival_window_end = subscription.expired_at + timedelta(days=org.membership_subscription_revival_window_days)
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
-        revival_url = f"{frontend_base_url}/org/{org.slug}/subscription/revive"
+        revival_url = f"{frontend_base_url}{MEMBERSHIPS_PATH}"
     ctx = _common_subscription_context(subscription)
     # Org-local, human-readable — never raw UTC isoformat (#511/#542).
     ctx["expired_at"] = format_organization_datetime(subscription.expired_at, org)

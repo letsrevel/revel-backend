@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
+from common.utils import get_or_create_with_race_protection
 from events import schema
 from events.exceptions import (
     OrganizationTokenGrantInvariantError,
@@ -282,18 +283,22 @@ def claim_invitation(user: RevelUser, token: str) -> Organization | None:
     # silently dropped on a staff-granting token.
     created = False
     if organization_token.grants_staff_status:
-        _, staff_created = OrganizationStaff.objects.get_or_create(
-            organization=organization_token.organization, user=user
+        _, staff_created = get_or_create_with_race_protection(
+            OrganizationStaff,
+            Q(organization=organization_token.organization, user=user),
+            {"organization": organization_token.organization, "user": user},
         )
         created = created or staff_created
     if organization_token.grants_membership:
         # Create member with tier if specified
-        defaults = {}
+        member_defaults: dict[str, t.Any] = {"organization": organization_token.organization, "user": user}
         if organization_token.membership_tier:
-            defaults["tier"] = organization_token.membership_tier
+            member_defaults["tier"] = organization_token.membership_tier
 
-        _, member_created = OrganizationMember.objects.get_or_create(
-            organization=organization_token.organization, user=user, defaults=defaults
+        _, member_created = get_or_create_with_race_protection(
+            OrganizationMember,
+            Q(organization=organization_token.organization, user=user),
+            member_defaults,
         )
         created = created or member_created
 

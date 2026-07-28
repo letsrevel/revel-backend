@@ -111,6 +111,48 @@ def get_or_create_with_race_protection(
         return instance, False
 
 
+def update_or_create_with_race_protection(
+    model: type[T],
+    lookup: dict[str, t.Any],
+    defaults: dict[str, t.Any],
+) -> tuple[T, bool]:
+    """``update_or_create`` that survives a lost creation race.
+
+    Django's own ``update_or_create`` recovers from an ``IntegrityError`` at INSERT,
+    but **not** from the ``ValidationError`` that ``TimeStampedModel.save``'s
+    ``full_clean`` raises (``validate_constraints``) when a racing row was already
+    committed before our insert. This wrapper catches both, re-fetches the winner,
+    applies ``defaults`` to it and saves — so the caller always gets the row in the
+    state it asked for. A ``ValidationError`` that is *not* a uniqueness race (no
+    matching row appears) is re-raised, and re-applying ``defaults`` to the winner
+    re-raises a genuine model-level validation error rather than hiding it.
+
+    Unlike :func:`get_or_create_with_race_protection` the lookup is a kwargs dict,
+    not a ``Q``: the same keys identify the row *and* seed the created one.
+
+    Args:
+        model: The Django model class
+        lookup: Field lookups identifying the row (also used as create kwargs)
+        defaults: Field values to set on both the update and the create path
+
+    Returns:
+        Tuple of (instance, created) where created is True if the instance was created
+    """
+    manager: models.Manager[T] = getattr(model, "objects")
+    try:
+        with transaction.atomic():
+            return manager.update_or_create(**lookup, defaults=defaults)
+    except IntegrityError, ValidationError:
+        instance = manager.filter(**lookup).first()
+        if not instance:
+            # Not a uniqueness race (e.g. a genuine validation error): re-raise.
+            raise
+        for field, value in defaults.items():
+            setattr(instance, field, value)
+        instance.save()
+        return instance, False
+
+
 @transaction.atomic
 def update_db_instance(
     instance: T,

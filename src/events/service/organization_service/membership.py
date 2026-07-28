@@ -11,7 +11,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
-from common.utils import get_or_create_with_race_protection
+from common.utils import get_or_create_with_race_protection, update_or_create_with_race_protection
 from events import models
 from events.exceptions import AlreadyMemberError, MembershipTierInUseError, PendingMembershipRequestExistsError
 from events.models import (
@@ -228,10 +228,10 @@ def approve_membership_request(
             update_fields.append("tier")
         membership_request.save(update_fields=update_fields)
 
-        member, created = models.OrganizationMember.objects.update_or_create(
-            organization=membership_request.organization,
-            user=membership_request.user,
-            defaults={"tier": effective_tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
+        member, created = update_or_create_with_race_protection(
+            models.OrganizationMember,
+            {"organization": membership_request.organization, "user": membership_request.user},
+            {"tier": effective_tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
         )
         member.full_clean()
     else:
@@ -298,9 +298,19 @@ def add_member(organization: Organization, user: RevelUser, tier: MembershipTier
     Raises:
         AlreadyMemberError: If the user is already a member of the organization.
     """
-    if OrganizationMember.objects.filter(organization=organization, user=user).exists():
+    # (org, user) is unique, so a membership materialized concurrently (invitation
+    # claim, application approval, subscription payment) would make a bare create()
+    # 500 instead of returning the documented domain error. The helper re-fetches
+    # the winner whether the race surfaces as IntegrityError (INSERT) or
+    # ValidationError (full_clean's validate_constraints).
+    member, created = get_or_create_with_race_protection(
+        OrganizationMember,
+        Q(organization=organization, user=user),
+        {"organization": organization, "user": user, "tier": tier},
+    )
+    if not created:
         raise AlreadyMemberError(str(_("User is already a member of this organization.")))
-    return OrganizationMember.objects.create(organization=organization, user=user, tier=tier)
+    return member
 
 
 def remove_member(organization: Organization, user: RevelUser) -> None:

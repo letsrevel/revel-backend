@@ -26,7 +26,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_plan_change, subscription_stripe_service
+from events.service import stripe_incidents, subscription_stripe_plan_change, subscription_stripe_service
 
 # ``create_subscription`` / ``record_payment`` / ``InitialPayment`` live in
 # :mod:`events.service.subscription_core` (so the Stripe service can use them
@@ -250,6 +250,67 @@ def _expire_open_checkout_before_terminalizing(subscription: MembershipSubscript
     )
 
 
+def _expire_open_checkout_best_effort(subscription: MembershipSubscription) -> None:
+    """Kill a still-payable Checkout Session a membership loss left behind.
+
+    The non-raising twin of :func:`_expire_open_checkout_before_terminalizing`,
+    for the ban / removal / GDPR-deletion path that must never fail because
+    Stripe hiccuped. Runs post-commit (see the caller) so the round trip never
+    happens under the row lock, which means the row is *already* terminal by the
+    time we get here: every failure mode ends in "log it and move on".
+
+    Losing the race stays survivable because the webhook backstops it — a session
+    completed against a terminal row is refused its link and the Stripe
+    Subscription it minted is cancelled by
+    :meth:`SubscriptionWebhookHandlersMixin.handle_subscription_checkout_completed`
+    — so we deliberately do not cancel anything from here. What that backstop
+    cannot do is notice a session the banned member paid *before* it fires, so a
+    rejected expire is re-read and a completed one raises the money alarm: the
+    charge landed on a row nobody will ever link, and the refund is manual.
+
+    The caller guarantees eligibility: ONLINE plan, a
+    ``stripe_checkout_session_id``, and no ``stripe_subscription_id``.
+    """
+    session_id = subscription.stripe_checkout_session_id
+    kwargs = _stripe_account_kwargs(subscription.organization)
+    try:
+        stripe.checkout.Session.expire(session_id, **kwargs)
+    except stripe.error.InvalidRequestError:
+        # Almost certainly "not in status open": already expired (nothing to
+        # strand) or completed before the ban landed (money moved). Re-read.
+        try:
+            session = stripe.checkout.Session.retrieve(session_id, **kwargs)
+        except stripe.error.StripeError:
+            logger.exception(
+                "membership_loss_session_retrieve_failed",
+                subscription_id=str(subscription.pk),
+                stripe_checkout_session_id=session_id,
+            )
+            return
+        if session.get("status") == "complete":
+            stripe_incidents.record_subscription_checkout_while_terminal(
+                subscription_id=str(subscription.pk),
+                status=subscription.status,
+                session_id=session_id,
+                stripe_subscription_id=str(session.get("subscription") or ""),
+            )
+        return
+    except stripe.error.StripeError:
+        # The session may well still be payable; the terminal-row guard in the
+        # completed-session webhook is what catches the member paying it anyway.
+        logger.exception(
+            "membership_loss_session_expire_failed",
+            subscription_id=str(subscription.pk),
+            stripe_checkout_session_id=session_id,
+        )
+        return
+    logger.info(
+        "membership_loss_session_expired",
+        subscription_id=str(subscription.pk),
+        stripe_checkout_session_id=session_id,
+    )
+
+
 @transaction.atomic
 def cancel_subscription(
     subscription: MembershipSubscription,
@@ -337,10 +398,16 @@ def cancel_subscriptions_for_membership_loss(user: RevelUser, organization: Orga
     Mirrors :func:`subscription_refunds._cancel_refunded_subscription`: reload
     each non-terminal row under a ``select_for_update(of=("self",))`` lock,
     terminalize it locally (CANCELLED + ``cancelled_at``, clear
-    ``cancel_at_period_end``), and for ONLINE rows with a linked Stripe
-    subscription schedule a best-effort Stripe cancel *after commit* — never a
-    network call under the row lock. The member is told their subscription was
-    cancelled (same dispatch as any immediate cancel).
+    ``cancel_at_period_end``), and for ONLINE rows schedule the matching Stripe
+    close-out *after commit* — never a network call under the row lock: a
+    best-effort cancel when a Stripe subscription is linked, a best-effort
+    Checkout Session expire when the row only ever got as far as a session (its
+    URL would otherwise stay payable after the ban). The member is told their
+    subscription was cancelled (same dispatch as any immediate cancel).
+
+    Never raises on Stripe failures: ban / removal / GDPR-deletion must go
+    through regardless, so the Stripe side is deliberately best-effort and the
+    webhook's terminal-row guard is the backstop for whatever slips past.
 
     Normally at most one non-terminal subscription exists per (user,
     organization), but this loops defensively.
@@ -368,17 +435,20 @@ def cancel_subscriptions_for_membership_loss(user: RevelUser, organization: Orga
         subscription.cancelled_at = timezone.now()
         subscription.cancel_at_period_end = False
         subscription.save(update_fields=["status", "cancelled_at", "cancel_at_period_end", "updated_at"])
-        if (
-            subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
-            and subscription.stripe_subscription_id
-        ):
-            transaction.on_commit(
-                functools.partial(
-                    subscription_stripe_service.cancel_stripe_subscription_best_effort,
-                    subscription,
-                    reason="membership_loss",
+        if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+            if subscription.stripe_subscription_id:
+                transaction.on_commit(
+                    functools.partial(
+                        subscription_stripe_service.cancel_stripe_subscription_best_effort,
+                        subscription,
+                        reason="membership_loss",
+                    )
                 )
-            )
+            elif subscription.stripe_checkout_session_id:
+                # Checkout never completed, so there is no Stripe Subscription to
+                # cancel — but the hosted session's URL is still payable and would
+                # outlive the ban. Kill it.
+                transaction.on_commit(functools.partial(_expire_open_checkout_best_effort, subscription))
         _dispatch_cancellation_confirmed(subscription, immediate=True)
         cancelled += 1
     return cancelled

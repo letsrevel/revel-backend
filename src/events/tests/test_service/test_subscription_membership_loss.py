@@ -377,6 +377,154 @@ class TestMemberUpdateAndRemoveCancelSubscription:
         assert sub.status == _CANCELLED
 
 
+class TestMembershipLossExpiresOpenCheckout:
+    """A ban must not leave the banned member a payable Checkout Session.
+
+    An ONLINE PENDING row carries a hosted Checkout the member can still
+    complete from an open tab. Terminalizing it locally without expiring the
+    session lets Stripe mint a Subscription against a frozen row. Unlike the
+    member-facing immediate cancel, this path must never raise — ban / removal /
+    GDPR deletion go through even when Stripe is down.
+    """
+
+    @pytest.fixture
+    def pending_with_session(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+    ) -> MembershipSubscription:
+        OrganizationMember.objects.create(organization=organization, user=member_user, status=_MEMBER_ACTIVE)
+        return MembershipSubscription.objects.create(
+            user=member_user,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_ban_open",
+        )
+
+    def test_ban_expires_the_open_session_and_terminalizes(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        pending_with_session: MembershipSubscription,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        with patch("stripe.checkout.Session.expire") as expire:
+            with django_capture_on_commit_callbacks(execute=True):
+                blacklist_service.apply_blacklist_consequences(member_user, organization)
+
+        expire.assert_called_once()
+        assert expire.call_args.args[0] == "cs_ban_open"
+        pending_with_session.refresh_from_db()
+        assert pending_with_session.status == _CANCELLED
+
+    def test_stripe_failure_still_terminalizes_and_does_not_raise(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        pending_with_session: MembershipSubscription,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """The regression: a Stripe outage must not block the ban."""
+        with patch("stripe.checkout.Session.expire", side_effect=stripe.error.APIConnectionError("boom")):
+            with django_capture_on_commit_callbacks(execute=True):
+                blacklist_service.apply_blacklist_consequences(member_user, organization)
+
+        pending_with_session.refresh_from_db()
+        assert pending_with_session.status == _CANCELLED
+        member = OrganizationMember.objects.get(organization=organization, user=member_user)
+        assert member.status == _BANNED
+
+    def test_session_already_paid_records_the_money_incident(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        pending_with_session: MembershipSubscription,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Expire rejected + the session reads ``complete``: the member paid before the ban."""
+        with (
+            patch(
+                "stripe.checkout.Session.expire",
+                side_effect=stripe.error.InvalidRequestError("not in status open", "session"),
+            ),
+            patch(
+                "stripe.checkout.Session.retrieve",
+                return_value={"status": "complete", "subscription": "sub_paid_before_ban"},
+            ),
+            patch("events.service.stripe_incidents.record_subscription_checkout_while_terminal") as incident,
+        ):
+            with django_capture_on_commit_callbacks(execute=True):
+                blacklist_service.apply_blacklist_consequences(member_user, organization)
+
+        incident.assert_called_once()
+        assert incident.call_args.kwargs["stripe_subscription_id"] == "sub_paid_before_ban"
+        pending_with_session.refresh_from_db()
+        assert pending_with_session.status == _CANCELLED
+
+    def test_already_expired_session_records_nothing(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        pending_with_session: MembershipSubscription,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        with (
+            patch(
+                "stripe.checkout.Session.expire",
+                side_effect=stripe.error.InvalidRequestError("not in status open", "session"),
+            ),
+            patch("stripe.checkout.Session.retrieve", return_value={"status": "expired"}),
+            patch("events.service.stripe_incidents.record_subscription_checkout_while_terminal") as incident,
+        ):
+            with django_capture_on_commit_callbacks(execute=True):
+                blacklist_service.apply_blacklist_consequences(member_user, organization)
+
+        incident.assert_not_called()
+        pending_with_session.refresh_from_db()
+        assert pending_with_session.status == _CANCELLED
+
+    def test_offline_row_and_sessionless_row_never_call_stripe(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+        offline_plan: MembershipSubscriptionPlan,
+        online_plan: MembershipSubscriptionPlan,
+        user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        OrganizationMember.objects.create(organization=organization, user=member_user, status=_MEMBER_ACTIVE)
+        OrganizationMember.objects.create(organization=organization, user=user, status=_MEMBER_ACTIVE)
+        offline_sub = MembershipSubscription.objects.create(
+            user=member_user,
+            plan=offline_plan,
+            organization=organization,
+            status=_ACTIVE,
+            # An OFFLINE row cannot have a live hosted checkout, so even a stale
+            # id must not send us to Stripe.
+            stripe_checkout_session_id="cs_offline_noise",
+        )
+        # ONLINE but no session ever minted (staff-created PENDING row).
+        sessionless = MembershipSubscription.objects.create(
+            user=user,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+        )
+
+        with patch("stripe.checkout.Session.expire") as expire:
+            with django_capture_on_commit_callbacks(execute=True):
+                blacklist_service.apply_blacklist_consequences(member_user, organization)
+                blacklist_service.apply_blacklist_consequences(user, organization)
+
+        expire.assert_not_called()
+        offline_sub.refresh_from_db()
+        sessionless.refresh_from_db()
+        assert offline_sub.status == _CANCELLED
+        assert sessionless.status == _CANCELLED
+
+
 class TestInvoicePaidForBlacklistedUser:
     """Defense-in-depth: a paid invoice must not re-mint a hard-blacklisted member."""
 

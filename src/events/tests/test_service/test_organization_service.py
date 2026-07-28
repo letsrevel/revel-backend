@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from ninja.errors import HttpError
 
@@ -216,6 +217,38 @@ class TestApproveMembershipRequest:
         assert organization_membership_request.status == OrganizationMembershipRequest.Status.COMPLETED
         assert organization_membership_request.decided_by == organization_staff_user
 
+    def test_approve_survives_lost_member_creation_race(
+        self, organization_membership_request: OrganizationMembershipRequest, organization_staff_user: RevelUser
+    ) -> None:
+        """A membership row committed concurrently must not 500 the approval.
+
+        ``(organization, user)`` is unique and ``TimeStampedModel.save`` runs
+        ``full_clean``, so a row created between the guards and our INSERT surfaces
+        as ``ValidationError`` — which Django's ``update_or_create`` does not absorb.
+        """
+        tier = MembershipTier.objects.get(
+            organization=organization_membership_request.organization, name="General membership"
+        )
+        existing = OrganizationMember.objects.create(
+            organization=organization_membership_request.organization,
+            user=organization_membership_request.user,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+
+        with patch.object(
+            OrganizationMember.objects,
+            "update_or_create",
+            side_effect=ValidationError("Organization member with this Organization and User already exists."),
+        ):
+            organization_service.approve_membership_request(
+                organization_membership_request, organization_staff_user, tier
+            )
+
+        existing.refresh_from_db()
+        assert existing.tier == tier
+        assert existing.status == OrganizationMember.MembershipStatus.ACTIVE
+        assert organization_membership_request.status == OrganizationMembershipRequest.Status.COMPLETED
+
 
 @pytest.mark.django_db
 class TestRejectMembershipRequest:
@@ -316,6 +349,40 @@ class TestMemberManagement:
         tier = MembershipTier.objects.create(organization=organization_membership.organization, name="Silver")
         with pytest.raises(AlreadyMemberError):
             organization_service.add_member(organization_membership.organization, organization_membership.user, tier)
+
+    def test_add_member_lost_race_raises_domain_error(self, organization_membership: OrganizationMember) -> None:
+        """A concurrent membership create must surface AlreadyMemberError, not a 500.
+
+        ``(organization, user)`` is unique and ``TimeStampedModel.save`` runs
+        ``full_clean``, so the bare ``create()`` used to blow up with
+        ``ValidationError`` when the pre-check ran too early to see the winner.
+        """
+        organization = organization_membership.organization
+        tier = MembershipTier.objects.create(organization=organization, name="Bronze")
+
+        with _force_first_lookup_miss(OrganizationMember.objects):
+            with pytest.raises(AlreadyMemberError):
+                organization_service.add_member(organization, organization_membership.user, tier)
+
+        surviving = OrganizationMember.objects.filter(organization=organization, user=organization_membership.user)
+        assert [row.pk for row in surviving] == [organization_membership.pk]
+
+    def test_add_member_lost_db_level_race_raises_domain_error(
+        self, organization_membership: OrganizationMember
+    ) -> None:
+        """The IntegrityError arm: ``full_clean`` disabled, so the unique index rejects the INSERT."""
+        organization = organization_membership.organization
+        tier = MembershipTier.objects.create(organization=organization, name="Copper")
+
+        with (
+            _force_first_lookup_miss(OrganizationMember.objects),
+            patch.object(OrganizationMember, "full_clean", return_value=None),
+        ):
+            with pytest.raises(AlreadyMemberError):
+                organization_service.add_member(organization, organization_membership.user, tier)
+
+        surviving = OrganizationMember.objects.filter(organization=organization, user=organization_membership.user)
+        assert [row.pk for row in surviving] == [organization_membership.pk]
 
     def test_remove_member_success(self, organization_membership: OrganizationMember) -> None:
         """Test that a member can be successfully removed."""

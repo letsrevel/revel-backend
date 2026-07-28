@@ -2,8 +2,10 @@
 
 import typing as t
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -51,6 +53,43 @@ def test_pending_free_with_no_gates_completes_and_creates_member(
         tier=tier,
         status=OrganizationMember.MembershipStatus.ACTIVE,
     ).exists()
+
+
+def test_free_completion_survives_lost_member_creation_race(
+    user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """A membership row committed concurrently must not 500 the free completion.
+
+    ``(organization, user)`` is unique and ``TimeStampedModel.save`` runs
+    ``full_clean``, so a row created between the gates and our INSERT surfaces as
+    ``ValidationError`` — which Django's ``update_or_create`` does not absorb. A
+    CANCELLED row passes ``AlreadyMemberGate``, so it stands in for the racing
+    winner the completion must still revive.
+    """
+    existing = OrganizationMember.objects.create(
+        organization=organization,
+        user=user,
+        tier=tier,
+        status=OrganizationMember.MembershipStatus.CANCELLED,
+    )
+    app = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+    )
+
+    with patch.object(
+        OrganizationMember.objects,
+        "update_or_create",
+        side_effect=ValidationError("Organization member with this Organization and User already exists."),
+    ):
+        result, eligibility = advance_application(app)
+
+    assert result.status == OrganizationMembershipRequest.Status.COMPLETED
+    assert eligibility.allowed is True
+    existing.refresh_from_db()
+    assert existing.status == OrganizationMember.MembershipStatus.ACTIVE
 
 
 def test_privileged_bypass_of_paused_guard_raises_handled_error(

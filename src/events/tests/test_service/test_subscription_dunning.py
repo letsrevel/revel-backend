@@ -141,13 +141,12 @@ class TestInvoicePaidRenewal:
 
         assert _has_notification(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
         # ONLINE renewal_succeeded must carry the self-service management URL so
-        # the "Manage Billing" CTA renders (dead branch before this fix).
+        # the "Manage Billing" CTA renders (dead branch before this fix), and it
+        # must point at a route the frontend actually serves (#815).
         notif = Notification.objects.get(
             user=subscriber, notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED
         )
-        assert notif.context["manage_subscription_url"].endswith(
-            f"/org/{online_plan.tier.organization.slug}/subscription"
-        )
+        assert notif.context["manage_subscription_url"].endswith("/account/memberships")
 
     def test_past_due_to_active_renewal_fires_renewal_succeeded(
         self,
@@ -250,9 +249,9 @@ class TestInvoicePaymentFailed:
             user=subscriber, notification_type=NotificationType.SUBSCRIPTION_PAYMENT_FAILED
         )
         assert notif.context["is_online"] is True
-        assert notif.context["manage_subscription_url"].endswith(
-            f"/org/{online_plan.tier.organization.slug}/subscription"
-        )
+        # Dunning is the CTA that hurts most when dead: the member is trying to
+        # fix a declined card. It must resolve to a live frontend route (#815).
+        assert notif.context["manage_subscription_url"].endswith("/account/memberships")
 
     def test_already_past_due_redelivery_does_not_double_fire(
         self,

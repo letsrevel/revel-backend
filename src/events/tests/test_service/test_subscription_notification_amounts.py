@@ -1,6 +1,6 @@
 """Regressions for what subscription notifications quote — and to whom.
 
-Two fixes are covered here:
+Three fixes are covered here:
 
 * **Amounts** — renewal receipts, failure warnings and renewal reminders used
   to quote ``plan.price``. A plan price change mints a NEW Stripe Price and
@@ -10,6 +10,12 @@ Two fixes are covered here:
   ``prior_status=PENDING``, which the renewal gate rejected, while
   MEMBERSHIP_GRANTED never fired either (the member's row is *updated*, not
   created). The member paid and heard nothing at all.
+* **Members who were already members** — same silence, one step earlier: a free
+  member upgrading to a paid ONLINE plan has an ``OrganizationMember`` row from
+  the start, so nothing is created and (with a single SUCCEEDED payment) the
+  revival marker stays shut. The gate now keys off whether the member row
+  pre-existed, which also makes ``_ensure_active_member`` reactivate a CANCELLED
+  row itself instead of relying on the post_save signal.
 """
 
 import typing as t
@@ -66,6 +72,12 @@ def online_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
         stripe_product_id="prod_amounts",
         stripe_price_id="price_amounts",
     )
+
+
+@pytest.fixture
+def free_tier(stripe_org: Organization) -> MembershipTier:
+    """The tier a free member sits on before upgrading to the paid ONLINE plan."""
+    return MembershipTier.objects.create(organization=stripe_org, name="AmountsFreeTier")
 
 
 @pytest.fixture
@@ -249,6 +261,14 @@ class TestRevivalConfirmation:
             period_end=timezone.now() - timedelta(days=30),
             stripe_invoice_id="in_previous_life2",
         )
+        # A true revival keeps its member row, CANCELLED when the subscription lapsed.
+        OrganizationMember.objects.create(
+            organization=online_plan.tier.organization,
+            user=subscriber,
+            tier=online_plan.tier,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+        Notification.objects.all().delete()  # ignore anything the setup emitted
         invoice = _invoice("sub_revive2", invoice_id="in_revive2", amount_paid=1000, amount_due=1000)
 
         subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
@@ -290,6 +310,121 @@ class TestRevivalConfirmation:
         subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         assert len(_notifications(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)) == 1
+
+
+class TestExistingMemberFirstPaymentConfirmation:
+    """A payer who was already a member is announced by nothing else."""
+
+    def test_free_member_upgrading_is_confirmed_exactly_once(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        free_tier: MembershipTier,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A free member paying for a plan for the first time must hear about it.
+
+        Regression: ``_ensure_active_member`` finds their existing row and leaves
+        it alone, so MEMBERSHIP_GRANTED never fires; and the ledger holds exactly
+        one SUCCEEDED payment, so the revival marker stays shut too. Between the
+        two gates the member was charged in total silence.
+        """
+        _make_sub(
+            online_plan,
+            subscriber,
+            stripe_id="sub_upgrade",
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+        )
+        OrganizationMember.objects.create(
+            organization=online_plan.tier.organization,
+            user=subscriber,
+            tier=free_tier,
+            status=OrganizationMember.MembershipStatus.ACTIVE,
+        )
+        Notification.objects.all().delete()  # ignore anything the setup emitted
+
+        invoice = _invoice("sub_upgrade", invoice_id="in_upgrade", amount_paid=2000, amount_due=2000)
+        invoice["billing_reason"] = "subscription_create"
+        _record_paid(invoice, django_capture_on_commit_callbacks)
+
+        notifs = _notifications(subscriber, NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED)
+        assert len(notifs) == 1
+        assert notifs[0].context["amount"] == "20.00 EUR"
+        assert not _notifications(subscriber, NotificationType.MEMBERSHIP_GRANTED)
+        # The paid plan's tier takes over now that the subscription is ACTIVE.
+        member = OrganizationMember.objects.get(organization=online_plan.tier.organization, user=subscriber)
+        assert member.tier_id == online_plan.tier_id
+
+
+class TestEnsureActiveMember:
+    """Membership bookkeeping on the activation paths, asserted on the helper itself.
+
+    Each case creates the subscription *before* the member row, so
+    ``sync_member_from_subscription`` has already run and found nothing to sync:
+    what is left is ``_ensure_active_member``'s own behaviour — which is what
+    heals an activation that mutates no subscription field (a redelivered
+    ``customer.subscription.updated``) and therefore fires no signal at all.
+    """
+
+    def test_cancelled_member_row_is_reactivated_at_the_plan_tier(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        free_tier: MembershipTier,
+    ) -> None:
+        sub = _make_sub(online_plan, subscriber, stripe_id="sub_reactivate")
+        member = OrganizationMember.objects.create(
+            organization=online_plan.tier.organization,
+            user=subscriber,
+            tier=free_tier,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+
+        assert subscription_stripe_sync._ensure_active_member(sub) == "existing"
+
+        member.refresh_from_db()
+        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+        assert member.tier_id == online_plan.tier_id
+
+    def test_live_member_row_is_left_untouched(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        free_tier: MembershipTier,
+    ) -> None:
+        """The early return survives the race-protection conversion: no rewrite, no second row."""
+        sub = _make_sub(online_plan, subscriber, stripe_id="sub_untouched")
+        member = OrganizationMember.objects.create(
+            organization=online_plan.tier.organization,
+            user=subscriber,
+            tier=free_tier,
+            status=OrganizationMember.MembershipStatus.ACTIVE,
+        )
+
+        assert subscription_stripe_sync._ensure_active_member(sub) == "existing"
+
+        member.refresh_from_db()
+        # Tier still follows the subscription's post_save signal, not this helper.
+        assert member.tier_id == free_tier.pk
+        assert (
+            OrganizationMember.objects.filter(organization=online_plan.tier.organization, user=subscriber).count() == 1
+        )
+
+    def test_missing_member_row_is_created_once(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        sub = _make_sub(online_plan, subscriber, stripe_id="sub_mint")
+
+        assert subscription_stripe_sync._ensure_active_member(sub) == "created"
+        assert subscription_stripe_sync._ensure_active_member(sub) == "existing"
+
+        members = OrganizationMember.objects.filter(organization=online_plan.tier.organization, user=subscriber)
+        assert members.count() == 1
+        member = members.get()
+        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+        assert member.tier_id == online_plan.tier_id
 
 
 class TestRenewalReminderAmount:
