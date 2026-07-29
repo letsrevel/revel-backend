@@ -382,6 +382,12 @@ class TestRevivalAmountBound:
         )
         # Rejected by schema validation before any lookup or ledger write.
         assert response.status_code == 422, response.content
+        body = response.json()
+        assert "message" not in body, body
+        # ninja's request-validation 422 carries a *list* under ``detail`` — a
+        # different shape from ``ErrorDetail``'s ``{detail: str}``. Pinned here
+        # because that distinction is systemically under-declared repo-wide.
+        assert isinstance(body.get("detail"), list), body
 
 
 class TestTelegramErrorContracts:

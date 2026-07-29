@@ -183,10 +183,13 @@ def test_response_message_declared_at_400_only_where_it_is_returned() -> None:
 
 def test_every_declared_400_resolves_to_a_known_component() -> None:
     """No 400 may resolve to an inline/anonymous schema the generated client cannot name."""
+    # An inline/anonymous schema resolves to *no* component name at all, so the
+    # empty set must count as a failure — otherwise this guard silently skips the
+    # exact case it exists to catch.
     unknown = {
         key: names - KNOWN_400_COMPONENTS
         for key, names in _declared_400_schemas().items()
-        if names - KNOWN_400_COMPONENTS
+        if not names or names - KNOWN_400_COMPONENTS
     }
     assert not unknown, f"Unexpected 400 response schemas: {unknown}"
 
