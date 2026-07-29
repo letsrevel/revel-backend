@@ -19,6 +19,21 @@ msgstr ""
 msgid "Impersonate"
 msgstr "Impersona"
 
+msgid "Requeue failed payouts"
+msgstr "Rimetti in coda i pagamenti falliti"
+
+#, python-format
+msgid "Requeued %d failed payout."
+msgid_plural "Requeued %d failed payouts."
+msgstr[0] "%d pagamento fallito rimesso in coda."
+msgstr[1] "%d pagamenti falliti rimessi in coda."
+
+#, python-format
+msgid "Skipped %d payout (not in failed status)."
+msgid_plural "Skipped %d payouts (not in failed status)."
+msgstr[0] "%d pagamento saltato (non in stato fallito)."
+msgstr[1] "%d pagamenti saltati (non in stato fallito)."
+
 #, python-format
 msgid "Verification email sent to %d user."
 msgid_plural "Verification emails sent to %d users."

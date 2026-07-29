@@ -19,6 +19,21 @@ msgstr ""
 msgid "Impersonate"
 msgstr "Als Anwender:in anmelden"
 
+msgid "Requeue failed payouts"
+msgstr "Fehlgeschlagene Auszahlungen erneut einreihen"
+
+#, python-format
+msgid "Requeued %d failed payout."
+msgid_plural "Requeued %d failed payouts."
+msgstr[0] "%d fehlgeschlagene Auszahlung erneut eingereiht."
+msgstr[1] "%d fehlgeschlagene Auszahlungen erneut eingereiht."
+
+#, python-format
+msgid "Skipped %d payout (not in failed status)."
+msgid_plural "Skipped %d payouts (not in failed status)."
+msgstr[0] "%d Auszahlung übersprungen (Status nicht fehlgeschlagen)."
+msgstr[1] "%d Auszahlungen übersprungen (Status nicht fehlgeschlagen)."
+
 #, python-format
 msgid "Verification email sent to %d user."
 msgid_plural "Verification emails sent to %d users."
