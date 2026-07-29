@@ -96,7 +96,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                         "can_attend_without_login",
                         "requires_full_profile",
                     ),
-                    ("requires_ticket", "address_visibility"),
+                    "requires_ticket",
                     "visibility_settings",
                     ("rsvp_before", "apply_before"),
                     ("check_in_starts_at", "check_in_ends_at"),

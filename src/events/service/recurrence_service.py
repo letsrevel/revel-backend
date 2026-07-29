@@ -48,12 +48,10 @@ PROPAGATABLE_FIELDS = frozenset(
         "potluck_open",
         "accept_rsvp_notes",
         "accept_invitation_requests",
-        "public_pronoun_distribution",
         "can_attend_without_login",
         "is_open_ended",
         "address",
         "location",
-        "address_visibility",
         "visibility_settings",
     }
 )

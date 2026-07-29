@@ -340,9 +340,6 @@ class Event(
         help_text="Allow attendees to attach a short plain-text note to their RSVP.",
     )
     accept_invitation_requests = models.BooleanField(default=False)
-    public_pronoun_distribution = models.BooleanField(
-        default=False, help_text="Whether pronoun distribution is visible to non-staff users"
-    )
     apply_before = models.DateTimeField(
         null=True, blank=True, db_index=True, help_text="Deadline for submitting invitation requests or questionnaires"
     )
@@ -354,12 +351,6 @@ class Event(
 
     can_attend_without_login = models.BooleanField(
         default=True, help_text="Allow users to RSVP or purchase tickets without creating an account"
-    )
-    address_visibility = models.CharField(
-        choices=ResourceVisibility.choices,
-        max_length=20,
-        default=ResourceVisibility.PUBLIC,
-        help_text="Controls who can see the event address. Uses same rules as resource visibility.",
     )
 
     attendee_count = models.PositiveIntegerField(default=0, editable=False)
