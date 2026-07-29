@@ -529,16 +529,15 @@ class Event(
 
         Covers ``max_attendees``, held seats, derived spots-left, and a ticket
         tier's ``total_available``.
-
-        Note:
-            # ponytail: seated ticketed events still reveal occupancy through the
-            # seat picker — ``GET /events/{id}/seating/availability`` returns an
-            # anonymous per-seat sold/held map, and a seat map that hides
-            # occupancy cannot function as a seat map. Hiding it would require a
-            # separate "blind seating" mode (server-side assignment only), which
-            # is a product decision, not a gating one. Organizers must be told
-            # that ``show_capacity`` does not cover seated events.
         """
+        # ponytail: this does not cover seated ticketed events. The seat picker
+        # (``GET /events/{id}/seating/availability``) returns an anonymous
+        # per-seat sold/held map, and a seat map that hides occupancy cannot
+        # function as a seat map — so occupancy stays inferable there. Closing
+        # it needs a separate "blind seating" mode (server-side assignment only,
+        # no map), which is a product decision rather than a gating one.
+        # Until then, organizers running seated events must be told that
+        # ``show_capacity`` only hides the tier/capacity numbers.
         return self.visibility_flags.show_capacity or self.bypasses_visibility_settings(user)
 
     def can_user_see_attendee_list(self, user: RevelUser | AnonymousUser) -> bool:
