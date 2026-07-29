@@ -317,7 +317,7 @@ class TestPronounDistribution:
         assert body["distribution"] == []
 
     def test_owner_still_sees_totals(self, organization_owner_client: Client, pronoun_event: Event) -> None:
-        _set_visibility(pronoun_event, show_attendee_count=False)
+        _set_visibility(pronoun_event, show_pronoun_distribution=True, show_attendee_count=False)
 
         body = self._get(organization_owner_client, pronoun_event)
 

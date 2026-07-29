@@ -14,6 +14,7 @@ every event in the database.
 import typing as t
 
 from django.db import migrations
+from django.db.models import Q
 
 if t.TYPE_CHECKING:
     from django.apps.registry import Apps
@@ -104,11 +105,21 @@ def forwards(apps: "Apps", schema_editor: "BaseDatabaseSchemaEditor") -> None:
 def backwards(apps: "Apps", schema_editor: "BaseDatabaseSchemaEditor") -> None:
     """Restore both columns from ``visibility_settings`` and strip the keys.
 
-    Mirrors ``forwards``: re-queries rows that still carry ``ADDRESS_KEY`` on
-    every pass so a row written mid-rollback is not skipped.
+    Mirrors ``forwards``: re-queries rows that still carry either key on every
+    pass so a row written mid-rollback is not skipped. Matching on either key
+    (not just ``ADDRESS_KEY``) matters because a blob can carry
+    ``PRONOUN_KEY`` alone — e.g. a hand-edited admin blob, or a partial
+    ``visibility_settings`` write on a row that started as ``{}`` — and such a
+    row must not escape the strip. Termination still holds:
+    ``split_out_of_blob`` strips both keys unconditionally, so every row this
+    loop writes leaves the predicate set for good.
     """
     Event = apps.get_model("events", "Event")
-    while batch := list(Event.objects.filter(visibility_settings__has_key=ADDRESS_KEY)[:BATCH_SIZE]):
+    while batch := list(
+        Event.objects.filter(Q(visibility_settings__has_key=ADDRESS_KEY) | Q(visibility_settings__has_key=PRONOUN_KEY))[
+            :BATCH_SIZE
+        ]
+    ):
         for event in batch:
             address_visibility, show_pronouns, remainder = split_out_of_blob(event.visibility_settings)
             event.address_visibility = address_visibility

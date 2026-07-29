@@ -90,6 +90,17 @@ class TestSplitOutOfBlob:
         split_out_of_blob(blob)
         assert blob == {"address_visibility": "private", "show_pronoun_distribution": True}
 
+    def test_pronoun_only_blob_is_fully_stripped(self) -> None:
+        """A blob missing ``address_visibility`` must not escape the strip.
+
+        Reachable via a hand-edited admin blob or a partial write on a row that
+        started as ``{}``. ``backwards`` selects on either key precisely so a
+        row like this is picked up; this pins that ``split_out_of_blob`` itself
+        strips the key even when the other one was never present.
+        """
+        blob = {"show_capacity": False, "show_pronoun_distribution": True}
+        assert split_out_of_blob(blob) == ("public", True, {"show_capacity": False})
+
     def test_stripped_blob_validates_against_the_pre_793_model(self) -> None:
         """The rollback trap: a leftover key would raise for every migrated event."""
         blob = merge_into_blob({"show_capacity": False}, "staff-only", True)
