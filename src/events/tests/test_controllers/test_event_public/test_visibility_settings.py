@@ -281,8 +281,7 @@ class TestPronounDistribution:
     @pytest.fixture
     def pronoun_event(self, public_event: Event, django_user_model: type[RevelUser]) -> Event:
         """A public-distribution event with one attendee who declared pronouns."""
-        public_event.public_pronoun_distribution = True
-        public_event.save(update_fields=["public_pronoun_distribution"])
+        _set_visibility(public_event, show_pronoun_distribution=True)
         user = django_user_model.objects.create_user(
             username="pronouns792@example.com",
             email="pronouns792@example.com",

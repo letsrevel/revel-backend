@@ -550,6 +550,17 @@ class Event(
         """
         return self.visibility_flags.show_attendee_list or self.bypasses_visibility_settings(user)
 
+    def can_user_see_pronoun_distribution(self, user: RevelUser | AnonymousUser) -> bool:
+        """Whether the aggregated pronoun distribution may be disclosed to this user.
+
+        Opt-in per event, unlike its siblings: ``show_pronoun_distribution``
+        defaults to ``False``. ANDed with :meth:`can_user_see_attendee_count` at
+        the point of use — the distribution's per-pronoun counts sum straight
+        back to the head count, so opting into the distribution must not
+        sidestep an event that hides its counts.
+        """
+        return self.visibility_flags.show_pronoun_distribution or self.bypasses_visibility_settings(user)
+
     def can_user_see_address(self, user: RevelUser | AnonymousUser) -> bool:
         """Check if the user can see the event address based on address_visibility.
 

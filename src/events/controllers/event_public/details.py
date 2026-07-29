@@ -3,7 +3,6 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from ninja import Query
-from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
     route,
@@ -110,15 +109,11 @@ class EventPublicDetailsController(EventPublicBaseController):
         valid tickets). Helps organizers understand the pronoun breakdown for their event.
         Includes totals for attendees with and without pronouns specified.
 
-        When the event hides attendee counts, non-privileged callers get an empty
-        distribution with null totals instead of a second exact head count.
+        Non-privileged callers get an empty distribution with null totals when the event has
+        not opted into publishing it, or when the event hides attendee counts.
         """
         event = self.get_one(event_id)
-        user = self.user()
-        if not event.public_pronoun_distribution:
-            if not event.organization.is_owner_or_staff(user):
-                raise HttpError(403, "Pronoun distribution is not public for this event.")
-        return event_service.get_event_pronoun_distribution(event, user)
+        return event_service.get_event_pronoun_distribution(event, self.user())
 
     @route.get(
         "/{uuid:event_id}/announcements",
