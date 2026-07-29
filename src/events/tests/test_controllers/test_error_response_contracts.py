@@ -102,6 +102,22 @@ class TestWaitlistErrorContracts:
         url = reverse("api:leave_waitlist", kwargs={"event_id": public_event.id})
         assert_detail_body(member_client.delete(url))
 
+    def test_join_waitlist_capacity_conflict_returns_detail_409(
+        self, member_client: Client, public_event: Event
+    ) -> None:
+        """The 409 was declared ``ResponseMessage`` too; it is a raised ``HttpError``."""
+        public_event.waitlist_open = True
+        public_event.requires_ticket = False
+        public_event.max_attendees = 10  # room to spare -> eligibility allows
+        public_event.save()
+
+        url = reverse("api:join_waitlist", kwargs={"event_id": public_event.id})
+        response = member_client.post(url)
+        assert response.status_code == 409, response.content
+        body = response.json()
+        assert isinstance(body.get("detail"), str)
+        assert "message" not in body, body
+
 
 class TestRsvpErrorContracts:
     """``rsvp_event`` declared only ``EventUserEligibility``; ``{detail}`` is co-reachable."""

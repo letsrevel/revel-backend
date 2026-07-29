@@ -292,7 +292,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
     @route.delete(
         "/checkout/{payment_id}/cancel",
         url_name="cancel_checkout",
-        response={200: ResponseMessage, 400: ErrorDetail, 404: ResponseMessage},
+        response={200: ResponseMessage, 400: ErrorDetail, 404: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )

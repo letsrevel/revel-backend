@@ -183,7 +183,7 @@ class EventPublicAttendanceController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/waitlist/join",
         url_name="join_waitlist",
-        response={200: ResponseMessage, 400: EventUserEligibility | ErrorDetail, 409: ResponseMessage},
+        response={200: ResponseMessage, 400: EventUserEligibility | ErrorDetail, 409: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
