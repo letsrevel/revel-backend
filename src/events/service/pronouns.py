@@ -7,7 +7,7 @@ from events.models import Event, EventRSVP, Ticket
 from events.schema import EventPronounDistributionSchema, PronounCountSchema
 
 
-def get_event_pronoun_distribution(event: Event) -> EventPronounDistributionSchema:
+def get_event_pronoun_distribution(event: Event, viewer: RevelUser) -> EventPronounDistributionSchema:
     """Get aggregated pronoun distribution for event attendees.
 
     Attendees are defined as:
@@ -18,12 +18,26 @@ def get_event_pronoun_distribution(event: Event) -> EventPronounDistributionSche
     else in the codebase. PENDING tickets (e.g. OFFLINE) reserve capacity but are
     not yet confirmed attendees.
 
+    When the event hides attendee counts and ``viewer`` is not privileged
+    (org owner/staff, Django staff), an empty distribution with null totals is
+    returned without touching the database. Redacting only the totals would be
+    pointless: the per-pronoun counts sum straight back to them.
+
     Args:
         event: The event to get pronoun distribution for
+        viewer: The user requesting the distribution (determines count redaction)
 
     Returns:
         EventPronounDistributionSchema with distribution and totals
     """
+    if not event.can_user_see_attendee_count(viewer):
+        return EventPronounDistributionSchema(
+            distribution=[],
+            total_with_pronouns=None,
+            total_without_pronouns=None,
+            total_attendees=None,
+        )
+
     ticket_filter = Q(
         tickets__event=event,
         tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],

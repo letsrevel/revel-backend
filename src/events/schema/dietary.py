@@ -13,7 +13,9 @@ class AggregatedDietaryRestrictionSchema(Schema):
     severity: DietaryRestriction.RestrictionType = Field(
         ..., description="Restriction severity (dislike, intolerant, allergy, severe_allergy)"
     )
-    attendee_count: int = Field(..., description="Number of attendees with this restriction")
+    attendee_count: int | None = Field(
+        ..., description="Number of attendees with this restriction; null when the event hides attendee counts"
+    )
     notes: list[str] = Field(default_factory=list, description="Non-empty notes from attendees")
 
 
@@ -21,7 +23,9 @@ class AggregatedDietaryPreferenceSchema(Schema):
     """Aggregated dietary preference data for event attendees."""
 
     name: str = Field(..., description="Dietary preference name")
-    attendee_count: int = Field(..., description="Number of attendees with this preference")
+    attendee_count: int | None = Field(
+        ..., description="Number of attendees with this preference; null when the event hides attendee counts"
+    )
     comments: list[str] = Field(default_factory=list, description="Non-empty comments from attendees")
 
 

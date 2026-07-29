@@ -33,6 +33,7 @@ from events.schema import EventCreateSchema, EventEditSchema, SeriesPassLinkInpu
 from events.service import series_pass_service
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
 from events.utils.schedule import EventScheduleSession
+from events.utils.visibility_settings import build_visibility_settings_update, validate_visibility_settings
 
 
 class SlugAlreadyExistsError(Exception):
@@ -75,6 +76,30 @@ def _link_series_passes(event: models.Event, links: list[SeriesPassLinkInputSche
             models.SeriesPass, pk=link.series_pass_id, event_series_id=event.event_series_id
         )
         series_pass_service.add_tier_links(series_pass, [{"event_id": event.id, "tier_id": link.tier_id}])
+
+
+def _field_changed(field: str, before: t.Any, after: t.Any) -> bool:
+    """Whether an edited field's value actually differs, for the occurrence diff.
+
+    A plain ``!=`` is right for the scalar types ``EventEditSchema`` exposes, but
+    wrong for ``visibility_settings``: it is a JSON blob whose empty form and its
+    explicitly-spelled-out all-defaults form mean the same thing. Comparing the
+    raw dicts would report ``{}`` → ``{"show_capacity": true}`` as a change and
+    flip ``is_modified=True``, permanently detaching the occurrence from template
+    propagation over an edit that changed nothing. Frontends that round-trip the
+    whole settings object on every save would trip this on the first edit.
+
+    Args:
+        field: The field name being compared.
+        before: The pre-update value.
+        after: The post-update value.
+
+    Returns:
+        True when the values differ in meaning, not merely in representation.
+    """
+    if field == "visibility_settings":
+        return validate_visibility_settings(before) != validate_visibility_settings(after)
+    return bool(before != after)
 
 
 @transaction.atomic
@@ -144,7 +169,14 @@ def update_event(
     old_effective_capacity = event.effective_capacity
     was_waitlist_open = event.waitlist_open
 
-    updated_event = update_db_instance(event, payload, exclude={"series_pass_links"})
+    # Merge partial visibility toggles onto the stored blob rather than replacing
+    # it: naming one toggle must not silently re-enable the ones left out.
+    updated_event = update_db_instance(
+        event,
+        payload,
+        exclude={"series_pass_links"},
+        **build_visibility_settings_update(event.visibility_settings, payload),
+    )
     _link_series_passes(updated_event, payload.series_pass_links)
 
     # Mark occurrences as modified only when a persisted field actually
@@ -155,8 +187,10 @@ def update_event(
     # ``EventEditSchema`` actually exposes (str, int, bool, datetime).
     # GIS Point objects or cross-tz datetimes could compare unequal for
     # structurally-identical values, but neither is exposed here.
+    # ``visibility_settings`` is the one exception and is normalized — see
+    # ``_field_changed``.
     if track_is_modified and pre_values:
-        changed = any(getattr(updated_event, field) != pre_values[field] for field in pre_values)
+        changed = any(_field_changed(field, pre_values[field], getattr(updated_event, field)) for field in pre_values)
         if changed:
             updated_event.is_modified = True
             updated_event.save(update_fields=["is_modified"])

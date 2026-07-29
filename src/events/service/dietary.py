@@ -21,6 +21,11 @@ def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySumm
     Event organizers/staff see all dietary data (public + private). Regular attendees
     only see data marked as public.
 
+    When the event hides attendee counts (``visibility_settings.show_attendee_count``)
+    and ``user`` is not privileged, every ``attendee_count`` is nulled — the entries
+    and their notes still describe what to cook for, without disclosing how many
+    people that is.
+
     Args:
         event: The event to get dietary summary for
         user: The user requesting the summary (determines visibility filtering)
@@ -28,6 +33,7 @@ def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySumm
     Returns:
         EventDietarySummarySchema with aggregated restrictions and preferences
     """
+    show_counts = event.can_user_see_attendee_count(user)
     # Get all attendees regardless of viewer - visibility is controlled by is_public flag
     attendees = RevelUser.objects.filter(
         Q(tickets__event=event, tickets__status=Ticket.TicketStatus.ACTIVE)
@@ -63,7 +69,7 @@ def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySumm
         AggregatedDietaryRestrictionSchema(
             food_item=food_item,
             severity=severity,  # type: ignore[arg-type]
-            attendee_count=data["count"],
+            attendee_count=data["count"] if show_counts else None,
             notes=data["notes"],
         )
         for (food_item, severity), data in restrictions_map.items()
@@ -88,7 +94,7 @@ def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySumm
     aggregated_preferences = [
         AggregatedDietaryPreferenceSchema(
             name=name,
-            attendee_count=data["count"],
+            attendee_count=data["count"] if show_counts else None,
             comments=data["comments"],
         )
         for name, data in preferences_map.items()
