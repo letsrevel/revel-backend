@@ -2,11 +2,16 @@
 
 import typing as t
 
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.utils.html import format_html
+from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
 from unfold.admin import ModelAdmin
 
-from accounts.models import Referral, ReferralCode, ReferralPayout, ReferralPayoutStatement
+from accounts.models import Referral, ReferralCode, ReferralPayout, ReferralPayoutStatement, RevelUser
+from accounts.service import referral_payout_service
 from common.signing import get_file_url
 
 
@@ -171,6 +176,8 @@ class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
         ),
     ]
 
+    actions = ["requeue_failed_payouts"]
+
     def has_add_permission(self, request: t.Any) -> bool:
         """Payouts are created by the system."""
         return False
@@ -182,6 +189,44 @@ class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
     def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         """Payouts must not be deleted to preserve the audit trail."""
         return False
+
+    def has_requeue_permission(self, request: HttpRequest) -> bool:
+        """Gate the requeue action on the model's change permission.
+
+        ``has_change_permission`` is hard-False so the change form stays readonly,
+        which would also hide the action — hence the underlying Django permission
+        is consulted directly instead of via ``permissions=["change"]``.
+        """
+        return request.user.has_perm("accounts.change_referralpayout")
+
+    @admin.action(description=_("Requeue failed payouts"), permissions=["requeue"])
+    def requeue_failed_payouts(self, request: HttpRequest, queryset: QuerySet[ReferralPayout]) -> None:
+        """Send FAILED payouts back to CALCULATED so the next disbursement run retries them."""
+        requeued = referral_payout_service.requeue_failed_payouts(queryset, actor=t.cast(RevelUser, request.user))
+        skipped = queryset.count() - len(requeued)
+
+        if requeued:
+            self.message_user(
+                request,
+                ngettext(
+                    "Requeued %d failed payout.",
+                    "Requeued %d failed payouts.",
+                    len(requeued),
+                )
+                % len(requeued),
+                messages.SUCCESS,
+            )
+        if skipped:
+            self.message_user(
+                request,
+                ngettext(
+                    "Skipped %d payout (not in failed status).",
+                    "Skipped %d payouts (not in failed status).",
+                    skipped,
+                )
+                % skipped,
+                messages.WARNING,
+            )
 
 
 @admin.register(ReferralPayoutStatement)

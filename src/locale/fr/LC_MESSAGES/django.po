@@ -19,6 +19,21 @@ msgstr ""
 msgid "Impersonate"
 msgstr "Emprunter l'identité"
 
+msgid "Requeue failed payouts"
+msgstr "Remettre en file les versements échoués"
+
+#, python-format
+msgid "Requeued %d failed payout."
+msgid_plural "Requeued %d failed payouts."
+msgstr[0] "%d versement échoué remis en file."
+msgstr[1] "%d versements échoués remis en file."
+
+#, python-format
+msgid "Skipped %d payout (not in failed status)."
+msgid_plural "Skipped %d payouts (not in failed status)."
+msgstr[0] "%d versement ignoré (pas au statut échoué)."
+msgstr[1] "%d versements ignorés (pas au statut échoué)."
+
 #, python-format
 msgid "Verification email sent to %d user."
 msgid_plural "Verification emails sent to %d users."
