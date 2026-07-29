@@ -9,15 +9,26 @@ from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, BaseModel, Field, StringConstraints
 
 from accounts.models import RevelUser
-from common.schema import OneToOneFiftyString, OneToSixtyFourString, ProfilePictureSchemaMixin, StrippedString
+from common.schema import (
+    OneToOneFiftyString,
+    OneToSixtyFourString,
+    ProfilePictureSchemaMixin,
+    StrippedString,
+    viewer_from_context,
+)
 from events.models import Event, ResourceVisibility
 from events.utils.schedule import EventScheduleSession
+from events.utils.visibility_settings import EventVisibilitySettings
 from geo.schema import CitySchema
 
 from .event_series import MinimalEventSeriesSchema
 from .mixins import CityEditMixin, LogoCoverArtThumbnailMixin, TaggableSchemaMixin
 from .organization import MinimalOrganizationSchema
 from .venue import VenueSchema
+
+# Re-export the pydantic settings model as the API schema (single source of truth),
+# mirroring EventScheduleSessionSchema below and RefundPolicySchema in schema/ticket.py.
+EventVisibilitySettingsSchema = EventVisibilitySettings
 
 
 class SeriesPassLinkInputSchema(Schema):
@@ -55,6 +66,7 @@ class EventEditSchema(CityEditMixin):
         None, description="Deadline for submitting invitation requests or questionnaires"
     )
     can_attend_without_login: bool = False
+    visibility_settings: EventVisibilitySettingsSchema = Field(default_factory=EventVisibilitySettingsSchema)
     series_pass_links: list[SeriesPassLinkInputSchema] | None = None
 
 
@@ -115,7 +127,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     slug: str
     description: str | None = None
     invitation_message: str | None = None
-    max_attendees: int = 0
+    max_attendees: int | None = 0
     max_tickets_per_user: int | None = None
     waitlist_open: bool | None = None
     start: AwareDatetime
@@ -128,7 +140,9 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     requires_ticket: bool
     requires_full_profile: bool
     potluck_open: bool
-    attendee_count: int
+    attendee_count: int | None = None
+    is_full: bool = False
+    visibility_settings: EventVisibilitySettingsSchema = Field(default_factory=EventVisibilitySettingsSchema)
     accept_invitation_requests: bool
     accept_rsvp_notes: bool
     public_pronoun_distribution: bool
@@ -144,7 +158,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     occurrence_index: int | None = None
     updated_at: AwareDatetime | None = None
     created_at: AwareDatetime | None = None
-    seats_held: int = 0
+    seats_held: int | None = 0
     is_bookmarked: bool = False
     cancellation_reason: str | None = None
 
@@ -196,13 +210,44 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
         return user.is_authenticated and EventBookmark.objects.filter(user=user, event=obj).exists()
 
     @staticmethod
-    def resolve_seats_held(obj: "Event") -> int:
+    def resolve_attendee_count(obj: "Event", context: t.Any) -> int | None:
+        """Disclose the confirmed-attendee count only when the event allows it.
+
+        Returns ``None`` when ``visibility_settings.show_attendee_count`` is off
+        and the viewer is not privileged (org owner/staff, Django staff). The
+        always-public ``is_full`` boolean covers the sold-out case for the
+        frontend without disclosing the exact number.
+        """
+        user = viewer_from_context(context)
+        return obj.attendee_count if obj.can_user_see_attendee_count(user) else None
+
+    @staticmethod
+    def resolve_max_attendees(obj: "Event", context: t.Any) -> int | None:
+        """Disclose the configured capacity only when the event allows it.
+
+        Returns ``None`` when ``visibility_settings.show_capacity`` is off and
+        the viewer is not privileged. ``0`` still means "uncapped"; ``None`` now
+        means "not disclosed", so clients must distinguish the two.
+        """
+        user = viewer_from_context(context)
+        return obj.max_attendees if obj.can_user_see_capacity(user) else None
+
+    @staticmethod
+    def resolve_seats_held(obj: "Event", context: t.Any) -> int | None:
         """Count pending unexpired non-cutoff waitlist offers (reserved seats).
+
+        Gated by ``visibility_settings.show_capacity`` — held seats are a
+        capacity figure and combining them with ``max_attendees`` would leak
+        spots-left. Returns ``None`` when the viewer may not see capacity; the
+        gate short-circuits before any query.
 
         Reads from the ``pending_waitlist_offer_count`` annotation when available
         (set by ``EligibilityService.__init__`` and any queryset that opts into it).
         Falls back to a direct COUNT query for callers that haven't annotated.
         """
+        if not obj.can_user_see_capacity(viewer_from_context(context)):
+            return None
+
         annotated = getattr(obj, "pending_waitlist_offer_count", None)
         if annotated is not None:
             return int(annotated)

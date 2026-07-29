@@ -53,6 +53,7 @@ PROPAGATABLE_FIELDS = frozenset(
         "address",
         "location",
         "address_visibility",
+        "visibility_settings",
     }
 )
 

@@ -9,7 +9,7 @@ from common.schema import OneToOneFiftyString, StrippedString
 from events.models import Event, ResourceVisibility
 from events.models.event_series import MAX_GENERATION_WINDOW_WEEKS
 
-from .event import EventCreateSchema, MinimalEventSchema
+from .event import EventCreateSchema, EventVisibilitySettingsSchema, MinimalEventSchema
 from .recurrence_rule import RecurrenceRuleCreateSchema, RecurrenceRuleSchema, RecurrenceRuleUpdateSchema
 
 
@@ -109,6 +109,7 @@ class TemplateEditSchema(Schema):
     can_attend_without_login: bool | None = None
     requires_ticket: bool | None = None
     is_open_ended: bool | None = None
+    visibility_settings: EventVisibilitySettingsSchema | None = None
     address: StrippedString | None = Field(default=None, max_length=255)
 
 

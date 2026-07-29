@@ -97,6 +97,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                         "requires_full_profile",
                     ),
                     ("requires_ticket", "address_visibility"),
+                    "visibility_settings",
                     ("rsvp_before", "apply_before"),
                     ("check_in_starts_at", "check_in_ends_at"),
                 )
