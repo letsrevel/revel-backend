@@ -48,3 +48,36 @@ def validate_visibility_settings(data: dict[str, t.Any] | None) -> EventVisibili
         pydantic.ValidationError: if ``data`` is malformed or carries unknown keys.
     """
     return _ADAPTER.validate_python(data if data is not None else {})
+
+
+def build_visibility_settings_update(stored: dict[str, t.Any] | None, payload: BaseModel) -> dict[str, t.Any]:
+    """Build the merged ``visibility_settings`` write for an edit payload, if any.
+
+    Editing endpoints write ``model_dump(exclude_unset=True)``, so omitting a
+    field leaves it unchanged — and pydantic propagates ``exclude_unset`` into
+    nested models, so the payload carries exactly the toggles the client named.
+    Writing that verbatim would *replace* the stored blob and silently re-enable
+    every toggle the client left out: an organizer who had hidden the attendee
+    count would have it disclosed again by an unrelated edit to
+    ``show_capacity``. That is precisely the failure this feature exists to
+    prevent, so the sent toggles are merged onto the stored ones instead.
+
+    Merging gives the nested object the same "omit means unchanged" contract
+    every sibling field on the edit schemas already has, just at sub-key
+    granularity. Naming a toggle explicitly still sets it, so re-enabling a
+    disclosure stays possible — it only has to be deliberate.
+
+    Args:
+        stored: The event's current ``visibility_settings`` (possibly empty/None).
+        payload: The validated edit payload, which may or may not carry the field.
+
+    Returns:
+        ``{"visibility_settings": <merged>}``, or an empty mapping when the client
+        did not send the field (an explicit ``null`` is left to model validation
+        to reject, like any other non-nullable field), so callers can splat it
+        unconditionally.
+    """
+    sent = payload.model_dump(exclude_unset=True).get("visibility_settings")
+    if not isinstance(sent, dict):
+        return {}
+    return {"visibility_settings": {**(stored or {}), **sent}}

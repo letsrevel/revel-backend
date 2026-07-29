@@ -452,6 +452,45 @@ class TestOrganizerRoundTrip:
         assert public_event.visibility_flags.show_capacity is False
         assert public_event.visibility_flags.show_attendee_count is True
 
+    def test_partial_edit_does_not_re_enable_hidden_toggles(
+        self, organization_owner_client: Client, public_event: Event
+    ) -> None:
+        """Naming one toggle must not silently re-disclose the others.
+
+        ``exclude_unset`` propagates into the nested model, so writing the sent
+        blob verbatim would replace the stored one — turning a previously hidden
+        attendee count back on as a side effect of editing ``show_capacity``.
+        """
+        _set_visibility(public_event, show_attendee_count=False)
+
+        response = organization_owner_client.put(
+            reverse("api:edit_event", kwargs={"event_id": str(public_event.id)}),
+            data={"visibility_settings": {"show_capacity": False}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        public_event.refresh_from_db()
+        assert public_event.visibility_flags.show_attendee_count is False
+        assert public_event.visibility_flags.show_capacity is False
+
+    def test_partial_edit_can_still_re_enable_a_toggle(
+        self, organization_owner_client: Client, public_event: Event
+    ) -> None:
+        """Merging hides nothing the organizer deliberately turns back on."""
+        _set_visibility(public_event, show_attendee_count=False, show_capacity=False)
+
+        response = organization_owner_client.put(
+            reverse("api:edit_event", kwargs={"event_id": str(public_event.id)}),
+            data={"visibility_settings": {"show_attendee_count": True}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        public_event.refresh_from_db()
+        assert public_event.visibility_flags.show_attendee_count is True
+        assert public_event.visibility_flags.show_capacity is False
+
     def test_edit_without_the_field_leaves_it_untouched(
         self, organization_owner_client: Client, public_event: Event
     ) -> None:

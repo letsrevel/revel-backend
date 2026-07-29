@@ -12,6 +12,7 @@ import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
+from pydantic import BaseModel
 
 from accounts.models import RevelUser
 from events.models import (
@@ -22,7 +23,11 @@ from events.models import (
     OrganizationStaff,
 )
 from events.service.duplication import _EXCLUDED_FROM_COPY, duplicate_event
-from events.utils.visibility_settings import validate_visibility_settings
+from events.utils.visibility_settings import (
+    EventVisibilitySettings,
+    build_visibility_settings_update,
+    validate_visibility_settings,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -85,6 +90,51 @@ def test_visibility_flags_are_not_cached_across_assignment(public_event: Event) 
     public_event.visibility_settings = {"show_capacity": False}
 
     assert public_event.visibility_flags.show_capacity is False
+
+
+class TestBuildUpdate:
+    """``build_visibility_settings_update`` merges rather than replaces."""
+
+    class _Payload(BaseModel):
+        visibility_settings: EventVisibilitySettings | None = None
+
+    def test_absent_field_yields_no_write(self) -> None:
+        assert build_visibility_settings_update({"show_capacity": False}, self._Payload()) == {}
+
+    def test_explicit_null_yields_no_write(self) -> None:
+        """Left to model validation to reject, like any other non-nullable field."""
+        payload = self._Payload.model_validate({"visibility_settings": None})
+
+        assert build_visibility_settings_update({}, payload) == {}
+
+    def test_partial_send_preserves_untouched_toggles(self) -> None:
+        payload = self._Payload.model_validate({"visibility_settings": {"show_capacity": False}})
+
+        assert build_visibility_settings_update({"show_attendee_count": False}, payload) == {
+            "visibility_settings": {"show_attendee_count": False, "show_capacity": False},
+        }
+
+    def test_sent_toggle_wins_over_stored(self) -> None:
+        payload = self._Payload.model_validate({"visibility_settings": {"show_capacity": True}})
+
+        assert build_visibility_settings_update({"show_capacity": False}, payload) == {
+            "visibility_settings": {"show_capacity": True},
+        }
+
+    def test_none_stored_is_tolerated(self) -> None:
+        payload = self._Payload.model_validate({"visibility_settings": {"show_capacity": False}})
+
+        assert build_visibility_settings_update(None, payload) == {
+            "visibility_settings": {"show_capacity": False},
+        }
+
+    def test_stored_blob_is_not_mutated(self) -> None:
+        stored: dict[str, t.Any] = {"show_attendee_count": False}
+        payload = self._Payload.model_validate({"visibility_settings": {"show_capacity": False}})
+
+        build_visibility_settings_update(stored, payload)
+
+        assert stored == {"show_attendee_count": False}
 
 
 class TestBypass:

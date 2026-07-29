@@ -33,6 +33,7 @@ from events.schema import EventCreateSchema, EventEditSchema, SeriesPassLinkInpu
 from events.service import series_pass_service
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
 from events.utils.schedule import EventScheduleSession
+from events.utils.visibility_settings import build_visibility_settings_update
 
 
 class SlugAlreadyExistsError(Exception):
@@ -144,7 +145,14 @@ def update_event(
     old_effective_capacity = event.effective_capacity
     was_waitlist_open = event.waitlist_open
 
-    updated_event = update_db_instance(event, payload, exclude={"series_pass_links"})
+    # Merge partial visibility toggles onto the stored blob rather than replacing
+    # it: naming one toggle must not silently re-enable the ones left out.
+    updated_event = update_db_instance(
+        event,
+        payload,
+        exclude={"series_pass_links"},
+        **build_visibility_settings_update(event.visibility_settings, payload),
+    )
     _link_series_passes(updated_event, payload.series_pass_links)
 
     # Mark occurrences as modified only when a persisted field actually

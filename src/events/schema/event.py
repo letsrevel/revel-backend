@@ -66,6 +66,9 @@ class EventEditSchema(CityEditMixin):
         None, description="Deadline for submitting invitation requests or questionnaires"
     )
     can_attend_without_login: bool = False
+    # Merged, not replaced, on edit: sending one toggle leaves the others at
+    # their stored values (see ``build_visibility_settings_update``). Omitting a
+    # toggle means "no change", exactly like omitting any other field here.
     visibility_settings: EventVisibilitySettingsSchema = Field(default_factory=EventVisibilitySettingsSchema)
     series_pass_links: list[SeriesPassLinkInputSchema] | None = None
 
