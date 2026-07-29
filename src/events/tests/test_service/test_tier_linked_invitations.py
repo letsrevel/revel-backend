@@ -553,10 +553,13 @@ class TestTokenClaimTierLinks:
         public_event: Event,
         owner: RevelUser,
     ) -> None:
-        """create_event_token raises DoesNotExist for tiers not belonging to the event."""
+        """create_event_token raises a 404 HttpError for tiers not belonging to the event.
+
+        Only the foreign tier is named — the caller's own tier resolved fine.
+        """
         own = TicketTier.objects.create(event=private_event, name="Own")
         other = TicketTier.objects.create(event=public_event, name="Other")
-        with pytest.raises(TicketTier.DoesNotExist):
+        with pytest.raises(HttpError) as exc_info:
             create_event_token(
                 event=private_event,
                 issuer=owner,
@@ -564,6 +567,10 @@ class TestTokenClaimTierLinks:
                 grants_invitation=True,
                 ticket_tier_ids=[own.id, other.id],
             )
+
+        assert exc_info.value.status_code == 404
+        assert str(other.id) in str(exc_info.value)
+        assert str(own.id) not in str(exc_info.value)
 
     def test_claim_adds_tiers_to_existing_invitation(
         self,

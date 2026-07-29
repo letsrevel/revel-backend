@@ -4,12 +4,12 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Query
-from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
+from common.schema import ErrorDetail
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
@@ -31,7 +31,9 @@ class EventAdminTokensController(EventAdminBaseController):
     @route.put(
         "/tokens/{token_id}",
         url_name="edit_event_token",
-        response=schema.EventTokenSchema,
+        # 404 covers both the token lookup and a ticket_tier_id that doesn't
+        # belong to this event (see tokens._validate_tier_ownership).
+        response={200: schema.EventTokenSchema, 404: ErrorDetail},
     )
     def update_event_token(
         self, event_id: UUID, token_id: str, payload: schema.EventTokenUpdateSchema
@@ -70,10 +72,7 @@ class EventAdminTokensController(EventAdminBaseController):
         """
         event = self.get_one(event_id)
         token = get_object_or_404(models.EventToken, pk=token_id, event=event)
-        try:
-            return event_service.update_event_token(token, payload)
-        except models.TicketTier.DoesNotExist as exc:
-            raise HttpError(404, str(exc)) from exc
+        return event_service.update_event_token(token, payload)
 
     @route.delete(
         "/tokens/{token_id}",
@@ -191,7 +190,9 @@ class EventAdminTokensController(EventAdminBaseController):
     @route.post(
         "/tokens",
         url_name="create_event_token",
-        response=schema.EventTokenSchema,
+        # 404 when a ticket_tier_id doesn't belong to this event
+        # (see tokens._validate_tier_ownership).
+        response={200: schema.EventTokenSchema, 404: ErrorDetail},
     )
     def create_event_token(self, event_id: UUID, payload: schema.EventTokenCreateSchema) -> models.EventToken:
         """Create a new shareable token for this event.
@@ -258,7 +259,4 @@ class EventAdminTokensController(EventAdminBaseController):
         - 403: User lacks "invite_to_event" permission
         """
         event = self.get_one(event_id)
-        try:
-            return event_service.create_event_token(event=event, issuer=self.user(), **payload.model_dump())
-        except models.TicketTier.DoesNotExist as exc:
-            raise HttpError(404, str(exc)) from exc
+        return event_service.create_event_token(event=event, issuer=self.user(), **payload.model_dump())

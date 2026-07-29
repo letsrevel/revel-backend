@@ -342,6 +342,39 @@ class TestUnmappedDoesNotExistContracts:
         # The FE needs to say *which* ids were wrong.
         assert str(missing) in detail
 
+    def test_token_foreign_tier_returns_404_detail(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        organization: Organization,
+    ) -> None:
+        """The token endpoints' 404 was undeclared; it is a ``{detail}`` naming the tier.
+
+        Unlike the other two sites in this class this was never a 500 — both token
+        controllers already caught it — but the status was absent from the
+        declared response set, so the generated client had no type for it.
+        """
+        other_event = Event.objects.create(
+            organization=organization,
+            name="Other Event",
+            slug="other-event-contract",
+            start="2025-12-01T10:00:00Z",
+            end="2025-12-01T12:00:00Z",
+        )
+        foreign = TicketTier.objects.create(event=other_event, name="Foreign", total_quantity=10)
+
+        url = reverse("api:create_event_token", kwargs={"event_id": event.pk})
+        response = organization_owner_client.post(
+            url,
+            data={"name": "T", "ticket_tier_ids": [str(foreign.id)]},
+            content_type="application/json",
+        )
+        assert response.status_code == 404, response.content
+        body = response.json()
+        assert isinstance(body.get("detail"), str)
+        assert str(foreign.id) in body["detail"]
+        assert "message" not in body, body
+
     def test_unknown_submission_id_returns_404_detail_not_500(
         self,
         organization_owner_client: Client,
