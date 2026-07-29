@@ -171,6 +171,8 @@ class TestVisibilitySettingsExposure:
             "show_attendee_count": True,
             "show_capacity": True,
             "show_attendee_list": True,
+            "show_pronoun_distribution": False,
+            "address_visibility": "public",
         }
 
     def test_partial_blob_is_filled_in(self, anonymous_client: Client, public_event: Event) -> None:
@@ -181,6 +183,8 @@ class TestVisibilitySettingsExposure:
             "show_attendee_count": True,
             "show_capacity": False,
             "show_attendee_list": True,
+            "show_pronoun_distribution": False,
+            "address_visibility": "public",
         }
 
 
