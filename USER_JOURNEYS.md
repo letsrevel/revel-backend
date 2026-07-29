@@ -321,7 +321,7 @@ After RSVP YES:
 - See full event address (if address_visibility allows)
 - See attendee list (based on AttendeeVisibilityFlag settings)
 - See attendee-only resources
-- See dietary summary and pronoun distribution (if `public_pronoun_distribution` enabled)
+- See dietary summary and pronoun distribution (if `visibility_settings.show_pronoun_distribution` enabled)
 - Access potluck coordination (if enabled)
 - Receive event announcements
 
@@ -717,7 +717,7 @@ DRAFT → OPEN → CLOSED
 ### 10.13 View Event Statistics
 - Attendee count
 - Dietary summary (aggregated restrictions/preferences)
-- Pronoun distribution (visible to non-staff only when `public_pronoun_distribution=True`)
+- Pronoun distribution (gated by `visibility_settings.show_pronoun_distribution` AND `show_attendee_count`; non-privileged viewers get a `200` with an empty distribution and null totals when either is off, rather than a `403`)
 - Ticket sales by tier
 
 ### 10.14 Event Schedule / Timeline

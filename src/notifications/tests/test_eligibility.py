@@ -948,3 +948,17 @@ class TestBatchAddressVisibilityParity:
             # Owner can always see
             assert checker.can_see_address(owner.id) == event.can_user_see_address(owner)
             assert checker.can_see_address(owner.id) is True
+
+    def test_empty_blob_falls_back_to_public_default(
+        self,
+        event: Event,
+        random_user: RevelUser,
+    ) -> None:
+        """No ``address_visibility`` key at all: both implementations must fall back the same way."""
+        event.visibility_settings = {}
+        event.save()
+
+        checker = BatchParticipationChecker(event)
+
+        assert checker.can_see_address(random_user.id) == event.can_user_see_address(random_user)
+        assert checker.can_see_address(random_user.id) is True

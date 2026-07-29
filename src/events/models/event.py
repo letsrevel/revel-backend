@@ -276,8 +276,11 @@ class Event(
         default=dict,
         blank=True,
         help_text=(
-            "Granular switches for organizational information (attendee count, capacity, guest list). "
-            "An empty object means every toggle keeps its default of 'visible'."
+            "Granular disclosure settings: boolean toggles for attendee count, capacity, guest "
+            "list, and pronoun distribution, plus an address_visibility level (public/private/"
+            "members-only/staff-only/attendees-only). An empty object means every toggle keeps "
+            "its own default — visible for all of them except pronoun distribution, which "
+            "defaults to hidden; address_visibility defaults to public."
         ),
     )
     waitlist_open = models.BooleanField(default=False)

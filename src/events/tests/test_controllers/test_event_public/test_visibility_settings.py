@@ -277,7 +277,7 @@ class TestTicketTierTotalAvailable:
 
 
 class TestPronounDistribution:
-    """The second exact head count behind ``public_pronoun_distribution``."""
+    """The second exact head count behind ``visibility_settings.show_pronoun_distribution``."""
 
     @pytest.fixture
     def pronoun_event(self, public_event: Event, django_user_model: type[RevelUser]) -> Event:
@@ -297,7 +297,7 @@ class TestPronounDistribution:
         assert response.status_code == 200, response.content
         return t.cast(dict[str, t.Any], response.json())
 
-    def test_visible_by_default(self, nonmember_client: Client, pronoun_event: Event) -> None:
+    def test_visible_when_opted_in(self, nonmember_client: Client, pronoun_event: Event) -> None:
         body = self._get(nonmember_client, pronoun_event)
 
         assert body["total_attendees"] == 1
@@ -307,7 +307,7 @@ class TestPronounDistribution:
         self, nonmember_client: Client, pronoun_event: Event
     ) -> None:
         """The per-pronoun counts sum back to the total, so both are redacted."""
-        _set_visibility(pronoun_event, show_attendee_count=False)
+        _set_visibility(pronoun_event, show_pronoun_distribution=True, show_attendee_count=False)
 
         body = self._get(nonmember_client, pronoun_event)
 
@@ -632,9 +632,32 @@ class TestPhase2WireContract:
         public_event.refresh_from_db()
         assert type(public_event.visibility_settings["address_visibility"]) is str
 
-    def test_edit_rejects_the_removed_top_level_field(
-        self, organization_owner_client: Client, public_event: Event
-    ) -> None:
+    def test_created_address_visibility_is_a_plain_string(self, organization: Organization) -> None:
+        """The create path must not leave a ``ResourceVisibility`` member in memory either.
+
+        A DB round-trip (as in the edit-path test above) can't catch this: JSONField
+        always decodes plain strings on read, regardless of what was written. So this
+        asserts on the very instance ``create_event`` returns, before any refetch —
+        the same instance the controller hands straight to the response schema.
+        """
+        from events.schema import EventCreateSchema
+        from events.service import event_service
+
+        payload = EventCreateSchema.model_validate(
+            {
+                "name": "Discreet Event",
+                "start": "2099-01-01T18:00:00Z",
+                "event_type": Event.EventType.PUBLIC,
+                "visibility": Event.Visibility.PUBLIC,
+                "visibility_settings": {"address_visibility": "members-only"},
+            }
+        )
+
+        event = event_service.create_event(organization, payload)
+
+        assert type(event.visibility_settings["address_visibility"]) is str
+
+    def test_removed_top_level_field_is_ignored(self, organization_owner_client: Client, public_event: Event) -> None:
         """``EventEditSchema`` is not ``extra='forbid'``, so the field is ignored, not 422.
 
         Pinned deliberately: an old client sending the top-level field gets a
