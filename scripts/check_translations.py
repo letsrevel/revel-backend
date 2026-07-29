@@ -35,7 +35,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-LANGUAGES = ["de", "it", "fr"]
+LANGUAGES = ["de", "it", "fr", "es", "pt"]
 SRC_DIR = Path(__file__).resolve().parent.parent / "src"
 
 

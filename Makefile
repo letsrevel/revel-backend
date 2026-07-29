@@ -241,7 +241,7 @@ migrate:
 
 .PHONY: makemessages
 makemessages:
-	cd src && uv run python manage.py makemessages -l de -l it -l fr --no-location --no-obsolete
+	cd src && uv run python manage.py makemessages -l de -l it -l fr -l es -l pt --no-location --no-obsolete
 	# Strip the POT-Creation-Date header: gettext stamps it on every run, which is
 	# the only remaining diff churn once --no-location is set. Removing it keeps
 	# `make makemessages` deterministic (diffs only on real string changes).

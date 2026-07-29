@@ -4,7 +4,7 @@ from datetime import time, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.utils import timezone
+from django.utils import timezone, translation
 
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, DeliveryStatus
@@ -215,6 +215,32 @@ class TestNotificationDigest:
         call_kwargs = mock_send_email.call_args.kwargs
         assert call_kwargs["to"] == regular_user.email
         assert "notification" in call_kwargs["subject"].lower()
+
+    @pytest.mark.parametrize(
+        ("language", "expected"),
+        [
+            ("es", "3 notificaciones nuevas"),
+            ("de", "3 neue Benachrichtigungen"),
+            ("pt", "3 novas notificações"),
+        ],
+    )
+    def test_build_digest_subject_pluralizes_per_locale(
+        self,
+        regular_user: RevelUser,
+        digest_notifications: list[Notification],
+        language: str,
+        expected: str,
+    ) -> None:
+        """Subject uses each locale's own plural form, not an English 's' suffix."""
+        # Arrange
+        digest = NotificationDigest(regular_user, Notification.objects.filter(user=regular_user))
+
+        # Act
+        with translation.override(language):
+            subject, _text_body, _html_body = digest.build_digest_content()
+
+        # Assert
+        assert subject == expected
 
     def test_build_digest_content_groups_by_type(
         self,

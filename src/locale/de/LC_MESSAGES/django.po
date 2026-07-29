@@ -2663,7 +2663,7 @@ msgstr ""
 "Um deinen Ticketkauf zu bestätigen, klicke bitte auf den folgenden Link:"
 
 msgid "Confirm Ticket"
-msgstr "Dein Ticket"
+msgstr "Ticket bestätigen"
 
 msgid "To confirm your ticket purchase, please click the link below:"
 msgstr ""
@@ -2686,8 +2686,7 @@ msgstr ""
 "Transaktionen im Zeitraum %(period_start)s bis %(period_end)s."
 
 msgid "This is an automated billing document."
-msgstr ""
-"Dies ist eine automatische Benachrichtigung deines Event-Management-Systems."
+msgstr "Dies ist ein automatisch erstelltes Abrechnungsdokument."
 
 msgid "Category prices must be a mapping of price category id to price."
 msgstr ""
@@ -2770,8 +2769,10 @@ msgid "Read more..."
 msgstr "Weiterlesen..."
 
 #, python-format
-msgid "%(count)d new notification%(plural)s"
-msgstr "%(count)d neue Benachrichtigung%(plural)s"
+msgid "%(counter)s new notification"
+msgid_plural "%(counter)s new notifications"
+msgstr[0] "%(counter)s neue Benachrichtigung"
+msgstr[1] "%(counter)s neue Benachrichtigungen"
 
 msgid "Account Suspended"
 msgstr "Konto gesperrt"
@@ -3233,7 +3234,7 @@ msgid "Verification Update: %(org)s"
 msgstr "Verifizierungs-Update: %(org)s"
 
 msgid "Event details have been updated."
-msgstr "Eine E-Mail wurde versendet."
+msgstr "Die Event-Details wurden aktualisiert."
 
 #, python-format
 msgid "You're invited: %(event_name)s"
@@ -4823,12 +4824,6 @@ msgstr "Hallo,"
 msgid "Here's what you missed since your last digest:"
 msgstr "Das hast du seit deiner letzten Zusammenfassung verpasst:"
 
-#, python-format
-msgid "%(counter)s new notification"
-msgid_plural "%(counter)s new notifications"
-msgstr[0] "%(counter)s neue Benachrichtigung"
-msgstr[1] "%(counter)s neue Benachrichtigungen"
-
 msgid "View details →"
 msgstr "Details anzeigen:"
 
@@ -4901,7 +4896,7 @@ msgid "Referral Payouts"
 msgstr "Empfehlungsauszahlungen"
 
 msgid "Payout Statements"
-msgstr "Zahlungs-ID:"
+msgstr "Auszahlungsabrechnungen"
 
 msgid "User Billing Profiles"
 msgstr "Anwender:innen-Rechnungsprofile"

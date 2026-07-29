@@ -18,8 +18,8 @@ pytestmark = pytest.mark.django_db
 
 def test_user_language_field_choices(user: RevelUser) -> None:
     """Test that user language field has correct language choices."""
-    # Language choices should be: en, de, it, fr
-    valid_languages = ["en", "de", "it", "fr"]
+    # Language choices should be: en, de, it, fr, es, pt
+    valid_languages = ["en", "de", "it", "fr", "es", "pt"]
     assert user.language in valid_languages
 
 
