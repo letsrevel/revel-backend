@@ -1816,6 +1816,10 @@ msgstr "Controlla la tua email per confermare l'acquisto del biglietto"
 msgid "Invalid token type"
 msgstr "Tipo di token non valido"
 
+#, python-format
+msgid "Ticket tiers not found: %(ids)s"
+msgstr "Livelli di biglietto non trovati: %(ids)s"
+
 msgid "This event does not accept invitation requests."
 msgstr "Questo evento non accetta richieste di invito."
 

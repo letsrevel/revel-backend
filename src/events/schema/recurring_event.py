@@ -9,7 +9,7 @@ from common.schema import OneToOneFiftyString, StrippedString
 from events.models import Event, ResourceVisibility
 from events.models.event_series import MAX_GENERATION_WINDOW_WEEKS
 
-from .event import EventCreateSchema, MinimalEventSchema
+from .event import EventCreateSchema, EventVisibilitySettingsSchema, MinimalEventSchema
 from .recurrence_rule import RecurrenceRuleCreateSchema, RecurrenceRuleSchema, RecurrenceRuleUpdateSchema
 
 
@@ -84,6 +84,12 @@ class TemplateEditSchema(Schema):
     Phase 1/2. Edit these per-occurrence via the standard event edit endpoint
     (the occurrence will be marked ``is_modified=True``).
 
+    ``visibility_settings`` is the one nested object here, and it is **merged**
+    rather than replaced: sending ``{"show_capacity": false}`` leaves the other
+    toggles at their stored values instead of resetting them to the schema
+    defaults. Omitting a toggle therefore means "no change", matching what
+    omitting any other field on this schema does.
+
     ``extra="forbid"`` ensures that unknown fields (e.g. ``event_series_id``,
     ``venue_id``, ``status``) are rejected with 422 rather than silently
     ignored, giving API consumers a clear contract and protecting against
@@ -109,6 +115,7 @@ class TemplateEditSchema(Schema):
     can_attend_without_login: bool | None = None
     requires_ticket: bool | None = None
     is_open_ended: bool | None = None
+    visibility_settings: EventVisibilitySettingsSchema | None = None
     address: StrippedString | None = Field(default=None, max_length=255)
 
 

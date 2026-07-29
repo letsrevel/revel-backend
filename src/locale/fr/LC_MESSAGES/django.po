@@ -1852,6 +1852,10 @@ msgstr "Consulte tes e-mails pour confirmer ton achat de ticket"
 msgid "Invalid token type"
 msgstr "Type de jeton invalide"
 
+#, python-format
+msgid "Ticket tiers not found: %(ids)s"
+msgstr "Catégories de billets introuvables : %(ids)s"
+
 msgid "This event does not accept invitation requests."
 msgstr "Cet événement n'accepte pas les demandes d'invitation."
 

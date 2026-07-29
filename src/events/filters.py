@@ -53,6 +53,7 @@ class OrganizationFilterSchema(CityFilterMixin):
 
 class EventFilterSchema(CityFilterMixin):
     organization: t.Annotated[UUID | None, FilterLookup(q="organization_id")] = None
+    organization_slug: t.Annotated[str | None, FilterLookup(q="organization__slug")] = None
     event_type: Event.EventType | None = None
     visibility: Event.Visibility | None = None
     event_series: UUID | None = None

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from events.models import Event, EventSeries, Organization, RecurrenceRule
 from events.service.duplication import duplicate_event
 from events.suppression import suppress_event_notifications
+from events.utils.visibility_settings import build_visibility_settings_update
 
 logger = structlog.get_logger(__name__)
 
@@ -53,6 +54,7 @@ PROPAGATABLE_FIELDS = frozenset(
         "address",
         "location",
         "address_visibility",
+        "visibility_settings",
     }
 )
 
@@ -499,7 +501,12 @@ def update_template(
     from events.service import update_db_instance  # noqa: PLC0415
 
     changed_data = payload.model_dump(exclude_unset=True)
-    update_db_instance(template, payload)
+    # Merge partial visibility toggles onto the template's stored blob instead of
+    # replacing it, so an edit that names one toggle can't silently re-enable the
+    # others — and so occurrences receive the merged value, not the partial one.
+    visibility_update = build_visibility_settings_update(template.visibility_settings, payload)
+    changed_data.update(visibility_update)
+    update_db_instance(template, payload, **visibility_update)
 
     if scope != PropagateScope.NONE and changed_data:
         propagate_template_changes(series, changed_data, scope=scope)

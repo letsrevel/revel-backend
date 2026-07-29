@@ -8,7 +8,7 @@ from django.db.models import Q
 from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, Field, model_validator
 
-from common.schema import OneToOneFiftyString, StrippedString
+from common.schema import OneToOneFiftyString, StrippedString, viewer_from_context
 from events import models
 from events.models import TicketTier
 from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
@@ -155,6 +155,30 @@ class TicketTierSchema(ModelSchema):
     def resolve_can_purchase(obj: TicketTier) -> bool:
         """Resolve from annotated attribute, defaults to True if not set."""
         return getattr(obj, "_can_purchase", True)
+
+    @staticmethod
+    def resolve_total_available(obj: t.Any, context: t.Any) -> int | None:
+        """Remaining stock for this tier, gated by the event's ``show_capacity``.
+
+        ``None`` already means "unlimited stock" on this field, and it now also
+        means "not disclosed" when the event hides capacity from a non-privileged
+        viewer. Clients that need to tell the two apart read
+        ``event.visibility_settings.show_capacity``.
+
+        ``obj`` is not always a ``TicketTier``: ninja re-validates whatever a route
+        returns against its declared response schema, so a service that already
+        built a ``UserTicketSchema`` (``BatchCheckoutResponse`` in
+        ``events.service.guest``) hands this resolver an assembled
+        ``TicketTierSchema`` on the second pass. That instance carries no
+        ``event``, and its ``total_available`` was already gated on the first
+        pass, so it is passed through untouched.
+        """
+        event = getattr(obj, "event", None)
+        if event is None:
+            return t.cast(int | None, getattr(obj, "total_available", None))
+        if not event.can_user_see_capacity(viewer_from_context(context)):
+            return None
+        return t.cast(int | None, obj.total_available)
 
     @staticmethod
     def resolve_invoicing_available(obj: TicketTier) -> bool:

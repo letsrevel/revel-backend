@@ -7,7 +7,7 @@ from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.schema import ValidationErrorResponse
+from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import ExportThrottle, UserDefaultThrottle
 from events import filters
 from events import models as event_models
@@ -119,7 +119,13 @@ class QuestionnaireSubmissionsMixin(QuestionnaireControllerBase):
     @route.post(
         "/{org_questionnaire_id}/submissions/{submission_id}/evaluate",
         url_name="evaluate_submission",
-        response={200: questionnaire_schema.EvaluationResponseSchema, 400: ValidationErrorResponse},
+        response={
+            200: questionnaire_schema.EvaluationResponseSchema,
+            400: ValidationErrorResponse | ErrorDetail,
+            # Unknown submission_id (or one on another questionnaire) — previously
+            # an unmapped DoesNotExist that surfaced as a 500.
+            404: ErrorDetail,
+        },
         permissions=[QuestionnairePermission("evaluate_questionnaire")],
     )
     def evaluate_submission(

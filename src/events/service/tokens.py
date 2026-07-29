@@ -7,6 +7,8 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, EventToken, TicketTier
@@ -25,7 +27,7 @@ def _validate_tier_ownership(event: Event, tier_ids: t.Sequence[UUID]) -> list[T
         The list of resolved TicketTier instances (de-duplicated, order not preserved).
 
     Raises:
-        TicketTier.DoesNotExist: If any tier ID does not belong to the event.
+        HttpError 404: If any tier ID does not belong to the event.
     """
     unique_ids = list(dict.fromkeys(tier_ids))
     if not unique_ids:
@@ -34,7 +36,13 @@ def _validate_tier_ownership(event: Event, tier_ids: t.Sequence[UUID]) -> list[T
     if len(tiers) != len(unique_ids):
         found_ids = {tier.pk for tier in tiers}
         missing = [str(tid) for tid in unique_ids if tid not in found_ids]
-        raise TicketTier.DoesNotExist(f"Ticket tiers not found: {', '.join(missing)}")
+        # Raised as HttpError (not a bare ``TicketTier.DoesNotExist``) so the two
+        # token controllers no longer need a try/except to translate it — the 404
+        # and its message are exactly what they already produced. Note this keeps
+        # ninja's ``HttpError``, *not* Django's ``Http404``: the latter routes
+        # through ``make_static_handler(404, "Not found.")`` and would discard the
+        # offending ids the organizer needs.
+        raise HttpError(404, str(_("Ticket tiers not found: %(ids)s")) % {"ids": ", ".join(missing)})
     return tiers
 
 
@@ -104,8 +112,8 @@ def update_event_token(token: EventToken, payload: EventTokenUpdateSchema) -> Ev
         The updated EventToken with ``ticket_tiers`` prefetched for serialization.
 
     Raises:
-        TicketTier.DoesNotExist: If any tier ID in the payload does not belong
-            to the token's event.
+        HttpError 404: If any tier ID in the payload does not belong to the
+            token's event.
     """
     payload_dict = payload.model_dump(exclude_unset=True)
     tier_ids = payload_dict.pop("ticket_tier_ids", None)

@@ -2,6 +2,8 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
+from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, PendingEventInvitation, TicketTier
@@ -28,7 +30,11 @@ def create_direct_invitations(
         if len(tiers) != len(invitation_data.tier_ids):
             found_ids = {t.pk for t in tiers}
             missing = [str(tid) for tid in invitation_data.tier_ids if tid not in found_ids]
-            raise TicketTier.DoesNotExist(f"Ticket tiers not found: {', '.join(missing)}")
+            # Client-supplied tier ids: a bad one is addressable input, not an
+            # internal invariant breach. A bare ``TicketTier.DoesNotExist`` is
+            # unmapped and surfaced as a 500. Mirrors the other tier_ids guards
+            # (ticket_service.reorder_tiers, membership.reorder_tiers).
+            raise HttpError(400, str(_("Ticket tiers not found: %(ids)s")) % {"ids": ", ".join(missing)})
 
     invitation_fields = _get_invitation_fields(invitation_data)
     created_invitations = 0

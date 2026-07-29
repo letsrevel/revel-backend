@@ -517,7 +517,7 @@ class SubmissionService:
         self, submission_id: UUID, payload: EvaluationCreateSchema, evaluator: RevelUser
     ) -> QuestionnaireEvaluation:
         """Create or update an evaluation for a submission."""
-        submission = QuestionnaireSubmission.objects.get(id=submission_id, questionnaire=self.questionnaire)
+        submission = get_object_or_404(QuestionnaireSubmission, id=submission_id, questionnaire=self.questionnaire)
 
         evaluation, created = QuestionnaireEvaluation.objects.update_or_create(
             submission=submission,

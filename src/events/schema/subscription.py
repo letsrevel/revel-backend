@@ -685,7 +685,11 @@ class RevivalRequestSchema(Schema):
     payment.
     """
 
-    amount: Decimal | None = None
+    # ``ge`` (not ``gt``): a zero-amount OFFLINE revival is a comped renewal an
+    # organizer may legitimately want on the ledger, and both sibling money fields
+    # in this module (``initial_payment_amount``, ``MembershipPaymentCreateSchema.amount``)
+    # use ``ge=0``. Negative amounts reached the ledger layer unrejected before.
+    amount: Decimal | None = Field(default=None, ge=Decimal("0"))
     currency: Currencies | None = None
     notes: str = ""
 

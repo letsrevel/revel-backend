@@ -12,7 +12,7 @@ from ninja_extra import (
 )
 
 from common.authentication import I18nJWTAuth, OptionalAuth
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import CanPurchaseTicket
@@ -115,7 +115,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout",
         url_name="ticket_checkout",
-        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility},
+        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
@@ -205,7 +205,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout/pwyc",
         url_name="ticket_pwyc_checkout",
-        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility},
+        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],

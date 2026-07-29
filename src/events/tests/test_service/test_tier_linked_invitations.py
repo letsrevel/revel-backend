@@ -15,6 +15,7 @@ import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
@@ -552,10 +553,13 @@ class TestTokenClaimTierLinks:
         public_event: Event,
         owner: RevelUser,
     ) -> None:
-        """create_event_token raises DoesNotExist for tiers not belonging to the event."""
+        """create_event_token raises a 404 HttpError for tiers not belonging to the event.
+
+        Only the foreign tier is named — the caller's own tier resolved fine.
+        """
         own = TicketTier.objects.create(event=private_event, name="Own")
         other = TicketTier.objects.create(event=public_event, name="Other")
-        with pytest.raises(TicketTier.DoesNotExist):
+        with pytest.raises(HttpError) as exc_info:
             create_event_token(
                 event=private_event,
                 issuer=owner,
@@ -563,6 +567,10 @@ class TestTokenClaimTierLinks:
                 grants_invitation=True,
                 ticket_tier_ids=[own.id, other.id],
             )
+
+        assert exc_info.value.status_code == 404
+        assert str(other.id) in str(exc_info.value)
+        assert str(own.id) not in str(exc_info.value)
 
     def test_claim_adds_tiers_to_existing_invitation(
         self,
@@ -654,13 +662,22 @@ class TestDirectInvitationTierLinks:
         private_event: Event,
         invited_user: RevelUser,
     ) -> None:
-        """Creating invitation with nonexistent tier_ids raises DoesNotExist."""
+        """Nonexistent tier_ids are addressable client input, so a 400 — not an unmapped 500.
+
+        Previously raised a bare ``TicketTier.DoesNotExist``, which no handler
+        maps, so the endpoint answered 500 (#712).
+        """
+        missing = uuid.uuid4()
         schema = DirectInvitationCreateSchema(
             emails=[invited_user.email],
-            tier_ids=[uuid.uuid4()],
+            tier_ids=[missing],
         )
-        with pytest.raises(TicketTier.DoesNotExist):
+        with pytest.raises(HttpError) as exc_info:
             create_direct_invitations(private_event, schema)
+
+        assert exc_info.value.status_code == 400
+        # The organizer needs to know *which* ids were wrong.
+        assert str(missing) in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

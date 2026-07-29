@@ -9,7 +9,7 @@ from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
-from common.schema import ValidationErrorResponse
+from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
@@ -74,7 +74,7 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
     @route.patch(
         "/event-series/{series_id}/template",
         url_name="update_series_template",
-        response={200: schema.EventSeriesRecurrenceDetailSchema, 400: ValidationErrorResponse},
+        response={200: schema.EventSeriesRecurrenceDetailSchema, 400: ValidationErrorResponse | ErrorDetail},
     )
     def update_template(
         self,

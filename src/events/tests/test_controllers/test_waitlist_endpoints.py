@@ -1,6 +1,8 @@
 """Tests for waitlist endpoints."""
 
+import contextlib
 import datetime as dt
+import typing as t
 from unittest import mock
 
 import pytest
@@ -12,6 +14,28 @@ from conftest import RevelUserFactory
 from events.models import Blacklist, Event, EventRSVP, EventWaitList
 
 pytestmark = pytest.mark.django_db
+
+
+@contextlib.contextmanager
+def _force_lookup_misses(manager: t.Any, count: int) -> t.Iterator[None]:
+    """Make the first ``count`` ``manager.filter(...)`` calls return an empty queryset.
+
+    Simulates a concurrent winner that committed *after* our own pre-checks ran,
+    so the create is still attempted and the uniqueness race really fires.
+    Mirrors ``common/tests/test_utils.py::force_first_lookup_miss``.
+    """
+    calls = 0
+    real_filter = manager.filter
+
+    def fake_filter(*args: t.Any, **kwargs: t.Any) -> t.Any:
+        nonlocal calls
+        calls += 1
+        if calls <= count:
+            return manager.none()
+        return real_filter(*args, **kwargs)
+
+    with mock.patch.object(manager, "filter", side_effect=fake_filter):
+        yield
 
 
 # ===== Tests for POST /events/{event_id}/waitlist/join =====
@@ -116,19 +140,61 @@ class TestJoinWaitlist:
         assert resp.status_code == 200
         mocked.assert_called_once_with(public_event.id)
 
+    @pytest.mark.parametrize("race_exc", ["integrity", "validation"])
     def test_join_waitlist_race_returns_idempotent_message(
+        self,
+        member_client: Client,
+        member_user: RevelUser,
+        nonmember_user: RevelUser,
+        public_event: Event,
+        race_exc: str,
+    ) -> None:
+        """A row landing between the existence check and the create is idempotent, not an error.
+
+        Both exception types a lost race can raise are covered against the *real*
+        unique constraint (no exception mocking): ``ValidationError`` is what
+        ``TimeStampedModel.save``'s ``full_clean`` (``validate_constraints``)
+        raises when the racing row is already committed — the path that used to
+        escape the old ``except IntegrityError`` and surface as a 400 ``{errors}``.
+        Disabling ``full_clean`` lets the insert reach the database instead, so the
+        race surfaces as a raw ``IntegrityError`` from the unique index.
+
+        The winner is committed before the request, and the endpoint's own
+        pre-checks are forced to miss it (mirroring a concurrent request that
+        committed after we looked), so the create is really attempted.
+        """
+        self._make_event_full(public_event, other_user=nonmember_user)
+        public_event.waitlist_time_window = dt.timedelta(hours=24)
+        public_event.save()
+
+        # The concurrent winner, already committed before our request runs.
+        EventWaitList.objects.create(event=public_event, user=member_user)
+
+        url = reverse("api:join_waitlist", kwargs={"event_id": public_event.pk})
+        # Two lookups precede the insert: the controller's early idempotency check
+        # and the helper's own pre-check. Both must miss for the create to happen.
+        patches: list[t.Any] = [_force_lookup_misses(EventWaitList.objects, 2)]
+        if race_exc == "integrity":
+            patches.append(mock.patch.object(EventWaitList, "full_clean", return_value=None))
+
+        with contextlib.ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            resp = member_client.post(url)
+
+        assert resp.status_code == 200, resp.content
+        body = resp.json()
+        assert "already" in body.get("message", "").lower()
+        assert EventWaitList.objects.filter(event=public_event, user=member_user).count() == 1
+
+    def test_join_waitlist_genuine_validation_error_is_not_swallowed(
         self,
         member_client: Client,
         nonmember_user: RevelUser,
         public_event: Event,
     ) -> None:
-        """If the row lands between the existence check and the create, treat it as idempotent.
-
-        We simulate the race by making ``EventWaitList.objects.create`` raise
-        ``IntegrityError`` once. The endpoint must return 200 with the
-        "already on the waitlist" message rather than 500.
-        """
-        from django.db import IntegrityError
+        """A ValidationError that is *not* a uniqueness race must not become a fake 200."""
+        from django.core.exceptions import ValidationError
 
         self._make_event_full(public_event, other_user=nonmember_user)
         public_event.waitlist_time_window = dt.timedelta(hours=24)
@@ -137,13 +203,13 @@ class TestJoinWaitlist:
         url = reverse("api:join_waitlist", kwargs={"event_id": public_event.pk})
         with mock.patch(
             "events.controllers.event_public.attendance.models.EventWaitList.objects.create",
-            side_effect=IntegrityError("duplicate"),
+            side_effect=ValidationError("something else entirely"),
         ):
             resp = member_client.post(url)
 
-        assert resp.status_code == 200
-        body = resp.json()
-        assert "already" in body.get("message", "").lower()
+        # Re-raised, so the global ValidationError handler answers 400 {errors}.
+        assert resp.status_code == 400, resp.content
+        assert "errors" in resp.json()
 
     def test_join_waitlist_idempotent_when_already_joined_full_event(
         self,

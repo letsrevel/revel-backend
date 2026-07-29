@@ -95,14 +95,17 @@ def test_create_event_token_with_invitation(
 def test_create_event_token_rejects_tier_from_other_event(
     event: Event, public_event: Event, organization_owner_user: RevelUser
 ) -> None:
-    """create_event_token raises TicketTier.DoesNotExist when a tier belongs to another event."""
+    """create_event_token raises a 404 HttpError when a tier belongs to another event."""
     foreign_tier = TicketTier.objects.create(event=public_event, name="Foreign")
-    with pytest.raises(TicketTier.DoesNotExist):
+    with pytest.raises(HttpError) as exc_info:
         event_service.create_event_token(
             event=event,
             issuer=organization_owner_user,
             ticket_tier_ids=[foreign_tier.id],
         )
+
+    assert exc_info.value.status_code == 404
+    assert str(foreign_tier.id) in str(exc_info.value)
 
 
 def test_update_event_schedule_replaces_blob(event: Event) -> None:
@@ -171,13 +174,16 @@ def test_update_event_token_rejects_tier_from_other_event(
     public_event: Event,
     organization_owner_user: RevelUser,
 ) -> None:
-    """update_event_token raises TicketTier.DoesNotExist for foreign tiers."""
+    """update_event_token raises a 404 HttpError for foreign tiers."""
     token = event_service.create_event_token(event=event, issuer=organization_owner_user)
     foreign_tier = TicketTier.objects.create(event=public_event, name="Foreign")
     payload = EventTokenUpdateSchema(ticket_tier_ids=[foreign_tier.id])
 
-    with pytest.raises(TicketTier.DoesNotExist):
+    with pytest.raises(HttpError) as exc_info:
         event_service.update_event_token(token, payload)
+
+    assert exc_info.value.status_code == 404
+    assert str(foreign_tier.id) in str(exc_info.value)
 
 
 def test_get_event_token_returns_token(event: Event, organization_owner_user: RevelUser) -> None:
