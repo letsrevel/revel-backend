@@ -55,6 +55,22 @@ class TestMergeIntoBlob:
             "show_pronoun_distribution": False,
         }
 
+    def test_column_wins_when_blob_already_has_the_key(self) -> None:
+        """Pins the clobber this function does NOT protect against on its own.
+
+        ``forwards`` never calls this on such a row — it excludes rows already
+        carrying ``address_visibility`` via ``.exclude(...has_key=...)``, because
+        an event created by the *new* code mid-migration has the real value in
+        its blob and only a defaulted value in the column. This test documents
+        why that predicate-level skip is load-bearing: if it were ever bypassed,
+        the column would silently overwrite the blob's real value.
+        """
+        blob = {"address_visibility": "private", "show_pronoun_distribution": True}
+        assert merge_into_blob(blob, "public", False) == {
+            "address_visibility": "public",
+            "show_pronoun_distribution": False,
+        }
+
 
 class TestSplitOutOfBlob:
     def test_recovers_values_and_strips_keys(self) -> None:

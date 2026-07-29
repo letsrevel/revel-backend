@@ -79,43 +79,42 @@ def split_out_of_blob(blob: dict[str, t.Any] | None) -> tuple[str, bool, dict[st
     )
 
 
-def _id_batches(model: t.Any) -> t.Iterator[list[t.Any]]:
-    """Yield primary keys in fixed-size batches.
-
-    Materializes the id list up front instead of using ``.iterator()``: server-side
-    cursors are disabled under PgBouncer (``DISABLE_SERVER_SIDE_CURSORS``), and a
-    list of UUIDs is cheap even for a large events table.
-    """
-    ids = list(model.objects.order_by("pk").values_list("pk", flat=True))
-    for start in range(0, len(ids), BATCH_SIZE):
-        yield ids[start : start + BATCH_SIZE]
-
-
 def forwards(apps: "Apps", schema_editor: "BaseDatabaseSchemaEditor") -> None:
-    """Copy both columns into ``visibility_settings`` for every event."""
+    """Copy both columns into ``visibility_settings`` for every event.
+
+    Re-queries the predicate (rows still missing ``ADDRESS_KEY``) on every pass
+    instead of snapshotting ids up front: under READ COMMITTED, a row inserted
+    by another connection mid-migration (e.g. the old app still accepting
+    ``create_event`` during a rolling deploy) would otherwise never be visible
+    to this run and would silently keep an unmerged blob. Rows whose blob
+    already carries ``ADDRESS_KEY`` are skipped on purpose — an event created
+    by the *new* code during the migration window has the real value in its
+    blob and only a defaulted column value, so merging the column over it
+    would clobber the real value.
+    """
     Event = apps.get_model("events", "Event")
-    for batch in _id_batches(Event):
-        events = list(Event.objects.filter(pk__in=batch))
-        for event in events:
+    while batch := list(Event.objects.exclude(visibility_settings__has_key=ADDRESS_KEY)[:BATCH_SIZE]):
+        for event in batch:
             event.visibility_settings = merge_into_blob(
-                event.visibility_settings,
-                event.address_visibility,
-                event.public_pronoun_distribution,
+                event.visibility_settings, event.address_visibility, event.public_pronoun_distribution
             )
-        Event.objects.bulk_update(events, ["visibility_settings"])
+        Event.objects.bulk_update(batch, ["visibility_settings"])
 
 
 def backwards(apps: "Apps", schema_editor: "BaseDatabaseSchemaEditor") -> None:
-    """Restore both columns from ``visibility_settings`` and strip the keys."""
+    """Restore both columns from ``visibility_settings`` and strip the keys.
+
+    Mirrors ``forwards``: re-queries rows that still carry ``ADDRESS_KEY`` on
+    every pass so a row written mid-rollback is not skipped.
+    """
     Event = apps.get_model("events", "Event")
-    for batch in _id_batches(Event):
-        events = list(Event.objects.filter(pk__in=batch))
-        for event in events:
+    while batch := list(Event.objects.filter(visibility_settings__has_key=ADDRESS_KEY)[:BATCH_SIZE]):
+        for event in batch:
             address_visibility, show_pronouns, remainder = split_out_of_blob(event.visibility_settings)
             event.address_visibility = address_visibility
             event.public_pronoun_distribution = show_pronouns
             event.visibility_settings = remainder
-        Event.objects.bulk_update(events, ["address_visibility", "public_pronoun_distribution", "visibility_settings"])
+        Event.objects.bulk_update(batch, ["address_visibility", "public_pronoun_distribution", "visibility_settings"])
 
 
 class Migration(migrations.Migration):
