@@ -7,21 +7,58 @@ Mirrors ``events/utils/schedule.py`` and ``events/utils/refund_policy.py``.
 
 import typing as t
 
+from django.db import models
 from pydantic import BaseModel, ConfigDict, TypeAdapter
+
+
+class ResourceVisibility(models.TextChoices):
+    """Visibility enum for resources with attendee-only option.
+
+    Includes all base visibility options plus ATTENDEES_ONLY.
+
+    Lives here rather than in ``events.models.mixins`` because
+    ``EventVisibilitySettings`` needs it at class-definition time, and
+    ``events.models.event`` imports this module *before* it imports
+    ``.mixins`` — importing the other way round is a circular import.
+    ``models.TextChoices`` needs only ``django.db.models``, so this keeps the
+    module a dependency-free leaf. ``events.models.mixins`` re-exports it, so
+    every existing ``from events.models import ResourceVisibility`` still works.
+    """
+
+    PUBLIC = "public"  # everyone can see
+    UNLISTED = "unlisted"  # accessible via direct link, but hidden from discovery listings
+    PRIVATE = "private"  # only invited people can see
+    MEMBERS_ONLY = "members-only"  # only members can see
+    STAFF_ONLY = "staff-only"  # only staff members can see
+    ATTENDEES_ONLY = "attendees-only"  # only users with tickets or RSVPs can see
+
+    @classmethod
+    def publicly_accessible(cls) -> list["ResourceVisibility"]:
+        """Visibilities that grant access to anyone (PUBLIC + UNLISTED)."""
+        return [cls.PUBLIC, cls.UNLISTED]
 
 
 class EventVisibilitySettings(BaseModel):
     """Per-event switches controlling disclosure of organizational information.
 
-    Every toggle defaults to ``True``, which reproduces the pre-#792 behavior:
-    counts, capacity and the guest list were always disclosed. Organization
-    owners and staff bypass all of these — they always see the real numbers.
+    Every default reproduces the behavior that preceded this object, so an
+    untouched event changes nothing: counts, capacity and the guest list were
+    always disclosed, the address was public, and the pronoun distribution was
+    opt-in. Organization owners and staff bypass all of these — they always see
+    the real numbers.
 
     Note:
         ``show_attendee_list`` is ANDed with each attendee's own
         ``show_me_on_attendee_list`` preference: turning it off hides the guest
         list even for users who opted in, but turning it on never overrides a
         user who opted out.
+
+        ``show_pronoun_distribution`` is the one toggle defaulting to ``False``
+        — the pronoun distribution has always been opt-in per event, and
+        flipping that default would disclose it for every existing event.
+
+        ``address_visibility`` is not a boolean: it selects *who* may see the
+        address, evaluated by ``Event.can_user_see_address``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -29,6 +66,8 @@ class EventVisibilitySettings(BaseModel):
     show_attendee_count: bool = True
     show_capacity: bool = True
     show_attendee_list: bool = True
+    show_pronoun_distribution: bool = False
+    address_visibility: ResourceVisibility = ResourceVisibility.PUBLIC
 
 
 _ADAPTER: TypeAdapter[EventVisibilitySettings] = TypeAdapter(EventVisibilitySettings)
@@ -82,8 +121,15 @@ def build_visibility_settings_update(stored: dict[str, t.Any] | None, payload: B
         ``TemplateEditSchema`` declares it ``| None = None`` like every one of
         its siblings, so a ``null`` does arrive; it is treated as "no change"
         rather than written through, which would violate the column's NOT NULL.
+
+        The dump is taken in ``mode="json"`` so an enum-valued toggle
+        (``address_visibility``) lands in the blob as a plain string rather
+        than a ``ResourceVisibility`` member. ``TextChoices`` subclasses
+        ``str`` so either form persists identically, but the stored blob
+        should not depend on that. Mirrors ``update_event_schedule``'s
+        ``[s.model_dump(mode="json") for s in sessions]``.
     """
-    sent = payload.model_dump(exclude_unset=True).get("visibility_settings")
+    sent = payload.model_dump(exclude_unset=True, mode="json").get("visibility_settings")
     if not isinstance(sent, dict):
         return {}
     return {"visibility_settings": {**(stored or {}), **sent}}

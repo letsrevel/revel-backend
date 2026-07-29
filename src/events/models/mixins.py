@@ -10,26 +10,12 @@ from django.utils.text import slugify
 
 from common.fields import ALLOWED_IMAGE_EXTENSIONS, validate_image_file
 from common.models import ExifStripMixin, TimeStampedModel
+
+# Re-exported for backward compatibility: the canonical definition lives in
+# ``events.utils.visibility_settings`` because ``EventVisibilitySettings``
+# needs it at class-definition time and cannot import this module (circular).
+from events.utils.visibility_settings import ResourceVisibility as ResourceVisibility  # noqa: F401
 from geo.models import City
-
-
-class ResourceVisibility(models.TextChoices):
-    """Visibility enum for resources with attendee-only option.
-
-    Includes all base visibility options plus ATTENDEES_ONLY.
-    """
-
-    PUBLIC = "public"  # everyone can see
-    UNLISTED = "unlisted"  # accessible via direct link, but hidden from discovery listings
-    PRIVATE = "private"  # only invited people can see
-    MEMBERS_ONLY = "members-only"  # only members can see
-    STAFF_ONLY = "staff-only"  # only staff members can see
-    ATTENDEES_ONLY = "attendees-only"  # only users with tickets or RSVPs can see
-
-    @classmethod
-    def publicly_accessible(cls) -> list["ResourceVisibility"]:
-        """Visibilities that grant access to anyone (PUBLIC + UNLISTED)."""
-        return [cls.PUBLIC, cls.UNLISTED]
 
 
 class VisibilityMixin(models.Model):
