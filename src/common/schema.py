@@ -3,6 +3,7 @@
 import re
 import typing as t
 
+from django.contrib.auth.models import AnonymousUser
 from ninja import Field, ModelSchema, Schema
 from pydantic import AwareDatetime, EmailStr, StringConstraints, field_validator, model_validator
 
@@ -26,6 +27,28 @@ OneToOneFiftyString = t.Annotated[str, StringConstraints(min_length=1, max_lengt
 # For update schemas (BillingInfoSchemaMixin), the field allows empty string to clear the value,
 # so the mixin uses its own annotation without min_length.
 VATCountryCode = t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=2, max_length=2)]
+
+
+def viewer_from_context(context: t.Any) -> "RevelUser | AnonymousUser":
+    """Resolve the requesting user from a django-ninja resolver context.
+
+    Schemas are also built outside a request — ``Schema.from_orm(...)`` in
+    services, Celery tasks and email rendering — and ninja passes those callers
+    no context at all. Reading ``context["request"].user`` directly would raise
+    there, so visibility-gating resolvers use this instead and treat a
+    context-less call as anonymous: the gate fails closed rather than crashing
+    or over-disclosing.
+
+    Args:
+        context: The resolver context ninja hands to ``resolve_*`` methods, or
+            ``None`` when the schema is built outside a request.
+
+    Returns:
+        The authenticated user, or ``AnonymousUser`` when there is none.
+    """
+    request = context.get("request") if context else None
+    user = getattr(request, "user", None)
+    return user if user is not None else AnonymousUser()
 
 
 def validate_country_code(v: str | None) -> str | None:

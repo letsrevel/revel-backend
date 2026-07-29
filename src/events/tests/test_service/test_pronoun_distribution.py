@@ -113,9 +113,9 @@ def at_the_door_tier(event: Event) -> TicketTier:
     return tier
 
 
-def test_empty_event_returns_zeros(event: Event) -> None:
+def test_empty_event_returns_zeros(event: Event, nonmember_user: RevelUser) -> None:
     """Test pronoun distribution for an event with no attendees."""
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.distribution == []
     assert result.total_with_pronouns == 0
@@ -127,6 +127,7 @@ def test_single_attendee_with_pronouns(
     event: Event,
     attendee_with_pronouns: RevelUser,
     free_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test distribution with one attendee who has pronouns."""
     Ticket.objects.create(
@@ -137,7 +138,7 @@ def test_single_attendee_with_pronouns(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert len(result.distribution) == 1
     assert result.distribution[0].pronouns == "he/him"
@@ -151,6 +152,7 @@ def test_single_attendee_without_pronouns(
     event: Event,
     attendee_without_pronouns: RevelUser,
     free_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test distribution with one attendee who has no pronouns."""
     Ticket.objects.create(
@@ -161,7 +163,7 @@ def test_single_attendee_without_pronouns(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.distribution == []
     assert result.total_with_pronouns == 0
@@ -174,6 +176,7 @@ def test_multiple_attendees_same_pronouns(
     attendee_with_pronouns: RevelUser,
     django_user_model: type[RevelUser],
     free_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that attendees with same pronouns are aggregated."""
     attendee2 = django_user_model.objects.create_user(
@@ -198,7 +201,7 @@ def test_multiple_attendees_same_pronouns(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert len(result.distribution) == 1
     assert result.distribution[0].pronouns == "he/him"
@@ -213,6 +216,7 @@ def test_multiple_attendees_different_pronouns(
     attendee_with_she_pronouns: RevelUser,
     attendee_with_they_pronouns: RevelUser,
     free_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test distribution with multiple different pronouns."""
     for attendee in [attendee_with_pronouns, attendee_with_she_pronouns, attendee_with_they_pronouns]:
@@ -224,7 +228,7 @@ def test_multiple_attendees_different_pronouns(
             status=Ticket.TicketStatus.ACTIVE,
         )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert len(result.distribution) == 3
     pronouns_set = {p.pronouns for p in result.distribution}
@@ -239,6 +243,7 @@ def test_mixed_with_and_without_pronouns(
     attendee_with_pronouns: RevelUser,
     attendee_without_pronouns: RevelUser,
     free_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test distribution with mix of attendees with and without pronouns."""
     Ticket.objects.create(
@@ -256,7 +261,7 @@ def test_mixed_with_and_without_pronouns(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert len(result.distribution) == 1
     assert result.distribution[0].pronouns == "he/him"
@@ -269,6 +274,7 @@ def test_rsvp_attendees_included(
     event: Event,
     attendee_with_pronouns: RevelUser,
     attendee_with_she_pronouns: RevelUser,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that RSVP YES attendees are included."""
     event.requires_ticket = False
@@ -285,7 +291,7 @@ def test_rsvp_attendees_included(
         status=EventRSVP.RsvpStatus.YES,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 2
     assert result.total_with_pronouns == 2
@@ -296,6 +302,7 @@ def test_rsvp_maybe_and_no_not_included(
     attendee_with_pronouns: RevelUser,
     attendee_with_she_pronouns: RevelUser,
     attendee_with_they_pronouns: RevelUser,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that RSVP MAYBE and NO are not included."""
     event.requires_ticket = False
@@ -317,7 +324,7 @@ def test_rsvp_maybe_and_no_not_included(
         status=EventRSVP.RsvpStatus.NO,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 1
     assert result.distribution[0].pronouns == "he/him"
@@ -327,6 +334,7 @@ def test_active_online_ticket_included(
     event: Event,
     attendee_with_pronouns: RevelUser,
     online_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that active online payment tickets are included."""
     Ticket.objects.create(
@@ -337,7 +345,7 @@ def test_active_online_ticket_included(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 1
 
@@ -346,6 +354,7 @@ def test_pending_online_ticket_not_included(
     event: Event,
     attendee_with_pronouns: RevelUser,
     online_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that pending online payment tickets are not included."""
     Ticket.objects.create(
@@ -356,7 +365,7 @@ def test_pending_online_ticket_not_included(
         status=Ticket.TicketStatus.PENDING,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 0
 
@@ -366,6 +375,7 @@ def test_offline_pending_ticket_not_counted_as_attendee(
     attendee_with_pronouns: RevelUser,
     attendee_with_she_pronouns: RevelUser,
     offline_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that PENDING offline tickets don't count in pronoun distribution.
 
@@ -387,7 +397,7 @@ def test_offline_pending_ticket_not_counted_as_attendee(
         status=Ticket.TicketStatus.PENDING,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 1
 
@@ -397,6 +407,7 @@ def test_at_the_door_active_tickets_included(
     attendee_with_pronouns: RevelUser,
     attendee_with_she_pronouns: RevelUser,
     at_the_door_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that ACTIVE AT_THE_DOOR tickets are counted in pronoun distribution.
 
@@ -417,7 +428,7 @@ def test_at_the_door_active_tickets_included(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 2
 
@@ -427,6 +438,7 @@ def test_free_active_tickets_included(
     attendee_with_pronouns: RevelUser,
     attendee_with_she_pronouns: RevelUser,
     free_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that ACTIVE free tickets are counted in pronoun distribution.
 
@@ -447,7 +459,7 @@ def test_free_active_tickets_included(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 2
 
@@ -457,6 +469,7 @@ def test_cancelled_ticket_not_included(
     attendee_with_pronouns: RevelUser,
     free_tier: TicketTier,
     offline_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that cancelled tickets are not included regardless of payment method."""
     Ticket.objects.create(
@@ -467,7 +480,7 @@ def test_cancelled_ticket_not_included(
         status=Ticket.TicketStatus.CANCELLED,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 0
 
@@ -476,6 +489,7 @@ def test_cancelled_offline_ticket_not_included(
     event: Event,
     attendee_with_pronouns: RevelUser,
     offline_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that cancelled offline tickets are not included."""
     Ticket.objects.create(
@@ -486,7 +500,7 @@ def test_cancelled_offline_ticket_not_included(
         status=Ticket.TicketStatus.CANCELLED,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 0
 
@@ -495,6 +509,7 @@ def test_checked_in_ticket_included(
     event: Event,
     attendee_with_pronouns: RevelUser,
     free_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that checked-in tickets are included."""
     Ticket.objects.create(
@@ -505,7 +520,7 @@ def test_checked_in_ticket_included(
         status=Ticket.TicketStatus.CHECKED_IN,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 1
 
@@ -514,6 +529,7 @@ def test_user_with_both_ticket_and_rsvp_counted_once(
     event: Event,
     attendee_with_pronouns: RevelUser,
     free_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that a user with both ticket and RSVP is only counted once."""
     Ticket.objects.create(
@@ -529,7 +545,7 @@ def test_user_with_both_ticket_and_rsvp_counted_once(
         status=EventRSVP.RsvpStatus.YES,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert result.total_attendees == 1
     assert result.total_with_pronouns == 1
@@ -538,6 +554,7 @@ def test_user_with_both_ticket_and_rsvp_counted_once(
 def test_rsvp_only_event_no_tickets_exist(
     event: Event,
     django_user_model: type[RevelUser],
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that when event has no tickets at all, only YES RSVPs are counted.
 
@@ -568,7 +585,7 @@ def test_rsvp_only_event_no_tickets_exist(
     # Verify no tickets exist
     assert Ticket.objects.filter(event=event).count() == 0
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     # Should only count the 2 YES RSVPs
     assert result.total_attendees == 2
@@ -581,6 +598,7 @@ def test_distribution_ordered_by_count_descending(
     event: Event,
     django_user_model: type[RevelUser],
     free_tier: TicketTier,
+    nonmember_user: RevelUser,
 ) -> None:
     """Test that distribution is ordered by count descending."""
     # Create 3 she/her, 2 he/him, 1 they/them
@@ -628,7 +646,7 @@ def test_distribution_ordered_by_count_descending(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    result = event_service.get_event_pronoun_distribution(event)
+    result = event_service.get_event_pronoun_distribution(event, nonmember_user)
 
     assert len(result.distribution) == 3
     assert result.distribution[0].pronouns == "she/her"

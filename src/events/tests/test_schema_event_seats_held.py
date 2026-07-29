@@ -1,9 +1,12 @@
 """seats_held is computed from pending unexpired offers."""
 
 import datetime as dt
+import types
+import typing as t
 import uuid
 
 import pytest
+from django.contrib.auth.models import AnonymousUser
 from django.utils import timezone
 
 from conftest import RevelUserFactory
@@ -11,6 +14,11 @@ from events.models import Event, WaitlistOffer
 from events.schema.event import EventBaseSchema
 
 pytestmark = pytest.mark.django_db
+
+
+def _anon_context() -> dict[str, t.Any]:
+    """Minimal ninja resolver context carrying an anonymous request user."""
+    return {"request": types.SimpleNamespace(user=AnonymousUser())}
 
 
 def test_seats_held_counts_pending_unexpired(event: Event, revel_user_factory: RevelUserFactory) -> None:
@@ -35,11 +43,11 @@ def test_seats_held_counts_pending_unexpired(event: Event, revel_user_factory: R
         status=WaitlistOffer.WaitlistOfferStatus.CLAIMED,
     )
 
-    assert EventBaseSchema.resolve_seats_held(event) == 1
+    assert EventBaseSchema.resolve_seats_held(event, _anon_context()) == 1
 
 
 def test_seats_held_zero_when_no_offers(event: Event) -> None:
-    assert EventBaseSchema.resolve_seats_held(event) == 0
+    assert EventBaseSchema.resolve_seats_held(event, _anon_context()) == 0
 
 
 def test_seats_held_ignores_other_events(
@@ -51,8 +59,8 @@ def test_seats_held_ignores_other_events(
         expires_at=timezone.now() + dt.timedelta(hours=1),
         batch_id=uuid.uuid4(),
     )
-    assert EventBaseSchema.resolve_seats_held(event) == 0
-    assert EventBaseSchema.resolve_seats_held(public_event) == 1
+    assert EventBaseSchema.resolve_seats_held(event, _anon_context()) == 0
+    assert EventBaseSchema.resolve_seats_held(public_event, _anon_context()) == 1
 
 
 def test_seats_held_does_not_count_pending_but_expired(event: Event, revel_user_factory: RevelUserFactory) -> None:
@@ -63,7 +71,7 @@ def test_seats_held_does_not_count_pending_but_expired(event: Event, revel_user_
         expires_at=timezone.now() - dt.timedelta(minutes=1),  # past
         batch_id=uuid.uuid4(),
     )
-    assert EventBaseSchema.resolve_seats_held(event) == 0
+    assert EventBaseSchema.resolve_seats_held(event, _anon_context()) == 0
 
 
 def test_seats_held_does_not_count_expired_status_in_future(event: Event, revel_user_factory: RevelUserFactory) -> None:
@@ -76,7 +84,7 @@ def test_seats_held_does_not_count_expired_status_in_future(event: Event, revel_
     )
     offer.status = WaitlistOffer.WaitlistOfferStatus.EXPIRED
     offer.save(update_fields=["status"])
-    assert EventBaseSchema.resolve_seats_held(event) == 0
+    assert EventBaseSchema.resolve_seats_held(event, _anon_context()) == 0
 
 
 def test_seats_held_does_not_count_cutoff_batch_offers(event: Event, revel_user_factory: RevelUserFactory) -> None:
@@ -88,4 +96,4 @@ def test_seats_held_does_not_count_cutoff_batch_offers(event: Event, revel_user_
         batch_id=uuid.uuid4(),
         is_cutoff_batch=True,
     )
-    assert EventBaseSchema.resolve_seats_held(event) == 0
+    assert EventBaseSchema.resolve_seats_held(event, _anon_context()) == 0

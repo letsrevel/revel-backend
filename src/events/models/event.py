@@ -15,6 +15,7 @@ from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 from events.utils.schedule import validate_schedule
+from events.utils.visibility_settings import EventVisibilitySettings, validate_visibility_settings
 
 from .event_series import EventSeries
 from .mixins import (
@@ -271,6 +272,14 @@ class Event(
         blank=True,
         help_text="Ordered list of timeline sessions (relative offsets from event start). Display-only.",
     )
+    visibility_settings = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Granular switches for organizational information (attendee count, capacity, guest list). "
+            "An empty object means every toggle keeps its default of 'visible'."
+        ),
+    )
     waitlist_open = models.BooleanField(default=False)
     waitlist_time_window = models.DurationField(
         null=True,
@@ -442,6 +451,105 @@ class Event(
         capacities = [cap for cap in [self.max_attendees, self.venue.capacity if self.venue else None] if cap]
         return min(capacities) if capacities else 0
 
+    @property
+    def is_full(self) -> bool:
+        """Whether confirmed attendees have reached the effective capacity.
+
+        Deliberately **not** gated by ``visibility_settings``: "full yes/no" is
+        what the frontend needs for sold-out badges and to explain a blocked
+        RSVP, and it discloses no exact number. Only the counts behind it are
+        sensitive.
+
+        Reads the denormalized ``attendee_count`` (no query) and
+        ``effective_capacity`` (needs ``venue`` loaded). Pending waitlist offers
+        are NOT counted here — they reserve seats but do not make the event full,
+        and counting them would cost a per-event query in list views. The
+        authoritative, offer-aware check lives in ``AvailabilityGate``.
+
+        Returns:
+            False for uncapped events (``effective_capacity == 0``), otherwise
+            whether ``attendee_count`` has reached that capacity.
+        """
+        capacity = self.effective_capacity
+        return capacity > 0 and self.attendee_count >= capacity
+
+    @property
+    def visibility_flags(self) -> EventVisibilitySettings:
+        """The parsed ``visibility_settings`` blob, with defaults filled in.
+
+        Parsed on every access rather than cached so a freshly-assigned
+        ``visibility_settings`` never serves stale flags. Validating three
+        booleans is cheap; the alternative caching bug is not.
+        """
+        return validate_visibility_settings(self.visibility_settings)
+
+    def bypasses_visibility_settings(self, user: RevelUser | AnonymousUser) -> bool:
+        """Whether the user sees an event's real numbers regardless of its toggles.
+
+        True for Django superusers/staff, the organization owner, and
+        organization staff members — the people who need the operational view.
+
+        Results are cached on the instance keyed by user id, mirroring
+        :meth:`can_user_see_address`; the cache resets when the instance is
+        re-fetched from the DB.
+
+        Args:
+            user: The user to check.
+
+        Returns:
+            True if the user bypasses every ``visibility_settings`` toggle.
+        """
+        cache_key = getattr(user, "id", None)
+        if not hasattr(self, "_visibility_bypass_cache"):
+            self._visibility_bypass_cache: dict[t.Any, bool] = {}
+        if cache_key in self._visibility_bypass_cache:
+            return self._visibility_bypass_cache[cache_key]
+
+        result = self._compute_bypasses_visibility_settings(user)
+        self._visibility_bypass_cache[cache_key] = result
+        return result
+
+    def _compute_bypasses_visibility_settings(self, user: RevelUser | AnonymousUser) -> bool:
+        """Compute the visibility bypass without caching."""
+        if user.is_superuser or user.is_staff:
+            return True
+        if user.is_anonymous:
+            return False
+        if self.organization.owner_id == user.id:
+            return True
+        # Use .all() to leverage prefetched data when available (from with_organization()).
+        return any(m.id == user.id for m in self.organization.staff_members.all())
+
+    def can_user_see_attendee_count(self, user: RevelUser | AnonymousUser) -> bool:
+        """Whether ``attendee_count`` may be disclosed to this user."""
+        return self.visibility_flags.show_attendee_count or self.bypasses_visibility_settings(user)
+
+    def can_user_see_capacity(self, user: RevelUser | AnonymousUser) -> bool:
+        """Whether capacity figures may be disclosed to this user.
+
+        Covers ``max_attendees``, held seats, derived spots-left, and a ticket
+        tier's ``total_available``.
+        """
+        # ponytail: this does not cover seated ticketed events. The seat picker
+        # (``GET /events/{id}/seating/availability``) returns an anonymous
+        # per-seat sold/held map, and a seat map that hides occupancy cannot
+        # function as a seat map — so occupancy stays inferable there. Closing
+        # it needs a separate "blind seating" mode (server-side assignment only,
+        # no map), which is a product decision rather than a gating one.
+        # Until then, organizers running seated events must be told that
+        # ``show_capacity`` only hides the tier/capacity numbers.
+        return self.visibility_flags.show_capacity or self.bypasses_visibility_settings(user)
+
+    def can_user_see_attendee_list(self, user: RevelUser | AnonymousUser) -> bool:
+        """Whether the guest list may be disclosed to this user at all.
+
+        This is only the event-level half of the decision: it is ANDed with each
+        attendee's own ``show_me_on_attendee_list`` preference in
+        :meth:`attendees`, so it can hide people who opted in but never reveal
+        people who opted out.
+        """
+        return self.visibility_flags.show_attendee_list or self.bypasses_visibility_settings(user)
+
     def can_user_see_address(self, user: RevelUser | AnonymousUser) -> bool:
         """Check if the user can see the event address based on address_visibility.
 
@@ -562,7 +670,14 @@ class Event(
         return has_ticket or has_rsvp
 
     def attendees(self, viewer: RevelUser) -> models.QuerySet[RevelUser]:
-        """Return attendees based on who wants to see them."""
+        """Return attendees based on who wants to see them.
+
+        The event-level ``show_attendee_list`` toggle is ANDed with the per-user
+        ``AttendeeVisibilityFlag`` matrix (itself derived from each attendee's
+        ``show_me_on_attendee_list`` preference): turning the event toggle off
+        hides everyone from non-privileged viewers, turning it on reveals nobody
+        who has not opted in.
+        """
         from .rsvp import EventRSVP
         from .ticket import Ticket
 
@@ -573,6 +688,8 @@ class Event(
                 Q(tickets__event=self, tickets__status=Ticket.TicketStatus.ACTIVE)
                 | Q(rsvps__event=self, rsvps__status=EventRSVP.RsvpStatus.YES)
             ).distinct()
+        if not self.can_user_see_attendee_list(viewer):
+            return RevelUser.objects.none()
         return RevelUser.objects.filter(
             id__in=AttendeeVisibilityFlag.objects.filter(event=self, user=viewer, is_visible=True).values_list(
                 "target_id", flat=True
@@ -608,6 +725,12 @@ class Event(
             validate_schedule(self.schedule)
         except PydanticValidationError as exc:
             raise DjangoValidationError({"schedule": str(exc)}) from exc
+
+        # Validate the visibility toggles (also guards the admin raw-JSON widget).
+        try:
+            validate_visibility_settings(self.visibility_settings)
+        except PydanticValidationError as exc:
+            raise DjangoValidationError({"visibility_settings": str(exc)}) from exc
 
         self._clean_waitlist_config()
 
