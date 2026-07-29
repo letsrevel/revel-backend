@@ -178,7 +178,7 @@ class BatchParticipationChecker:
         """
         from events.models.mixins import ResourceVisibility
 
-        address_visibility = self.event.address_visibility
+        address_visibility = self.event.visibility_flags.address_visibility
 
         # PUBLIC / UNLISTED: Everyone can see
         if address_visibility in ResourceVisibility.publicly_accessible():

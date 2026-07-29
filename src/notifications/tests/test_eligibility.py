@@ -782,7 +782,7 @@ class TestBatchAddressVisibilityParity:
         random_user: RevelUser,
     ) -> None:
         """PUBLIC visibility: everyone can see address."""
-        event.address_visibility = ResourceVisibility.PUBLIC
+        event.visibility_settings = {"address_visibility": ResourceVisibility.PUBLIC}
         event.save()
 
         checker = BatchParticipationChecker(event)
@@ -800,7 +800,7 @@ class TestBatchAddressVisibilityParity:
     ) -> None:
         """STAFF_ONLY visibility: only staff/owners can see address."""
         OrganizationStaff.objects.create(organization=organization, user=staff_user)
-        event.address_visibility = ResourceVisibility.STAFF_ONLY
+        event.visibility_settings = {"address_visibility": ResourceVisibility.STAFF_ONLY}
         event.save()
 
         checker = BatchParticipationChecker(event)
@@ -826,7 +826,7 @@ class TestBatchAddressVisibilityParity:
     ) -> None:
         """MEMBERS_ONLY visibility: organization members can see address."""
         OrganizationMember.objects.create(organization=organization, user=member_user)
-        event.address_visibility = ResourceVisibility.MEMBERS_ONLY
+        event.visibility_settings = {"address_visibility": ResourceVisibility.MEMBERS_ONLY}
         event.save()
 
         checker = BatchParticipationChecker(event)
@@ -854,7 +854,7 @@ class TestBatchAddressVisibilityParity:
             status=Ticket.TicketStatus.ACTIVE,
             guest_name="Test",
         )
-        event.address_visibility = ResourceVisibility.ATTENDEES_ONLY
+        event.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
         event.save()
 
         checker = BatchParticipationChecker(event)
@@ -875,7 +875,7 @@ class TestBatchAddressVisibilityParity:
     ) -> None:
         """ATTENDEES_ONLY visibility: RSVP'd users can see address."""
         EventRSVP.objects.create(event=event, user=rsvp_user, status=EventRSVP.RsvpStatus.YES)
-        event.address_visibility = ResourceVisibility.ATTENDEES_ONLY
+        event.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
         event.save()
 
         checker = BatchParticipationChecker(event)
@@ -892,7 +892,7 @@ class TestBatchAddressVisibilityParity:
     ) -> None:
         """PRIVATE visibility: invited users can see address."""
         EventInvitation.objects.create(event=event, user=invited_user)
-        event.address_visibility = ResourceVisibility.PRIVATE
+        event.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
         event.save()
 
         checker = BatchParticipationChecker(event)
@@ -919,7 +919,7 @@ class TestBatchAddressVisibilityParity:
             status=Ticket.TicketStatus.ACTIVE,
             guest_name="Test",
         )
-        event.address_visibility = ResourceVisibility.PRIVATE
+        event.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
         event.save()
 
         checker = BatchParticipationChecker(event)
@@ -940,7 +940,7 @@ class TestBatchAddressVisibilityParity:
             ResourceVisibility.MEMBERS_ONLY,
             ResourceVisibility.ATTENDEES_ONLY,
         ]:
-            event.address_visibility = visibility
+            event.visibility_settings = {"address_visibility": visibility}
             event.save()
 
             checker = BatchParticipationChecker(event)

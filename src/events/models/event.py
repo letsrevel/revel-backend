@@ -587,12 +587,14 @@ class Event(
         from .rsvp import EventRSVP
         from .ticket import Ticket
 
+        address_visibility = self.visibility_flags.address_visibility
+
         # Staff/superusers always see everything
         if user.is_superuser or user.is_staff:
             return True
 
         # PUBLIC / UNLISTED is visible to everyone
-        if self.address_visibility in ResourceVisibility.publicly_accessible():
+        if address_visibility in ResourceVisibility.publicly_accessible():
             return True
 
         # Anonymous users can only see PUBLIC / UNLISTED addresses
@@ -606,7 +608,7 @@ class Event(
         is_staff_member = any(m.id == user.id for m in self.organization.staff_members.all())
 
         # STAFF_ONLY: Only staff/owners
-        if self.address_visibility == ResourceVisibility.STAFF_ONLY:
+        if address_visibility == ResourceVisibility.STAFF_ONLY:
             return is_owner or is_staff_member
 
         # Staff and owners can see everything
@@ -619,7 +621,7 @@ class Event(
         )
 
         # MEMBERS_ONLY: Organization members
-        if self.address_visibility == ResourceVisibility.MEMBERS_ONLY:
+        if address_visibility == ResourceVisibility.MEMBERS_ONLY:
             return is_org_member
 
         # Check event relationships
@@ -628,11 +630,11 @@ class Event(
         has_invitation = EventInvitation.objects.filter(user=user, event=self).exists()
 
         # ATTENDEES_ONLY: Only ticket holders or RSVPs (not just invited)
-        if self.address_visibility == ResourceVisibility.ATTENDEES_ONLY:
+        if address_visibility == ResourceVisibility.ATTENDEES_ONLY:
             return has_ticket or has_rsvp
 
         # PRIVATE: Invited users, ticket holders, or RSVPs
-        if self.address_visibility == ResourceVisibility.PRIVATE:
+        if address_visibility == ResourceVisibility.PRIVATE:
             return has_ticket or has_rsvp or has_invitation
 
         return False

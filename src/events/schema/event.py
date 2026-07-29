@@ -298,7 +298,7 @@ class EventDetailSchema(EventBaseSchema):
             ResourceVisibility.STAFF_ONLY: _("Address visible to staff only"),
             ResourceVisibility.ATTENDEES_ONLY: _("Address visible to attendees only"),
         }
-        return visibility_messages.get(obj.address_visibility)
+        return visibility_messages.get(obj.visibility_flags.address_visibility)
 
     @staticmethod
     def resolve_location_maps_url(obj: Event, context: t.Any) -> str | None:
