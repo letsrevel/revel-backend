@@ -113,6 +113,25 @@ def at_the_door_tier(event: Event) -> TicketTier:
     return tier
 
 
+@pytest.fixture(autouse=True)
+def _publish_pronoun_distribution(event: Event) -> None:
+    """Opt the shared event into publishing its pronoun distribution (#793).
+
+    Every test in this module exercises the *aggregation* logic with an
+    unprivileged viewer; the visibility gate itself is covered in
+    ``test_controllers/test_event_controller/test_pronoun_distribution.py``.
+
+    ``get_event_pronoun_distribution`` now returns an empty distribution with
+    null totals unless the event opts in, because ``show_pronoun_distribution``
+    defaults to ``False`` — preserving the opt-in behavior the
+    ``public_pronoun_distribution`` column used to provide. Without this
+    fixture every assertion below would be checking the redacted shape instead
+    of the counts it names.
+    """
+    event.visibility_settings = {**event.visibility_settings, "show_pronoun_distribution": True}
+    event.save(update_fields=["visibility_settings"])
+
+
 def test_empty_event_returns_zeros(event: Event, nonmember_user: RevelUser) -> None:
     """Test pronoun distribution for an event with no attendees."""
     result = event_service.get_event_pronoun_distribution(event, nonmember_user)
