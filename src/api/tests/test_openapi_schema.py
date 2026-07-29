@@ -78,3 +78,84 @@ def test_guard_raises_on_conflicting_redefinition() -> None:
             OpenAPISchema.add_schema_definitions(
                 fake, {"Clash": {"enum": ["a", "b", "c"], "title": "Clash", "type": "string"}}
             )
+
+
+# --- 400 response-body contract (#712) -------------------------------------
+#
+# 400 bodies come from exception handlers that return a raw ``Response``,
+# bypassing Ninja's response serialization entirely — nothing validates them
+# against the declared schema, so declaration and reality drift silently. These
+# invariants pin the declarations; the wire shapes themselves are proven in
+# ``events/tests/test_controllers/test_error_response_contracts.py``.
+
+#: The only two operations that genuinely ``return 400, ResponseMessage(...)``.
+RESPONSE_MESSAGE_400_ALLOWLIST = {
+    "/api/events/claim-invitation/{token}",
+    "/api/organizations/claim-invitation/{token}",
+}
+
+#: Every component a 400 is allowed to resolve to.
+KNOWN_400_COMPONENTS = {
+    "ErrorDetail",
+    "EventUserEligibility",
+    "MembershipEligibilitySchema",
+    "ResponseMessage",
+    "ValidationErrorResponse",
+}
+
+
+def _declared_400_schemas() -> dict[tuple[str, str], set[str]]:
+    """Map each ``(path, method)`` that declares a 400 to its component names."""
+    with schema_name_collision_guard():
+        spec = api.get_openapi_schema()
+
+    declared: dict[tuple[str, str], set[str]] = {}
+    for path, operations in spec["paths"].items():
+        for method, operation in operations.items():
+            if not isinstance(operation, dict):
+                continue
+            for status, response in operation.get("responses", {}).items():
+                if str(status) != "400":
+                    continue
+                body = response.get("content", {}).get("application/json", {}).get("schema", {})
+                refs = body.get("anyOf", [body])
+                declared[(path, method)] = {
+                    ref["$ref"].rsplit("/", 1)[-1] for ref in refs if isinstance(ref, dict) and "$ref" in ref
+                }
+    return declared
+
+
+def test_response_message_declared_at_400_only_where_it_is_returned() -> None:
+    """``{"message": ...}`` at 400 must only be declared where a view returns it.
+
+    Before #712, 26 endpoints declared ``ResponseMessage`` for 400 while no
+    reachable path produced a ``message`` key, so the generated client typed
+    every one of those bodies wrongly.
+    """
+    offenders = sorted(
+        path
+        for (path, _method), names in _declared_400_schemas().items()
+        if "ResponseMessage" in names and path not in RESPONSE_MESSAGE_400_ALLOWLIST
+    )
+    assert not offenders, f"ResponseMessage declared at 400 on endpoints that never return it: {offenders}"
+
+
+def test_every_declared_400_resolves_to_a_known_component() -> None:
+    """No 400 may resolve to an inline/anonymous schema the generated client cannot name."""
+    unknown = {
+        key: names - KNOWN_400_COMPONENTS
+        for key, names in _declared_400_schemas().items()
+        if names - KNOWN_400_COMPONENTS
+    }
+    assert not unknown, f"Unexpected 400 response schemas: {unknown}"
+
+
+def test_eligibility_endpoints_also_declare_the_detail_shape() -> None:
+    """RSVP/checkout reject with a plain ``HttpError`` as well as an eligibility payload."""
+    declared = _declared_400_schemas()
+    for path in (
+        "/api/events/{event_id}/rsvp/{answer}",
+        "/api/events/{event_id}/tickets/{tier_id}/checkout",
+        "/api/events/{event_id}/tickets/{tier_id}/checkout/pwyc",
+    ):
+        assert declared[(path, "post")] == {"EventUserEligibility", "ErrorDetail"}, path

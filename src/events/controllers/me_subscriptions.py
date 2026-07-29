@@ -119,7 +119,7 @@ class MeSubscriptionsController(UserAwareController):
         url_name="subscribe_to_membership_plan",
         response={
             201: schema.SubscribeResponseSchema,
-            400: ResponseMessage,
+            400: ErrorDetail,
             404: ErrorDetail,
             409: schema.SubscriptionActivationPendingSchema,
             502: ResponseMessage,
@@ -164,7 +164,7 @@ class MeSubscriptionsController(UserAwareController):
         url_name="cancel_my_membership_subscription",
         response={
             200: schema.MySubscriptionSchema,
-            400: ResponseMessage,
+            400: ErrorDetail,
             404: ResponseMessage,
             # The Checkout Session backing a PENDING row was paid mid-cancel:
             # the money moved, so the cancel waits for the activation webhooks.
@@ -198,7 +198,7 @@ class MeSubscriptionsController(UserAwareController):
         url_name="uncancel_my_membership_subscription",
         response={
             200: schema.MySubscriptionSchema,
-            400: ResponseMessage,
+            400: ErrorDetail,
             # Refused while the membership is PAUSED / BANNED by the organizers.
             403: ErrorDetail,
             404: ResponseMessage,
@@ -227,7 +227,7 @@ class MeSubscriptionsController(UserAwareController):
         url_name="change_my_membership_plan",
         response={
             200: schema.MySubscriptionSchema,
-            400: ResponseMessage,
+            400: ErrorDetail,
             404: ResponseMessage,
             502: ResponseMessage,
         },
@@ -278,7 +278,7 @@ class MeSubscriptionsController(UserAwareController):
         url_name="revive_my_membership_subscription",
         response={
             200: schema.RevivalResponseSchema,
-            400: ResponseMessage,
+            400: ErrorDetail,
             # ``_validate_revivable`` refuses BANNED / blacklisted members here.
             403: ErrorDetail,
             404: ErrorDetail,
@@ -338,7 +338,7 @@ class MeSubscriptionsController(UserAwareController):
         url_name="create_billing_portal_session",
         response={
             201: schema.BillingPortalSessionSchema,
-            400: ResponseMessage,
+            400: ErrorDetail,
             404: ResponseMessage,
             502: ResponseMessage,
         },

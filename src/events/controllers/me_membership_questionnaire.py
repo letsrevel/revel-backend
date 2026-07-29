@@ -7,7 +7,7 @@ from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail
 from common.throttling import QuestionnaireSubmissionThrottle, UserDefaultThrottle
 from events.models import Organization, OrganizationQuestionnaire
 from events.service import membership_questionnaire_service
@@ -53,7 +53,7 @@ class MeMembershipQuestionnaireController(UserAwareController):
     @route.post(
         "/organizations/{slug}/membership-questionnaire/{questionnaire_id}/submit",
         url_name="submit_membership_questionnaire",
-        response={200: QuestionnaireSubmissionOrEvaluationSchema, 400: ResponseMessage},
+        response={200: QuestionnaireSubmissionOrEvaluationSchema, 400: ErrorDetail},
         throttle=QuestionnaireSubmissionThrottle(),
     )
     def submit_membership_questionnaire(

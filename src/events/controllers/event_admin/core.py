@@ -7,7 +7,7 @@ from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.models import Tag
-from common.schema import TagSchema, ValidationErrorResponse
+from common.schema import ErrorDetail, TagSchema, ValidationErrorResponse
 from common.throttling import WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
@@ -34,7 +34,7 @@ class EventAdminCoreController(EventAdminBaseController):
     @route.put(
         "",
         url_name="edit_event",
-        response={200: schema.EventDetailSchema, 400: ValidationErrorResponse},
+        response={200: schema.EventDetailSchema, 400: ValidationErrorResponse | ErrorDetail},
         permissions=[EventPermission("edit_event")],
     )
     def update_event(self, event_id: UUID, payload: schema.EventEditSchema) -> models.Event:

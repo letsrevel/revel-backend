@@ -12,7 +12,7 @@ from ninja_extra import (
 )
 
 from common.authentication import I18nJWTAuth, OptionalAuth
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import models, schema
 from events.service import (
@@ -117,7 +117,7 @@ class EventPublicAttendanceController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/rsvp/{answer}",
         url_name="rsvp_event",
-        response={200: schema.EventRSVPSchema, 400: EventUserEligibility},
+        response={200: schema.EventRSVPSchema, 400: EventUserEligibility | ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
@@ -181,7 +181,7 @@ class EventPublicAttendanceController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/waitlist/join",
         url_name="join_waitlist",
-        response={200: ResponseMessage, 400: ResponseMessage, 409: ResponseMessage},
+        response={200: ResponseMessage, 400: EventUserEligibility | ErrorDetail, 409: ResponseMessage},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
@@ -238,7 +238,7 @@ class EventPublicAttendanceController(EventPublicBaseController):
     @route.delete(
         "/{uuid:event_id}/waitlist/leave",
         url_name="leave_waitlist",
-        response={200: ResponseMessage, 400: ResponseMessage},
+        response={200: ResponseMessage, 400: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
@@ -309,7 +309,7 @@ class EventPublicAttendanceController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/questionnaire/{questionnaire_id}/submit",
         url_name="submit_questionnaire",
-        response={200: QuestionnaireSubmissionOrEvaluationSchema, 400: ResponseMessage},
+        response={200: QuestionnaireSubmissionOrEvaluationSchema, 400: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=QuestionnaireSubmissionThrottle(),
     )

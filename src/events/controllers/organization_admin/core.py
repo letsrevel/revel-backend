@@ -6,7 +6,7 @@ from ninja_extra import api_controller, route
 
 from accounts.schema import VerifyEmailSchema
 from common.authentication import I18nJWTAuth
-from common.schema import EmailSchema, ValidationErrorResponse
+from common.schema import EmailSchema, ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
@@ -228,7 +228,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     @route.post(
         "/create-event",
         url_name="create_event",
-        response={200: schema.EventDetailSchema, 400: ValidationErrorResponse},
+        response={200: schema.EventDetailSchema, 400: ValidationErrorResponse | ErrorDetail},
         permissions=[OrganizationPermission("create_event")],
     )
     def create_event(self, slug: str, payload: schema.EventCreateSchema) -> models.Event:
