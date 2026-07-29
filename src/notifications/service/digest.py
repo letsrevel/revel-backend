@@ -7,7 +7,7 @@ import structlog
 from django.db.models import QuerySet
 from django.template.loader import render_to_string
 from django.utils import timezone
-from django.utils.translation import gettext as _
+from django.utils.translation import ngettext
 
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
@@ -58,10 +58,13 @@ class NotificationDigest:
         total_count = self.notifications.count()
 
         # Build subject
-        subject = _("%(count)d new notification%(plural)s") % {
-            "count": total_count,
-            "plural": "s" if total_count != 1 else "",
-        }
+        # Same msgid the digest templates emit via {% blocktranslate count counter=... %},
+        # so the subject and the body share one catalog entry.
+        subject = ngettext(
+            "%(counter)s new notification",
+            "%(counter)s new notifications",
+            total_count,
+        ) % {"counter": total_count}
 
         # Build bodies
         from common.models import SiteSettings

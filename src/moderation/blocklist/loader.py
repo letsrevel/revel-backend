@@ -4,7 +4,7 @@ import pathlib
 from moderation.blocklist.normalize import normalize_text
 
 _DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "data" / "blocklist"
-_LANGS = ("en", "de", "it", "fr")
+_LANGS = ("en", "de", "it", "fr", "es", "pt")
 
 
 @functools.lru_cache(maxsize=1)

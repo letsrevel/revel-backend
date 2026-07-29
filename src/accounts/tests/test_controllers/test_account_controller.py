@@ -212,10 +212,11 @@ def test_update_profile_success(auth_client: Client, user: RevelUser) -> None:
     assert user.last_name == "Smith Jr."
 
 
-def test_update_language_success(auth_client: Client, user: RevelUser) -> None:
-    """Test successful language update returns 200."""
+@pytest.mark.parametrize("language", ["en", "de", "it", "fr", "es", "pt"])
+def test_update_language_success(auth_client: Client, user: RevelUser, language: str) -> None:
+    """Test successful language update returns 200 for every supported language."""
     url = reverse("api:update-language")
-    payload = {"language": "de"}
+    payload = {"language": language}
 
     response = auth_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
@@ -223,13 +224,13 @@ def test_update_language_success(auth_client: Client, user: RevelUser) -> None:
 
     # Verify the user was actually updated in the database
     user.refresh_from_db()
-    assert user.language == "de"
+    assert user.language == language
 
 
 def test_update_language_invalid_language(auth_client: Client) -> None:
     """Test language update with invalid language returns 422."""
     url = reverse("api:update-language")
-    payload = {"language": "es"}  # Not in supported languages
+    payload = {"language": "ja"}  # Not in supported languages
 
     response = auth_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 

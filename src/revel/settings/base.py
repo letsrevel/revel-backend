@@ -208,6 +208,8 @@ LANGUAGES = [
     ("de", "Deutsch"),
     ("it", "Italiano"),
     ("fr", "Français"),
+    ("es", "Español"),
+    ("pt", "Português"),
 ]
 
 LOCALE_PATHS = [

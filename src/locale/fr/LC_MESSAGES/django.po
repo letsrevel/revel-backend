@@ -2662,7 +2662,7 @@ msgid "To confirm your ticket purchase, please click the button below:"
 msgstr "Pour confirmer ton achat de ticket, clique sur le lien ci-dessous :"
 
 msgid "Confirm Ticket"
-msgstr "Ton ticket"
+msgstr "Confirmer le ticket"
 
 msgid "To confirm your ticket purchase, please click the link below:"
 msgstr "Pour confirmer ton achat de ticket, clique sur le lien ci-dessous :"
@@ -2685,8 +2685,7 @@ msgstr ""
 "%(period_end)s."
 
 msgid "This is an automated billing document."
-msgstr ""
-"Ceci est une notification automatique de ton système de gestion d'événements."
+msgstr "Ceci est un document de facturation automatique."
 
 msgid "Category prices must be a mapping of price category id to price."
 msgstr ""
@@ -2767,8 +2766,10 @@ msgid "Read more..."
 msgstr "Lire la suite..."
 
 #, python-format
-msgid "%(count)d new notification%(plural)s"
-msgstr "%(count)d nouvelle%(plural)s notification%(plural)s"
+msgid "%(counter)s new notification"
+msgid_plural "%(counter)s new notifications"
+msgstr[0] "%(counter)s nouvelle notification"
+msgstr[1] "%(counter)s nouvelles notifications"
 
 msgid "Account Suspended"
 msgstr "Compte suspendu"
@@ -4812,12 +4813,6 @@ msgstr "Salut"
 
 msgid "Here's what you missed since your last digest:"
 msgstr "Voici ce que tu as manqué depuis ton dernier récapitulatif :"
-
-#, python-format
-msgid "%(counter)s new notification"
-msgid_plural "%(counter)s new notifications"
-msgstr[0] "%(counter)s nouvelle notification"
-msgstr[1] "%(counter)s nouvelles notifications"
 
 msgid "View details →"
 msgstr "Voir les détails :"
