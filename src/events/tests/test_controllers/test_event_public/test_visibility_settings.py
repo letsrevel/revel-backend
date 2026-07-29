@@ -491,6 +491,55 @@ class TestOrganizerRoundTrip:
         assert public_event.visibility_flags.show_attendee_count is True
         assert public_event.visibility_flags.show_capacity is False
 
+    def test_default_equivalent_write_does_not_detach_an_occurrence(
+        self, organization_owner_client: Client, public_event: Event
+    ) -> None:
+        """``{}`` and an explicit all-defaults blob mean the same thing.
+
+        A frontend that round-trips the whole settings object would otherwise
+        flip ``is_modified`` on its first save, permanently cutting the
+        occurrence off from template propagation over a no-op edit.
+        """
+        from events.models import EventSeries
+
+        series = EventSeries.objects.create(organization=public_event.organization, name="Series")
+        public_event.event_series = series
+        public_event.occurrence_index = 1
+        public_event.is_modified = False
+        public_event.visibility_settings = {}
+        public_event.save()
+
+        response = organization_owner_client.put(
+            reverse("api:edit_event", kwargs={"event_id": str(public_event.id)}),
+            data={"visibility_settings": {"show_attendee_count": True, "show_capacity": True}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        public_event.refresh_from_db()
+        assert public_event.is_modified is False
+
+    def test_a_real_visibility_change_does_mark_an_occurrence_modified(
+        self, organization_owner_client: Client, public_event: Event
+    ) -> None:
+        from events.models import EventSeries
+
+        series = EventSeries.objects.create(organization=public_event.organization, name="Series")
+        public_event.event_series = series
+        public_event.occurrence_index = 1
+        public_event.is_modified = False
+        public_event.save()
+
+        response = organization_owner_client.put(
+            reverse("api:edit_event", kwargs={"event_id": str(public_event.id)}),
+            data={"visibility_settings": {"show_capacity": False}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        public_event.refresh_from_db()
+        assert public_event.is_modified is True
+
     def test_edit_without_the_field_leaves_it_untouched(
         self, organization_owner_client: Client, public_event: Event
     ) -> None:

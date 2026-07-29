@@ -13,6 +13,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import RevelUser
 from events.models import (
@@ -22,12 +23,11 @@ from events.models import (
     Organization,
     OrganizationStaff,
 )
+from events.schema import EventEditSchema
+from events.schema.recurring_event import TemplateEditSchema
 from events.service.duplication import _EXCLUDED_FROM_COPY, duplicate_event
-from events.utils.visibility_settings import (
-    EventVisibilitySettings,
-    build_visibility_settings_update,
-    validate_visibility_settings,
-)
+from events.service.event_update_service import _field_changed
+from events.utils.visibility_settings import build_visibility_settings_update, validate_visibility_settings
 
 pytestmark = pytest.mark.django_db
 
@@ -93,36 +93,49 @@ def test_visibility_flags_are_not_cached_across_assignment(public_event: Event) 
 
 
 class TestBuildUpdate:
-    """``build_visibility_settings_update`` merges rather than replaces."""
+    """``build_visibility_settings_update`` merges rather than replaces.
 
-    class _Payload(BaseModel):
-        visibility_settings: EventVisibilitySettings | None = None
+    Exercised against the two real edit schemas rather than a stand-in, so the
+    tests cannot drift from the nullability the endpoints actually declare.
+    """
 
-    def test_absent_field_yields_no_write(self) -> None:
-        assert build_visibility_settings_update({"show_capacity": False}, self._Payload()) == {}
+    @pytest.mark.parametrize("schema", [EventEditSchema, TemplateEditSchema])
+    def test_absent_field_yields_no_write(self, schema: type[BaseModel]) -> None:
+        payload = schema.model_validate({})
 
-    def test_explicit_null_yields_no_write(self) -> None:
-        """Left to model validation to reject, like any other non-nullable field."""
-        payload = self._Payload.model_validate({"visibility_settings": None})
+        assert build_visibility_settings_update({"show_capacity": False}, payload) == {}
 
-        assert build_visibility_settings_update({}, payload) == {}
+    def test_event_edit_schema_rejects_an_explicit_null(self) -> None:
+        """The field is non-nullable there, so a null never reaches the helper."""
+        with pytest.raises(PydanticValidationError):
+            EventEditSchema.model_validate({"visibility_settings": None})
+
+    def test_template_edit_schema_treats_an_explicit_null_as_no_change(self) -> None:
+        """It declares ``| None = None`` like every sibling, so a null does arrive.
+
+        Writing it through would violate the column's NOT NULL, so it must
+        produce no write at all.
+        """
+        payload = TemplateEditSchema.model_validate({"visibility_settings": None})
+
+        assert build_visibility_settings_update({"show_capacity": False}, payload) == {}
 
     def test_partial_send_preserves_untouched_toggles(self) -> None:
-        payload = self._Payload.model_validate({"visibility_settings": {"show_capacity": False}})
+        payload = EventEditSchema.model_validate({"visibility_settings": {"show_capacity": False}})
 
         assert build_visibility_settings_update({"show_attendee_count": False}, payload) == {
             "visibility_settings": {"show_attendee_count": False, "show_capacity": False},
         }
 
     def test_sent_toggle_wins_over_stored(self) -> None:
-        payload = self._Payload.model_validate({"visibility_settings": {"show_capacity": True}})
+        payload = EventEditSchema.model_validate({"visibility_settings": {"show_capacity": True}})
 
         assert build_visibility_settings_update({"show_capacity": False}, payload) == {
             "visibility_settings": {"show_capacity": True},
         }
 
     def test_none_stored_is_tolerated(self) -> None:
-        payload = self._Payload.model_validate({"visibility_settings": {"show_capacity": False}})
+        payload = EventEditSchema.model_validate({"visibility_settings": {"show_capacity": False}})
 
         assert build_visibility_settings_update(None, payload) == {
             "visibility_settings": {"show_capacity": False},
@@ -130,11 +143,25 @@ class TestBuildUpdate:
 
     def test_stored_blob_is_not_mutated(self) -> None:
         stored: dict[str, t.Any] = {"show_attendee_count": False}
-        payload = self._Payload.model_validate({"visibility_settings": {"show_capacity": False}})
+        payload = EventEditSchema.model_validate({"visibility_settings": {"show_capacity": False}})
 
         build_visibility_settings_update(stored, payload)
 
         assert stored == {"show_attendee_count": False}
+
+
+class TestOccurrenceDiffNormalisation:
+    """A default-equivalent visibility write must not detach an occurrence."""
+
+    def test_empty_and_explicit_defaults_compare_equal(self) -> None:
+        assert not _field_changed("visibility_settings", {}, {"show_capacity": True})
+
+    def test_a_real_visibility_change_is_detected(self) -> None:
+        assert _field_changed("visibility_settings", {}, {"show_capacity": False})
+
+    def test_other_fields_still_use_plain_inequality(self) -> None:
+        assert _field_changed("name", "Old", "New")
+        assert not _field_changed("name", "Same", "Same")
 
 
 class TestBypass:

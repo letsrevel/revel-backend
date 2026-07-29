@@ -72,10 +72,16 @@ def build_visibility_settings_update(stored: dict[str, t.Any] | None, payload: B
         payload: The validated edit payload, which may or may not carry the field.
 
     Returns:
-        ``{"visibility_settings": <merged>}``, or an empty mapping when the client
-        did not send the field (an explicit ``null`` is left to model validation
-        to reject, like any other non-nullable field), so callers can splat it
-        unconditionally.
+        ``{"visibility_settings": <merged>}``, or an empty mapping when there is
+        nothing to write, so callers can splat it unconditionally.
+
+    Note:
+        The two edit schemas differ on explicit ``null`` and both are handled
+        here. ``EventEditSchema`` declares the field non-nullable, so a ``null``
+        never reaches this function — pydantic rejects it with a 422.
+        ``TemplateEditSchema`` declares it ``| None = None`` like every one of
+        its siblings, so a ``null`` does arrive; it is treated as "no change"
+        rather than written through, which would violate the column's NOT NULL.
     """
     sent = payload.model_dump(exclude_unset=True).get("visibility_settings")
     if not isinstance(sent, dict):
