@@ -13,7 +13,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
-from common.schema import ErrorDetail, ResponseMessage
+from common.schema import ErrorDetail
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import schema
 from events.models import (
@@ -80,7 +80,7 @@ class MeSubscriptionsController(UserAwareController):
     @route.get(
         "/organizations/{org_id}/subscription",
         url_name="get_my_organization_subscription",
-        response={200: schema.MySubscriptionSchema, 404: ResponseMessage},
+        response={200: schema.MySubscriptionSchema, 404: ErrorDetail},
     )
     def get_my_subscription(self, org_id: UUID) -> MembershipSubscription:
         """Get the current user's most recent non-terminal subscription in an organization.
@@ -119,10 +119,10 @@ class MeSubscriptionsController(UserAwareController):
         url_name="subscribe_to_membership_plan",
         response={
             201: schema.SubscribeResponseSchema,
-            400: ResponseMessage,
+            400: ErrorDetail,
             404: ErrorDetail,
             409: schema.SubscriptionActivationPendingSchema,
-            502: ResponseMessage,
+            502: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -164,12 +164,12 @@ class MeSubscriptionsController(UserAwareController):
         url_name="cancel_my_membership_subscription",
         response={
             200: schema.MySubscriptionSchema,
-            400: ResponseMessage,
-            404: ResponseMessage,
+            400: ErrorDetail,
+            404: ErrorDetail,
             # The Checkout Session backing a PENDING row was paid mid-cancel:
             # the money moved, so the cancel waits for the activation webhooks.
             409: schema.SubscriptionActivationPendingSchema,
-            502: ResponseMessage,
+            502: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -198,11 +198,11 @@ class MeSubscriptionsController(UserAwareController):
         url_name="uncancel_my_membership_subscription",
         response={
             200: schema.MySubscriptionSchema,
-            400: ResponseMessage,
+            400: ErrorDetail,
             # Refused while the membership is PAUSED / BANNED by the organizers.
             403: ErrorDetail,
-            404: ResponseMessage,
-            502: ResponseMessage,
+            404: ErrorDetail,
+            502: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -227,9 +227,9 @@ class MeSubscriptionsController(UserAwareController):
         url_name="change_my_membership_plan",
         response={
             200: schema.MySubscriptionSchema,
-            400: ResponseMessage,
-            404: ResponseMessage,
-            502: ResponseMessage,
+            400: ErrorDetail,
+            404: ErrorDetail,
+            502: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -278,11 +278,11 @@ class MeSubscriptionsController(UserAwareController):
         url_name="revive_my_membership_subscription",
         response={
             200: schema.RevivalResponseSchema,
-            400: ResponseMessage,
+            400: ErrorDetail,
             # ``_validate_revivable`` refuses BANNED / blacklisted members here.
             403: ErrorDetail,
             404: ErrorDetail,
-            502: ResponseMessage,
+            502: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -338,9 +338,9 @@ class MeSubscriptionsController(UserAwareController):
         url_name="create_billing_portal_session",
         response={
             201: schema.BillingPortalSessionSchema,
-            400: ResponseMessage,
-            404: ResponseMessage,
-            502: ResponseMessage,
+            400: ErrorDetail,
+            404: ErrorDetail,
+            502: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )

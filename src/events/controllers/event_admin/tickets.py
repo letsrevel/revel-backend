@@ -10,7 +10,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
-from common.schema import ValidationErrorResponse
+from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
@@ -120,7 +120,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         # billing info is incomplete.
         response={
             200: schema.TicketTierDetailSchema,
-            400: ValidationErrorResponse,
+            400: ValidationErrorResponse | ErrorDetail,
             422: ValidationErrorResponse,
         },
     )
@@ -135,7 +135,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         # Same gate as create when the update switches the tier to ONLINE payment.
         response={
             200: schema.TicketTierDetailSchema,
-            400: ValidationErrorResponse,
+            400: ValidationErrorResponse | ErrorDetail,
             422: ValidationErrorResponse,
         },
     )
@@ -343,7 +343,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.post(
         "/tickets/{code}/check-in",
         url_name="check_in_ticket",
-        response={200: schema.CheckInResponseSchema, 400: ValidationErrorResponse},
+        response={200: schema.CheckInResponseSchema, 400: ValidationErrorResponse | ErrorDetail},
         permissions=[EventPermission("check_in_attendees")],
     )
     def check_in_ticket(

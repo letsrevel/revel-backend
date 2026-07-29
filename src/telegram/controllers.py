@@ -8,7 +8,7 @@ from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from telegram import service
 from telegram.models import TelegramUser
@@ -27,7 +27,7 @@ class TelegramController(UserAwareController):
 
     @route.post(
         "/connect",
-        response={200: ResponseMessage, 400: ResponseMessage},
+        response={200: ResponseMessage, 400: ErrorDetail},
         throttle=WriteThrottle(),
     )
     def connect_account(self, payload: TelegramOTPSchema) -> tuple[int, ResponseMessage]:

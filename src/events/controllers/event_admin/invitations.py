@@ -9,7 +9,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
-from common.schema import ValidationErrorResponse
+from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import EventPermission
@@ -31,7 +31,7 @@ class EventAdminInvitationsController(EventAdminBaseController):
     @route.post(
         "/invitations",
         url_name="create_direct_invitations",
-        response={200: schema.DirectInvitationResponseSchema, 400: ValidationErrorResponse},
+        response={200: schema.DirectInvitationResponseSchema, 400: ValidationErrorResponse | ErrorDetail},
     )
     def create_invitations(self, event_id: UUID, payload: schema.DirectInvitationCreateSchema) -> dict[str, int]:
         """Create direct invitations for users by email addresses."""

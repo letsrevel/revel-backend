@@ -9,7 +9,7 @@ from ninja_extra.searching import searching
 
 from common.authentication import I18nJWTAuth
 from common.controllers import DistinctSearching
-from common.schema import ValidationErrorResponse
+from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters
 from events import models as event_models
@@ -52,7 +52,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
     @route.post(
         "/{organization_id}/create-questionnaire",
         url_name="create_questionnaire",
-        response={200: event_schema.OrganizationQuestionnaireSchema, 400: ValidationErrorResponse},
+        response={200: event_schema.OrganizationQuestionnaireSchema, 400: ValidationErrorResponse | ErrorDetail},
         auth=I18nJWTAuth(),
         permissions=[OrganizationPermission("create_questionnaire")],
     )

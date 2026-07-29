@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 import pytest
+from django.http import Http404
 
 from accounts.models import RevelUser
 from questionnaires.models import (
@@ -87,5 +88,8 @@ def test_evaluate_submission_wrong_questionnaire(
         status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED, score=None, comments="Should fail"
     )
 
-    with pytest.raises(QuestionnaireSubmission.DoesNotExist):
+    # Previously a bare ``.get()`` raising an unmapped DoesNotExist, which the
+    # endpoint surfaced as a 500; now a 404 like its ``get_submission_detail``
+    # sibling (#712).
+    with pytest.raises(Http404):
         service.evaluate_submission(submission.id, payload, evaluator)

@@ -9,10 +9,11 @@ from ninja_extra import (
 )
 
 from common.authentication import OptionalAuth
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.service import guest as guest_service
+from events.service.event_manager import EventUserEligibility
 from events.service.guest_hold_session import GUEST_HOLD_COOKIE, resolve_guest_session
 
 from .base import EventPublicBaseController
@@ -29,7 +30,7 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/rsvp/{answer}/public",
         url_name="guest_rsvp",
-        response={200: schema.GuestActionResponseSchema, 400: ResponseMessage},
+        response={200: schema.GuestActionResponseSchema, 400: EventUserEligibility | ErrorDetail},
         throttle=WriteThrottle(),
     )
     def guest_rsvp(
@@ -53,7 +54,7 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout/public",
         url_name="guest_ticket_checkout",
-        response={200: schema.GuestCheckoutResponseSchema, 400: ResponseMessage},
+        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail},
         throttle=WriteThrottle(),
     )
     def guest_ticket_checkout(
@@ -111,7 +112,7 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout/pwyc/public",
         url_name="guest_ticket_pwyc_checkout",
-        response={200: schema.GuestCheckoutResponseSchema, 400: ResponseMessage},
+        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail},
         throttle=WriteThrottle(),
     )
     def guest_ticket_pwyc_checkout(

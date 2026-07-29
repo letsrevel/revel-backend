@@ -12,7 +12,7 @@ from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
-from common.schema import ValidationErrorResponse
+from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.service import series_pass_service, update_db_instance
@@ -86,7 +86,7 @@ class SeriesPassAdminController(UserAwareController):
     @route.post(
         "/",
         url_name="create_series_pass",
-        response={200: schema.SeriesPassAdminSchema, 400: ValidationErrorResponse},
+        response={200: schema.SeriesPassAdminSchema, 400: ValidationErrorResponse | ErrorDetail},
     )
     def create_series_pass(self, series_id: UUID, payload: schema.SeriesPassCreateSchema) -> models.SeriesPass:
         """Create a series pass and its initial coverage (admin only).
@@ -190,7 +190,7 @@ class SeriesPassAdminController(UserAwareController):
     @route.post(
         "/held/{held_pass_id}/confirm-payment",
         url_name="confirm_series_pass_payment",
-        response={200: schema.HeldSeriesPassAdminSchema, 400: ValidationErrorResponse},
+        response={200: schema.HeldSeriesPassAdminSchema, 400: ErrorDetail},
     )
     def confirm_series_pass_payment(self, series_id: UUID, held_pass_id: UUID) -> models.HeldSeriesPass:
         """Confirm offline payment for a pending held series pass (admin only).

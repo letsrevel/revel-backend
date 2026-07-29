@@ -14,11 +14,12 @@ from ninja_extra.searching import searching
 
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import DistinctSearching
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import WriteThrottle
 from events import filters, models, schema
 from events.service import event_service, stripe_service
 from events.service import guest as guest_service
+from events.service.event_manager import EventUserEligibility
 
 from .base import TOKEN_GONE_MESSAGES, EventPublicBaseController
 
@@ -242,7 +243,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         url_name="confirm_guest_action",
         response={
             200: schema.EventRSVPSchema | schema.BatchCheckoutResponse,
-            400: ResponseMessage,
+            400: EventUserEligibility | ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -291,7 +292,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
     @route.delete(
         "/checkout/{payment_id}/cancel",
         url_name="cancel_checkout",
-        response={200: ResponseMessage, 400: ResponseMessage, 404: ResponseMessage},
+        response={200: ResponseMessage, 400: ErrorDetail, 404: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
