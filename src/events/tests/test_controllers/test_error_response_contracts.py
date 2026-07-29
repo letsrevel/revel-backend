@@ -276,6 +276,97 @@ class TestSubscriptionErrorContracts:
         response = member_client.post(url, data={"plan_id": str(plan.id)}, content_type="application/json")
         assert_detail_body(response)
 
+    def test_no_subscription_returns_detail_404(self, member_client: Client, organization: Organization) -> None:
+        """404 was declared ``ResponseMessage`` too; ``get_object_or_404`` emits ``{detail}``."""
+        url = reverse("api:get_my_organization_subscription", kwargs={"org_id": organization.id})
+        response = member_client.get(url)
+        assert response.status_code == 404, response.content
+        body = response.json()
+        assert isinstance(body.get("detail"), str)
+        assert "message" not in body, body
+
+    def test_member_without_permission_gets_detail_403(
+        self,
+        member_client: Client,
+        organization: Organization,
+    ) -> None:
+        """403 was declared ``ResponseMessage``; the permission denial emits ``{detail}``.
+
+        Reachable on every route of the org-admin controller — ``OrganizationPermission``
+        defers to the object-level check inside ``get_one()``.
+        """
+        url = reverse("api:list_subscriptions", kwargs={"slug": organization.slug})
+        response = member_client.get(url)
+        assert response.status_code == 403, response.content
+        body = response.json()
+        assert isinstance(body.get("detail"), str)
+        assert "message" not in body, body
+
+
+class TestUnmappedDoesNotExistContracts:
+    """Two bare ``.get()``/``DoesNotExist`` paths used to surface as 500s."""
+
+    def test_unknown_tier_id_returns_400_detail_not_500(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        public_user: RevelUser,
+    ) -> None:
+        """A bad ``tier_ids`` entry is addressable input, not an internal invariant breach."""
+        import uuid
+
+        url = reverse("api:create_direct_invitations", kwargs={"event_id": event.pk})
+        missing = uuid.uuid4()
+        response = organization_owner_client.post(
+            url,
+            data={"emails": [public_user.email], "tier_ids": [str(missing)]},
+            content_type="application/json",
+        )
+        detail = assert_detail_body(response)
+        # The FE needs to say *which* ids were wrong.
+        assert str(missing) in detail
+
+    def test_unknown_submission_id_returns_404_detail_not_500(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        questionnaire: t.Any,
+    ) -> None:
+        """``evaluate_submission`` used a bare ``.get()`` while its sibling used ``get_object_or_404``."""
+        import uuid
+
+        from events.models import OrganizationQuestionnaire
+
+        org_questionnaire = OrganizationQuestionnaire.objects.create(
+            organization=organization, questionnaire=questionnaire
+        )
+        url = reverse(
+            "api:evaluate_submission",
+            kwargs={"org_questionnaire_id": org_questionnaire.id, "submission_id": uuid.uuid4()},
+        )
+        response = organization_owner_client.post(url, data={"status": "approved"}, content_type="application/json")
+        assert response.status_code == 404, response.content
+        body = response.json()
+        assert isinstance(body.get("detail"), str)
+
+
+class TestRevivalAmountBound:
+    """``RevivalRequestSchema.amount`` had no lower bound — negatives reached the ledger."""
+
+    def test_negative_revival_amount_is_rejected(
+        self,
+        member_client: Client,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:revive_my_membership_subscription", kwargs={"org_id": organization.id})
+        response = member_client.post(
+            url,
+            data={"amount": "-10.00", "currency": "EUR"},
+            content_type="application/json",
+        )
+        # Rejected by schema validation before any lookup or ledger write.
+        assert response.status_code == 422, response.content
+
 
 class TestTelegramErrorContracts:
     """``connect_account`` declared ``ResponseMessage``; it emits ``{detail}``."""

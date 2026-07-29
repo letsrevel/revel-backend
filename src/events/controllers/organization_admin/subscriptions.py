@@ -15,7 +15,7 @@ from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
-from common.schema import ErrorDetail, ResponseMessage, ValidationErrorResponse
+from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
@@ -98,12 +98,12 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             201: schema.PlanSchema,
             400: ValidationErrorResponse | ErrorDetail,
-            404: ResponseMessage,
+            404: ErrorDetail,
             # ONLINE plans sync to Stripe on save, so they inherit the online-payment
             # prerequisites: 400 when Stripe Connect is missing, 422 when platform
             # fees apply but the organization's billing info is incomplete.
-            422: ResponseMessage,
-            502: ResponseMessage,
+            422: ErrorDetail,
+            502: ErrorDetail,
         },
     )
     def create_plan(
@@ -124,12 +124,12 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             200: schema.PlanSchema,
             400: ValidationErrorResponse | ErrorDetail,
-            404: ResponseMessage,
+            404: ErrorDetail,
             # Same online-payment prerequisites as create: patching a plan re-syncs
             # it to Stripe, so a missing Stripe Connect answers 400 and incomplete
             # billing info answers 422.
-            422: ResponseMessage,
-            502: ResponseMessage,
+            422: ErrorDetail,
+            502: ErrorDetail,
         },
     )
     def update_plan(
@@ -150,7 +150,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/plans/{plan_id}/migrate-subscribers",
         url_name="migrate_plan_subscribers",
-        response={202: schema.MigrationAcceptedSchema, 404: ResponseMessage},
+        response={202: schema.MigrationAcceptedSchema, 404: ErrorDetail},
     )
     def migrate_plan_subscribers(self, slug: str, plan_id: UUID) -> tuple[int, schema.MigrationAcceptedSchema]:
         """Queue a force-migrate of all non-terminal subscribers to the plan's current price.
@@ -183,7 +183,10 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/plans/{plan_id}/archive",
         url_name="archive_subscription_plan",
-        response={200: schema.PlanSchema, 404: ResponseMessage, 502: ResponseMessage},
+        # No 502: unlike the other Stripe-touching routes, ``archive_stripe_price``
+        # swallows InvalidRequestError and maps nothing else, so a Stripe failure
+        # here surfaces as a 500 — never a 502. Declaring one was dead weight.
+        response={200: schema.PlanSchema, 404: ErrorDetail},
     )
     def archive_plan(self, slug: str, plan_id: UUID) -> models.MembershipSubscriptionPlan:
         """Archive a plan (sets ``is_active=False``)."""
@@ -198,7 +201,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.delete(
         "/plans/{plan_id}",
         url_name="delete_subscription_plan",
-        response={204: None, 400: ErrorDetail, 404: ResponseMessage},
+        response={204: None, 400: ErrorDetail, 404: ErrorDetail},
     )
     def delete_plan(self, slug: str, plan_id: UUID) -> tuple[int, None]:
         """Hard-delete a plan. Blocks when subscriptions reference it."""
@@ -268,7 +271,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.get(
         "/subscriptions/{sub_id}",
         url_name="get_subscription",
-        response={200: schema.SubscriptionSchema, 404: ResponseMessage},
+        response={200: schema.SubscriptionSchema, 404: ErrorDetail},
         throttle=UserDefaultThrottle(),
     )
     def get_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
@@ -286,8 +289,8 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             201: schema.SubscriptionSchema,
             400: ValidationErrorResponse | ErrorDetail,
-            403: ResponseMessage,
-            404: ResponseMessage,
+            403: ErrorDetail,
+            404: ErrorDetail,
         },
     )
     def create_subscription(
@@ -357,7 +360,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             201: schema.MembershipPaymentSchema,
             400: ValidationErrorResponse | ErrorDetail,
-            404: ResponseMessage,
+            404: ErrorDetail,
         },
     )
     def record_payment(
@@ -399,9 +402,9 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             200: schema.SubscriptionSchema,
             400: ErrorDetail,
-            404: ResponseMessage,
+            404: ErrorDetail,
             409: schema.SubscriptionActivationPendingSchema,
-            502: ResponseMessage,
+            502: ErrorDetail,
         },
     )
     def cancel_subscription(
@@ -426,9 +429,9 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             200: schema.SubscriptionSchema,
             400: ErrorDetail,
-            403: ResponseMessage,
-            404: ResponseMessage,
-            502: ResponseMessage,
+            403: ErrorDetail,
+            404: ErrorDetail,
+            502: ErrorDetail,
         },
     )
     def uncancel_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
@@ -444,7 +447,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/pause",
         url_name="pause_subscription",
-        response={200: schema.SubscriptionSchema, 400: ErrorDetail, 404: ResponseMessage, 502: ResponseMessage},
+        response={200: schema.SubscriptionSchema, 400: ErrorDetail, 404: ErrorDetail, 502: ErrorDetail},
     )
     def pause_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
         """Pause a subscription."""
@@ -459,7 +462,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/subscriptions/{sub_id}/resume",
         url_name="resume_subscription",
-        response={200: schema.SubscriptionSchema, 400: ErrorDetail, 404: ResponseMessage, 502: ResponseMessage},
+        response={200: schema.SubscriptionSchema, 400: ErrorDetail, 404: ErrorDetail, 502: ErrorDetail},
     )
     def resume_subscription(self, slug: str, sub_id: UUID) -> models.MembershipSubscription:
         """Resume a paused subscription."""
@@ -477,9 +480,9 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             200: schema.StaffRevivalResponseSchema,
             400: ValidationErrorResponse | ErrorDetail,
-            403: ResponseMessage,
-            404: ResponseMessage,
-            502: ResponseMessage,
+            403: ErrorDetail,
+            404: ErrorDetail,
+            502: ErrorDetail,
         },
     )
     def revive_subscription(
@@ -563,7 +566,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/payments/{payment_id}/refund",
         url_name="refund_subscription_payment",
-        response={200: schema.MembershipPaymentSchema, 400: ErrorDetail, 404: ResponseMessage},
+        response={200: schema.MembershipPaymentSchema, 400: ErrorDetail, 404: ErrorDetail},
     )
     def refund_payment(
         self,

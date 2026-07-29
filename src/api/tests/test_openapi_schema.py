@@ -104,25 +104,66 @@ KNOWN_400_COMPONENTS = {
 }
 
 
-def _declared_400_schemas() -> dict[tuple[str, str], set[str]]:
-    """Map each ``(path, method)`` that declares a 400 to its component names."""
+#: Path prefixes of the two subscription controllers, whose every error status was
+#: audited in #712. ``ResponseMessage`` must never reappear on them.
+SUBSCRIPTION_PATH_MARKERS = (
+    "/api/me/organizations/{org_id}/sub",
+    "/api/me/organizations/{org_id}/billing-portal",
+    "/api/organization-admin/{slug}/plans",
+    "/api/organization-admin/{slug}/subscriptions",
+    "/api/organization-admin/{slug}/tiers/{tier_id}/plans",
+    "/api/organization-admin/{slug}/payments",
+)
+
+
+def _declared_error_schemas(status_filter: t.Callable[[str], bool]) -> dict[tuple[str, str, str], set[str]]:
+    """Map each ``(path, method, status)`` matching ``status_filter`` to its component names."""
     with schema_name_collision_guard():
         spec = api.get_openapi_schema()
 
-    declared: dict[tuple[str, str], set[str]] = {}
+    declared: dict[tuple[str, str, str], set[str]] = {}
     for path, operations in spec["paths"].items():
         for method, operation in operations.items():
             if not isinstance(operation, dict):
                 continue
             for status, response in operation.get("responses", {}).items():
-                if str(status) != "400":
+                if not status_filter(str(status)):
                     continue
                 body = response.get("content", {}).get("application/json", {}).get("schema", {})
                 refs = body.get("anyOf", [body])
-                declared[(path, method)] = {
+                declared[(path, method, str(status))] = {
                     ref["$ref"].rsplit("/", 1)[-1] for ref in refs if isinstance(ref, dict) and "$ref" in ref
                 }
     return declared
+
+
+def _declared_400_schemas() -> dict[tuple[str, str], set[str]]:
+    """Map each ``(path, method)`` that declares a 400 to its component names."""
+    return {
+        (path, method): names
+        for (path, method, _status), names in _declared_error_schemas(lambda s: s == "400").items()
+    }
+
+
+def test_subscription_controllers_never_declare_response_message() -> None:
+    """Every error status on the two subscription controllers emits ``{detail}``.
+
+    #712 fixed the 400s; the same mis-declaration covered 403/404/422/502 on
+    these two controllers (21 sites), where no view returns a ``message`` key
+    at any status.
+    """
+    declared = _declared_error_schemas(lambda s: s.isdigit() and int(s) >= 400)
+    covered = [key for key in declared if any(key[0].startswith(marker) for marker in SUBSCRIPTION_PATH_MARKERS)]
+    # Guard against the markers silently drifting off the real paths, which would
+    # make this test pass vacuously.
+    assert len(covered) > 40, f"expected the subscription controllers' error responses, matched {len(covered)}"
+
+    offenders = sorted(
+        f"{method.upper()} {path} -> {status}"
+        for (path, method, status) in covered
+        if "ResponseMessage" in declared[(path, method, status)]
+    )
+    assert not offenders, f"ResponseMessage declared on subscription error responses: {offenders}"
 
 
 def test_response_message_declared_at_400_only_where_it_is_returned() -> None:

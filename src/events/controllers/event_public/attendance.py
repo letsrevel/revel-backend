@@ -1,7 +1,8 @@
 import typing as t
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja import Body
@@ -14,6 +15,7 @@ from ninja_extra import (
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
+from common.utils import get_or_create_with_race_protection
 from events import models, schema
 from events.service import (
     bookmark_service,
@@ -222,12 +224,17 @@ class EventPublicAttendanceController(EventPublicBaseController):
                 eligibility=eligibility,
             )
 
-        try:
-            with transaction.atomic():
-                models.EventWaitList.objects.create(event=event, user=user)
-        except IntegrityError:
-            # Lost the race against another tab/request. Treat as idempotent
-            # success — the user IS on the waitlist now.
+        # Lost races are idempotent successes — the user IS on the waitlist either
+        # way. The race surfaces as IntegrityError (unique violation at INSERT) *or*
+        # ValidationError (TimeStampedModel.save runs full_clean, so
+        # validate_constraints raises when the racing row committed first); the
+        # helper catches both and re-raises anything that isn't a uniqueness race.
+        __, created = get_or_create_with_race_protection(
+            models.EventWaitList,
+            Q(event=event, user=user),
+            {"event": event, "user": user},
+        )
+        if not created:
             return ResponseMessage(message=str(_("You are already on the waitlist for this event.")))
         # Self-healing: if a seat is currently free (e.g. capacity bumped, or a
         # cancellation landed between page-load and click), the service will see

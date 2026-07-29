@@ -119,7 +119,13 @@ class QuestionnaireSubmissionsMixin(QuestionnaireControllerBase):
     @route.post(
         "/{org_questionnaire_id}/submissions/{submission_id}/evaluate",
         url_name="evaluate_submission",
-        response={200: questionnaire_schema.EvaluationResponseSchema, 400: ValidationErrorResponse | ErrorDetail},
+        response={
+            200: questionnaire_schema.EvaluationResponseSchema,
+            400: ValidationErrorResponse | ErrorDetail,
+            # Unknown submission_id (or one on another questionnaire) — previously
+            # an unmapped DoesNotExist that surfaced as a 500.
+            404: ErrorDetail,
+        },
         permissions=[QuestionnairePermission("evaluate_questionnaire")],
     )
     def evaluate_submission(
