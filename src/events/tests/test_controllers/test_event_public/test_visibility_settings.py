@@ -439,6 +439,35 @@ class TestOrganizerRoundTrip:
         assert event.visibility_flags.show_capacity is False
         assert event.visibility_flags.show_attendee_list is False
 
+    def test_edit_persists_the_settings(self, organization_owner_client: Client, public_event: Event) -> None:
+        """PUT round-trips the nested object through ``update_db_instance``."""
+        response = organization_owner_client.put(
+            reverse("api:edit_event", kwargs={"event_id": str(public_event.id)}),
+            data={"visibility_settings": {"show_capacity": False}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        public_event.refresh_from_db()
+        assert public_event.visibility_flags.show_capacity is False
+        assert public_event.visibility_flags.show_attendee_count is True
+
+    def test_edit_without_the_field_leaves_it_untouched(
+        self, organization_owner_client: Client, public_event: Event
+    ) -> None:
+        """``exclude_unset`` protects a client that does not know about the field yet."""
+        _set_visibility(public_event, show_attendee_list=False)
+
+        response = organization_owner_client.put(
+            reverse("api:edit_event", kwargs={"event_id": str(public_event.id)}),
+            data={"name": "Renamed"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        public_event.refresh_from_db()
+        assert public_event.visibility_flags.show_attendee_list is False
+
     def test_unknown_toggle_is_rejected(self, organization_owner_client: Client, organization: Organization) -> None:
         response = organization_owner_client.post(
             reverse("api:create_event", kwargs={"slug": organization.slug}),
