@@ -109,6 +109,12 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
     race (payment in flight while staff ban) now that ban/removal cancels the
     subscription.
 
+    Side effect: on the ``"created"`` and ``"existing"`` outcomes this also
+    settles the originating membership application (COMPLETED) via
+    :func:`_settle_originating_application` — payment is the final step of the
+    gated application pipeline. Not on ``"blocked"``: no membership was
+    granted, so nothing completes.
+
     Returns:
         Which of the three cases applied — see :data:`MemberActivation`.
     """

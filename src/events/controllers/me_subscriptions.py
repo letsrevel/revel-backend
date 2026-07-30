@@ -22,11 +22,13 @@ from events.models import (
     MembershipSubscriptionPlan,
     Organization,
     OrganizationMember,
-    OrganizationMembershipRequest,
 )
-from events.service import subscription_service, subscription_stripe_service, subscription_uncancel
-from events.service.membership_manager import MembershipApplicationIneligibleError, MembershipEligibilityService
-from events.service.membership_manager.enums import MembershipReasonCode
+from events.service import (
+    subscription_eligibility,
+    subscription_service,
+    subscription_stripe_service,
+    subscription_uncancel,
+)
 
 
 @api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Subscriptions"], throttle=UserDefaultThrottle())
@@ -156,30 +158,7 @@ class MeSubscriptionsController(UserAwareController):
             tier__organization=organization,
             is_active=True,
         )
-        eligibility_service = MembershipEligibilityService(
-            user=self.user(), organization=organization, tier=plan.tier, plan=plan
-        )
-        verdict = eligibility_service.check_eligibility()
-        # DUPLICATE_ACTIVE_SUBSCRIPTION falls through on purpose: the
-        # subscription machinery gives the richer answer for that case — a
-        # PENDING checkout resumes (409 + fresh checkout_url) instead of
-        # dead-ending, and a genuine duplicate still 400s in
-        # ``create_subscription``.
-        if not verdict.allowed and verdict.reason_code != MembershipReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION:
-            raise MembershipApplicationIneligibleError(
-                verdict.reason or "Subscription refused by the membership eligibility gates.", verdict
-            )
-        # ``start_online_subscription`` re-checks payment method, sales status,
-        # and Stripe readiness — the gate stack's answer can race a concurrent
-        # config change, so the authoritative enforcement stays there.
-        subscription, checkout_url = subscription_stripe_service.start_online_subscription(plan, self.user())
-        application = eligibility_service.current_application
-        if application is not None and application.status in (
-            OrganizationMembershipRequest.Status.PENDING,
-            OrganizationMembershipRequest.Status.APPROVED,
-        ):
-            application.subscription = subscription
-            application.save(update_fields=["subscription", "updated_at"])
+        subscription, checkout_url = subscription_eligibility.subscribe_to_plan(plan, self.user())
         # Return a dict (not a constructed schema): Ninja's response pipeline will
         # validate it via ``SubscribeResponseSchema``. Pre-validating the inner
         # ``MySubscriptionSchema`` would cause Ninja's wrap-validator to re-run
@@ -257,8 +236,10 @@ class MeSubscriptionsController(UserAwareController):
         "/organizations/{org_id}/subscription/change-plan",
         url_name="change_my_membership_plan",
         response={
+            # 400 carries the serialized eligibility verdict when a cross-tier
+            # target's gates refuse the member, else a plain {detail} error.
             200: schema.MySubscriptionSchema,
-            400: ErrorDetail,
+            400: schema.MembershipEligibilitySchema | ErrorDetail,
             404: ErrorDetail,
             502: ErrorDetail,
         },

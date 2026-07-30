@@ -22,7 +22,7 @@ from events.models import (
 )
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
 
-from .enums import TERMINAL_REJECTION_CODES, MembershipNextStep, Reasons
+from .enums import TERMINAL_REJECTION_CODES, MembershipNextStep, MembershipReasonCode, Reasons
 from .resolvers import resolve_requires_membership_approval
 from .types import MembershipEligibility
 
@@ -458,8 +458,18 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
             return None
         if self.handler.approval_required_annotation:
             # Approval required but nothing on file: the user must create the
-            # application first so staff have something to approve.
-            return self._block(Reasons.REQUIRES_APPROVAL, next_step=MembershipNextStep.SUBMIT_APPLICATION)
+            # application first so staff have something to approve. No prose —
+            # "your application is awaiting staff approval" would be a lie when
+            # no application exists (mirrors check_eligibility's annotation
+            # shaping); the code + next_step alone drive the FE.
+            return MembershipEligibility(
+                allowed=False,
+                organization_id=self.organization.pk,
+                tier_id=self.tier.pk if self.tier else None,
+                plan_id=self.plan.pk if self.plan else None,
+                reason_code=MembershipReasonCode.REQUIRES_APPROVAL,
+                next_step=MembershipNextStep.SUBMIT_APPLICATION,
+            )
         if self.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
             return self._block(Reasons.PLAN_NOT_ONLINE)
         if not self.organization.is_stripe_connected:

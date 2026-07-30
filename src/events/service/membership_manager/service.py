@@ -337,7 +337,8 @@ def advance_application(
             if application.plan_id is None and application.tier_id is not None:
                 _complete_free_application(application)
             elif application.plan_id is not None:
-                # Paid path: APPROVED awaiting /pay (Phase 2).
+                # Paid path: APPROVED awaiting payment via /subscribe; the Stripe
+                # activation settles the row COMPLETED.
                 application.status = OrganizationMembershipRequest.Status.APPROVED
                 application.save(update_fields=["status", "updated_at"])
             # else: tier-less, plan-less application → stays PENDING until staff approves

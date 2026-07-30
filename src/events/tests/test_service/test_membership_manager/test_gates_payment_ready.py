@@ -21,7 +21,7 @@ from events.models import (
     SubscriptionPaymentMethod,
 )
 from events.service.membership_manager import MembershipEligibility, MembershipEligibilityService
-from events.service.membership_manager.enums import MembershipNextStep, MembershipReasonCode, Reasons
+from events.service.membership_manager.enums import MembershipNextStep, MembershipReasonCode
 
 pytestmark = pytest.mark.django_db
 
@@ -156,7 +156,9 @@ def test_approval_required_without_application_blocks_submit_application(
     tier.save(update_fields=["requires_membership_approval"])
     result = _verdict(user, organization, tier, plan)
     assert result.allowed is False
-    assert result.reason == str(Reasons.REQUIRES_APPROVAL)
+    # No prose: "awaiting staff approval" would be a lie with nothing on file —
+    # the code + next_step alone drive the FE (mirrors the free path's shaping).
+    assert result.reason is None
     assert result.reason_code == MembershipReasonCode.REQUIRES_APPROVAL
     assert result.next_step == MembershipNextStep.SUBMIT_APPLICATION
 

@@ -1268,10 +1268,8 @@ msgstr ""
 "Nivel de destino. NULL = solicitud heredada sin nivel; el staff lo elige al "
 "aprobarla."
 
-msgid ""
-"Target plan for paid path. NULL = free join. Phase 1 rejects non-null at /"
-"apply."
-msgstr ""
+msgid "Target plan for the paid path. NULL = free join."
+msgstr "Plan de destino para la vía de pago. NULL = adhesión gratuita."
 "Plan de destino para la vía de pago. NULL = alta gratuita. La fase 1 rechaza "
 "valores no nulos en /apply."
 

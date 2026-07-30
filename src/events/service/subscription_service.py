@@ -41,6 +41,7 @@ from events.service.subscription_core import (
 from events.service.subscription_core import (
     record_payment as record_payment,
 )
+from events.service.subscription_eligibility import ensure_tier_change_allowed
 from events.service.subscription_sales import (
     ensure_member_not_excluded,
     ensure_plan_on_sale,
@@ -737,7 +738,14 @@ def change_plan(
     which we do not attempt. The target plan's subscription cap is always
     enforced; ``enforce_sales_status=False`` (staff callers) additionally
     skips the PAUSED-sales check.
+
+    A **cross-tier** target additionally runs the membership eligibility gate
+    stack against the destination tier (``ensure_tier_change_allowed``) —
+    otherwise a member could hop from an ungated tier onto a gated one without
+    ever passing its questionnaire or approval. Same-tier swaps are not
+    re-gated.
     """
+    ensure_tier_change_allowed(subscription, new_plan)
     subscription = (
         MembershipSubscription.objects.select_for_update(of=("self",))
         .select_related("plan", "plan__tier", "organization", "user")

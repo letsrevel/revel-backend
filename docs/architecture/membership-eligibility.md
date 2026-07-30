@@ -206,8 +206,9 @@ When the resolved manual-approval policy is on (tier-level `requires_membership_
 
 !!! note "The fall-through is deliberate, not an `_allow`"
     A returned verdict short-circuits the chain, and `PaymentReadyGate` runs *after* this
-    gate — so a plan-bearing check with no application must still fall through to reach its
-    `PLAN_NOT_ONLINE` block.
+    gate — so a plan-bearing check with no application must still fall through to reach
+    gate #10's `requires_approval` → `submit_application` block (driven by the
+    `approval_required_annotation` this fall-through sets).
 
 **Source:** `events/service/membership_manager/gates.py`: `ManualApprovalGate`
 

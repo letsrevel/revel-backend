@@ -199,9 +199,9 @@ def approve_membership_request(
 
     Behavior:
     - Application carries no plan → COMPLETED + OrganizationMember created at the chosen tier.
-    - Application carries a plan → APPROVED (Phase 2 will trigger Stripe sub creation
-      from a separate /pay endpoint). Phase 1 currently rejects plan-bearing applications
-      at /apply, so this branch will rarely fire until Phase 2.
+    - Application carries a plan → APPROVED; the member then pays via
+      ``POST /subscribe`` (which re-runs the gates), and the Stripe activation
+      settles the row COMPLETED. No membership is granted here.
 
     Args:
         membership_request: The application to approve.
@@ -241,7 +241,7 @@ def approve_membership_request(
         )
         member.full_clean()
     else:
-        # Paid path: mark APPROVED, awaiting member's /pay (Phase 2).
+        # Paid path: mark APPROVED, awaiting the member's /subscribe + payment.
         membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
         update_fields = ["status", "decided_by"]
         if membership_request.tier_id is None:

@@ -655,6 +655,61 @@ class TestChangePlanEndpoint:
         body = response.json()
         assert body["plan_id"] == str(pricier_online_plan.id)
 
+    def test_change_plan_cross_tier_onto_gated_tier_refused(
+        self,
+        subscriber_client: Client,
+        online_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        """A cross-tier target runs the destination tier's gates (the Phase-2 bypass fix)."""
+        gated_tier = MembershipTier.objects.create(
+            organization=organization, name="Vetted", requires_membership_approval=True
+        )
+        gated_plan = MembershipSubscriptionPlan.objects.create(
+            tier=gated_tier,
+            name="Vetted Monthly",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(gated_plan.id)}, content_type="application/json")
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["reason_code"] == "requires_approval"
+        assert body["next_step"] == "submit_application"
+        online_subscription.refresh_from_db()
+        assert online_subscription.plan_id != gated_plan.id
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    def test_change_plan_cross_tier_onto_ungated_tier_allowed(
+        self,
+        mock_retrieve: mock.Mock,
+        mock_modify: mock.Mock,
+        subscriber_client: Client,
+        online_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        """Cross-tier moves between ungated tiers keep working as before."""
+        mock_retrieve.return_value = {"items": {"data": [{"id": "si_swap"}]}}
+        other_tier = MembershipTier.objects.create(organization=organization, name="Open Tier")
+        other_plan = MembershipSubscriptionPlan.objects.create(
+            tier=other_tier,
+            name="Open Monthly",
+            price=Decimal("25.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_open",
+            stripe_price_id="price_open",
+        )
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(other_plan.id)}, content_type="application/json")
+        assert response.status_code == 200, response.content
+        assert response.json()["plan_id"] == str(other_plan.id)
+
     def test_change_plan_refuses_cross_currency(
         self,
         subscriber_client: Client,

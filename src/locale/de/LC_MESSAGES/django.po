@@ -1286,10 +1286,8 @@ msgstr ""
 "Zielstufe. NULL = stufenloser Alt-Antrag; der Staff wählt bei der "
 "Genehmigung."
 
-msgid ""
-"Target plan for paid path. NULL = free join. Phase 1 rejects non-null at /"
-"apply."
-msgstr ""
+msgid "Target plan for the paid path. NULL = free join."
+msgstr "Zielplan für den bezahlten Weg. NULL = kostenloser Beitritt."
 "Zielplan für den kostenpflichtigen Weg. NULL = kostenloser Beitritt. Phase 1 "
 "lehnt Nicht-NULL-Werte bei /apply ab."
 
