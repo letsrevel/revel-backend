@@ -1015,9 +1015,6 @@ msgid "Refund failed. Please try again later."
 msgstr ""
 "Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
 
-msgid "Paid applications are not supported in this release."
-msgstr "Kostenpflichtige Anträge werden in dieser Version nicht unterstützt."
-
 msgid "Not allowed."
 msgstr "Nicht erlaubt."
 
@@ -1974,17 +1971,6 @@ msgstr ""
 "Eine Stufe, deren Pläne noch Abonnements haben, kann nicht gelöscht werden. "
 "Archiviere stattdessen die Pläne."
 
-msgid ""
-"This tier is sold through subscription plans, and paid memberships bypass "
-"the application pipeline — manual approval and membership questionnaires "
-"would never run. Archive the tier's plans first, or configure these policies "
-"on a tier that has none."
-msgstr ""
-"Diese Stufe wird über Abonnement-Pläne verkauft, und bezahlte "
-"Mitgliedschaften umgehen das Antragsverfahren — manuelle Genehmigung und "
-"Mitgliedschaftsfragebögen würden nie ausgeführt. Archiviere zuerst die Pläne "
-"dieser Stufe oder konfiguriere diese Richtlinien für eine Stufe ohne Pläne."
-
 msgid "The organization does not accept new members."
 msgstr "Die Organisation akzeptiert keine neuen Mitglieder."
 
@@ -2314,15 +2300,6 @@ msgstr "Dieser Plan ist ausverkauft."
 
 msgid "You can't rejoin this organization."
 msgstr "Du kannst dieser Organisation nicht wieder beitreten."
-
-msgid ""
-"This tier requires manual approval or a membership questionnaire, and paid "
-"subscriptions bypass both. Clear those settings on the tier before putting a "
-"plan on sale."
-msgstr ""
-"Diese Stufe erfordert eine manuelle Genehmigung oder einen "
-"Mitgliedschaftsfragebogen, und bezahlte Abonnements umgehen beides. Entferne "
-"diese Einstellungen von der Stufe, bevor du einen Plan zum Verkauf anbietest."
 
 msgid ""
 "Cannot change currency when active subscriptions exist. Archive and create a "

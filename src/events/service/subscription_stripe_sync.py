@@ -26,6 +26,7 @@ from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
     OrganizationMember,
+    OrganizationMembershipRequest,
 )
 from events.service import stripe_incidents
 from events.service.blacklist_service import check_user_hard_blacklisted
@@ -63,6 +64,22 @@ dispatcher owes them the confirmation.
 ``"blocked"`` — hard-blacklisted: no membership, an incident instead, and
 certainly no "welcome" notification.
 """
+
+
+def _settle_originating_application(subscription: MembershipSubscription) -> None:
+    """Complete the membership application that initiated this subscription, if any.
+
+    The application pipeline hands a gated applicant to ``/subscribe`` once
+    approved; payment is the final step, so the row settles COMPLETED here.
+    PENDING is included for the ungated flow (applied and paid before any
+    advance ran); terminal rows are left alone.
+    """
+    subscription.originating_application.filter(
+        status__in=(
+            OrganizationMembershipRequest.Status.PENDING,
+            OrganizationMembershipRequest.Status.APPROVED,
+        )
+    ).update(status=OrganizationMembershipRequest.Status.COMPLETED)
 
 
 def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivation:
@@ -107,6 +124,7 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
                 existing.tier_id = subscription.plan.tier_id
                 update_fields.append("tier")
             existing.save(update_fields=update_fields)
+        _settle_originating_application(subscription)
         return "existing"
 
     if check_user_hard_blacklisted(subscription.user, subscription.organization):
@@ -132,6 +150,7 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
             "status": OrganizationMember.MembershipStatus.ACTIVE,
         },
     )
+    _settle_originating_application(subscription)
     return "created"
 
 

@@ -1023,9 +1023,6 @@ msgstr "Seul·e le·la titulaire du ticket peut annuler ce ticket."
 msgid "Refund failed. Please try again later."
 msgstr "Le remboursement a échoué. Réessaie plus tard."
 
-msgid "Paid applications are not supported in this release."
-msgstr "Les demandes payantes ne sont pas prises en charge dans cette version."
-
 msgid "Not allowed."
 msgstr "Non autorisé."
 
@@ -1982,18 +1979,6 @@ msgstr ""
 "Impossible de supprimer un niveau dont les forfaits ont encore des "
 "abonnements. Archive plutôt les forfaits."
 
-msgid ""
-"This tier is sold through subscription plans, and paid memberships bypass "
-"the application pipeline — manual approval and membership questionnaires "
-"would never run. Archive the tier's plans first, or configure these policies "
-"on a tier that has none."
-msgstr ""
-"Ce niveau est vendu via des forfaits d'abonnement, et les adhésions payantes "
-"contournent le processus de demande — l'approbation manuelle et les "
-"questionnaires d'adhésion ne s'appliqueraient jamais. Archive d'abord les "
-"forfaits de ce niveau, ou configure ces règles sur un niveau qui n'en a "
-"aucun."
-
 msgid "The organization does not accept new members."
 msgstr "L'organisation n'accepte pas de nouveau·elle·s membres."
 
@@ -2322,15 +2307,6 @@ msgstr "Ce forfait est complet."
 
 msgid "You can't rejoin this organization."
 msgstr "Tu ne peux pas rejoindre à nouveau cette organisation."
-
-msgid ""
-"This tier requires manual approval or a membership questionnaire, and paid "
-"subscriptions bypass both. Clear those settings on the tier before putting a "
-"plan on sale."
-msgstr ""
-"Ce niveau requiert une approbation manuelle ou un questionnaire d'adhésion, "
-"et les abonnements payants contournent les deux. Retire ces paramètres du "
-"niveau avant de mettre un forfait en vente."
 
 msgid ""
 "Cannot change currency when active subscriptions exist. Archive and create a "

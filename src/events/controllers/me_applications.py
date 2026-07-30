@@ -95,13 +95,13 @@ class MeMembershipApplicationsController(UserAwareController):
         re-runs the gate and may advance state. Returns the application plus the
         latest eligibility verdict.
 
-        Phase 1: plan_id is rejected (paid path lands in Phase 2).
+        A ``plan_id`` makes this a paid application: the row advances to
+        APPROVED once every gate passes and settles COMPLETED when the
+        subscription created via ``/subscribe`` activates.
         """
-        if payload.plan_id is not None:
-            raise HttpError(400, _("Paid applications are not supported in this release."))
-
         organization = get_object_or_404(Organization, slug=slug)
-        tier = self._resolve_tier(organization, payload.tier_id)
+        plan = self._resolve_plan(organization, payload.plan_id)
+        tier = self._resolve_tier(organization, payload.tier_id) or (plan.tier if plan else None)
 
         user = self.user()
 
@@ -121,7 +121,9 @@ class MeMembershipApplicationsController(UserAwareController):
             # Treat invisible orgs as 404 to avoid org-existence enumeration.
             raise HttpError(404, _("Not found."))
 
-        preview = MembershipEligibilityService(user=user, organization=organization, tier=tier).check_eligibility()
+        preview = MembershipEligibilityService(
+            user=user, organization=organization, tier=tier, plan=plan
+        ).check_eligibility()
         if not preview.allowed and preview.next_step in {
             None,
             MembershipNextStep.REQUIRES_INVITATION,
@@ -139,6 +141,7 @@ class MeMembershipApplicationsController(UserAwareController):
             user=user,
             organization=organization,
             tier=tier,
+            plan=plan,
             notes=payload.notes,
             questionnaire_submission_id=payload.questionnaire_submission_id,
         )

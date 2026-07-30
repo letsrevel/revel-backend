@@ -203,22 +203,6 @@ def test_apply_after_questionnaire_pass_advances_to_completed(
     assert response_2.json()["application"]["status"] == "completed"
 
 
-def test_apply_rejects_plan_id_in_phase_1(
-    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
-) -> None:
-    plan = MembershipSubscriptionPlan.objects.create(
-        tier=tier, name="M", price=Decimal("5.00"), currency="EUR", period_unit="month"
-    )
-    client = _client(nonmember_user)
-    url = reverse("api:apply_for_membership", kwargs={"slug": organization.slug})
-    response = client.post(
-        url,
-        data={"tier_id": str(tier.id), "plan_id": str(plan.id)},
-        content_type="application/json",
-    )
-    assert response.status_code == 400
-
-
 def test_cancel_application(nonmember_user: RevelUser, organization: Organization, tier: MembershipTier) -> None:
     app = OrganizationMembershipRequest.objects.create(
         organization=organization,

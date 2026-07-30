@@ -22,8 +22,11 @@ from events.models import (
     MembershipSubscriptionPlan,
     Organization,
     OrganizationMember,
+    OrganizationMembershipRequest,
 )
 from events.service import subscription_service, subscription_stripe_service, subscription_uncancel
+from events.service.membership_manager import MembershipApplicationIneligibleError, MembershipEligibilityService
+from events.service.membership_manager.enums import MembershipReasonCode
 
 
 @api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Subscriptions"], throttle=UserDefaultThrottle())
@@ -118,8 +121,10 @@ class MeSubscriptionsController(UserAwareController):
         "/organizations/{org_id}/subscribe",
         url_name="subscribe_to_membership_plan",
         response={
+            # 400 carries either the serialized eligibility verdict (gate-stack
+            # refusal — same shape /apply returns) or a plain {detail} error.
             201: schema.SubscribeResponseSchema,
-            400: ErrorDetail,
+            400: schema.MembershipEligibilitySchema | ErrorDetail,
             404: ErrorDetail,
             409: schema.SubscriptionActivationPendingSchema,
             502: ErrorDetail,
@@ -133,8 +138,13 @@ class MeSubscriptionsController(UserAwareController):
     ) -> tuple[int, schema.SubscribeResponseSchema]:
         """Start a Stripe-backed subscription on an ONLINE plan.
 
-        Returns the local subscription row plus a hosted Stripe Checkout
-        ``checkout_url`` the frontend redirects the member to for payment.
+        Runs the full membership eligibility gate stack first — a questionnaire
+        or manual-approval requirement on the tier must be satisfied before
+        Checkout opens. Returns the local subscription row plus a hosted Stripe
+        Checkout ``checkout_url`` the frontend redirects the member to for
+        payment. When the caller has an application on file (the gated flow),
+        the created subscription is linked to it so the Stripe activation can
+        settle it COMPLETED.
         """
         # Visibility-aware load: hard-blacklisted users get a 404 (the org is
         # invisible to them) rather than a distinguishable 403, matching the
@@ -146,9 +156,30 @@ class MeSubscriptionsController(UserAwareController):
             tier__organization=organization,
             is_active=True,
         )
-        # ``start_online_subscription`` enforces ``payment_method == ONLINE``
-        # and raises 400 if the plan is offline; no need to repeat the check.
+        eligibility_service = MembershipEligibilityService(
+            user=self.user(), organization=organization, tier=plan.tier, plan=plan
+        )
+        verdict = eligibility_service.check_eligibility()
+        # DUPLICATE_ACTIVE_SUBSCRIPTION falls through on purpose: the
+        # subscription machinery gives the richer answer for that case — a
+        # PENDING checkout resumes (409 + fresh checkout_url) instead of
+        # dead-ending, and a genuine duplicate still 400s in
+        # ``create_subscription``.
+        if not verdict.allowed and verdict.reason_code != MembershipReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION:
+            raise MembershipApplicationIneligibleError(
+                verdict.reason or "Subscription refused by the membership eligibility gates.", verdict
+            )
+        # ``start_online_subscription`` re-checks payment method, sales status,
+        # and Stripe readiness — the gate stack's answer can race a concurrent
+        # config change, so the authoritative enforcement stays there.
         subscription, checkout_url = subscription_stripe_service.start_online_subscription(plan, self.user())
+        application = eligibility_service.current_application
+        if application is not None and application.status in (
+            OrganizationMembershipRequest.Status.PENDING,
+            OrganizationMembershipRequest.Status.APPROVED,
+        ):
+            application.subscription = subscription
+            application.save(update_fields=["subscription", "updated_at"])
         # Return a dict (not a constructed schema): Ninja's response pipeline will
         # validate it via ``SubscribeResponseSchema``. Pre-validating the inner
         # ``MySubscriptionSchema`` would cause Ninja's wrap-validator to re-run

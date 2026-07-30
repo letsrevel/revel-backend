@@ -569,3 +569,48 @@ def resync_org_subscription_fees(org_id: str) -> "FeeResyncCounters":
 
     org = Organization.objects.get(pk=org_id)
     return resync_subscription_application_fees(org)
+
+
+#: How long an APPROVED plan-bearing application waits for payment before the
+#: sweep cancels it off the staff board.
+APPLICATION_PAYMENT_WINDOW_DAYS: t.Final[int] = 30
+
+
+@shared_task(name="events.expire_stale_approved_applications")
+def expire_stale_approved_applications() -> int:
+    """Cancel plan-bearing APPROVED applications whose payment window lapsed.
+
+    An approved applicant who never pays would otherwise sit on the staff board
+    forever. Rows with a live (non-terminal) linked subscription are payment in
+    flight and are left alone; the stale-pending-checkout sweep and checkout
+    webhooks own that lifecycle. The bulk ``update`` skips signals on purpose:
+    no membership exists yet for these rows, so there is nothing to sync.
+
+    # ponytail: fixed 30-day window, no applicant notification — revisit if
+    # orgs need a configurable window or applicants deserve a courtesy email.
+
+    Returns:
+        Number of applications cancelled.
+    """
+    from events.models import OrganizationMembershipRequest
+
+    cutoff = timezone.now() - datetime.timedelta(days=APPLICATION_PAYMENT_WINDOW_DAYS)
+    non_terminal = [
+        status
+        for status in MembershipSubscription.SubscriptionStatus.values
+        if status not in MembershipSubscription.TERMINAL_STATUSES
+    ]
+    cancelled = (
+        OrganizationMembershipRequest.objects.filter(
+            status=OrganizationMembershipRequest.Status.APPROVED,
+            plan__isnull=False,
+            updated_at__lt=cutoff,
+        )
+        # A row whose linked subscription is non-terminal is payment in flight.
+        # NULL subscriptions survive the exclude (NULL never matches __in).
+        .exclude(subscription__status__in=non_terminal)
+        .update(status=OrganizationMembershipRequest.Status.CANCELLED)
+    )
+    if cancelled:
+        logger.info("stale_approved_applications_cancelled", count=cancelled)
+    return cancelled

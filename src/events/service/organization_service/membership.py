@@ -44,22 +44,6 @@ TIER_HAS_SUBSCRIPTIONS_MESSAGE = _(
     "Cannot delete a tier whose plans still have subscriptions. Archive the plans instead."
 )
 
-# Eligibility-gate config vs. paid plans (#774 Phase-1 boundary). A tier carrying
-# live subscription plans is only reachable through the direct subscription
-# endpoints (subscribe / change-plan / revive), which never run the
-# ``membership_manager`` gate stack — the free ``/apply`` path is blocked for such
-# tiers by ``TierAvailabilityGate`` (TIER_REQUIRES_SUBSCRIPTION). So a monetized
-# tier's manual-approval and membership-questionnaire overrides are configured but
-# never enforced. Phase 1 refuses the incoherent config on both sides (here, and in
-# ``subscription_service`` when a plan goes on sale) rather than growing new
-# enforcement machinery inside the payment flow. See
-# docs/architecture/membership-eligibility.md.
-TIER_GATES_ON_MONETIZED_TIER_MESSAGE = _(
-    "This tier is sold through subscription plans, and paid memberships bypass the application "
-    "pipeline — manual approval and membership questionnaires would never run. Archive the tier's "
-    "plans first, or configure these policies on a tier that has none."
-)
-
 
 def create_membership_request(
     organization: Organization, user: RevelUser, message: str | None = None
@@ -491,27 +475,6 @@ def validate_membership_questionnaire(organization: Organization, questionnaire_
         )
 
 
-def _assert_tier_not_monetized(tier: MembershipTier) -> None:
-    """Refuse eligibility-gate config on a tier that has live subscription plans.
-
-    "Live" means ``is_active=True`` — the same liveness filter
-    ``MembershipEligibilityService.tier_has_active_plan`` uses to decide a tier is
-    monetized. ``sales_status`` is orthogonal (a PAUSED plan is temporarily closed
-    to new sales, not retired), so it deliberately does not relax this check.
-
-    Not called from :func:`create_membership_tier`: a tier being created has no
-    plans yet, so the conflict is unreachable there.
-
-    Args:
-        tier: The tier whose gate config is being changed.
-
-    Raises:
-        HttpError 400: If the tier has at least one active subscription plan.
-    """
-    if MembershipSubscriptionPlan.objects.filter(tier=tier, is_active=True).exists():
-        raise HttpError(400, str(TIER_GATES_ON_MONETIZED_TIER_MESSAGE))
-
-
 @transaction.atomic
 def create_membership_tier(organization: Organization, payload: "MembershipTierCreateSchema") -> MembershipTier:
     """Create a membership tier, appending it at the bottom of the organization's ordering.
@@ -545,11 +508,9 @@ def update_membership_tier(tier: MembershipTier, payload: "MembershipTierUpdateS
     write to ``update_db_instance`` (locked, ``exclude_unset`` so tri-state fields keep their
     "not provided vs explicit null" distinction).
 
-    Turning either eligibility gate *on* is refused once the tier carries live
-    subscription plans — see :func:`_assert_tier_not_monetized`. Only the gating
-    values trip it (``requires_membership_approval=True``, a non-null
-    questionnaire), so clearing the knobs and editing unrelated fields on an
-    already-inconsistent legacy tier both stay possible.
+    Eligibility gates and subscription plans coexist on a tier: ``/subscribe``
+    runs the full gate stack before opening Checkout, so enabling a gate on a
+    monetized tier is enforced, not inert.
 
     Args:
         tier: The tier to update.
@@ -559,16 +520,13 @@ def update_membership_tier(tier: MembershipTier, payload: "MembershipTierUpdateS
         The updated ``MembershipTier``.
 
     Raises:
-        HttpError 400: If ``membership_questionnaire_id`` is not a MEMBERSHIP questionnaire for the org,
-            or if a gate is being enabled on a tier that has active subscription plans.
+        HttpError 400: If ``membership_questionnaire_id`` is not a MEMBERSHIP questionnaire for the org.
     """
     from events.service import update_db_instance
 
     data = payload.model_dump(exclude_unset=True)
     if data.get("membership_questionnaire_id"):
         validate_membership_questionnaire(tier.organization, data["membership_questionnaire_id"])
-    if data.get("requires_membership_approval") or data.get("membership_questionnaire_id"):
-        _assert_tier_not_monetized(tier)
     return update_db_instance(tier, payload)
 
 

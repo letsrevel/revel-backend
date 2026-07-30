@@ -415,7 +415,8 @@ class ManualApprovalGate(BaseMembershipEligibilityGate):
     The fall-through (rather than an ``_allow``) is load-bearing: a returned
     verdict short-circuits the chain, and :class:`PaymentReadyGate` runs *after*
     this gate, so a plan-bearing check with no application must still reach its
-    ``PLAN_NOT_ONLINE`` block.
+    ``SUBMIT_APPLICATION`` block (the annotation is how it knows approval is
+    outstanding).
     """
 
     def check(self) -> MembershipEligibility | None:
@@ -441,19 +442,35 @@ class ManualApprovalGate(BaseMembershipEligibilityGate):
 class PaymentReadyGate(BaseMembershipEligibilityGate):
     """Gate #10: Final pre-payment readiness check. No-op when plan is not provided.
 
-    The paid path currently ships via the direct ``/subscribe`` endpoints, not
-    the application pipeline, so any plan-bearing application blocks here
-    unconditionally. Phase 2 of the eligibility pipeline replaces this with the
-    full readiness check (``payment_method == ONLINE``, plan on sale and not at
-    its cap, Stripe-connected org, no duplicate non-terminal subscription,
-    PROCEED_TO_PAYMENT next step).
+    A plan-bearing check that survives every prior gate ends here with an
+    *allowing* ``PROCEED_TO_PAYMENT`` verdict — ``/subscribe`` opens Checkout on
+    it. Blocks when the plan is not actually payable (offline plan, org not
+    Stripe-connected, plan paused or at its sales cap, duplicate non-terminal
+    subscription), or when approval is required but the user has nothing on
+    file yet (``SUBMIT_APPLICATION``: :class:`ManualApprovalGate` deliberately
+    falls through in that state so the free path can apply — the paid path must
+    not slip past staff approval through the same hole).
     """
 
     def check(self) -> MembershipEligibility | None:
-        """Block any plan-bearing application until online payments ship (Phase 2)."""
+        """Readiness check for a plan-bearing verdict; allow ends in PROCEED_TO_PAYMENT."""
         if self.plan is None:
             return None
-        return self._block(Reasons.PLAN_NOT_ONLINE)
+        if self.handler.approval_required_annotation:
+            # Approval required but nothing on file: the user must create the
+            # application first so staff have something to approve.
+            return self._block(Reasons.REQUIRES_APPROVAL, next_step=MembershipNextStep.SUBMIT_APPLICATION)
+        if self.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+            return self._block(Reasons.PLAN_NOT_ONLINE)
+        if not self.organization.is_stripe_connected:
+            return self._block(Reasons.ORG_NOT_STRIPE_CONNECTED)
+        if self.plan.sales_status != MembershipSubscriptionPlan.SalesStatus.OPEN:
+            return self._block(Reasons.PLAN_UNAVAILABLE)
+        if self.plan.max_subscriptions is not None and self.plan.occupied_slot_count() >= self.plan.max_subscriptions:
+            return self._block(Reasons.PLAN_UNAVAILABLE)
+        if self.handler.has_non_terminal_subscription:
+            return self._block(Reasons.DUPLICATE_ACTIVE_SUBSCRIPTION)
+        return self._allow(next_step=MembershipNextStep.PROCEED_TO_PAYMENT)
 
 
 MEMBERSHIP_ELIGIBILITY_GATES: list[type[BaseMembershipEligibilityGate]] = [
