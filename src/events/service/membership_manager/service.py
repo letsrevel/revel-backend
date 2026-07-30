@@ -337,7 +337,8 @@ def advance_application(
             if application.plan_id is None and application.tier_id is not None:
                 _complete_free_application(application)
             elif application.plan_id is not None:
-                # Paid path: APPROVED awaiting /pay (Phase 2).
+                # Paid path: APPROVED awaiting payment via /subscribe; the Stripe
+                # activation settles the row COMPLETED.
                 application.status = OrganizationMembershipRequest.Status.APPROVED
                 application.save(update_fields=["status", "updated_at"])
             # else: tier-less, plan-less application → stays PENDING until staff approves
@@ -367,13 +368,15 @@ def apply_for_membership(
     tier: MembershipTier | None,
     notes: str | None,
     questionnaire_submission_id: uuid.UUID | None,
+    plan: MembershipSubscriptionPlan | None = None,
 ) -> tuple[OrganizationMembershipRequest, MembershipEligibility]:
     """Create (or refresh) the user's membership application and advance state.
 
     Idempotent: when a PENDING application already exists for (user, org, tier),
     re-runs the gate stack against the existing row and may advance its status.
     Attaches a fresh ``questionnaire_submission_id`` to an existing PENDING row
-    on re-POST when one wasn't recorded yet.
+    on re-POST when one wasn't recorded yet, and repoints ``plan`` when the
+    re-POST targets a different plan of the same tier.
 
     The partial unique index ``unique_pending_application_per_user_org_tier``
     (status=PENDING) is the source of truth for "one PENDING per tier" —
@@ -412,15 +415,25 @@ def apply_for_membership(
                 "organization": organization,
                 "user": user,
                 "tier": tier,
+                "plan": plan,
                 "status": OrganizationMembershipRequest.Status.PENDING,
                 "message": notes or None,
                 "questionnaire_submission_id": questionnaire_submission_id,
             },
         )
-        # Allow attaching a submission on re-POST when the row didn't have one.
-        if not created and questionnaire_submission_id and not application.questionnaire_submission_id:
-            application.questionnaire_submission_id = questionnaire_submission_id
-            application.save(update_fields=["questionnaire_submission", "updated_at"])
+        if not created:
+            update_fields: list[str] = []
+            # Allow attaching a submission on re-POST when the row didn't have one.
+            if questionnaire_submission_id and not application.questionnaire_submission_id:
+                application.questionnaire_submission_id = questionnaire_submission_id
+                update_fields.append("questionnaire_submission")
+            # Re-POST with a different plan repoints the pending row; a plan-less
+            # re-POST leaves the recorded plan alone (it's the polling idiom).
+            if plan is not None and application.plan_id != plan.pk:
+                application.plan = plan
+                update_fields.append("plan")
+            if update_fields:
+                application.save(update_fields=[*update_fields, "updated_at"])
 
     return advance_application(application)
 

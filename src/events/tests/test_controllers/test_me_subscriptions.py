@@ -20,8 +20,11 @@ from events.models import (
     MembershipTier,
     Organization,
     OrganizationMember,
+    OrganizationMembershipRequest,
+    OrganizationQuestionnaire,
 )
 from events.service import subscription_service
+from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
 
@@ -337,6 +340,111 @@ class TestSubscribeEndpoint:
         response = subscriber_client.post(url, data={"plan_id": str(plan.id)}, content_type="application/json")
         assert response.status_code == 400
 
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    def test_subscribe_gated_without_application_refuses_with_eligibility(
+        self,
+        mock_session: mock.Mock,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        tier: MembershipTier,
+        organization: Organization,
+    ) -> None:
+        """Approval-gated tier, nothing on file: 400 eligibility body, no Stripe call."""
+        tier.requires_membership_approval = True
+        tier.save(update_fields=["requires_membership_approval"])
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["reason_code"] == "requires_approval"
+        assert body["next_step"] == "submit_application"
+        mock_session.assert_not_called()
+        assert not MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    def test_subscribe_with_pending_application_waits_for_approval(
+        self,
+        mock_session: mock.Mock,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        tier: MembershipTier,
+        organization: Organization,
+    ) -> None:
+        tier.requires_membership_approval = True
+        tier.save(update_fields=["requires_membership_approval"])
+        app = OrganizationMembershipRequest.objects.create(
+            user=subscriber_user,
+            organization=organization,
+            tier=tier,
+            plan=online_plan,
+            status=OrganizationMembershipRequest.Status.PENDING,
+        )
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["next_step"] == "wait_for_approval"
+        assert body["application_id"] == str(app.id)
+        mock_session.assert_not_called()
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    def test_subscribe_questionnaire_missing_blocks(
+        self,
+        mock_session: mock.Mock,
+        subscriber_client: Client,
+        online_plan: MembershipSubscriptionPlan,
+        tier: MembershipTier,
+        organization: Organization,
+    ) -> None:
+        org_q = OrganizationQuestionnaire.objects.create(
+            organization=organization,
+            questionnaire=Questionnaire.objects.create(name="Membership Q"),
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+        )
+        tier.membership_questionnaire = org_q
+        tier.save(update_fields=["membership_questionnaire"])
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["next_step"] == "submit_questionnaire"
+        assert body["questionnaire_id"] == str(org_q.questionnaire_id)
+        mock_session.assert_not_called()
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_subscribe_with_approved_application_opens_checkout_and_links(
+        self,
+        mock_customer: mock.Mock,
+        mock_session: mock.Mock,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        tier: MembershipTier,
+        organization: Organization,
+    ) -> None:
+        """Approved application: checkout opens, subscription linked, row stays APPROVED."""
+        mock_customer.return_value = mock.MagicMock(id="cus_x")
+        mock_session.return_value = mock.MagicMock(id="cs_x", url="https://checkout.stripe.com/c/pay/cs_x")
+        tier.requires_membership_approval = True
+        tier.save(update_fields=["requires_membership_approval"])
+        app = OrganizationMembershipRequest.objects.create(
+            user=subscriber_user,
+            organization=organization,
+            tier=tier,
+            plan=online_plan,
+            status=OrganizationMembershipRequest.Status.APPROVED,
+        )
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 201, response.content
+        app.refresh_from_db()
+        subscription = MembershipSubscription.objects.get(user=subscriber_user, organization=organization)
+        assert app.subscription_id == subscription.id
+        assert app.status == OrganizationMembershipRequest.Status.APPROVED
+
     def test_subscribe_hard_blacklisted_gets_404(
         self,
         subscriber_client: Client,
@@ -546,6 +654,61 @@ class TestChangePlanEndpoint:
         assert mock_modify.call_args.kwargs["proration_behavior"] == "always_invoice"
         body = response.json()
         assert body["plan_id"] == str(pricier_online_plan.id)
+
+    def test_change_plan_cross_tier_onto_gated_tier_refused(
+        self,
+        subscriber_client: Client,
+        online_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        """A cross-tier target runs the destination tier's gates (the Phase-2 bypass fix)."""
+        gated_tier = MembershipTier.objects.create(
+            organization=organization, name="Vetted", requires_membership_approval=True
+        )
+        gated_plan = MembershipSubscriptionPlan.objects.create(
+            tier=gated_tier,
+            name="Vetted Monthly",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(gated_plan.id)}, content_type="application/json")
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["reason_code"] == "requires_approval"
+        assert body["next_step"] == "submit_application"
+        online_subscription.refresh_from_db()
+        assert online_subscription.plan_id != gated_plan.id
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    def test_change_plan_cross_tier_onto_ungated_tier_allowed(
+        self,
+        mock_retrieve: mock.Mock,
+        mock_modify: mock.Mock,
+        subscriber_client: Client,
+        online_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        """Cross-tier moves between ungated tiers keep working as before."""
+        mock_retrieve.return_value = {"items": {"data": [{"id": "si_swap"}]}}
+        other_tier = MembershipTier.objects.create(organization=organization, name="Open Tier")
+        other_plan = MembershipSubscriptionPlan.objects.create(
+            tier=other_tier,
+            name="Open Monthly",
+            price=Decimal("25.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_open",
+            stripe_price_id="price_open",
+        )
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(other_plan.id)}, content_type="application/json")
+        assert response.status_code == 200, response.content
+        assert response.json()["plan_id"] == str(other_plan.id)
 
     def test_change_plan_refuses_cross_currency(
         self,

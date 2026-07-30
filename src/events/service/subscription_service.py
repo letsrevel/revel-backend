@@ -41,6 +41,7 @@ from events.service.subscription_core import (
 from events.service.subscription_core import (
     record_payment as record_payment,
 )
+from events.service.subscription_eligibility import ensure_tier_change_allowed
 from events.service.subscription_sales import (
     ensure_member_not_excluded,
     ensure_plan_on_sale,
@@ -54,35 +55,6 @@ logger = structlog.get_logger(__name__)
 
 
 # ---- Plan operations ---------------------------------------------------------
-
-# Plan-side half of the Phase-1 gate/plan exclusion (#774). Paid memberships are
-# granted by the subscription flow, which never runs the ``membership_manager``
-# gate stack, so a tier's manual-approval / membership-questionnaire override goes
-# silently inert the moment the tier is monetized. The tier-side half lives in
-# ``organization_service.membership._assert_tier_not_monetized``; together they keep
-# the two mutually exclusive. See docs/architecture/membership-eligibility.md.
-PLAN_ON_GATED_TIER_MESSAGE = _(
-    "This tier requires manual approval or a membership questionnaire, and paid subscriptions "
-    "bypass both. Clear those settings on the tier before putting a plan on sale."
-)
-
-
-# ponytail: caps at the tier's own overrides — the org-wide defaults
-# (``default_requires_membership_approval`` / ``default_membership_questionnaire``) are
-# equally inert on a monetized tier, but refusing on them would block every paid tier in
-# such an org. Lift this, and drop both guards, once subscribe/change-plan/revive
-# actually run the gate stack (Phase 2).
-def _assert_tier_ungated(tier: MembershipTier) -> None:
-    """Refuse to put a plan on sale on a tier that configures eligibility gates.
-
-    Args:
-        tier: The tier the plan hangs off.
-
-    Raises:
-        HttpError 400: If the tier sets either eligibility-gate override.
-    """
-    if tier.requires_membership_approval or tier.membership_questionnaire_id:
-        raise HttpError(400, str(PLAN_ON_GATED_TIER_MESSAGE))
 
 
 def _maybe_sync_plan_to_stripe(plan: MembershipSubscriptionPlan) -> MembershipSubscriptionPlan:
@@ -127,12 +99,10 @@ def create_plan(
     For ONLINE plans, also provisions the matching Stripe Product+Price on
     the organization's Connect account.
 
-    Refuses an active plan on a tier that configures eligibility gates — see
-    :func:`_assert_tier_ungated`. An ``is_active=False`` plan does not monetize
-    the tier (nothing can be sold off it), so it is allowed.
+    A tier's eligibility gates (manual approval / membership questionnaire) and
+    its plans coexist: ``/subscribe`` runs the full gate stack before opening
+    Checkout, so gate config on a monetized tier is enforced, not inert.
     """
-    if is_active:
-        _assert_tier_ungated(tier)
     plan = MembershipSubscriptionPlan.objects.create(
         tier=tier,
         name=name,
@@ -163,17 +133,9 @@ def update_plan(
     Refuses currency changes when the plan has any non-terminal subscriptions
     — cross-currency migration is risky and out of roadmap; staff must archive
     and create a new plan instead.
-
-    Un-archiving (``is_active`` False → True) re-monetizes the tier, so it goes
-    through the same gate check :func:`create_plan` applies; otherwise archiving
-    a plan, configuring the gates, and un-archiving would walk straight back into
-    the inert-config state.
     """
     if not fields:
         return plan
-
-    if fields.get("is_active") and not plan.is_active:
-        _assert_tier_ungated(plan.tier)
 
     new_currency = fields.get("currency")
     if new_currency is not None and new_currency.upper() != plan.currency.upper():
@@ -776,7 +738,14 @@ def change_plan(
     which we do not attempt. The target plan's subscription cap is always
     enforced; ``enforce_sales_status=False`` (staff callers) additionally
     skips the PAUSED-sales check.
+
+    A **cross-tier** target additionally runs the membership eligibility gate
+    stack against the destination tier (``ensure_tier_change_allowed``) —
+    otherwise a member could hop from an ungated tier onto a gated one without
+    ever passing its questionnaire or approval. Same-tier swaps are not
+    re-gated.
     """
+    ensure_tier_change_allowed(subscription, new_plan)
     subscription = (
         MembershipSubscription.objects.select_for_update(of=("self",))
         .select_related("plan", "plan__tier", "organization", "user")

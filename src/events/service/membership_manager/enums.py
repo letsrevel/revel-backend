@@ -15,6 +15,7 @@ class MembershipNextStep(StrEnum):
     WAIT_FOR_APPROVAL = "wait_for_approval"
     WAIT_FOR_WHITELIST_APPROVAL = "wait_for_whitelist_approval"
     REQUIRES_INVITATION = "requires_invitation"
+    SUBMIT_APPLICATION = "submit_application"
     PROCEED_TO_PAYMENT = "proceed_to_payment"
     ALREADY_MEMBER = "already_member"
     REAPPLY = "reapply"

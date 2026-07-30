@@ -23,7 +23,12 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_service, subscription_stripe_service, subscription_uncancel
+from events.service import (
+    subscription_eligibility,
+    subscription_service,
+    subscription_stripe_service,
+    subscription_uncancel,
+)
 
 
 @api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Subscriptions"], throttle=UserDefaultThrottle())
@@ -118,8 +123,10 @@ class MeSubscriptionsController(UserAwareController):
         "/organizations/{org_id}/subscribe",
         url_name="subscribe_to_membership_plan",
         response={
+            # 400 carries either the serialized eligibility verdict (gate-stack
+            # refusal — same shape /apply returns) or a plain {detail} error.
             201: schema.SubscribeResponseSchema,
-            400: ErrorDetail,
+            400: schema.MembershipEligibilitySchema | ErrorDetail,
             404: ErrorDetail,
             409: schema.SubscriptionActivationPendingSchema,
             502: ErrorDetail,
@@ -133,8 +140,13 @@ class MeSubscriptionsController(UserAwareController):
     ) -> tuple[int, schema.SubscribeResponseSchema]:
         """Start a Stripe-backed subscription on an ONLINE plan.
 
-        Returns the local subscription row plus a hosted Stripe Checkout
-        ``checkout_url`` the frontend redirects the member to for payment.
+        Runs the full membership eligibility gate stack first — a questionnaire
+        or manual-approval requirement on the tier must be satisfied before
+        Checkout opens. Returns the local subscription row plus a hosted Stripe
+        Checkout ``checkout_url`` the frontend redirects the member to for
+        payment. When the caller has an application on file (the gated flow),
+        the created subscription is linked to it so the Stripe activation can
+        settle it COMPLETED.
         """
         # Visibility-aware load: hard-blacklisted users get a 404 (the org is
         # invisible to them) rather than a distinguishable 403, matching the
@@ -146,9 +158,7 @@ class MeSubscriptionsController(UserAwareController):
             tier__organization=organization,
             is_active=True,
         )
-        # ``start_online_subscription`` enforces ``payment_method == ONLINE``
-        # and raises 400 if the plan is offline; no need to repeat the check.
-        subscription, checkout_url = subscription_stripe_service.start_online_subscription(plan, self.user())
+        subscription, checkout_url = subscription_eligibility.subscribe_to_plan(plan, self.user())
         # Return a dict (not a constructed schema): Ninja's response pipeline will
         # validate it via ``SubscribeResponseSchema``. Pre-validating the inner
         # ``MySubscriptionSchema`` would cause Ninja's wrap-validator to re-run
@@ -226,8 +236,10 @@ class MeSubscriptionsController(UserAwareController):
         "/organizations/{org_id}/subscription/change-plan",
         url_name="change_my_membership_plan",
         response={
+            # 400 carries the serialized eligibility verdict when a cross-tier
+            # target's gates refuse the member, else a plain {detail} error.
             200: schema.MySubscriptionSchema,
-            400: ErrorDetail,
+            400: schema.MembershipEligibilitySchema | ErrorDetail,
             404: ErrorDetail,
             502: ErrorDetail,
         },

@@ -851,7 +851,7 @@ class OrganizationMembershipRequest(UserRequestMixin):
         blank=True,
         on_delete=models.PROTECT,
         related_name="membership_applications",
-        help_text=_("Target plan for paid path. NULL = free join. Phase 1 rejects non-null at /apply."),
+        help_text=_("Target plan for the paid path. NULL = free join."),
     )
     subscription = models.ForeignKey(
         "events.MembershipSubscription",

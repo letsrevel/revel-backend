@@ -100,8 +100,10 @@ def test_requires_approval_with_plan_still_blocks_on_payment_ready(
     """Regression guard: the fall-through must NOT short-circuit PaymentReadyGate.
 
     ``PaymentReadyGate`` (gate #10) runs after ``ManualApprovalGate``, so a
-    plan-bearing check with no application must still block on PLAN_NOT_ONLINE.
-    Converting the fall-through to ``self._allow(...)`` breaks this.
+    plan-bearing check with no application must still block there — with
+    ``SUBMIT_APPLICATION``, driven by the ``approval_required_annotation`` the
+    fall-through sets. Converting the fall-through to ``self._allow(...)``
+    breaks this.
     """
     plan = MembershipSubscriptionPlan.objects.create(
         tier=tier,
@@ -113,7 +115,8 @@ def test_requires_approval_with_plan_still_blocks_on_payment_ready(
     service = MembershipEligibilityService(user=user, organization=organization, tier=tier, plan=plan)
     result = service.check_eligibility()
     assert result.allowed is False
-    assert result.reason_code == MembershipReasonCode.PLAN_NOT_ONLINE
+    assert result.reason_code == MembershipReasonCode.REQUIRES_APPROVAL
+    assert result.next_step == MembershipNextStep.SUBMIT_APPLICATION
 
 
 def test_approved_application_passes(

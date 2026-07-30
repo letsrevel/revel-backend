@@ -999,9 +999,6 @@ msgstr "Solo chi ha il biglietto può annullarlo."
 msgid "Refund failed. Please try again later."
 msgstr "Rimborso non riuscito. Per favore riprova più tardi."
 
-msgid "Paid applications are not supported in this release."
-msgstr "Le richieste a pagamento non sono supportate in questa versione."
-
 msgid "Not allowed."
 msgstr "Non consentito."
 
@@ -1271,10 +1268,8 @@ msgstr ""
 "Livello di destinazione. NULL = richiesta legacy senza livello; lo staff "
 "sceglie al momento dell'approvazione."
 
-msgid ""
-"Target plan for paid path. NULL = free join. Phase 1 rejects non-null at /"
-"apply."
-msgstr ""
+msgid "Target plan for the paid path. NULL = free join."
+msgstr "Piano di destinazione per il percorso a pagamento. NULL = adesione gratuita."
 "Piano di destinazione per il percorso a pagamento. NULL = adesione gratuita. "
 "La Fase 1 rifiuta valori non NULL su /apply."
 
@@ -1947,17 +1942,6 @@ msgstr ""
 "Impossibile eliminare un livello i cui piani hanno ancora abbonamenti. "
 "Archivia invece i piani."
 
-msgid ""
-"This tier is sold through subscription plans, and paid memberships bypass "
-"the application pipeline — manual approval and membership questionnaires "
-"would never run. Archive the tier's plans first, or configure these policies "
-"on a tier that has none."
-msgstr ""
-"Questo livello è venduto tramite piani di abbonamento e le iscrizioni a "
-"pagamento saltano la procedura di richiesta: l'approvazione manuale e i "
-"questionari di iscrizione non verrebbero mai eseguiti. Archivia prima i "
-"piani del livello oppure configura queste regole su un livello senza piani."
-
 msgid "The organization does not accept new members."
 msgstr "L'organizzazione non accetta nuovi membri."
 
@@ -2282,15 +2266,6 @@ msgstr "Questo piano è esaurito."
 
 msgid "You can't rejoin this organization."
 msgstr "Non puoi rientrare in questa organizzazione."
-
-msgid ""
-"This tier requires manual approval or a membership questionnaire, and paid "
-"subscriptions bypass both. Clear those settings on the tier before putting a "
-"plan on sale."
-msgstr ""
-"Questo livello richiede l'approvazione manuale o un questionario di "
-"iscrizione, e gli abbonamenti a pagamento saltano entrambi. Rimuovi queste "
-"impostazioni dal livello prima di mettere in vendita un piano."
 
 msgid ""
 "Cannot change currency when active subscriptions exist. Archive and create a "

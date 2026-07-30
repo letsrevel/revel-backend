@@ -274,11 +274,19 @@ class TestCheckoutManagementErrorContracts:
 class TestSubscriptionErrorContracts:
     """The member-facing subscription endpoints declared ``ResponseMessage``; they emit ``{detail}``."""
 
-    def test_subscribe_to_offline_plan_returns_detail(
+    def test_subscribe_to_offline_plan_returns_eligibility_body(
         self,
         member_client: Client,
         organization: Organization,
     ) -> None:
+        """The gate stack answers first: an offline plan 400s with the serialized eligibility verdict.
+
+        Phase 2 (#831) changed this endpoint's 400 contract from plain
+        ``{detail}`` to ``MembershipEligibilitySchema | ErrorDetail`` — the
+        offline-plan refusal now comes from ``PaymentReadyGate`` as the
+        eligibility shape, which the declared response union covers. Still no
+        ``message`` key (the #712 contract this file pins).
+        """
         from events.models import MembershipTier
         from events.service import subscription_service
 
@@ -290,7 +298,11 @@ class TestSubscriptionErrorContracts:
 
         url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
         response = member_client.post(url, data={"plan_id": str(plan.id)}, content_type="application/json")
-        assert_detail_body(response)
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["allowed"] is False
+        assert body["reason_code"] == "plan_not_online"
+        assert "message" not in body, body
 
     def test_no_subscription_returns_detail_404(self, member_client: Client, organization: Organization) -> None:
         """404 was declared ``ResponseMessage`` too; ``get_object_or_404`` emits ``{detail}``."""

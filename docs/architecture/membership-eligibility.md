@@ -1,6 +1,6 @@
 # Membership Eligibility Pipeline
 
-The membership-eligibility pipeline is the organization-level sibling of the [event eligibility pipeline](eligibility-pipeline.md). It determines whether a user can **join an organization** at a target membership tier (and, in Phase 2, on a paid plan) by running a sequence of checks called **gates**. Each gate evaluates one membership policy and can pass (return `None` to fall through), **block** (`allowed=False` with an actionable `next_step`), or — unlike the event pipeline — **allow** early (`allowed=True`, e.g. for owners or existing members).
+The membership-eligibility pipeline is the organization-level sibling of the [event eligibility pipeline](eligibility-pipeline.md). It determines whether a user can **join an organization** at a target membership tier (optionally on a paid plan) by running a sequence of checks called **gates**. Each gate evaluates one membership policy and can pass (return `None` to fall through), **block** (`allowed=False` with an actionable `next_step`), or — unlike the event pipeline — **allow** early (`allowed=True`, e.g. for owners or existing members).
 
 The same gate stack powers two things:
 
@@ -63,7 +63,9 @@ flowchart TD
 
     G10{"10. PaymentReadyGate<br/>Plan-bearing application?"}
     G10 -->|"No plan"| Eligible
-    G10 -->|"Plan present (Phase 1)"| Rejected9([Rejected: plan_not_online])
+    G10 -->|"Plan payable, approval satisfied"| Allowed2([Allowed: proceed_to_payment])
+    G10 -->|"Approval required, nothing on file"| Rejected9([Rejected: requires_approval → submit_application])
+    G10 -->|"Offline / not on sale / at cap /<br/>org not Stripe-ready / duplicate subscription"| Rejected10([Rejected: plan_not_online · plan_unavailable ·<br/>org_not_stripe_connected · duplicate_active_subscription])
 
     style Eligible fill:#2e7d32,color:#fff
     style Allowed1 fill:#2e7d32,color:#fff
@@ -204,8 +206,9 @@ When the resolved manual-approval policy is on (tier-level `requires_membership_
 
 !!! note "The fall-through is deliberate, not an `_allow`"
     A returned verdict short-circuits the chain, and `PaymentReadyGate` runs *after* this
-    gate — so a plan-bearing check with no application must still fall through to reach its
-    `PLAN_NOT_ONLINE` block.
+    gate — so a plan-bearing check with no application must still fall through to reach
+    gate #10's `requires_approval` → `submit_application` block (driven by the
+    `approval_required_annotation` this fall-through sets).
 
 **Source:** `events/service/membership_manager/gates.py`: `ManualApprovalGate`
 
@@ -213,17 +216,17 @@ When the resolved manual-approval policy is on (tier-level `requires_membership_
 
 ### 10. PaymentReadyGate
 
-The final pre-payment readiness check. A no-op when no plan is supplied.
+The final pre-payment readiness check. A no-op when no plan is supplied. A plan-bearing check that survives every prior gate ends here in an **allowing** `PROCEED_TO_PAYMENT` verdict — `POST /subscribe` opens Stripe Checkout on it.
 
-**Phase 1 boundary:** any plan-bearing application blocks here with `PLAN_NOT_ONLINE`. Paid memberships currently flow through the **direct subscription endpoints** (`POST /api/me/organizations/{org_id}/subscribe` — see [Membership Subscriptions](membership-subscriptions.md)), not through the application pipeline; `POST /apply` additionally rejects `plan_id` with a 400 before the gates even run. Because those endpoints never run this pipeline, a monetized tier's own gate config would be inert — so it is refused at configuration time instead, see [Tier gates and subscription plans are mutually exclusive](#tier-gates-and-subscription-plans-are-mutually-exclusive-phase-1).
+Blocks, in order:
 
-!!! info "The Phase-2 seam"
-    The enums already reserve the members `MembershipNextStep.PROCEED_TO_PAYMENT` and
-    `ReasonCode.ORG_NOT_STRIPE_CONNECTED` — both currently **unused**. Phase 2 replaces
-    this gate's unconditional block with the full readiness check (ONLINE plan,
-    Stripe-connected org, no duplicate non-terminal subscription) and returns
-    `next_step=PROCEED_TO_PAYMENT`, at which point an `APPROVED` application awaits the
-    member's `/pay` call.
+| Condition | Reason code | next_step |
+|---|---|---|
+| Approval required but no application on file (`ManualApprovalGate`'s fall-through annotation) | `requires_approval` | `submit_application` — create the application first so staff have something to approve |
+| Plan is not ONLINE | `plan_not_online` | — |
+| Org not Stripe-connected | `org_not_stripe_connected` | — |
+| Plan `sales_status` ≠ OPEN, or at its `max_subscriptions` cap | `plan_unavailable` | — |
+| Caller already holds a non-terminal subscription in the org | `duplicate_active_subscription` | — (`/subscribe` deliberately lets this one fall through to the subscription machinery, which resumes a pending checkout with a 409 instead of dead-ending) |
 
 **Source:** `events/service/membership_manager/gates.py`: `PaymentReadyGate`
 
@@ -279,7 +282,8 @@ All possible `MembershipNextStep` values and when they are returned:
 | `wait_for_approval` | ManualApprovalGate | Manual-approval policy on, staff decision pending |
 | `wait_for_whitelist_approval` | BlacklistGate | Fuzzy-matched, whitelist request pending |
 | `requires_invitation` | BlacklistGate, AcceptRequestsGate | Verification needed, or org not accepting requests — join via invitation/whitelist flow |
-| `proceed_to_payment` | PaymentReadyGate | **Reserved for Phase 2** — currently never returned |
+| `submit_application` | PaymentReadyGate | Plan-bearing check on an approval-gated tier with no application on file — `POST /apply` first |
+| `proceed_to_payment` | PaymentReadyGate | Plan-bearing check passed every gate (allowing verdict) — `POST /subscribe` opens Checkout |
 | `already_member` | AlreadyMemberGate | ACTIVE membership at the target tier (allowing verdict) |
 | `reapply` | ApplicationStatusGate | Latest application was rejected; a fresh `POST /apply` starts over |
 
@@ -309,7 +313,7 @@ As in the event pipeline, reasons are emitted in two forms: `reason` (translated
 | `membership_questionnaire_attempts_exhausted` | "You have reached the maximum number of attempts." |
 | `requires_approval` | "Your application is awaiting staff approval." |
 | `plan_not_online` | "This plan is not configured for online checkout." |
-| `org_not_stripe_connected` | "This organization cannot accept online payments yet." *(reserved for Phase 2)* |
+| `org_not_stripe_connected` | "This organization cannot accept online payments yet." |
 | `duplicate_active_subscription` | "You already have an active subscription in this organization." |
 | `membership_paused` | "Your membership at this tier is paused. Contact the organization to resume." |
 
@@ -322,7 +326,7 @@ Applications are `OrganizationMembershipRequest` rows with five statuses:
 | Status | Meaning | Terminal? |
 |---|---|---|
 | `PENDING` | Gates still blocking on a recoverable condition, or awaiting staff | No |
-| `APPROVED` | Staff approved a **plan-bearing** application; awaiting the member's payment (Phase 2 `/pay`) | No |
+| `APPROVED` | A **plan-bearing** application passed the gates (or was staff-approved); awaiting the member's payment via `/subscribe`. Swept to `CANCELLED` after 30 unpaid days (`events.expire_stale_approved_applications`) | No |
 | `REJECTED` | Terminal questionnaire failure observed on read, or staff rejected | Yes |
 | `CANCELLED` | User cancelled their own application | Yes |
 | `COMPLETED` | Membership materialized (free path) | Yes |
@@ -335,12 +339,12 @@ stateDiagram-v2
 
     PENDING --> PENDING: read — gates still blocking<br/>(recoverable reason)
     PENDING --> COMPLETED: read — gates pass, free path<br/>(tier set, no plan) → member materialized
-    PENDING --> APPROVED: read — gates pass, plan-bearing<br/>(Phase 2) / staff approves plan app
+    PENDING --> APPROVED: read — gates pass, plan-bearing<br/>/ staff approves plan app
     PENDING --> COMPLETED: staff approves free app<br/>(member materialized)
     PENDING --> REJECTED: terminal reason_code on read<br/>or staff rejects
     PENDING --> CANCELLED: user cancels
     APPROVED --> CANCELLED: user cancels
-    APPROVED --> COMPLETED: Phase 2 — /pay succeeds
+    APPROVED --> COMPLETED: /subscribe → Stripe activation settles
 
     COMPLETED --> [*]
     REJECTED --> [*]
@@ -356,7 +360,7 @@ stateDiagram-v2
 3. **Terminal rows never advance** — `REJECTED` / `CANCELLED` / `COMPLETED` return a fresh eligibility verdict for the response payload but perform no mutation.
 4. **`PENDING` + `allowed=True`** advances:
     - tier set, no plan → `_complete_free_application()`: `OrganizationMember` created/updated to `ACTIVE` at the tier, row → `COMPLETED`.
-    - plan set → row → `APPROVED` (awaiting Phase 2 `/pay`).
+    - plan set → row → `APPROVED` (awaiting payment via `/subscribe`; the Stripe activation settles it `COMPLETED`).
     - tier-less and plan-less → stays `PENDING` (legacy path; staff assigns a tier at approval).
 5. **`PENDING` + blocked** auto-rejects **only** when `reason_code` is in the explicit terminal allowlist:
 
@@ -390,7 +394,7 @@ TERMINAL_REJECTION_CODES: t.Final[frozenset[ReasonCode]] = frozenset(
 `approve_membership_request()` (`events/service/organization_service/membership.py`) uses the application's pre-set tier, or requires the staff caller to pass one (tier-less legacy applications):
 
 - **No plan** → row → `COMPLETED`, `OrganizationMember` created/updated `ACTIVE` at the tier, `MEMBERSHIP_REQUEST_APPROVED` notification on commit.
-- **Plan-bearing** → row → `APPROVED`; Phase 2 triggers Stripe subscription creation from a separate `/pay` endpoint. No membership is granted yet (paid tiers gate benefits on the first paid invoice).
+- **Plan-bearing** → row → `APPROVED`; the member then calls `POST /subscribe`, which re-runs the gates, opens Stripe Checkout, and links the created subscription to the application (`application.subscription`). No membership is granted yet — `_ensure_active_member` mints it on the first Stripe activation and settles the application `COMPLETED` in the same funnel.
 
 ---
 
@@ -424,7 +428,7 @@ Recoverable blocks (questionnaire pending, manual approval, whitelist pending) *
 
 Additional `/apply` behavior:
 
-- **Phase 1**: `plan_id` in the payload → **400** ("Paid applications are not supported in this release.").
+- **`plan_id`** (optional) makes it a paid application: the tier is derived from the plan when `tier_id` is omitted, the row records the target plan, and a re-`POST` with a different plan repoints the `PENDING` row.
 - **Idempotent**: a re-`POST` while a `PENDING` row exists re-runs the gates against the existing row (and may advance it); a concurrent duplicate insert caught by the partial unique index fetches the winner instead of erroring.
 - **`questionnaire_submission_id`** (optional) is persisted onto the row as audit evidence. It must reference a `READY` submission owned by the caller for the questionnaire that actually gates this (org, tier) — a nonexistent id and another user's id fail identically (anti-enumeration). A re-`POST` can attach a submission to a `PENDING` row that lacked one.
 
@@ -472,23 +476,25 @@ Two membership policies can be set at the organization level and overridden per 
 
 Model-level `clean()` validation guarantees the questionnaire FK belongs to the same organization and is of type `MEMBERSHIP`.
 
-### Tier gates and subscription plans are mutually exclusive (Phase 1)
+### Tier gates and subscription plans coexist (Phase 2)
 
-Both policies are enforced **only** by this gate pipeline, and the pipeline runs only on the free `/apply` path. Paid memberships are granted by the direct subscription endpoints (`subscribe` / `change-plan` / `revive` → Stripe webhooks → `sync_member_from_subscription`), which never call it. So on a monetized tier — one carrying at least one `is_active` plan — a tier-level `requires_membership_approval` or `membership_questionnaire` would be *configured but never enforced*: `TierAvailabilityGate` already blocks free `/apply` against such a tier with `TIER_REQUIRES_SUBSCRIPTION`, leaving subscribing as the only way in.
+`POST /subscribe` runs the full gate stack before opening Stripe Checkout, so a tier can be gated (questionnaire and/or manual approval) **and** monetized, and both are enforced. The Phase-1 mutual-exclusion guards (`_assert_tier_ungated` / `_assert_tier_not_monetized`) are gone; enabling a gate on a monetized tier and putting a plan on a gated tier are both ordinary mutations now.
 
-Rather than let organizers configure gates that silently do nothing, Phase 1 **validates the configuration** and keeps the two mutually exclusive. Both directions of the mutation are refused with a `400`:
+Deliberate boundaries of the unified pipeline:
 
-| Mutation | Guard | Refused when |
-|---|---|---|
-| Enable a tier gate (`PATCH` tier with `requires_membership_approval=True` or a `membership_questionnaire_id`) | `organization_service.membership._assert_tier_not_monetized` | The tier has ≥1 `is_active` subscription plan |
-| Put a plan on sale on a tier (`create_plan` with `is_active=True`, or `update_plan` flipping `is_active` False → True) | `subscription_service._assert_tier_ungated` | The tier sets either gate override |
+- **`change-plan` and `revive` are not re-gated.** Both act on someone who already passed the gates once (an existing member switching plans, a lapsed member reviving within the revival window). Re-running questionnaire/approval on them would let a config change retroactively lock out standing members; an organizer who wants a lapsed member re-vetted can reject the revival path by archiving the plan.
+- **Org-wide defaults now apply to paid tiers.** `default_requires_membership_approval` / `default_membership_questionnaire` fold into the resolved policy exactly as on free tiers. **Deploy note:** any pre-existing org that combines an org default with active plans becomes gated on its paid tiers at deploy — audit with:
 
-Notes and deliberate limits:
+  ```sql
+  SELECT o.slug FROM events_organization o
+  WHERE (o.default_membership_questionnaire_id IS NOT NULL OR o.default_requires_membership_approval)
+  AND EXISTS (SELECT 1 FROM events_membershipsubscriptionplan p
+              JOIN events_membershiptier t ON p.tier_id = t.id
+              WHERE t.organization_id = o.id AND p.is_active);
+  ```
 
-- **Mutations only.** Existing rows are not migrated or mutated; a legacy tier already in the inconsistent state keeps working, and unrelated edits to it (renames, clearing the knobs) still succeed. Only turning a gate *on*, or putting a plan on sale, is refused.
-- **Liveness filter is `is_active`**, matching `MembershipEligibilityService.tier_has_active_plan`. `sales_status=PAUSED` is orthogonal (temporarily closed, not retired) and does not relax the check; an `is_active=False` plan does not monetize the tier.
-- **Org-level defaults are not validated.** `Organization.default_requires_membership_approval` / `default_membership_questionnaire` are equally inert on a monetized tier, but they apply org-wide — refusing on them would block every paid tier in such an organization. A tier that wants the org default suppressed can set `requires_membership_approval=False` explicitly.
-- **Not enforcement.** The alternative — running the gate stack inside `subscribe`/`change_plan`/`revive` — was deliberately *not* taken in Phase 1: it would insert questionnaire/approval waits into a Stripe money path (checkout redirect, webhook activation, refund semantics on a rejected-after-payment applicant) with no application row to track the outcome. Phase 2, which routes paid joins through the application pipeline (`PROCEED_TO_PAYMENT`), is where the gates start applying to paid tiers — at which point both guards can be dropped.
+- **`TIER_REQUIRES_SUBSCRIPTION` still blocks the *free* path on a monetized tier** (gate #6): the verdict means "join by subscribing"; the public tier listing (`GET /organizations/{slug}/membership-tiers`, #830) gives the frontend the plans to offer.
+- **Approved-but-unpaid applications expire.** The daily beat `events.expire_stale_approved_applications` cancels plan-bearing `APPROVED` rows older than 30 days with no live linked subscription, so the staff board doesn't accumulate applicants who never paid.
 
 ---
 
@@ -528,7 +534,7 @@ The event pipeline's `MembershipGate` (gate 7 there) is a *consumer* of this pip
 
 ## Cross-references
 
-- [Membership Subscriptions](membership-subscriptions.md) — plans, ONLINE/OFFLINE billing, dunning, revival; the paid-membership machinery this pipeline hands off to in Phase 2.
+- [Membership Subscriptions](membership-subscriptions.md) — plans, ONLINE/OFFLINE billing, dunning, revival; the paid-membership machinery this pipeline hands off to at `PROCEED_TO_PAYMENT`.
 - [Eligibility Pipeline](eligibility-pipeline.md) — the event-level sibling this document mirrors.
 - [Questionnaires](questionnaires.md) — evaluation modes behind `MembershipQuestionnaireGate`.
 - [Permissions & Roles](permissions.md) — the `manage_members` permission gating staff decisions.

@@ -996,9 +996,6 @@ msgstr "Só quem tem o bilhete o pode cancelar."
 msgid "Refund failed. Please try again later."
 msgstr "O reembolso falhou. Tenta novamente mais tarde."
 
-msgid "Paid applications are not supported in this release."
-msgstr "As candidaturas pagas não são suportadas nesta versão."
-
 msgid "Not allowed."
 msgstr "Não permitido."
 
@@ -1257,10 +1254,8 @@ msgstr ""
 "Nível de destino. NULL = pedido antigo sem nível; o staff escolhe na "
 "aprovação."
 
-msgid ""
-"Target plan for paid path. NULL = free join. Phase 1 rejects non-null at /"
-"apply."
-msgstr ""
+msgid "Target plan for the paid path. NULL = free join."
+msgstr "Plano de destino para o percurso pago. NULL = adesão gratuita."
 "Plano de destino para o percurso pago. NULL = adesão gratuita. A Fase 1 "
 "rejeita valores não nulos em /apply."
 
@@ -1920,17 +1915,6 @@ msgstr ""
 "Não é possível eliminar um nível cujos planos ainda têm subscrições. Arquiva "
 "antes os planos."
 
-msgid ""
-"This tier is sold through subscription plans, and paid memberships bypass "
-"the application pipeline — manual approval and membership questionnaires "
-"would never run. Archive the tier's plans first, or configure these policies "
-"on a tier that has none."
-msgstr ""
-"Este nível é vendido através de planos de subscrição, e as adesões pagas "
-"contornam o processo de candidatura — a aprovação manual e os questionários "
-"de adesão nunca seriam executados. Arquiva primeiro os planos deste nível ou "
-"configura estas políticas num nível que não tenha nenhum."
-
 msgid "The organization does not accept new members."
 msgstr "A organização não aceita novos membros."
 
@@ -2251,15 +2235,6 @@ msgstr "Este plano está esgotado."
 
 msgid "You can't rejoin this organization."
 msgstr "Não podes voltar a entrar nesta organização."
-
-msgid ""
-"This tier requires manual approval or a membership questionnaire, and paid "
-"subscriptions bypass both. Clear those settings on the tier before putting a "
-"plan on sale."
-msgstr ""
-"Este nível exige aprovação manual ou um questionário de adesão, e as "
-"subscrições pagas ignoram ambos. Remove essas definições do nível antes de "
-"colocares um plano à venda."
 
 msgid ""
 "Cannot change currency when active subscriptions exist. Archive and create a "

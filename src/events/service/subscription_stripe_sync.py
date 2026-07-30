@@ -26,6 +26,7 @@ from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
     OrganizationMember,
+    OrganizationMembershipRequest,
 )
 from events.service import stripe_incidents
 from events.service.blacklist_service import check_user_hard_blacklisted
@@ -65,6 +66,22 @@ certainly no "welcome" notification.
 """
 
 
+def _settle_originating_application(subscription: MembershipSubscription) -> None:
+    """Complete the membership application that initiated this subscription, if any.
+
+    The application pipeline hands a gated applicant to ``/subscribe`` once
+    approved; payment is the final step, so the row settles COMPLETED here.
+    PENDING is included for the ungated flow (applied and paid before any
+    advance ran); terminal rows are left alone.
+    """
+    subscription.originating_application.filter(
+        status__in=(
+            OrganizationMembershipRequest.Status.PENDING,
+            OrganizationMembershipRequest.Status.APPROVED,
+        )
+    ).update(status=OrganizationMembershipRequest.Status.COMPLETED)
+
+
 def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivation:
     """Make sure an ACTIVE :class:`OrganizationMember` exists for an ONLINE subscriber.
 
@@ -92,6 +109,12 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
     race (payment in flight while staff ban) now that ban/removal cancels the
     subscription.
 
+    Side effect: on the ``"created"`` and ``"existing"`` outcomes this also
+    settles the originating membership application (COMPLETED) via
+    :func:`_settle_originating_application` — payment is the final step of the
+    gated application pipeline. Not on ``"blocked"``: no membership was
+    granted, so nothing completes.
+
     Returns:
         Which of the three cases applied — see :data:`MemberActivation`.
     """
@@ -107,6 +130,7 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
                 existing.tier_id = subscription.plan.tier_id
                 update_fields.append("tier")
             existing.save(update_fields=update_fields)
+        _settle_originating_application(subscription)
         return "existing"
 
     if check_user_hard_blacklisted(subscription.user, subscription.organization):
@@ -132,6 +156,7 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
             "status": OrganizationMember.MembershipStatus.ACTIVE,
         },
     )
+    _settle_originating_application(subscription)
     return "created"
 
 
