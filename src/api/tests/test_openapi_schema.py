@@ -39,7 +39,10 @@ def test_colliding_enums_have_distinct_names_and_full_value_sets() -> None:
     assert set(ticket_pm) == {"online", "offline", "at_the_door", "free"}
 
     sub_pm = components["SubscriptionPaymentMethod"]["enum"]
-    assert set(sub_pm) == {"online", "offline"}
+    # "free" (#832) is the Stripe-less, member-self-serve plan; it deliberately
+    # collides with TicketTier.PaymentMethod.FREE above, which is the whole
+    # point of keeping the two enums under distinct component names.
+    assert set(sub_pm) == {"online", "offline", "free"}
 
     event_rc = components["ReasonCode"]["enum"]
     membership_rc = components["MembershipReasonCode"]["enum"]

@@ -1066,10 +1066,19 @@ msgstr ""
 "Redirige-le vers le point de terminaison d'abonnement côté membre."
 
 msgid ""
+"FREE plans cost nothing, so no initial payment can be recorded against them."
+msgstr ""
+"Les plans FREE sont gratuits ; aucun paiement initial ne peut donc être "
+"enregistré pour eux."
+
+msgid ""
 "ONLINE subscription payments are recorded automatically via Stripe webhooks."
 msgstr ""
 "Les paiements des abonnements ONLINE sont enregistrés automatiquement via "
 "les webhooks Stripe."
+
+msgid "FREE subscriptions have no payments to record."
+msgstr "Les abonnements FREE n'ont aucun paiement à enregistrer."
 
 msgid ""
 "ONLINE payments must be refunded from the Stripe Dashboard; the refund is "
@@ -1295,8 +1304,6 @@ msgstr ""
 
 msgid "Target plan for the paid path. NULL = free join."
 msgstr "Plan cible pour le parcours payant. NULL = adhésion gratuite."
-"Forfait cible pour le parcours payant. NULL = adhésion gratuite. La phase 1 "
-"rejette les valeurs non nulles sur /apply."
 
 msgid "Submission that satisfied the questionnaire gate, if applicable."
 msgstr ""
@@ -1347,11 +1354,17 @@ msgstr "En ligne (Stripe)"
 msgid "Offline (staff-managed)"
 msgstr "Hors ligne (géré par le staff)"
 
+msgid "Free (member self-serve)"
+msgstr "Gratuit (libre-service pour les membres)"
+
 msgid "Month"
 msgstr "Mois"
 
 msgid "Year"
 msgstr "Année"
+
+msgid "Lifetime"
+msgstr "À vie"
 
 msgid "Open"
 msgstr "Ouvert"
@@ -1386,10 +1399,12 @@ msgstr ""
 
 msgid ""
 "ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by "
-"staff."
+"staff; FREE plans cost nothing, are self-serve, and never renew (price 0 + "
+"LIFETIME period)."
 msgstr ""
-"Les forfaits ONLINE sont facturés via Stripe ; les forfaits OFFLINE sont "
-"suivis manuellement par le staff."
+"Les plans ONLINE sont facturés via Stripe ; les plans OFFLINE sont suivis "
+"manuellement par l'équipe ; les plans FREE sont gratuits, en libre-service "
+"et ne se renouvellent jamais (prix 0 + période LIFETIME)."
 
 msgid "Past Due"
 msgstr "En retard"
@@ -2360,11 +2375,11 @@ msgstr ""
 "Le nouveau forfait doit appartenir à la même organisation que l'abonnement."
 
 msgid ""
-"Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new "
-"subscription instead."
+"Cannot switch between plans with different payment methods. Cancel and "
+"subscribe again instead."
 msgstr ""
-"Impossible de basculer entre les forfaits ONLINE et OFFLINE. Annule et crée "
-"un nouvel abonnement à la place."
+"Impossible de basculer entre des plans ayant des méthodes de paiement "
+"différentes. Annulez l'abonnement et réabonnez-vous."
 
 msgid "New plan must use the same currency as the current plan."
 msgstr "Le nouveau forfait doit utiliser la même devise que le forfait actuel."
@@ -2660,6 +2675,26 @@ msgstr ""
 
 msgid "This is an automated billing document."
 msgstr "Ceci est un document de facturation automatique."
+
+msgid "Price cannot be null."
+msgstr "Le prix doit être renseigné."
+
+msgid "Free plans must have a price of 0."
+msgstr "Les plans gratuits doivent avoir un prix de 0."
+
+msgid "Free plans must use the lifetime billing period."
+msgstr "Les plans gratuits doivent utiliser la période de facturation à vie."
+
+msgid "Online plans must have a price greater than 0."
+msgstr "Les plans en ligne doivent avoir un prix supérieur à 0."
+
+msgid ""
+"Online plans cannot use the lifetime billing period: Stripe bills monthly or "
+"yearly. Use an offline plan for a one-off paid membership."
+msgstr ""
+"Les plans en ligne ne peuvent pas utiliser la période de facturation à vie : "
+"Stripe facture mensuellement ou annuellement. Utilisez un plan hors ligne "
+"pour une adhésion payante unique."
 
 msgid "Category prices must be a mapping of price category id to price."
 msgstr ""

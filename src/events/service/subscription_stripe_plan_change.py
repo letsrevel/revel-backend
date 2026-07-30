@@ -30,6 +30,12 @@ logger = structlog.get_logger(__name__)
 # ---- Internal helpers --------------------------------------------------------
 
 
+# LIFETIME is deliberately absent: this module is ONLINE-only (every entry
+# point guards on ``payment_method == ONLINE``), ``change_plan`` refuses
+# cross-payment-method switches, and an ONLINE plan can never be LIFETIME
+# (rejected at create and patch by ``validate_plan_shape``). A KeyError here
+# would therefore mean one of those three invariants broke — which is exactly
+# the loud failure we want, rather than a silently wrong proration.
 _PERIOD_UNIT_MONTHS: dict[str, Decimal] = {
     MembershipSubscriptionPlan.PeriodUnit.MONTH.value: Decimal("1"),
     MembershipSubscriptionPlan.PeriodUnit.YEAR.value: Decimal("12"),

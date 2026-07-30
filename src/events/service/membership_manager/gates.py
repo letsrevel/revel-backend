@@ -450,6 +450,14 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
     file yet (``SUBMIT_APPLICATION``: :class:`ManualApprovalGate` deliberately
     falls through in that state so the free path can apply — the paid path must
     not slip past staff approval through the same hole).
+
+    **FREE plans** are self-serve like ONLINE ones but involve no Stripe object
+    at all, so they skip both the ``PLAN_NOT_ONLINE`` block and the
+    Stripe-connected requirement. Every other check — sales status, cap,
+    duplicate subscription, the approval annotation — applies to them
+    unchanged. They keep the ``PROCEED_TO_PAYMENT`` next step: the frontend
+    calls the same ``/subscribe`` endpoint, which simply answers with a null
+    ``checkout_url`` and an already-ACTIVE subscription.
     """
 
     def check(self) -> MembershipEligibility | None:
@@ -470,9 +478,13 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
                 reason_code=MembershipReasonCode.REQUIRES_APPROVAL,
                 next_step=MembershipNextStep.SUBMIT_APPLICATION,
             )
-        if self.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        if self.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+            # Staff-managed: there is no member-facing way to pay for it.
             return self._block(Reasons.PLAN_NOT_ONLINE)
-        if not self.organization.is_stripe_connected:
+        if (
+            self.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
+            and not self.organization.is_stripe_connected
+        ):
             return self._block(Reasons.ORG_NOT_STRIPE_CONNECTED)
         if self.plan.sales_status != MembershipSubscriptionPlan.SalesStatus.OPEN:
             return self._block(Reasons.PLAN_UNAVAILABLE)

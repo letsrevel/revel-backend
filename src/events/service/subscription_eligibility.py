@@ -1,9 +1,11 @@
 """Bridge between the membership eligibility gate stack and the paid subscription flow.
 
-Owns the two places the paid path must consult the gates:
+Owns the two places the plan-bearing path must consult the gates:
 
-- ``subscribe_to_plan`` — the ``/subscribe`` workflow: gate check, Stripe
-  Checkout, and linking the created subscription to the caller's application.
+- ``subscribe_to_plan`` — the ``/subscribe`` workflow: gate check, activation,
+  and linking the created subscription to the caller's application. Activation
+  is Stripe Checkout for an ONLINE plan; for a FREE plan it is a direct,
+  already-ACTIVE subscription with no checkout URL at all (#832).
 - ``ensure_tier_change_allowed`` — cross-tier ``change-plan`` targets run the
   gate stack against the destination tier; same-tier swaps are deliberately
   not re-gated (the member already passed that tier's gates once).
@@ -17,6 +19,7 @@ from events.models import MembershipSubscription, MembershipSubscriptionPlan, Or
 from events.service import subscription_stripe_service
 from events.service.membership_manager import MembershipApplicationIneligibleError, MembershipEligibilityService
 from events.service.membership_manager.enums import MembershipReasonCode
+from events.service.subscription_core import create_subscription
 
 
 def _ensure_plan_eligibility(user: RevelUser, plan: MembershipSubscriptionPlan) -> MembershipEligibilityService:
@@ -44,20 +47,35 @@ def _ensure_plan_eligibility(user: RevelUser, plan: MembershipSubscriptionPlan) 
     return eligibility_service
 
 
-def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tuple[MembershipSubscription, str]:
-    """Gate-checked ``/subscribe`` workflow: eligibility, Checkout, application link.
+def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tuple[MembershipSubscription, str | None]:
+    """Gate-checked ``/subscribe`` workflow: eligibility, activation, application link.
 
-    ``start_online_subscription`` re-checks payment method, sales status, and
-    Stripe readiness — the gate stack's answer can race a concurrent config
-    change, so the authoritative enforcement stays there. When the caller has
-    an application on file (the gated flow), the created subscription is linked
-    to it so the Stripe activation can settle it COMPLETED.
+    ONLINE plans go through Stripe Checkout: ``start_online_subscription``
+    re-checks payment method, sales status, and Stripe readiness — the gate
+    stack's answer can race a concurrent config change, so the authoritative
+    enforcement stays there. When the caller has an application on file (the
+    gated flow), the created subscription is linked to it so the Stripe
+    activation can settle it COMPLETED.
+
+    FREE plans have no Stripe object and no money to collect, so
+    ``create_subscription`` lands the row ACTIVE (open-ended, ``LIFETIME``) and
+    materializes the member in one transaction. No activation webhook will ever
+    run for it, so the originating application is settled COMPLETED here
+    instead — through the same status-filtered update the Stripe path defers to
+    :mod:`events.service.subscription_stripe_sync`.
 
     Returns:
-        The (PENDING) local subscription row and the hosted Checkout URL.
+        The local subscription row and the hosted Checkout URL — ``None`` for a
+        FREE plan, whose subscription is already ACTIVE.
     """
     eligibility_service = _ensure_plan_eligibility(user, plan)
-    subscription, checkout_url = subscription_stripe_service.start_online_subscription(plan, user)
+    is_free = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE
+    checkout_url: str | None
+    if is_free:
+        subscription = create_subscription(plan, user)
+        checkout_url = None
+    else:
+        subscription, checkout_url = subscription_stripe_service.start_online_subscription(plan, user)
     application = eligibility_service.current_application
     if application is not None and application.status in (
         OrganizationMembershipRequest.Status.PENDING,
@@ -65,6 +83,12 @@ def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tupl
     ):
         application.subscription = subscription
         application.save(update_fields=["subscription", "updated_at"])
+    if is_free:
+        # lazy: subscription_stripe_sync -> ... -> subscription_service imports
+        # this module back, so a top-level import would cycle.
+        from events.service.subscription_stripe_sync import _settle_originating_application
+
+        _settle_originating_application(subscription)
     return subscription, checkout_url
 
 

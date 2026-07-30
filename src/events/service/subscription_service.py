@@ -1,7 +1,15 @@
-"""Service layer for membership subscriptions (Phase 1, OFFLINE).
+"""Service layer for membership subscriptions — all three payment methods.
 
-Function-based service per the project's hybrid conventions. Stripe-specific
-logic is intentionally absent; it lands in a separate Phase 2 module.
+Function-based service per the project's hybrid conventions. This module is the
+orchestrator: it owns the local (OFFLINE / FREE) lifecycle outright and
+*dispatches* to the Stripe modules for ONLINE rows — ``subscription_stripe_service``,
+``subscription_stripe_plan_change``, ``subscription_stripe_sync``. It therefore
+imports Stripe code rather than containing it, so every entry point here works
+regardless of payment method and controllers never branch on one.
+
+Lifecycle primitives shared with the Stripe modules live in
+``subscription_core`` (re-exported here, so existing call sites are unaffected)
+— that split is what keeps the service import graph acyclic.
 """
 
 import functools
@@ -50,6 +58,7 @@ from events.service.subscription_sales import (
 from events.service.subscription_stripe_base import ensure_stripe_price
 from events.service.subscription_stripe_payloads import _stripe_account_kwargs
 from events.service.ticket_service import check_online_payment_prerequisites
+from events.utils.subscription_plan_rules import validate_plan_shape
 
 logger = structlog.get_logger(__name__)
 
@@ -133,9 +142,22 @@ def update_plan(
     Refuses currency changes when the plan has any non-terminal subscriptions
     — cross-currency migration is risky and out of roadmap; staff must archive
     and create a new plan instead.
+
+    Also re-checks the (payment method, price, cadence) shape against the
+    *merged* post-patch values: ``payment_method`` is not patchable, so a FREE
+    plan can never acquire a price and an ONLINE plan can never lose one or
+    become LIFETIME.
     """
     if not fields:
         return plan
+
+    shape_error = validate_plan_shape(
+        payment_method=plan.payment_method,
+        price=fields.get("price", plan.price),
+        period_unit=fields.get("period_unit", plan.period_unit),
+    )
+    if shape_error:
+        raise HttpError(400, shape_error)
 
     new_currency = fields.get("currency")
     if new_currency is not None and new_currency.upper() != plan.currency.upper():
@@ -713,7 +735,7 @@ def _validate_change_plan_target(
     if new_plan.payment_method != subscription.plan.payment_method:
         raise HttpError(
             400,
-            str(_("Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new subscription instead.")),
+            str(_("Cannot switch between plans with different payment methods. Cancel and subscribe again instead.")),
         )
     if new_plan.currency.upper() != subscription.plan.currency.upper():
         raise HttpError(400, str(_("New plan must use the same currency as the current plan.")))
@@ -729,9 +751,11 @@ def change_plan(
     """Switch ``subscription`` to ``new_plan``.
 
     For ONLINE subscriptions, dispatches to the Stripe service which routes
-    to either an immediate prorated upgrade or a scheduled downgrade. OFFLINE
-    subscriptions perform an immediate, fee-free swap — staff are expected
-    to handle any settlement off-book.
+    to either an immediate prorated upgrade or a scheduled downgrade. Every
+    other payment method takes the local branch below — an immediate, fee-free
+    swap. For OFFLINE that means staff handle any settlement off-book; for FREE
+    there is nothing to settle at all (both plans are zero-price, so no money
+    moves in either direction).
 
     Refuses cross-organization plan changes and currency switches in either
     path; the latter would require manual prorating against a moving FX rate

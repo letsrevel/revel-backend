@@ -1,12 +1,19 @@
 # Membership Subscriptions
 
-Revel lets organizations charge recurring membership fees, with two collection
+Revel lets organizations charge recurring membership fees, with three collection
 modes that share one local state machine:
 
 - **OFFLINE**: Staff records payments by hand (cash, bank transfer, anything
   non-Stripe). The grace-expiry Celery beat task drives the state machine.
 - **ONLINE**: Stripe Subscriptions on the org's Connect account. Stripe drives
   the state machine via webhooks; the local row mirrors what Stripe says.
+- **FREE** (#832): no money at all. Members self-subscribe and the row lands
+  ACTIVE immediately — no Stripe object, no checkout, nothing to collect. FREE
+  plans are necessarily `LIFETIME`, so nothing ever renews or lapses either.
+  This is the "free but *gated*" membership: the tier's questionnaire and
+  manual-approval gates still have to pass, which is the whole reason the mode
+  exists (a plan-less tier joins through `/apply`, which cannot enforce a
+  subscription cap or a paused sale).
 
 The split is captured in [ADR-0012](../adr/0012-membership-subscriptions-offline-online-hybrid.md);
 the Stripe Connect model is captured in [ADR-0013](../adr/0013-stripe-connect-direct-charges-subscriptions.md);
@@ -73,16 +80,29 @@ All in `src/events/models/subscription.py`. Re-exported via
 |---|---|
 | `tier` | FK to `MembershipTier` — multiple plans per tier (Monthly, Annual, …) |
 | `name`, `description` | Operator-controlled |
-| `price`, `currency` | `Decimal(10,2)` + ISO 4217. Currency is validated against the platform's supported list |
-| `period_unit`, `period_count` | Rolling cadence only: `(MONTH, 1)`, `(MONTH, 3)`, `(YEAR, 1)`, … |
+| `price`, `currency` | `Decimal(10,2)` + ISO 4217. Currency is validated against the platform's supported list. Bound to `payment_method` — see the shape rules below |
+| `period_unit`, `period_count` | Rolling cadence — `(MONTH, 1)`, `(MONTH, 3)`, `(YEAR, 1)`, … — **or** `LIFETIME`, a non-renewing term. `LIFETIME` ignores `period_count`, leaves `current_period_end` NULL forever, and is therefore invisible to every renewal/lapse/expiry beat (they all filter on that column, which SQL NULL never matches) |
 | `is_active` | Archived (`False`) plans are hidden from public listings but keep their FKs |
 | `sales_status` | `OPEN` (default) / `PAUSED`. Pausing stops **member self-service** sales (subscribe, revive, switching into the plan) without touching existing subscribers; staff endpoints bypass it. Orthogonal to archiving: archived = retired, paused = temporarily closed |
 | `max_subscriptions` | Cap on concurrent **non-terminal** subscriptions (the venue's "card stock"). `NULL` = unlimited. Counted live under a plan-row lock, so slots reclaim automatically when a subscription terminalizes — no counter to drift. Hard limit: applies to staff too |
-| `payment_method` | `OFFLINE` (default) or `ONLINE`. **Not patchable** — see ADR-0012 |
-| `stripe_product_id`, `stripe_price_id` | Provisioned lazily by `ensure_stripe_price` on the org's Connect account |
+| `payment_method` | `OFFLINE` (default), `ONLINE`, or `FREE`. **Not patchable** — see ADR-0012 |
+| `stripe_product_id`, `stripe_price_id` | Provisioned lazily by `ensure_stripe_price` on the org's Connect account. Always empty for OFFLINE and FREE |
 | `history` | `simple_history` audit table |
 
 Constraint: `unique_plan_name_per_tier(tier, name)`.
+
+#### Plan shape rules
+
+`payment_method` constrains `price` and `period_unit`. Enforced once in
+`events/utils/subscription_plan_rules.py:validate_plan_shape`, called from both
+`PlanCreateSchema` (422 at create) and `subscription_service.update_plan` (400
+at patch, against the *merged* post-patch values) so the two cannot drift.
+
+| `payment_method` | `price` | `period_unit` | Why |
+|---|---|---|---|
+| `OFFLINE` | ≥ 0 | any, incl. `LIFETIME` | Staff settle off-book; `LIFETIME` expresses a one-off paid membership |
+| `ONLINE` | > 0 | `MONTH` / `YEAR` only | Stripe has nothing to bill at 0, and its recurring intervals are month/year — a paid lifetime membership is expressible as OFFLINE, which has no Stripe object |
+| `FREE` | = 0 | `LIFETIME` only | A finite free term would be selected by the lapse beat and expire with no way to renew (there is no payment to record) |
 
 #### Sale controls
 
@@ -101,7 +121,7 @@ paused" vs a normal subscribe CTA.
 |---|---|
 | `user`, `plan`, `organization` | `organization` is denormalized for permission/query simplicity; `clean()` enforces `plan.tier.organization_id == organization_id` |
 | `status` | See [State Machine](#state-machine) |
-| `current_period_start` / `current_period_end` | Driven by `record_payment` (OFFLINE) or `invoice.paid` (ONLINE) |
+| `current_period_start` / `current_period_end` | Driven by `record_payment` (OFFLINE) or `invoice.paid` (ONLINE). On a `LIFETIME` plan `current_period_end` stays **NULL forever** — that NULL is what keeps the beats away from it |
 | `cancel_at_period_end`, `cancelled_at` | Scheduled vs. immediate cancellation |
 | `expired_at` | Stamped on every transition into EXPIRED. Drives revival window |
 | `stripe_subscription_id` | Unique; nullable. Populated after the Stripe Subscription is created |
@@ -194,9 +214,9 @@ functions to avoid a cycle.
 | Function | Responsibility |
 |---|---|
 | `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency edits are refused when active subs exist. `delete_plan` catches `ProtectedError` from the FK |
-| `create_subscription` | Refuses BANNED users, duplicate non-terminal subs, and cap-full plans (`ensure_plan_sales_capacity`, under the plan-row lock); auto-creates an `OrganizationMember` at `plan.tier`. OFFLINE only — ONLINE goes via `start_online_subscription` so the user can confirm payment |
+| `create_subscription` | Refuses BANNED users, duplicate non-terminal subs, and cap-full plans (`ensure_plan_sales_capacity`, under the plan-row lock); auto-creates an `OrganizationMember` at `plan.tier`. OFFLINE and FREE only — ONLINE goes via `start_online_subscription` so the user can confirm payment. A FREE plan additionally lands the row **ACTIVE** with `current_period_start=now` and a NULL period end (nothing to pay, nothing to renew) |
 | `record_payment` | Advances `current_period_*`, revives PENDING/PAST_DUE → ACTIVE. Refuses terminal. Dispatches `RENEWAL_SUCCEEDED` only on a real renewal (prior_status ∈ {ACTIVE, PAST_DUE}). `dispatch_renewal_notification=False` for revival callers |
-| `cancel_subscription` | `immediate=True` → CANCELLED. `immediate=False` → `cancel_at_period_end=True` and let the beat task finish it. Refuses scheduled cancel on PAUSED (frozen time would never reach the boundary). Routes ONLINE through `cancel_online_subscription` |
+| `cancel_subscription` | `immediate=True` → CANCELLED. `immediate=False` → `cancel_at_period_end=True` and let the beat task finish it. Refuses scheduled cancel on PAUSED (frozen time would never reach the boundary). A **period-less** row — any LIFETIME/FREE subscription, or an unpaid checkout — has no boundary to wait for, so a scheduled cancel is upgraded to immediate (the one exception is a row whose Stripe Subscription is already linked: Stripe owns that boundary). Routes ONLINE through `cancel_online_subscription` |
 | `pause_subscription` / `resume_subscription` | Local for OFFLINE; routes to Stripe `pause_collection` for ONLINE. Refuses ONLINE without `stripe_subscription_id` to keep local PAUSED in lockstep with Stripe |
 | `revive_subscription` | EXPIRED → ACTIVE (OFFLINE, with `initial_payment` — staff callers only; the member endpoint refuses OFFLINE plans) or PENDING + hosted Checkout for a fresh Stripe Subscription (ONLINE); staff-initiated ONLINE revivals also email the member the checkout link (`SUBSCRIPTION_REVIVAL_CHECKOUT`). Enforces the plan cap (a revived sub re-occupies a slot) and, for member callers, `sales_status` (`enforce_sales_status=False` for staff) |
 | `change_plan` | Routes ONLINE to `subscription_stripe_plan_change.change_online_plan`; OFFLINE does an immediate same-org/same-currency swap |
@@ -284,6 +304,9 @@ Per-organization metrics for the admin dashboard:
 
 A single aggregate query produces the status breakdown; the MRR loop uses
 `select_related("plan")` plus the batched payment lookup above to avoid N+1.
+`LIFETIME` plans normalize to **0** monthly: they are one-off, so folding them
+into MRR would inflate it permanently off a payment that happens once — or, for
+FREE plans, never.
 
 ### `events/utils/subscription_periods.py`
 
@@ -292,7 +315,12 @@ Pure utilities:
 - `calculate_period_end(period_start, plan)` — uses
   `dateutil.relativedelta` so Jan 31 + 1 month → Feb 28/29 behaves
   correctly. Explicit branch on `plan.period_unit` (`MONTH` / `YEAR`) so a
-  future unit isn't silently treated as months.
+  future unit isn't silently treated as months. Returns **`None`** for
+  `LIFETIME`; callers must propagate that NULL rather than substituting a
+  date. (`record_payment` is the one place that needs a non-null value anyway —
+  `MembershipPayment.period_end` is `NOT NULL` — so a lifetime payment is
+  recorded as the point event it is, `period_end == period_start`, while the
+  subscription's own `current_period_end` stays NULL.)
 - `REMINDER_DAYS = 3` — used by the renewal-reminder beat task.
 
 ## Permissions
@@ -318,7 +346,7 @@ scopes every query).
 Rules baked into the signal:
 
 - **Never creates a member.** Creation lives in
-  `create_subscription` (OFFLINE) or `_ensure_active_member` (ONLINE,
+  `create_subscription` (OFFLINE and FREE) or `_ensure_active_member` (ONLINE,
   gated on the first paid invoice).
 - **Leaves BANNED alone.** A banned member stays banned regardless of
   subscription activity.
@@ -381,7 +409,7 @@ The webhook endpoint listens to Connect events (see
 |---|---|---|
 | GET | `/membership-subscriptions` | List the caller's subscriptions across orgs |
 | GET | `/organizations/{org_id}/subscription` | Caller's current non-terminal sub in this org |
-| POST | `/organizations/{org_id}/subscribe` | Start an ONLINE subscription. Returns a hosted Stripe Checkout `checkout_url` (redirect flow, same as tickets). An abandoned checkout is resumed: re-subscribing returns the still-open session's URL instead of a 400, or mints a fresh session once the old one expired |
+| POST | `/organizations/{org_id}/subscribe` | Start an ONLINE or FREE subscription. Runs the full eligibility gate stack first. **ONLINE**: returns a hosted Stripe Checkout `checkout_url` (redirect flow, same as tickets); an abandoned checkout is resumed — re-subscribing returns the still-open session's URL instead of a 400, or mints a fresh session once the old one expired. **FREE**: `checkout_url` is `null` and the returned subscription is already ACTIVE with the membership granted and any originating application settled COMPLETED — the frontend must branch on the null rather than redirecting |
 | POST | `/organizations/{org_id}/subscription/cancel` | Self-cancel; `immediate` flag |
 | POST | `/organizations/{org_id}/subscription/change-plan` | Self-service plan change (direction inferred from price delta). Refused into PAUSED or sold-out plans |
 | POST | `/organizations/{org_id}/subscription/revive` | Revive own EXPIRED sub within the org's revival window. **ONLINE plans only** — payment is collected by Stripe via the returned `checkout_url`. OFFLINE revival is staff-only (members must never self-record money); members get a 400 directing them to the organization |

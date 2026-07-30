@@ -1043,10 +1043,19 @@ msgstr ""
 "endpoint de suscripción para miembros."
 
 msgid ""
+"FREE plans cost nothing, so no initial payment can be recorded against them."
+msgstr ""
+"Los planes FREE no cuestan nada, así que no se puede registrar ningún "
+"pago inicial para ellos."
+
+msgid ""
 "ONLINE subscription payments are recorded automatically via Stripe webhooks."
 msgstr ""
 "Los pagos de suscripciones ONLINE se registran automáticamente mediante los "
 "webhooks de Stripe."
+
+msgid "FREE subscriptions have no payments to record."
+msgstr "Las suscripciones FREE no tienen pagos que registrar."
 
 msgid ""
 "ONLINE payments must be refunded from the Stripe Dashboard; the refund is "
@@ -1270,8 +1279,6 @@ msgstr ""
 
 msgid "Target plan for the paid path. NULL = free join."
 msgstr "Plan de destino para la vía de pago. NULL = adhesión gratuita."
-"Plan de destino para la vía de pago. NULL = alta gratuita. La fase 1 rechaza "
-"valores no nulos en /apply."
 
 msgid "Submission that satisfied the questionnaire gate, if applicable."
 msgstr "Envío que ha superado el requisito del cuestionario, si procede."
@@ -1317,11 +1324,17 @@ msgstr "Online (Stripe)"
 msgid "Offline (staff-managed)"
 msgstr "Offline (gestionado por el staff)"
 
+msgid "Free (member self-serve)"
+msgstr "Gratuito (autoservicio para miembros)"
+
 msgid "Month"
 msgstr "Mes"
 
 msgid "Year"
 msgstr "Año"
+
+msgid "Lifetime"
+msgstr "De por vida"
 
 msgid "Open"
 msgstr "Abierto"
@@ -1356,10 +1369,12 @@ msgstr ""
 
 msgid ""
 "ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by "
-"staff."
+"staff; FREE plans cost nothing, are self-serve, and never renew (price 0 + "
+"LIFETIME period)."
 msgstr ""
-"Los planes ONLINE se facturan a través de Stripe; los planes OFFLINE los "
-"gestiona manualmente el staff."
+"Los planes ONLINE se cobran mediante Stripe; los planes OFFLINE los gestiona "
+"manualmente el personal; los planes FREE no cuestan nada, son de "
+"autoservicio y nunca se renuevan (precio 0 + periodo LIFETIME)."
 
 msgid "Past Due"
 msgstr "Vencido"
@@ -2316,11 +2331,11 @@ msgstr ""
 "El nuevo plan debe pertenecer a la misma organización que la suscripción."
 
 msgid ""
-"Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new "
-"subscription instead."
+"Cannot switch between plans with different payment methods. Cancel and "
+"subscribe again instead."
 msgstr ""
-"No se puede cambiar entre planes ONLINE y OFFLINE. Cancela y crea una nueva "
-"suscripción en su lugar."
+"No se puede cambiar entre planes con métodos de pago diferentes. Cancela la "
+"suscripción y vuelve a suscribirte."
 
 msgid "New plan must use the same currency as the current plan."
 msgstr "El nuevo plan debe usar la misma moneda que el plan actual."
@@ -2616,6 +2631,26 @@ msgstr ""
 
 msgid "This is an automated billing document."
 msgstr "Este es un documento de facturación automático."
+
+msgid "Price cannot be null."
+msgstr "El precio no puede ser nulo."
+
+msgid "Free plans must have a price of 0."
+msgstr "Los planes gratuitos deben tener un precio de 0."
+
+msgid "Free plans must use the lifetime billing period."
+msgstr "Los planes gratuitos deben usar el periodo de facturación de por vida."
+
+msgid "Online plans must have a price greater than 0."
+msgstr "Los planes online deben tener un precio mayor que 0."
+
+msgid ""
+"Online plans cannot use the lifetime billing period: Stripe bills monthly or "
+"yearly. Use an offline plan for a one-off paid membership."
+msgstr ""
+"Los planes online no pueden usar el periodo de facturación de por vida: "
+"Stripe factura mensual o anualmente. Usa un plan offline para una membresía "
+"de pago único."
 
 msgid "Category prices must be a mapping of price category id to price."
 msgstr ""

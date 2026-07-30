@@ -104,13 +104,20 @@ def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
         .values_list("subscription_id", "amount")
     )
 
+    # Only plans that actually contribute recurring revenue get a vote on the
+    # currency. A LIFETIME plan normalizes to 0, so counting its currency here
+    # would flip an otherwise single-currency org to MIXED (mrr forced to 0)
+    # on the strength of a row contributing nothing — e.g. one recurring EUR
+    # subscription alongside a one-off USD lifetime membership.
     currencies: set[str] = set()
     mrr_total = Decimal("0")
     for sub in active_subs:
-        currencies.add(sub.plan.currency)
         paid = paid_by_sub.get(sub.id)
         amount = paid if paid is not None else sub.plan.price
-        mrr_total += _normalize_to_monthly(amount, sub.plan)
+        contribution = _normalize_to_monthly(amount, sub.plan)
+        if contribution:
+            currencies.add(sub.plan.currency)
+        mrr_total += contribution
 
     mixed_currency_warning = len(currencies) > 1
     if mixed_currency_warning:
@@ -197,7 +204,10 @@ def _normalize_to_monthly(amount: Decimal, plan: MembershipSubscriptionPlan) -> 
     """Normalise ``amount`` to a monthly figure using the plan's billing period.
 
     Annual plans are divided by (period_count * 12) months; monthly plans by
-    period_count. The returned value is unrounded; the caller quantizes the
+    period_count. Lifetime plans contribute nothing: they are one-off, never
+    renew, and so are not *recurring* revenue at all — folding them into MRR
+    would inflate it permanently off a payment that happens once (or, for FREE
+    plans, never). The returned value is unrounded; the caller quantizes the
     running sum once to avoid accumulated rounding errors.
 
     Args:
@@ -207,6 +217,8 @@ def _normalize_to_monthly(amount: Decimal, plan: MembershipSubscriptionPlan) -> 
     Returns:
         The monthly equivalent as a :class:`Decimal` (unrounded).
     """
+    if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.LIFETIME:
+        return Decimal("0")
     if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.MONTH:
         return amount / plan.period_count
     # YEAR

@@ -2,7 +2,10 @@
 
 Phase 1 introduced staff-managed (OFFLINE) subscriptions. Phase 2 adds
 Stripe-backed ONLINE subscriptions via additive fields and a per-(user, org)
-:class:`CustomerProfile`.
+:class:`CustomerProfile`. #832 adds FREE — a zero-price, member-self-serve
+plan with no Stripe object — together with the ``LIFETIME`` period unit, a
+non-renewing term that leaves ``current_period_end`` NULL forever (which is
+what keeps the renewal/lapse/expiry beats from ever selecting it).
 """
 
 import typing as t
@@ -50,6 +53,7 @@ class SubscriptionPaymentMethod(models.TextChoices):
 
     ONLINE = "online", _("Online (Stripe)")
     OFFLINE = "offline", _("Offline (staff-managed)")
+    FREE = "free", _("Free (member self-serve)")
 
 
 class MembershipSubscriptionPlanQuerySet(models.QuerySet["MembershipSubscriptionPlan"]):
@@ -93,13 +97,17 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     """A paid plan attached to a :class:`MembershipTier`.
 
     Multiple plans can target the same tier (e.g. "Monthly" + "Annual"). The
-    billing cadence is rolling only: ``period_count`` units of ``period_unit``
-    from each renewal.
+    billing cadence is rolling — ``period_count`` units of ``period_unit`` from
+    each renewal — except for ``LIFETIME``, which never renews at all.
     """
 
     class PeriodUnit(models.TextChoices):
         MONTH = "month", _("Month")
         YEAR = "year", _("Year")
+        # Non-renewing term: ``current_period_end`` stays NULL forever, so no
+        # lapse/reminder/expiry beat ever selects the subscription and nothing
+        # is ever billed again. ``period_count`` is meaningless here.
+        LIFETIME = "lifetime", _("Lifetime")
 
     # Alias so callers keep the ``Model.PaymentMethod`` idiom; the class lives
     # at module level under a collision-free name (see its docstring, #782).
@@ -155,7 +163,10 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         max_length=10,
         choices=PaymentMethod.choices,
         default=PaymentMethod.OFFLINE,
-        help_text=_("ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by staff."),
+        help_text=_(
+            "ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by staff; "
+            "FREE plans cost nothing, are self-serve, and never renew (price 0 + LIFETIME period)."
+        ),
     )
     stripe_product_id = models.CharField(max_length=255, blank=True, default="")
     stripe_price_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
@@ -172,6 +183,28 @@ class MembershipSubscriptionPlan(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.tier} - {self.name}"
+
+    def clean(self) -> None:
+        """Enforce the (payment method, price, cadence) shape rules.
+
+        Defense-in-depth behind the API validators: ``TimeStampedModel.save()``
+        runs ``full_clean()``, so this closes every non-bulk ORM write path —
+        Django admin, management commands, ad-hoc shell writes — without
+        needing a ``CheckConstraint`` migration. The API layer already refuses
+        these shapes earlier with better messages.
+        """
+        super().clean()
+        # lazy: subscription_plan_rules imports from events.models, so a
+        # top-level import here would cycle.
+        from events.utils.subscription_plan_rules import validate_plan_shape
+
+        message = validate_plan_shape(
+            payment_method=self.payment_method,
+            price=self.price,
+            period_unit=self.period_unit,
+        )
+        if message:
+            raise DjangoValidationError({"payment_method": message})
 
     @property
     def organization_id(self) -> t.Any:

@@ -298,11 +298,15 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         slug: str,
         payload: schema.SubscriptionCreateSchema,
     ) -> tuple[int, models.MembershipSubscription]:
-        """Create a subscription on behalf of a user (OFFLINE flow only).
+        """Create a subscription on behalf of a user (OFFLINE or FREE plans).
 
         ONLINE (Stripe) plans must be subscribed to by the member themselves
         via ``POST /api/me/organizations/{org_id}/subscribe`` so the user can
         confirm the first payment.
+
+        A FREE plan may be created here (it is the staff equivalent of the
+        member's self-serve subscribe) but never with an initial payment —
+        there is nothing to collect on a zero-price plan.
         """
         organization = self.get_one(slug)
         plan = get_object_or_404(
@@ -319,6 +323,18 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                         "Send them to the member-facing subscribe endpoint."
                     )
                 ),
+            )
+        if (
+            plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.FREE
+            and payload.initial_payment_amount is not None
+        ):
+            # A FREE plan is born ACTIVE with an open-ended period, so a payment
+            # recorded alongside it would overwrite ``current_period_start`` and
+            # trip the renewal-succeeded notification (prior status is already
+            # ACTIVE) — a receipt for money nobody paid.
+            raise HttpError(
+                400,
+                str(_("FREE plans cost nothing, so no initial payment can be recorded against them.")),
             )
         user = get_object_or_404(RevelUser, pk=payload.user_id)
 
@@ -372,7 +388,8 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         """Record a manual payment against an OFFLINE subscription.
 
         ONLINE (Stripe) payments arrive via the ``invoice.paid`` webhook and
-        must not be hand-recorded — that would create duplicates.
+        must not be hand-recorded — that would create duplicates. FREE plans
+        collect nothing at all, so they have no ledger to record against.
         """
         organization = self.get_one(slug)
         subscription = get_object_or_404(
@@ -384,6 +401,15 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             raise HttpError(
                 400,
                 str(_("ONLINE subscription payments are recorded automatically via Stripe webhooks.")),
+            )
+        if subscription.plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.FREE:
+            # Same trust boundary as the ONLINE refusal above, for the opposite
+            # reason: there is no money on a FREE plan to record. Accepting one
+            # would rewrite the open-ended period and email the member a
+            # renewal receipt for a payment that never happened.
+            raise HttpError(
+                400,
+                str(_("FREE subscriptions have no payments to record.")),
             )
         payment = subscription_service.record_payment(
             subscription,
