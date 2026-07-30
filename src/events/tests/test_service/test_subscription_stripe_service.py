@@ -286,8 +286,9 @@ class TestStartOnlineSubscription:
         assert kwargs["metadata"] == {"membership_subscription_id": str(subscription.pk)}
         assert kwargs["subscription_data"]["metadata"] == {"membership_subscription_id": str(subscription.pk)}
         assert kwargs["stripe_account"] == "acct_test_org"
-        assert "membership_success=true" in kwargs["success_url"]
-        assert "membership_cancelled=true" in kwargs["cancel_url"]
+        # Dedicated membership route, not the org landing page (#838).
+        assert f"/org/{stripe_org.slug}/membership?membership_success=true" in kwargs["success_url"]
+        assert f"/org/{stripe_org.slug}/membership?membership_cancelled=true" in kwargs["cancel_url"]
         assert isinstance(kwargs["expires_at"], int)
 
     def test_refuses_offline_plan(

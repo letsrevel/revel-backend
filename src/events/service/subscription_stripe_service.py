@@ -135,12 +135,14 @@ def _checkout_session_urls(organization: Organization) -> dict[str, str]:
     """Success/cancel redirect URLs for a membership Checkout Session.
 
     Mirrors the ticket checkout convention (``stripe_service._create_stripe_session``):
-    redirect back to the org page with a query flag the frontend reads.
+    redirect back with a query flag the frontend reads. Points at the dedicated
+    membership route (``/org/<slug>/membership``, revel-frontend#720) — the org
+    landing page no longer renders the checkout outcome (#838).
     """
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     return {
-        "success_url": f"{frontend_base_url}/org/{organization.slug}?membership_success=true",
-        "cancel_url": f"{frontend_base_url}/org/{organization.slug}?membership_cancelled=true",
+        "success_url": f"{frontend_base_url}/org/{organization.slug}/membership?membership_success=true",
+        "cancel_url": f"{frontend_base_url}/org/{organization.slug}/membership?membership_cancelled=true",
     }
 
 
