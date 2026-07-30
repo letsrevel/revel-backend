@@ -21,6 +21,7 @@ from events.service.membership_manager.resolvers import (
     resolve_membership_questionnaire,
     resolve_requires_membership_approval,
 )
+from events.utils.subscription_plan_rules import validate_plan_shape
 
 from .mixins import get_image_field_url
 from .organization import MembershipTierSchema
@@ -221,7 +222,12 @@ class MemberPlanSchema(ModelSchema):
 
 
 class PlanCreateSchema(Schema):
-    """Create payload for a subscription plan (tier inferred from URL)."""
+    """Create payload for a subscription plan (tier inferred from URL).
+
+    The (payment method, price, cadence) triple must be coherent — see
+    :func:`events.utils.subscription_plan_rules.validate_plan_shape`, which is
+    also what ``PATCH`` enforces so the two can never drift.
+    """
 
     name: str = Field(..., max_length=255)
     description: str = ""
@@ -234,13 +240,30 @@ class PlanCreateSchema(Schema):
     sales_status: MembershipSubscriptionPlan.SalesStatus = MembershipSubscriptionPlan.SalesStatus.OPEN
     max_subscriptions: int | None = Field(default=None, ge=1)
 
+    @model_validator(mode="after")
+    def _validate_plan_shape(self) -> "PlanCreateSchema":
+        """Reject free-but-priced, online-but-free, and cadence/method mismatches."""
+        message = validate_plan_shape(
+            payment_method=self.payment_method,
+            price=self.price,
+            period_unit=self.period_unit,
+        )
+        if message:
+            raise ValueError(message)
+        return self
+
 
 class PlanUpdateSchema(Schema):
     """Partial update payload for a subscription plan.
 
     ``payment_method`` is intentionally not patchable: switching between
-    OFFLINE and ONLINE mid-lifecycle would require non-trivial Stripe
-    migration. Archive the plan and create a new one instead.
+    OFFLINE, ONLINE and FREE mid-lifecycle would require non-trivial Stripe
+    migration (and, for FREE, refunding nobody). Archive the plan and create a
+    new one instead.
+
+    The price/cadence rules bound to the plan's *existing* payment method are
+    enforced by ``subscription_service.update_plan``, which is the only place
+    that can see the merged post-patch shape.
     """
 
     name: str | None = Field(None, max_length=255)
@@ -683,12 +706,18 @@ class SubscribeRequestSchema(Schema):
 class SubscribeResponseSchema(Schema):
     """Response to a member-initiated subscribe.
 
-    Carries the hosted Stripe Checkout ``checkout_url`` the frontend
-    redirects the member to for payment.
+    ``checkout_url`` is the hosted Stripe Checkout the frontend redirects the
+    member to for payment — **or ``None`` for a FREE plan**, which involves no
+    Stripe object at all. A null ``checkout_url`` means there is nothing left
+    to do: ``subscription.status`` is already ``active`` (with a null
+    ``current_period_end``, because FREE plans are LIFETIME and never renew)
+    and the membership has been granted. The frontend must branch on it rather
+    than redirecting unconditionally. Same contract as
+    :class:`RevivalResponseSchema`.
     """
 
     subscription: MySubscriptionSchema
-    checkout_url: str
+    checkout_url: str | None = None
 
 
 class SubscriptionActivationPendingSchema(Schema):

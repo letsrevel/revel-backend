@@ -65,7 +65,7 @@ flowchart TD
     G10 -->|"No plan"| Eligible
     G10 -->|"Plan payable, approval satisfied"| Allowed2([Allowed: proceed_to_payment])
     G10 -->|"Approval required, nothing on file"| Rejected9([Rejected: requires_approval → submit_application])
-    G10 -->|"Offline / not on sale / at cap /<br/>org not Stripe-ready / duplicate subscription"| Rejected10([Rejected: plan_not_online · plan_unavailable ·<br/>org_not_stripe_connected · duplicate_active_subscription])
+    G10 -->|"Offline / not on sale / at cap /<br/>online but org not Stripe-ready / duplicate subscription"| Rejected10([Rejected: plan_not_online · plan_unavailable ·<br/>org_not_stripe_connected · duplicate_active_subscription])
 
     style Eligible fill:#2e7d32,color:#fff
     style Allowed1 fill:#2e7d32,color:#fff
@@ -218,13 +218,15 @@ When the resolved manual-approval policy is on (tier-level `requires_membership_
 
 The final pre-payment readiness check. A no-op when no plan is supplied. A plan-bearing check that survives every prior gate ends here in an **allowing** `PROCEED_TO_PAYMENT` verdict — `POST /subscribe` opens Stripe Checkout on it.
 
+**FREE plans** (#832) are self-serve like ONLINE ones but involve no Stripe object at all, so they carve out of the first two blocks below: neither `plan_not_online` nor `org_not_stripe_connected` applies to them. Everything else — sales status, cap, duplicate subscription, the approval annotation — is enforced identically. They keep the `proceed_to_payment` next step: the frontend calls the same `POST /subscribe`, which answers with a null `checkout_url` and an already-ACTIVE subscription.
+
 Blocks, in order:
 
 | Condition | Reason code | next_step |
 |---|---|---|
 | Approval required but no application on file (`ManualApprovalGate`'s fall-through annotation) | `requires_approval` | `submit_application` — create the application first so staff have something to approve |
-| Plan is not ONLINE | `plan_not_online` | — |
-| Org not Stripe-connected | `org_not_stripe_connected` | — |
+| Plan is OFFLINE (staff-managed — no member-facing way to pay) | `plan_not_online` | — |
+| Plan is ONLINE **and** org not Stripe-connected | `org_not_stripe_connected` | — |
 | Plan `sales_status` ≠ OPEN, or at its `max_subscriptions` cap | `plan_unavailable` | — |
 | Caller already holds a non-terminal subscription in the org | `duplicate_active_subscription` | — (`/subscribe` deliberately lets this one fall through to the subscription machinery, which resumes a pending checkout with a 409 instead of dead-ending) |
 

@@ -50,6 +50,7 @@ from events.service.subscription_sales import (
 from events.service.subscription_stripe_base import ensure_stripe_price
 from events.service.subscription_stripe_payloads import _stripe_account_kwargs
 from events.service.ticket_service import check_online_payment_prerequisites
+from events.utils.subscription_plan_rules import validate_plan_shape
 
 logger = structlog.get_logger(__name__)
 
@@ -133,9 +134,22 @@ def update_plan(
     Refuses currency changes when the plan has any non-terminal subscriptions
     — cross-currency migration is risky and out of roadmap; staff must archive
     and create a new plan instead.
+
+    Also re-checks the (payment method, price, cadence) shape against the
+    *merged* post-patch values: ``payment_method`` is not patchable, so a FREE
+    plan can never acquire a price and an ONLINE plan can never lose one or
+    become LIFETIME.
     """
     if not fields:
         return plan
+
+    shape_error = validate_plan_shape(
+        payment_method=plan.payment_method,
+        price=fields.get("price", plan.price),
+        period_unit=fields.get("period_unit", plan.period_unit),
+    )
+    if shape_error:
+        raise HttpError(400, shape_error)
 
     new_currency = fields.get("currency")
     if new_currency is not None and new_currency.upper() != plan.currency.upper():
@@ -713,7 +727,7 @@ def _validate_change_plan_target(
     if new_plan.payment_method != subscription.plan.payment_method:
         raise HttpError(
             400,
-            str(_("Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new subscription instead.")),
+            str(_("Cannot switch between plans with different payment methods. Cancel and subscribe again instead.")),
         )
     if new_plan.currency.upper() != subscription.plan.currency.upper():
         raise HttpError(400, str(_("New plan must use the same currency as the current plan.")))

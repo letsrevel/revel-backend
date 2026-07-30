@@ -120,7 +120,10 @@ def create_subscription(
     # ONLINE plans gate ACTIVE membership on the first successful Stripe payment,
     # so we don't grant tier benefits up front: that work moves into the
     # ``invoice.paid`` / ``customer.subscription.updated`` webhook handlers.
-    if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+    # OFFLINE and FREE plans have no Stripe payment to wait for, so the member
+    # is materialized here — for FREE that is the *only* place it can happen.
+    is_free = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE
+    if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         update_or_create_with_race_protection(
             OrganizationMember,
             {"organization": organization, "user": user},
@@ -134,6 +137,11 @@ def create_subscription(
     # pass the duplicate check above; the helper re-fetches the winner whether
     # the race surfaces as IntegrityError (INSERT) or ValidationError
     # (TimeStampedModel.save's full_clean sees the committed racing row).
+    #
+    # A FREE plan has nothing to pay and (being LIFETIME by construction)
+    # nothing to renew, so the row is live the moment it exists: ACTIVE with an
+    # open-ended period. ``current_period_end`` stays NULL forever, which is
+    # what keeps every expiry/reminder beat from ever selecting it.
     subscription, created = get_or_create_with_race_protection(
         MembershipSubscription,
         Q(user=user, organization=organization) & ~Q(status__in=MembershipSubscription.TERMINAL_STATUSES),
@@ -141,7 +149,12 @@ def create_subscription(
             "user": user,
             "plan": plan,
             "organization": organization,
-            "status": MembershipSubscription.SubscriptionStatus.PENDING,
+            "status": (
+                MembershipSubscription.SubscriptionStatus.ACTIVE
+                if is_free
+                else MembershipSubscription.SubscriptionStatus.PENDING
+            ),
+            "current_period_start": timezone.now() if is_free else None,
         },
     )
     if not created:
@@ -223,9 +236,14 @@ def record_payment(
         if (advance and subscription.current_period_end and subscription.current_period_end > anchor)
         else anchor
     )
-    period_end = calculate_period_end(period_start, plan) if advance else (subscription.current_period_end or anchor)
+    # ``None`` here means LIFETIME: the subscription's period never ends. The
+    # ledger row still needs a non-null ``period_end``, so a lifetime payment is
+    # recorded as the point event it is (period_end == period_start) while the
+    # subscription's own ``current_period_end`` stays NULL.
+    period_end = calculate_period_end(period_start, plan) if advance else subscription.current_period_end
+    row_period_end = period_end if period_end is not None else (period_start if advance else anchor)
 
-    if advance and occurred_at is not None and period_end < now:
+    if advance and period_end is not None and occurred_at is not None and period_end < now:
         # Refuse backfills that would leave the subscription ACTIVE with an already-lapsed
         # period (callers checking only ``status`` would grant access until the expiry beat).
         raise HttpError(
@@ -239,7 +257,7 @@ def record_payment(
         currency=currency,
         status=status,
         period_start=period_start,
-        period_end=period_end,
+        period_end=row_period_end,
         occurred_at=occurred_at,
         recorded_by=recorded_by,
         notes=notes,

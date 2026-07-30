@@ -197,7 +197,10 @@ def _normalize_to_monthly(amount: Decimal, plan: MembershipSubscriptionPlan) -> 
     """Normalise ``amount`` to a monthly figure using the plan's billing period.
 
     Annual plans are divided by (period_count * 12) months; monthly plans by
-    period_count. The returned value is unrounded; the caller quantizes the
+    period_count. Lifetime plans contribute nothing: they are one-off, never
+    renew, and so are not *recurring* revenue at all — folding them into MRR
+    would inflate it permanently off a payment that happens once (or, for FREE
+    plans, never). The returned value is unrounded; the caller quantizes the
     running sum once to avoid accumulated rounding errors.
 
     Args:
@@ -207,6 +210,8 @@ def _normalize_to_monthly(amount: Decimal, plan: MembershipSubscriptionPlan) -> 
     Returns:
         The monthly equivalent as a :class:`Decimal` (unrounded).
     """
+    if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.LIFETIME:
+        return Decimal("0")
     if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.MONTH:
         return amount / plan.period_count
     # YEAR

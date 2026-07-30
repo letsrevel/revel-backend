@@ -138,15 +138,22 @@ class MeSubscriptionsController(UserAwareController):
         org_id: UUID,
         payload: schema.SubscribeRequestSchema,
     ) -> tuple[int, schema.SubscribeResponseSchema]:
-        """Start a Stripe-backed subscription on an ONLINE plan.
+        """Subscribe to an ONLINE (Stripe) or FREE (self-serve) membership plan.
 
         Runs the full membership eligibility gate stack first — a questionnaire
         or manual-approval requirement on the tier must be satisfied before
-        Checkout opens. Returns the local subscription row plus a hosted Stripe
-        Checkout ``checkout_url`` the frontend redirects the member to for
-        payment. When the caller has an application on file (the gated flow),
-        the created subscription is linked to it so the Stripe activation can
-        settle it COMPLETED.
+        anything is granted.
+
+        For an ONLINE plan, returns the local subscription row plus a hosted
+        Stripe Checkout ``checkout_url`` the frontend redirects the member to
+        for payment; when the caller has an application on file (the gated
+        flow), the created subscription is linked to it so the Stripe
+        activation can settle it COMPLETED.
+
+        For a FREE plan there is nothing to pay: ``checkout_url`` is ``null``,
+        the subscription is already ACTIVE with no period end (FREE plans are
+        LIFETIME and never renew), the membership is granted, and any
+        originating application is settled COMPLETED straight away.
         """
         # Visibility-aware load: hard-blacklisted users get a 404 (the org is
         # invisible to them) rather than a distinguishable 403, matching the

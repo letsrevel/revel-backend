@@ -1287,9 +1287,10 @@ msgstr ""
 "Genehmigung."
 
 msgid "Target plan for the paid path. NULL = free join."
-msgstr "Zielplan für den bezahlten Weg. NULL = kostenloser Beitritt."
-"Zielplan für den kostenpflichtigen Weg. NULL = kostenloser Beitritt. Phase 1 "
-"lehnt Nicht-NULL-Werte bei /apply ab."
+msgstr ""
+"Zielplan für den bezahlten Weg. NULL = kostenloser Beitritt.Zielplan für den "
+"kostenpflichtigen Weg. NULL = kostenloser Beitritt. Phase 1 lehnt Nicht-NULL-"
+"Werte bei /apply ab."
 
 msgid "Submission that satisfied the questionnaire gate, if applicable."
 msgstr "Einreichung, die das Fragebogen-Gate erfüllt hat, falls zutreffend."
@@ -1338,11 +1339,17 @@ msgstr "Online (Stripe)"
 msgid "Offline (staff-managed)"
 msgstr "Offline (Staff-verwaltet)"
 
+msgid "Free (member self-serve)"
+msgstr "Kostenlos (Mitglieder-Selbstbedienung)"
+
 msgid "Month"
 msgstr "Monat"
 
 msgid "Year"
 msgstr "Jahr"
+
+msgid "Lifetime"
+msgstr "Lebenslang"
 
 msgid "Open"
 msgstr "Offen"
@@ -1377,10 +1384,12 @@ msgstr ""
 
 msgid ""
 "ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by "
-"staff."
+"staff; FREE plans cost nothing, are self-serve, and never renew (price 0 + "
+"LIFETIME period)."
 msgstr ""
 "ONLINE-Pläne werden über Stripe abgerechnet; OFFLINE-Pläne werden manuell "
-"vom Staff verwaltet."
+"vom Staff verwaltet; FREE-Pläne kosten nichts, sind Selbstbedienung und "
+"werden nie verlängert (Preis 0 + LIFETIME-Zeitraum)."
 
 msgid "Past Due"
 msgstr "Überfällig"
@@ -2352,11 +2361,11 @@ msgid "New plan must belong to the same organization as the subscription."
 msgstr "Der neue Plan muss zur selben Organisation gehören wie das Abonnement."
 
 msgid ""
-"Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new "
-"subscription instead."
+"Cannot switch between plans with different payment methods. Cancel and "
+"subscribe again instead."
 msgstr ""
-"Ein Wechsel zwischen ONLINE- und OFFLINE-Plänen ist nicht möglich. Kündige "
-"das Abonnement und erstelle stattdessen ein neues."
+"Ein Wechsel zwischen Plänen mit unterschiedlichen Zahlungsmethoden ist "
+"nicht möglich. Kündige das Abonnement und abonniere stattdessen neu."
 
 msgid "New plan must use the same currency as the current plan."
 msgstr "Der neue Plan muss dieselbe Währung wie der aktuelle Plan verwenden."
@@ -2662,6 +2671,24 @@ msgstr ""
 
 msgid "This is an automated billing document."
 msgstr "Dies ist ein automatisch erstelltes Abrechnungsdokument."
+
+msgid "Free plans must have a price of 0."
+msgstr "Kostenlose Pläne müssen einen Preis von 0 haben."
+
+msgid "Free plans must use the lifetime billing period."
+msgstr ""
+"Kostenlose Pläne müssen den lebenslangen Abrechnungszeitraum verwenden."
+
+msgid "Online plans must have a price greater than 0."
+msgstr "Online-Pläne müssen einen Preis größer als 0 haben."
+
+msgid ""
+"Online plans cannot use the lifetime billing period: Stripe bills monthly or "
+"yearly. Use an offline plan for a one-off paid membership."
+msgstr ""
+"Online-Pläne können den lebenslangen Abrechnungszeitraum nicht verwenden: "
+"Stripe rechnet monatlich oder jährlich ab. Verwende einen Offline-Plan für "
+"eine einmalige kostenpflichtige Mitgliedschaft."
 
 msgid "Category prices must be a mapping of price category id to price."
 msgstr ""

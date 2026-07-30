@@ -35,6 +35,15 @@ drives transitions:
 |---|---|---|
 | `OFFLINE` | Staff calls `record_payment` | Local service + daily Celery beat |
 | `ONLINE` | Stripe `invoice.paid` webhook | Stripe (mirrored locally) |
+| `FREE` | Never — `LIFETIME` by construction | Local service only (nothing advances it) |
+
+`FREE` (#832) was added later as a third mode rather than a boolean flag on
+`OFFLINE`: it differs on the two axes that actually matter here — who may
+create it (members self-serve, unlike OFFLINE) and whether the beats own it
+(they never see it, since `LIFETIME` leaves `current_period_end` NULL). The
+same reasoning is why `LIFETIME` is a `period_unit` rather than a `one_off`
+flag: period arithmetic already dispatches on that field, so the non-renewing
+case falls out of the existing branch instead of adding a parallel one.
 
 Key consequences of the split:
 
@@ -51,10 +60,13 @@ Key consequences of the split:
   no obvious correct period reconciliation. The plan must be archived and a
   new plan created instead (`PlanUpdateSchema` omits the field; `change_plan`
   refuses cross-method changes).
-- **Member-creation responsibility differs.** OFFLINE: `create_subscription`
-  ensures `OrganizationMember` exists up front. ONLINE: the local row is
-  created in PENDING; `_ensure_active_member` only runs after Stripe confirms
-  the first invoice (no tier benefits before payment).
+- **Member-creation responsibility differs.** OFFLINE and FREE:
+  `create_subscription` ensures `OrganizationMember` exists up front. ONLINE:
+  the local row is created in PENDING; `_ensure_active_member` only runs after
+  Stripe confirms the first invoice (no tier benefits before payment). FREE has
+  no webhook that could ever run, so `create_subscription` is its *only*
+  materialization point — and the originating application is settled COMPLETED
+  in `subscription_eligibility.subscribe_to_plan` for the same reason.
 
 ## Consequences
 

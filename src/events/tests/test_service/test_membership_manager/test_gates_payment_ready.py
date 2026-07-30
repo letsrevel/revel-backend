@@ -163,6 +163,88 @@ def test_approval_required_without_application_blocks_submit_application(
     assert result.next_step == MembershipNextStep.SUBMIT_APPLICATION
 
 
+@pytest.fixture
+def free_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
+    return MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Free forever",
+        price=Decimal("0"),
+        currency="EUR",
+        period_unit=MembershipSubscriptionPlan.PeriodUnit.LIFETIME,
+        payment_method=SubscriptionPaymentMethod.FREE,
+    )
+
+
+def test_free_plan_allows_without_stripe(
+    user: RevelUser, organization: Organization, tier: MembershipTier, free_plan: MembershipSubscriptionPlan
+) -> None:
+    """FREE plans skip both the ONLINE-only block and the Stripe-connected requirement."""
+    organization.stripe_account_id = ""
+    organization.stripe_charges_enabled = False
+    organization.stripe_details_submitted = False
+    organization.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
+    result = _verdict(user, organization, tier, free_plan)
+    assert result.allowed is True
+    assert result.next_step == MembershipNextStep.PROCEED_TO_PAYMENT
+
+
+def test_free_plan_still_respects_paused_sales(
+    user: RevelUser, organization: Organization, tier: MembershipTier, free_plan: MembershipSubscriptionPlan
+) -> None:
+    free_plan.sales_status = MembershipSubscriptionPlan.SalesStatus.PAUSED
+    free_plan.save(update_fields=["sales_status"])
+    result = _verdict(user, organization, tier, free_plan)
+    assert result.allowed is False
+    assert result.reason_code == MembershipReasonCode.PLAN_UNAVAILABLE
+
+
+def test_free_plan_still_respects_sales_cap(
+    user: RevelUser,
+    member_user: RevelUser,
+    organization: Organization,
+    tier: MembershipTier,
+    free_plan: MembershipSubscriptionPlan,
+) -> None:
+    free_plan.max_subscriptions = 1
+    free_plan.save(update_fields=["max_subscriptions"])
+    MembershipSubscription.objects.create(
+        user=member_user,
+        plan=free_plan,
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+    )
+    result = _verdict(user, organization, tier, free_plan)
+    assert result.allowed is False
+    assert result.reason_code == MembershipReasonCode.PLAN_UNAVAILABLE
+
+
+def test_free_plan_still_blocks_duplicate_subscription(
+    user: RevelUser, organization: Organization, tier: MembershipTier, free_plan: MembershipSubscriptionPlan
+) -> None:
+    MembershipSubscription.objects.create(
+        user=user,
+        plan=free_plan,
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+    )
+    result = _verdict(user, organization, tier, free_plan)
+    assert result.allowed is False
+    assert result.reason_code == MembershipReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION
+
+
+def test_free_plan_still_requires_an_application_when_approval_is_required(
+    user: RevelUser, organization: Organization, tier: MembershipTier, free_plan: MembershipSubscriptionPlan
+) -> None:
+    tier.requires_membership_approval = True
+    tier.save(update_fields=["requires_membership_approval"])
+    result = _verdict(user, organization, tier, free_plan)
+    assert result.allowed is False
+    # Same no-prose SUBMIT_APPLICATION contract as the paid path.
+    assert result.reason is None
+    assert result.reason_code == MembershipReasonCode.REQUIRES_APPROVAL
+    assert result.next_step == MembershipNextStep.SUBMIT_APPLICATION
+
+
 def test_approval_required_with_approved_application_allows(
     user: RevelUser, organization: Organization, tier: MembershipTier, plan: MembershipSubscriptionPlan
 ) -> None:

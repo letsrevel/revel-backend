@@ -18,7 +18,7 @@ REMINDER_DAYS = 3
 def calculate_period_end(
     period_start: datetime.datetime,
     plan: MembershipSubscriptionPlan,
-) -> datetime.datetime:
+) -> datetime.datetime | None:
     """Return the period end for a renewal anchored at ``period_start``.
 
     Args:
@@ -27,11 +27,16 @@ def calculate_period_end(
 
     Returns:
         ``period_start + plan.period_count * plan.period_unit`` with month-end
-        edges handled by :class:`relativedelta`.
+        edges handled by :class:`relativedelta`, or ``None`` for a LIFETIME
+        plan — it never renews, so its ``current_period_end`` stays NULL and
+        the lapse/reminder/expiry beats (which all filter on that column) never
+        select it.
 
     Raises:
         ValueError: If ``plan.period_unit`` is not a known unit.
     """
+    if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.LIFETIME:
+        return None
     if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.MONTH:
         delta = relativedelta(months=plan.period_count)
     elif plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.YEAR:

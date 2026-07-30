@@ -68,6 +68,8 @@ def test_calculate_period_end_uses_timezone_aware_input() -> None:
     plan = _PlanProxy(MembershipSubscriptionPlan.PeriodUnit.MONTH.value, 1)
     start = timezone.now()
     end = calculate_period_end(start, plan)  # type: ignore[arg-type]
+    # Only LIFETIME returns None, and this is a MONTH plan.
+    assert end is not None
     assert end.tzinfo is not None
     assert end > start
 

@@ -50,6 +50,7 @@ class SubscriptionPaymentMethod(models.TextChoices):
 
     ONLINE = "online", _("Online (Stripe)")
     OFFLINE = "offline", _("Offline (staff-managed)")
+    FREE = "free", _("Free (member self-serve)")
 
 
 class MembershipSubscriptionPlanQuerySet(models.QuerySet["MembershipSubscriptionPlan"]):
@@ -93,13 +94,17 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     """A paid plan attached to a :class:`MembershipTier`.
 
     Multiple plans can target the same tier (e.g. "Monthly" + "Annual"). The
-    billing cadence is rolling only: ``period_count`` units of ``period_unit``
-    from each renewal.
+    billing cadence is rolling — ``period_count`` units of ``period_unit`` from
+    each renewal — except for ``LIFETIME``, which never renews at all.
     """
 
     class PeriodUnit(models.TextChoices):
         MONTH = "month", _("Month")
         YEAR = "year", _("Year")
+        # Non-renewing term: ``current_period_end`` stays NULL forever, so no
+        # lapse/reminder/expiry beat ever selects the subscription and nothing
+        # is ever billed again. ``period_count`` is meaningless here.
+        LIFETIME = "lifetime", _("Lifetime")
 
     # Alias so callers keep the ``Model.PaymentMethod`` idiom; the class lives
     # at module level under a collision-free name (see its docstring, #782).
@@ -155,7 +160,10 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         max_length=10,
         choices=PaymentMethod.choices,
         default=PaymentMethod.OFFLINE,
-        help_text=_("ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by staff."),
+        help_text=_(
+            "ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by staff; "
+            "FREE plans cost nothing, are self-serve, and never renew (price 0 + LIFETIME period)."
+        ),
     )
     stripe_product_id = models.CharField(max_length=255, blank=True, default="")
     stripe_price_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
