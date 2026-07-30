@@ -1066,10 +1066,19 @@ msgstr ""
 "Redirige-le vers le point de terminaison d'abonnement côté membre."
 
 msgid ""
+"FREE plans cost nothing, so no initial payment can be recorded against them."
+msgstr ""
+"Les plans FREE sont gratuits ; aucun paiement initial ne peut donc être "
+"enregistré pour eux."
+
+msgid ""
 "ONLINE subscription payments are recorded automatically via Stripe webhooks."
 msgstr ""
 "Les paiements des abonnements ONLINE sont enregistrés automatiquement via "
 "les webhooks Stripe."
+
+msgid "FREE subscriptions have no payments to record."
+msgstr "Les abonnements FREE n'ont aucun paiement à enregistrer."
 
 msgid ""
 "ONLINE payments must be refunded from the Stripe Dashboard; the refund is "
@@ -1294,10 +1303,7 @@ msgstr ""
 "l'approbation."
 
 msgid "Target plan for the paid path. NULL = free join."
-msgstr ""
-"Plan cible pour le parcours payant. NULL = adhésion gratuite.Forfait cible "
-"pour le parcours payant. NULL = adhésion gratuite. La phase 1 rejette les "
-"valeurs non nulles sur /apply."
+msgstr "Plan cible pour le parcours payant. NULL = adhésion gratuite."
 
 msgid "Submission that satisfied the questionnaire gate, if applicable."
 msgstr ""
@@ -2669,6 +2675,9 @@ msgstr ""
 
 msgid "This is an automated billing document."
 msgstr "Ceci est un document de facturation automatique."
+
+msgid "Price cannot be null."
+msgstr "Le prix ne peut pas être nul."
 
 msgid "Free plans must have a price of 0."
 msgstr "Les plans gratuits doivent avoir un prix de 0."

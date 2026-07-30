@@ -73,13 +73,18 @@ def _settle_originating_application(subscription: MembershipSubscription) -> Non
     approved; payment is the final step, so the row settles COMPLETED here.
     PENDING is included for the ungated flow (applied and paid before any
     advance ran); terminal rows are left alone.
+
+    ``updated_at`` is stamped explicitly because a bulk ``.update()`` bypasses
+    ``auto_now`` — without it a settled row keeps the timestamp of its last
+    *real* save, so "when did this application complete?" reads as the approval
+    time. Same fix as the application expiry sweep (3c58c725).
     """
     subscription.originating_application.filter(
         status__in=(
             OrganizationMembershipRequest.Status.PENDING,
             OrganizationMembershipRequest.Status.APPROVED,
         )
-    ).update(status=OrganizationMembershipRequest.Status.COMPLETED)
+    ).update(status=OrganizationMembershipRequest.Status.COMPLETED, updated_at=timezone.now())
 
 
 def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivation:

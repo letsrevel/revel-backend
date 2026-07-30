@@ -17,20 +17,30 @@ from events.models import MembershipSubscriptionPlan, SubscriptionPaymentMethod
 def validate_plan_shape(
     *,
     payment_method: str,
-    price: Decimal,
+    price: Decimal | None,
     period_unit: str,
 ) -> str | None:
     """Return a validation message when the (method, price, cadence) triple is incoherent.
 
     Args:
         payment_method: A :class:`SubscriptionPaymentMethod` value.
-        price: The plan's price.
+        price: The plan's price. ``None`` is a client sending an explicit JSON
+            ``null`` on PATCH — see the null guard below.
         period_unit: A :class:`MembershipSubscriptionPlan.PeriodUnit` value.
 
     Returns:
         The error message, or ``None`` when the combination is valid.
     """
     lifetime = MembershipSubscriptionPlan.PeriodUnit.LIFETIME
+
+    # ``PlanUpdateSchema.price`` is ``Decimal | None``, and pydantic skips the
+    # ``ge`` constraint for None — so an explicit ``{"price": null}`` reaches
+    # ``update_plan`` as a *present* key holding None, slips past
+    # ``fields.get("price", plan.price)``, and used to hit ``None <= Decimal``
+    # here (TypeError → 500). The column is NOT NULL, so this is simply an
+    # invalid patch: refuse it as a 400 like any other bad shape.
+    if price is None:
+        return str(_("Price cannot be null."))
 
     if payment_method == SubscriptionPaymentMethod.FREE:
         if price != Decimal("0"):

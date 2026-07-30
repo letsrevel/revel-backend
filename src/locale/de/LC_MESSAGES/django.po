@@ -1055,10 +1055,19 @@ msgstr ""
 "den mitgliederseitigen Abonnement-Endpunkt."
 
 msgid ""
+"FREE plans cost nothing, so no initial payment can be recorded against them."
+msgstr ""
+"FREE-Pläne kosten nichts, daher kann für sie keine Anfangszahlung erfasst "
+"werden."
+
+msgid ""
 "ONLINE subscription payments are recorded automatically via Stripe webhooks."
 msgstr ""
 "Zahlungen für ONLINE-Abonnements werden automatisch über Stripe-Webhooks "
 "erfasst."
+
+msgid "FREE subscriptions have no payments to record."
+msgstr "Für FREE-Abonnements gibt es keine Zahlungen zu erfassen."
 
 msgid ""
 "ONLINE payments must be refunded from the Stripe Dashboard; the refund is "
@@ -1287,10 +1296,7 @@ msgstr ""
 "Genehmigung."
 
 msgid "Target plan for the paid path. NULL = free join."
-msgstr ""
-"Zielplan für den bezahlten Weg. NULL = kostenloser Beitritt.Zielplan für den "
-"kostenpflichtigen Weg. NULL = kostenloser Beitritt. Phase 1 lehnt Nicht-NULL-"
-"Werte bei /apply ab."
+msgstr "Zielplan für den bezahlten Weg. NULL = kostenloser Beitritt."
 
 msgid "Submission that satisfied the questionnaire gate, if applicable."
 msgstr "Einreichung, die das Fragebogen-Gate erfüllt hat, falls zutreffend."
@@ -2364,8 +2370,8 @@ msgid ""
 "Cannot switch between plans with different payment methods. Cancel and "
 "subscribe again instead."
 msgstr ""
-"Ein Wechsel zwischen Plänen mit unterschiedlichen Zahlungsmethoden ist "
-"nicht möglich. Kündige das Abonnement und abonniere stattdessen neu."
+"Ein Wechsel zwischen Plänen mit unterschiedlichen Zahlungsmethoden ist nicht "
+"möglich. Kündige das Abonnement und abonniere stattdessen neu."
 
 msgid "New plan must use the same currency as the current plan."
 msgstr "Der neue Plan muss dieselbe Währung wie der aktuelle Plan verwenden."
@@ -2671,6 +2677,9 @@ msgstr ""
 
 msgid "This is an automated billing document."
 msgstr "Dies ist ein automatisch erstelltes Abrechnungsdokument."
+
+msgid "Price cannot be null."
+msgstr "Der Preis darf nicht null sein."
 
 msgid "Free plans must have a price of 0."
 msgstr "Kostenlose Pläne müssen einen Preis von 0 haben."

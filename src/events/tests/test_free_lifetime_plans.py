@@ -159,6 +159,13 @@ def test_update_refuses_online_plan_going_lifetime(online_plan: MembershipSubscr
     assert "cannot use the lifetime" in str(exc_info.value)
 
 
+def test_update_refuses_null_price(online_plan: MembershipSubscriptionPlan) -> None:
+    """An explicit ``{"price": null}`` is a present key holding None — a 400, not a TypeError."""
+    with pytest.raises(HttpError) as exc_info:
+        subscription_service.update_plan(online_plan, price=None)
+    assert "cannot be null" in str(exc_info.value)
+
+
 def test_update_allows_offline_plan_going_lifetime(tier: MembershipTier) -> None:
     plan = MembershipSubscriptionPlan.objects.create(
         tier=tier,

@@ -6,9 +6,11 @@ settling there covers checkout-completed and invoice-paid alike. The full
 webhook-driven path is exercised by the gated-paid-membership integration test.
 """
 
+import datetime
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
@@ -69,9 +71,16 @@ def _application(
 
 def test_activation_completes_approved_application(subscription: MembershipSubscription) -> None:
     app = _application(subscription)
+    stale_updated_at = timezone.now() - datetime.timedelta(days=3)
+    OrganizationMembershipRequest.objects.filter(pk=app.pk).update(updated_at=stale_updated_at)
+
     assert _ensure_active_member(subscription) == "created"
     app.refresh_from_db()
     assert app.status == OrganizationMembershipRequest.Status.COMPLETED
+    # The settlement is a bulk .update(), which bypasses auto_now — the
+    # timestamp must still be stamped explicitly or "when did this complete?"
+    # reads as the approval time.
+    assert app.updated_at > stale_updated_at
     assert OrganizationMember.objects.filter(
         user=subscription.user,
         organization=subscription.organization,

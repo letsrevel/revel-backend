@@ -204,6 +204,13 @@ def record_payment(
     the caller will handle the notification itself (e.g. the H1 revival flow)
     or when the payment is the *first* payment of a new subscription (prior
     status was PENDING — handled automatically by the gate below).
+
+    On a **LIFETIME** plan there is no period to advance: the subscription's
+    ``current_period_end`` stays NULL forever (that NULL is what keeps the
+    expiry/reminder beats away from it), and since
+    ``MembershipPayment.period_end`` is NOT NULL the ledger row records the
+    payment as the point event it is — ``period_end == period_start``. Only
+    OFFLINE lifetime plans reach here; FREE ones are refused at the controller.
     """
     subscription = MembershipSubscription.objects.select_for_update().get(pk=subscription.pk)
     prior_status = subscription.status

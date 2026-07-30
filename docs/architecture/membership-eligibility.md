@@ -216,7 +216,7 @@ When the resolved manual-approval policy is on (tier-level `requires_membership_
 
 ### 10. PaymentReadyGate
 
-The final pre-payment readiness check. A no-op when no plan is supplied. A plan-bearing check that survives every prior gate ends here in an **allowing** `PROCEED_TO_PAYMENT` verdict — `POST /subscribe` opens Stripe Checkout on it.
+The final pre-payment readiness check. A no-op when no plan is supplied. A plan-bearing check that survives every prior gate ends here in an **allowing** `PROCEED_TO_PAYMENT` verdict — `POST /subscribe` acts on it, opening Stripe Checkout for an ONLINE plan or activating a FREE one outright (null `checkout_url`).
 
 **FREE plans** (#832) are self-serve like ONLINE ones but involve no Stripe object at all, so they carve out of the first two blocks below: neither `plan_not_online` nor `org_not_stripe_connected` applies to them. Everything else — sales status, cap, duplicate subscription, the approval annotation — is enforced identically. They keep the `proceed_to_payment` next step: the frontend calls the same `POST /subscribe`, which answers with a null `checkout_url` and an already-ACTIVE subscription.
 
@@ -285,7 +285,7 @@ All possible `MembershipNextStep` values and when they are returned:
 | `wait_for_whitelist_approval` | BlacklistGate | Fuzzy-matched, whitelist request pending |
 | `requires_invitation` | BlacklistGate, AcceptRequestsGate | Verification needed, or org not accepting requests — join via invitation/whitelist flow |
 | `submit_application` | PaymentReadyGate | Plan-bearing check on an approval-gated tier with no application on file — `POST /apply` first |
-| `proceed_to_payment` | PaymentReadyGate | Plan-bearing check passed every gate (allowing verdict) — `POST /subscribe` opens Checkout |
+| `proceed_to_payment` | PaymentReadyGate | Plan-bearing check passed every gate (allowing verdict) — `POST /subscribe` opens Checkout (ONLINE) or activates immediately with a null `checkout_url` (FREE) |
 | `already_member` | AlreadyMemberGate | ACTIVE membership at the target tier (allowing verdict) |
 | `reapply` | ApplicationStatusGate | Latest application was rejected; a fresh `POST /apply` starts over |
 

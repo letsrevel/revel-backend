@@ -1,9 +1,11 @@
 """Bridge between the membership eligibility gate stack and the paid subscription flow.
 
-Owns the two places the paid path must consult the gates:
+Owns the two places the plan-bearing path must consult the gates:
 
-- ``subscribe_to_plan`` — the ``/subscribe`` workflow: gate check, Stripe
-  Checkout, and linking the created subscription to the caller's application.
+- ``subscribe_to_plan`` — the ``/subscribe`` workflow: gate check, activation,
+  and linking the created subscription to the caller's application. Activation
+  is Stripe Checkout for an ONLINE plan; for a FREE plan it is a direct,
+  already-ACTIVE subscription with no checkout URL at all (#832).
 - ``ensure_tier_change_allowed`` — cross-tier ``change-plan`` targets run the
   gate stack against the destination tier; same-tier swaps are deliberately
   not re-gated (the member already passed that tier's gates once).

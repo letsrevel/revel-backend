@@ -278,7 +278,13 @@ class PlanUpdateSchema(Schema):
 
 
 class SubscriptionCreateSchema(Schema):
-    """Create payload for an OFFLINE-managed subscription."""
+    """Staff create payload for a subscription on an OFFLINE or FREE plan.
+
+    ONLINE plans are refused — the member must subscribe themselves so they can
+    confirm the first payment. The ``initial_payment_*`` fields are for the
+    OFFLINE case only: a FREE plan has nothing to collect, so supplying them
+    with one is refused too.
+    """
 
     plan_id: UUID
     user_id: UUID
@@ -301,7 +307,12 @@ class CancelSubscriptionSchema(Schema):
 
 
 class PaymentRecordSchema(Schema):
-    """Payload to manually record an OFFLINE payment against a subscription."""
+    """Payload to manually record a payment against an OFFLINE subscription.
+
+    Hand-recorded payments are OFFLINE-only: ONLINE rows are settled by the
+    ``invoice.paid`` webhook (hand-recording would duplicate them) and FREE
+    rows never collect anything.
+    """
 
     amount: Decimal = Field(..., ge=Decimal("0"))
     currency: Currencies

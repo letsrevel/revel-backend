@@ -216,7 +216,7 @@ functions to avoid a cycle.
 | `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency edits are refused when active subs exist. `delete_plan` catches `ProtectedError` from the FK |
 | `create_subscription` | Refuses BANNED users, duplicate non-terminal subs, and cap-full plans (`ensure_plan_sales_capacity`, under the plan-row lock); auto-creates an `OrganizationMember` at `plan.tier`. OFFLINE and FREE only — ONLINE goes via `start_online_subscription` so the user can confirm payment. A FREE plan additionally lands the row **ACTIVE** with `current_period_start=now` and a NULL period end (nothing to pay, nothing to renew) |
 | `record_payment` | Advances `current_period_*`, revives PENDING/PAST_DUE → ACTIVE. Refuses terminal. Dispatches `RENEWAL_SUCCEEDED` only on a real renewal (prior_status ∈ {ACTIVE, PAST_DUE}). `dispatch_renewal_notification=False` for revival callers |
-| `cancel_subscription` | `immediate=True` → CANCELLED. `immediate=False` → `cancel_at_period_end=True` and let the beat task finish it. Refuses scheduled cancel on PAUSED (frozen time would never reach the boundary). Routes ONLINE through `cancel_online_subscription` |
+| `cancel_subscription` | `immediate=True` → CANCELLED. `immediate=False` → `cancel_at_period_end=True` and let the beat task finish it. Refuses scheduled cancel on PAUSED (frozen time would never reach the boundary). A **period-less** row — any LIFETIME/FREE subscription, or an unpaid checkout — has no boundary to wait for, so a scheduled cancel is upgraded to immediate (the one exception is a row whose Stripe Subscription is already linked: Stripe owns that boundary). Routes ONLINE through `cancel_online_subscription` |
 | `pause_subscription` / `resume_subscription` | Local for OFFLINE; routes to Stripe `pause_collection` for ONLINE. Refuses ONLINE without `stripe_subscription_id` to keep local PAUSED in lockstep with Stripe |
 | `revive_subscription` | EXPIRED → ACTIVE (OFFLINE, with `initial_payment` — staff callers only; the member endpoint refuses OFFLINE plans) or PENDING + hosted Checkout for a fresh Stripe Subscription (ONLINE); staff-initiated ONLINE revivals also email the member the checkout link (`SUBSCRIPTION_REVIVAL_CHECKOUT`). Enforces the plan cap (a revived sub re-occupies a slot) and, for member callers, `sales_status` (`enforce_sales_status=False` for staff) |
 | `change_plan` | Routes ONLINE to `subscription_stripe_plan_change.change_online_plan`; OFFLINE does an immediate same-org/same-currency swap |
@@ -346,7 +346,7 @@ scopes every query).
 Rules baked into the signal:
 
 - **Never creates a member.** Creation lives in
-  `create_subscription` (OFFLINE) or `_ensure_active_member` (ONLINE,
+  `create_subscription` (OFFLINE and FREE) or `_ensure_active_member` (ONLINE,
   gated on the first paid invoice).
 - **Leaves BANNED alone.** A banned member stays banned regardless of
   subscription activity.

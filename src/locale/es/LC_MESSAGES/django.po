@@ -1043,10 +1043,19 @@ msgstr ""
 "endpoint de suscripción para miembros."
 
 msgid ""
+"FREE plans cost nothing, so no initial payment can be recorded against them."
+msgstr ""
+"Los planes FREE no cuestan nada, así que no se puede registrar ningún "
+"pago inicial para ellos."
+
+msgid ""
 "ONLINE subscription payments are recorded automatically via Stripe webhooks."
 msgstr ""
 "Los pagos de suscripciones ONLINE se registran automáticamente mediante los "
 "webhooks de Stripe."
+
+msgid "FREE subscriptions have no payments to record."
+msgstr "Las suscripciones FREE no tienen pagos que registrar."
 
 msgid ""
 "ONLINE payments must be refunded from the Stripe Dashboard; the refund is "
@@ -1269,10 +1278,7 @@ msgstr ""
 "aprobarla."
 
 msgid "Target plan for the paid path. NULL = free join."
-msgstr ""
-"Plan de destino para la vía de pago. NULL = adhesión gratuita.Plan de "
-"destino para la vía de pago. NULL = alta gratuita. La fase 1 rechaza valores "
-"no nulos en /apply."
+msgstr "Plan de destino para la vía de pago. NULL = adhesión gratuita."
 
 msgid "Submission that satisfied the questionnaire gate, if applicable."
 msgstr "Envío que ha superado el requisito del cuestionario, si procede."
@@ -2328,8 +2334,8 @@ msgid ""
 "Cannot switch between plans with different payment methods. Cancel and "
 "subscribe again instead."
 msgstr ""
-"No se puede cambiar entre planes con métodos de pago diferentes. Cancela "
-"la suscripción y vuelve a suscribirte."
+"No se puede cambiar entre planes con métodos de pago diferentes. Cancela la "
+"suscripción y vuelve a suscribirte."
 
 msgid "New plan must use the same currency as the current plan."
 msgstr "El nuevo plan debe usar la misma moneda que el plan actual."
@@ -2625,6 +2631,9 @@ msgstr ""
 
 msgid "This is an automated billing document."
 msgstr "Este es un documento de facturación automático."
+
+msgid "Price cannot be null."
+msgstr "El precio no puede ser nulo."
 
 msgid "Free plans must have a price of 0."
 msgstr "Los planes gratuitos deben tener un precio de 0."

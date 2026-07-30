@@ -1,7 +1,15 @@
-"""Service layer for membership subscriptions (Phase 1, OFFLINE).
+"""Service layer for membership subscriptions — all three payment methods.
 
-Function-based service per the project's hybrid conventions. Stripe-specific
-logic is intentionally absent; it lands in a separate Phase 2 module.
+Function-based service per the project's hybrid conventions. This module is the
+orchestrator: it owns the local (OFFLINE / FREE) lifecycle outright and
+*dispatches* to the Stripe modules for ONLINE rows — ``subscription_stripe_service``,
+``subscription_stripe_plan_change``, ``subscription_stripe_sync``. It therefore
+imports Stripe code rather than containing it, so every entry point here works
+regardless of payment method and controllers never branch on one.
+
+Lifecycle primitives shared with the Stripe modules live in
+``subscription_core`` (re-exported here, so existing call sites are unaffected)
+— that split is what keeps the service import graph acyclic.
 """
 
 import functools
@@ -743,9 +751,11 @@ def change_plan(
     """Switch ``subscription`` to ``new_plan``.
 
     For ONLINE subscriptions, dispatches to the Stripe service which routes
-    to either an immediate prorated upgrade or a scheduled downgrade. OFFLINE
-    subscriptions perform an immediate, fee-free swap — staff are expected
-    to handle any settlement off-book.
+    to either an immediate prorated upgrade or a scheduled downgrade. Every
+    other payment method takes the local branch below — an immediate, fee-free
+    swap. For OFFLINE that means staff handle any settlement off-book; for FREE
+    there is nothing to settle at all (both plans are zero-price, so no money
+    moves in either direction).
 
     Refuses cross-organization plan changes and currency switches in either
     path; the latter would require manual prorating against a moving FX rate

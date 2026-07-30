@@ -2,7 +2,10 @@
 
 Phase 1 introduced staff-managed (OFFLINE) subscriptions. Phase 2 adds
 Stripe-backed ONLINE subscriptions via additive fields and a per-(user, org)
-:class:`CustomerProfile`.
+:class:`CustomerProfile`. #832 adds FREE — a zero-price, member-self-serve
+plan with no Stripe object — together with the ``LIFETIME`` period unit, a
+non-renewing term that leaves ``current_period_end`` NULL forever (which is
+what keeps the renewal/lapse/expiry beats from ever selecting it).
 """
 
 import typing as t
