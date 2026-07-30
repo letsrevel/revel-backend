@@ -412,21 +412,30 @@ def test_list_org_questionnaires_tiers_no_extra_queries(
     organization_owner_client: Client,
     django_assert_num_queries: t.Any,
 ) -> None:
-    """The tiers list is prefetched — more tiers pointing at a questionnaire must not add queries."""
+    """The tiers list is prefetched — more questionnaires with tiers must not add queries.
+
+    The row count must grow on the questionnaire axis, not just the tier axis:
+    without the prefetch each listed questionnaire fires its own lazy
+    ``obj.tiers.all()`` query, which a single-questionnaire baseline would miss.
+    """
     url = reverse("api:list_org_questionnaires")
     org_q = _membership_org_questionnaire(organization, "Membership Q")
     MembershipTier.objects.create(organization=organization, name="Tier 0", membership_questionnaire=org_q)
 
     with CaptureQueriesContext(connection) as captured:
         assert organization_owner_client.get(url).status_code == 200
-    one_tier = len(captured.captured_queries)
+    one_questionnaire = len(captured.captured_queries)
 
+    MembershipTier.objects.create(organization=organization, name="Tier 0b", membership_questionnaire=org_q)
     for i in range(1, 4):
-        MembershipTier.objects.create(organization=organization, name=f"Tier {i}", membership_questionnaire=org_q)
+        extra_q = _membership_org_questionnaire(organization, f"Membership Q {i}")
+        MembershipTier.objects.create(organization=organization, name=f"Tier {i}", membership_questionnaire=extra_q)
 
-    with django_assert_num_queries(one_tier):
+    with django_assert_num_queries(one_questionnaire):
         response = organization_owner_client.get(url)
-    assert len(response.json()["results"][0]["tiers"]) == 4
+    tiers_by_result = {row["id"]: len(row["tiers"]) for row in response.json()["results"]}
+    assert len(tiers_by_result) == 4
+    assert tiers_by_result[str(org_q.id)] == 2
 
 
 # --- Get questionnaire tests ---
