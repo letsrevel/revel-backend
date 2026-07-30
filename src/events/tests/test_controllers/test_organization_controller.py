@@ -1,8 +1,11 @@
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -13,8 +16,10 @@ from events.models import (
     Organization,
     OrganizationMember,
     OrganizationMembershipRequest,
+    OrganizationQuestionnaire,
     OrganizationToken,
 )
+from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
 
@@ -222,6 +227,211 @@ class TestListMembershipPlans:
         url = reverse("api:list_organization_membership_plans", kwargs={"slug": organization.slug})
         response = client.get(url)
         assert response.status_code == 404
+
+
+class TestListMembershipTiers:
+    """Public listing of an organization's membership tiers (issue #830).
+
+    Without it a tier carrying no subscription plan is invisible to prospective
+    members, so gated free tiers are unreachable. Visibility piggybacks on
+    ``get_one``, so the rules match ``get_organization``.
+    """
+
+    @staticmethod
+    def _url(slug: str) -> str:
+        return reverse("api:list_organization_membership_tiers", kwargs={"slug": slug})
+
+    @staticmethod
+    def _publish(organization: Organization) -> None:
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save(update_fields=["visibility"])
+
+    @staticmethod
+    def _membership_oq(organization: Organization, name: str) -> OrganizationQuestionnaire:
+        """Wrap a published questionnaire as a MEMBERSHIP OrganizationQuestionnaire."""
+        questionnaire = Questionnaire.objects.create(name=name, status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+        return OrganizationQuestionnaire.objects.create(
+            organization=organization,
+            questionnaire=questionnaire,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+        )
+
+    def test_anonymous_sees_tiers_in_display_order(self, client: Client, organization: Organization) -> None:
+        """Ordering follows ``display_order``, not the tier name (deliberately unlike the plans route)."""
+        self._publish(organization)
+        default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        default_tier.display_order = 5
+        default_tier.save(update_fields=["display_order"])
+        # Names chosen so alphabetical order would be Alpha, Zeta, General membership.
+        zeta = MembershipTier.objects.create(organization=organization, name="Zeta", display_order=0)
+        alpha = MembershipTier.objects.create(organization=organization, name="Alpha", display_order=2)
+
+        response = client.get(self._url(organization.slug))
+
+        assert response.status_code == 200
+        body = response.json()
+        assert [row["id"] for row in body] == [str(zeta.id), str(alpha.id), str(default_tier.id)]
+        assert [row["display_order"] for row in body] == [0, 2, 5]
+
+    def test_same_list_for_member_and_nonmember(
+        self, client: Client, member_client: Client, nonmember_client: Client, organization: Organization
+    ) -> None:
+        """The listing is visibility-aware, not membership-aware — everyone sees the same tiers."""
+        self._publish(organization)
+        MembershipTier.objects.create(organization=organization, name="Supporter", display_order=1)
+
+        payloads = []
+        for c in (client, member_client, nonmember_client):
+            response = c.get(self._url(organization.slug))
+            assert response.status_code == 200
+            payloads.append(response.json())
+
+        assert payloads[0] == payloads[1] == payloads[2]
+        assert len(payloads[0]) == 2
+
+    def test_private_org_is_404_for_anonymous_and_authenticated(
+        self, client: Client, nonmember_client: Client, organization: Organization
+    ) -> None:
+        # `organization` is private by default.
+        assert client.get(self._url(organization.slug)).status_code == 404
+        assert nonmember_client.get(self._url(organization.slug)).status_code == 404
+
+    def test_nonexistent_slug_is_404(self, client: Client) -> None:
+        assert client.get(self._url("no-such-org")).status_code == 404
+
+    def test_free_tier_has_no_plans(self, client: Client, organization: Organization) -> None:
+        self._publish(organization)
+
+        response = client.get(self._url(organization.slug))
+
+        assert response.status_code == 200
+        (tier,) = response.json()
+        assert tier["is_free"] is True
+        assert tier["plans"] == []
+        assert tier["requires_approval"] is False
+        assert tier["questionnaire_id"] is None
+
+    def test_paid_tier_nests_active_plans_only(self, client: Client, organization: Organization) -> None:
+        self._publish(organization)
+        tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        active = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            max_subscriptions=5,
+        )
+        MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Old Annual",
+            price=Decimal("100.00"),
+            currency="EUR",
+            period_unit="year",
+            is_active=False,
+        )
+
+        response = client.get(self._url(organization.slug))
+
+        assert response.status_code == 200
+        (row,) = response.json()
+        assert row["is_free"] is False
+        assert len(row["plans"]) == 1
+        plan = row["plans"][0]
+        assert plan["id"] == str(active.id)
+        assert plan["name"] == "Monthly"
+        assert plan["price"] == "10.00"
+        assert plan["currency"] == "EUR"
+        assert plan["period_unit"] == "month"
+        assert plan["payment_method"] == "offline"
+        assert plan["sales_status"] == "open"
+        assert plan["sold_out"] is False
+        assert plan["tier_id"] == str(tier.id)
+        assert plan["tier_name"] == tier.name
+        # Staff-only occupancy telemetry must not leak through the public surface.
+        assert "max_subscriptions" not in plan
+        assert "active_subscription_count" not in plan
+        assert "stripe_price_id" not in plan
+
+    def test_tier_questionnaire_override_returns_underlying_questionnaire_pk(
+        self, client: Client, organization: Organization
+    ) -> None:
+        """The exposed id is the Questionnaire pk, not the OrganizationQuestionnaire wrapper's."""
+        self._publish(organization)
+        org_default = self._membership_oq(organization, "Org default")
+        organization.default_membership_questionnaire = org_default
+        organization.save(update_fields=["default_membership_questionnaire"])
+        tier_oq = self._membership_oq(organization, "Tier override")
+        tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        tier.membership_questionnaire = tier_oq
+        tier.save(update_fields=["membership_questionnaire"])
+
+        response = client.get(self._url(organization.slug))
+
+        assert response.status_code == 200
+        (row,) = response.json()
+        assert row["questionnaire_id"] == str(tier_oq.questionnaire_id)
+        assert row["questionnaire_id"] != str(tier_oq.id)
+
+    def test_org_default_questionnaire_is_inherited(self, client: Client, organization: Organization) -> None:
+        self._publish(organization)
+        org_default = self._membership_oq(organization, "Org default")
+        organization.default_membership_questionnaire = org_default
+        organization.save(update_fields=["default_membership_questionnaire"])
+        tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        assert tier.membership_questionnaire_id is None
+
+        response = client.get(self._url(organization.slug))
+
+        assert response.status_code == 200
+        (row,) = response.json()
+        assert row["questionnaire_id"] == str(org_default.questionnaire_id)
+
+    def test_requires_approval_resolution(self, client: Client, organization: Organization) -> None:
+        """Tier override wins when set; NULL inherits the org default."""
+        self._publish(organization)
+        organization.default_requires_membership_approval = True
+        organization.save(update_fields=["default_requires_membership_approval"])
+        inherits = MembershipTier.objects.get(organization=organization, name="General membership")
+        overrides = MembershipTier.objects.create(
+            organization=organization,
+            name="Open tier",
+            display_order=1,
+            requires_membership_approval=False,
+        )
+        assert inherits.requires_membership_approval is None
+
+        response = client.get(self._url(organization.slug))
+
+        assert response.status_code == 200
+        by_id = {row["id"]: row["requires_approval"] for row in response.json()}
+        assert by_id[str(inherits.id)] is True
+        assert by_id[str(overrides.id)] is False
+
+    def test_query_count_is_constant(
+        self, client: Client, organization: Organization, django_assert_num_queries: t.Any
+    ) -> None:
+        """Tiers and their plans are prefetched — more tiers must not add queries."""
+        self._publish(organization)
+        url = self._url(organization.slug)
+
+        def add_tier(name: str, order: int) -> None:
+            tier = MembershipTier.objects.create(organization=organization, name=name, display_order=order)
+            MembershipSubscriptionPlan.objects.create(
+                tier=tier, name=f"{name} monthly", price=Decimal("9.00"), currency="EUR"
+            )
+
+        add_tier("First", 1)
+        with CaptureQueriesContext(connection) as captured:
+            assert client.get(url).status_code == 200
+        baseline = len(captured.captured_queries)
+
+        for i in range(3):
+            add_tier(f"Extra {i}", 2 + i)
+
+        with django_assert_num_queries(baseline):
+            response = client.get(url)
+        assert len(response.json()) == 5
 
 
 def test_get_organization_not_found(client: Client) -> None:

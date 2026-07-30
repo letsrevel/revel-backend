@@ -2,7 +2,7 @@ import typing as t
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
@@ -184,6 +184,39 @@ class OrganizationController(UserAwareController):
             .filter(tier__organization=organization, is_active=True)
             .select_related("tier")
             .order_by("tier__name", "price")
+        )
+
+    @route.get(
+        "/{slug}/membership-tiers",
+        url_name="list_organization_membership_tiers",
+        response=list[schema.PublicMembershipTierSchema],
+    )
+    def list_membership_tiers(self, slug: str) -> QuerySet[models.MembershipTier]:
+        """List the membership tiers this organization offers, in display order.
+
+        Public counterpart of the admin tier listing: without it a tier that carries no
+        subscription plan is invisible to prospective members, so gated (free, but
+        questionnaire- or approval-backed) tiers are unreachable.
+
+        Each tier carries its *resolved* join policy — ``requires_approval`` and
+        ``questionnaire_id`` already fold in the organization defaults — plus its active
+        plans. Archived (``is_active=False``) plans are filtered out, and a tier left with
+        none is flagged ``is_free``.
+        """
+        organization = self.get_one(slug)
+        return (
+            models.MembershipTier.objects.filter(organization=organization)
+            # Both FKs feed the policy resolution in PublicMembershipTierSchema.
+            .select_related("membership_questionnaire", "organization__default_membership_questionnaire")
+            .prefetch_related(
+                Prefetch(
+                    "subscription_plans",
+                    queryset=models.MembershipSubscriptionPlan.objects.with_active_subscription_count()
+                    .filter(is_active=True)
+                    .select_related("tier"),
+                    to_attr="active_plans",
+                )
+            )
         )
 
     @route.get(
