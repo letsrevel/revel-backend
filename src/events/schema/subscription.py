@@ -13,8 +13,13 @@ from events.models import (
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
+    MembershipTier,
     OrganizationMember,
     SubscriptionPaymentMethod,
+)
+from events.service.membership_manager.resolvers import (
+    resolve_membership_questionnaire,
+    resolve_requires_membership_approval,
 )
 
 from .mixins import get_image_field_url
@@ -118,6 +123,69 @@ class PublicPlanSchema(ModelSchema):
     def resolve_tier_name(obj: MembershipSubscriptionPlan) -> str:
         """Return the parent tier's display name."""
         return obj.tier.name
+
+
+class PublicMembershipTierSchema(ModelSchema):
+    """Public/member-facing view of a membership tier and how it can be joined.
+
+    Lives here rather than in ``schema/organization.py`` because that module is
+    imported by this one; nesting :class:`PublicPlanSchema` there would be a
+    circular import (same reason as :class:`OrganizationMemberSchema`).
+
+    The policy fields are *resolved*, not raw: ``requires_approval`` and
+    ``questionnaire_id`` already fold the tier-level override into the organization
+    default, so the frontend renders the join flow without re-implementing the
+    inheritance rules. Resolution reads ``tier.organization`` and
+    ``tier.membership_questionnaire``, so the listing queryset must
+    ``select_related("membership_questionnaire", "organization__default_membership_questionnaire")``.
+    """
+
+    description: str | None = None
+    requires_approval: bool
+    questionnaire_id: UUID | None = Field(
+        default=None,
+        description=(
+            "PK of the underlying Questionnaire (not of the OrganizationQuestionnaire wrapper), "
+            "so it can be passed straight to "
+            "GET /me/organizations/{slug}/membership-questionnaire/{questionnaire_id}. "
+            "Matches MembershipEligibilitySchema.questionnaire_id."
+        ),
+    )
+    plans: list[PublicPlanSchema]
+    is_free: bool = Field(
+        description="True when the tier has no active plan, i.e. it is joined through the free /apply path."
+    )
+
+    class Meta:
+        model = MembershipTier
+        fields = ["id", "name", "description", "display_order"]
+
+    @staticmethod
+    def resolve_requires_approval(obj: MembershipTier) -> bool:
+        """Whether joining this tier needs manual staff approval (tier override, else org default)."""
+        return resolve_requires_membership_approval(obj.organization, obj)
+
+    @staticmethod
+    def resolve_questionnaire_id(obj: MembershipTier) -> UUID | None:
+        """PK of the ``Questionnaire`` behind the applicable ``OrganizationQuestionnaire``, if any."""
+        oq = resolve_membership_questionnaire(obj.organization, obj)
+        return oq.questionnaire_id if oq is not None else None
+
+    @staticmethod
+    def resolve_plans(obj: MembershipTier) -> list[MembershipSubscriptionPlan]:
+        """The tier's active plans, from the listing's ``Prefetch(..., to_attr="active_plans")``.
+
+        Returned as model instances so django-ninja runs :class:`PublicPlanSchema`'s own
+        resolvers (``sold_out``, ``tier_name``) against them. A tier without the prefetch
+        (single-object callers) is reported as having none rather than firing a query.
+        """
+        plans: list[MembershipSubscriptionPlan] = getattr(obj, "active_plans", [])
+        return plans
+
+    @staticmethod
+    def resolve_is_free(obj: MembershipTier) -> bool:
+        """True when no active plan gates the tier, so the free ``/apply`` path applies."""
+        return not getattr(obj, "active_plans", [])
 
 
 class MemberPlanSchema(ModelSchema):
