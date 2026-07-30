@@ -184,6 +184,28 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.tier} - {self.name}"
 
+    def clean(self) -> None:
+        """Enforce the (payment method, price, cadence) shape rules.
+
+        Defense-in-depth behind the API validators: ``TimeStampedModel.save()``
+        runs ``full_clean()``, so this closes every non-bulk ORM write path —
+        Django admin, management commands, ad-hoc shell writes — without
+        needing a ``CheckConstraint`` migration. The API layer already refuses
+        these shapes earlier with better messages.
+        """
+        super().clean()
+        # lazy: subscription_plan_rules imports from events.models, so a
+        # top-level import here would cycle.
+        from events.utils.subscription_plan_rules import validate_plan_shape
+
+        message = validate_plan_shape(
+            payment_method=self.payment_method,
+            price=self.price,
+            period_unit=self.period_unit,
+        )
+        if message:
+            raise DjangoValidationError({"payment_method": message})
+
     @property
     def organization_id(self) -> t.Any:
         """Convenience proxy for permission / scoping helpers."""

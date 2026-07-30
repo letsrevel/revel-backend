@@ -725,10 +725,14 @@ class SubscribeResponseSchema(Schema):
     and the membership has been granted. The frontend must branch on it rather
     than redirecting unconditionally. Same contract as
     :class:`RevivalResponseSchema`.
+
+    Nullable but **required**: the endpoint sets the key on both branches, so
+    declaring a default would tell clients it may be absent — a distinction the
+    frontend would have to handle for a case that never occurs.
     """
 
     subscription: MySubscriptionSchema
-    checkout_url: str | None = None
+    checkout_url: str | None
 
 
 class SubscriptionActivationPendingSchema(Schema):

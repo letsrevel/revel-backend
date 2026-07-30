@@ -10,6 +10,7 @@ import typing as t
 from decimal import Decimal
 
 import pytest
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from ninja.errors import HttpError
 from pydantic import ValidationError
@@ -182,6 +183,39 @@ def test_update_allows_offline_plan_going_lifetime(tier: MembershipTier) -> None
 def test_update_allows_unrelated_field_on_free_plan(free_plan: MembershipSubscriptionPlan) -> None:
     updated = subscription_service.update_plan(free_plan, name="Friends")
     assert updated.name == "Friends"
+
+
+# --------------------------------------------------------------------------- #
+# Model-level enforcement (defense-in-depth behind the API validators)
+# --------------------------------------------------------------------------- #
+
+
+def test_direct_orm_save_refuses_priced_free_plan(tier: MembershipTier) -> None:
+    """``TimeStampedModel.save`` runs ``full_clean``, so admin/shell writes are covered too."""
+    with pytest.raises(DjangoValidationError) as exc_info:
+        MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Sneaky",
+            price=Decimal("5.00"),
+            currency="EUR",
+            period_unit=PeriodUnit.LIFETIME,
+            payment_method=SubscriptionPaymentMethod.FREE,
+        )
+    assert "price of 0" in str(exc_info.value)
+    assert not MembershipSubscriptionPlan.objects.filter(name="Sneaky").exists()
+
+
+def test_direct_orm_save_refuses_lifetime_online_plan(tier: MembershipTier) -> None:
+    with pytest.raises(DjangoValidationError) as exc_info:
+        MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Forever",
+            price=Decimal("99.00"),
+            currency="EUR",
+            period_unit=PeriodUnit.LIFETIME,
+            payment_method=SubscriptionPaymentMethod.ONLINE,
+        )
+    assert "cannot use the lifetime" in str(exc_info.value)
 
 
 # --------------------------------------------------------------------------- #

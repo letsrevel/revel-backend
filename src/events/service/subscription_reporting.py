@@ -104,13 +104,20 @@ def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
         .values_list("subscription_id", "amount")
     )
 
+    # Only plans that actually contribute recurring revenue get a vote on the
+    # currency. A LIFETIME plan normalizes to 0, so counting its currency here
+    # would flip an otherwise single-currency org to MIXED (mrr forced to 0)
+    # on the strength of a row contributing nothing — e.g. one recurring EUR
+    # subscription alongside a one-off USD lifetime membership.
     currencies: set[str] = set()
     mrr_total = Decimal("0")
     for sub in active_subs:
-        currencies.add(sub.plan.currency)
         paid = paid_by_sub.get(sub.id)
         amount = paid if paid is not None else sub.plan.price
-        mrr_total += _normalize_to_monthly(amount, sub.plan)
+        contribution = _normalize_to_monthly(amount, sub.plan)
+        if contribution:
+            currencies.add(sub.plan.currency)
+        mrr_total += contribution
 
     mixed_currency_warning = len(currencies) > 1
     if mixed_currency_warning:

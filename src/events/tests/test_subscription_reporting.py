@@ -336,6 +336,48 @@ class TestMixedCurrency:
         assert metrics["mrr_currency"] == "MIXED"
         assert metrics["mrr"] == Decimal("0")
 
+    def test_lifetime_plan_in_another_currency_does_not_trigger_mixed(
+        self,
+        organization: Organization,
+        tier: MembershipTier,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        """A LIFETIME plan contributes 0 MRR, so its currency must not get a vote.
+
+        Otherwise a single USD one-off membership flips an all-EUR org to MIXED
+        and zeroes out its real, recurring MRR.
+        """
+        eur_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="EUR Monthly",
+            price=Decimal("10"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+        )
+        usd_lifetime_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="USD Lifetime",
+            price=Decimal("500"),
+            currency="USD",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.LIFETIME,
+        )
+        MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=eur_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=usd_lifetime_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        metrics = subscription_reporting.get_organization_metrics(organization)
+        assert metrics["mixed_currency_warning"] is False
+        assert metrics["mrr_currency"] == "EUR"
+        assert metrics["mrr"] == Decimal("10.00")
+
 
 @pytest.mark.django_db
 class TestChurn:

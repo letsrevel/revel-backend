@@ -96,6 +96,26 @@ class TestNullPricePatch:
         free_plan.refresh_from_db()
         assert free_plan.price == Decimal("0")
 
+    def test_patch_plan_with_null_period_unit_returns_400(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        online_plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """Sibling of the null-price case: a null cadence must also 400, never 500.
+
+        This one never crashed (the shape rules only compare ``period_unit`` for
+        equality, which is None-safe) — it is pinned so the NOT NULL column
+        keeps answering with a clean 400 from ``full_clean`` downstream.
+        """
+        url = reverse("api:update_subscription_plan", kwargs={"slug": organization.slug, "plan_id": online_plan.id})
+        response = organization_owner_client.patch(
+            url, data=orjson.dumps({"period_unit": None}), content_type="application/json"
+        )
+        assert response.status_code == 400, response.content
+        online_plan.refresh_from_db()
+        assert online_plan.period_unit == PeriodUnit.MONTH
+
 
 class TestStaffFreeSubscriptionGuards:
     def test_staff_can_create_a_plain_free_subscription(
