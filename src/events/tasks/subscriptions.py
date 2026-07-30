@@ -609,7 +609,9 @@ def expire_stale_approved_applications() -> int:
         # A row whose linked subscription is non-terminal is payment in flight.
         # NULL subscriptions survive the exclude (NULL never matches __in).
         .exclude(subscription__status__in=non_terminal)
-        .update(status=OrganizationMembershipRequest.Status.CANCELLED)
+        # Bulk update bypasses auto_now — stamp updated_at so the row records
+        # its actual cancellation time, not the stale approval timestamp.
+        .update(status=OrganizationMembershipRequest.Status.CANCELLED, updated_at=timezone.now())
     )
     if cancelled:
         logger.info("stale_approved_applications_cancelled", count=cancelled)

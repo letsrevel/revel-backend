@@ -66,6 +66,9 @@ def test_stale_approved_plan_bearing_application_is_cancelled(
     assert expire_stale_approved_applications() == 1
     app.refresh_from_db()
     assert app.status == OrganizationMembershipRequest.Status.CANCELLED
+    # The bulk update stamps updated_at (auto_now is bypassed) — the row must
+    # record its cancellation time, not the stale approval timestamp.
+    assert app.updated_at > timezone.now() - timedelta(minutes=1)
 
 
 def test_fresh_approved_application_is_untouched(
