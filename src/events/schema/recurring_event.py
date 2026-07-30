@@ -6,7 +6,7 @@ from ninja import Schema
 from pydantic import AwareDatetime, ConfigDict, Field, field_validator
 
 from common.schema import OneToOneFiftyString, StrippedString
-from events.models import Event, ResourceVisibility
+from events.models import Event
 from events.models.event_series import MAX_GENERATION_WINDOW_WEEKS
 
 from .event import EventCreateSchema, EventVisibilitySettingsSchema, MinimalEventSchema
@@ -99,7 +99,6 @@ class TemplateEditSchema(Schema):
     model_config = ConfigDict(extra="forbid")
 
     name: OneToOneFiftyString | None = None
-    address_visibility: ResourceVisibility | None = None
     description: StrippedString | None = None
     event_type: Event.EventType | None = None
     visibility: Event.Visibility | None = None
@@ -111,7 +110,6 @@ class TemplateEditSchema(Schema):
     potluck_open: bool | None = None
     accept_invitation_requests: bool | None = None
     accept_rsvp_notes: bool | None = None
-    public_pronoun_distribution: bool | None = None
     can_attend_without_login: bool | None = None
     requires_ticket: bool | None = None
     is_open_ended: bool | None = None

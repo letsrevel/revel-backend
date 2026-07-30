@@ -518,7 +518,7 @@ class TestCanUserSeeAddress:
             name="Event With Address",
             start=timezone.now(),
             address="123 Test Street",
-            address_visibility=ResourceVisibility.PUBLIC,
+            visibility_settings={"address_visibility": ResourceVisibility.PUBLIC},
         )
 
     @pytest.fixture
@@ -535,7 +535,7 @@ class TestCanUserSeeAddress:
         """Anonymous users can see address when visibility is PUBLIC."""
         from django.contrib.auth.models import AnonymousUser
 
-        event_with_address.address_visibility = ResourceVisibility.PUBLIC
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.PUBLIC}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(AnonymousUser()) is True
@@ -545,7 +545,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser
     ) -> None:
         """Authenticated users can see address when visibility is PUBLIC."""
-        event_with_address.address_visibility = ResourceVisibility.PUBLIC
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.PUBLIC}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(nonmember_user) is True
@@ -557,7 +557,7 @@ class TestCanUserSeeAddress:
         """Anonymous users cannot see address when visibility is PRIVATE."""
         from django.contrib.auth.models import AnonymousUser
 
-        event_with_address.address_visibility = ResourceVisibility.PRIVATE
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(AnonymousUser()) is False
@@ -567,7 +567,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser
     ) -> None:
         """Users without relationship to event cannot see address when visibility is PRIVATE."""
-        event_with_address.address_visibility = ResourceVisibility.PRIVATE
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(nonmember_user) is False
@@ -577,7 +577,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
     ) -> None:
         """Invited users can see address when visibility is PRIVATE."""
-        event_with_address.address_visibility = ResourceVisibility.PRIVATE
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
         event_with_address.save()
 
         invitation = EventInvitation.objects.create(user=nonmember_user, event=event_with_address)
@@ -590,7 +590,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
     ) -> None:
         """Ticket holders can see address when visibility is PRIVATE."""
-        event_with_address.address_visibility = ResourceVisibility.PRIVATE
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
         event_with_address.save()
 
         Ticket.objects.create(guest_name="Test Guest", user=nonmember_user, event=event_with_address, tier=ticket_tier)
@@ -600,7 +600,7 @@ class TestCanUserSeeAddress:
     @pytest.mark.django_db
     def test_private_visibility_rsvp_yes_can_see(self, event_with_address: Event, nonmember_user: RevelUser) -> None:
         """Users with YES RSVP can see address when visibility is PRIVATE."""
-        event_with_address.address_visibility = ResourceVisibility.PRIVATE
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
         event_with_address.save()
 
         EventRSVP.objects.create(user=nonmember_user, event=event_with_address, status=EventRSVP.RsvpStatus.YES)
@@ -610,7 +610,7 @@ class TestCanUserSeeAddress:
     @pytest.mark.django_db
     def test_private_visibility_rsvp_no_cannot_see(self, event_with_address: Event, nonmember_user: RevelUser) -> None:
         """Users with NO RSVP cannot see address when visibility is PRIVATE."""
-        event_with_address.address_visibility = ResourceVisibility.PRIVATE
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
         event_with_address.save()
 
         EventRSVP.objects.create(user=nonmember_user, event=event_with_address, status=EventRSVP.RsvpStatus.NO)
@@ -624,7 +624,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser
     ) -> None:
         """Non-members cannot see address when visibility is MEMBERS_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.MEMBERS_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.MEMBERS_ONLY}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(nonmember_user) is False
@@ -634,7 +634,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, member_user: RevelUser, organization_membership: OrganizationMember
     ) -> None:
         """Organization members can see address when visibility is MEMBERS_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.MEMBERS_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.MEMBERS_ONLY}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(member_user) is True
@@ -646,7 +646,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser
     ) -> None:
         """Non-staff users cannot see address when visibility is STAFF_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.STAFF_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.STAFF_ONLY}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(nonmember_user) is False
@@ -656,7 +656,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, member_user: RevelUser, organization_membership: OrganizationMember
     ) -> None:
         """Regular members cannot see address when visibility is STAFF_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.STAFF_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.STAFF_ONLY}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(member_user) is False
@@ -666,7 +666,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, organization_staff_user: RevelUser, staff_member: OrganizationStaff
     ) -> None:
         """Staff members can see address when visibility is STAFF_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.STAFF_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.STAFF_ONLY}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(organization_staff_user) is True
@@ -676,7 +676,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, organization_owner_user: RevelUser
     ) -> None:
         """Organization owners can see address when visibility is STAFF_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.STAFF_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.STAFF_ONLY}
         event_with_address.save()
 
         assert event_with_address.can_user_see_address(organization_owner_user) is True
@@ -688,7 +688,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
     ) -> None:
         """Users with only invitation (no ticket/RSVP) cannot see address when visibility is ATTENDEES_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.ATTENDEES_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
         event_with_address.save()
 
         invitation = EventInvitation.objects.create(user=nonmember_user, event=event_with_address)
@@ -701,7 +701,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
     ) -> None:
         """Ticket holders can see address when visibility is ATTENDEES_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.ATTENDEES_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
         event_with_address.save()
 
         Ticket.objects.create(guest_name="Test Guest", user=nonmember_user, event=event_with_address, tier=ticket_tier)
@@ -713,7 +713,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser
     ) -> None:
         """Users with YES RSVP can see address when visibility is ATTENDEES_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.ATTENDEES_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
         event_with_address.save()
 
         EventRSVP.objects.create(user=nonmember_user, event=event_with_address, status=EventRSVP.RsvpStatus.YES)
@@ -725,7 +725,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser
     ) -> None:
         """Users with MAYBE RSVP cannot see address when visibility is ATTENDEES_ONLY."""
-        event_with_address.address_visibility = ResourceVisibility.ATTENDEES_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
         event_with_address.save()
 
         EventRSVP.objects.create(user=nonmember_user, event=event_with_address, status=EventRSVP.RsvpStatus.MAYBE)
@@ -739,7 +739,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
     ) -> None:
         """Cancelled tickets do not grant access to address."""
-        event_with_address.address_visibility = ResourceVisibility.PRIVATE
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
         event_with_address.save()
 
         Ticket.objects.create(
@@ -757,7 +757,7 @@ class TestCanUserSeeAddress:
         self, event_with_address: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
     ) -> None:
         """Pending tickets grant access to address."""
-        event_with_address.address_visibility = ResourceVisibility.ATTENDEES_ONLY
+        event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
         event_with_address.save()
 
         Ticket.objects.create(
@@ -782,7 +782,7 @@ class TestCanUserSeeAddress:
         )
 
         for visibility in ResourceVisibility:
-            event_with_address.address_visibility = visibility
+            event_with_address.visibility_settings = {"address_visibility": visibility}
             event_with_address.save()
             assert event_with_address.can_user_see_address(superuser) is True, f"Failed for {visibility}"
 
@@ -796,7 +796,7 @@ class TestCanUserSeeAddress:
         )
 
         for visibility in ResourceVisibility:
-            event_with_address.address_visibility = visibility
+            event_with_address.visibility_settings = {"address_visibility": visibility}
             event_with_address.save()
             assert event_with_address.can_user_see_address(staff_user) is True, f"Failed for {visibility}"
 
@@ -808,7 +808,7 @@ class TestCanUserSeeAddress:
     ) -> None:
         """Organization owners can see address for all visibility levels."""
         for visibility in ResourceVisibility:
-            event_with_address.address_visibility = visibility
+            event_with_address.visibility_settings = {"address_visibility": visibility}
             event_with_address.save()
             assert event_with_address.can_user_see_address(organization_owner_user) is True, f"Failed for {visibility}"
 
@@ -818,7 +818,7 @@ class TestCanUserSeeAddress:
     ) -> None:
         """Organization staff can see address for all visibility levels."""
         for visibility in ResourceVisibility:
-            event_with_address.address_visibility = visibility
+            event_with_address.visibility_settings = {"address_visibility": visibility}
             event_with_address.save()
             assert event_with_address.can_user_see_address(organization_staff_user) is True, f"Failed for {visibility}"
 

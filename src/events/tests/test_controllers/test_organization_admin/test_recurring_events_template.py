@@ -230,6 +230,23 @@ class TestUpdateTemplate:
         assert series.template_event is not None
         assert series.template_event.is_open_ended is True
 
+    def test_template_edit_rejects_the_removed_field(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """``TemplateEditSchema`` is ``extra='forbid'`` — this break is loud, as intended."""
+        series = _make_series_with_future_dtstart(organization)
+
+        response = organization_owner_client.patch(
+            reverse(
+                "api:update_series_template",
+                kwargs={"slug": organization.slug, "series_id": str(series.id)},
+            ),
+            data=orjson.dumps({"address_visibility": "staff-only"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
+
     def test_update_template_with_future_unmodified_propagation(
         self,
         organization_owner_client: Client,

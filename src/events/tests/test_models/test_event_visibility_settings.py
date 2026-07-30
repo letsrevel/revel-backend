@@ -27,7 +27,11 @@ from events.schema import EventEditSchema
 from events.schema.recurring_event import TemplateEditSchema
 from events.service.duplication import _EXCLUDED_FROM_COPY, duplicate_event
 from events.service.event_update_service import _field_changed
-from events.utils.visibility_settings import build_visibility_settings_update, validate_visibility_settings
+from events.utils.visibility_settings import (
+    ResourceVisibility,
+    build_visibility_settings_update,
+    validate_visibility_settings,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -352,3 +356,31 @@ class TestOccurrenceCopy:
         from events.service.recurrence_service import PROPAGATABLE_FIELDS
 
         assert "visibility_settings" in PROPAGATABLE_FIELDS
+
+
+class TestPhase2Fields:
+    """``address_visibility`` and ``show_pronoun_distribution`` on the blob (#793)."""
+
+    def test_defaults_mirror_the_old_column_defaults(self) -> None:
+        """An untouched blob reproduces pre-#793 behavior exactly."""
+        flags = validate_visibility_settings({})
+        assert flags.address_visibility == ResourceVisibility.PUBLIC
+        assert flags.show_pronoun_distribution is False
+
+    def test_address_visibility_accepts_every_enum_member(self) -> None:
+        """Every ResourceVisibility value round-trips through the blob."""
+        for member in ResourceVisibility:
+            flags = validate_visibility_settings({"address_visibility": member.value})
+            assert flags.address_visibility == member
+
+    def test_address_visibility_rejects_unknown_values(self) -> None:
+        """A bogus visibility is a validation error, not a silent PUBLIC."""
+        with pytest.raises(PydanticValidationError):
+            validate_visibility_settings({"address_visibility": "everyone-ish"})
+
+    def test_reexport_is_the_same_object(self) -> None:
+        """``events.models.mixins`` re-exports the canonical enum, not a copy."""
+        from events.models.mixins import ResourceVisibility as ReExported
+        from events.utils.visibility_settings import ResourceVisibility as Canonical
+
+        assert ReExported is Canonical

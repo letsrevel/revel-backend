@@ -9,7 +9,16 @@ from uuid import UUID
 from django.db.models import Q, QuerySet
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitation, EventRSVP, Organization, OrganizationMember, Ticket, TicketTier
+from events.models import (
+    Event,
+    EventInvitation,
+    EventRSVP,
+    Organization,
+    OrganizationMember,
+    ResourceVisibility,
+    Ticket,
+    TicketTier,
+)
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
 
@@ -78,6 +87,13 @@ class BatchParticipationChecker:
             .filter(organization=self.organization)
             .values_list("user_id", flat=True)
         )
+
+        # Resolved once here rather than per call: ``Event.visibility_flags`` is
+        # deliberately uncached and re-validates the whole JSON blob on every
+        # access, so reading it inside ``can_see_address`` would re-parse the same
+        # static settings for every recipient of a fan-out — undoing this class's
+        # O(1)-per-user contract. The event does not change while a batch runs.
+        self.address_visibility: ResourceVisibility = self.event.visibility_flags.address_visibility
 
     def is_org_staff(self, user_id: UUID) -> bool:
         """Check if user is staff or owner of the organization.
@@ -176,9 +192,7 @@ class BatchParticipationChecker:
         Returns:
             True if user can see the event address
         """
-        from events.models.mixins import ResourceVisibility
-
-        address_visibility = self.event.address_visibility
+        address_visibility = self.address_visibility
 
         # PUBLIC / UNLISTED: Everyone can see
         if address_visibility in ResourceVisibility.publicly_accessible():

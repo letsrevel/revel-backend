@@ -18,6 +18,7 @@ from events.models import (
     EventRSVP,
     Organization,
     OrganizationStaff,
+    ResourceVisibility,
     TicketTier,
 )
 
@@ -51,7 +52,7 @@ def counted_event(public_event: Event) -> Event:
     return public_event
 
 
-def _set_visibility(event: Event, **settings: bool) -> None:
+def _set_visibility(event: Event, **settings: t.Any) -> None:
     """Persist a partial visibility-settings blob on ``event``."""
     event.visibility_settings = settings
     event.save(update_fields=["visibility_settings"])
@@ -171,6 +172,8 @@ class TestVisibilitySettingsExposure:
             "show_attendee_count": True,
             "show_capacity": True,
             "show_attendee_list": True,
+            "show_pronoun_distribution": False,
+            "address_visibility": "public",
         }
 
     def test_partial_blob_is_filled_in(self, anonymous_client: Client, public_event: Event) -> None:
@@ -181,6 +184,8 @@ class TestVisibilitySettingsExposure:
             "show_attendee_count": True,
             "show_capacity": False,
             "show_attendee_list": True,
+            "show_pronoun_distribution": False,
+            "address_visibility": "public",
         }
 
 
@@ -272,13 +277,12 @@ class TestTicketTierTotalAvailable:
 
 
 class TestPronounDistribution:
-    """The second exact head count behind ``public_pronoun_distribution``."""
+    """The second exact head count behind ``visibility_settings.show_pronoun_distribution``."""
 
     @pytest.fixture
     def pronoun_event(self, public_event: Event, django_user_model: type[RevelUser]) -> Event:
         """A public-distribution event with one attendee who declared pronouns."""
-        public_event.public_pronoun_distribution = True
-        public_event.save(update_fields=["public_pronoun_distribution"])
+        _set_visibility(public_event, show_pronoun_distribution=True)
         user = django_user_model.objects.create_user(
             username="pronouns792@example.com",
             email="pronouns792@example.com",
@@ -293,7 +297,7 @@ class TestPronounDistribution:
         assert response.status_code == 200, response.content
         return t.cast(dict[str, t.Any], response.json())
 
-    def test_visible_by_default(self, nonmember_client: Client, pronoun_event: Event) -> None:
+    def test_visible_when_opted_in(self, nonmember_client: Client, pronoun_event: Event) -> None:
         body = self._get(nonmember_client, pronoun_event)
 
         assert body["total_attendees"] == 1
@@ -303,7 +307,7 @@ class TestPronounDistribution:
         self, nonmember_client: Client, pronoun_event: Event
     ) -> None:
         """The per-pronoun counts sum back to the total, so both are redacted."""
-        _set_visibility(pronoun_event, show_attendee_count=False)
+        _set_visibility(pronoun_event, show_pronoun_distribution=True, show_attendee_count=False)
 
         body = self._get(nonmember_client, pronoun_event)
 
@@ -313,7 +317,7 @@ class TestPronounDistribution:
         assert body["distribution"] == []
 
     def test_owner_still_sees_totals(self, organization_owner_client: Client, pronoun_event: Event) -> None:
-        _set_visibility(pronoun_event, show_attendee_count=False)
+        _set_visibility(pronoun_event, show_pronoun_distribution=True, show_attendee_count=False)
 
         body = self._get(organization_owner_client, pronoun_event)
 
@@ -570,3 +574,102 @@ class TestOrganizerRoundTrip:
         )
 
         assert response.status_code == 422, response.content
+
+
+class TestPhase2WireContract:
+    """The #793 contract break: both fields live only inside the nested object."""
+
+    def test_detail_response_has_no_top_level_fields(self, anonymous_client: Client, public_event: Event) -> None:
+        """The old top-level fields are gone from the wire, values preserved in the blob."""
+        body = _detail(anonymous_client, public_event)
+
+        assert "address_visibility" not in body
+        assert "public_pronoun_distribution" not in body
+        assert body["visibility_settings"]["address_visibility"] == ResourceVisibility.PUBLIC.value
+        assert body["visibility_settings"]["show_pronoun_distribution"] is False
+
+    def test_address_visibility_round_trips_through_the_blob(
+        self, anonymous_client: Client, public_event: Event
+    ) -> None:
+        """A non-default visibility is served inside the nested object."""
+        _set_visibility(public_event, address_visibility=ResourceVisibility.STAFF_ONLY.value)
+
+        body = _detail(anonymous_client, public_event)
+
+        assert body["visibility_settings"]["address_visibility"] == "staff-only"
+        # The resolver still finds its explanatory message via the blob, and the
+        # real address is withheld. Asserting the exact wording would couple the
+        # test to the active locale.
+        assert body["address"] != public_event.address
+
+    def test_editing_address_visibility_preserves_other_toggles(
+        self, organization_owner_client: Client, public_event: Event
+    ) -> None:
+        """The merge path, now exercised with a non-boolean value."""
+        _set_visibility(public_event, show_capacity=False)
+
+        response = organization_owner_client.put(
+            reverse("api:edit_event", kwargs={"event_id": str(public_event.id)}),
+            data={"visibility_settings": {"address_visibility": "staff-only"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        public_event.refresh_from_db()
+        assert public_event.visibility_flags.show_capacity is False
+        assert public_event.visibility_flags.address_visibility == ResourceVisibility.STAFF_ONLY
+
+    def test_stored_address_visibility_is_a_plain_string(
+        self, organization_owner_client: Client, public_event: Event
+    ) -> None:
+        """No ``ResourceVisibility`` members left sitting in the JSONField."""
+        organization_owner_client.put(
+            reverse("api:edit_event", kwargs={"event_id": str(public_event.id)}),
+            data={"visibility_settings": {"address_visibility": "members-only"}},
+            content_type="application/json",
+        )
+
+        public_event.refresh_from_db()
+        assert type(public_event.visibility_settings["address_visibility"]) is str
+
+    def test_created_address_visibility_is_a_plain_string(self, organization: Organization) -> None:
+        """The create path must not leave a ``ResourceVisibility`` member in memory either.
+
+        A DB round-trip (as in the edit-path test above) can't catch this: JSONField
+        always decodes plain strings on read, regardless of what was written. So this
+        asserts on the very instance ``create_event`` returns, before any refetch —
+        the same instance the controller hands straight to the response schema.
+        """
+        from events.schema import EventCreateSchema
+        from events.service import event_service
+
+        payload = EventCreateSchema.model_validate(
+            {
+                "name": "Discreet Event",
+                "start": "2099-01-01T18:00:00Z",
+                "event_type": Event.EventType.PUBLIC,
+                "visibility": Event.Visibility.PUBLIC,
+                "visibility_settings": {"address_visibility": "members-only"},
+            }
+        )
+
+        event = event_service.create_event(organization, payload)
+
+        assert type(event.visibility_settings["address_visibility"]) is str
+
+    def test_removed_top_level_field_is_ignored(self, organization_owner_client: Client, public_event: Event) -> None:
+        """``EventEditSchema`` is not ``extra='forbid'``, so the field is ignored, not 422.
+
+        Pinned deliberately: an old client sending the top-level field gets a
+        silent no-op rather than a changed address visibility. The coordinated
+        release is what prevents that from mattering.
+        """
+        response = organization_owner_client.put(
+            reverse("api:edit_event", kwargs={"event_id": str(public_event.id)}),
+            data={"address_visibility": "staff-only"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        public_event.refresh_from_db()
+        assert public_event.visibility_flags.address_visibility == ResourceVisibility.PUBLIC

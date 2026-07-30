@@ -142,7 +142,7 @@ class EventSeeder(BaseSeeder):
                     potluck_open=self.random_bool(self.config.potluck_event_pct),
                     accept_invitation_requests=self.random_bool(0.4),
                     can_attend_without_login=self.random_bool(0.6),
-                    address_visibility=self.random_choice(list(ResourceVisibility.values)),
+                    visibility_settings={"address_visibility": self.random_choice(list(ResourceVisibility.values))},
                     max_tickets_per_user=self.random_choice([None, 1, 2, 5, 10]),
                     city=self.random_choice(cities) if cities else None,
                     address=self.faker.address() if self.random_bool(0.7) else None,

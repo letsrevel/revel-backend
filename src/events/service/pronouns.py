@@ -18,10 +18,11 @@ def get_event_pronoun_distribution(event: Event, viewer: RevelUser) -> EventPron
     else in the codebase. PENDING tickets (e.g. OFFLINE) reserve capacity but are
     not yet confirmed attendees.
 
-    When the event hides attendee counts and ``viewer`` is not privileged
-    (org owner/staff, Django staff), an empty distribution with null totals is
-    returned without touching the database. Redacting only the totals would be
-    pointless: the per-pronoun counts sum straight back to them.
+    When the event hides attendee counts, or has not opted into publishing the
+    distribution itself, and ``viewer`` is not privileged (org owner/staff,
+    Django staff), an empty distribution with null totals is returned without
+    touching the database. Redacting only the totals would be pointless: the
+    per-pronoun counts sum straight back to them.
 
     Args:
         event: The event to get pronoun distribution for
@@ -30,7 +31,7 @@ def get_event_pronoun_distribution(event: Event, viewer: RevelUser) -> EventPron
     Returns:
         EventPronounDistributionSchema with distribution and totals
     """
-    if not event.can_user_see_attendee_count(viewer):
+    if not event.can_user_see_attendee_count(viewer) or not event.can_user_see_pronoun_distribution(viewer):
         return EventPronounDistributionSchema(
             distribution=[],
             total_with_pronouns=None,

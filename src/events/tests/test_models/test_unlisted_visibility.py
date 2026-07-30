@@ -404,13 +404,13 @@ class TestAddressVisibilityUnlisted:
     """Test that UNLISTED address_visibility is treated like PUBLIC."""
 
     def test_anonymous_can_see_unlisted_address(self, unlisted_event_on_public_org: Event) -> None:
-        unlisted_event_on_public_org.address_visibility = ResourceVisibility.UNLISTED
+        unlisted_event_on_public_org.visibility_settings = {"address_visibility": ResourceVisibility.UNLISTED}
         unlisted_event_on_public_org.address = "123 Test St"
         unlisted_event_on_public_org.save()
         assert unlisted_event_on_public_org.can_user_see_address(AnonymousUser()) is True
 
     def test_outsider_can_see_unlisted_address(self, unlisted_event_on_public_org: Event, outsider: RevelUser) -> None:
-        unlisted_event_on_public_org.address_visibility = ResourceVisibility.UNLISTED
+        unlisted_event_on_public_org.visibility_settings = {"address_visibility": ResourceVisibility.UNLISTED}
         unlisted_event_on_public_org.address = "123 Test St"
         unlisted_event_on_public_org.save()
         assert unlisted_event_on_public_org.can_user_see_address(outsider) is True

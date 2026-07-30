@@ -152,7 +152,7 @@ class TestUnlistedAddressVisibilityBatchParity:
     """BatchParticipationChecker.can_see_address handles UNLISTED like PUBLIC."""
 
     def test_unlisted_address_visible_to_random_user(self, unlisted_event: Event, random_user: RevelUser) -> None:
-        unlisted_event.address_visibility = ResourceVisibility.UNLISTED
+        unlisted_event.visibility_settings = {"address_visibility": ResourceVisibility.UNLISTED}
         unlisted_event.save()
 
         checker = BatchParticipationChecker(unlisted_event)

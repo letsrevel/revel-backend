@@ -314,7 +314,7 @@ class TestGetSeriesTemplateEvent:
         # Fields the dialog form seeds from the response.
         assert "visibility" in data
         assert "event_type" in data
-        assert "address_visibility" in data
+        assert "address_visibility" in data["visibility_settings"]
         assert "max_attendees" in data
         assert "requires_ticket" in data
         assert "potluck_open" in data

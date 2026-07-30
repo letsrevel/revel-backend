@@ -40,7 +40,6 @@ class SeriesPassLinkInputSchema(Schema):
 
 class EventEditSchema(CityEditMixin):
     name: OneToOneFiftyString | None = None
-    address_visibility: ResourceVisibility = ResourceVisibility.PUBLIC
     description: StrippedString | None = None
     event_type: Event.EventType | None = None
     status: Event.EventStatus = Event.EventStatus.DRAFT
@@ -61,7 +60,6 @@ class EventEditSchema(CityEditMixin):
     potluck_open: bool = False
     accept_invitation_requests: bool = False
     accept_rsvp_notes: bool = False
-    public_pronoun_distribution: bool = False
     apply_before: AwareDatetime | None = Field(
         None, description="Deadline for submitting invitation requests or questionnaires"
     )
@@ -121,7 +119,6 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     id: UUID
     event_type: Event.EventType
     visibility: Event.Visibility
-    address_visibility: ResourceVisibility = ResourceVisibility.PUBLIC
     organization: MinimalOrganizationSchema
     status: Event.EventStatus
     event_series: MinimalEventSeriesSchema | None = None
@@ -148,7 +145,6 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     visibility_settings: EventVisibilitySettingsSchema = Field(default_factory=EventVisibilitySettingsSchema)
     accept_invitation_requests: bool
     accept_rsvp_notes: bool
-    public_pronoun_distribution: bool
     apply_before: AwareDatetime | None = None
     can_attend_without_login: bool
     # Recurring-series fields. Included in the base schema so list views can
@@ -298,7 +294,7 @@ class EventDetailSchema(EventBaseSchema):
             ResourceVisibility.STAFF_ONLY: _("Address visible to staff only"),
             ResourceVisibility.ATTENDEES_ONLY: _("Address visible to attendees only"),
         }
-        return visibility_messages.get(obj.address_visibility)
+        return visibility_messages.get(obj.visibility_flags.address_visibility)
 
     @staticmethod
     def resolve_location_maps_url(obj: Event, context: t.Any) -> str | None:

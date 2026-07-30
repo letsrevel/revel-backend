@@ -276,8 +276,11 @@ class Event(
         default=dict,
         blank=True,
         help_text=(
-            "Granular switches for organizational information (attendee count, capacity, guest list). "
-            "An empty object means every toggle keeps its default of 'visible'."
+            "Granular disclosure settings: boolean toggles for attendee count, capacity, guest "
+            "list, and pronoun distribution, plus an address_visibility level (public/private/"
+            "members-only/staff-only/attendees-only). An empty object means every toggle keeps "
+            "its own default — visible for all of them except pronoun distribution, which "
+            "defaults to hidden; address_visibility defaults to public."
         ),
     )
     waitlist_open = models.BooleanField(default=False)
@@ -340,9 +343,6 @@ class Event(
         help_text="Allow attendees to attach a short plain-text note to their RSVP.",
     )
     accept_invitation_requests = models.BooleanField(default=False)
-    public_pronoun_distribution = models.BooleanField(
-        default=False, help_text="Whether pronoun distribution is visible to non-staff users"
-    )
     apply_before = models.DateTimeField(
         null=True, blank=True, db_index=True, help_text="Deadline for submitting invitation requests or questionnaires"
     )
@@ -354,12 +354,6 @@ class Event(
 
     can_attend_without_login = models.BooleanField(
         default=True, help_text="Allow users to RSVP or purchase tickets without creating an account"
-    )
-    address_visibility = models.CharField(
-        choices=ResourceVisibility.choices,
-        max_length=20,
-        default=ResourceVisibility.PUBLIC,
-        help_text="Controls who can see the event address. Uses same rules as resource visibility.",
     )
 
     attendee_count = models.PositiveIntegerField(default=0, editable=False)
@@ -550,6 +544,17 @@ class Event(
         """
         return self.visibility_flags.show_attendee_list or self.bypasses_visibility_settings(user)
 
+    def can_user_see_pronoun_distribution(self, user: RevelUser | AnonymousUser) -> bool:
+        """Whether the aggregated pronoun distribution may be disclosed to this user.
+
+        Opt-in per event, unlike its siblings: ``show_pronoun_distribution``
+        defaults to ``False``. ANDed with :meth:`can_user_see_attendee_count` at
+        the point of use — the distribution's per-pronoun counts sum straight
+        back to the head count, so opting into the distribution must not
+        sidestep an event that hides its counts.
+        """
+        return self.visibility_flags.show_pronoun_distribution or self.bypasses_visibility_settings(user)
+
     def can_user_see_address(self, user: RevelUser | AnonymousUser) -> bool:
         """Check if the user can see the event address based on address_visibility.
 
@@ -587,12 +592,14 @@ class Event(
         from .rsvp import EventRSVP
         from .ticket import Ticket
 
+        address_visibility = self.visibility_flags.address_visibility
+
         # Staff/superusers always see everything
         if user.is_superuser or user.is_staff:
             return True
 
         # PUBLIC / UNLISTED is visible to everyone
-        if self.address_visibility in ResourceVisibility.publicly_accessible():
+        if address_visibility in ResourceVisibility.publicly_accessible():
             return True
 
         # Anonymous users can only see PUBLIC / UNLISTED addresses
@@ -606,7 +613,7 @@ class Event(
         is_staff_member = any(m.id == user.id for m in self.organization.staff_members.all())
 
         # STAFF_ONLY: Only staff/owners
-        if self.address_visibility == ResourceVisibility.STAFF_ONLY:
+        if address_visibility == ResourceVisibility.STAFF_ONLY:
             return is_owner or is_staff_member
 
         # Staff and owners can see everything
@@ -619,7 +626,7 @@ class Event(
         )
 
         # MEMBERS_ONLY: Organization members
-        if self.address_visibility == ResourceVisibility.MEMBERS_ONLY:
+        if address_visibility == ResourceVisibility.MEMBERS_ONLY:
             return is_org_member
 
         # Check event relationships
@@ -628,11 +635,11 @@ class Event(
         has_invitation = EventInvitation.objects.filter(user=user, event=self).exists()
 
         # ATTENDEES_ONLY: Only ticket holders or RSVPs (not just invited)
-        if self.address_visibility == ResourceVisibility.ATTENDEES_ONLY:
+        if address_visibility == ResourceVisibility.ATTENDEES_ONLY:
             return has_ticket or has_rsvp
 
         # PRIVATE: Invited users, ticket holders, or RSVPs
-        if self.address_visibility == ResourceVisibility.PRIVATE:
+        if address_visibility == ResourceVisibility.PRIVATE:
             return has_ticket or has_rsvp or has_invitation
 
         return False

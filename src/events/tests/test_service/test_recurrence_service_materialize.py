@@ -184,9 +184,11 @@ class TestMaterializeOccurrence:
         template = active_series.template_event
         assert template is not None
         template.max_tickets_per_user = 5
-        template.public_pronoun_distribution = True
+        template.visibility_settings = {
+            "address_visibility": ResourceVisibility.MEMBERS_ONLY.value,
+            "show_pronoun_distribution": True,
+        }
         template.requires_full_profile = True
-        template.address_visibility = ResourceVisibility.MEMBERS_ONLY
         template.accept_invitation_requests = True
         template.invitation_message = "Welcome to the weekly meetup"
         template.max_attendees = 42
@@ -200,9 +202,9 @@ class TestMaterializeOccurrence:
 
         # Assert — every field survived the duplicate.
         assert event.max_tickets_per_user == 5
-        assert event.public_pronoun_distribution is True
+        assert event.visibility_settings["show_pronoun_distribution"] is True
         assert event.requires_full_profile is True
-        assert event.address_visibility == ResourceVisibility.MEMBERS_ONLY
+        assert event.visibility_settings["address_visibility"] == ResourceVisibility.MEMBERS_ONLY.value
         assert event.accept_invitation_requests is True
         assert event.invitation_message == "Welcome to the weekly meetup"
         assert event.max_attendees == 42

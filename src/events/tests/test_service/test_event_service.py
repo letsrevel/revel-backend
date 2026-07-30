@@ -728,16 +728,18 @@ class TestDuplicateEvent:
         assert new_event.apply_before is None
 
     def test_duplicate_event_copies_extended_fields(self, organization: Organization) -> None:
-        """Test that address_visibility, requires_full_profile, and other extended fields are copied."""
+        """Test that visibility_settings, requires_full_profile, and other extended fields are copied."""
         from events.models.mixins import ResourceVisibility
 
         template = Event.objects.create(
             organization=organization,
             name="Extended Event",
             start=timezone.now(),
-            address_visibility=ResourceVisibility.ATTENDEES_ONLY,
+            visibility_settings={
+                "address_visibility": ResourceVisibility.ATTENDEES_ONLY.value,
+                "show_pronoun_distribution": True,
+            },
             requires_full_profile=True,
-            public_pronoun_distribution=True,
             max_tickets_per_user=5,
             location_maps_url="https://maps.example.com/place",
             location_maps_embed="https://www.google.com/maps/embed?pb=example",
@@ -749,9 +751,9 @@ class TestDuplicateEvent:
             new_start=template.start + timedelta(days=1),
         )
 
-        assert new_event.address_visibility == ResourceVisibility.ATTENDEES_ONLY
+        assert new_event.visibility_settings["address_visibility"] == ResourceVisibility.ATTENDEES_ONLY.value
+        assert new_event.visibility_settings["show_pronoun_distribution"] is True
         assert new_event.requires_full_profile is True
-        assert new_event.public_pronoun_distribution is True
         assert new_event.max_tickets_per_user == 5
         assert new_event.location_maps_url == "https://maps.example.com/place"
         assert new_event.location_maps_embed == "https://www.google.com/maps/embed?pb=example"

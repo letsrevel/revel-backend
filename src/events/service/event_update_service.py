@@ -113,7 +113,15 @@ def create_event(organization: models.Organization, payload: EventCreateSchema) 
     Returns:
         The newly created ``Event``.
     """
-    event = models.Event.objects.create(organization=organization, **payload.model_dump(exclude={"series_pass_links"}))
+    create_kwargs = payload.model_dump(exclude={"series_pass_links"})
+    # A plain dump keeps datetimes as ``datetime`` objects, which
+    # ``Event.objects.create`` needs — but it also leaves any enum member
+    # inside ``visibility_settings`` (e.g. ``address_visibility``) un-stringified.
+    # Overwrite just that key with a json-mode dump so the in-memory instance
+    # never holds a ``ResourceVisibility`` member, mirroring the edit path's
+    # ``build_visibility_settings_update``.
+    create_kwargs["visibility_settings"] = payload.visibility_settings.model_dump(mode="json")
+    event = models.Event.objects.create(organization=organization, **create_kwargs)
     _link_series_passes(event, payload.series_pass_links)
     return event
 
