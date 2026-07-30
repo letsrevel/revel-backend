@@ -12,6 +12,7 @@ from events.models import OrganizationQuestionnaire
 from questionnaires import schema as questionnaires_schema
 from questionnaires.models import Questionnaire
 
+from .announcement import MembershipTierMinimalSchema
 from .event import MinimalEventSchema
 from .event_series import MinimalEventSeriesSchema
 from .pronouns import EventPronounDistributionSchema
@@ -59,11 +60,18 @@ class BaseOrganizationQuestionnaireSchema(Schema):
     id: UUID
     events: list[MinimalEventSchema] = Field(default_factory=list)
     event_series: list[MinimalEventSeriesSchema] = Field(default_factory=list)
+    tiers: list[MembershipTierMinimalSchema] = Field(default_factory=list)
+    is_organization_default: bool = False
     max_submission_age: timedelta | int | None = None
     questionnaire_type: OrganizationQuestionnaire.QuestionnaireType
     members_exempt: bool
     per_event: bool
     requires_evaluation: bool
+
+    @staticmethod
+    def resolve_is_organization_default(obj: OrganizationQuestionnaire) -> bool:
+        """Whether the owning organization uses this questionnaire as its default membership one."""
+        return obj.organization.default_membership_questionnaire_id == obj.id
 
     @field_serializer("max_submission_age")
     def serialize_max_submission_age(self, value: timedelta | int | None) -> int | None:

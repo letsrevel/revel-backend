@@ -14,13 +14,14 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 from django.http import Http404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import MembershipTier, Organization, OrganizationQuestionnaire
+from events.models import Organization, OrganizationQuestionnaire
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 from questionnaires.schema import QuestionnaireSubmissionSchema
 from questionnaires.service.submission_service import SubmissionService
@@ -57,21 +58,15 @@ def get_membership_org_questionnaire(
     Raises:
         Http404: If the questionnaire does not gate membership in this organization.
     """
-    reachable_ids: set[UUID] = set(
-        MembershipTier.objects.filter(organization=organization)
-        .exclude(membership_questionnaire=None)
-        .values_list("membership_questionnaire_id", flat=True)
-    )
-    if organization.default_membership_questionnaire_id:
-        reachable_ids.add(organization.default_membership_questionnaire_id)
-
     org_questionnaire = (
         OrganizationQuestionnaire.objects.filter(
+            # Reachable when a tier of this org overrides to it, or it is the org default.
+            Q(tiers__organization=organization) | Q(default_for_organizations=organization),
             organization=organization,
             questionnaire_id=questionnaire_id,
-            pk__in=reachable_ids,
         )
         .select_related("questionnaire")
+        .distinct()
         .first()
     )
     if org_questionnaire is None:

@@ -429,7 +429,7 @@ class Organization(
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="+",
+        related_name="default_for_organizations",
         # Must be a string literal to avoid circular import — keep in sync with
         # OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP.
         limit_choices_to={"questionnaire_type": "membership"},
@@ -626,7 +626,7 @@ class MembershipTier(TimeStampedModel):
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="+",
+        related_name="tiers",
         # Must be a string literal to avoid circular import — keep in sync with
         # OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP.
         limit_choices_to={"questionnaire_type": "membership"},
