@@ -43,6 +43,7 @@ class OrganizationQuestionnaireQueryset(models.QuerySet["OrganizationQuestionnai
         return self.select_related("organization", "questionnaire").prefetch_related(
             models.Prefetch("events", queryset=event_qs),
             models.Prefetch("event_series", queryset=event_series_qs),
+            "tiers",
         )
 
     def for_user(self, user: RevelUser | AnonymousUser) -> t.Self:

@@ -3,16 +3,19 @@
 Tests for create, list, get, update, delete, and status update operations.
 """
 
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
 
 import orjson
 import pytest
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from accounts.models import RevelUser
-from events.models import Event, EventSeries, Organization, OrganizationQuestionnaire
+from events.models import Event, EventSeries, MembershipTier, Organization, OrganizationQuestionnaire
 from events.schema import OrganizationQuestionnaireCreateSchema
 from questionnaires.models import (
     FreeTextQuestion,
@@ -344,6 +347,86 @@ def test_list_org_questionnaires_with_pending_evaluations_count(
     # Find questionnaire2 in results
     q2_result = next(item for item in data["results"] if item["id"] == str(org_q2.id))
     assert q2_result["pending_evaluations_count"] == 1  # submission2_no_eval
+
+
+# --- Membership usage (tiers / org default) tests ---
+
+
+def _membership_org_questionnaire(organization: Organization, name: str) -> OrganizationQuestionnaire:
+    """Create a MEMBERSHIP-type OrganizationQuestionnaire wrapper for the organization."""
+    return OrganizationQuestionnaire.objects.create(
+        organization=organization,
+        questionnaire=Questionnaire.objects.create(name=name),
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+    )
+
+
+def test_list_org_questionnaires_includes_tiers(organization: Organization, organization_owner_client: Client) -> None:
+    """A questionnaire used as a tier override lists that tier."""
+    org_q = _membership_org_questionnaire(organization, "Membership Q")
+    tier = MembershipTier.objects.create(organization=organization, name="Student", membership_questionnaire=org_q)
+
+    response = organization_owner_client.get(reverse("api:list_org_questionnaires"))
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["id"] == str(org_q.id)
+    assert result["tiers"] == [{"id": str(tier.id), "name": "Student"}]
+    assert result["is_organization_default"] is False
+
+
+def test_list_org_questionnaires_marks_organization_default(
+    organization: Organization, organization_owner_client: Client
+) -> None:
+    """Only the org's default membership questionnaire is flagged as such."""
+    default_q = _membership_org_questionnaire(organization, "Default Q")
+    other_q = _membership_org_questionnaire(organization, "Other Q")
+    organization.default_membership_questionnaire = default_q
+    organization.save(update_fields=["default_membership_questionnaire"])
+
+    response = organization_owner_client.get(reverse("api:list_org_questionnaires"))
+
+    assert response.status_code == 200
+    by_id = {item["id"]: item for item in response.json()["results"]}
+    assert by_id[str(default_q.id)]["is_organization_default"] is True
+    assert by_id[str(other_q.id)]["is_organization_default"] is False
+
+
+def test_list_org_questionnaires_unused_membership_questionnaire(
+    organization: Organization, organization_owner_client: Client
+) -> None:
+    """A membership questionnaire nothing points at reports no usage."""
+    org_q = _membership_org_questionnaire(organization, "Orphan Q")
+
+    response = organization_owner_client.get(reverse("api:list_org_questionnaires"))
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["id"] == str(org_q.id)
+    assert result["tiers"] == []
+    assert result["is_organization_default"] is False
+
+
+def test_list_org_questionnaires_tiers_no_extra_queries(
+    organization: Organization,
+    organization_owner_client: Client,
+    django_assert_num_queries: t.Any,
+) -> None:
+    """The tiers list is prefetched — more tiers pointing at a questionnaire must not add queries."""
+    url = reverse("api:list_org_questionnaires")
+    org_q = _membership_org_questionnaire(organization, "Membership Q")
+    MembershipTier.objects.create(organization=organization, name="Tier 0", membership_questionnaire=org_q)
+
+    with CaptureQueriesContext(connection) as captured:
+        assert organization_owner_client.get(url).status_code == 200
+    one_tier = len(captured.captured_queries)
+
+    for i in range(1, 4):
+        MembershipTier.objects.create(organization=organization, name=f"Tier {i}", membership_questionnaire=org_q)
+
+    with django_assert_num_queries(one_tier):
+        response = organization_owner_client.get(url)
+    assert len(response.json()["results"][0]["tiers"]) == 4
 
 
 # --- Get questionnaire tests ---

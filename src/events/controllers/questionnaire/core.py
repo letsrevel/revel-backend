@@ -114,6 +114,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
             ),
             "events",
             "event_series",
+            "tiers",
         )
         return t.cast(
             event_models.OrganizationQuestionnaire,

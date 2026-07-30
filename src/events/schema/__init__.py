@@ -15,6 +15,7 @@ from .announcement import (
     AnnouncementScheduleSchema,
     AnnouncementSchema,
     AnnouncementUpdateSchema,
+    MembershipTierMinimalSchema,
     RecipientCountSchema,
 )
 
@@ -561,6 +562,7 @@ __all__ = [
     "MembershipPaymentSchema",
     "MembershipTierAdminSchema",
     "MembershipTierCreateSchema",
+    "MembershipTierMinimalSchema",
     "MembershipTierSchema",
     "MembershipTierUpdateSchema",
     "MigrationAcceptedSchema",
