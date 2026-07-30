@@ -2677,7 +2677,7 @@ msgid "This is an automated billing document."
 msgstr "Ceci est un document de facturation automatique."
 
 msgid "Price cannot be null."
-msgstr "Le prix ne peut pas être nul."
+msgstr "Le prix doit être renseigné."
 
 msgid "Free plans must have a price of 0."
 msgstr "Les plans gratuits doivent avoir un prix de 0."
