@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-31
+
+### Added
+- **Enterprise Venue & Seating (Phase 1)**: reserved seating for ticketed venues — pick-your-seat and best-available, with box-office control
+  - `PriceCategory` (venue-scoped seat pools) lets a tier price each seat by its painted category — the standard theatre model, via a `category_prices` map. An empty map means one flat `tier.price` for the whole sector; the buyer's zone travels as a `price_category_id` request parameter. On `user_choice` tiers the map must cover every painted category (a clickable-but-unpriced seat is refused at checkout); on `best_available` tiers the keys define which zones the tier may sell from.
+  - `SeatHold` — TTL cart holds with takeover-upsert acquisition, so a seat is never double-sold and an abandoned cart releases itself; holds report a `conflict_reason` distinguishing "sold out" from "unavailable"
+  - `EventSeatOverride` — per-event box-office hold/kill of individual seats with a reason, without touching the venue layout
+  - `VenueSector.kind` plus seat `row_label`/`row_order`/`adjacency_index`, so rows sort and seat neighbours are known (adjacency drives best-available grouping)
+  - Public seat-chart, availability, and hold endpoints; organization-admin `PriceCategory` CRUD (deletion refused while any tier prices against the category) and seat overrides under `manage_tickets`
+  - Seat-painting operations report which tiers they repriced and which they left unsellable; `?preview=true` returns the identical report without writing
+  - Verified under load (hold storms, best-available herds, 40-way same-second purchase races): no double-sold seat, no deadlock, async checkout p95 1.13 s contended / ~100 ms uncontended
+- **Membership Subscriptions**: recurring paid memberships, offline or via Stripe Connect
+  - Full lifecycle — subscribe, cancel (immediate or at period end), pause, resume, change plan (via Stripe Subscription Schedules), and revive a lapsed membership; price grandfathering with an optional staff force-migrate
+  - `MembershipSubscriptionPlan.max_subscriptions` caps concurrent subscriptions (counted live, slots reclaimed on cancel/expiry) and `sales_status` (OPEN/PAUSED) stops member self-service without archiving the plan; the public plan schema exposes `sales_status` and a computed `sold_out`
+  - Dunning notifications on failed and 3DS-blocked renewals, refund-triggered auto-cancel, renewal reminders, a nightly Stripe reconcile, per-organization metrics (MRR normalized to monthly), and full audit history
+- **Membership Eligibility Pipeline**: a 10-gate eligibility stack for joining an organization, mirroring the event pipeline, on both the free and the paid path
+  - Application state machine on `OrganizationMembershipRequest` (PENDING/APPROVED/REJECTED/CANCELLED/COMPLETED) with `GET /me/organizations/{slug}/join-eligibility`, `/apply`, and `/me/applications` list/get/cancel; the legacy `/membership-requests` surface is preserved
+  - `/apply` accepts a `plan_id` (tier derived from the plan) and `/subscribe` runs the full gate stack, so a tier can be paid *and* gated by questionnaire or staff approval — previously an unshippable combination. Stripe activation settles the originating application to COMPLETED at the same moment the member goes ACTIVE.
+  - Approved-but-unpaid applications older than 30 days are cancelled by a daily sweep
+- **Free and lifetime membership plans**: `PeriodUnit.LIFETIME` (non-renewing — never lapses, never reminded, counted as zero recurring revenue) and `SubscriptionPaymentMethod.FREE` (self-serve, no Stripe). Subscribing to a FREE plan activates the membership in one transaction and returns `checkout_url: null`. Plan shape is validated on create and update: FREE ⇒ price 0 and LIFETIME; ONLINE ⇒ price > 0 and never LIFETIME.
+- `GET /api/organizations/{slug}/membership-tiers` — public membership-tier listing with resolved `requires_approval` and `questionnaire_id`, nested active plans, and `is_free`. Previously only *plans* were public, so a gated tier with no plan was invisible to prospective members.
+- **Granular event visibility settings**: `Event.visibility_settings` — a validated, typed JSON object letting organizers hide the attendee count (`show_attendee_count`), the capacity (`show_capacity`), and the guest list (`show_attendee_list`). Defaults reproduce previous behaviour exactly.
+- Spanish (`es`) and European Portuguese (`pt`) locales — the API now serves six languages, each catalog fully translated
+- `organization_slug` filter on the public event list, so discovery can be scoped to an organization by slug instead of UUID
+- `OrganizationQuestionnaire` responses now carry `tiers` and `is_organization_default`, so the admin can see which membership tiers a questionnaire actually gates (it previously reported "Not assigned" for every one)
+- Admin action to requeue a `FAILED` referral payout — a failed transfer was previously a dead end with the referrer's money stranded
+- `make seed` ships three fully laid-out showcase venues (theatre, comedy club, music hall) with materialized seats, tiers in every seat-assignment mode, and sold tickets
+
+### Changed
+- **Breaking** (`Event`): `address_visibility` and `public_pronoun_distribution` are no longer top-level fields on `EventBaseSchema`, `EventEditSchema`, `EventCreateSchema`, or `TemplateEditSchema`. Both live inside the nested `visibility_settings` object, the latter renamed to `show_pronoun_distribution`. Values and defaults are unchanged. Note the asymmetry for old clients: `TemplateEditSchema` forbids extra fields and returns 422, while `EventEditSchema` silently ignores them. Requires a coordinated frontend update.
+- **Breaking** (error responses): the declared 400 schemas across 49 endpoints now match what those endpoints actually return. 39 declarations were wrong — 26 endpoints declared `ResponseMessage` while producing `{detail}` or an eligibility body, and 16 declared only `ValidationErrorResponse`. Endpoints that can return more than one shape now declare a union (e.g. `EventUserEligibility | ErrorDetail`), rendered as `anyOf` in OpenAPI. No runtime behaviour changed — only the declarations — but generated clients will see new error types.
+- **Breaking** (ticket tiers): the `RANDOM` seat-assignment mode is removed; existing rows are migrated to `BEST_AVAILABLE`. Clients sending `random` will be rejected.
+- `GET /events/{id}/pronoun-distribution` no longer returns 403 to non-privileged callers — it returns 200 with an empty distribution and null totals, matching every other visibility gate. Hiding attendee counts also hides the pronoun distribution, since per-pronoun counts sum back to the head count.
+- Stripe Checkout return URLs for memberships now land on `/org/{slug}/membership` instead of the organization landing page, removing a redirect hop immediately after payment
+- Beta Docker images can be published from a pull request by applying a label, with only one open PR able to claim the beta tag at a time
+
+### Fixed
+- Attendee-visibility rebuilds are serialized per event with an advisory lock. Concurrent checkouts on the same event deadlocked in Postgres (observed five times under a 30-user load test), leaving stale visibility flags behind; any ticket rush could trigger it.
+- Deleting an account no longer fails for anyone involved in a referral. A user who held a referral code, referred someone, or merely signed up with a code could not be deleted: the endpoint returned 200 and burned the token while the background task died on a `ProtectedError`. The inactive-account sweep also isolates failures per user instead of aborting the whole run.
+- `GET /api/account/referral/stripe/verify` no longer returns a 500 when the stored Stripe account is inaccessible or has been deleted
+- `GET /api/telegram/botname` no longer leaks an HTTP session on every cache miss (the source of the recurring "Unclosed client session" errors in production logs)
+- `make seed` no longer sweeps tickets it did not create. Seeding a database that already held bootstrap fixtures rolled random payment statuses over every ticket, cancelling some and silently un-sold-out the sold-out demo event.
+
+### Removed
+- `Event.address_visibility` and `Event.public_pronoun_distribution` columns (see the breaking note above)
+- `TicketTier` `RANDOM` seat-assignment mode
+
+### Security
+- **GDPR export hardening**: the personal-data export is now built from an explicit allowlist rather than auto-discovery, so every relation carries a deliberate include/exclude decision. Unmapped relations are denied by default, and a guard test keeps it that way as new models are added. Exports are now scoped more tightly to the requesting user's own data.
+- `pymdown-extensions` bumped to 11.0.1 (CVE-2026-61632)
+- `pyasn1` bumped to 0.6.4 (CVE-2026-59885 / CVE-2026-59886)
+
 ## [1.72.1] - 2026-07-17
 
 ### Added
