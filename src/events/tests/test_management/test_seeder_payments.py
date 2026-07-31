@@ -41,11 +41,13 @@ def online_ticket(db: t.Any) -> Ticket:
     )
 
 
-def _run_payments(weights: dict[str, float]) -> TicketSeeder:
-    """Run only the _create_payments pass with the given status weights."""
+def _run_payments(weights: dict[str, float], organizations: list[Organization]) -> TicketSeeder:
+    """Run only the _create_payments pass, scoped to the given organizations."""
     config = SeederConfig(seed=1234)
     config.payment_status_weights = weights
-    seeder = TicketSeeder(config=config, state=SeederState(), stdout=io.StringIO())
+    state = SeederState()
+    state.organizations = organizations
+    seeder = TicketSeeder(config=config, state=state, stdout=io.StringIO())
     seeder._create_payments()
     return seeder
 
@@ -53,7 +55,10 @@ def _run_payments(weights: dict[str, float]) -> TicketSeeder:
 @pytest.mark.django_db
 def test_refunded_payment_is_internally_consistent(online_ticket: Ticket) -> None:
     """A seeded REFUNDED payment records the refund and cancels the ticket (#550)."""
-    _run_payments({"succeeded": 0.0, "pending": 0.0, "failed": 0.0, "refunded": 1.0})
+    _run_payments(
+        {"succeeded": 0.0, "pending": 0.0, "failed": 0.0, "refunded": 1.0},
+        [online_ticket.event.organization],
+    )
 
     payment = Payment.objects.get(ticket=online_ticket)
     assert payment.status == Payment.PaymentStatus.REFUNDED
@@ -74,7 +79,10 @@ def test_refunded_payment_is_internally_consistent(online_ticket: Ticket) -> Non
 @pytest.mark.django_db
 def test_succeeded_payment_leaves_ticket_active(online_ticket: Ticket) -> None:
     """A non-refunded payment must not touch the ticket or refund fields."""
-    _run_payments({"succeeded": 1.0, "pending": 0.0, "failed": 0.0, "refunded": 0.0})
+    _run_payments(
+        {"succeeded": 1.0, "pending": 0.0, "failed": 0.0, "refunded": 0.0},
+        [online_ticket.event.organization],
+    )
 
     payment = Payment.objects.get(ticket=online_ticket)
     assert payment.status == Payment.PaymentStatus.SUCCEEDED
