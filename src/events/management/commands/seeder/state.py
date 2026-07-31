@@ -67,6 +67,16 @@ class SeederState:
     non_ticketed_events: list["Event"] = field(default_factory=list)
     private_events: list["Event"] = field(default_factory=list)
 
+    @property
+    def organization_ids(self) -> list[UUID]:
+        """IDs of the organizations created by this seeder run.
+
+        Every entity the seeder creates hangs off one of these, so this is the
+        scoping key for any query that would otherwise sweep the whole database
+        and mutate pre-existing fixtures (#840).
+        """
+        return [org.id for org in self.organizations]
+
     def get_random_user(self, rand: random.Random) -> "RevelUser":
         """Get a random user from all users."""
         return rand.choice(self.users)

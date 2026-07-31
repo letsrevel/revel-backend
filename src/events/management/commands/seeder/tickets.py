@@ -257,9 +257,12 @@ class TicketSeeder(BaseSeeder):
 
         from django.db.models import Count
 
-        # Get ticket counts per tier (excluding cancelled)
+        # Get ticket counts per tier (excluding cancelled), scoped to this run (#840)
         tier_counts = (
-            Ticket.objects.exclude(status=Ticket.TicketStatus.CANCELLED).values("tier_id").annotate(count=Count("id"))
+            Ticket.objects.filter(event__organization_id__in=self.state.organization_ids)
+            .exclude(status=Ticket.TicketStatus.CANCELLED)
+            .values("tier_id")
+            .annotate(count=Count("id"))
         )
 
         tier_count_map = {tc["tier_id"]: tc["count"] for tc in tier_counts}
@@ -285,7 +288,10 @@ class TicketSeeder(BaseSeeder):
         refunded_tickets: list[Ticket] = []
         tier_refund_counts: dict[UUID, int] = {}
 
+        # Scoped to this run's organizations: an unscoped sweep cancels tickets and
+        # decrements quantity_sold on pre-existing fixtures too (#840).
         online_tickets = Ticket.objects.filter(
+            event__organization_id__in=self.state.organization_ids,
             tier__payment_method=TicketTier.PaymentMethod.ONLINE,
             payment__isnull=True,
         ).select_related("tier", "user")

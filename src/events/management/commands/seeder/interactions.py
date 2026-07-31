@@ -376,8 +376,12 @@ class InteractionSeeder(BaseSeeder):
 
         requests_to_create: list[WhitelistRequest] = []
 
-        # Get blacklist entries with fuzzy matches (name-based)
-        name_blacklist_entries = Blacklist.objects.filter(first_name__isnull=False).select_related("organization")[:100]
+        # Get blacklist entries with fuzzy matches (name-based), scoped to this
+        # run's organizations so pre-existing fixtures are left alone (#840).
+        name_blacklist_entries = Blacklist.objects.filter(
+            organization_id__in=self.state.organization_ids,
+            first_name__isnull=False,
+        ).select_related("organization")[:100]
 
         for entry in name_blacklist_entries:
             if not self.random_bool(0.3):

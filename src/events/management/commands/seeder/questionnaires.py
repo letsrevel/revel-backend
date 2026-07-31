@@ -292,8 +292,10 @@ class QuestionnaireSeeder(BaseSeeder):
 
         evaluations_to_create: list[QuestionnaireEvaluation] = []
 
-        # Get ready submissions that don't already have evaluations
+        # Get ready submissions that don't already have evaluations, scoped to
+        # this run's questionnaires so pre-existing fixtures keep their state (#840).
         ready_submissions = QuestionnaireSubmission.objects.filter(
+            questionnaire__in=self.state.questionnaires,
             status="ready",
             evaluation__isnull=True,
         )
