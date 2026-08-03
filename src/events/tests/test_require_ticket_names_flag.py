@@ -22,10 +22,17 @@ def test_blank_guest_name_passes_validation(ticket: Ticket) -> None:
 
 
 def test_flag_exposed_on_public_event_detail(public_event: Event) -> None:
-    """The flag is part of the public event payload so clients can adapt checkout."""
+    """The flag is part of the public event payload so clients can adapt checkout.
+
+    Uses the non-default value so an endpoint hardcoding ``True`` can't pass;
+    the default itself is pinned by ``test_event_defaults_to_requiring_ticket_names``.
+    """
+    public_event.require_ticket_names = False
+    public_event.save(update_fields=["require_ticket_names"])
+
     url = reverse("api:get_event", kwargs={"event_id": str(public_event.id)})
 
     response = Client().get(url)
 
     assert response.status_code == 200
-    assert response.json()["require_ticket_names"] is True
+    assert response.json()["require_ticket_names"] is False
