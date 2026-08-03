@@ -136,7 +136,8 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         **Request Body:**
         - `tickets`: List of tickets to purchase, each with:
-          - `guest_name`: Name of the ticket holder (required)
+          - `guest_name`: Name of the ticket holder (optional; required only when
+            the event has `require_ticket_names` enabled)
           - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
 
         **Seat Assignment Modes:**
@@ -224,7 +225,8 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         **Request Body:**
         - `tickets`: List of tickets to purchase, each with:
-          - `guest_name`: Name of the ticket holder (required)
+          - `guest_name`: Name of the ticket holder (optional; required only when
+            the event has `require_ticket_names` enabled)
           - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
         - `price_per_ticket`: PWYC amount per ticket (same for all tickets in batch)
 

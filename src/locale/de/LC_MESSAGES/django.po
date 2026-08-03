@@ -1592,6 +1592,9 @@ msgid "You can only purchase {remaining} more ticket(s) for this tier."
 msgstr ""
 "Du kannst nur noch {remaining} weitere Tickets für diese Kategorie erwerben."
 
+msgid "This event requires a name on every ticket."
+msgstr "Für dieses Event ist auf jedem Ticket ein Name erforderlich."
+
 msgid "Seat selection is required for this ticket tier."
 msgstr "Für diese Ticketkategorie ist eine Sitzplatzauswahl erforderlich."
 
@@ -2439,6 +2442,9 @@ msgid "Cannot resume renewal on a cancelled or expired subscription."
 msgstr ""
 "Die Verlängerung eines gekündigten oder abgelaufenen Abos kannst Du nicht "
 "wieder aktivieren."
+
+msgid "This ticket can no longer be renamed."
+msgstr "Der Name auf diesem Ticket kann nicht mehr geändert werden."
 
 msgid "Ticket already cancelled"
 msgstr "Ticket bereits storniert"

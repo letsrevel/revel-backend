@@ -1549,6 +1549,9 @@ msgstr "Atingiste o número máximo de bilhetes para este tipo."
 msgid "You can only purchase {remaining} more ticket(s) for this tier."
 msgstr "Só podes comprar mais {remaining} bilhete(s) deste tipo."
 
+msgid "This event requires a name on every ticket."
+msgstr "Este evento requer um nome em cada bilhete."
+
 msgid "Seat selection is required for this ticket tier."
 msgstr "É obrigatório selecionar lugar para este tipo de bilhete."
 
@@ -2368,6 +2371,9 @@ msgstr ""
 
 msgid "Cannot resume renewal on a cancelled or expired subscription."
 msgstr "Não podes retomar a renovação de uma subscrição cancelada ou expirada."
+
+msgid "This ticket can no longer be renamed."
+msgstr "O nome neste bilhete já não pode ser alterado."
 
 msgid "Ticket already cancelled"
 msgstr "Bilhete já cancelado"
