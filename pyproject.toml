@@ -22,7 +22,7 @@ requires-python = ">=3.14"
 dependencies = [
     "aiogram>=3.20.0.post0",
     "celery>=5.6.3",
-    "cryptography>=48.0.1",
+    "cryptography>=50.0.0",
     "django>=5.2.14,<6.0",
     "django-celery-beat>=2.9.0",
     "django-celery-results>=2.6.0",
@@ -129,15 +129,16 @@ sentinel = [
 
 [tool.uv]
 # Security floors for transitive dependencies we don't import directly.
-# aiohttp is pulled in by aiogram and instructor; 3.14.1 fixes a batch of
-# CVEs flagged by pip-audit (CVE-2026-54273..54280, CVE-2026-50269).
+# aiohttp is pulled in by aiogram and instructor; 3.14.3 fixes a batch of
+# CVEs flagged by pip-audit (CVE-2026-54273..54280, CVE-2026-50269,
+# CVE-2026-59881, CVE-2026-69243, CVE-2026-69244).
 # httplib2 is pulled in by django-google-sso via google-auth-httplib2;
 # 0.32.0 fixes PYSEC-2026-3444.
 # anyio is pulled in by httpx and openai; 4.14.2 fixes GHSA-82r6-8w77-94w6
 # (TLS cert spoofing via IDNA 2003 host matching) and GHSA-5p39-cfhj-2xmp
 # (process-pool stderr deadlock).
 constraint-dependencies = [
-    "aiohttp>=3.14.1",
+    "aiohttp>=3.14.3",
     "anyio>=4.14.2",
     "httplib2>=0.32.0",
 ]
