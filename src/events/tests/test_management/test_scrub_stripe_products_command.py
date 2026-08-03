@@ -53,6 +53,20 @@ def _list_result(products: list[dict[str, str]]) -> mock.Mock:
     return result
 
 
+def _catalog(per_account: dict[str | None, list[dict[str, str]]]) -> t.Callable[..., mock.Mock]:
+    """Side effect for ``stripe.Product.list``: per-account product pages.
+
+    Keys are ``stripe_account`` kwarg values; ``None`` is the platform account
+    (no Connect header). Accounts not listed yield an empty catalog. A fresh
+    iterator is built per call — the sweep visits several accounts.
+    """
+
+    def _side_effect(**kwargs: t.Any) -> mock.Mock:
+        return _list_result(per_account.get(kwargs.get("stripe_account"), []))
+
+    return _side_effect
+
+
 @mock.patch(f"{_CMD}.stripe.Product.list")
 @mock.patch(f"{_CMD}.stripe.Product.modify")
 def test_scrubs_plan_products(
@@ -61,7 +75,7 @@ def test_scrubs_plan_products(
     online_plan: MembershipSubscriptionPlan,
 ) -> None:
     """A plan with a Stripe product gets a generic name and an emptied description."""
-    mock_list.return_value = _list_result([])
+    mock_list.side_effect = _catalog({})
 
     output = _run()
 
@@ -83,22 +97,47 @@ def test_sweep_renames_prefixed_products(
     stripe_org: Organization,
 ) -> None:
     """Ad-hoc catalog products with organizer-authored prefixes are renamed."""
-    mock_list.return_value = _list_result(
-        [
-            {"id": "prod_1", "name": "Ticket: Kinky Party (VIP)"},
-            {"id": "prod_2", "name": "Season pass: Autumn 2026"},
-        ]
+    mock_list.side_effect = _catalog(
+        {
+            "acct_scrub_org": [
+                {"id": "prod_1", "name": "Ticket: Kinky Party (VIP)"},
+                {"id": "prod_2", "name": "Season pass: Autumn 2026"},
+            ]
+        }
     )
 
     output = _run()
 
-    mock_list.assert_called_once_with(limit=100, stripe_account="acct_scrub_org")
+    assert mock.call(limit=100, stripe_account="acct_scrub_org") in mock_list.call_args_list
     assert mock_modify.call_args_list == [
         mock.call("prod_1", name="Ticket", stripe_account="acct_scrub_org"),
         mock.call("prod_2", name="Season pass", stripe_account="acct_scrub_org"),
     ]
     assert "2 product(s) renamed" in output
-    assert "1 account(s) swept" in output
+    assert "2 account(s) swept" in output  # the org account + the platform account
+
+
+@mock.patch(f"{_CMD}.stripe.Product.list")
+@mock.patch(f"{_CMD}.stripe.Product.modify")
+def test_platform_catalog_always_swept(
+    mock_modify: mock.Mock,
+    mock_list: mock.Mock,
+    stripe_org: Organization,
+) -> None:
+    """The platform's own catalog is swept even when no org row references it.
+
+    Orgs that once used the platform account (bootstrap data, later migrated or
+    deleted) left ad-hoc Products there; the sweep must not depend on an org row
+    still carrying ``settings.STRIPE_ACCOUNT``.
+    """
+    mock_list.side_effect = _catalog({None: [{"id": "prod_platform", "name": "Ticket: Orphaned Event"}]})
+
+    output = _run()
+
+    assert mock.call(limit=100) in mock_list.call_args_list  # no stripe_account header
+    assert mock.call("prod_platform", name="Ticket") in mock_modify.call_args_list
+    assert "1 product(s) renamed" in output
+    assert "2 account(s) swept" in output
 
 
 @mock.patch(f"{_CMD}.stripe.Product.list")
@@ -109,12 +148,14 @@ def test_sweep_skips_generic_names(
     stripe_org: Organization,
 ) -> None:
     """Already-generic or unrelated product names are left untouched."""
-    mock_list.return_value = _list_result(
-        [
-            {"id": "prod_1", "name": "Ticket"},
-            {"id": "prod_2", "name": "Season pass"},
-            {"id": "prod_3", "name": "Merch bundle"},
-        ]
+    mock_list.side_effect = _catalog(
+        {
+            "acct_scrub_org": [
+                {"id": "prod_1", "name": "Ticket"},
+                {"id": "prod_2", "name": "Season pass"},
+                {"id": "prod_3", "name": "Merch bundle"},
+            ]
+        }
     )
 
     output = _run()
@@ -131,7 +172,7 @@ def test_dry_run_makes_no_calls(
     online_plan: MembershipSubscriptionPlan,
 ) -> None:
     """``--dry-run`` lists every intended modification without calling ``modify``."""
-    mock_list.return_value = _list_result([{"id": "prod_1", "name": "Ticket: Kinky Party (VIP)"}])
+    mock_list.side_effect = _catalog({"acct_scrub_org": [{"id": "prod_1", "name": "Ticket: Kinky Party (VIP)"}]})
 
     output = _run("--dry-run")
 
@@ -155,7 +196,7 @@ def test_stripe_error_continues(
     def _list_side_effect(**kwargs: t.Any) -> mock.Mock:
         if kwargs.get("stripe_account") == "acct_scrub_dead":
             raise stripe.error.APIError("boom")
-        return _list_result([{"id": "prod_1", "name": "Ticket: Kinky Party (VIP)"}])
+        return _catalog({"acct_scrub_org": [{"id": "prod_1", "name": "Ticket: Kinky Party (VIP)"}]})(**kwargs)
 
     mock_list.side_effect = _list_side_effect
     err = StringIO()
@@ -166,5 +207,5 @@ def test_stripe_error_continues(
 
     mock_modify.assert_called_once_with("prod_1", name="Ticket", stripe_account="acct_scrub_org")
     assert "acct_scrub_dead" in err.getvalue()
-    assert "1 account(s) swept" in output
+    assert "2 account(s) swept" in output  # the live org account + the platform account
     assert "1 error(s)" in output

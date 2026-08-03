@@ -103,6 +103,16 @@ class OrganizationController(UserAwareController):
                     self._raise_if_token_gone(organization_id=org_id)
             raise
 
+    def get_one_by_id(self, organization_id: UUID) -> models.Organization:
+        """Get one organization by id, honoring the 410 dead-token upgrade like ``get_one``."""
+        try:
+            return self.get_object_or_exception(self.get_queryset(), id=organization_id)  # type: ignore[no-any-return]
+        except NotFound:
+            # _raise_if_token_gone only fires when the rejected token belongs to
+            # this organization, so unknown ids and unrelated tokens stay 404.
+            self._raise_if_token_gone(organization_id=organization_id)
+            raise
+
     @route.get("/", url_name="list_organizations", response=PaginatedResponseSchema[schema.OrganizationInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(DistinctSearching, search_fields=["name", "description", "tags__tag__name"])
@@ -168,13 +178,7 @@ class OrganizationController(UserAwareController):
         expired/used-up org tokens. Used by the frontend to resolve the UUID-based
         Stripe checkout return URLs (#848) back to slug pages.
         """
-        try:
-            return self.get_object_or_exception(self.get_queryset(), id=organization_id)  # type: ignore[no-any-return]
-        except NotFound:
-            # _raise_if_token_gone only fires when the rejected token belongs to
-            # this organization, so unknown ids and unrelated tokens stay 404.
-            self._raise_if_token_gone(organization_id=organization_id)
-            raise
+        return self.get_one_by_id(organization_id)
 
     @route.get("/{slug}", url_name="get_organization", response=schema.OrganizationRetrieveSchema)
     def get_organization(self, slug: str) -> models.Organization:

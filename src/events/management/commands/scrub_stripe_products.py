@@ -7,10 +7,10 @@ still do. This command scrubs them in place:
 1. **Plan products** — every ``MembershipSubscriptionPlan`` with a
    ``stripe_product_id`` is renamed to the generic ``"Membership"`` and its
    description emptied.
-2. **Catalog sweep** — for each distinct connected account (platform account
-   included once, with no ``stripe_account`` header), the ad-hoc Products that
-   Stripe materialized from past inline ``price_data`` are renamed:
-   ``"Ticket: …"`` → ``"Ticket"``, ``"Season pass: …"`` → ``"Season pass"``.
+2. **Catalog sweep** — for each distinct connected account plus, always, the
+   platform's own account (swept once, with no ``stripe_account`` header), the
+   ad-hoc Products that Stripe materialized from past inline ``price_data`` are
+   renamed: ``"Ticket: …"`` → ``"Ticket"``, ``"Season pass: …"`` → ``"Season pass"``.
 
 Idempotent: already-generic names don't match a prefix and are skipped; plan
 products are re-modified unconditionally (a server-side no-op). Per-account
@@ -73,15 +73,18 @@ class Command(BaseCommand):
                 continue
             plans_scrubbed += 1
 
-        account_ids = (
+        org_account_ids = (
             Organization.objects.exclude(stripe_account_id=None)
             .exclude(stripe_account_id="")
             .values_list("stripe_account_id", flat=True)
             .distinct()
         )
-        for account_id in (t.cast(str, aid) for aid in account_ids):  # exclude() above rules out None
-            # An org sharing the platform's own account is swept without the
-            # Connect header; ``distinct()`` guarantees it appears only once.
+        # The platform's own catalog is always swept: orgs that once used the
+        # platform account (bootstrap data, or since migrated to their own
+        # Connect account, or deleted) left ad-hoc Products there that no org
+        # row references anymore. The set dedupes it against org-held ids.
+        account_ids = {settings.STRIPE_ACCOUNT, *(t.cast(str, aid) for aid in org_account_ids)}
+        for account_id in sorted(account_ids):
             account_kwargs = {} if account_id == settings.STRIPE_ACCOUNT else {"stripe_account": account_id}
             try:
                 for product in stripe.Product.list(limit=100, **account_kwargs).auto_paging_iter():
