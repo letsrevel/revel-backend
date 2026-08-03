@@ -178,8 +178,12 @@ class PurchaseEligibilityMixin(BatchTicketContext):
     def assert_ticket_names(self, items: list[TicketPurchaseItem]) -> None:
         """Enforce Event.require_ticket_names: every item must carry a holder name.
 
-        Runs for buyer-facing paths only (auth + guest both funnel through
-        create_batch); box office stays exempt — it defaults the name itself.
+        Runs for buyer-facing paths only; box office stays exempt — it defaults the
+        name itself. This is the authoritative gate for every path that reaches
+        create_batch. The guest non-online path does NOT reach it until the emailed
+        confirmation link is clicked, so it enforces the same rule up front in
+        ``handle_guest_ticket_checkout`` — otherwise a nameless guest would get an
+        email and a dead link instead of a 400.
 
         Args:
             items: The batch's ticket purchase items.
