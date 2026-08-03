@@ -80,6 +80,10 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # Validate batch size
         self.validate_batch_size(len(items))
 
+        # Names are enforced here — not in the schema — because only the event knows
+        # whether it requires them (#845).
+        self.assert_ticket_names(items)
+
         # Resolve the buyer's VAT context (incl. the VIES round-trip) BEFORE
         # locking the tier, so the contended row is never held across VIES
         # (#632). Price-independent: the arithmetic runs post-lock against the

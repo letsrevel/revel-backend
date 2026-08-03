@@ -103,7 +103,10 @@ class GuestRSVPJWTPayloadSchema(BaseEmailJWTPayloadSchema):
 class GuestTicketItemPayload(Schema):
     """Ticket item info stored in JWT payload for guest checkout confirmation."""
 
-    guest_name: str
+    # Nullable to round-trip TicketPurchaseItem's normalized "no name given" (#845)
+    # losslessly; the confirm click re-enters create_batch, which enforces
+    # Event.require_ticket_names.
+    guest_name: str | None = None
     seat_id: UUID4 | None = None
 
 

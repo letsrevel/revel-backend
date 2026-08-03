@@ -50,6 +50,7 @@ class TicketWriterMixin(BatchTicketContext):
             List of created Ticket objects.
         """
         dc = self.discount_code
+        default_name = self._default_guest_name()
 
         tickets = []
         for item, seat, line in zip(items, seats, lines, strict=True):
@@ -58,7 +59,7 @@ class TicketWriterMixin(BatchTicketContext):
                 tier=self.tier,
                 user=self.user,
                 status=status,
-                guest_name=item.guest_name,
+                guest_name=item.guest_name or default_name,
                 price_paid=line.unit_price if stamp_price_paid else None,
                 discount_code=dc,
                 discount_amount=line.discount_amount if dc is not None else None,
@@ -94,6 +95,19 @@ class TicketWriterMixin(BatchTicketContext):
 
         self._claim_waitlist_offer_if_any()
         return created
+
+    def _default_guest_name(self) -> str:
+        """Holder-name fallback when the buyer omitted one (flag off).
+
+        Never derives from the email: for guest users get_display_name() falls
+        back to username == email, so guests get their real name or blank.
+
+        Returns:
+            The buyer's display name, or a blank string for a nameless guest.
+        """
+        if self.user.guest:
+            return f"{self.user.first_name} {self.user.last_name}".strip()
+        return self.user.get_display_name()
 
     def _claim_waitlist_offer_if_any(self) -> None:
         """Mark a pending unexpired WaitlistOffer for this (event, user) as CLAIMED.
