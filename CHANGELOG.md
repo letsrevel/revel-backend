@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-03
+
+### Added
+- **Optional ticket holder names**: `Event.require_ticket_names` flag (default `True` — existing behavior unchanged). When disabled, logged-in buyers check out with zero extra input and anonymous guests need only an email; a nameless cart on a name-requiring event is rejected at request time, before any payment or confirmation email
+  - Ticket holder rename endpoints — `PATCH /dashboard/tickets/{id}/guest-name` (ticket owner) and `PATCH /event-admin/{event_id}/tickets/{id}/guest-name` (`manage_tickets`); refused with 409 once the ticket is checked in or cancelled, and clearing the name is only allowed when the event doesn't require names. Renames regenerate the cached PDF and Apple Wallet pass
+  - Organizer ticket-list search now matches the holder name (`guest_name`)
+- Public `GET /api/organizations/{uuid}` — retrieve an organization by UUID with the same visibility rules and payload as the slug route
+- `scrub_stripe_products` management command (`--dry-run` supported) — renames existing Stripe plan Products to generic labels and sweeps connected accounts' catalogs of previously materialized `Ticket: …` / `Season pass: …` Products
+
+### Changed
+- **Stripe data minimization**: no organizer-authored content is sent to Stripe in any outbound payload, for all organizers uniformly. Checkout line items use constant `Ticket` / `Season pass` labels (no event, tier, or holder names), membership Products are named `Membership`, and Stripe customers are created without the member's display name (email kept for receipts). Checkout return URLs now carry UUIDs instead of slugs — requires the frontend UUID-route resolver to be deployed first
+- Guest RSVP is now email-only — first/last name are no longer required for anonymous RSVPs
+- Ticket PDFs hide the guest-name row when the holder name is blank (purchaser identity still shown)
+
+### Fixed
+- Registered buyers with blank name fields no longer get their email address stamped on the ticket as holder name (in PDFs, Stripe descriptions, invoices, and staff search) — the name fallback no longer falls through to the email-shaped `username`
+
+### Security
+- Dependency floors raised for freshly published CVEs: `aiohttp` ≥ 3.14.3 (CVE-2026-59881, CVE-2026-69243, CVE-2026-69244) and `cryptography` ≥ 50.0.0 (CVE-2026-69247)
+
 ## [2.0.0] - 2026-07-31
 
 ### Added
