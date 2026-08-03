@@ -30,6 +30,10 @@ def update_guest_name(ticket: Ticket, guest_name: str) -> Ticket:
         raise HttpError(409, str(_("This ticket can no longer be renamed.")))
     if not name and ticket.event.require_ticket_names:
         raise HttpError(400, str(_("This event requires a name on every ticket.")))
+    if name == ticket.guest_name:
+        # No-op rename: saving would bump updated_at and needlessly invalidate the
+        # cached PDF/pkpass (see the update_fields note below).
+        return ticket
     ticket.guest_name = name
     # "updated_at" must be listed explicitly: Django only runs pre_save (and therefore
     # auto_now) for fields named in update_fields. The ticket-file cache key is built from

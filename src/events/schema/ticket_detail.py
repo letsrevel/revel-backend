@@ -197,10 +197,12 @@ class CheckInResponseSchema(ModelSchema):
 class TicketGuestNameUpdateSchema(Schema):
     """Payload for renaming a ticket holder.
 
-    Empty clears the name (only allowed when the event doesn't require names).
+    Required: an omitted field is a 422, so ``PATCH {}`` can never silently clear a
+    name. Clearing is an explicit ``""`` (only allowed when the event doesn't
+    require names).
     """
 
-    guest_name: StrippedString = Field(default="", max_length=255)
+    guest_name: StrippedString = Field(..., max_length=255)
 
 
 class ConfirmPaymentSchema(Schema):

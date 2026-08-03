@@ -408,6 +408,31 @@ class TestGenerateAttendeeInvoice:
         assert "John Doe" in item["description"]
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_line_item_description_omits_blank_holder_name(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A blank holder name (#845) must not leave a trailing separator on the invoice line."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_li_blank",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            guest_name="",
+        )
+        invoice = generate_attendee_invoice("cs_li_blank")
+        assert invoice is not None
+        assert invoice.line_items[0]["description"] == f"{event.name} — {event_ticket_tier.name}"
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_seller_and_buyer_snapshots(
         self,
         mock_pdf: t.Any,

@@ -35,6 +35,26 @@ class TestUpdateGuestName:
         ticket.refresh_from_db()
         assert ticket_file_service.is_cache_valid(ticket) is False
 
+    def test_renaming_to_the_same_name_keeps_cached_files_valid(self, ticket: Ticket) -> None:
+        """A no-op rename must not bump ``updated_at`` — the PDF/pkpass are still correct."""
+        ticket.file_content_hash = ticket_file_service.compute_content_hash(ticket)
+        ticket.save(update_fields=["file_content_hash"])
+        assert ticket_file_service.is_cache_valid(ticket) is True
+
+        ticket_guest_name_service.update_guest_name(ticket, f"  {ticket.guest_name}  ")
+
+        assert ticket_file_service.is_cache_valid(ticket) is True
+        ticket.refresh_from_db()
+        assert ticket_file_service.is_cache_valid(ticket) is True
+
+    def test_no_op_rename_still_refused_on_a_checked_in_ticket(self, ticket: Ticket) -> None:
+        """The status gate runs first: a frozen ticket is a 409 even when nothing would change."""
+        ticket.status = Ticket.TicketStatus.CHECKED_IN
+        ticket.save(update_fields=["status"])
+        with pytest.raises(HttpError) as exc:
+            ticket_guest_name_service.update_guest_name(ticket, ticket.guest_name)
+        assert exc.value.status_code == 409
+
     def test_renames_pending_ticket(self, ticket: Ticket) -> None:
         ticket.status = Ticket.TicketStatus.PENDING
         ticket.save(update_fields=["status"])

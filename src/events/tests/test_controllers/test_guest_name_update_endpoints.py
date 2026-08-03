@@ -84,6 +84,17 @@ def test_owner_can_clear_name_when_event_does_not_require_it(member_client: Clie
     assert response.json()["guest_name"] == ""
 
 
+def test_omitted_guest_name_is_422_not_a_silent_clear(member_client: Client, ticket: Ticket) -> None:
+    """``PATCH {}`` must be rejected — clearing a name is an explicit ``""``, never a default."""
+    original = ticket.guest_name
+
+    response = member_client.patch(_owner_url(ticket), data=json.dumps({}), content_type="application/json")
+
+    assert response.status_code == 422, response.content
+    ticket.refresh_from_db()
+    assert ticket.guest_name == original
+
+
 # ---- Organizer (event admin) ----
 
 

@@ -1,5 +1,6 @@
 """Tests for the reserve/create-session split of the batch Stripe checkout flow (#632)."""
 
+import typing as t
 from decimal import Decimal
 from unittest import mock
 from uuid import UUID, uuid4
@@ -387,6 +388,36 @@ class TestCreateBatchSessionDoubleSubmit:
                 create.assert_not_called()
         assert url == fake_resume_url
         assert resume.call_args.args[0] == str(stamped.id)
+
+
+class TestBlankHolderNameLineItems:
+    """A blank holder name is legal since #845 — Stripe must never show "Ticket for "."""
+
+    def _product_data(self, event: Event, tier: TicketTier, user: RevelUser, guest_name: str) -> dict[str, t.Any]:
+        tickets = [_make_ticket(event, tier, user, guest_name=guest_name)]
+        rid = uuid4()
+        stripe_service.reserve_batch_payments(event=event, tier=tier, user=user, tickets=tickets, reservation_id=rid)
+        fake = mock.Mock(id="cs_blank", url="https://checkout.stripe.com/c/cs_blank")
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
+            stripe_service.create_batch_session(reservation_id=rid)
+        line_item = create.call_args.kwargs["line_items"][0]
+        return t.cast(dict[str, t.Any], line_item["price_data"]["product_data"])
+
+    def test_blank_name_drops_the_holder_clause(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        """No description at all beats a dangling preposition on the buyer's receipt."""
+        product_data = self._product_data(event, paid_ticket_tier, organization_owner_user, "")
+
+        assert "description" not in product_data
+        assert product_data["name"] == f"Ticket: {event.name} ({paid_ticket_tier.name})"
+
+    def test_named_holder_still_gets_the_holder_clause(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        product_data = self._product_data(event, paid_ticket_tier, organization_owner_user, "Jane Doe")
+
+        assert product_data["description"] == "Ticket for Jane Doe"
 
 
 class TestClaimReservationHoldExtendOnly:
