@@ -278,10 +278,12 @@
         <!-- Event Details -->
         <div class="content-section">
             <div class="info-card">
+                {% if guest_name %}
                 <div class="info-row">
                     <span class="info-label">🎫 Guest</span>
                     <span class="info-value">{{ guest_name }}</span>
                 </div>
+                {% endif %}
                 {% if guest_name != user_display_name %}
                 <div class="info-row">
                     <span class="info-label">🛒 Purchased by</span>

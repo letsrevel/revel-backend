@@ -184,7 +184,14 @@ class EventAdminTicketsController(EventAdminBaseController):
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(
         Searching,
-        search_fields=["user__email", "user__first_name", "user__last_name", "tier__name", "user__preferred_name"],
+        search_fields=[
+            "user__email",
+            "user__first_name",
+            "user__last_name",
+            "tier__name",
+            "user__preferred_name",
+            "guest_name",
+        ],
     )
     def list_tickets(
         self,
