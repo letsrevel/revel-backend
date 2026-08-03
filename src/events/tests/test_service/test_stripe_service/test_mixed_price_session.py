@@ -157,8 +157,8 @@ class TestSessionTotalReconciliation:
 
         build = stripe_service._build_line_items
 
-        def drop_a_row(payments: list[Payment], ev: Event, tier: TicketTier) -> list[t.Any]:
-            return list(build(payments, ev, tier))[:1]
+        def drop_a_row(payments: list[Payment], tier: TicketTier) -> list[t.Any]:
+            return list(build(payments, tier))[:1]
 
         with mock.patch.object(stripe_service, "_build_line_items", side_effect=drop_a_row):
             with mock.patch("stripe.checkout.Session.create") as create:
@@ -315,8 +315,8 @@ class TestMismatchIsImpossibleToMiss:
         before = _counter(MISMATCH_METRIC, {"call_site": "preflight"})
         build = stripe_service._build_line_items
 
-        def drop_a_row(payments: list[Payment], ev: Event, tier: TicketTier) -> list[t.Any]:
-            return list(build(payments, ev, tier))[:1]
+        def drop_a_row(payments: list[Payment], tier: TicketTier) -> list[t.Any]:
+            return list(build(payments, tier))[:1]
 
         with mock.patch.object(stripe_service, "_build_line_items", side_effect=drop_a_row):
             with mock.patch("stripe.checkout.Session.create"):

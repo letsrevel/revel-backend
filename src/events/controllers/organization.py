@@ -164,10 +164,17 @@ class OrganizationController(UserAwareController):
     def get_organization_by_id(self, organization_id: UUID) -> models.Organization:
         """Retrieve organization details by ID.
 
-        Same visibility rules and payload as the slug route. Used by the frontend to
-        resolve the UUID-based Stripe checkout return URLs (#848) back to slug pages.
+        Same visibility rules and payload as the slug route, including the 410 for
+        expired/used-up org tokens. Used by the frontend to resolve the UUID-based
+        Stripe checkout return URLs (#848) back to slug pages.
         """
-        return self.get_object_or_exception(self.get_queryset(), id=organization_id)  # type: ignore[no-any-return]
+        try:
+            return self.get_object_or_exception(self.get_queryset(), id=organization_id)  # type: ignore[no-any-return]
+        except NotFound:
+            # _raise_if_token_gone only fires when the rejected token belongs to
+            # this organization, so unknown ids and unrelated tokens stay 404.
+            self._raise_if_token_gone(organization_id=organization_id)
+            raise
 
     @route.get("/{slug}", url_name="get_organization", response=schema.OrganizationRetrieveSchema)
     def get_organization(self, slug: str) -> models.Organization:

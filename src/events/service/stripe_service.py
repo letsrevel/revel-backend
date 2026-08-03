@@ -283,7 +283,6 @@ class StripeLineItem(t.TypedDict):
 
 def _build_line_items(
     payments: list[Payment],
-    event: Event,
     tier: TicketTier,
 ) -> list[StripeLineItem]:
     """Build Stripe line items — one per ``Payment`` row, at that row's own amount.
@@ -628,7 +627,7 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     # Per-row line items, then the total invariant — both derived from the Payment
     # rows themselves, so a mixed-price cart (#739) bills each ticket at its own
     # amount regardless of the order this later request read them back in.
-    line_items = _build_line_items(payments, event, tier)
+    line_items = _build_line_items(payments, tier)
     _reconcile_line_items(line_items, payments, tier.currency)
 
     # Already per-row: the batch's platform fee is the sum of each Payment's own

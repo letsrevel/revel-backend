@@ -482,6 +482,37 @@ def test_get_organization_by_slug_still_works(client: Client, organization: Orga
     assert response.json()["slug"] == organization.slug
 
 
+def test_get_organization_by_id_expired_token_returns_410(
+    client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """The by-id route mirrors the slug route's 410 for dead org tokens (#333/#682).
+
+    An unrelated or unknown id still 404s — ``_raise_if_token_gone`` only fires
+    when the rejected token belongs to the requested organization.
+    """
+    # Arrange
+    organization.visibility = Organization.Visibility.PRIVATE
+    organization.save()
+    token = OrganizationToken.objects.create(
+        organization=organization,
+        issuer=organization_owner_user,
+        grants_membership=False,
+        expires_at=timezone.now() - timedelta(hours=1),
+    )
+    url = reverse("api:get_organization_by_id", kwargs={"organization_id": organization.id})
+
+    # Act
+    response = client.get(url, HTTP_X_ORG_TOKEN=token.pk)
+
+    # Assert
+    assert response.status_code == 410
+    assert "expired" in response.json()["detail"].lower()
+
+    # Unknown id with the same dead token: guard keeps it a plain 404.
+    other_url = reverse("api:get_organization_by_id", kwargs={"organization_id": uuid.uuid4()})
+    assert client.get(other_url, HTTP_X_ORG_TOKEN=token.pk).status_code == 404
+
+
 @pytest.mark.parametrize(
     "path_segment",
     [
