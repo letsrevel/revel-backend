@@ -49,6 +49,7 @@ PROPAGATABLE_FIELDS = frozenset(
         "accept_rsvp_notes",
         "accept_invitation_requests",
         "can_attend_without_login",
+        "require_ticket_names",
         "is_open_ended",
         "address",
         "location",

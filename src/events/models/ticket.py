@@ -678,6 +678,7 @@ class Ticket(TimeStampedModel):
     )
     guest_name = models.CharField(
         max_length=255,
+        blank=True,
         help_text="Name of the ticket holder (may differ from purchasing user).",
     )
     price_paid = models.DecimalField(

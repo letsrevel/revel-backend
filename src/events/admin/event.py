@@ -94,6 +94,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                         "accept_invitation_requests",
                         "accept_rsvp_notes",
                         "can_attend_without_login",
+                        "require_ticket_names",
                         "requires_full_profile",
                     ),
                     "requires_ticket",
