@@ -18,9 +18,9 @@ from ninja_extra.searching import Searching, searching
 from common.authentication import I18nJWTAuth
 from common.controllers import DistinctSearching, UserAwareController
 from common.signing import get_file_url
-from common.throttling import UserDefaultThrottle
+from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
-from events.service import dashboard_service, event_service
+from events.service import dashboard_service, event_service, ticket_guest_name_service
 from events.service.attendee_invoice_service import ensure_pdf_exists
 
 
@@ -211,6 +211,22 @@ class DashboardController(UserAwareController):
         # Use full() manager which includes: event, organization, tier (with venue/sector/city), seat, payment
         qs = models.Ticket.objects.full().filter(user=self.user()).order_by("-created_at")
         return params.filter(qs).distinct()
+
+    @route.patch(
+        "/tickets/{ticket_id}/guest-name",
+        url_name="dashboard_update_ticket_guest_name",
+        response={200: schema.UserTicketSchema},
+        throttle=WriteThrottle(),
+    )
+    def update_ticket_guest_name(self, ticket_id: UUID, payload: schema.TicketGuestNameUpdateSchema) -> models.Ticket:
+        """Rename the holder on one of your own tickets.
+
+        Clearing the name is only allowed when the event does not require names.
+        """
+        ticket = get_object_or_404(
+            models.Ticket.objects.select_related("event", "tier", "user"), id=ticket_id, user=self.user()
+        )
+        return ticket_guest_name_service.update_guest_name(ticket, payload.guest_name)
 
     @route.get(
         "/invitation-requests",
