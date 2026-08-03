@@ -281,23 +281,8 @@ class StripeLineItem(t.TypedDict):
     quantity: int
 
 
-def _product_data(payment: Payment, event: Event, tier: TicketTier) -> dict[str, str]:
-    """Name + description Stripe shows the buyer for one ticket row.
-
-    A blank holder name is a legal ticket state since #845 (email-only guests on an
-    event with ``require_ticket_names=False``), so the holder clause is dropped
-    entirely rather than rendered as a dangling "Ticket for ".
-    """
-    product_data = {"name": f"Ticket: {event.name} ({tier.name})"}
-    guest_name = payment.ticket.guest_name.strip()
-    if guest_name:
-        product_data["description"] = f"Ticket for {guest_name}"
-    return product_data
-
-
 def _build_line_items(
     payments: list[Payment],
-    event: Event,
     tier: TicketTier,
 ) -> list[StripeLineItem]:
     """Build Stripe line items — one per ``Payment`` row, at that row's own amount.
@@ -305,19 +290,19 @@ def _build_line_items(
     Derived per row rather than from a scalar unit price: since #739 a batch's
     Payment rows can legitimately hold different amounts (a mixed seat-category
     cart), and this runs in a *later request* than the reservation, where the row
-    order is unspecified. Taking both the amount and the guest name off the same
-    row makes ordering irrelevant. A ``0.00`` row (a fixed-amount discount floored
-    a ticket to zero) still gets its own line item — the ticket↔Payment pairing is
-    1:1 and the refund matcher depends on it.
+    order is unspecified. Taking the amount off the row itself makes ordering
+    irrelevant. A ``0.00`` row (a fixed-amount discount floored a ticket to zero)
+    still gets its own line item — the ticket↔Payment pairing is 1:1 and the
+    refund matcher depends on it.
 
-    ``payments`` must carry ``ticket`` (the caller's ``select_related``) — this
-    walks ``p.ticket`` per row and would otherwise be an N+1.
+    Product data is the generic constant ``"Ticket"`` — event/tier/guest names
+    never reach Stripe (#848).
     """
     return [
         StripeLineItem(
             price_data={
                 "currency": tier.currency.lower(),
-                "product_data": _product_data(payment, event, tier),
+                "product_data": {"name": "Ticket"},
                 "unit_amount": to_stripe_amount(payment.amount, tier.currency),
             },
             quantity=1,
@@ -402,8 +387,8 @@ def _create_stripe_session(
         customer_email=user.email,
         line_items=line_items,
         mode="payment",
-        success_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_success=true",
-        cancel_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_cancelled=true",
+        success_url=f"{frontend_base_url}/events/{event.organization.id}/{event.id}?payment_success=true",
+        cancel_url=f"{frontend_base_url}/events/{event.organization.id}/{event.id}?payment_cancelled=true",
         payment_intent_data={
             "application_fee_amount": application_fee_amount,
         },
@@ -642,7 +627,7 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     # Per-row line items, then the total invariant — both derived from the Payment
     # rows themselves, so a mixed-price cart (#739) bills each ticket at its own
     # amount regardless of the order this later request read them back in.
-    line_items = _build_line_items(payments, event, tier)
+    line_items = _build_line_items(payments, tier)
     _reconcile_line_items(line_items, payments, tier.currency)
 
     # Already per-row: the batch's platform fee is the sum of each Payment's own
@@ -703,7 +688,7 @@ def _create_series_pass_stripe_session(
     ticket_ids = ",".join(str(ticket.id) for ticket in tickets)
 
     frontend_base_url = site.frontend_base_url
-    series_url = f"{frontend_base_url}/events/{org.slug}/series/{series.slug}"
+    series_url = f"{frontend_base_url}/events/{org.id}/series/{series.id}"
     session_data = dict(  # noqa: C408
         customer_email=user.email,
         line_items=[
@@ -711,7 +696,7 @@ def _create_series_pass_stripe_session(
                 "price_data": {
                     "currency": series_pass.currency.lower(),
                     "product_data": {
-                        "name": f"Season pass: {series_pass.name} — {series.name}",
+                        "name": "Season pass",
                     },
                     "unit_amount": to_stripe_amount(total, series_pass.currency),
                 },

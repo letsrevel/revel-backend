@@ -106,6 +106,8 @@ class TestEnsureCustomerProfile:
         kwargs = mock_create.call_args.kwargs
         assert kwargs["stripe_account"] == "acct_test_org"
         assert kwargs["email"] == subscriber.email
+        # No personal name in the Stripe payload (#848).
+        assert "name" not in kwargs
 
     @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
     def test_reuses_existing_profile(
@@ -181,6 +183,9 @@ class TestEnsureStripePrice:
         assert result.stripe_product_id == "prod_new"
         assert result.stripe_price_id == "price_new"
         mock_product.assert_called_once()
+        # Generic product name, no tier/plan names or description in the Stripe payload (#848).
+        assert mock_product.call_args.kwargs["name"] == "Membership"
+        assert "description" not in mock_product.call_args.kwargs
         mock_price.assert_called_once()
         assert mock_price.call_args.kwargs["unit_amount"] == 10000  # 100.00 EUR
         assert mock_price.call_args.kwargs["currency"] == "eur"
@@ -286,9 +291,9 @@ class TestStartOnlineSubscription:
         assert kwargs["metadata"] == {"membership_subscription_id": str(subscription.pk)}
         assert kwargs["subscription_data"]["metadata"] == {"membership_subscription_id": str(subscription.pk)}
         assert kwargs["stripe_account"] == "acct_test_org"
-        # Dedicated membership route, not the org landing page (#838).
-        assert f"/org/{stripe_org.slug}/membership?membership_success=true" in kwargs["success_url"]
-        assert f"/org/{stripe_org.slug}/membership?membership_cancelled=true" in kwargs["cancel_url"]
+        # Dedicated membership route (#838), UUID-based so no slug leaks to Stripe (#848).
+        assert f"/org/{stripe_org.id}/membership?membership_success=true" in kwargs["success_url"]
+        assert f"/org/{stripe_org.id}/membership?membership_cancelled=true" in kwargs["cancel_url"]
         assert isinstance(kwargs["expires_at"], int)
 
     def test_refuses_offline_plan(

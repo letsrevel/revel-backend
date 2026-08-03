@@ -260,10 +260,10 @@ class TestCreateSeriesPassSession:
         line_item = call_args[1]["line_items"][0]
         assert line_item["price_data"]["unit_amount"] == 3333
         series = online_series_pass.event_series
-        expected_name = f"Season pass: {online_series_pass.name} — {series.name}"
-        assert line_item["price_data"]["product_data"]["name"] == expected_name
+        # No pass/series names in the Stripe payload — generic label only (#848).
+        assert line_item["price_data"]["product_data"] == {"name": "Season pass"}
 
-        series_base_url = f"{settings.FRONTEND_BASE_URL}/events/{series.organization.slug}/series/{series.slug}"
+        series_base_url = f"{settings.FRONTEND_BASE_URL}/events/{series.organization.id}/series/{series.id}"
         assert call_args[1]["success_url"] == f"{series_base_url}?payment_success=true"
         assert call_args[1]["cancel_url"] == f"{series_base_url}?payment_cancelled=true"
 

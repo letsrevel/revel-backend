@@ -68,8 +68,8 @@ def ensure_customer_profile(user: RevelUser, organization: Organization) -> Cust
 
     try:
         customer = stripe.Customer.create(
+            # No `name`: the user's display name stays out of Stripe payloads (#848).
             email=user.email,
-            name=user.get_display_name() or None,
             metadata={"revel_user_id": str(user.pk), "revel_org_id": str(organization.pk)},
             # Deterministic key keeps concurrent first-time subscribes from
             # creating duplicate Stripe Customers on the same Connect account.
@@ -136,13 +136,14 @@ def _checkout_session_urls(organization: Organization) -> dict[str, str]:
 
     Mirrors the ticket checkout convention (``stripe_service._create_stripe_session``):
     redirect back with a query flag the frontend reads. Points at the dedicated
-    membership route (``/org/<slug>/membership``, revel-frontend#720) — the org
-    landing page no longer renders the checkout outcome (#838).
+    membership route (``/org/<id>/membership``, revel-frontend#720) — the org
+    landing page no longer renders the checkout outcome (#838). UUID-based so the
+    org slug never reaches Stripe; the FE resolves UUIDs (#848 / revel-frontend#756).
     """
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     return {
-        "success_url": f"{frontend_base_url}/org/{organization.slug}/membership?membership_success=true",
-        "cancel_url": f"{frontend_base_url}/org/{organization.slug}/membership?membership_cancelled=true",
+        "success_url": f"{frontend_base_url}/org/{organization.id}/membership?membership_success=true",
+        "cancel_url": f"{frontend_base_url}/org/{organization.id}/membership?membership_cancelled=true",
     }
 
 

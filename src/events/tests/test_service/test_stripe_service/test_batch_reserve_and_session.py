@@ -6,6 +6,7 @@ from unittest import mock
 from uuid import UUID, uuid4
 
 import pytest
+from django.conf import settings
 from django.utils import timezone
 from ninja.errors import HttpError
 
@@ -390,34 +391,37 @@ class TestCreateBatchSessionDoubleSubmit:
         assert resume.call_args.args[0] == str(stamped.id)
 
 
-class TestBlankHolderNameLineItems:
-    """A blank holder name is legal since #845 — Stripe must never show "Ticket for "."""
+class TestMinimalStripePayload:
+    """Stripe payloads carry no organizer-authored content (#848)."""
 
-    def _product_data(self, event: Event, tier: TicketTier, user: RevelUser, guest_name: str) -> dict[str, t.Any]:
+    def _session_kwargs(self, event: Event, tier: TicketTier, user: RevelUser, guest_name: str) -> dict[str, t.Any]:
         tickets = [_make_ticket(event, tier, user, guest_name=guest_name)]
         rid = uuid4()
         stripe_service.reserve_batch_payments(event=event, tier=tier, user=user, tickets=tickets, reservation_id=rid)
-        fake = mock.Mock(id="cs_blank", url="https://checkout.stripe.com/c/cs_blank")
+        fake = mock.Mock(id="cs_minimal", url="https://checkout.stripe.com/c/cs_minimal")
         with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
             stripe_service.create_batch_session(reservation_id=rid)
-        line_item = create.call_args.kwargs["line_items"][0]
-        return t.cast(dict[str, t.Any], line_item["price_data"]["product_data"])
+        return t.cast(dict[str, t.Any], create.call_args.kwargs)
 
-    def test_blank_name_drops_the_holder_clause(
+    @pytest.mark.parametrize("guest_name", ["", "Jane Doe"])
+    def test_product_data_is_generic_and_has_no_description(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser, guest_name: str
+    ) -> None:
+        """Stripe must not receive event/tier names or guest names (#848)."""
+        kwargs = self._session_kwargs(event, paid_ticket_tier, organization_owner_user, guest_name)
+        product_data = kwargs["line_items"][0]["price_data"]["product_data"]
+
+        assert product_data == {"name": "Ticket"}
+
+    def test_return_urls_use_uuids_not_slugs(
         self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
     ) -> None:
-        """No description at all beats a dangling preposition on the buyer's receipt."""
-        product_data = self._product_data(event, paid_ticket_tier, organization_owner_user, "")
+        """Return URLs must not leak org/event slugs to Stripe (#848); the FE resolves UUIDs."""
+        kwargs = self._session_kwargs(event, paid_ticket_tier, organization_owner_user, "Jane Doe")
+        event_url = f"{settings.FRONTEND_BASE_URL}/events/{event.organization.id}/{event.id}"
 
-        assert "description" not in product_data
-        assert product_data["name"] == f"Ticket: {event.name} ({paid_ticket_tier.name})"
-
-    def test_named_holder_still_gets_the_holder_clause(
-        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
-    ) -> None:
-        product_data = self._product_data(event, paid_ticket_tier, organization_owner_user, "Jane Doe")
-
-        assert product_data["description"] == "Ticket for Jane Doe"
+        assert kwargs["success_url"] == f"{event_url}?payment_success=true"
+        assert kwargs["cancel_url"] == f"{event_url}?payment_cancelled=true"
 
 
 class TestClaimReservationHoldExtendOnly:
