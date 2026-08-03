@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Registered buyers with blank name fields no longer get their email address stamped on the ticket as holder name (in PDFs, Stripe descriptions, invoices, and staff search) — the name fallback no longer falls through to the email-shaped `username`
 
+### Security
+- Dependency floors raised for freshly published CVEs: `aiohttp` ≥ 3.14.3 (CVE-2026-59881, CVE-2026-69243, CVE-2026-69244) and `cryptography` ≥ 50.0.0 (CVE-2026-69247)
+
 ## [2.0.0] - 2026-07-31
 
 ### Added
