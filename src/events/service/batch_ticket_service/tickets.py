@@ -99,15 +99,14 @@ class TicketWriterMixin(BatchTicketContext):
     def _default_guest_name(self) -> str:
         """Holder-name fallback when the buyer omitted one (flag off).
 
-        Never derives from the email: for guest users get_display_name() falls
-        back to username == email, so guests get their real name or blank.
+        Never derives from the email: get_display_name() bottoms out at
+        username — which registration sets to the email for every account,
+        not just guests — so stop at the name fields and fall back to blank.
 
         Returns:
-            The buyer's display name, or a blank string for a nameless guest.
+            The buyer's preferred or real name, or a blank string.
         """
-        if self.user.guest:
-            return f"{self.user.first_name} {self.user.last_name}".strip()
-        return self.user.get_display_name()
+        return self.user.preferred_name or self.user.get_full_name()
 
     def _claim_waitlist_offer_if_any(self) -> None:
         """Mark a pending unexpired WaitlistOffer for this (event, user) as CLAIMED.

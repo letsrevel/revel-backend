@@ -48,6 +48,17 @@ def batch_service_guest_user(batch_event: Event, free_tier: TicketTier, guest_bu
     return BatchTicketService(batch_event, free_tier, guest_buyer)
 
 
+@pytest.fixture
+def nameless_registered_buyer(django_user_model: type[RevelUser]) -> RevelUser:
+    """Self-registered account: username == email (as registration sets it), no names."""
+    return django_user_model.objects.create_user(
+        username="nameless@example.com",
+        email="nameless@example.com",
+        first_name="",
+        last_name="",
+    )
+
+
 class TestTicketPurchaseItemNormalization:
     def test_omitted_name_is_none(self) -> None:
         assert TicketPurchaseItem().guest_name is None
@@ -72,11 +83,25 @@ class TestNameEnforcement:
         assert "name on every ticket" in str(exc.value)
 
     def test_flag_off_missing_name_falls_back_to_buyer_display_name(self, batch_service: BatchTicketService) -> None:
+        batch_service.user.first_name = "Ada"
+        batch_service.user.last_name = "Lovelace"
+        batch_service.user.save(update_fields=["first_name", "last_name"])
         batch_service.event.require_ticket_names = False
         batch_service.event.save(update_fields=["require_ticket_names"])
         tickets = batch_service.create_batch([TicketPurchaseItem()])
         assert isinstance(tickets, list)
-        assert tickets[0].guest_name == batch_service.user.get_display_name()
+        assert tickets[0].guest_name == "Ada Lovelace"
+
+    def test_flag_off_preferred_name_wins_over_full_name(self, batch_service: BatchTicketService) -> None:
+        batch_service.user.first_name = "Ada"
+        batch_service.user.last_name = "Lovelace"
+        batch_service.user.preferred_name = "Countess Ada"
+        batch_service.user.save(update_fields=["first_name", "last_name", "preferred_name"])
+        batch_service.event.require_ticket_names = False
+        batch_service.event.save(update_fields=["require_ticket_names"])
+        tickets = batch_service.create_batch([TicketPurchaseItem()])
+        assert isinstance(tickets, list)
+        assert tickets[0].guest_name == "Countess Ada"
 
     def test_flag_off_explicit_name_wins(self, batch_service: BatchTicketService) -> None:
         batch_service.event.require_ticket_names = False
@@ -89,6 +114,17 @@ class TestNameEnforcement:
         svc = batch_service_guest_user
         svc.event.require_ticket_names = False
         svc.event.save(update_fields=["require_ticket_names"])
+        tickets = svc.create_batch([TicketPurchaseItem()])
+        assert isinstance(tickets, list)
+        assert tickets[0].guest_name == ""
+
+    def test_registered_buyer_with_blank_names_gets_blank_name_not_email(
+        self, batch_event: Event, free_tier: TicketTier, nameless_registered_buyer: RevelUser
+    ) -> None:
+        """Registration sets username == email, so get_display_name() bottoms out at the email."""
+        batch_event.require_ticket_names = False
+        batch_event.save(update_fields=["require_ticket_names"])
+        svc = BatchTicketService(batch_event, free_tier, nameless_registered_buyer)
         tickets = svc.create_batch([TicketPurchaseItem()])
         assert isinstance(tickets, list)
         assert tickets[0].guest_name == ""
