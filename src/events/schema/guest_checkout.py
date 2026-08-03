@@ -20,8 +20,8 @@ class GuestUserDataSchema(Schema):
     """Base schema for guest user data (no authentication required)."""
 
     email: EmailStr
-    first_name: StrippedString = Field(..., min_length=1, max_length=150, description="Guest user's first name")
-    last_name: StrippedString = Field(..., min_length=1, max_length=150, description="Guest user's last name")
+    first_name: StrippedString = Field(default="", max_length=150, description="Guest user's first name (optional)")
+    last_name: StrippedString = Field(default="", max_length=150, description="Guest user's last name (optional)")
 
 
 class GuestPWYCCheckoutSchema(GuestUserDataSchema):
@@ -103,7 +103,10 @@ class GuestRSVPJWTPayloadSchema(BaseEmailJWTPayloadSchema):
 class GuestTicketItemPayload(Schema):
     """Ticket item info stored in JWT payload for guest checkout confirmation."""
 
-    guest_name: str
+    # Empty string is the "no name given" representation in the token (#845): legacy
+    # tokens always carried a non-empty str, so the type stays str and the confirm
+    # site maps "" back to TicketPurchaseItem's None.
+    guest_name: str = ""
     seat_id: UUID4 | None = None
 
 

@@ -23,7 +23,7 @@ class TestGuestUserEdgeCases:
 
     @patch("events.tasks.send_guest_rsvp_confirmation.delay")
     def test_empty_first_name(self, mock_send_email: Mock, guest_event: Event) -> None:
-        """Test that empty first/last names are handled with 422."""
+        """Names are optional on guest flows since #845: email alone is accepted."""
         # Arrange
         client = Client()
         url = reverse("api:guest_rsvp", kwargs={"event_id": guest_event.pk, "answer": "yes"})
@@ -37,7 +37,10 @@ class TestGuestUserEdgeCases:
         response = client.post(url, data=payload, content_type="application/json")
 
         # Assert
-        assert response.status_code == 422, response.content
+        assert response.status_code == 200, response.content
+        guest_user = RevelUser.objects.get(email="noname@example.com")
+        assert guest_user.guest is True
+        assert guest_user.first_name == "" and guest_user.last_name == ""
 
     def test_email_normalization(self, guest_event: Event) -> None:
         """Test that email is normalized to lowercase for case-insensitive matching."""

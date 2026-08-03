@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events.models import EventInvitation, OrganizationMember, Ticket, TicketTier
+from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.context import BatchTicketContext
 from events.service.event_manager import (
     EventUserEligibility,
@@ -173,3 +174,24 @@ class PurchaseEligibilityMixin(BatchTicketContext):
                 400,
                 str(_("You can only purchase {remaining} more ticket(s) for this tier.")).format(remaining=remaining),
             )
+
+    def assert_ticket_names(self, items: list[TicketPurchaseItem]) -> None:
+        """Enforce Event.require_ticket_names: every item must carry a holder name.
+
+        Runs for buyer-facing paths only; box office stays exempt — it defaults the
+        name itself. This is the authoritative gate for every path that reaches
+        create_batch. The guest non-online path does NOT reach it until the emailed
+        confirmation link is clicked, so it enforces the same rule up front in
+        ``handle_guest_ticket_checkout`` — otherwise a nameless guest would get an
+        email and a dead link instead of a 400.
+
+        Args:
+            items: The batch's ticket purchase items.
+
+        Raises:
+            HttpError: 400 when the event requires names and any item lacks one.
+        """
+        if not self.event.require_ticket_names:
+            return
+        if any(item.guest_name is None for item in items):
+            raise HttpError(400, str(_("This event requires a name on every ticket.")))

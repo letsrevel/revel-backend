@@ -8,6 +8,7 @@ from ninja import ModelSchema, Schema
 from pydantic import Field
 
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
+from common.schema import StrippedString
 from common.signing import get_file_url
 from events import models
 from events.models import DiscountCode, Payment, Ticket
@@ -191,6 +192,17 @@ class CheckInResponseSchema(ModelSchema):
     def resolve_sector_name(obj: Ticket) -> str | None:
         """Sector name for door staff redirecting attendees ("Stalls, Row C seat 12")."""
         return obj.sector.name if obj.sector is not None else None
+
+
+class TicketGuestNameUpdateSchema(Schema):
+    """Payload for renaming a ticket holder.
+
+    Required: an omitted field is a 422, so ``PATCH {}`` can never silently clear a
+    name. Clearing is an explicit ``""`` (only allowed when the event doesn't
+    require names).
+    """
+
+    guest_name: StrippedString = Field(..., max_length=255)
 
 
 class ConfirmPaymentSchema(Schema):

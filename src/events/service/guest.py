@@ -133,7 +133,8 @@ def create_guest_ticket_token(
         JWT token string
     """
     # Convert TicketPurchaseItem to GuestTicketItemPayload for JWT storage
-    ticket_payloads = [schema.GuestTicketItemPayload(guest_name=t.guest_name, seat_id=t.seat_id) for t in tickets]
+    # None ("no name given") travels as "" in the token; confirm maps it back.
+    ticket_payloads = [schema.GuestTicketItemPayload(guest_name=t.guest_name or "", seat_id=t.seat_id) for t in tickets]
 
     payload = schema.GuestTicketJWTPayloadSchema(
         user_id=user.id,
@@ -300,6 +301,13 @@ def handle_guest_ticket_checkout(
     if not event.can_attend_without_login:
         raise HttpError(400, str(_("This event requires login to purchase tickets.")))
 
+    # Enforce the holder-name requirement HERE, before the payment-method branch: the
+    # non-online branch defers create_batch to the confirmation click, so a nameless
+    # cart would otherwise cost the buyer an email and a dead link instead of a 400.
+    # create_batch stays the authoritative gate on every path that reaches it.
+    if event.require_ticket_names and any(item.guest_name is None for item in tickets):
+        raise HttpError(400, str(_("This event requires a name on every ticket.")))
+
     # Create or update guest user
     user = get_or_create_guest_user(email, first_name, last_name)
 
@@ -446,7 +454,7 @@ def confirm_guest_action(
         # Handle legacy tokens that don't have tickets list (backward compatibility)
         if payload.tickets:
             ticket_items = [
-                schema.TicketPurchaseItem(guest_name=t.guest_name, seat_id=t.seat_id) for t in payload.tickets
+                schema.TicketPurchaseItem(guest_name=t.guest_name or None, seat_id=t.seat_id) for t in payload.tickets
             ]
         else:
             # Legacy token without tickets list - create single ticket with user's name

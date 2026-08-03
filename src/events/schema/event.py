@@ -64,6 +64,9 @@ class EventEditSchema(CityEditMixin):
         None, description="Deadline for submitting invitation requests or questionnaires"
     )
     can_attend_without_login: bool = False
+    # Defaults to True, matching the model, so clients that omit it never
+    # silently relax the holder-name requirement on an existing event.
+    require_ticket_names: bool = True
     # Merged, not replaced, on edit: sending one toggle leaves the others at
     # their stored values (see ``build_visibility_settings_update``). Omitting a
     # toggle means "no change", exactly like omitting any other field here.
@@ -147,6 +150,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     accept_rsvp_notes: bool
     apply_before: AwareDatetime | None = None
     can_attend_without_login: bool
+    require_ticket_names: bool
     # Recurring-series fields. Included in the base schema so list views can
     # show series context (e.g. occurrence position). ``is_template`` is
     # always ``False`` in user-facing responses because ``Event.objects.for_user()``

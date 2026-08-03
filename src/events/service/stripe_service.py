@@ -281,6 +281,20 @@ class StripeLineItem(t.TypedDict):
     quantity: int
 
 
+def _product_data(payment: Payment, event: Event, tier: TicketTier) -> dict[str, str]:
+    """Name + description Stripe shows the buyer for one ticket row.
+
+    A blank holder name is a legal ticket state since #845 (email-only guests on an
+    event with ``require_ticket_names=False``), so the holder clause is dropped
+    entirely rather than rendered as a dangling "Ticket for ".
+    """
+    product_data = {"name": f"Ticket: {event.name} ({tier.name})"}
+    guest_name = payment.ticket.guest_name.strip()
+    if guest_name:
+        product_data["description"] = f"Ticket for {guest_name}"
+    return product_data
+
+
 def _build_line_items(
     payments: list[Payment],
     event: Event,
@@ -303,10 +317,7 @@ def _build_line_items(
         StripeLineItem(
             price_data={
                 "currency": tier.currency.lower(),
-                "product_data": {
-                    "name": f"Ticket: {event.name} ({tier.name})",
-                    "description": f"Ticket for {payment.ticket.guest_name}",
-                },
+                "product_data": _product_data(payment, event, tier),
                 "unit_amount": to_stripe_amount(payment.amount, tier.currency),
             },
             quantity=1,

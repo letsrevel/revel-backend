@@ -32,8 +32,16 @@ class PWYCCheckoutPayloadSchema(Schema):
 class TicketPurchaseItem(Schema):
     """Single ticket item in a batch purchase."""
 
-    guest_name: StrippedString = Field(..., min_length=1, max_length=255, description="Name of the ticket holder")
+    guest_name: StrippedString | None = Field(
+        default=None, max_length=255, description="Name of the ticket holder (optional unless the event requires it)"
+    )
     seat_id: UUID | None = Field(default=None, description="Seat ID for USER_CHOICE seat assignment mode")
+
+    @field_validator("guest_name", mode="after")
+    @classmethod
+    def _empty_name_to_none(cls, v: str | None) -> str | None:
+        """One 'absent' representation downstream: whitespace-only input becomes None."""
+        return v or None
 
 
 class BuyerBillingInfoSchema(Schema):

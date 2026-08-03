@@ -15,7 +15,7 @@ from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.schema.financials import EventFinancialsSchema
-from events.service import revenue_aggregation, ticket_service
+from events.service import revenue_aggregation, ticket_guest_name_service, ticket_service
 
 from .base import EventAdminBaseController
 
@@ -184,7 +184,14 @@ class EventAdminTicketsController(EventAdminBaseController):
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(
         Searching,
-        search_fields=["user__email", "user__first_name", "user__last_name", "tier__name", "user__preferred_name"],
+        search_fields=[
+            "user__email",
+            "user__first_name",
+            "user__last_name",
+            "tier__name",
+            "user__preferred_name",
+            "guest_name",
+        ],
     )
     def list_tickets(
         self,
@@ -228,6 +235,26 @@ class EventAdminTicketsController(EventAdminBaseController):
         """Get a ticket by its ID."""
         event = self.get_one(event_id)
         return get_object_or_404(models.Ticket.objects.full(), pk=ticket_id, event=event)
+
+    @route.patch(
+        "/tickets/{ticket_id}/guest-name",
+        url_name="admin_update_ticket_guest_name",
+        response={200: schema.UserTicketSchema},
+    )
+    def update_ticket_guest_name(
+        self, event_id: UUID, ticket_id: UUID, payload: schema.TicketGuestNameUpdateSchema
+    ) -> models.Ticket:
+        """Rename the holder on an attendee's ticket.
+
+        Clearing the name is only allowed when the event does not require names.
+        """
+        event = self.get_one(event_id)
+        ticket = get_object_or_404(
+            models.Ticket.objects.select_related("event", "tier"),
+            pk=ticket_id,
+            event=event,
+        )
+        return ticket_guest_name_service.update_guest_name(ticket, payload.guest_name)
 
     @route.post(
         "/tickets/{ticket_id}/confirm-payment",

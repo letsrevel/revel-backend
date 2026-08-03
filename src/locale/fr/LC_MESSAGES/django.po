@@ -1602,6 +1602,9 @@ msgstr ""
 "Tu ne peux acheter que {remaining} ticket·s supplémentaire·s pour cette "
 "catégorie."
 
+msgid "This event requires a name on every ticket."
+msgstr "Cet événement exige un nom sur chaque ticket."
+
 msgid "Seat selection is required for this ticket tier."
 msgstr "Le choix du siège est requis pour cette catégorie de tickets."
 
@@ -2443,6 +2446,9 @@ msgstr ""
 msgid "Cannot resume renewal on a cancelled or expired subscription."
 msgstr ""
 "Tu ne peux pas réactiver le renouvellement d'un abonnement annulé ou expiré."
+
+msgid "This ticket can no longer be renamed."
+msgstr "Le nom sur ce ticket ne peut plus être modifié."
 
 msgid "Ticket already cancelled"
 msgstr "Ticket déjà annulé"

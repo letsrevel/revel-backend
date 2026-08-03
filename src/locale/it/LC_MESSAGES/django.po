@@ -1279,8 +1279,7 @@ msgstr ""
 
 msgid "Target plan for the paid path. NULL = free join."
 msgstr ""
-"Piano di destinazione per il percorso a pagamento. NULL = adesione "
-"gratuita."
+"Piano di destinazione per il percorso a pagamento. NULL = adesione gratuita."
 
 msgid "Submission that satisfied the questionnaire gate, if applicable."
 msgstr "Invio che ha soddisfatto il gate del questionario, se applicabile."
@@ -1575,6 +1574,9 @@ msgstr "Hai raggiunto il numero massimo di biglietti per questo livello."
 msgid "You can only purchase {remaining} more ticket(s) for this tier."
 msgstr ""
 "Puoi acquistare solo {remaining} altro/i biglietto/i per questo livello."
+
+msgid "This event requires a name on every ticket."
+msgstr "Questo evento richiede un nome su ogni biglietto."
 
 msgid "Seat selection is required for this ticket tier."
 msgstr "La selezione del posto è obbligatoria per questo livello di biglietto."
@@ -2405,6 +2407,9 @@ msgstr ""
 
 msgid "Cannot resume renewal on a cancelled or expired subscription."
 msgstr "Non puoi riattivare il rinnovo di un abbonamento annullato o scaduto."
+
+msgid "This ticket can no longer be renamed."
+msgstr "Il nome su questo biglietto non può più essere modificato."
 
 msgid "Ticket already cancelled"
 msgstr "Biglietto già annullato"

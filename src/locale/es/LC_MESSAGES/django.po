@@ -1045,8 +1045,8 @@ msgstr ""
 msgid ""
 "FREE plans cost nothing, so no initial payment can be recorded against them."
 msgstr ""
-"Los planes FREE no cuestan nada, así que no se puede registrar ningún "
-"pago inicial para ellos."
+"Los planes FREE no cuestan nada, así que no se puede registrar ningún pago "
+"inicial para ellos."
 
 msgid ""
 "ONLINE subscription payments are recorded automatically via Stripe webhooks."
@@ -1571,6 +1571,9 @@ msgstr "Has alcanzado el número máximo de entradas para este tipo."
 #, python-brace-format
 msgid "You can only purchase {remaining} more ticket(s) for this tier."
 msgstr "Solo puedes comprar {remaining} entrada(s) más de este tipo."
+
+msgid "This event requires a name on every ticket."
+msgstr "Este evento requiere un nombre en cada entrada."
 
 msgid "Seat selection is required for this ticket tier."
 msgstr "Es obligatorio seleccionar asiento para este tipo de entrada."
@@ -2400,6 +2403,9 @@ msgstr ""
 msgid "Cannot resume renewal on a cancelled or expired subscription."
 msgstr ""
 "No puedes reanudar la renovación de una suscripción cancelada o caducada."
+
+msgid "This ticket can no longer be renamed."
+msgstr "El nombre de esta entrada ya no se puede cambiar."
 
 msgid "Ticket already cancelled"
 msgstr "Entrada ya cancelada"

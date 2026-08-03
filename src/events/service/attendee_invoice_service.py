@@ -85,7 +85,9 @@ def _build_line_items(payments: list[Payment]) -> list[InvoiceLineItemDict]:
         ticket = payment.ticket
         event_name = ticket.event.name if ticket.event else "Unknown Event"
         tier_name = ticket.tier.name if ticket.tier else "Unknown Tier"
-        description = f"{event_name} — {tier_name} — {ticket.guest_name}"
+        # A blank holder name is legal since #845 — skip the segment rather than
+        # leave a trailing separator on the invoice line.
+        description = " — ".join(part for part in (event_name, tier_name, ticket.guest_name.strip()) if part)
         items.append(
             InvoiceLineItemDict(
                 description=description,

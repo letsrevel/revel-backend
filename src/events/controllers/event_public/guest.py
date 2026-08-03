@@ -69,11 +69,12 @@ class EventPublicGuestController(EventPublicBaseController):
         non-guest account exists with the email, or for PWYC tiers (use /pwyc endpoint instead).
 
         **Request Body:**
-        - `email`: Guest user's email address
-        - `first_name`: Guest user's first name
-        - `last_name`: Guest user's last name
+        - `email`: Guest user's email address (required)
+        - `first_name`: Guest user's first name (optional)
+        - `last_name`: Guest user's last name (optional)
         - `tickets`: List of tickets to purchase, each with:
-          - `guest_name`: Name of the ticket holder (required)
+          - `guest_name`: Name of the ticket holder (optional; required only when
+            the event has `require_ticket_names` enabled)
           - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
 
         **Seat Assignment Modes:**
@@ -128,11 +129,12 @@ class EventPublicGuestController(EventPublicBaseController):
         non-guest account exists, or if PWYC amount is invalid.
 
         **Request Body:**
-        - `email`: Guest user's email address
-        - `first_name`: Guest user's first name
-        - `last_name`: Guest user's last name
+        - `email`: Guest user's email address (required)
+        - `first_name`: Guest user's first name (optional)
+        - `last_name`: Guest user's last name (optional)
         - `tickets`: List of tickets to purchase, each with:
-          - `guest_name`: Name of the ticket holder (required)
+          - `guest_name`: Name of the ticket holder (optional; required only when
+            the event has `require_ticket_names` enabled)
           - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
         - `price_per_ticket`: PWYC amount per ticket (same for all tickets in batch)
 

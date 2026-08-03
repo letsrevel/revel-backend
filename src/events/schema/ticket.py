@@ -47,6 +47,7 @@ from .ticket_detail import (
     MinimalPaymentSchema,
     PaymentSchema,
     TicketDiscountCodeSchema,
+    TicketGuestNameUpdateSchema,
     TicketSeriesPassSchema,
     UserTicketSchema,
 )
@@ -111,6 +112,7 @@ __all__ = [
     "TicketCancellationRequestSchema",
     "TicketCancellationResponseSchema",
     "TicketDiscountCodeSchema",
+    "TicketGuestNameUpdateSchema",
     "TicketPurchaseItem",
     "TicketSeriesPassSchema",
     "TicketTierCreateSchema",

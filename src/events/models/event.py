@@ -355,6 +355,11 @@ class Event(
     can_attend_without_login = models.BooleanField(
         default=True, help_text="Allow users to RSVP or purchase tickets without creating an account"
     )
+    require_ticket_names = models.BooleanField(
+        default=True,
+        help_text="Require a holder name for every ticket at checkout. "
+        "When off, names are optional and checkout is faster.",
+    )
 
     attendee_count = models.PositiveIntegerField(default=0, editable=False)
     max_tickets_per_user = models.PositiveIntegerField(
