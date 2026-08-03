@@ -69,8 +69,8 @@ def ensure_stripe_price(plan: MembershipSubscriptionPlan) -> MembershipSubscript
     try:
         if not plan.stripe_product_id:
             product = stripe.Product.create(
-                name=f"{plan.tier.name} — {plan.name}",
-                description=plan.description or None,
+                # Generic label only — tier/plan names and descriptions never reach Stripe (#848).
+                name="Membership",
                 metadata={"revel_plan_id": str(plan.pk)},
                 **kwargs,
             )

@@ -84,15 +84,15 @@ def _reserve_mixed(
     return rid
 
 
-def _line_items_by_guest(line_items: list[dict[str, t.Any]]) -> dict[str, int]:
-    """Map each line item's guest name to the unit amount Stripe would charge."""
-    out: dict[str, int] = {}
+def _line_item_amounts(line_items: list[dict[str, t.Any]]) -> list[int]:
+    """Each line item's charged amount, sorted; also pins the generic product data (#848).
+
+    Amounts (not guest names) identify the line items: the payload must not carry
+    guest names, and the mixed-cart fixtures use distinct amounts by construction.
+    """
     for item in line_items:
-        description = item["price_data"]["product_data"]["description"]
-        guest = description.removeprefix("Ticket for ")
-        assert guest not in out, "one line item per ticket expected"
-        out[guest] = item["price_data"]["unit_amount"] * item["quantity"]
-    return out
+        assert item["price_data"]["product_data"] == {"name": "Ticket"}, "no organizer/guest content for Stripe (#848)"
+    return sorted(item["price_data"]["unit_amount"] * item["quantity"] for item in line_items)
 
 
 class TestMixedPriceLineItems:
@@ -110,7 +110,7 @@ class TestMixedPriceLineItems:
             stripe_service.create_batch_session(reservation_id=rid)
         line_items = create.call_args.kwargs["line_items"]
 
-        assert _line_items_by_guest(line_items) == {"Premium Guest": 5000, "Standard Guest": 3000}
+        assert _line_item_amounts(line_items) == [3000, 5000]
 
     def test_session_total_equals_sum_of_payment_amounts(
         self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
@@ -142,7 +142,7 @@ class TestMixedPriceLineItems:
             stripe_service.create_batch_session(reservation_id=rid)
         line_items = create.call_args.kwargs["line_items"]
 
-        assert _line_items_by_guest(line_items) == {"Paid": 5000, "Freebie": 0}
+        assert _line_item_amounts(line_items) == [0, 5000]
         assert Payment.objects.get(reservation_id=rid, ticket__guest_name="Freebie").amount == Decimal("0.00")
 
 

@@ -158,6 +158,17 @@ class OrganizationController(UserAwareController):
         organization = organization_service.create_organization(owner=user, **payload.model_dump())
         return 201, organization
 
+    # Declaration order is registration order: this must come before the /{slug}
+    # route, which would otherwise also match UUID-shaped strings.
+    @route.get("/{uuid:organization_id}", url_name="get_organization_by_id", response=schema.OrganizationRetrieveSchema)
+    def get_organization_by_id(self, organization_id: UUID) -> models.Organization:
+        """Retrieve organization details by ID.
+
+        Same visibility rules and payload as the slug route. Used by the frontend to
+        resolve the UUID-based Stripe checkout return URLs (#848) back to slug pages.
+        """
+        return self.get_object_or_exception(self.get_queryset(), id=organization_id)  # type: ignore[no-any-return]
+
     @route.get("/{slug}", url_name="get_organization", response=schema.OrganizationRetrieveSchema)
     def get_organization(self, slug: str) -> models.Organization:
         """Retrieve organization details using its unique slug.

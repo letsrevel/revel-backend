@@ -1,4 +1,5 @@
 import typing as t
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 
@@ -438,6 +439,67 @@ def test_get_organization_not_found(client: Client) -> None:
     """Test that a 404 is returned for a non-existent organization slug."""
     url = reverse("api:get_organization", kwargs={"slug": "non-existent-slug"})
     response = client.get(url)
+    assert response.status_code == 404
+
+
+# --- Tests for GET /organizations/{organization_id} (UUID lookup, #848) ---
+
+
+def test_get_organization_by_id(client: Client, organization: Organization) -> None:
+    """UUID lookup returns the same payload shape as the slug route (#848)."""
+    organization.visibility = Organization.Visibility.PUBLIC
+    organization.save(update_fields=["visibility"])
+    url = reverse("api:get_organization_by_id", kwargs={"organization_id": organization.id})
+    response = client.get(url)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["slug"] == organization.slug
+    assert data["name"] == organization.name
+
+
+def test_get_organization_by_id_not_found(client: Client) -> None:
+    url = reverse("api:get_organization_by_id", kwargs={"organization_id": uuid.uuid4()})
+    response = client.get(url)
+    assert response.status_code == 404
+
+
+def test_get_organization_by_id_respects_visibility(
+    client: Client, member_client: Client, organization: Organization
+) -> None:
+    """Same visibility rules as the slug route: private orgs are 404 for outsiders."""
+    # `organization` is private by default.
+    url = reverse("api:get_organization_by_id", kwargs={"organization_id": organization.id})
+    assert client.get(url).status_code == 404
+    assert member_client.get(url).status_code == 200
+
+
+def test_get_organization_by_slug_still_works(client: Client, organization: Organization) -> None:
+    """Route-ordering guard: UUID route must not shadow slug lookups."""
+    organization.visibility = Organization.Visibility.PUBLIC
+    organization.save(update_fields=["visibility"])
+    response = client.get(reverse("api:get_organization", kwargs={"slug": organization.slug}))
+    assert response.status_code == 200
+    assert response.json()["slug"] == organization.slug
+
+
+@pytest.mark.parametrize(
+    "path_segment",
+    [
+        "not-a-uuid-slug",
+        "1234-abcd",  # hyphenated numeric prefix — flirts with UUID shape
+        "ABCDEF12-3456-7890-ABCD-EF1234567890",  # UUID-shaped but uppercase; the uuid converter is lowercase-only
+        "12345678-1234-1234-1234-12345678901",  # one hex digit short of a UUID
+    ],
+)
+def test_non_uuid_segments_never_422(client: Client, path_segment: str) -> None:
+    """Anything that isn't a lowercase UUID must fall through to the slug route (#848).
+
+    The ``{uuid:...}`` converter filters at URL resolution, so a non-UUID segment
+    never reaches the by-id operation's validation — it resolves as a slug and
+    404s on the lookup. A 422 here would mean the uuid route started swallowing
+    slug-shaped requests.
+    """
+    response = client.get(reverse("api:get_organization", kwargs={"slug": path_segment}))
     assert response.status_code == 404
 
 
