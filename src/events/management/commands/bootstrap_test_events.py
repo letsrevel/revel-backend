@@ -10,6 +10,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from common.models import Tag
 from events import models as events_models
+from events.management.commands.bootstrap_helpers.logos import attach_logo
 from geo.models import City
 from questionnaires import models as questionnaires_models
 
@@ -153,6 +154,9 @@ and access control scenario in the Revel platform. Perfect for frontend testing!
         self.org.contact_email = "test@eligibility.example.com"
         self.org.contact_email_verified = True
         self.org.save()
+
+        # Give it a placeholder logo so the frontend's branding accents render
+        attach_logo(self.org, key=self.org.slug, name=self.org.name)
 
         logger.info(f"Created organization: {self.org.name}")
 

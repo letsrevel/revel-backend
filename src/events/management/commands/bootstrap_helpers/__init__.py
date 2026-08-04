@@ -11,6 +11,7 @@ from .billing import (
 from .cover_art import attach_cover_art
 from .dietary import create_dietary_data
 from .events import create_event_series, create_events
+from .logos import attach_org_logos
 from .organizations import create_organizations
 from .potluck import create_potluck_items
 from .questionnaires import create_questionnaires
@@ -23,6 +24,7 @@ from .venues import create_venues
 __all__ = [
     "BootstrapState",
     "attach_cover_art",
+    "attach_org_logos",
     "configure_organization_billing",
     "configure_platform_billing",
     "create_dietary_data",
