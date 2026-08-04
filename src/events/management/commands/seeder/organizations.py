@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
+from events.management.commands.bootstrap_helpers.logos import attach_logo
 from events.management.commands.seeder.base import BaseSeeder
 from events.models import (
     MembershipTier,
@@ -26,6 +27,7 @@ class OrganizationSeeder(BaseSeeder):
     def seed(self) -> None:
         """Seed organizations and related entities."""
         self._create_organizations()
+        self._attach_logos()
         self._create_membership_tiers()
         self._create_staff()
         self._create_members()
@@ -71,6 +73,15 @@ class OrganizationSeeder(BaseSeeder):
 
         self.state.organizations = self.batch_create(Organization, orgs_to_create, desc="Creating organizations")
         self.log(f"  Created {len(self.state.organizations)} organizations")
+
+    def _attach_logos(self) -> None:
+        """Give every seeded organization a deterministic placeholder logo."""
+        self.log("Attaching organization logos...")
+
+        for org in self.state.organizations:
+            attach_logo(org, key=org.slug, name=org.name)
+
+        self.log(f"  Attached {len(self.state.organizations)} organization logos")
 
     def _create_membership_tiers(self) -> None:
         """Create 2-4 membership tiers per organization."""
