@@ -111,19 +111,7 @@ This project uses a comprehensive Makefile.
 
 ## Project Architecture
 
-Revel is a Django-based event management & ticketing platform.
-
-### Core applications
-- **accounts/** — auth, registration, JWT, GDPR compliance.
-- **events/** — events, organizations, tickets, memberships, invitations.
-- **questionnaires/** — dynamic questionnaires with LLM-powered evaluation.
-- **notifications/** — multi-channel (in-app, email, Telegram) with preferences & digests.
-- **polls/** — Organization-managed polls
-- **wallet/** — Apple Wallet `.pkpass` generation.
-- **geo/** — geolocation, city data, IP-based location.
-- **telegram/** — Telegram bot with FSM conversation flows.
-- **api/** — global API config, exception handlers, rate limiting.
-- **common/** — shared utilities, auth, base models, admin customizations.
+Revel is a Django-based event management & ticketing platform (apps under `src/`).
 
 ### Key patterns
 - **Service layer** — business logic in `<app>/service/`. Hybrid: function-based for stateless
@@ -132,13 +120,6 @@ Revel is a Django-based event management & ticketing platform.
   consistent tags; `PageNumberPaginationExtra`; `@searching` for search.
 - **Permissions** — `events/controllers/permissions.py`; org roles (Owner/Staff/Member);
   event-level eligibility; JWT auth with optional anonymous access.
-
-### Stack
-Django 5+ / Django Ninja · PostgreSQL + PostGIS · Celery + Redis · JWT (custom user model) ·
-Docker Compose (Postgres, Redis, ClamAV). Python 3.14+. **UV** for deps (never pip).
-
-### Key config files
-`pyproject.toml` (deps + ruff/mypy/pytest), `Makefile`, `compose.yaml`, `src/revel/settings/`.
 
 ### Quality bar
 ruff (format + lint) · mypy `--strict` + Django plugin · Google-style docstrings ·
@@ -347,15 +328,6 @@ def list_items(self) -> QuerySet[Item]:
 
 ---
 
-## Dependency Management
-
-**UV only — never pip.**
-- Add: `uv add <package>` · dev: `uv add --dev <package>` · optional: `uv add --optional <group> <package>`.
-- Remove: `uv remove <package>` · Sync: `uv sync` (`--dev` to include dev deps).
-- Why: faster, deterministic resolution, managed venv, better conflict detection.
-
----
-
 ## Testing
 
 - Create test data via ORM and shared fixtures from `conftest.py`.
@@ -393,3 +365,4 @@ Non-negotiable, project-specific:
 - **Always discuss the approach before writing code for non-trivial changes** (Principle #1).
 - **UV, never pip.** **Models never import services.**
 - **Avoid circular dependencies.**
+- **Don't commit specs or plans from brainstorming sessions, they are gitignored**
