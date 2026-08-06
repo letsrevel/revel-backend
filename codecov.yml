@@ -1,0 +1,11 @@
+# Codecov configuration
+#
+# Patch status is informational only: chore/deps commits that touch a single
+# uncovered line (e.g. adding a type-ignore comment) were turning main red
+# with "0.00% of diff hit" while every real CI gate was green. The enforced
+# coverage bar remains the "Combined coverage gate" job in test.yaml (90%+).
+coverage:
+  status:
+    patch:
+      default:
+        informational: true
