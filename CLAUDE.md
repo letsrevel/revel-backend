@@ -140,6 +140,7 @@ these are the concrete forms.
 # Good
 import typing as t
 
+
 def process(data: t.Any) -> dict[str, t.Any]:
     if t.TYPE_CHECKING:
         from mymodule import MyType
@@ -158,21 +159,27 @@ def process(data: t.Any) -> dict[str, t.Any]:
 # Good — enum referenced from the model, AwareDatetime for tz-aware fields
 from pydantic import AwareDatetime
 
+
 class UserSchema(ModelSchema):
     restriction_type: DietaryRestriction.RestrictionType
+
     class Meta:
         model = User
         fields = ["id", "name", "email"]
+
 
 class EventSchema(Schema):
     starts_at: AwareDatetime
     ends_at: AwareDatetime | None = None
 
+
 # Bad — loses the enum/timezone contract or redeclares inferred fields
 class BannerSchema(Schema):
-    severity: str                      # use SiteSettings.BannerSeverity
+    severity: str  # use SiteSettings.BannerSeverity
+
+
 class EventSchema(Schema):
-    starts_at: datetime.datetime       # use AwareDatetime
+    starts_at: datetime.datetime  # use AwareDatetime
 ```
 
 ### Controllers (Django Ninja Extra)
@@ -260,9 +267,7 @@ from `common.utils` — don't wrap `IntegrityError` manually.
 ```python
 from common.utils import get_or_create_with_race_protection
 
-food_item, created = get_or_create_with_race_protection(
-    FoodItem, Q(name__iexact=name), {"name": name}
-)
+food_item, created = get_or_create_with_race_protection(FoodItem, Q(name__iexact=name), {"name": name})
 ```
 
 ### Service Layer Patterns
@@ -276,19 +281,24 @@ request-contextual, explicit instantiation is grep-able, and it keeps things sim
 def create_venue(organization: Organization, payload: VenueCreateSchema) -> Venue:
     return Venue.objects.create(organization=organization, **payload.model_dump())
 
+
 # Class-based — request-scoped workflow
 class BatchTicketService:
     def __init__(self, event: Event, tier: TicketTier, user: RevelUser) -> None:
         self.event, self.tier, self.user = event, tier, user
 
-    def create_batch(self, items: list[TicketPurchaseItem]) -> list[Ticket] | str:
-        ...  # validate batch, resolve seats, delegate to payment flow
+    def create_batch(
+        self, items: list[TicketPurchaseItem]
+    ) -> list[Ticket] | str: ...  # validate batch, resolve seats, delegate to payment flow
+
 
 # Controller integration
 from events.service import blacklist_service
+
 entry = blacklist_service.add_to_blacklist(organization, email=email)
 
 from events.service.batch_ticket_service import BatchTicketService
+
 result = BatchTicketService(event=event, tier=tier, user=user).create_batch(items=purchase_items)
 ```
 

@@ -280,6 +280,7 @@ else:
 ```python
 # Good - works in all environments
 import structlog
+
 logger = structlog.get_logger(__name__)
 logger.info("user_created", user_id=user.id)
 # Outputs JSON to console (always)

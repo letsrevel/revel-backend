@@ -141,13 +141,13 @@ All environments:
 Custom structlog processor that sanitizes before serialization:
 ```python
 def scrub_pii(logger, method_name, event_dict):
-    sensitive_keys = ['password', 'card_number', 'cvv', 'ssn']
+    sensitive_keys = ["password", "card_number", "cvv", "ssn"]
     for key in sensitive_keys:
         if key in event_dict:
-            event_dict[key] = '[REDACTED]'
+            event_dict[key] = "[REDACTED]"
     # Scrub email patterns from free text
-    if 'message' in event_dict:
-        event_dict['message'] = re.sub(r'\b[\w\.-]+@[\w\.-]+\.\w+\b', '[EMAIL]', event_dict['message'])
+    if "message" in event_dict:
+        event_dict["message"] = re.sub(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", "[EMAIL]", event_dict["message"])
     return event_dict
 ```
 
@@ -261,8 +261,8 @@ class StructlogContextMiddleware:
         structlog.contextvars.bind_contextvars(
             request_id=request_id,
             user_id=str(request.user.id) if request.user.is_authenticated else None,
-            ip_address=request.META.get('REMOTE_ADDR'),
-            user_agent=request.META.get('HTTP_USER_AGENT'),
+            ip_address=request.META.get("REMOTE_ADDR"),
+            user_agent=request.META.get("HTTP_USER_AGENT"),
             method=request.method,
             path=request.path,
             endpoint=request.resolver_match.view_name if request.resolver_match else None,
@@ -270,7 +270,7 @@ class StructlogContextMiddleware:
 
         # Add request_id to response headers for client-side correlation
         response = self.get_response(request)
-        response['X-Request-ID'] = request_id
+        response["X-Request-ID"] = request_id
 
         # Clear context after request
         structlog.contextvars.clear_contextvars()
@@ -295,20 +295,24 @@ class StructlogContextMiddleware:
 # src/revel/celery.py
 from celery.signals import task_prerun, task_postrun
 
+
 @task_prerun.connect
 def celery_task_prerun(task_id, task, *args, **kwargs):
     import structlog
+
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(
         task_id=task_id,
         task_name=task.name,
-        queue=task.request.delivery_info.get('routing_key', 'default'),
+        queue=task.request.delivery_info.get("routing_key", "default"),
         retries=task.request.retries,
     )
+
 
 @task_postrun.connect
 def celery_task_postrun(*args, **kwargs):
     import structlog
+
     structlog.contextvars.clear_contextvars()
 ```
 

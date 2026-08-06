@@ -92,12 +92,16 @@ flowchart TD
 # batch_ticket_service.py contains the class-based service
 # ticket_service.py contains standalone functions like:
 
+
 def check_in_ticket(
-    event: Event, ticket_id: UUID, checked_in_by: RevelUser,
+    event: Event,
+    ticket_id: UUID,
+    checked_in_by: RevelUser,
     price_paid: Decimal | None = None,
 ) -> Ticket:
     """Standalone operation: no shared state needed."""
     ...
+
 
 def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) -> Ticket:
     """Another standalone operation."""

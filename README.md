@@ -414,6 +414,7 @@ Use `ProtectedFileField` or `ProtectedImageField` for files requiring signed acc
 ```python
 from common.fields import ProtectedFileField, ProtectedImageField
 
+
 class MyModel(models.Model):
     # Stored in protected/attachments/ - requires signed URL
     attachment = ProtectedFileField(upload_to="attachments")
@@ -429,6 +430,7 @@ Use `get_file_url()` with a static resolver to generate signed URLs in your sche
 ```python
 from ninja import ModelSchema
 from common.signing import get_file_url
+
 
 class MyResourceSchema(ModelSchema):
     file_url: str | None = None

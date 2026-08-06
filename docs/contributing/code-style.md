@@ -19,6 +19,7 @@ Access all type constructs through the `t` namespace: `t.Any`, `t.TYPE_CHECKING`
     ```python
     import typing as t
 
+
     def process(data: t.Any) -> dict[str, t.Any]:
         if t.TYPE_CHECKING:
             from mymodule import MyType
@@ -29,6 +30,7 @@ Access all type constructs through the `t` namespace: `t.Any`, `t.TYPE_CHECKING`
 
     ```python
     from typing import Any, TYPE_CHECKING, cast
+
 
     def process(data: Any) -> dict[str, Any]:
         if TYPE_CHECKING:
@@ -106,6 +108,7 @@ This ensures the OpenAPI spec documents valid values and keeps a single source o
     class BannerSchema(Schema):
         severity: str
 
+
     # Literal: duplicates enum values, drifts over time
     class BannerSchema(Schema):
         severity: Literal["info", "warning", "error"]
@@ -126,6 +129,7 @@ contracts.
     ```python
     from pydantic import AwareDatetime
 
+
     class EventSchema(Schema):
         starts_at: AwareDatetime
         ends_at: AwareDatetime | None = None
@@ -135,6 +139,7 @@ contracts.
 
     ```python
     import datetime
+
 
     class EventSchema(Schema):
         starts_at: datetime.datetime  # No timezone enforcement
@@ -257,11 +262,7 @@ include nested objects.
 ```python
 # Controller with proper prefetching
 def list_items(self) -> QuerySet[Item]:
-    return (
-        Item.objects
-        .select_related("category")
-        .prefetch_related("tags")
-    )
+    return Item.objects.select_related("category").prefetch_related("tags")
 ```
 
 !!! tip
@@ -311,10 +312,12 @@ class BatchTicketService:
 ```python
 # Function-based: import module, call directly
 from events.service import blacklist_service
+
 entry = blacklist_service.add_to_blacklist(organization, email=email)
 
 # Class-based: instantiate per request
 from events.service.batch_ticket_service import BatchTicketService
+
 service = BatchTicketService(event=event, tier=tier, user=user)
 result = service.create_batch(items=purchase_items)
 ```

@@ -140,6 +140,7 @@ class SamplingFilter(logging.Filter):
             return True
         return random.random() < self.sample_rate
 
+
 # Add to Loki handler
 LOGGING_HANDLERS["loki"]["filters"] = ["sampling"]
 ```
@@ -159,6 +160,7 @@ See: https://grafana.com/docs/loki/latest/send-data/promtail/
 
 ```python
 import logging
+
 logger = logging.getLogger(__name__)
 
 for i in range(1000):
@@ -178,7 +180,7 @@ for i in range(100):
     logger.info(f"Log {i}")
 elapsed = time.time() - start
 
-print(f"100 logs took {elapsed*1000:.2f}ms")
+print(f"100 logs took {elapsed * 1000:.2f}ms")
 # Should be <100ms (async)
 # Would be >1000ms (sync)
 ```
@@ -202,6 +204,7 @@ print(f"100 logs took {elapsed*1000:.2f}ms")
 3. Check queue handler:
    ```python
    import logging
+
    logger = logging.getLogger()
    print([type(h).__name__ for h in logger.handlers])
    # Should include: ['StreamHandler', 'QueueHandler']

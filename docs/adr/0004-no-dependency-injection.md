@@ -27,10 +27,12 @@ codebase.
 ```python
 # Function-based: import the module, call the function
 from events.service import blacklist_service
+
 entry = blacklist_service.add_to_blacklist(organization, email=email)
 
 # Class-based: instantiate per request with context
 from events.service.batch_ticket_service import BatchTicketService
+
 service = BatchTicketService(event=event, tier=tier, user=user)
 result = service.create_batch(items=purchase_items)
 ```

@@ -48,8 +48,7 @@ class BatchTicketService:
         self.tier = tier
         self.user = user
 
-    def create_batch(self, items: list[TicketPurchaseItem]) -> list[Ticket] | str:
-        ...
+    def create_batch(self, items: list[TicketPurchaseItem]) -> list[Ticket] | str: ...
 ```
 
 ## Consequences

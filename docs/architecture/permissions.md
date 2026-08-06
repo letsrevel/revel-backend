@@ -253,7 +253,8 @@ class OrganizationPermission(RootPermission):
             return True
         # 2. Look up staff membership
         if staff_member := OrganizationStaff.objects.filter(
-            organization=obj, user_id=request.user.id,
+            organization=obj,
+            user_id=request.user.id,
         ).first():
             # 3. Check specific permission flag
             return staff_member.has_permission(self.action)
@@ -277,8 +278,7 @@ When all endpoints in a controller share the same permission, set it at the clas
     tags=["Event Series Admin"],
     throttle=WriteThrottle(),
 )
-class EventSeriesAdminController(UserAwareController):
-    ...
+class EventSeriesAdminController(UserAwareController): ...
 ```
 
 ### Per-Endpoint Permissions
@@ -313,8 +313,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/stripe/connect",
         permissions=[IsOrganizationOwner()],  # Owner only
     )
-    def stripe_connect(self, slug: str, payload: EmailSchema):
-        ...
+    def stripe_connect(self, slug: str, payload: EmailSchema): ...
 ```
 
 !!! warning "Owner-only fields inside `edit_organization`-gated endpoints"
@@ -386,8 +385,7 @@ The default authentication class. Requires a valid JWT access token in the `Auth
 
 ```python
 @api_controller("/events", auth=I18nJWTAuth(), throttle=UserDefaultThrottle())
-class EventAdminController(UserAwareController):
-    ...
+class EventAdminController(UserAwareController): ...
 ```
 
 ### `OptionalAuth`

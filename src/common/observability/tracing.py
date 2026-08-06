@@ -60,7 +60,7 @@ def init_tracing() -> None:
     # Auto-instrument frameworks
     try:
         DjangoInstrumentor().instrument()
-        CeleryInstrumentor().instrument()
+        CeleryInstrumentor().instrument()  # type: ignore[no-untyped-call]
         PsycopgInstrumentor().instrument()
         RedisInstrumentor().instrument()
         logger.info(
