@@ -110,6 +110,7 @@ class NameNotAllowed(HttpError):
     def __init__(self) -> None:
         super().__init__(422, str(_("This name is not allowed.")))
 
+
 def assert_name_allowed(name: str) -> None:
     if is_blocked(name):
         raise NameNotAllowed

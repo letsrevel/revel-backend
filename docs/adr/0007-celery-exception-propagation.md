@@ -42,7 +42,7 @@ exceptions propagate naturally so tasks fail visibly.
 @app.task(bind=True, max_retries=3)
 def send_notification(self, user_id: int) -> None:
     user = User.objects.get(id=user_id)  # DoesNotExist propagates
-    send_email(user)                      # SMTP errors propagate
+    send_email(user)  # SMTP errors propagate
 ```
 
 When retries are appropriate, use Celery's built-in retry mechanism:

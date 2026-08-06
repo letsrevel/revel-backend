@@ -66,6 +66,7 @@ Custom model fields that store files in a protected storage location:
 ```python
 from common.fields import ProtectedFileField, ProtectedImageField
 
+
 class Event(models.Model):
     banner = ProtectedImageField(
         upload_to="events/banners/",
@@ -87,6 +88,7 @@ In schemas, use `get_file_url()` to generate signed URLs:
 
 ```python
 from common.signing import get_file_url
+
 
 class EventSchema(ModelSchema):
     banner_url: str | None = None

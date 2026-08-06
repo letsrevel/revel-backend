@@ -18,6 +18,7 @@ that transaction. If a worker picks the task up before the request commits, any
   signal handler firing during a request), defer the dispatch:
   ```python
   from django.db import transaction
+
   transaction.on_commit(lambda: my_task.delay(arg))
   ```
   If the transaction rolls back, the dispatch is correctly skipped.

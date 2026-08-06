@@ -148,6 +148,7 @@
 ### 1. Structured Logging
 ```python
 import structlog
+
 logger = structlog.get_logger(__name__)
 
 # Logs automatically include:

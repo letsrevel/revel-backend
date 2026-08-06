@@ -74,14 +74,10 @@ from the model's `effective_send_at` property:
 @property
 def effective_send_at(self) -> dt.datetime | None:
     if self.schedule_anchor is None:
-        return self.scheduled_at          # absolute: fixed
+        return self.scheduled_at  # absolute: fixed
     if self.event is None:
         return None
-    anchor_time = (
-        self.event.start
-        if self.schedule_anchor == self.ScheduleAnchor.EVENT_START
-        else self.event.end
-    )
+    anchor_time = self.event.start if self.schedule_anchor == self.ScheduleAnchor.EVENT_START else self.event.end
     return anchor_time + dt.timedelta(minutes=self.schedule_offset_minutes or 0)
 ```
 

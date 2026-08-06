@@ -271,9 +271,7 @@ Called inside `EventManager.rsvp()` immediately after a successful RSVP YES (`sr
 
 ```python
 offer = (
-    WaitlistOffer.objects.select_for_update()
-    .filter(event=..., user=..., status=PENDING, expires_at__gt=now)
-    .first()
+    WaitlistOffer.objects.select_for_update().filter(event=..., user=..., status=PENDING, expires_at__gt=now).first()
 )
 if offer is None:
     return

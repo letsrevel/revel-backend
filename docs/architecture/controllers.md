@@ -108,6 +108,7 @@ Use `PageNumberPaginationExtra` for paginated list endpoints:
 ```python
 from ninja_extra.pagination import PageNumberPaginationExtra
 
+
 @api_controller("/api/events", auth=I18nJWTAuth(), throttle=UserDefaultThrottle())
 class EventController(ControllerBase):
     @route.get("", response=list[EventSchema])
@@ -152,9 +153,9 @@ def list_events(self, filters: t.Annotated[EventFilterSchema, Query(...)]) -> Qu
 
     ```python
     class UserSchema(ModelSchema):
-        id: UUID4           # Redundant: ModelSchema infers this
-        name: str           # Redundant
-        email: str          # Redundant
+        id: UUID4  # Redundant: ModelSchema infers this
+        name: str  # Redundant
+        email: str  # Redundant
         created_at: datetime.datetime  # Not needed for API responses
 
         class Meta:
@@ -172,9 +173,11 @@ def list_events(self, filters: t.Annotated[EventFilterSchema, Query(...)]) -> Qu
 class BannerSchema(Schema):
     severity: SiteSettings.BannerSeverity
 
+
 # Bad - bare str loses enum contract
 class BannerSchema(Schema):
     severity: str
+
 
 # Bad - Literal duplicates the enum values
 class BannerSchema(Schema):
@@ -189,10 +192,12 @@ class BannerSchema(Schema):
 ```python
 from pydantic import AwareDatetime
 
+
 # Good
 class EventSchema(Schema):
     starts_at: AwareDatetime
     ends_at: AwareDatetime | None = None
+
 
 # Bad - datetime.datetime loses timezone enforcement
 class EventSchema(Schema):
@@ -209,9 +214,9 @@ import typing as t
 
 from ninja import Body
 
+
 @route.post("/confirm")
-def confirm(self, payload: t.Annotated[ConfirmSchema | None, Body(None)] = None) -> Response:
-    ...
+def confirm(self, payload: t.Annotated[ConfirmSchema | None, Body(None)] = None) -> Response: ...
 ```
 
 ## Query Optimization
@@ -224,8 +229,8 @@ def confirm(self, payload: t.Annotated[ConfirmSchema | None, Body(None)] = None)
 @paginate(PageNumberPaginationExtra)
 def list_events(self) -> QuerySet[Event]:
     return (
-        Event.objects
-        .select_related("organization", "venue")  # FK lookups
-        .prefetch_related("tags", "ticket_tiers")  # Reverse/M2M
+        Event.objects.select_related("organization", "venue").prefetch_related(  # FK lookups
+            "tags", "ticket_tiers"
+        )  # Reverse/M2M
     )
 ```
