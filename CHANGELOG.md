@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-08-07
+
+### Changed
+- Production and development dependencies refreshed across the board (`aiogram`, `django-ninja-extra`, `django-simple-history`, `django-unfold`, the OpenTelemetry stack, `pillow-heif`, `prometheus-client`, `uvicorn`, and the test toolchain). `requests` is now declared explicitly instead of relying on a transitive pull. `stripe` is pinned `<15` and `django-ninja-jwt` `<5.4.5` until their breaking changes are handled in dedicated migrations
+- Seeded organizations now get deterministic placeholder logos, so seeded and demo instances render with real imagery instead of blank avatars
+
+### Security
+- `h2` floor raised to 4.4.1 (CVE-2026-71554), patching the HTTP/2 client stack used for outbound requests
+
 ## [2.1.0] - 2026-08-03
 
 ### Added
