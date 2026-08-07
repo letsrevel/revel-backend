@@ -44,6 +44,27 @@ class TestStripLeadingHeading:
         value = "#1 rule: pay before the event."
         assert strip_leading_heading(value) == value
 
-    def test_heading_only_content_becomes_empty(self) -> None:
-        """Content that is nothing but a heading strips down to nothing."""
-        assert strip_leading_heading("## Payment Instructions") == ""
+    def test_heading_only_content_is_kept(self) -> None:
+        """Stripping never empties the content — an organizer's one-liner must survive.
+
+        Whoever writes their whole instructions as a single `# ...` line would otherwise
+        get an empty payment card: the templates gate on the raw value, so the heading
+        renders and the "contact the organizer" fallback never fires.
+        """
+        value = "# Please e-transfer to IBAN AT12 3456 7890"
+        assert strip_leading_heading(value) == value
+
+    def test_heading_only_content_with_trailing_blank_lines_is_kept(self) -> None:
+        """Trailing whitespace doesn't make heading-only content look strippable."""
+        value = "## Payment Instructions\n\n"
+        assert strip_leading_heading(value) == value
+
+    def test_preserves_indentation_of_content_without_heading(self) -> None:
+        """No heading means no rewriting — a 4-space code block keeps its indent."""
+        value = "    IBAN: AT12 3456 7890\n    BIC: REVELAT2X\n"
+        assert strip_leading_heading(value) == value
+
+    def test_preserves_indentation_of_content_below_a_heading(self) -> None:
+        """The blank lines under the heading go; the body's own indent stays."""
+        result = strip_leading_heading("## Payment Instructions\n\n    IBAN: AT12 3456 7890\n")
+        assert result == "    IBAN: AT12 3456 7890\n"

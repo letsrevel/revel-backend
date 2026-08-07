@@ -11,7 +11,9 @@ from common.fields import render_markdown
 
 register = template.Library()
 
-_LEADING_ATX_HEADING_RE = re.compile(r"\A\s*#{1,6}[ \t]+\S[^\n]*(?:\n|\Z)")
+# A leading ATX heading plus the blank lines under it. The trailing `(?:[ \t]*\n)*`
+# stops at the first line with content, so that line's own indentation survives.
+_LEADING_ATX_HEADING_RE = re.compile(r"\A\s*#{1,6}[ \t]+\S[^\n]*(?:[ \t]*\n)*")
 
 
 @register.filter(is_safe=True)
@@ -48,6 +50,10 @@ def strip_leading_heading(value: str | None) -> str:
     ``## Payment Instructions``, the heading shows up twice in a row. This filter removes
     that first heading; anything else in the content is untouched.
 
+    Content that doesn't open with a heading is returned verbatim, and a heading that is
+    the *whole* content is kept — an organizer who wrote their instructions as a single
+    ``# ...`` line would otherwise see them vanish, leaving an empty card.
+
     Usage:
         {% load markdown_tags %}
         {{ context.manual_payment_instructions|strip_leading_heading|markdown }}
@@ -57,7 +63,11 @@ def strip_leading_heading(value: str | None) -> str:
 
     # ponytail: only ATX headings ("## Title"). Setext ("Title\n====") is rare in
     # organizer content; extend here if it shows up.
-    return _LEADING_ATX_HEADING_RE.sub("", value).lstrip()
+    match = _LEADING_ATX_HEADING_RE.match(value)
+    if not match:
+        return value
+
+    return value[match.end() :] or value
 
 
 @register.filter

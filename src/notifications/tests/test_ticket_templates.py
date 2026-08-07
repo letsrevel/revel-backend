@@ -922,6 +922,17 @@ class TestPendingTicketPaymentInstructions:
         assert "Please transfer to IBAN: XX1234567890" in rendered
 
     @pytest.mark.parametrize("template", _TICKET_CREATED_CHANNELS)
+    def test_single_line_heading_instructions_are_not_swallowed(self, template: str) -> None:
+        """Instructions written as one heading line must still reach the recipient.
+
+        The templates gate on the raw value, so stripping this to nothing would render
+        a Payment Instructions label with an empty body and no fallback copy.
+        """
+        rendered = self._render(template, instructions="# Please e-transfer to IBAN AT12 3456 7890")
+
+        assert "Please e-transfer to IBAN AT12 3456 7890" in rendered
+
+    @pytest.mark.parametrize("template", _TICKET_CREATED_CHANNELS)
     def test_missing_instructions_fall_back_to_contact_copy(self, template: str) -> None:
         """Without instructions every channel shows the fallback copy."""
         rendered = self._render(template, instructions=None)
