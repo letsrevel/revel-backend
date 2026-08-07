@@ -11,6 +11,8 @@ from common.fields import render_markdown
 
 register = template.Library()
 
+_LEADING_ATX_HEADING_RE = re.compile(r"\A\s*#{1,6}[ \t]+\S[^\n]*(?:\n|\Z)")
+
 
 @register.filter(is_safe=True)
 def markdown(value: str | None) -> str:
@@ -35,6 +37,27 @@ def markdown(value: str | None) -> str:
     # render_markdown calls nh3.clean() with a strict allowlist, so the output
     # is sanitized and safe to mark as such.
     return mark_safe(render_markdown(value))
+
+
+@register.filter
+def strip_leading_heading(value: str | None) -> str:
+    """Drop a leading markdown heading so it doesn't duplicate a template-provided title.
+
+    Organizer-authored markdown (e.g. manual payment instructions) is rendered inside
+    cards that already carry their own heading. When the author starts their text with
+    ``## Payment Instructions``, the heading shows up twice in a row. This filter removes
+    that first heading; anything else in the content is untouched.
+
+    Usage:
+        {% load markdown_tags %}
+        {{ context.manual_payment_instructions|strip_leading_heading|markdown }}
+    """
+    if not value:
+        return ""
+
+    # ponytail: only ATX headings ("## Title"). Setext ("Title\n====") is rare in
+    # organizer content; extend here if it shows up.
+    return _LEADING_ATX_HEADING_RE.sub("", value).lstrip()
 
 
 @register.filter

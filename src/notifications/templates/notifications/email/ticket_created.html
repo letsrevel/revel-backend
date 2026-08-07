@@ -33,7 +33,7 @@
         <div class="card card--warning">
             <h3 style="margin-top: 0;">{% trans "Payment Instructions" %}</h3>
             {% if context.manual_payment_instructions %}
-                <div style="border-left: 3px solid #ddd; padding-left: 15px; margin: 10px 0; color: #666;">{{ context.manual_payment_instructions|markdown }}</div>
+                <div style="border-left: 3px solid #ddd; padding-left: 15px; margin: 10px 0; color: #666;">{{ context.manual_payment_instructions|strip_leading_heading|markdown }}</div>
             {% else %}
                 <p>{% trans "Please contact the organizer to complete the payment." %}</p>
             {% endif %}
