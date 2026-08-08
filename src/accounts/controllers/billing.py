@@ -25,10 +25,10 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 class UserBillingController(UserAwareController):
     """CRUD endpoints for user billing profile."""
 
-    @route.get("", url_name="get_billing_profile", response=UserBillingProfileSchema)
-    def get_billing_profile(self) -> UserBillingProfile:
-        """Get the authenticated user's billing profile."""
-        return get_object_or_404(UserBillingProfile, user=self.user())
+    @route.get("", url_name="get_billing_profile", response=UserBillingProfileSchema | None)
+    def get_billing_profile(self) -> UserBillingProfile | None:
+        """Get the authenticated user's billing profile, or null if none is saved yet."""
+        return UserBillingProfile.objects.filter(user=self.user()).first()
 
     @route.post(
         "", url_name="create_billing_profile", response={201: UserBillingProfileSchema}, throttle=WriteThrottle()

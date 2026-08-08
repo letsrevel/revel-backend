@@ -42,12 +42,13 @@ class TestGetBillingProfile:
         assert data["vat_country_code"] == "IT"
         assert data["billing_email"] == "billing@example.com"
 
-    def test_returns_404_when_no_profile(self, auth_client: Client) -> None:
-        """Returns 404 when user has no billing profile."""
+    def test_returns_null_when_no_profile(self, auth_client: Client) -> None:
+        """Returns 200 with a null payload when user has no billing profile."""
         url = reverse("api:get_billing_profile")
         response = auth_client.get(url)
 
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() is None
 
     def test_unauthenticated_returns_401(self, client: Client) -> None:
         """Unauthenticated request returns 401."""
