@@ -42,6 +42,22 @@ def vienna_event(organization: Organization) -> Event:
     )
 
 
+def test_minimal_event_schema_revalidation_preserves_timezone(vienna_event: Event) -> None:
+    """Re-validating an already-serialized schema keeps the resolved timezone.
+
+    Ninja resolvers run on every validation pass; endpoints like ``my-status``
+    embed pre-built ``UserTicketSchema``/``MinimalEventSchema`` instances in an
+    explicitly constructed response schema, which re-validates them.
+    """
+    from events.schema import MinimalEventSchema
+
+    instance = MinimalEventSchema.from_orm(vienna_event)
+    assert instance.timezone == "Europe/Vienna"
+
+    revalidated = MinimalEventSchema.model_validate(instance)
+    assert revalidated.timezone == "Europe/Vienna"
+
+
 def test_dashboard_tickets_expose_event_timezone(
     dashboard_client: Client,
     dashboard_user: RevelUser,
