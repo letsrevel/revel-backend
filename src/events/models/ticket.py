@@ -589,6 +589,7 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
         return self.select_related(
             "event",
             "event__organization",
+            "event__city",
             "event__venue",
             "event__venue__city",
             "tier",

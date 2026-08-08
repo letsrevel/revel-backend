@@ -22,7 +22,7 @@ class OrganizationQuestionnaireQueryset(models.QuerySet["OrganizationQuestionnai
         # Annotate with absolute time difference from now, order future first (ascending), past second (descending)
         event_qs = (
             Event.objects.exclude_templates()
-            .only("id", "name", "slug", "start")
+            .select_related("city", "venue", "venue__city")
             .annotate(
                 is_future=models.Case(
                     models.When(start__gte=current_time, then=True),

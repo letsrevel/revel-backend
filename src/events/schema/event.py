@@ -324,9 +324,26 @@ class MinimalEventSchema(LogoCoverArtThumbnailMixin):
     start: AwareDatetime
     end: AwareDatetime
     is_open_ended: bool = False
+    timezone: str
     logo: str | None = None
     cover_art: str | None = None
     venue: VenueSchema | None = None
+
+    @staticmethod
+    def resolve_timezone(obj: t.Any) -> str:
+        """Expose the event's IANA timezone (see ``EventSchema.resolve_timezone``).
+
+        Resolvers run on every validation pass, including re-validation of an
+        already-serialized ``MinimalEventSchema`` embedded in an explicitly
+        constructed response schema (e.g. ``EventUserStatusResponse``), so keep
+        the already-resolved value when ``obj`` is not an ``Event``.
+        """
+        from events.utils import get_event_timezone
+
+        if isinstance(obj, Event):
+            return str(get_event_timezone(obj))
+        value = obj.get("timezone") if isinstance(obj, dict) else getattr(obj, "timezone", None)
+        return str(value) if value else "UTC"
 
 
 class TagUpdateSchema(BaseModel):
