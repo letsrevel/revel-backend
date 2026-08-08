@@ -324,9 +324,17 @@ class MinimalEventSchema(LogoCoverArtThumbnailMixin):
     start: AwareDatetime
     end: AwareDatetime
     is_open_ended: bool = False
+    timezone: str
     logo: str | None = None
     cover_art: str | None = None
     venue: VenueSchema | None = None
+
+    @staticmethod
+    def resolve_timezone(obj: "Event") -> str:
+        """Expose the event's IANA timezone (see ``EventSchema.resolve_timezone``)."""
+        from events.utils import get_event_timezone
+
+        return str(get_event_timezone(obj))
 
 
 class TagUpdateSchema(BaseModel):
