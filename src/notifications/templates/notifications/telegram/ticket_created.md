@@ -1,4 +1,4 @@
-{% load i18n %}{% if context.ticket_holder_name %}
+{% load i18n markdown_tags %}{% if context.ticket_holder_name %}
 {% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<b>{{ holder }}</b> has registered for <b>{{ event }}</b>.{% endblocktranslate %}
 
 <b>{% trans "Ticket Details:" %}</b>
@@ -18,7 +18,7 @@
 • {% trans "Status:" %} {% trans "Pending" %}
 
 {% if context.manual_payment_instructions %}<b>{% trans "Payment Instructions:" %}</b>
-<blockquote>{{ context.manual_payment_instructions }}</blockquote>
+<blockquote>{{ context.manual_payment_instructions|strip_leading_heading }}</blockquote>
 {% else %}<i>{% trans "Please contact the organizer to complete the payment." %}</i>
 {% endif %}{% else %}✅ {% blocktranslate with event=context.event_name %}Ticket Confirmed for <b>{{ event }}</b>{% endblocktranslate %}
 

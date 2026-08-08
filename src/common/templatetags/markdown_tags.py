@@ -11,6 +11,10 @@ from common.fields import render_markdown
 
 register = template.Library()
 
+# A leading ATX heading plus the blank lines under it. The trailing `(?:[ \t]*\n)*`
+# stops at the first line with content, so that line's own indentation survives.
+_LEADING_ATX_HEADING_RE = re.compile(r"\A\s*#{1,6}[ \t]+\S[^\n]*(?:[ \t]*\n)*")
+
 
 @register.filter(is_safe=True)
 def markdown(value: str | None) -> str:
@@ -35,6 +39,35 @@ def markdown(value: str | None) -> str:
     # render_markdown calls nh3.clean() with a strict allowlist, so the output
     # is sanitized and safe to mark as such.
     return mark_safe(render_markdown(value))
+
+
+@register.filter
+def strip_leading_heading(value: str | None) -> str:
+    """Drop a leading markdown heading so it doesn't duplicate a template-provided title.
+
+    Organizer-authored markdown (e.g. manual payment instructions) is rendered inside
+    cards that already carry their own heading. When the author starts their text with
+    ``## Payment Instructions``, the heading shows up twice in a row. This filter removes
+    that first heading; anything else in the content is untouched.
+
+    Content that doesn't open with a heading is returned verbatim, and a heading that is
+    the *whole* content is kept — an organizer who wrote their instructions as a single
+    ``# ...`` line would otherwise see them vanish, leaving an empty card.
+
+    Usage:
+        {% load markdown_tags %}
+        {{ context.manual_payment_instructions|strip_leading_heading|markdown }}
+    """
+    if not value:
+        return ""
+
+    # ponytail: only ATX headings ("## Title"). Setext ("Title\n====") is rare in
+    # organizer content; extend here if it shows up.
+    match = _LEADING_ATX_HEADING_RE.match(value)
+    if not match:
+        return value
+
+    return value[match.end() :] or value
 
 
 @register.filter

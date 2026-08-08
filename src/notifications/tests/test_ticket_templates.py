@@ -871,3 +871,70 @@ class TestTicketCancelledTemplateBranching:
         rendered = self._render(template, source="")
         assert "has been cancelled" in rendered
         assert "You cancelled" not in rendered
+
+
+_TICKET_CREATED_CHANNELS: tuple[str, ...] = (
+    "notifications/in_app/ticket_created.md",
+    "notifications/email/ticket_created.html",
+    "notifications/email/ticket_created.txt",
+    "notifications/telegram/ticket_created.md",
+)
+
+
+class TestPendingTicketPaymentInstructions:
+    """Tests that organizer payment instructions don't duplicate the template's own heading."""
+
+    def _render(self, template: str, *, instructions: str | None) -> str:
+        """Render a pending-ticket notification with the given manual payment instructions."""
+        from django.template.loader import render_to_string
+
+        return render_to_string(
+            template,
+            {
+                "user": {"display_name": "Test User"},
+                "context": {
+                    "event_name": "Test Fest",
+                    "event_start_formatted": "TBD",
+                    "event_location": "",
+                    "tier_name": "GA",
+                    "ticket_id": "abc",
+                    "ticket_status": "pending",
+                    "event_url": "https://example.com",
+                    "manual_payment_instructions": instructions,
+                },
+            },
+        )
+
+    @pytest.mark.parametrize("template", _TICKET_CREATED_CHANNELS)
+    def test_leading_heading_in_instructions_is_not_duplicated(self, template: str) -> None:
+        """The template supplies the heading, so the organizer's leading one is dropped."""
+        rendered = self._render(template, instructions="## Payment Instructions\n\nTransfer to IBAN AT12.")
+
+        assert rendered.count("Payment Instructions") == 1
+        assert "Transfer to IBAN AT12." in rendered
+
+    @pytest.mark.parametrize("template", _TICKET_CREATED_CHANNELS)
+    def test_instructions_without_heading_are_preserved(self, template: str) -> None:
+        """Bare instructions still render under the template's heading."""
+        rendered = self._render(template, instructions="Please transfer to IBAN: XX1234567890")
+
+        assert "Payment Instructions" in rendered
+        assert "Please transfer to IBAN: XX1234567890" in rendered
+
+    @pytest.mark.parametrize("template", _TICKET_CREATED_CHANNELS)
+    def test_single_line_heading_instructions_are_not_swallowed(self, template: str) -> None:
+        """Instructions written as one heading line must still reach the recipient.
+
+        The templates gate on the raw value, so stripping this to nothing would render
+        a Payment Instructions label with an empty body and no fallback copy.
+        """
+        rendered = self._render(template, instructions="# Please e-transfer to IBAN AT12 3456 7890")
+
+        assert "Please e-transfer to IBAN AT12 3456 7890" in rendered
+
+    @pytest.mark.parametrize("template", _TICKET_CREATED_CHANNELS)
+    def test_missing_instructions_fall_back_to_contact_copy(self, template: str) -> None:
+        """Without instructions every channel shows the fallback copy."""
+        rendered = self._render(template, instructions=None)
+
+        assert "contact the organizer" in rendered
