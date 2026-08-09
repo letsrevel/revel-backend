@@ -113,6 +113,16 @@ def _ticket_amount(ticket: Ticket) -> Decimal:
     return Decimal(payment.amount)
 
 
+def _remaining_refundable(ticket: Ticket) -> Decimal:
+    """The payment's remaining refundable amount (gross − non-FAILED refund rows), 0 if no payment."""
+    from events.service import refund_service
+
+    payment = getattr(ticket, "payment", None)
+    if payment is None:
+        return _ZERO
+    return refund_service.remaining_refundable(payment)
+
+
 def _deadline(ticket: Ticket) -> datetime:
     hours = ticket.tier.cancellation_deadline_hours
     if hours is None:
@@ -222,6 +232,12 @@ def quote_cancellation(ticket: Ticket, now: datetime) -> RefundQuote:
     total_microseconds = delta.days * 86_400_000_000 + delta.seconds * 1_000_000 + delta.microseconds
     hours_remaining = Decimal(total_microseconds) / Decimal(3_600_000_000)
     refund = _compute_refund(policy, hours_remaining, gross)
+    # Policy math stays gross-based (the preview windows display policy tiers),
+    # but the quoted amount must never exceed what is actually still refundable —
+    # a prior organizer partial refund (#865) reduces the remainder while the
+    # ticket stays ACTIVE.
+    if refund > _ZERO:
+        refund = min(refund, _remaining_refundable(ticket))
     return RefundQuote(
         can_cancel=True,
         reason=None,
@@ -394,9 +410,16 @@ def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote, user: t.Any) 
         and payment.stripe_payment_intent_id
         and quote.refund_amount > _ZERO
     ):
+        # Re-cap under the row lock: the quote is already remaining-aware, but a
+        # concurrent organizer/webhook refund may have landed between the
+        # pre-atomic quote and this lock. A zero remainder means the money has
+        # already been returned — the cancellation itself must still proceed.
+        amount = min(quote.refund_amount, refund_service.remaining_refundable(payment))
+        if amount <= _ZERO:
+            return None
         refund_service.issue_refund(
             payment,
-            amount=quote.refund_amount,
+            amount=amount,
             initiated_by=user,
             reason="user_cancellation",
             source=Refund.Source.USER_CANCELLATION,

@@ -391,6 +391,118 @@ class TestCancelTicketByUser:
         _, kwargs = mock_create.call_args
         assert "stripe_account" not in kwargs
 
+    def test_partial_refund_before_cancel_caps_refund_at_remaining(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """A prior organizer partial refund must not 400 the self-cancel — it caps it (#865)."""
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
+        policy = {"tiers": [{"hours_before_event": 0, "refund_percentage": "100"}], "flat_fee": "0"}
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price=Decimal("40.00"),
+            allow_user_cancellation=True,
+            refund_policy=policy,
+        )
+        ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
+        payment = payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_partial")
+        Refund.objects.create(
+            payment=payment,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_capped"
+            result = cancel_ticket_by_user(ticket, ticket.user, reason="", now=timezone.now())
+
+        mock_create.assert_called_once()
+        assert mock_create.call_args.kwargs["amount"] == 3000  # 40 − 10 already refunded
+        assert result.refund_amount == Decimal("30.00")
+        assert result.refund_status == Payment.RefundStatus.PENDING
+        row = Refund.objects.get(payment=payment, source=Refund.Source.USER_CANCELLATION)
+        assert row.amount == Decimal("30.00")
+        ticket.refresh_from_db()
+        assert ticket.status == Ticket.TicketStatus.CANCELLED
+
+    def test_fully_refunded_ticket_cancels_with_zero_refund_and_no_stripe_call(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
+        policy = {"tiers": [{"hours_before_event": 0, "refund_percentage": "100"}], "flat_fee": "0"}
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price=Decimal("40.00"),
+            allow_user_cancellation=True,
+            refund_policy=policy,
+        )
+        ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
+        payment = payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_covered")
+        Refund.objects.create(
+            payment=payment,
+            amount=Decimal("40.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        with patch("stripe.Refund.create") as mock_create:
+            result = cancel_ticket_by_user(ticket, ticket.user, reason="", now=timezone.now())
+
+        mock_create.assert_not_called()
+        assert result.refund_amount == Decimal("0")
+        assert result.refund_status is None
+        ticket.refresh_from_db()
+        assert ticket.status == Ticket.TicketStatus.CANCELLED
+        assert Refund.objects.filter(payment=payment).count() == 1  # no new row
+
+    def test_preview_shows_remaining_capped_refund(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
+        policy = {"tiers": [{"hours_before_event": 0, "refund_percentage": "100"}], "flat_fee": "0"}
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price=Decimal("40.00"),
+            allow_user_cancellation=True,
+            refund_policy=policy,
+        )
+        ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
+        payment = payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_preview")
+        Refund.objects.create(
+            payment=payment,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.PENDING,  # PENDING also counts against the remainder
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        preview = build_cancellation_preview(ticket, timezone.now())
+
+        assert preview.can_cancel is True
+        assert preview.refund_amount == Decimal("30.00")
+        # Policy windows stay gross-based — they display the policy tiers, not the remainder.
+        assert preview.windows[0].refund_amount == Decimal("40.00")
+
     def test_stripe_failure_rolls_back_transaction(
         self,
         ticket_factory: t.Callable[..., Ticket],
