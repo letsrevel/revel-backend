@@ -140,7 +140,10 @@ class EventAdminCoreController(EventAdminBaseController):
         EVENT_CANCELLED notification. The reason is ignored for every other
         target status. ``refund_tickets=True`` additionally cancels every
         ticket and refunds online payments in the background — only valid
-        alongside ``cancelled`` (400 otherwise).
+        alongside ``cancelled`` (400 otherwise). The sweep always dispatches
+        (even if a previous sweep already started), and each per-ticket
+        subtask is idempotent — so re-POSTing this endpoint with the flag
+        still set is the supported way to resume a crashed or partial sweep.
 
         Note: Event opening notifications are handled automatically by the post_save signal
         in events/signals.py which triggers when status field is updated.

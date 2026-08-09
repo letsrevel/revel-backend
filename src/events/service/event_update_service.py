@@ -242,9 +242,15 @@ def update_status(
         enqueues a waitlist processing pass so the freshly real seats can be
         taken by waitlisted users. Raises ``EventRefundsStartedError`` if the
         bulk refund sweep already started — that process is irreversible.
-      * On transition to CANCELLED with ``refund_tickets=True``, stamps
-        ``tickets_refund_started_at`` (idempotent: a no-op if already set)
-        and dispatches the bulk cancel-and-refund sweep on commit.
+      * On transition to CANCELLED with ``refund_tickets=True``, ALWAYS
+        dispatches the bulk cancel-and-refund sweep on commit —
+        ``tickets_refund_started_at`` is stamped only the first time (a no-op
+        if already set). The sweep itself is idempotent per ticket, so
+        re-POSTing ``update-status/cancelled`` with the flag (e.g. after a
+        crashed/partial run) is the supported way to resume it.
+      * Locks the event row (``select_for_update``) before reading/stamping
+        ``tickets_refund_started_at`` so two concurrent calls can't both
+        observe the un-set stamp and race on the un-cancel guard / dispatch.
 
     Args:
         event: The event to mutate.
@@ -264,6 +270,7 @@ def update_status(
         EventRefundsStartedError: On an un-cancel attempt after the bulk
             refund sweep already started for this event.
     """
+    event = models.Event.objects.select_for_update().get(pk=event.pk)
     old_status = event.status
     if old_status == models.Event.EventStatus.CANCELLED and new_status != models.Event.EventStatus.CANCELLED:
         if event.tickets_refund_started_at is not None:
@@ -291,15 +298,18 @@ def update_status(
         if event.tickets_refund_started_at is None:
             event.tickets_refund_started_at = timezone.now()
             event.save(update_fields=["tickets_refund_started_at"])
-            event_id, actor_id = str(event.id), str(initiated_by.id) if initiated_by else None
+        event_id, actor_id = str(event.id), str(initiated_by.id) if initiated_by else None
 
-            def _dispatch_refund_sweep() -> None:
-                from events.tasks.refunds import refund_cancelled_event_tickets
+        def _dispatch_refund_sweep() -> None:
+            from events.tasks.refunds import refund_cancelled_event_tickets
 
-                refund_cancelled_event_tickets.delay(event_id, actor_id)
+            refund_cancelled_event_tickets.delay(event_id, actor_id)
 
-            # ATOMIC_REQUESTS: never .delay() inside the request transaction.
-            transaction.on_commit(_dispatch_refund_sweep)
+        # ATOMIC_REQUESTS: never .delay() inside the request transaction.
+        # Always dispatch (not gated on the stamp): the parent fans out
+        # per-ticket subtasks that are individually idempotent, so
+        # re-dispatching is the supported resume path for a partial run.
+        transaction.on_commit(_dispatch_refund_sweep)
 
     return event
 

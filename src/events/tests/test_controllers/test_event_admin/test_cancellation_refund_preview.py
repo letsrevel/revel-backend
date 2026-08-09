@@ -64,6 +64,37 @@ class TestCancellationRefundPreview:
         assert line["balance_sufficient"] is True
         assert data["tickets_refund_started_at"] is None
 
+    def test_counts_online_paid_ticket_on_an_offline_tier(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """Parity with the sweep: ``issue_refund``'s real gate is the Payment row, not the
+        ticket's tier — a series pass paid online can be materialized onto an
+        offline-tier ticket, and the preview must still count it as refundable."""
+        offline = tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("20.00"))
+        ticket = ticket_factory(tier=offline)
+        payment_factory(
+            ticket=ticket,
+            amount=Decimal("40.00"),
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_payment_intent_id="pi_series_pass_on_offline_tier",
+        )
+
+        url = reverse("api:event_cancellation_refund_preview", kwargs={"event_id": event.pk})
+        with patch("stripe.Balance.retrieve") as mock_balance:
+            mock_balance.return_value.available = []
+            response = organization_owner_client.get(url)
+
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert data["online_refundable_tickets"] == 1
+        assert data["offline_tickets"] == 1  # display count still keys off the tier
+        assert Decimal(data["currencies"][0]["total_refundable"]) == Decimal("40.00")
+
     def test_requires_manage_event_permission(
         self, organization_staff_client: Client, event: Event, staff_member: t.Any
     ) -> None:

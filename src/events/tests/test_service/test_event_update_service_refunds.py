@@ -40,6 +40,36 @@ def test_cancel_with_flag_stamps_and_dispatches_on_commit(
     mock_delay.assert_called_once_with(str(event.id), str(organization_owner_user.id))
 
 
+def test_recancel_with_flag_redispatches_without_moving_the_stamp(
+    event: t.Any, organization_owner_user: t.Any, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Resume path: a second cancel-with-refund call always re-dispatches the sweep,
+    even though the stamp is already set — the fanned-out subtasks are individually
+    idempotent, so re-dispatching is how a crashed/partial sweep gets resumed."""
+    with patch("events.tasks.refunds.refund_cancelled_event_tickets.delay") as mock_delay:
+        with django_capture_on_commit_callbacks(execute=True):
+            event_service.update_status(
+                event,
+                Event.EventStatus.CANCELLED,
+                refund_tickets=True,
+                initiated_by=organization_owner_user,
+            )
+        event.refresh_from_db()
+        first_stamp = event.tickets_refund_started_at
+
+        with django_capture_on_commit_callbacks(execute=True):
+            event_service.update_status(
+                event,
+                Event.EventStatus.CANCELLED,
+                refund_tickets=True,
+                initiated_by=organization_owner_user,
+            )
+
+    event.refresh_from_db()
+    assert event.tickets_refund_started_at == first_stamp
+    assert mock_delay.call_count == 2
+
+
 def test_uncancel_blocked_after_refunds_started(event: t.Any) -> None:
     event.status = Event.EventStatus.CANCELLED
     event.tickets_refund_started_at = timezone.now()

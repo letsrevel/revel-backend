@@ -16,62 +16,64 @@ logger = structlog.get_logger(__name__)
 
 @shared_task(name="events.refund_cancelled_event_tickets")
 def refund_cancelled_event_tickets(event_id: str, initiated_by_id: str | None = None) -> dict[str, int]:
-    """Cancel every non-cancelled ticket of a cancelled event and refund online payments.
+    """Fan out one ``refund_one_cancelled_event_ticket`` subtask per non-cancelled ticket.
 
-    One DB transaction per ticket — no lock is ever held across another row's
-    Stripe call. Re-entrant: already-cancelled tickets are skipped and
-    ``remaining_refundable`` short-circuits already-refunded payments, so a
-    crashed run can simply be re-dispatched.
-
-    Per-ticket Stripe failures are recorded as FAILED Refund rows (retryable via
-    the single-refund endpoint) and the sweep continues.
+    Stays cheap and Stripe-free — it only snapshots ticket ids and dispatches, matching
+    the fan-out pattern used elsewhere (``tasks/recurrence.py``, ``tasks/invoicing.py``,
+    ``tasks/waitlist.py``). Each subtask refunds-then-cancels one ticket independently,
+    so a crashed/partial run can simply be re-dispatched (see
+    ``event_update_service.update_status``, which always re-dispatches this task on a
+    cancel-with-refund call) — there is no parent-level state to reconcile. Per-ticket
+    outcomes live on ``Refund`` rows and ticket statuses; there is no live summary to
+    return once the work is fanned out across independent tasks.
     """
-    from accounts.models import RevelUser
-
-    initiator = RevelUser.objects.filter(pk=initiated_by_id).first() if initiated_by_id else None
     ticket_ids = list(
         Ticket.objects.filter(event_id=event_id)
         .exclude(status=Ticket.TicketStatus.CANCELLED)
         .values_list("id", flat=True)
     )
-    cancelled = refunded = failed = 0
-
     for ticket_id in ticket_ids:
-        payment_pk = None
-        with transaction.atomic():
-            ticket = Ticket.objects.select_for_update().select_related("tier", "event").filter(pk=ticket_id).first()
-            if ticket is None or ticket.status == Ticket.TicketStatus.CANCELLED:
-                continue
-            payment = Payment.objects.select_for_update().filter(ticket=ticket).first()
-            if payment is not None and payment.status == Payment.PaymentStatus.PENDING:
-                payment.status = Payment.PaymentStatus.FAILED
-                payment.save(update_fields=["status"])
-            elif payment is not None:
-                payment_pk = payment.pk
+        refund_one_cancelled_event_ticket.delay(str(ticket_id), initiated_by_id)
 
-            TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(
-                quantity_sold=F("quantity_sold") - 1
-            )
-            ticket.status = Ticket.TicketStatus.CANCELLED
-            ticket.cancelled_at = timezone.now()
-            ticket.cancelled_by = initiator
-            ticket.cancellation_source = CancellationSource.EVENT_CANCELLATION
-            ticket.cancellation_reason = ticket.event.cancellation_reason or ""
-            ticket.save(
-                update_fields=[
-                    "status",
-                    "cancelled_at",
-                    "cancelled_by",
-                    "cancellation_source",
-                    "cancellation_reason",
-                ]
-            )
-            cancelled += 1
-            # Deliberately NO waitlist enqueue: the event is cancelled; freed seats are not for sale.
+    logger.info("event_refund_sweep_dispatched", event_id=event_id, dispatched=len(ticket_ids))
+    return {"dispatched": len(ticket_ids)}
 
-        if payment_pk is None:
-            continue
-        payment = Payment.objects.get(pk=payment_pk)
+
+@shared_task(name="events.refund_one_cancelled_event_ticket")
+def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | None = None) -> None:
+    """Refund, then cancel, a single ticket as part of a bulk event-cancellation sweep.
+
+    The refund runs FIRST, in its own transaction; the cancellation (including flipping
+    a PENDING payment to FAILED) runs SECOND, in its own transaction. This ordering is
+    what makes a crash between the two steps safely re-runnable: the ticket is still
+    non-CANCELLED, so re-dispatching re-enters this function, ``issue_refund`` finds
+    ``remaining_refundable() == 0`` (the prior run's ``Refund`` row already covers the
+    full amount) and raises ``NothingToRefundError``, and execution falls through to
+    cancellation as normal. A crash mid-``stripe.Refund.create`` is covered by
+    ``issue_refund``'s deterministic idempotency key (same payment/sequence/amount on
+    retry). Cancellation proceeds regardless of whether the refund attempt succeeded,
+    failed, or had nothing to do — a ticket must not survive a cancelled event just
+    because Stripe declined the refund.
+
+    Ticket-field mutations use a queryset ``.update()`` rather than ``instance.save()``
+    so no ``post_save`` signal fires — attendees already get the single EVENT_CANCELLED
+    blast (and organizers get Task 9's summary), so a per-ticket TICKET_CANCELLED
+    notification here would be a storm. This deliberately also skips the
+    visibility-flags and waitlist post_save side effects: the event is cancelled, so
+    there is nothing left to reprocess.
+
+    Already-cancelled tickets (a fully-completed prior run, or a ticket cancelled
+    independently in the meantime) are a no-op.
+    """
+    from accounts.models import RevelUser
+
+    initiator = RevelUser.objects.filter(pk=initiated_by_id).first() if initiated_by_id else None
+    ticket = Ticket.objects.select_related("tier", "event").filter(pk=ticket_id).first()
+    if ticket is None or ticket.status == Ticket.TicketStatus.CANCELLED:
+        return
+
+    payment = Payment.objects.filter(ticket=ticket).first()
+    if payment is not None:
         try:
             with transaction.atomic():
                 refund_service.issue_refund(
@@ -81,9 +83,8 @@ def refund_cancelled_event_tickets(event_id: str, initiated_by_id: str | None = 
                     reason="event_cancelled",
                     source=Refund.Source.EVENT_CANCELLATION,
                 )
-            refunded += 1
         except NothingToRefundError:
-            continue  # offline tier or nothing left — cancellation alone was correct
+            pass  # offline tier, PENDING payment, or already fully refunded — cancel below regardless
         except (RefundInsufficientBalanceError, StripeRefundFailed) as exc:
             # Durable failure record — the request-path rollback semantics don't apply here.
             Refund.objects.create(
@@ -96,8 +97,23 @@ def refund_cancelled_event_tickets(event_id: str, initiated_by_id: str | None = 
                 reason="event_cancelled",
                 source=Refund.Source.EVENT_CANCELLATION,
             )
-            failed += 1
 
-    summary = {"cancelled": cancelled, "refunded": refunded, "failed": failed}
-    logger.info("event_refund_sweep_done", event_id=event_id, **summary)
-    return summary
+    with transaction.atomic():
+        locked_ticket = Ticket.objects.select_for_update().select_related("tier", "event").filter(pk=ticket_id).first()
+        if locked_ticket is None or locked_ticket.status == Ticket.TicketStatus.CANCELLED:
+            return
+        locked_payment = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
+        if locked_payment is not None and locked_payment.status == Payment.PaymentStatus.PENDING:
+            locked_payment.status = Payment.PaymentStatus.FAILED
+            locked_payment.save(update_fields=["status"])
+
+        TicketTier.objects.filter(pk=locked_ticket.tier_id, quantity_sold__gt=0).update(
+            quantity_sold=F("quantity_sold") - 1
+        )
+        Ticket.objects.filter(pk=locked_ticket.pk).update(
+            status=Ticket.TicketStatus.CANCELLED,
+            cancelled_at=timezone.now(),
+            cancelled_by=initiator,
+            cancellation_source=CancellationSource.EVENT_CANCELLATION,
+            cancellation_reason=locked_ticket.event.cancellation_reason or "",
+        )

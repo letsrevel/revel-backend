@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
-from django.db.models import Q, Sum
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -37,9 +37,16 @@ def remaining_refundable(payment: Payment) -> Decimal:
 
     PENDING rows count against the remainder so a second refund cannot
     over-refund while the first one's webhook is still in flight.
+
+    Sums in Python over ``payment.refunds.all()`` rather than a fresh
+    ``.filter().aggregate()`` query so a caller that already
+    ``prefetch_related("refunds")``d (e.g. the event refund preview, looping
+    over many payments) hits the prefetch cache instead of issuing one query
+    per payment.
     """
-    taken = (
-        payment.refunds.filter(~Q(status=Refund.RefundStatus.FAILED)).aggregate(total=Sum("amount"))["total"] or _ZERO
+    taken = sum(
+        (r.amount for r in payment.refunds.all() if r.status != Refund.RefundStatus.FAILED),
+        _ZERO,
     )
     remaining = Decimal(payment.amount) - taken
     return remaining if remaining > _ZERO else _ZERO
@@ -273,15 +280,20 @@ def build_event_refund_preview(event: Event) -> EventRefundPreview:
     import stripe
     from django.conf import settings
 
-    tickets = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).select_related("tier")
+    tickets = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED)
     active = tickets.count()
     offline = tickets.exclude(tier__payment_method=TicketTier.PaymentMethod.ONLINE).count()
+    # No tier/payment-method filter here: `issue_refund`'s real gate is the Payment
+    # row itself (status + a Stripe intent), not the ticket's tier — an online-paid
+    # series pass can be materialized onto an offline/free-tier ticket (see
+    # `issue_refund`'s docstring), and the sweep will still attempt to refund it.
+    # `online_refundable_tickets` below means "payments the sweep will try to
+    # refund", not "tickets on an online tier".
     payments = (
         Payment.objects.filter(
             ticket__event=event,
             status__in=[Payment.PaymentStatus.SUCCEEDED, Payment.PaymentStatus.REFUNDED],
             stripe_payment_intent_id__isnull=False,
-            ticket__tier__payment_method=TicketTier.PaymentMethod.ONLINE,
         )
         .exclude(ticket__status=Ticket.TicketStatus.CANCELLED)
         .prefetch_related("refunds")

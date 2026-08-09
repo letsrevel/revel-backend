@@ -34,7 +34,7 @@ from events.tasks.organization import (
 )
 from events.tasks.payments import cleanup_expired_payments, cleanup_ticket_file_cache
 from events.tasks.recurrence import generate_recurring_events_task, generate_single_series_events_task
-from events.tasks.refunds import refund_cancelled_event_tickets
+from events.tasks.refunds import refund_cancelled_event_tickets, refund_one_cancelled_event_ticket
 from events.tasks.revenue import generate_revenue_report_task, send_scheduled_revenue_reports_task
 from events.tasks.seating import cleanup_expired_seat_holds
 from events.tasks.series_pass import materialize_series_pass_holders
@@ -81,6 +81,7 @@ __all__ = [
     "reconcile_stripe_subscriptions",
     "redispatch_undelivered_invoices_task",
     "refund_cancelled_event_tickets",
+    "refund_one_cancelled_event_ticket",
     "resend_announcements_to_new_signups",
     "reset_demo_data",
     "resync_org_subscription_fees",
