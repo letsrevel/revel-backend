@@ -589,14 +589,14 @@ def cancel_held_pass(
                 and payment.status == Payment.PaymentStatus.SUCCEEDED
                 and payment.stripe_payment_intent_id
             ):
-                refund_service.issue_refund(
+                refund_row = refund_service.issue_refund(
                     payment,
                     amount=None,  # full remaining
                     initiated_by=cancelled_by,
                     reason="series_pass_cancelled",
                     source=Refund.Source.ORGANIZER_API,
                 )
-                refunded_total += payment.amount
+                refunded_total += refund_row.amount
             elif payment is not None and payment.status == Payment.PaymentStatus.PENDING:
                 # Never-completed checkout: fail the payment so the expiry sweep
                 # (which only processes PENDING payments) can't decrement this

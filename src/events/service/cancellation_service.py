@@ -301,6 +301,14 @@ def cancel_ticket_by_user(
         CancellationNotOwner: caller is not the ticket holder.
         CancellationBlocked: business-rule guard failed.
         StripeRefundFailed: Stripe refund API call failed.
+        RefundInsufficientBalanceError: Stripe declined the refund for lack of
+            connected-account funds (``refund_service.issue_refund``).
+        NothingToRefundError: the payment has no refundable Stripe charge, or
+            is already fully refunded (should not occur on this path in
+            practice — the quote already gates on ``refund_amount > 0`` and an
+            online tier — but propagates from ``issue_refund`` regardless).
+        HttpError: 400 if the resolved refund amount somehow falls outside
+            ``(0, remaining]`` (same practical-unreachability caveat as above).
 
     Note:
         The Stripe ``Refund.create`` call happens **inside** the
@@ -313,13 +321,19 @@ def cancel_ticket_by_user(
           rolls back, a user-driven retry produces the correct end state
           without charging twice.
         * **Self-healing via webhook.** Even without a retry, Stripe sends
-          ``charge.refunded`` seconds later. ``handle_charge_refunded``
-          matches the refund to the ``Refund`` row via the ``refund_id``
-          metadata and flips it PENDING → SUCCEEDED, updating the Payment's
-          denormalized totals. The local ticket cancellation already
-          happened synchronously in this flow (above, in the same
-          transaction), so the webhook here only records the refund outcome
-          — it does not need to (and does not) cancel the ticket itself.
+          ``charge.refunded`` seconds later. ``handle_charge_refunded`` still
+          matches the refund to the Payment via the ``ticket_id`` metadata
+          (``issue_refund`` keeps sending it) and reaches the same end state
+          (ticket CANCELLED, payment REFUNDED, quantity_sold decremented) —
+          but with degraded audit fields: ``cancellation_source`` becomes
+          ``STRIPE_DASHBOARD`` instead of ``USER``, ``cancelled_by`` is
+          ``NULL``, and ``cancellation_reason`` is empty. The financial
+          state is correct; only the attribution is fuzzier. (A later
+          ``Refund``-row matcher upgrade is expected to make this webhook
+          record-only — matching via the ``refund_id`` metadata instead of
+          re-cancelling — since the local cancel above already commits
+          synchronously in this flow; not yet implemented as of this
+          change.)
         * **Lock contention is bounded.** The locked rows (this Ticket and
           its Payment) are user-scoped; concurrent cancels of *other*
           tickets on the same tier do not contend on these locks.
