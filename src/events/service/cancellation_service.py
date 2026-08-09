@@ -16,10 +16,9 @@ from django.db.models import F
 from pydantic import ValidationError as PydanticValidationError
 
 from events.exceptions import StripeRefundFailed as StripeRefundFailed
-from events.models import Payment, Ticket, TicketTier
+from events.models import Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationBlockReason, CancellationSource
 from events.service.waitlist_service import enqueue_waitlist_processing
-from events.utils.currency import to_stripe_amount
 from events.utils.refund_policy import RefundPolicy, validate_refund_policy
 
 logger = structlog.get_logger(__name__)
@@ -307,20 +306,20 @@ def cancel_ticket_by_user(
         The Stripe ``Refund.create`` call happens **inside** the
         ``transaction.atomic()`` block. The trade-off is intentional:
 
-        * **No double-charge.** ``idempotency_key=f"refund:{ticket.id}"``
-          guarantees that a retry returns the same refund object, not a new
+        * **No double-charge.** ``idempotency_key=f"refund:{payment.pk}:{sequence}:{amount}"``
+          (``refund_service.issue_refund``) guarantees that a retry with the
+          same sequence/amount returns the same refund object, not a new
           one. So if the post-Stripe DB writes raise and the transaction
           rolls back, a user-driven retry produces the correct end state
           without charging twice.
         * **Self-healing via webhook.** Even without a retry, Stripe sends
           ``charge.refunded`` seconds later. ``handle_charge_refunded``
-          matches the refund to the Payment via the ``ticket_id`` metadata
-          (Branch 2) and reaches the same end state (ticket CANCELLED,
-          payment REFUNDED, quantity_sold decremented) — but with degraded
-          audit fields: ``cancellation_source`` becomes
-          ``STRIPE_DASHBOARD`` instead of ``USER``, ``cancelled_by`` is
-          ``NULL``, and ``cancellation_reason`` is empty. The financial
-          state is correct; only the attribution is fuzzier.
+          matches the refund to the ``Refund`` row via the ``refund_id``
+          metadata and flips it PENDING → SUCCEEDED, updating the Payment's
+          denormalized totals. The local ticket cancellation already
+          happened synchronously in this flow (above, in the same
+          transaction), so the webhook here only records the refund outcome
+          — it does not need to (and does not) cancel the ticket itself.
         * **Lock contention is bounded.** The locked rows (this Ticket and
           its Payment) are user-scoped; concurrent cancels of *other*
           tickets on the same tier do not contend on these locks.
@@ -359,7 +358,7 @@ def cancel_ticket_by_user(
             raise CancellationBlocked(CancellationBlockReason.CHECKED_IN)
 
         # Online tickets with refund > 0 → hit Stripe before mutating local state.
-        refund_status = _refund_if_required(locked_ticket, quote)
+        refund_status = _refund_if_required(locked_ticket, quote, user)
         _finalize_cancellation(locked_ticket, user, reason, now, quote)
 
     return CancellationResult(
@@ -370,12 +369,14 @@ def cancel_ticket_by_user(
     )
 
 
-def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote) -> str | None:
+def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote, user: t.Any) -> str | None:
     """Issue a Stripe refund when the locked ticket is an online paid ticket with refund > 0.
 
     Must run inside ``cancel_ticket_by_user``'s atomic block (it acquires a row lock
     on the Payment). Returns the refund status, or ``None`` when no refund applies.
     """
+    from events.service import refund_service
+
     payment: Payment | None = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
     if (
         locked_ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
@@ -383,7 +384,14 @@ def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote) -> str | None
         and payment.stripe_payment_intent_id
         and quote.refund_amount > _ZERO
     ):
-        return _issue_stripe_refund(locked_ticket, payment, quote.refund_amount, quote.currency)
+        refund_service.issue_refund(
+            payment,
+            amount=quote.refund_amount,
+            initiated_by=user,
+            reason="user_cancellation",
+            source=Refund.Source.USER_CANCELLATION,
+        )
+        return str(Payment.RefundStatus.PENDING)
     return None
 
 
@@ -424,64 +432,3 @@ def _finalize_cancellation(
     )
 
     enqueue_waitlist_processing(locked_ticket.event_id)
-
-
-def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal, currency: str) -> str:
-    """Create a Stripe refund and mutate the Payment row. Returns refund_status.
-
-    Hits the Stripe API synchronously. On any Stripe error the exception propagates
-    so the enclosing ``transaction.atomic()`` rolls back and the ticket stays ACTIVE.
-
-    Args:
-        ticket: The ticket being cancelled (used for metadata and idempotency key).
-        payment: The ``Payment`` instance associated with the ticket.
-        amount: The refund amount in major currency units (e.g. ``Decimal("40.00")``).
-        currency: ISO 4217 currency code, used to scale ``amount`` to Stripe's
-            smallest-unit integer (matters for zero-decimal currencies like JPY).
-
-    Returns:
-        The string value of ``Payment.RefundStatus.PENDING``.
-
-    Raises:
-        StripeRefundFailed: on any Stripe error so the enclosing atomic() rolls back.
-    """
-    import stripe
-    from django.conf import settings
-
-    # Direct charges (created with stripe_account=org.stripe_account_id) live on
-    # the connected account, so the refund must target that account too. Skip
-    # when the org is using the platform's own Stripe account (test/bootstrap data).
-    org_stripe_account = ticket.event.organization.stripe_account_id
-    refund_kwargs: dict[str, t.Any] = {
-        "payment_intent": payment.stripe_payment_intent_id,
-        "amount": to_stripe_amount(amount, currency),
-        "metadata": {"ticket_id": str(ticket.id), "user_initiated": "true"},
-        "idempotency_key": f"refund:{ticket.id}",
-    }
-    if org_stripe_account and org_stripe_account != settings.STRIPE_ACCOUNT:
-        refund_kwargs["stripe_account"] = org_stripe_account
-
-    try:
-        refund = stripe.Refund.create(**refund_kwargs)
-    except stripe.error.StripeError as exc:
-        logger.error(
-            "stripe_refund_failed",
-            ticket_id=str(ticket.id),
-            payment_id=str(payment.id),
-            error=str(exc),
-        )
-        raise StripeRefundFailed(str(exc)) from exc
-
-    payment.stripe_refund_id = refund.id
-    payment.refund_amount = amount
-    payment.refund_status = Payment.RefundStatus.PENDING
-    payment.refund_failure_reason = ""
-    payment.save(
-        update_fields=[
-            "stripe_refund_id",
-            "refund_amount",
-            "refund_status",
-            "refund_failure_reason",
-        ]
-    )
-    return str(Payment.RefundStatus.PENDING)

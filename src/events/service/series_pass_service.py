@@ -29,6 +29,7 @@ from events.models import (
     OrganizationMember,
     OrganizationQuestionnaire,
     Payment,
+    Refund,
     SeriesPass,
     SeriesPassTierLink,
     Ticket,
@@ -36,7 +37,7 @@ from events.models import (
 )
 from events.models.ticket import CancellationSource
 from events.schema.series_pass import SeriesPassCreateSchema
-from events.service import cancellation_service
+from events.service import refund_service
 from events.service.vat_service import distribute_amount_across_items
 from events.tasks import materialize_series_pass_holders
 from notifications.signals.series_pass import send_series_pass_cancelled, send_series_pass_purchased
@@ -543,9 +544,10 @@ def cancel_held_pass(
     Note:
         Mirrors ``cancel_ticket_by_user``'s trade-off: Stripe refunds run
         **inside** this transaction, so a Stripe failure rolls back every ticket/tier
-        mutation too. Each refund is keyed by ``idempotency_key=f"refund:{ticket.id}"``,
-        so a retry cannot double-charge, and Stripe's ``charge.refunded`` webhook
-        self-heals the financial state even without one.
+        mutation too. Each refund goes through ``refund_service.issue_refund``, keyed by
+        ``idempotency_key=f"refund:{payment.pk}:{sequence}:{amount}"``, so a retry cannot
+        double-charge, and Stripe's ``charge.refunded`` webhook self-heals the financial
+        state even without one.
     """
     if held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED:
         return held_pass
@@ -587,7 +589,13 @@ def cancel_held_pass(
                 and payment.status == Payment.PaymentStatus.SUCCEEDED
                 and payment.stripe_payment_intent_id
             ):
-                cancellation_service._issue_stripe_refund(ticket, payment, payment.amount, payment.currency)
+                refund_service.issue_refund(
+                    payment,
+                    amount=None,  # full remaining
+                    initiated_by=cancelled_by,
+                    reason="series_pass_cancelled",
+                    source=Refund.Source.ORGANIZER_API,
+                )
                 refunded_total += payment.amount
             elif payment is not None and payment.status == Payment.PaymentStatus.PENDING:
                 # Never-completed checkout: fail the payment so the expiry sweep

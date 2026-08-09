@@ -144,9 +144,15 @@ class TestIssueRefund:
         tier_factory: t.Callable[..., TicketTier],
         payment_factory: t.Callable[..., Payment],
     ) -> None:
+        """A genuinely offline payment (no Stripe charge) has nothing to refund.
+
+        The gate is the Payment row's own ``stripe_payment_intent_id``, not the
+        ticket tier's ``payment_method`` — see ``test_offline_tier_with_stripe_charge_still_refundable``
+        for why the tier alone can't be trusted (series passes).
+        """
         tier = tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("40.00"))
         ticket = ticket_factory(tier=tier)
-        payment = payment_factory(ticket=ticket, amount=Decimal("40.00"))
+        payment = payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="")
         with pytest.raises(NothingToRefundError), transaction.atomic():
             refund_service.issue_refund(
                 payment,
@@ -155,6 +161,37 @@ class TestIssueRefund:
                 reason="",
                 source=Refund.Source.ORGANIZER_API,
             )
+
+    def test_offline_tier_with_stripe_charge_still_refundable(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """A series pass paid online may be materialized onto an OFFLINE/FREE tier ticket
+
+        (the tier governs the event's own checkout, not how the pass was charged); the
+        Payment row's Stripe fields, not ``tier.payment_method``, must gate the refund.
+        """
+        tier = tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("40.00"))
+        ticket = ticket_factory(tier=tier)
+        payment = payment_factory(
+            ticket=ticket,
+            amount=Decimal("40.00"),
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_payment_intent_id="pi_pass_test",
+        )
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_pass"
+            with transaction.atomic():
+                row = refund_service.issue_refund(
+                    payment,
+                    amount=None,
+                    initiated_by=None,
+                    reason="",
+                    source=Refund.Source.ORGANIZER_API,
+                )
+        assert row.amount == Decimal("40.00")
 
     def test_balance_insufficient_maps_and_rolls_back(self, online_paid_ticket: Ticket) -> None:
         err = stripe.error.InvalidRequestError(message="insufficient", param=None, code="balance_insufficient")

@@ -1,6 +1,7 @@
 """Unit tests for cancellation_service.quote_cancellation and build_cancellation_preview."""
 
 import typing as t
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -8,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from django.utils import timezone
 
-from events.models import Payment, Ticket, TicketTier
+from events.models import Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationBlockReason
 from events.service.cancellation_service import (
     CancellationBlocked,
@@ -345,14 +346,19 @@ class TestCancelTicketByUser:
         _, kwargs = mock_create.call_args
         assert kwargs["payment_intent"] == "pi_123"
         assert kwargs["amount"] == 4000
-        assert kwargs["idempotency_key"] == f"refund:{ticket.id}"
-        assert kwargs["metadata"] == {"ticket_id": str(ticket.id), "user_initiated": "true"}
+        assert kwargs["idempotency_key"] == f"refund:{payment.pk}:0:40.00"
+        assert kwargs["metadata"]["ticket_id"] == str(ticket.id)
+        assert kwargs["metadata"]["source"] == "user_cancellation"
+        assert uuid.UUID(kwargs["metadata"]["refund_id"])  # parses; existence checked below
         assert kwargs["stripe_account"] == "acct_connected_123"
         assert result.refund_status == Payment.RefundStatus.PENDING
         payment.refresh_from_db()
         assert payment.stripe_refund_id == "re_abc"
-        assert payment.refund_amount == Decimal("40.00")
-        assert payment.refund_status == Payment.RefundStatus.PENDING
+        refund = Refund.objects.get(payment=payment)
+        assert str(refund.pk) == kwargs["metadata"]["refund_id"]
+        assert refund.status == Refund.RefundStatus.PENDING
+        assert refund.amount == Decimal("40.00")
+        assert refund.source == "user_cancellation"
 
     def test_online_ticket_omits_stripe_account_for_platform_account(
         self,
@@ -419,3 +425,4 @@ class TestCancelTicketByUser:
         assert ticket.status == Ticket.TicketStatus.ACTIVE
         assert payment.refund_status is None
         assert tier.quantity_sold == 1
+        assert Refund.objects.count() == 0

@@ -16,7 +16,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.exceptions import NothingToRefundError, RefundInsufficientBalanceError, StripeRefundFailed
-from events.models import Payment, Refund, TicketTier
+from events.models import Payment, Refund
 from events.utils.currency import to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -76,16 +76,15 @@ def issue_refund(
     import stripe
     from django.conf import settings
 
-    locked = (
-        Payment.objects.select_for_update()
-        .select_related("ticket__tier", "ticket__event__organization")
-        .get(pk=payment.pk)
-    )
-    is_online = locked.ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
-    if (
-        not is_online
-        or not locked.stripe_payment_intent_id
-        or locked.status not in (Payment.PaymentStatus.SUCCEEDED, Payment.PaymentStatus.REFUNDED)
+    locked = Payment.objects.select_for_update().select_related("ticket__event__organization").get(pk=payment.pk)
+    # Gate on the Payment row itself, not the ticket's tier: a series pass paid
+    # online can be materialized onto an OFFLINE/FREE-tier ticket (the tier
+    # governs display/checkout for that event, not how the pass itself was
+    # charged), so `tier.payment_method` is not authoritative here — see
+    # `series_pass_service.cancel_held_pass`.
+    if not locked.stripe_payment_intent_id or locked.status not in (
+        Payment.PaymentStatus.SUCCEEDED,
+        Payment.PaymentStatus.REFUNDED,
     ):
         raise NothingToRefundError(str(_("This payment has no refundable Stripe charge.")))
 
