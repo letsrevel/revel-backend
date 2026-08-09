@@ -158,9 +158,11 @@ run-e2e:
 # following `make bootstrap` would fail on duplicates), and seed must run
 # BEFORE bootstrap-tests — the seeder's payment/quantity sweeps are global and
 # would mutate the test fixtures (e.g. randomly refunding the sold-out event's
-# tickets). Never reorder.
+# tickets). Never reorder. Brings up postgres/pgbouncer first (cold-start
+# safety) — e2e-setup in revel-frontend calls this before run-e2e-daemon.
 .PHONY: e2e-seed
 e2e-seed:
+	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer
 	uv run python src/manage.py reset_events --no-input
 	$(MAKE) seed
 	$(MAKE) bootstrap-tests
