@@ -8,7 +8,6 @@ import pytest
 import stripe
 
 from events.models import Payment, Ticket, TicketTier
-from events.models.ticket import CancellationSource
 from events.service.stripe_webhooks import StripeEventHandler
 
 pytestmark = pytest.mark.django_db
@@ -80,8 +79,8 @@ class TestChargeRefundedMatching:
         target.refresh_from_db()
         assert target.refund_status == Payment.RefundStatus.SUCCEEDED
         target.ticket.refresh_from_db()
-        assert target.ticket.status == Ticket.TicketStatus.CANCELLED
-        assert target.ticket.cancellation_source == CancellationSource.STRIPE_DASHBOARD
+        assert target.ticket.status == Ticket.TicketStatus.ACTIVE, "refunds are record-only; the ticket stays active"
+        assert target.ticket.cancellation_source == ""
         for other in payments:
             if other.pk == target.pk:
                 continue
@@ -106,6 +105,8 @@ class TestChargeRefundedMatching:
     def test_branch_4_full_intent_refund_applies_to_all(self, batch_of_4_online_payments: list[Payment]) -> None:
         payments = batch_of_4_online_payments
         _batch(payments, "pi_batch")
+        tier_id = payments[0].ticket.tier_id
+        TicketTier.objects.filter(pk=tier_id).update(quantity_sold=4)
         total_cents = int(sum(p.amount for p in payments) * 100)
         refund: dict[str, t.Any] = {"id": "re_full", "amount": total_cents, "metadata": {}}
         event = _charge_event("pi_batch", [refund])
@@ -116,7 +117,9 @@ class TestChargeRefundedMatching:
             assert p.status == Payment.PaymentStatus.REFUNDED
             assert p.refund_amount == p.amount, "Branch 4 must allocate per-Payment, not the total"
             p.ticket.refresh_from_db()
-            assert p.ticket.status == Ticket.TicketStatus.CANCELLED
+            assert p.ticket.status == Ticket.TicketStatus.ACTIVE, "refunds are record-only; tickets stay active"
+            tier = TicketTier.objects.get(pk=p.ticket.tier_id)
+            assert tier.quantity_sold == 4, "no seat may be reclaimed by a refund"
 
     def test_branch_5_ambiguous_logged_no_mutation(
         self, batch_of_4_online_payments: list[Payment], caplog: pytest.LogCaptureFixture

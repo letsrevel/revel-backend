@@ -321,19 +321,15 @@ def cancel_ticket_by_user(
           rolls back, a user-driven retry produces the correct end state
           without charging twice.
         * **Self-healing via webhook.** Even without a retry, Stripe sends
-          ``charge.refunded`` seconds later. ``handle_charge_refunded`` still
-          matches the refund to the Payment via the ``ticket_id`` metadata
-          (``issue_refund`` keeps sending it) and reaches the same end state
-          (ticket CANCELLED, payment REFUNDED, quantity_sold decremented) —
-          but with degraded audit fields: ``cancellation_source`` becomes
-          ``STRIPE_DASHBOARD`` instead of ``USER``, ``cancelled_by`` is
-          ``NULL``, and ``cancellation_reason`` is empty. The financial
-          state is correct; only the attribution is fuzzier. (A later
-          ``Refund``-row matcher upgrade is expected to make this webhook
-          record-only — matching via the ``refund_id`` metadata instead of
-          re-cancelling — since the local cancel above already commits
-          synchronously in this flow; not yet implemented as of this
-          change.)
+          ``charge.refunded`` seconds later. ``handle_charge_refunded`` is
+          record-only: it matches the refund to the ``Refund`` row via the
+          ``refund_id`` metadata (``issue_refund`` keeps sending it) and
+          flips that row PENDING → SUCCEEDED, updating ``Payment``'s
+          denormalized totals. It never re-cancels the ticket or touches
+          ``quantity_sold`` — the local cancel above already committed both,
+          synchronously, in this flow — so ``cancellation_source`` stays
+          ``USER``, ``cancelled_by`` stays this user, and
+          ``cancellation_reason`` keeps the caller's text.
         * **Lock contention is bounded.** The locked rows (this Ticket and
           its Payment) are user-scoped; concurrent cancels of *other*
           tickets on the same tier do not contend on these locks.

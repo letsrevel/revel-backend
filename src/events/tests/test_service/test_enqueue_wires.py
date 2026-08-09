@@ -60,11 +60,11 @@ def test_user_ticket_cancellation_enqueues_waitlist(
 # ---------------------------------------------------------------------------
 
 
-def test_stripe_refund_webhook_enqueues_waitlist(
+def test_stripe_refund_webhook_never_enqueues_waitlist(
     event: Event,
     organization_owner_user: RevelUser,
 ) -> None:
-    """``handle_charge_refunded`` enqueues processing when a ticket flips to CANCELLED."""
+    """``handle_charge_refunded`` is record-only: it never frees capacity, so it never enqueues."""
     from unittest.mock import MagicMock
 
     import stripe
@@ -118,7 +118,7 @@ def test_stripe_refund_webhook_enqueues_waitlist(
     with mock.patch("events.service.stripe_webhooks.enqueue_waitlist_processing") as mocked:
         handler.handle_charge_refunded(mock_event)
 
-    mocked.assert_called_once_with(ticket.event_id)
+    mocked.assert_not_called()
 
 
 def test_stripe_payment_intent_canceled_enqueues_waitlist(
@@ -230,11 +230,11 @@ def test_stripe_payment_intent_canceled_enqueues_once_per_event(
     mocked.assert_called_once_with(event.id)
 
 
-def test_stripe_refund_webhook_enqueues_once_per_event(
+def test_stripe_refund_webhook_batch_never_enqueues_waitlist(
     event: Event,
     organization_owner_user: RevelUser,
 ) -> None:
-    """A full-batch refund spanning N payments for one event enqueues exactly once."""
+    """A full-batch refund spanning N payments is still record-only: no enqueue at all."""
     from unittest.mock import MagicMock
 
     import stripe
@@ -290,7 +290,7 @@ def test_stripe_refund_webhook_enqueues_once_per_event(
     with mock.patch("events.service.stripe_webhooks.enqueue_waitlist_processing") as mocked:
         handler.handle_charge_refunded(mock_event)
 
-    mocked.assert_called_once_with(event.id)
+    mocked.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
