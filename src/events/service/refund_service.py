@@ -23,7 +23,7 @@ from events.exceptions import (
     StripeRefundFailed,
     TicketAlreadyCancelledError,
 )
-from events.models import Payment, Refund, Ticket, TicketTier
+from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.utils.currency import to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -250,6 +250,87 @@ def build_refund_context(ticket: Ticket, now: datetime) -> RefundContext:
         remaining_refundable=remaining_refundable(payment),
         policy_suggested_amount=suggestion,
         refunds=rows,
+    )
+
+
+@dataclass(frozen=True)
+class EventRefundPreview:
+    """Aggregates for the advisory bulk-refund preview."""
+
+    active_tickets: int
+    online_refundable_tickets: int
+    offline_tickets: int
+    currencies: list[dict[str, t.Any]]
+    tickets_refund_started_at: datetime | None
+
+
+def build_event_refund_preview(event: Event) -> EventRefundPreview:
+    """Totals to refund per currency vs the connected account's available balance.
+
+    The balance is advisory (racy by nature); a Stripe error fetching it yields
+    ``available_balance=None`` rather than failing the preview.
+    """
+    import stripe
+    from django.conf import settings
+
+    tickets = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).select_related("tier")
+    active = tickets.count()
+    offline = tickets.exclude(tier__payment_method=TicketTier.PaymentMethod.ONLINE).count()
+    payments = (
+        Payment.objects.filter(
+            ticket__event=event,
+            status__in=[Payment.PaymentStatus.SUCCEEDED, Payment.PaymentStatus.REFUNDED],
+            stripe_payment_intent_id__isnull=False,
+            ticket__tier__payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        .exclude(ticket__status=Ticket.TicketStatus.CANCELLED)
+        .prefetch_related("refunds")
+    )
+    totals: dict[str, Decimal] = {}
+    refundable_tickets = 0
+    for p in payments:
+        remaining = remaining_refundable(p)
+        if remaining > _ZERO:
+            refundable_tickets += 1
+            totals[p.currency] = totals.get(p.currency, _ZERO) + remaining
+
+    balances: dict[str, Decimal | None] = dict.fromkeys(totals)
+    org_account = event.organization.stripe_account_id
+    if totals:
+        try:
+            kwargs: dict[str, t.Any] = {}
+            if org_account and org_account != settings.STRIPE_ACCOUNT:
+                kwargs["stripe_account"] = org_account
+            balance = stripe.Balance.retrieve(**kwargs)  # type: ignore[no-untyped-call]
+            from events.utils.currency import from_stripe_amount
+
+            for entry in balance.available:
+                # Stripe reports balance currencies lowercase; Payment.currency is
+                # stored uppercase (settings.DEFAULT_CURRENCY / tier defaults) — normalize
+                # before the dict lookup.
+                cur = entry["currency"].upper()
+                if cur in balances:
+                    balances[cur] = from_stripe_amount(int(entry["amount"]), cur)
+        except stripe.error.StripeError as exc:
+            logger.warning("refund_preview_balance_failed", event_id=str(event.pk), error=str(exc))
+
+    currencies: list[dict[str, t.Any]] = []
+    for cur, total in sorted(totals.items()):
+        available = balances[cur]
+        currencies.append(
+            {
+                "currency": cur,
+                "total_refundable": total,
+                "available_balance": available,
+                "balance_sufficient": (available >= total) if available is not None else None,
+            }
+        )
+    return EventRefundPreview(
+        active_tickets=active,
+        online_refundable_tickets=refundable_tickets,
+        offline_tickets=offline,
+        currencies=currencies,
+        tickets_refund_started_at=event.tickets_refund_started_at,
     )
 
 

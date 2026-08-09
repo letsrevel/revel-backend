@@ -121,3 +121,22 @@ class TicketRefundContextSchema(Schema):
     remaining_refundable: Decimal
     policy_suggested_amount: Decimal | None = None
     refunds: list[TicketRefundSchema] = Field(default_factory=list)
+
+
+class RefundPreviewCurrencyLine(Schema):
+    """Refund totals vs Stripe balance for one currency."""
+
+    currency: str
+    total_refundable: Decimal
+    available_balance: Decimal | None = None
+    balance_sufficient: bool | None = None
+
+
+class EventRefundPreviewSchema(Schema):
+    """Advisory pre-flight for the cancel-with-refunds flow. Never blocks."""
+
+    active_tickets: int
+    online_refundable_tickets: int
+    offline_tickets: int
+    currencies: list[RefundPreviewCurrencyLine]
+    tickets_refund_started_at: AwareDatetime | None = None
