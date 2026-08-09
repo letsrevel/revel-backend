@@ -943,6 +943,9 @@ msgstr "Déjà membre."
 msgid "Invoice PDF not available."
 msgstr "PDF de la facture non disponible."
 
+msgid "refund_tickets is only valid when cancelling the event."
+msgstr "refund_tickets n'est valide que lors de l'annulation de l'événement."
+
 msgid "Invitation not found."
 msgstr "Invitation non trouvée."
 
@@ -1122,14 +1125,14 @@ msgid ""
 "Refund declined: the Stripe account balance is insufficient. Top it up and "
 "retry."
 msgstr ""
-"Remboursement refusé : le solde du compte Stripe est insuffisant. "
-"Rechargez-le et réessayez."
+"Remboursement refusé : le solde du compte Stripe est insuffisant. Rechargez-"
+"le et réessayez."
 
 msgid ""
 "Ticket refunds have started for this event; it can no longer be un-cancelled."
 msgstr ""
-"Les remboursements des billets pour cet événement ont déjà commencé ; il "
-"ne peut plus être décommandé."
+"Les remboursements des billets pour cet événement ont déjà commencé ; il ne "
+"peut plus être décommandé."
 
 msgid "Draft"
 msgstr "Brouillon"
@@ -2107,6 +2110,23 @@ msgstr "Paiement introuvable."
 
 msgid "Only pending payments can be cancelled."
 msgstr "Seuls les paiements en attente peuvent être annulés."
+
+msgid "This payment has no refundable Stripe charge."
+msgstr "Ce paiement n'a aucun débit Stripe remboursable."
+
+msgid "This payment is already fully refunded."
+msgstr "Ce paiement a déjà été intégralement remboursé."
+
+#, python-format
+msgid ""
+"Refund amount must be between 0 and the remaining refundable amount "
+"(%(amount)s)."
+msgstr ""
+"Le montant du remboursement doit être compris entre 0 et le montant "
+"restant remboursable (%(amount)s)."
+
+msgid "This ticket has no payment to refund."
+msgstr "Ce ticket n'a aucun paiement à rembourser."
 
 msgid "A file must be provided when resource_type is 'file'."
 msgstr ""
@@ -3221,6 +3241,10 @@ msgid "Action needed: unmatched refund - %(org)s"
 msgstr "Action requise : remboursement non associé - %(org)s"
 
 #, python-format
+msgid "Refund sweep finished - %(event)s"
+msgstr "Vague de remboursements terminée - %(event)s"
+
+#, python-format
 msgid "Spot available for %(event)s!"
 msgstr "Place disponible pour %(event)s !"
 
@@ -3382,6 +3406,34 @@ msgstr "%(org)s a publié un nouvel événement : %(event)s !"
 
 msgid "View event details and register:"
 msgstr "Voir les détails de l'événement et s'inscrire :"
+
+#, python-format
+msgid "Refund sweep for %(event)s finished"
+msgstr "La vague de remboursements pour %(event)s est terminée"
+
+#, python-format
+msgid ""
+"%(cancelled)s tickets cancelled, %(refunded)s refunds issued, %(failed)s "
+"refunds failed."
+msgstr ""
+"%(cancelled)s billets annulés, %(refunded)s remboursements effectués, "
+"%(failed)s remboursements échoués."
+
+#, python-format
+msgid ""
+"%(active)s tickets were still not cancelled when this summary was sent "
+"&mdash; check the event's ticket admin."
+msgstr ""
+"%(active)s billets n'étaient toujours pas annulés au moment de l'envoi "
+"de ce résumé &mdash; vérifiez l'administration des billets de l'événement."
+
+#, python-format
+msgid ""
+"%(active)s tickets were still not cancelled when this summary was sent - "
+"check the event's ticket admin."
+msgstr ""
+"%(active)s billets n'étaient toujours pas annulés au moment de l'envoi "
+"de ce résumé - vérifiez l'administration des billets de l'événement."
 
 #, python-format
 msgid "Reminder: <strong>%(event)s</strong> is tomorrow!"
