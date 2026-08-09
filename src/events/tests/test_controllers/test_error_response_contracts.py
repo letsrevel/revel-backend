@@ -18,16 +18,25 @@ These tests pin the *actual* wire shape so the declarations stay honest.
 """
 
 import datetime as dt
+import json
 import typing as t
 from decimal import Decimal
 from unittest import mock
 
 import pytest
+from django.http import HttpRequest
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from events.exception_handlers import HANDLERS
+from events.exceptions import (
+    EventRefundsStartedError,
+    NothingToRefundError,
+    RefundInsufficientBalanceError,
+    StripeRefundFailed,
+)
 from events.models import (
     Event,
     EventRSVP,
@@ -433,6 +442,48 @@ class TestRevivalAmountBound:
         # different shape from ``ErrorDetail``'s ``{detail: str}``. Pinned here
         # because that distinction is systemically under-declared repo-wide.
         assert isinstance(body.get("detail"), list), body
+
+
+class TestOrganizerRefundExceptionContracts:
+    """Organizer-refund exceptions (#865) have no endpoint yet (later tasks wire one).
+
+    Pin the handler mapping directly by invoking the registered handler
+    functions, rather than through a live route — the acceptable fallback
+    when the mechanism this file otherwise uses (a real endpoint) doesn't
+    exist yet. Once an endpoint exists these should gain a same-shape
+    endpoint-level sibling per this file's usual convention.
+    """
+
+    @staticmethod
+    def _invoke(exc: Exception) -> tuple[int, dict[str, t.Any]]:
+        handler = HANDLERS[type(exc)]
+        response = handler(HttpRequest(), exc)
+        return response.status_code, json.loads(response.content)
+
+    def test_refund_insufficient_balance_returns_402_detail(self) -> None:
+        status, body = self._invoke(RefundInsufficientBalanceError())
+        assert status == 402
+        assert isinstance(body.get("detail"), str) and body["detail"]
+        assert "message" not in body, body
+        assert "errors" not in body, body
+
+    def test_nothing_to_refund_returns_409_detail(self) -> None:
+        status, body = self._invoke(NothingToRefundError("already fully refunded"))
+        assert status == 409
+        assert body["detail"] == "already fully refunded"
+        assert "message" not in body, body
+
+    def test_event_refunds_started_returns_409_detail(self) -> None:
+        status, body = self._invoke(EventRefundsStartedError())
+        assert status == 409
+        assert isinstance(body.get("detail"), str) and body["detail"]
+        assert "message" not in body, body
+
+    def test_stripe_refund_failed_returns_502_detail(self) -> None:
+        status, body = self._invoke(StripeRefundFailed("card_declined"))
+        assert status == 502
+        assert body["detail"] == "card_declined"
+        assert "message" not in body, body
 
 
 class TestTelegramErrorContracts:

@@ -15,6 +15,7 @@ from django.db import transaction
 from django.db.models import F
 from pydantic import ValidationError as PydanticValidationError
 
+from events.exceptions import StripeRefundFailed as StripeRefundFailed
 from events.models import Payment, Ticket, TicketTier
 from events.models.ticket import CancellationBlockReason, CancellationSource
 from events.service.waitlist_service import enqueue_waitlist_processing
@@ -42,19 +43,6 @@ class CancellationBlocked(Exception):
         """Initialize with the blocking reason."""
         super().__init__(str(reason.label))
         self.reason = reason
-
-
-class StripeRefundFailed(Exception):
-    """Raised when a Stripe refund attempt fails after all internal retries.
-
-    Attributes:
-        detail: Human-readable description of the Stripe error.
-    """
-
-    def __init__(self, detail: str) -> None:
-        """Initialize with the Stripe error detail string."""
-        super().__init__(detail)
-        self.detail = detail
 
 
 @dataclass(frozen=True)

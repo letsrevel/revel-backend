@@ -106,3 +106,28 @@ class SubscriptionActivationPendingError(Exception):
     handler renders a machine-readable ``code`` for exactly that reason — see
     :class:`events.schema.SubscriptionActivationPendingSchema`.
     """
+
+
+class StripeRefundFailed(Exception):
+    """Raised when a Stripe refund attempt fails after all internal retries.
+
+    Attributes:
+        detail: Human-readable description of the Stripe error.
+    """
+
+    def __init__(self, detail: str) -> None:
+        """Initialize with the Stripe error detail string."""
+        super().__init__(detail)
+        self.detail = detail
+
+
+class RefundInsufficientBalanceError(Exception):
+    """Raised when Stripe declines a refund because the connected account balance is too low."""
+
+
+class NothingToRefundError(Exception):
+    """Raised when a refund is requested on a payment with no refundable amount remaining."""
+
+
+class EventRefundsStartedError(Exception):
+    """Raised on an un-cancel attempt after the bulk refund sweep already started."""

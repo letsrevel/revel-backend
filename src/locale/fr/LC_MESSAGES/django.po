@@ -1118,6 +1118,19 @@ msgstr "Un code de réduction avec ce code existe déjà."
 msgid "Payment processing failed. Please try again later."
 msgstr "Le traitement du paiement a échoué. Réessaie plus tard."
 
+msgid ""
+"Refund declined: the Stripe account balance is insufficient. Top it up and "
+"retry."
+msgstr ""
+"Remboursement refusé : le solde du compte Stripe est insuffisant. "
+"Rechargez-le et réessayez."
+
+msgid ""
+"Ticket refunds have started for this event; it can no longer be un-cancelled."
+msgstr ""
+"Les remboursements des billets pour cet événement ont déjà commencé ; il "
+"ne peut plus être décommandé."
+
 msgid "Draft"
 msgstr "Brouillon"
 
