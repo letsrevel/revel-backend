@@ -457,3 +457,30 @@ class TestRefundContext:
         assert data["total_pending"] == "5.00"
         assert data["remaining_refundable"] == "25.00"
         assert len(data["refunds"]) == 2
+
+    def test_context_for_offline_ticket_with_no_payment(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        pending_offline_ticket: Ticket,
+    ) -> None:
+        """No Payment row and an OFFLINE tier both hit build_refund_context's early return.
+
+        Amounts come back zeroed, there's no policy suggestion (nothing to quote), and
+        the refunds list is empty — this must not 500/404, just report "nothing here".
+        """
+        url = reverse(
+            "api:ticket_refund_context",
+            kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+        )
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert data["payment_method"] == TicketTier.PaymentMethod.OFFLINE
+        assert Decimal(data["amount_paid"]) == Decimal("0")
+        assert Decimal(data["total_refunded"]) == Decimal("0")
+        assert Decimal(data["total_pending"]) == Decimal("0")
+        assert Decimal(data["remaining_refundable"]) == Decimal("0")
+        assert data["policy_suggested_amount"] is None
+        assert data["refunds"] == []

@@ -295,13 +295,23 @@ def build_refund_context(ticket: Ticket, now: datetime) -> RefundContext:
 
 
 @dataclass(frozen=True)
+class RefundPreviewCurrencyLine:
+    """Refund totals vs the connected account's Stripe balance, for one currency."""
+
+    currency: str
+    total_refundable: Decimal
+    available_balance: Decimal | None
+    balance_sufficient: bool | None
+
+
+@dataclass(frozen=True)
 class EventRefundPreview:
     """Aggregates for the advisory bulk-refund preview."""
 
     active_tickets: int
     online_refundable_tickets: int
     offline_tickets: int
-    currencies: list[dict[str, t.Any]]
+    currencies: list[RefundPreviewCurrencyLine]
     tickets_refund_started_at: datetime | None
 
 
@@ -360,16 +370,16 @@ def build_event_refund_preview(event: Event) -> EventRefundPreview:
         except stripe.error.StripeError as exc:
             logger.warning("refund_preview_balance_failed", event_id=str(event.pk), error=str(exc))
 
-    currencies: list[dict[str, t.Any]] = []
+    currencies: list[RefundPreviewCurrencyLine] = []
     for cur, total in sorted(totals.items()):
         available = balances[cur]
         currencies.append(
-            {
-                "currency": cur,
-                "total_refundable": total,
-                "available_balance": available,
-                "balance_sufficient": (available >= total) if available is not None else None,
-            }
+            RefundPreviewCurrencyLine(
+                currency=cur,
+                total_refundable=total,
+                available_balance=available,
+                balance_sufficient=(available >= total) if available is not None else None,
+            )
         )
     return EventRefundPreview(
         active_tickets=active,
@@ -416,12 +426,18 @@ def admin_cancel_ticket(
             payment = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
             if payment is None:
                 raise NothingToRefundError(str(_("This ticket has no payment to refund.")))
-            issue_refund(
+            refund_row = issue_refund(
                 payment,
                 amount=refund_amount,
                 initiated_by=cancelled_by,
                 reason=reason or "",
                 source=Refund.Source.ORGANIZER_API,
             )
+            # Pre-save hints for the TICKET_CANCELLED notification signal handler,
+            # same mechanism as cancellation_service._finalize_cancellation — use the
+            # persisted Refund row's amount/currency (post-clamp) rather than the raw
+            # request payload, so the notification reports what was actually issued.
+            locked_ticket._refund_amount = str(refund_row.amount)  # type: ignore[attr-defined]
+            locked_ticket._refund_currency = refund_row.currency  # type: ignore[attr-defined]
         ticket_service._cancel_offline_ticket_core(locked_ticket, cancelled_by=cancelled_by, reason=reason or "")
     return Ticket.objects.full().get(pk=locked_ticket.pk)

@@ -19,6 +19,7 @@ from django.db import transaction
 from django.db.models import Sum
 
 from events.models import Payment, Refund
+from events.service import refund_service
 from events.utils.currency import from_stripe_amount, to_stripe_amount
 from notifications.signals.payment import send_refund_unmatched
 
@@ -26,8 +27,23 @@ logger = structlog.get_logger(__name__)
 
 
 def _distinct_amounts(payments: list[Payment]) -> set[tuple[int, str]]:
-    """Return the distinct (smallest-unit amount, currency) pairs across payments."""
+    """Return the distinct (smallest-unit gross amount, currency) pairs across payments.
+
+    Used only for the unmatched-refund notification's ``reason`` field (informational).
+    Matching itself compares remaining-refundable balances — see
+    :func:`_distinct_remaining_amounts`.
+    """
     return {(to_stripe_amount(p.amount, p.currency), p.currency) for p in payments}
+
+
+def _distinct_remaining_amounts(payments: list[Payment]) -> set[tuple[int, str]]:
+    """Return the distinct (smallest-unit remaining-refundable amount, currency) pairs.
+
+    A prior partial refund shrinks a payment's remaining balance below its gross
+    amount — matching must compare what is still owed, not what was originally
+    charged, or a legitimate remaining-balance match gets refused as "non-uniform".
+    """
+    return {(to_stripe_amount(refund_service.remaining_refundable(p), p.currency), p.currency) for p in payments}
 
 
 def _safe_uuid_list(value: str) -> list[uuid.UUID]:
@@ -57,9 +73,12 @@ class TicketRefundHandlersMixin:
           1.5. refund.metadata["refund_id"] — our own Refund row pointer
           2. refund.metadata["ticket_id"]
           2.5. exactly one Payment on the intent — unambiguous by construction
-          3. exactly one unrefunded Payment with matching amount, *and* the intent's
-             Payments are uniform in amount (otherwise the match is a guess)
-          4. refund.amount equals sum of unrefunded-payment amounts (full remaining batch)
+          3. exactly one unrefunded Payment whose remaining refundable balance matches
+             the refund amount, *and* the intent's Payments are uniform in remaining
+             balance (otherwise the match is a guess)
+          4. refund.amount equals the sum of unrefunded payments' remaining refundable
+             balances (full remaining batch) — each payment is allocated its own
+             remaining, not the aggregate or its gross amount
           5. ambiguous → logged, no mutation
         """
         charge_data = event.data.object
@@ -160,15 +179,23 @@ class TicketRefundHandlersMixin:
                 self._notify_unmatched_refund(refund, candidates, payment_intent_id)
                 continue
             # Branch 4 fans out a single refund across N Payments — each gets its
-            # own amount, not the aggregate. Branches 1-3 always return one row.
+            # own remaining refundable amount, not the aggregate and not its gross
+            # amount. Branches 1-3 always return one row.
             is_full_batch = len(matched) > 1
+            # One query for the whole batch rather than one `.exists()` per payment —
+            # `matched` can hold N rows already under select_for_update, and a
+            # per-payment query here would turn into O(N) round trips held under
+            # those locks (same rationale as `_match_by_known_refund_id`).
+            already_applied_ids = set(
+                Refund.objects.filter(
+                    payment__in=matched, stripe_refund_id=refund["id"], status=Refund.RefundStatus.SUCCEEDED
+                ).values_list("payment_id", flat=True)
+            )
             for payment in matched:
-                if Refund.objects.filter(
-                    payment=payment, stripe_refund_id=refund["id"], status=Refund.RefundStatus.SUCCEEDED
-                ).exists():
+                if payment.id in already_applied_ids:
                     continue  # idempotent replay of this specific refund
                 allocated_amount = (
-                    payment.amount
+                    refund_service.remaining_refundable(payment)
                     if is_full_batch
                     else from_stripe_amount(int(refund.get("amount", 0)), payment.currency)
                 )
@@ -357,16 +384,25 @@ class TicketRefundHandlersMixin:
         if not unrefunded:
             return []
 
-        # Branch 3: exactly-one exact-amount match among unrefunded rows — but only
-        # when every Payment on the intent costs the same. On a mixed-price batch a
-        # partial refund on the expensive ticket is indistinguishable from a full
-        # refund of the cheap one, and guessing wrong cancels a ticket whose buyer
-        # still occupies the seat. Dashboard refunds carry no ticket_id metadata, so
-        # there is nothing else to disambiguate with: refuse and let Branch 5 log it.
-        exact = [p for p in unrefunded if to_stripe_amount(p.amount, p.currency) == refund_amount]
+        # Branch 3: exactly-one match on unrefunded rows' REMAINING refundable balance
+        # — but only when every UNREFUNDED Payment on the intent has the same
+        # remaining balance (an already-fully-REFUNDED payment has remaining 0 by
+        # definition and carries no ambiguity of its own, so it's excluded from this
+        # comparison — same as it's excluded from `exact` below). A prior partial
+        # refund means gross amount is no longer what's owed, so the comparison must
+        # be against remaining, not `p.amount`. On a batch with mixed remaining
+        # balances, a partial refund on the payment with the larger balance is
+        # indistinguishable from a full refund of the one with the smaller balance.
+        # Dashboard refunds carry no ticket_id metadata, so there is nothing else to
+        # disambiguate with: refuse and let Branch 5 log it.
+        exact = [
+            p
+            for p in unrefunded
+            if to_stripe_amount(refund_service.remaining_refundable(p), p.currency) == refund_amount
+        ]
         if len(exact) == 1:
-            amounts = _distinct_amounts(candidates)
-            if len(amounts) == 1:
+            remaining_amounts = _distinct_remaining_amounts(unrefunded)
+            if len(remaining_amounts) == 1:
                 return exact
             logger.warning(
                 "stripe_refund_non_uniform_batch",
@@ -375,11 +411,14 @@ class TicketRefundHandlersMixin:
                 refund_amount=refund_amount,
                 would_have_matched_payment_id=str(exact[0].id),
                 would_have_matched_ticket_id=str(exact[0].ticket_id),
-                candidate_amounts=sorted(f"{amount}{currency}" for amount, currency in amounts),
+                candidate_amounts=sorted(f"{amount}{currency}" for amount, currency in remaining_amounts),
             )
 
-        # Branch 4: full-remaining-batch refund.
-        remaining_total = sum(to_stripe_amount(p.amount, p.currency) for p in unrefunded)
+        # Branch 4: full-remaining-batch refund — sum each unrefunded payment's own
+        # remaining refundable balance (not gross amount), so a batch containing an
+        # already-partially-refunded payment is compared against what is actually
+        # still owed.
+        remaining_total = sum(to_stripe_amount(refund_service.remaining_refundable(p), p.currency) for p in unrefunded)
         if refund_amount == remaining_total:
             return unrefunded
 
@@ -406,9 +445,10 @@ class TicketRefundHandlersMixin:
             allocated_amount: The refund amount attributable to THIS Payment in
                 major currency units. For single-Payment matches this equals the
                 Stripe refund amount converted from smallest units; for a
-                full-batch sweep (Branch 4) this equals ``payment.amount``. Only
-                used when no existing Refund row is found for this refund —
-                a pre-existing (e.g. PENDING, app-initiated) row keeps its own
+                full-batch sweep (Branch 4) this equals the payment's own
+                remaining refundable balance, not its gross amount. Only used
+                when no existing Refund row is found for this refund — a
+                pre-existing (e.g. PENDING, app-initiated) row keeps its own
                 requested amount.
 
         Returns:

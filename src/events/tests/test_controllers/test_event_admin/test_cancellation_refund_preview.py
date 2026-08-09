@@ -5,6 +5,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+import stripe
 from django.test.client import Client
 from django.urls import reverse
 
@@ -94,6 +95,39 @@ class TestCancellationRefundPreview:
         assert data["online_refundable_tickets"] == 1
         assert data["offline_tickets"] == 1  # display count still keys off the tier
         assert Decimal(data["currencies"][0]["total_refundable"]) == Decimal("40.00")
+
+    def test_balance_retrieve_stripe_error_yields_none(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """The balance fetch is advisory: a Stripe error must not fail the preview.
+
+        ``available_balance``/``balance_sufficient`` come back ``None`` instead.
+        """
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("40.00"))
+        online_ticket = ticket_factory(tier=online)
+        payment_factory(
+            ticket=online_ticket,
+            amount=Decimal("40.00"),
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_payment_intent_id="pi_balance_error",
+        )
+
+        url = reverse("api:event_cancellation_refund_preview", kwargs={"event_id": event.pk})
+        with patch("stripe.Balance.retrieve", side_effect=stripe.error.StripeError("boom")):
+            response = organization_owner_client.get(url)
+
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert len(data["currencies"]) == 1
+        line = data["currencies"][0]
+        assert Decimal(line["total_refundable"]) == Decimal("40.00")
+        assert line["available_balance"] is None
+        assert line["balance_sufficient"] is None
 
     def test_requires_manage_event_permission(
         self, organization_staff_client: Client, event: Event, staff_member: t.Any

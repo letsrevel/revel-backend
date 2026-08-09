@@ -532,3 +532,43 @@ class TestGenerateAttendeeCreditNote:
         assert list(cn.refunds.all()) == []
         invoice.refresh_from_db()
         assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_empty_refund_ids_list_falls_back_to_legacy_payment_keyed_path(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """``refund_ids=[]`` must behave like ``refund_ids=None``, not silently match zero rows.
+
+        Regression: an earlier ``if refund_ids is not None`` selector treated an empty list
+        as "refund-keyed", queried zero Refund rows, and returned None — dropping the credit
+        note entirely even though the payment was refunded.
+        """
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        payment = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_empty_refund_ids",
+            amount=Decimal("40.00"),
+            net_amount=Decimal("33.33"),
+            vat_amount=Decimal("6.67"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_cn_empty_refund_ids")
+        assert invoice is not None
+
+        cn = generate_attendee_credit_note("cs_cn_empty_refund_ids", [payment.id], refund_ids=[])
+        assert cn is not None
+        assert cn.amount_gross == Decimal("40.00")
+        assert list(cn.refunds.all()) == []
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED

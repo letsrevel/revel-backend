@@ -538,3 +538,62 @@ class TestCancelTicketByUser:
         assert payment.refund_status is None
         assert tier.quantity_sold == 1
         assert Refund.objects.count() == 0
+
+    def test_concurrent_refund_between_quote_and_lock_reports_actual_amount(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """Regression for #870: the API/notification must report what Stripe actually
+        refunded, not the pre-lock quote.
+
+        Simulates a partial organizer refund landing between the pre-atomic
+        ``quote_cancellation`` call and ``_refund_if_required``'s row lock: the quote
+        is stale (computed before the partial refund existed), so
+        ``cancel_ticket_by_user``'s internal ``quote_cancellation`` call is patched to
+        return it, while the concurrent refund is already committed in the DB by the
+        time the row lock re-checks the remaining balance.
+        """
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
+        policy = {"tiers": [{"hours_before_event": 0, "refund_percentage": "100"}], "flat_fee": "0"}
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price=Decimal("40.00"),
+            allow_user_cancellation=True,
+            refund_policy=policy,
+        )
+        ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
+        payment = payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_race")
+
+        stale_quote = quote_cancellation(ticket, timezone.now())
+        assert stale_quote.refund_amount == Decimal("40.00")  # captured before the concurrent refund below
+
+        # The "concurrent" organizer refund — already committed by the time the row
+        # lock in `_refund_if_required` re-checks `remaining_refundable`.
+        Refund.objects.create(
+            payment=payment,
+            amount=Decimal("15.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        with patch("events.service.cancellation_service.quote_cancellation", return_value=stale_quote):
+            with patch("stripe.Refund.create") as mock_create:
+                mock_create.return_value.id = "re_race_capped"
+                result = cancel_ticket_by_user(ticket, ticket.user, reason="", now=timezone.now())
+
+        mock_create.assert_called_once()
+        # Called with the actual remainder (40 - 15), not the stale quoted 40.
+        assert mock_create.call_args.kwargs["amount"] == 2500
+        assert result.refund_amount == Decimal("25.00")
+        assert result.ticket.status == Ticket.TicketStatus.CANCELLED
+        # The TICKET_CANCELLED notification hint must match the actual issued amount.
+        assert result.ticket._refund_amount == "25.00"  # type: ignore[attr-defined]
+        assert result.ticket._refund_currency == "EUR"  # type: ignore[attr-defined]
+        row = Refund.objects.get(payment=payment, source=Refund.Source.USER_CANCELLATION)
+        assert row.amount == Decimal("25.00")

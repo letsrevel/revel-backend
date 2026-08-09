@@ -111,8 +111,10 @@ class EventEditSlugSchema(Schema):
 class EventStatusUpdatePayload(Schema):
     """Optional body for the update-status endpoint.
 
-    ``cancellation_reason`` and ``refund_tickets`` are honored only when
-    transitioning to CANCELLED; both are ignored for every other target status.
+    ``cancellation_reason`` is honored only when transitioning to CANCELLED;
+    it is silently ignored for every other target status. ``refund_tickets=True``
+    is only valid alongside a transition to CANCELLED — the endpoint rejects it
+    with 400 for every other target status, rather than ignoring it.
     """
 
     cancellation_reason: StrippedString | None = Field(default=None, max_length=1000)

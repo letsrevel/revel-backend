@@ -11,7 +11,7 @@ from django.dispatch import receiver
 
 from common.models import SiteSettings
 from events.models import Event, Payment, Ticket
-from notifications.context_schemas import RefundUnmatchedCandidate
+from notifications.context_schemas import EventRefundSummaryContext, RefundUnmatchedCandidate
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
 from notifications.service.notification_helpers import format_event_datetime
@@ -291,7 +291,7 @@ def send_event_refund_summary(
         still_active: Non-CANCELLED tickets remaining on the event (0 unless the
             sweep gave up waiting).
     """
-    context: dict[str, t.Any] = {
+    context: EventRefundSummaryContext = {
         "organization_id": str(event.organization_id),
         "organization_name": event.organization.name,
         "event_id": str(event.id),

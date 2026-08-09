@@ -180,7 +180,14 @@ def send_event_refund_summary_task(event_id: str, attempt: int = 0) -> None:
     still_active = Ticket.objects.filter(event_id=event_id).exclude(status=Ticket.TicketStatus.CANCELLED).count()
 
     sweep_refunds = Refund.objects.filter(source=Refund.Source.EVENT_CANCELLATION, payment__ticket__event_id=event_id)
-    refunded = sweep_refunds.filter(status__in=[Refund.RefundStatus.PENDING, Refund.RefundStatus.SUCCEEDED]).count()
+    # Distinct payment_ids, matching `failed`'s unit below — a payment retried after a
+    # FAILED attempt leaves two rows (FAILED + PENDING/SUCCEEDED) and must count once.
+    refunded = (
+        sweep_refunds.filter(status__in=[Refund.RefundStatus.PENDING, Refund.RefundStatus.SUCCEEDED])
+        .values("payment_id")
+        .distinct()
+        .count()
+    )
     # A payment counts as failed only if ALL of its sweep refund rows are FAILED — a
     # retried-and-succeeded refund is not a failure, even though it also left a FAILED row.
     failed = (

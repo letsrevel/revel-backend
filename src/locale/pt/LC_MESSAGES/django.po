@@ -1096,8 +1096,8 @@ msgid ""
 "Refund declined: the Stripe account balance is insufficient. Top it up and "
 "retry."
 msgstr ""
-"Reembolso recusado: o saldo da conta Stripe é insuficiente. Recarregue e "
-"tente novamente."
+"Reembolso recusado: o saldo da conta Stripe é insuficiente. Recarrega e "
+"tenta novamente."
 
 msgid ""
 "Ticket refunds have started for this event; it can no longer be un-cancelled."
@@ -3335,7 +3335,7 @@ msgid ""
 "&mdash; check the event's ticket admin."
 msgstr ""
 "%(active)s bilhetes ainda não tinham sido cancelados quando este resumo "
-"foi enviado &mdash; verifique a administração de bilhetes do evento."
+"foi enviado &mdash; verifica a administração de bilhetes do evento."
 
 #, python-format
 msgid ""
@@ -3343,7 +3343,7 @@ msgid ""
 "check the event's ticket admin."
 msgstr ""
 "%(active)s bilhetes ainda não tinham sido cancelados quando este resumo "
-"foi enviado - verifique a administração de bilhetes do evento."
+"foi enviado - verifica a administração de bilhetes do evento."
 
 #, python-format
 msgid "Reminder: <strong>%(event)s</strong> is tomorrow!"

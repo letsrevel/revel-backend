@@ -1,9 +1,11 @@
 """Backfill one Refund row per Payment that already carries a refund block."""
 
+import typing as t
+
 from django.db import migrations
 
 
-def backfill_refunds(apps, schema_editor):  # type: ignore[no-untyped-def]
+def backfill_refunds(apps: t.Any, schema_editor: t.Any) -> None:
     Payment = apps.get_model("events", "Payment")
     Refund = apps.get_model("events", "Refund")
 

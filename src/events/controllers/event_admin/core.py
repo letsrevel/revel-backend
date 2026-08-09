@@ -125,7 +125,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/actions/update-status/{status}",
         url_name="update_event_status",
         permissions=[EventPermission("manage_event")],
-        response=schema.EventDetailSchema,
+        response={200: schema.EventDetailSchema, 400: ErrorDetail, 409: ErrorDetail},
     )
     def update_event_status(
         self,
@@ -180,7 +180,15 @@ class EventAdminCoreController(EventAdminBaseController):
             active_tickets=preview.active_tickets,
             online_refundable_tickets=preview.online_refundable_tickets,
             offline_tickets=preview.offline_tickets,
-            currencies=[schema.RefundPreviewCurrencyLine(**line) for line in preview.currencies],
+            currencies=[
+                schema.RefundPreviewCurrencyLine(
+                    currency=line.currency,
+                    total_refundable=line.total_refundable,
+                    available_balance=line.available_balance,
+                    balance_sufficient=line.balance_sufficient,
+                )
+                for line in preview.currencies
+            ],
             tickets_refund_started_at=preview.tickets_refund_started_at,
         )
 

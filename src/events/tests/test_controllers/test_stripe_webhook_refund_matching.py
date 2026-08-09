@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import stripe
 
-from events.models import Payment, Ticket, TicketTier
+from events.models import Payment, Refund, Ticket, TicketTier
 from events.service.stripe_webhooks import StripeEventHandler
 
 pytestmark = pytest.mark.django_db
@@ -257,3 +257,89 @@ class TestNonUniformBatchRefunds:
         assert tier.quantity_sold == 2, "no seat may be freed by an ambiguous refund"
         assert any("stripe_refund_non_uniform_batch" in record.message for record in caplog.records)
         assert any("stripe_refund_ambiguous_match" in record.message for record in caplog.records)
+
+
+class TestRemainingBasedMatching:
+    """Branches 3 & 4 compare/sum REMAINING refundable balances, not gross amounts (#870).
+
+    A payment with a prior partial refund has already given back some of its
+    ``amount`` — matching (and the Branch-4 fan-out allocation) must reason about
+    what's still owed, not what was originally charged.
+    """
+
+    def test_branch_4_full_remainder_after_prior_partial_refund_allocates_per_payment_remaining(
+        self,
+        payment_factory: t.Callable[..., Payment],
+        ticket_factory: t.Callable[..., Ticket],
+        tier_online_with_cancellation_enabled: TicketTier,
+    ) -> None:
+        tier = tier_online_with_cancellation_enabled
+        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=2)
+        ticket_a = ticket_factory(tier=tier)
+        ticket_b = ticket_factory(tier=tier)
+        payment_a = payment_factory(ticket=ticket_a, amount=Decimal("40.00"))
+        payment_b = payment_factory(ticket=ticket_b, amount=Decimal("40.00"))
+        _batch([payment_a, payment_b], "pi_partial_then_full")
+
+        # Payment A already had a 15.00 partial refund — its remaining is 25.00.
+        Refund.objects.create(
+            payment=payment_a,
+            amount=Decimal("15.00"),
+            currency=payment_a.currency,
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        # A dashboard refund for exactly the combined remainder: 25.00 (A) + 40.00 (B).
+        refund: dict[str, t.Any] = {"id": "re_remainder", "amount": 6500, "metadata": {}}
+        event = _charge_event("pi_partial_then_full", [refund])
+        StripeEventHandler(event).handle_charge_refunded(event)
+
+        payment_a.refresh_from_db()
+        payment_b.refresh_from_db()
+        assert payment_a.status == Payment.PaymentStatus.REFUNDED
+        assert payment_b.status == Payment.PaymentStatus.REFUNDED
+        row_a = Refund.objects.get(payment=payment_a, stripe_refund_id="re_remainder")
+        row_b = Refund.objects.get(payment=payment_b, stripe_refund_id="re_remainder")
+        assert row_a.amount == Decimal("25.00"), "allocated its own remaining, not its gross amount"
+        assert row_b.amount == Decimal("40.00")
+
+    def test_branch_3_matches_on_remaining_not_gross_amount(
+        self,
+        payment_factory: t.Callable[..., Payment],
+        ticket_factory: t.Callable[..., Ticket],
+        tier_online_with_cancellation_enabled: TicketTier,
+    ) -> None:
+        """A dashboard refund equal to the sole still-unrefunded payment's REMAINING
+        balance matches it, even though that no longer equals its gross amount."""
+        tier = tier_online_with_cancellation_enabled
+        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=2)
+        ticket_a = ticket_factory(tier=tier)
+        ticket_b = ticket_factory(tier=tier)
+        payment_a = payment_factory(ticket=ticket_a, amount=Decimal("40.00"))
+        payment_b = payment_factory(ticket=ticket_b, amount=Decimal("40.00"))
+        _batch([payment_a, payment_b], "pi_remaining_exact")
+
+        # B is already fully refunded — out of the running (Branch 2.5's guard).
+        Payment.objects.filter(pk=payment_b.pk).update(
+            status=Payment.PaymentStatus.REFUNDED, refund_status=Payment.RefundStatus.SUCCEEDED
+        )
+        # A has a prior 30.00 partial refund — its remaining is 10.00, not its 40.00 gross.
+        Refund.objects.create(
+            payment=payment_a,
+            amount=Decimal("30.00"),
+            currency=payment_a.currency,
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        # 10.00 matches A's remaining exactly — a gross-amount comparison (40.00)
+        # would have missed this and fallen through to Branch 5.
+        refund: dict[str, t.Any] = {"id": "re_exact_remaining", "amount": 1000, "metadata": {}}
+        event = _charge_event("pi_remaining_exact", [refund])
+        StripeEventHandler(event).handle_charge_refunded(event)
+
+        payment_a.refresh_from_db()
+        assert payment_a.status == Payment.PaymentStatus.REFUNDED
+        row_a = Refund.objects.get(payment=payment_a, stripe_refund_id="re_exact_remaining")
+        assert row_a.amount == Decimal("10.00")

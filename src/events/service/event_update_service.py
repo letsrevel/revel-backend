@@ -252,8 +252,17 @@ def update_status(
         ``tickets_refund_started_at`` so two concurrent calls can't both
         observe the un-set stamp and race on the un-cancel guard / dispatch.
 
+    Requires an active transaction: the function re-fetches ``event`` under
+    ``select_for_update()`` as its first step, which raises
+    ``TransactionManagementError`` outside one. The ``@transaction.atomic``
+    decorator on this function provides it, so a direct call is always safe;
+    it also means every write here (or a rollback) is scoped to that block,
+    not the caller's.
+
     Args:
-        event: The event to mutate.
+        event: The event to mutate. Only its ``pk`` is used — the instance
+            itself is discarded in favor of a freshly locked re-fetch (see
+            Returns).
         new_status: The target status.
         cancellation_reason: Optional organizer-supplied reason, honored only
             when ``new_status`` is CANCELLED; ignored for other transitions.
@@ -264,7 +273,9 @@ def update_status(
             ``refund_tickets`` triggers a dispatch.
 
     Returns:
-        The updated ``Event`` (same instance).
+        The updated ``Event`` — a distinct, freshly re-fetched instance
+        (``select_for_update().get(pk=event.pk)``), not the ``event`` object
+        the caller passed in.
 
     Raises:
         EventRefundsStartedError: On an un-cancel attempt after the bulk

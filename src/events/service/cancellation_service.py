@@ -189,10 +189,15 @@ def _compute_refund(policy: RefundPolicy, hours_remaining: Decimal, gross: Decim
 def quote_cancellation(ticket: Ticket, now: datetime) -> RefundQuote:
     """Compute whether ``ticket`` can be cancelled and the refund amount if so.
 
-    Pure + stateless. Ownership (NOT_OWNER) is enforced by the controller, not here.
+    Not pure: when the policy-computed refund is > 0, this reads
+    ``payment.refunds.all()`` (via ``_remaining_refundable``) to cap the quote at
+    what a prior partial refund left outstanding (#865) — a DB query unless the
+    caller already prefetched ``payment__refunds`` on ``ticket``. Ownership
+    (NOT_OWNER) is enforced by the controller, not here.
 
     Args:
-        ticket: The ticket to evaluate.
+        ticket: The ticket to evaluate. Prefetch ``payment__refunds`` to avoid an
+            extra query when the ticket has a prior refund.
         now: The current datetime (timezone-aware). Injected for testability.
 
     Returns:
@@ -384,22 +389,27 @@ def cancel_ticket_by_user(
             raise CancellationBlocked(CancellationBlockReason.CHECKED_IN)
 
         # Online tickets with refund > 0 → hit Stripe before mutating local state.
-        refund_status = _refund_if_required(locked_ticket, quote, user)
-        _finalize_cancellation(locked_ticket, user, reason, now, quote)
+        refund_status, actual_refund_amount = _refund_if_required(locked_ticket, quote, user)
+        _finalize_cancellation(locked_ticket, user, reason, now, actual_refund_amount, quote.currency)
 
     return CancellationResult(
         ticket=locked_ticket,
-        refund_amount=quote.refund_amount,
+        refund_amount=actual_refund_amount,
         currency=quote.currency,
         refund_status=refund_status,
     )
 
 
-def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote, user: t.Any) -> str | None:
+def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote, user: t.Any) -> tuple[str | None, Decimal]:
     """Issue a Stripe refund when the locked ticket is an online paid ticket with refund > 0.
 
     Must run inside ``cancel_ticket_by_user``'s atomic block (it acquires a row lock
-    on the Payment). Returns the refund status, or ``None`` when no refund applies.
+    on the Payment). Returns ``(refund_status, actual_amount)``: ``actual_amount`` is
+    the amount actually issued to Stripe — capped under the row lock, which may be
+    less than ``quote.refund_amount`` when a concurrent organizer/webhook refund
+    landed between the pre-atomic quote and this lock. Callers must report this
+    capped amount, not the pre-lock quote, so notifications and the API response
+    stay truthful. Returns ``(None, Decimal("0"))`` when no refund applies.
     """
     from events.service import refund_service
 
@@ -416,7 +426,7 @@ def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote, user: t.Any) 
         # already been returned — the cancellation itself must still proceed.
         amount = min(quote.refund_amount, refund_service.remaining_refundable(payment))
         if amount <= _ZERO:
-            return None
+            return None, _ZERO
         refund_service.issue_refund(
             payment,
             amount=amount,
@@ -424,8 +434,8 @@ def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote, user: t.Any) 
             reason="user_cancellation",
             source=Refund.Source.USER_CANCELLATION,
         )
-        return str(Payment.RefundStatus.PENDING)
-    return None
+        return str(Payment.RefundStatus.PENDING), amount
+    return None, _ZERO
 
 
 def _finalize_cancellation(
@@ -433,7 +443,8 @@ def _finalize_cancellation(
     user: t.Any,
     reason: str,
     now: datetime,
-    quote: RefundQuote,
+    refund_amount: Decimal,
+    currency: str,
 ) -> None:
     """Mutate ticket + tier rows for a confirmed cancellation (inside the caller's txn)."""
     # Set pre-save hints used by the TICKET_CANCELLED notification signal handler
@@ -441,9 +452,12 @@ def _finalize_cancellation(
     # the cancellation (rather than only later via TICKET_REFUNDED on webhook).
     # Skip when there is no refund — templates gate on `{% if context.refund_amount %}`
     # and the truthy string "0.00" would render a misleading "Refund of 0..." line.
-    if quote.refund_amount > _ZERO:
-        locked_ticket._refund_amount = str(quote.refund_amount)  # type: ignore[attr-defined]
-        locked_ticket._refund_currency = quote.currency  # type: ignore[attr-defined]
+    # ``refund_amount`` is the actually-issued (capped) amount from
+    # ``_refund_if_required``, not the pre-lock quote — a concurrent refund may
+    # have shrunk it between the quote and the row lock.
+    if refund_amount > _ZERO:
+        locked_ticket._refund_amount = str(refund_amount)  # type: ignore[attr-defined]
+        locked_ticket._refund_currency = currency  # type: ignore[attr-defined]
 
     locked_ticket.status = Ticket.TicketStatus.CANCELLED
     locked_ticket.cancelled_at = now

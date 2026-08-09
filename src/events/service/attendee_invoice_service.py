@@ -664,15 +664,17 @@ def generate_attendee_credit_note(
     Args:
         stripe_session_id: The Stripe session ID of the original purchase.
         refunded_payment_ids: IDs of the refunded Payment records. Used as-is
-            (full payment amount) when ``refund_ids`` is not given, for
-            backward compatibility with callers that predate per-refund
-            amounts (e.g. in-flight Celery messages).
-        refund_ids: IDs of SUCCEEDED Refund rows. When given, the credit note
-            is keyed on these rows instead of whole payments: amounts come
-            from each row's ``amount`` (with pro-rata VAT), and idempotency
-            is checked against the refund-id set rather than the payment-id
-            set — so two partial refunds on the same payment each get their
-            own credit note.
+            (full payment amount) when ``refund_ids`` is falsy (``None`` or
+            ``[]``), for backward compatibility with callers that predate
+            per-refund amounts (e.g. in-flight Celery messages).
+        refund_ids: IDs of SUCCEEDED Refund rows. When given and non-empty,
+            the credit note is keyed on these rows instead of whole payments:
+            amounts come from each row's ``amount`` (with pro-rata VAT), and
+            idempotency is checked against the refund-id set rather than the
+            payment-id set — so two partial refunds on the same payment each
+            get their own credit note. An empty list is treated the same as
+            ``None`` (falls back to the payment-keyed path) rather than
+            silently matching zero rows and returning ``None``.
 
     Returns:
         The created credit note, or None if no invoice exists.
@@ -688,7 +690,7 @@ def generate_attendee_credit_note(
 
     refund_rows: list[Refund] = []
     refunded_payments: list[Payment] = []
-    if refund_ids is not None:
+    if refund_ids:
         refund_rows = list(
             Refund.objects.filter(
                 pk__in=refund_ids,
@@ -720,7 +722,7 @@ def generate_attendee_credit_note(
 
         build = (
             _build_from_refund_rows(refund_rows, existing_cns)
-            if refund_ids is not None
+            if refund_ids
             else _build_from_payments(refunded_payments, existing_cns)
         )
         if build is None:

@@ -133,7 +133,7 @@ class TestIssueRefund:
         assert mock_create.call_args.kwargs["idempotency_key"] == f"refund:{payment.pk}:1:40.00"
 
     def test_over_amount_rejected_400(self, online_paid_ticket: Ticket) -> None:
-        with pytest.raises(HttpError), transaction.atomic():
+        with pytest.raises(HttpError) as exc_info, transaction.atomic():
             refund_service.issue_refund(
                 online_paid_ticket.payment,
                 amount=Decimal("41.00"),
@@ -141,6 +141,7 @@ class TestIssueRefund:
                 reason="",
                 source=Refund.Source.ORGANIZER_API,
             )
+        assert exc_info.value.status_code == 400
 
     def test_fully_refunded_raises_nothing_to_refund(self, online_paid_ticket: Ticket) -> None:
         payment = online_paid_ticket.payment
@@ -254,3 +255,38 @@ class TestIssueRefund:
                     source=Refund.Source.ORGANIZER_API,
                 )
         assert mock_create.call_args.kwargs["stripe_account"] == "acct_connected_123"
+
+
+class TestAdminCancelTicketRefundHint:
+    """admin_cancel_ticket must set the same pre-save notification hint as user
+    self-cancel (cancellation_service._finalize_cancellation), so the organizer's
+    cancel-with-refund also drives a TICKET_CANCELLED notification that reports
+    the actual issued amount (#870)."""
+
+    def test_sets_refund_amount_hint_before_cancelling(self, online_paid_ticket: Ticket) -> None:
+        from events.service import ticket_service
+
+        captured: dict[str, t.Any] = {}
+        original = ticket_service._cancel_offline_ticket_core
+
+        def _spy(ticket: Ticket, **kwargs: t.Any) -> None:
+            captured["refund_amount"] = getattr(ticket, "_refund_amount", None)
+            captured["refund_currency"] = getattr(ticket, "_refund_currency", None)
+            original(ticket, **kwargs)
+
+        with (
+            patch("stripe.Refund.create") as mock_create,
+            patch.object(ticket_service, "_cancel_offline_ticket_core", side_effect=_spy),
+        ):
+            mock_create.return_value.id = "re_admin_cancel"
+            refund_service.admin_cancel_ticket(
+                online_paid_ticket,
+                cancelled_by=online_paid_ticket.user,
+                reason="organizer initiated",
+                refund_amount=Decimal("15.00"),
+            )
+
+        assert captured["refund_amount"] == "15.00"
+        assert captured["refund_currency"] == "EUR"
+        refund = Refund.objects.get(payment=online_paid_ticket.payment)
+        assert refund.amount == Decimal("15.00")

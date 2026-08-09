@@ -339,7 +339,13 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.post(
         "/tickets/{ticket_id}/cancel",
         url_name="cancel_ticket",
-        response={200: schema.UserTicketSchema},
+        response={
+            200: schema.UserTicketSchema,
+            400: ErrorDetail,
+            409: ErrorDetail,
+            402: ErrorDetail,
+            502: ErrorDetail,
+        },
     )
     def cancel_ticket(
         self,
@@ -368,7 +374,13 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.post(
         "/tickets/{ticket_id}/refund",
         url_name="refund_ticket_payment",
-        response={200: schema.TicketRefundSchema},
+        response={
+            200: schema.TicketRefundSchema,
+            400: ErrorDetail,
+            409: ErrorDetail,
+            402: ErrorDetail,
+            502: ErrorDetail,
+        },
     )
     def refund_ticket_payment(
         self,
