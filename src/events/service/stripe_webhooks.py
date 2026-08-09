@@ -22,6 +22,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     Organization,
     Payment,
+    Refund,
     StripeWebhookEvent,
     Ticket,
     TicketTier,
@@ -249,11 +250,20 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             return
         sid = refunded[0].stripe_session_id
         ids = [str(p.id) for p in refunded]
+        # refund_status=SUCCEEDED now also covers partial refunds (#865), so
+        # collect the actual Refund rows rather than assuming full-payment
+        # amounts — the task is amount-aware when refund_ids is given.
+        refund_ids = [
+            str(pk)
+            for pk in Refund.objects.filter(payment__in=refunded, status=Refund.RefundStatus.SUCCEEDED).values_list(
+                "pk", flat=True
+            )
+        ]
 
         def _retry_credit_note() -> None:
             from events.tasks import generate_attendee_credit_note_task
 
-            generate_attendee_credit_note_task.delay(sid, ids)
+            generate_attendee_credit_note_task.delay(sid, ids, refund_ids)
 
         transaction.on_commit(_retry_credit_note)
 

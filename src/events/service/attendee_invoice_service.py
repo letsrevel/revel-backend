@@ -4,7 +4,7 @@ Handles the full lifecycle of attendee invoices issued on behalf of organizers.
 """
 
 import typing as t
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from email.utils import formataddr
 
 import structlog
@@ -23,6 +23,7 @@ from events.models.attendee_invoice import (
     InvoiceLineItemDict,
 )
 from events.models.organization import Organization
+from events.models.refund import Refund
 from events.models.ticket import Payment
 
 if t.TYPE_CHECKING:
@@ -95,6 +96,38 @@ def _build_line_items(payments: list[Payment]) -> list[InvoiceLineItemDict]:
                 discount_amount=str(ticket.discount_amount or Decimal("0.00")),
                 net_amount=str(payment.net_amount or payment.amount),
                 vat_amount=str(payment.vat_amount or Decimal("0.00")),
+                vat_rate=str(payment.vat_rate or Decimal("0.00")),
+            )
+        )
+    return items
+
+
+def _refund_vat_portion(row: Refund) -> Decimal:
+    """Pro-rate a refund row's VAT using its payment's VAT ratio, half-up to cents."""
+    payment = row.payment
+    if not payment.vat_amount or not payment.amount:
+        return Decimal("0.00")
+    return (row.amount * payment.vat_amount / payment.amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _build_refund_line_items(refund_rows: list[Refund]) -> list[InvoiceLineItemDict]:
+    """Build line item dicts from Refund rows (amount-aware, pro-rata VAT)."""
+    items: list[InvoiceLineItemDict] = []
+    for row in refund_rows:
+        payment = row.payment
+        ticket = payment.ticket
+        event_name = ticket.event.name if ticket.event else "Unknown Event"
+        tier_name = ticket.tier.name if ticket.tier else "Unknown Tier"
+        description = " — ".join(part for part in (event_name, tier_name, ticket.guest_name.strip()) if part)
+        label = "Partial refund" if row.amount < payment.amount else "Refund"
+        vat_amount = _refund_vat_portion(row)
+        items.append(
+            InvoiceLineItemDict(
+                description=f"{label} — {description}",
+                unit_price_gross=str(row.amount),
+                discount_amount=str(Decimal("0.00")),
+                net_amount=str(row.amount - vat_amount),
+                vat_amount=str(vat_amount),
                 vat_rate=str(payment.vat_rate or Decimal("0.00")),
             )
         )
@@ -534,15 +567,112 @@ def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
 # ---------------------------------------------------------------------------
 
 
+class _CreditNoteBuild(t.NamedTuple):
+    """Computed fields ready to hand to ``AttendeeInvoiceCreditNote.objects.create()``."""
+
+    amount_gross: Decimal
+    amount_net: Decimal
+    amount_vat: Decimal
+    line_items: list[InvoiceLineItemDict]
+    payments: t.Collection[Payment]
+    refund_rows: list[Refund] | None
+
+
+def _build_from_payments(
+    refunded_payments: list[Payment], existing_cns: list[AttendeeInvoiceCreditNote]
+) -> AttendeeInvoiceCreditNote | _CreditNoteBuild | None:
+    """Legacy payment-keyed path: full payment amounts, exact-set idempotency on payment ids."""
+    already_credited_ids: set["UUID"] = set()
+    for existing_cn in existing_cns:
+        already_credited_ids.update(p.id for p in existing_cn.payments.all())
+
+    # Exact-match idempotency: if this exact set was already credited, return it
+    refunded_id_set = {p.id for p in refunded_payments}
+    for existing_cn in existing_cns:
+        if {p.id for p in existing_cn.payments.all()} == refunded_id_set:
+            # Regenerate PDF if a previous attempt failed after DB commit
+            ensure_credit_note_pdf_exists(existing_cn)
+            return existing_cn
+
+    # Exclude payments already credited (prevents double-credit from superset retries)
+    refunded_payments = [p for p in refunded_payments if p.id not in already_credited_ids]
+    if not refunded_payments:
+        return None
+
+    return _CreditNoteBuild(
+        amount_gross=sum((p.amount for p in refunded_payments), Decimal("0.00")),
+        amount_net=sum((p.net_amount or p.amount for p in refunded_payments), Decimal("0.00")),
+        amount_vat=sum((p.vat_amount or Decimal("0.00") for p in refunded_payments), Decimal("0.00")),
+        line_items=_build_line_items(refunded_payments),
+        payments=refunded_payments,
+        refund_rows=None,
+    )
+
+
+def _build_from_refund_rows(
+    refund_rows: list[Refund], existing_cns: list[AttendeeInvoiceCreditNote]
+) -> AttendeeInvoiceCreditNote | _CreditNoteBuild | None:
+    """Amount-aware, refund-row-keyed path: pro-rata VAT, exact-set idempotency on refund ids.
+
+    Legacy CNs have an empty ``refunds`` M2M; they cover their full ``payments``
+    set instead. A refund row whose payment already has a legacy CN is treated
+    as fully credited and skipped.
+    """
+    already_credited_refund_ids: set["UUID"] = set()
+    legacy_credited_payment_ids: set["UUID"] = set()
+    for existing_cn in existing_cns:
+        cn_refund_ids = {r.id for r in existing_cn.refunds.all()}
+        if cn_refund_ids:
+            already_credited_refund_ids.update(cn_refund_ids)
+        else:
+            legacy_credited_payment_ids.update(p.id for p in existing_cn.payments.all())
+
+    # Exact-match idempotency on the refund-id set
+    requested_refund_id_set = {r.id for r in refund_rows}
+    for existing_cn in existing_cns:
+        if {r.id for r in existing_cn.refunds.all()} == requested_refund_id_set:
+            ensure_credit_note_pdf_exists(existing_cn)
+            return existing_cn
+
+    refund_rows = [
+        r
+        for r in refund_rows
+        if r.id not in already_credited_refund_ids and r.payment_id not in legacy_credited_payment_ids
+    ]
+    if not refund_rows:
+        return None
+
+    amount_gross = sum((r.amount for r in refund_rows), Decimal("0.00"))
+    amount_vat = sum((_refund_vat_portion(r) for r in refund_rows), Decimal("0.00"))
+    return _CreditNoteBuild(
+        amount_gross=amount_gross,
+        amount_net=amount_gross - amount_vat,
+        amount_vat=amount_vat,
+        line_items=_build_refund_line_items(refund_rows),
+        payments={r.payment for r in refund_rows},
+        refund_rows=refund_rows,
+    )
+
+
 def generate_attendee_credit_note(
     stripe_session_id: str,
     refunded_payment_ids: list["UUID"],
+    refund_ids: list["UUID"] | None = None,
 ) -> AttendeeInvoiceCreditNote | None:
     """Generate a credit note for refunded payments on an invoiced session.
 
     Args:
         stripe_session_id: The Stripe session ID of the original purchase.
-        refunded_payment_ids: IDs of the refunded Payment records.
+        refunded_payment_ids: IDs of the refunded Payment records. Used as-is
+            (full payment amount) when ``refund_ids`` is not given, for
+            backward compatibility with callers that predate per-refund
+            amounts (e.g. in-flight Celery messages).
+        refund_ids: IDs of SUCCEEDED Refund rows. When given, the credit note
+            is keyed on these rows instead of whole payments: amounts come
+            from each row's ``amount`` (with pro-rata VAT), and idempotency
+            is checked against the refund-id set rather than the payment-id
+            set — so two partial refunds on the same payment each get their
+            own credit note.
 
     Returns:
         The created credit note, or None if no invoice exists.
@@ -556,45 +686,48 @@ def generate_attendee_credit_note(
         delete_draft_invoice(invoice)
         return None
 
-    refunded_payments = list(
-        Payment.objects.filter(
-            id__in=refunded_payment_ids,
-            stripe_session_id=stripe_session_id,
-        ).select_related("ticket__event", "ticket__tier")
-    )
-
-    if not refunded_payments:
-        return None
+    refund_rows: list[Refund] = []
+    refunded_payments: list[Payment] = []
+    if refund_ids is not None:
+        refund_rows = list(
+            Refund.objects.filter(
+                pk__in=refund_ids,
+                status=Refund.RefundStatus.SUCCEEDED,
+                payment__stripe_session_id=stripe_session_id,
+            ).select_related("payment__ticket__event", "payment__ticket__tier")
+        )
+        if not refund_rows:
+            return None
+    else:
+        refunded_payments = list(
+            Payment.objects.filter(
+                id__in=refunded_payment_ids,
+                stripe_session_id=stripe_session_id,
+            ).select_related("ticket__event", "ticket__tier")
+        )
+        if not refunded_payments:
+            return None
 
     with transaction.atomic():
         # Lock the invoice row to serialize concurrent credit note creation
         invoice = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
 
-        # Collect all payment IDs already covered by existing credit notes
-        # to prevent double-crediting on webhook re-delivery after multi-step refunds.
-        existing_cns = list(AttendeeInvoiceCreditNote.objects.filter(invoice=invoice).prefetch_related("payments"))
-        already_credited_ids: set["UUID"] = set()
-        for existing_cn in existing_cns:
-            already_credited_ids.update(p.id for p in existing_cn.payments.all())
+        # Collect existing credit notes so both idempotency paths below can
+        # compare against what's already been credited.
+        existing_cns = list(
+            AttendeeInvoiceCreditNote.objects.filter(invoice=invoice).prefetch_related("payments", "refunds")
+        )
 
-        # Exact-match idempotency: if this exact set was already credited, return it
-        refunded_id_set = {p.id for p in refunded_payments}
-        for existing_cn in existing_cns:
-            if {p.id for p in existing_cn.payments.all()} == refunded_id_set:
-                # Regenerate PDF if a previous attempt failed after DB commit
-                ensure_credit_note_pdf_exists(existing_cn)
-                return existing_cn
-
-        # Exclude payments already credited (prevents double-credit from superset retries)
-        refunded_payments = [p for p in refunded_payments if p.id not in already_credited_ids]
-        if not refunded_payments:
+        build = (
+            _build_from_refund_rows(refund_rows, existing_cns)
+            if refund_ids is not None
+            else _build_from_payments(refunded_payments, existing_cns)
+        )
+        if build is None:
             return None
+        if isinstance(build, AttendeeInvoiceCreditNote):
+            return build
 
-        amount_gross = sum(p.amount for p in refunded_payments)
-        amount_net = sum(p.net_amount or p.amount for p in refunded_payments)
-        amount_vat = sum(p.vat_amount or Decimal("0.00") for p in refunded_payments)
-
-        line_items = _build_line_items(refunded_payments)
         org = invoice.organization
 
         cn_prefix = f"{_sanitize_org_slug(org, _CREDIT_NOTE_SLUG_MAX)}-CN-" if org else "CN-"
@@ -606,13 +739,15 @@ def generate_attendee_credit_note(
         credit_note = AttendeeInvoiceCreditNote.objects.create(
             invoice=invoice,
             credit_note_number=credit_note_number,
-            amount_gross=amount_gross,
-            amount_net=amount_net,
-            amount_vat=amount_vat,
-            line_items=line_items,
+            amount_gross=build.amount_gross,
+            amount_net=build.amount_net,
+            amount_vat=build.amount_vat,
+            line_items=build.line_items,
             issued_at=timezone.now(),
         )
-        credit_note.payments.set(refunded_payments)
+        credit_note.payments.set(build.payments)
+        if build.refund_rows is not None:
+            credit_note.refunds.set(build.refund_rows)
 
         # Check if fully credited → mark invoice as CANCELLED
         total_credited = sum(cn.amount_gross for cn in invoice.credit_notes.all())

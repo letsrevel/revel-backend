@@ -94,7 +94,7 @@ class TicketRefundHandlersMixin:
             logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
             return
 
-        newly_refunded_ids, touched_session_id = self._process_refunds(
+        newly_refunded_ids, newly_refund_row_ids, touched_session_id = self._process_refunds(
             refunds=refunds,
             candidates=candidates,
             raw_response=dict(event),
@@ -105,6 +105,7 @@ class TicketRefundHandlersMixin:
             payment_intent_id=payment_intent_id,
             candidates=candidates,
             newly_refunded_ids=newly_refunded_ids,
+            newly_refund_row_ids=newly_refund_row_ids,
             touched_session_id=touched_session_id,
         )
 
@@ -122,7 +123,7 @@ class TicketRefundHandlersMixin:
         candidates: list[Payment],
         raw_response: dict[str, t.Any],
         payment_intent_id: str,
-    ) -> tuple[list[str], str | None]:
+    ) -> tuple[list[str], list[str], str | None]:
         """Match each refund to its Payment(s) and apply it.
 
         Record-only — see :meth:`_apply_refund_to_payment`.
@@ -134,12 +135,14 @@ class TicketRefundHandlersMixin:
             payment_intent_id: Stripe payment intent id (logging only).
 
         Returns:
-            A ``(newly_refunded_ids, touched_session_id)`` tuple: the Payment
-            ids mutated in this call, and the session id of the last mutated
-            Payment (or None).
+            A ``(newly_refunded_ids, newly_refund_row_ids, touched_session_id)``
+            tuple: the Payment ids mutated in this call, the pks of the Refund
+            rows applied, and the session id of the last mutated Payment (or
+            None).
         """
         touched_session_id: str | None = None
         newly_refunded_ids: list[str] = []
+        newly_refund_row_ids: list[str] = []
 
         for refund in refunds:
             matched = self._match_refund_to_payments(refund, candidates)
@@ -169,11 +172,12 @@ class TicketRefundHandlersMixin:
                     if is_full_batch
                     else from_stripe_amount(int(refund.get("amount", 0)), payment.currency)
                 )
-                self._apply_refund_to_payment(payment, refund, raw_response, allocated_amount)
+                refund_row = self._apply_refund_to_payment(payment, refund, raw_response, allocated_amount)
                 newly_refunded_ids.append(str(payment.id))
+                newly_refund_row_ids.append(str(refund_row.pk))
                 touched_session_id = payment.stripe_session_id
 
-        return newly_refunded_ids, touched_session_id
+        return newly_refunded_ids, newly_refund_row_ids, touched_session_id
 
     def _notify_unmatched_refund(
         self, refund: dict[str, t.Any], candidates: list[Payment], payment_intent_id: str
@@ -216,6 +220,7 @@ class TicketRefundHandlersMixin:
         payment_intent_id: str,
         candidates: list[Payment],
         newly_refunded_ids: list[str],
+        newly_refund_row_ids: list[str],
         touched_session_id: str | None,
     ) -> None:
         """Enqueue generate_attendee_credit_note_task after the refund loop.
@@ -229,30 +234,41 @@ class TicketRefundHandlersMixin:
             payment_intent_id: Stripe payment intent ID (used for logging only).
             candidates: All Payment rows for this intent.
             newly_refunded_ids: IDs of payments mutated in this invocation.
+            newly_refund_row_ids: pks of the Refund rows applied in this invocation —
+                threaded through so the credit note is amount-aware (#865).
             touched_session_id: stripe_session_id from the last mutated payment in this
                 invocation, or None. All matched Payments share a charge/intent so any
                 one is representative.
         """
         if newly_refunded_ids and touched_session_id:
-            sid, ids = touched_session_id, newly_refunded_ids
+            sid, ids, refund_ids = touched_session_id, newly_refunded_ids, newly_refund_row_ids
 
             def _trigger_credit_note() -> None:
                 from events.tasks import generate_attendee_credit_note_task
 
-                generate_attendee_credit_note_task.delay(sid, ids)
+                generate_attendee_credit_note_task.delay(sid, ids, refund_ids)
 
             transaction.on_commit(_trigger_credit_note)
             return
 
+        # refund_status flips to SUCCEEDED on any successful refund, full or
+        # partial (#865) — so this also covers candidates that only ever had a
+        # partial refund applied. Harmless: the retry is idempotent downstream.
         if not newly_refunded_ids and all(p.refund_status == Payment.RefundStatus.SUCCEEDED for p in candidates):
             # Pure duplicate webhook — every candidate is already refunded.
             dup_sid = candidates[0].stripe_session_id
             dup_ids = [str(p.id) for p in candidates]
+            dup_refund_ids = [
+                str(pk)
+                for pk in Refund.objects.filter(
+                    payment__in=candidates, status=Refund.RefundStatus.SUCCEEDED
+                ).values_list("pk", flat=True)
+            ]
 
             def _retry_credit_note() -> None:
                 from events.tasks import generate_attendee_credit_note_task
 
-                generate_attendee_credit_note_task.delay(dup_sid, dup_ids)
+                generate_attendee_credit_note_task.delay(dup_sid, dup_ids, dup_refund_ids)
 
             transaction.on_commit(_retry_credit_note)
             logger.info(
@@ -376,7 +392,7 @@ class TicketRefundHandlersMixin:
         refund: dict[str, t.Any],
         raw_response: dict[str, t.Any],
         allocated_amount: Decimal,
-    ) -> None:
+    ) -> Refund:
         """Persist refund data onto its Refund row and the Payment. Record-only.
 
         Refunds no longer cancel tickets: cancel and refund are orthogonal
@@ -394,6 +410,10 @@ class TicketRefundHandlersMixin:
                 used when no existing Refund row is found for this refund —
                 a pre-existing (e.g. PENDING, app-initiated) row keeps its own
                 requested amount.
+
+        Returns:
+            The Refund row this webhook applied — used to thread refund ids
+            through to the amount-aware credit note task.
         """
         from django.utils import timezone
 
@@ -437,3 +457,4 @@ class TicketRefundHandlersMixin:
                 "raw_response",
             ]
         )
+        return row
