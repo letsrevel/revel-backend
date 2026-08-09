@@ -24,6 +24,7 @@ from decimal import Decimal
 from unittest import mock
 
 import pytest
+import stripe
 from django.http import HttpRequest
 from django.test.client import Client
 from django.urls import reverse
@@ -51,7 +52,12 @@ pytestmark = pytest.mark.django_db
 
 def assert_detail_body(response: t.Any) -> str:
     """Assert a 400 whose body is exactly the ``{"detail": ...}`` shape."""
-    assert response.status_code == 400, response.content
+    return assert_detail_body_with_status(response, 400)
+
+
+def assert_detail_body_with_status(response: t.Any, status_code: int) -> str:
+    """Assert ``status_code`` with a body that is exactly the ``{"detail": ...}`` shape."""
+    assert response.status_code == status_code, response.content
     body = response.json()
     assert isinstance(body.get("detail"), str) and body["detail"], body
     # The whole point of #712: these endpoints never emit a ``message`` key,
@@ -484,6 +490,75 @@ class TestOrganizerRefundExceptionContracts:
         assert status == 502
         assert body["detail"] == "card_declined"
         assert "message" not in body, body
+
+
+class TestOrganizerRefundEndpointContracts:
+    """Endpoint-level siblings of ``TestOrganizerRefundExceptionContracts`` (#865, task 7).
+
+    ``POST /event-admin/{event_id}/tickets/{ticket_id}/refund`` now exists, so the
+    RefundInsufficientBalanceError / NothingToRefundError / StripeRefundFailed
+    contracts can be pinned through a real route rather than by invoking the
+    handler directly. ``EventRefundsStartedError`` has no endpoint yet (task 8),
+    so it keeps its direct-handler-only test above.
+    """
+
+    @pytest.fixture
+    def online_paid_ticket(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+    ) -> Ticket:
+        tier = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("40.00"))
+        ticket = ticket_factory(tier=tier)
+        payment_factory(
+            ticket=ticket,
+            amount=Decimal("40.00"),
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_payment_intent_id="pi_contract_test",
+        )
+        return ticket
+
+    def test_refund_insufficient_balance_returns_402_detail(
+        self, organization_owner_client: Client, event: Event, online_paid_ticket: Ticket
+    ) -> None:
+        url = reverse(
+            "api:refund_ticket_payment",
+            kwargs={"event_id": event.pk, "ticket_id": online_paid_ticket.pk},
+        )
+        err = stripe.error.InvalidRequestError(message="insufficient", param=None, code="balance_insufficient")
+        with mock.patch("stripe.Refund.create", side_effect=err):
+            response = organization_owner_client.post(url, data={}, content_type="application/json")
+        assert_detail_body_with_status(response, 402)
+
+    def test_nothing_to_refund_returns_409_detail(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        tier = tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("25.00"))
+        ticket = ticket_factory(tier=tier)
+        payment_factory(ticket=ticket, amount=Decimal("25.00"), stripe_payment_intent_id="")
+        url = reverse(
+            "api:refund_ticket_payment",
+            kwargs={"event_id": event.pk, "ticket_id": ticket.pk},
+        )
+        response = organization_owner_client.post(url, data={}, content_type="application/json")
+        assert_detail_body_with_status(response, 409)
+
+    def test_stripe_refund_failed_returns_502_detail(
+        self, organization_owner_client: Client, event: Event, online_paid_ticket: Ticket
+    ) -> None:
+        url = reverse(
+            "api:refund_ticket_payment",
+            kwargs={"event_id": event.pk, "ticket_id": online_paid_ticket.pk},
+        )
+        with mock.patch("stripe.Refund.create", side_effect=stripe.error.APIError("boom")):
+            response = organization_owner_client.post(url, data={}, content_type="application/json")
+        assert_detail_body_with_status(response, 502)
 
 
 class TestTelegramErrorContracts:

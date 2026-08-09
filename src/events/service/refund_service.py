@@ -7,6 +7,8 @@ organizer API, bulk event cancellation) goes through ``issue_refund``. One
 """
 
 import typing as t
+from dataclasses import dataclass
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
@@ -15,8 +17,13 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.exceptions import NothingToRefundError, RefundInsufficientBalanceError, StripeRefundFailed
-from events.models import Payment, Refund
+from events.exceptions import (
+    NothingToRefundError,
+    RefundInsufficientBalanceError,
+    StripeRefundFailed,
+    TicketAlreadyCancelledError,
+)
+from events.models import Payment, Refund, Ticket, TicketTier
 from events.utils.currency import to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -146,3 +153,102 @@ def issue_refund(
     locked.refund_failure_reason = ""
     locked.save(update_fields=["stripe_refund_id", "refund_status", "refund_failure_reason"])
     return refund_row
+
+
+@dataclass(frozen=True)
+class RefundContext:
+    """Admin refund preview for one ticket."""
+
+    payment_method: TicketTier.PaymentMethod
+    amount_paid: Decimal
+    currency: str
+    total_refunded: Decimal
+    total_pending: Decimal
+    remaining_refundable: Decimal
+    policy_suggested_amount: Decimal | None
+    refunds: list[Refund]
+
+
+def build_refund_context(ticket: Ticket, now: datetime) -> RefundContext:
+    """Assemble the admin refund preview: paid/refunded/remaining + the policy-quoted suggestion.
+
+    The policy suggestion reuses the user-cancellation quote (snapshot-driven); a
+    block reason (NOT_PERMITTED, PAST_DEADLINE, ...) yields no suggestion rather
+    than an error — the organizer may refund any amount regardless.
+    """
+    from events.service.cancellation_service import quote_cancellation
+
+    payment = getattr(ticket, "payment", None)
+    if payment is None or ticket.tier.payment_method != TicketTier.PaymentMethod.ONLINE:
+        return RefundContext(
+            payment_method=TicketTier.PaymentMethod(ticket.tier.payment_method),
+            amount_paid=_ZERO,
+            currency=str(ticket.tier.currency),
+            total_refunded=_ZERO,
+            total_pending=_ZERO,
+            remaining_refundable=_ZERO,
+            policy_suggested_amount=None,
+            refunds=[],
+        )
+    rows = list(payment.refunds.all())
+    succeeded = sum((r.amount for r in rows if r.status == Refund.RefundStatus.SUCCEEDED), _ZERO)
+    pending = sum((r.amount for r in rows if r.status == Refund.RefundStatus.PENDING), _ZERO)
+    quote = quote_cancellation(ticket, now)
+    suggestion = quote.refund_amount if quote.can_cancel and quote.refund_amount > _ZERO else None
+    return RefundContext(
+        payment_method=TicketTier.PaymentMethod(ticket.tier.payment_method),
+        amount_paid=Decimal(payment.amount),
+        currency=str(payment.currency),
+        total_refunded=succeeded,
+        total_pending=pending,
+        remaining_refundable=remaining_refundable(payment),
+        policy_suggested_amount=suggestion,
+        refunds=rows,
+    )
+
+
+def admin_cancel_ticket(
+    ticket: Ticket,
+    *,
+    cancelled_by: RevelUser,
+    reason: str | None,
+    refund_amount: Decimal | None,
+) -> Ticket:
+    """Organizer ticket cancellation with an optional refund, any payment method.
+
+    Offline/at-the-door tickets delegate to the existing offline primitives so
+    their behavior (offline_refund_amount, record-only Payment mutation) is
+    unchanged. Online tickets cancel + optionally refund via Stripe in one
+    transaction — a Stripe failure rolls the cancellation back.
+    """
+    from django.db import transaction
+
+    from events.service import ticket_service
+
+    if ticket.tier.payment_method != TicketTier.PaymentMethod.ONLINE:
+        if refund_amount is not None:
+            return ticket_service.mark_offline_ticket_refunded(
+                ticket, cancelled_by=cancelled_by, reason=reason, refund_amount=refund_amount
+            )
+        return ticket_service.cancel_offline_ticket(ticket, cancelled_by=cancelled_by, reason=reason)
+
+    ticket_service._reject_series_pass_ticket(ticket)
+    with transaction.atomic():
+        locked_ticket = (
+            Ticket.objects.select_for_update().select_related("tier", "event__organization").get(pk=ticket.pk)
+        )
+        if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
+            raise TicketAlreadyCancelledError
+        if refund_amount is not None and refund_amount > _ZERO:
+            payment = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
+            if payment is None:
+                raise NothingToRefundError(str(_("This ticket has no payment to refund.")))
+            issue_refund(
+                payment,
+                amount=refund_amount,
+                initiated_by=cancelled_by,
+                reason=reason or "",
+                source=Refund.Source.ORGANIZER_API,
+            )
+        ticket_service._cancel_offline_ticket_core(locked_ticket, cancelled_by=cancelled_by, reason=reason or "")
+    return Ticket.objects.full().get(pk=locked_ticket.pk)
