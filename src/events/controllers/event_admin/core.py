@@ -9,7 +9,7 @@ from ninja_extra import api_controller, route
 from common.authentication import I18nJWTAuth
 from common.models import Tag
 from common.schema import ErrorDetail, TagSchema, ValidationErrorResponse
-from common.throttling import WriteThrottle
+from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
@@ -166,6 +166,7 @@ class EventAdminCoreController(EventAdminBaseController):
         url_name="event_cancellation_refund_preview",
         response=schema.EventRefundPreviewSchema,
         permissions=[EventPermission("manage_event")],
+        throttle=UserDefaultThrottle(),  # read-only — don't burn the class-level WriteThrottle budget
     )
     def cancellation_refund_preview(self, event_id: UUID) -> schema.EventRefundPreviewSchema:
         """Advisory pre-flight for cancel-with-refunds: totals vs Stripe balance. Never blocks.
