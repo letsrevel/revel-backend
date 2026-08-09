@@ -110,6 +110,28 @@ class TestIssueRefund:
         keys = [c.kwargs["idempotency_key"] for c in mock_create.call_args_list]
         assert keys == [f"refund:{payment.pk}:0:10.00", f"refund:{payment.pk}:1:10.00"]
 
+    def test_failed_row_advances_sequence(self, online_paid_ticket: Ticket) -> None:
+        """A persisted FAILED row must advance the idempotency key past Stripe's ~24h error cache."""
+        payment = online_paid_ticket.payment
+        Refund.objects.create(
+            payment=payment,
+            amount=Decimal("40.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.FAILED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_retry"
+            with transaction.atomic():
+                refund_service.issue_refund(
+                    payment,
+                    amount=None,
+                    initiated_by=None,
+                    reason="",
+                    source=Refund.Source.ORGANIZER_API,
+                )
+        assert mock_create.call_args.kwargs["idempotency_key"] == f"refund:{payment.pk}:1:40.00"
+
     def test_over_amount_rejected_400(self, online_paid_ticket: Ticket) -> None:
         with pytest.raises(HttpError), transaction.atomic():
             refund_service.issue_refund(

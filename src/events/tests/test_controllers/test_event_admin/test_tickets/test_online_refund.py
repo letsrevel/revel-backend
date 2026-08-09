@@ -152,12 +152,11 @@ class TestAdminIssueRefund:
     def test_balance_insufficient_402(
         self, organization_owner_client: Client, event: Event, online_paid_ticket: Ticket
     ) -> None:
-        """A Stripe decline must roll back the PENDING Refund row (issue_refund needs an atomic caller).
+        """A Stripe decline rolls back the PENDING row and persists exactly one FAILED audit row.
 
-        Without an explicit ``transaction.atomic()`` around the service call, Ninja Extra's own
-        exception handling means the mapped 402 never propagates far enough to trigger
-        ATOMIC_REQUESTS' rollback, permanently committing an orphan PENDING row with no
-        stripe_refund_id that the webhook can never resolve.
+        The PENDING row must not survive (an orphan with no stripe_refund_id the webhook can
+        never resolve); the FAILED row both keeps the audit trail and advances the idempotency
+        sequence so "top up and retry" gets a fresh key instead of Stripe's ~24h cached 402.
         """
         err = stripe.error.InvalidRequestError(message="insufficient", param=None, code="balance_insufficient")
         url = reverse(
@@ -168,7 +167,34 @@ class TestAdminIssueRefund:
             response = organization_owner_client.post(url, data={}, content_type="application/json")
 
         assert response.status_code == 402, response.content
-        assert Refund.objects.count() == 0
+        row = Refund.objects.get()  # exactly one row: the FAILED audit row
+        assert row.status == Refund.RefundStatus.FAILED
+        assert row.amount == Decimal("40.00")
+        assert row.failure_reason == "RefundInsufficientBalanceError"  # bare-raised → class-name fallback
+        assert row.source == Refund.Source.ORGANIZER_API
+
+    def test_failed_attempt_uses_fresh_idempotency_key_on_retry(
+        self, organization_owner_client: Client, event: Event, online_paid_ticket: Ticket
+    ) -> None:
+        """After a FAILED attempt, a retry must issue a NEW idempotency key and succeed."""
+        err = stripe.error.InvalidRequestError(message="insufficient", param=None, code="balance_insufficient")
+        url = reverse(
+            "api:refund_ticket_payment",
+            kwargs={"event_id": event.pk, "ticket_id": online_paid_ticket.pk},
+        )
+        with patch("stripe.Refund.create", side_effect=err) as mock_fail:
+            first = organization_owner_client.post(url, data={}, content_type="application/json")
+        with patch("stripe.Refund.create") as mock_ok:
+            mock_ok.return_value.id = "re_topped_up"
+            second = organization_owner_client.post(url, data={}, content_type="application/json")
+
+        assert first.status_code == 402, first.content
+        assert second.status_code == 200, second.content
+        first_key = mock_fail.call_args.kwargs["idempotency_key"]
+        second_key = mock_ok.call_args.kwargs["idempotency_key"]
+        assert first_key != second_key
+        assert Refund.objects.filter(status=Refund.RefundStatus.FAILED).count() == 1
+        assert Refund.objects.filter(status=Refund.RefundStatus.PENDING).count() == 1
 
     def test_no_payment_409(
         self,

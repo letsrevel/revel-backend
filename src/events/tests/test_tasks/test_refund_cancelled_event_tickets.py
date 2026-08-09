@@ -165,6 +165,43 @@ class TestRefundOneCancelledEventTicket:
         t1.refresh_from_db()
         assert t1.status == Ticket.TicketStatus.CANCELLED  # cancellation proceeds despite the refund failure
 
+    def test_failed_row_advances_idempotency_key_on_rerun(
+        self,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """A sweep re-run after a FAILED refund row must issue a NEW idempotency key.
+
+        Stripe caches responses (including 4xx) per idempotency key for ~24h; if the
+        key never advanced, re-running the sweep would replay the cached failure
+        instead of actually retrying the refund.
+        """
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("40.00"))
+        tk = ticket_factory(tier=online)
+        payment_factory(
+            ticket=tk,
+            amount=Decimal("40.00"),
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_payment_intent_id="pi_retry_key",
+        )
+
+        with patch("stripe.Refund.create", side_effect=stripe.error.APIError("boom")) as mock_fail:
+            refund_one_cancelled_event_ticket(str(tk.id), None)
+        assert Refund.objects.filter(status=Refund.RefundStatus.FAILED).count() == 1
+
+        # Simulate a crash between the FAILED-row write and the cancel transaction:
+        # the ticket is still non-CANCELLED when the sweep is re-dispatched.
+        Ticket.objects.filter(pk=tk.pk).update(status=Ticket.TicketStatus.ACTIVE)
+        with patch("stripe.Refund.create") as mock_ok:
+            mock_ok.return_value.id = "re_retry_ok"
+            refund_one_cancelled_event_ticket(str(tk.id), None)
+
+        first_key = mock_fail.call_args.kwargs["idempotency_key"]
+        second_key = mock_ok.call_args.kwargs["idempotency_key"]
+        assert first_key != second_key
+
     def test_already_cancelled_ticket_is_a_no_op(
         self,
         event: Event,

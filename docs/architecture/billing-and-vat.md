@@ -562,8 +562,12 @@ series-pass cancellation, and the bulk event-cancellation sweep — funnels thro
 `refund_service.issue_refund()`: it locks the `Payment`, computes `remaining_refundable()`
 (`payment.amount` minus every non-`FAILED` `Refund` row), creates a `PENDING` row, and calls
 `stripe.Refund.create()` with a deterministic idempotency key
-(`refund:{payment_id}:{sequence}:{amount}`) — a retry after a crash reuses the same Stripe refund
-instead of double-refunding.
+(`refund:{payment_id}:{sequence}:{amount}`, where `sequence` counts **all** of the payment's
+`Refund` rows regardless of status). A rolled-back attempt leaves no row, so a retry after a crash
+reuses the same key and the same Stripe refund instead of double-refunding; a persisted `FAILED`
+row advances the key, so retrying after e.g. `balance_insufficient` (the sweep's failure rows, or
+the standalone organizer endpoint — which records a `FAILED` row on Stripe failure) gets a fresh
+key instead of replaying the error response Stripe caches per key for ~24 hours.
 
 !!! note "The platform fee is never refunded"
     Refunding a ticket returns the buyer's payment; Revel's platform fee is not reduced or returned

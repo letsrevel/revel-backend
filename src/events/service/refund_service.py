@@ -12,7 +12,6 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
-from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -70,6 +69,12 @@ def issue_refund(
     same refund object), and the ``charge.refunded`` webhook self-heals a lost
     response via the ``refund_id`` metadata.
 
+    ``sequence`` counts ALL of the payment's refund rows, whatever their status.
+    A rolled-back attempt leaves no row, so a crash-retry reuses the same key
+    (deterministic, no double refund); a persisted FAILED row advances the key,
+    so a retry after e.g. ``balance_insufficient`` gets a fresh key instead of
+    replaying the 4xx response Stripe caches per key for ~24h.
+
     Args:
         payment: The Payment to refund (will be re-locked via select_for_update).
         amount: Refund amount in major units; ``None`` = full remaining refundable.
@@ -114,7 +119,7 @@ def issue_refund(
             % {"amount": remaining},
         )
 
-    sequence = locked.refunds.filter(~Q(status=Refund.RefundStatus.FAILED)).count()
+    sequence = locked.refunds.count()  # all statuses — FAILED rows advance the key (see docstring)
     refund_row = Refund.objects.create(
         payment=locked,
         amount=resolved,
@@ -185,6 +190,11 @@ def issue_refund_for_ticket(
       *uncaught* exception escaping the view; Ninja Extra's own exception
       handling means a mapped exception like this one does not propagate that
       far, so the caller must open its own block).
+    - a Stripe failure additionally persists a FAILED ``Refund`` row (after
+      the rollback, in a fresh transaction): it keeps the audit trail and
+      advances ``issue_refund``'s idempotency sequence, so the documented
+      recovery ("top up your balance and retry") gets a fresh key instead of
+      replaying the 4xx response Stripe caches per key for ~24h.
 
     Raises:
         NothingToRefundError: no ``Payment`` row exists for this ticket.
@@ -197,15 +207,39 @@ def issue_refund_for_ticket(
     payment = Payment.objects.filter(ticket=ticket).first()
     if payment is None:
         raise NothingToRefundError(str(_("This ticket has no payment to refund.")))
-    with transaction.atomic():
-        return issue_refund(
-            payment,
-            amount=amount,
-            initiated_by=initiated_by,
-            reason=reason,
-            source=source,
-            metadata_extra=metadata_extra,
+    try:
+        with transaction.atomic():
+            return issue_refund(
+                payment,
+                amount=amount,
+                initiated_by=initiated_by,
+                reason=reason,
+                source=source,
+                metadata_extra=metadata_extra,
+            )
+    except (RefundInsufficientBalanceError, StripeRefundFailed) as exc:
+        # The atomic block above already rolled the PENDING row back, so the
+        # attempted amount is recomputed from committed state only. This
+        # FAILED-row-on-failure behavior is deliberately limited to this
+        # standalone endpoint path: cancel-with-refund and user-cancel keep
+        # pure rollback semantics (nothing persists, so their retry replays
+        # the same key for up to ~24h — matching the pre-#865 behavior of the
+        # old ``refund:{ticket.id}`` key).
+        attempted = (amount if amount is not None else remaining_refundable(payment)).quantize(
+            _CENT, rounding=ROUND_HALF_UP
         )
+        with transaction.atomic():
+            Refund.objects.create(
+                payment=payment,
+                amount=attempted,
+                currency=payment.currency,
+                status=Refund.RefundStatus.FAILED,
+                failure_reason=str(exc) or exc.__class__.__name__,
+                initiated_by=initiated_by,
+                reason=reason or "",
+                source=source,
+            )
+        raise
 
 
 @dataclass(frozen=True)
