@@ -652,7 +652,11 @@ def _platform_fee_fields(
     if fee_gross:
         site = SiteSettings.get_solo()
         fee_breakdown = b2b_fee_vat_from_gross(
-            fee_gross, subscription.organization, site.platform_vat_country, site.platform_vat_rate
+            fee_gross,
+            subscription.organization,
+            site.platform_vat_country,
+            site.platform_vat_rate,
+            unknown_country_domestic=True,
         )
         return {
             "platform_fee": fee_breakdown.fee_gross,

@@ -105,7 +105,9 @@ def _platform_fee_vat_context(obj: Organization) -> tuple[bool, Decimal]:
     singleton (cached via ``SOLO_CACHE``, so this is not an extra query per request).
     """
     site = SiteSettings.get_solo()
-    return b2b_vat_context(obj, site.platform_vat_country, site.platform_vat_rate)
+    # unknown_country_domestic mirrors the fee-collection paths so the
+    # advertised rate always equals what a checkout would actually charge.
+    return b2b_vat_context(obj, site.platform_vat_country, site.platform_vat_rate, unknown_country_domestic=True)
 
 
 def _resolve_public_contact_email(obj: Organization) -> str | None:

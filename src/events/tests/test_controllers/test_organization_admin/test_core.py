@@ -584,6 +584,8 @@ class TestGetOrganizationAdmin:
             ("AT", "ATU12345678", True, "20.00", False),
             # Other EU country with a validated VAT ID: reverse charge, no VAT.
             ("DE", "DE123456789", True, "0.00", True),
+            # Other EU country WITHOUT a validated VAT ID: platform domestic VAT.
+            ("DE", "DE123456789", False, "20.00", False),
             # Outside the EU: export of services, no VAT.
             ("US", "", False, "0.00", False),
         ],
