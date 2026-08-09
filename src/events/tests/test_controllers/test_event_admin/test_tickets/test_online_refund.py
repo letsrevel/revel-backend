@@ -13,9 +13,12 @@ from django.utils import timezone
 
 from events.models import (
     Event,
+    EventSeries,
+    HeldSeriesPass,
     OrganizationStaff,
     Payment,
     Refund,
+    SeriesPass,
     Ticket,
     TicketTier,
 )
@@ -149,6 +152,13 @@ class TestAdminIssueRefund:
     def test_balance_insufficient_402(
         self, organization_owner_client: Client, event: Event, online_paid_ticket: Ticket
     ) -> None:
+        """A Stripe decline must roll back the PENDING Refund row (issue_refund needs an atomic caller).
+
+        Without an explicit ``transaction.atomic()`` around the service call, Ninja Extra's own
+        exception handling means the mapped 402 never propagates far enough to trigger
+        ATOMIC_REQUESTS' rollback, permanently committing an orphan PENDING row with no
+        stripe_refund_id that the webhook can never resolve.
+        """
         err = stripe.error.InvalidRequestError(message="insufficient", param=None, code="balance_insufficient")
         url = reverse(
             "api:refund_ticket_payment",
@@ -158,6 +168,23 @@ class TestAdminIssueRefund:
             response = organization_owner_client.post(url, data={}, content_type="application/json")
 
         assert response.status_code == 402, response.content
+        assert Refund.objects.count() == 0
+
+    def test_no_payment_409(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        online_ticket: Ticket,
+    ) -> None:
+        """A ticket with no Payment row at all answers 409 (NothingToRefundError), not a bare 404."""
+        url = reverse(
+            "api:refund_ticket_payment",
+            kwargs={"event_id": event.pk, "ticket_id": online_ticket.pk},
+        )
+        response = organization_owner_client.post(url, data={}, content_type="application/json")
+
+        assert response.status_code == 409, response.content
+        assert "detail" in response.json()
 
     def test_requires_manage_tickets_permission(
         self,
@@ -303,6 +330,39 @@ class TestAdminCancelWithRefund:
         online_paid_ticket.refresh_from_db()
         assert online_paid_ticket.status == Ticket.TicketStatus.ACTIVE
         assert Refund.objects.count() == 0
+
+    def test_online_series_pass_ticket_rejected(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        event_series: EventSeries,
+        online_paid_ticket: Ticket,
+    ) -> None:
+        """A series-pass-materialized online ticket can't be cancelled here — pass endpoints own it."""
+        series_pass = SeriesPass.objects.create(
+            event_series=event_series,
+            name="Season Pass",
+            price=Decimal("100.00"),
+            pro_rata_discount=Decimal("0"),
+        )
+        held_pass = HeldSeriesPass.objects.create(
+            series_pass=series_pass,
+            user=online_paid_ticket.user,
+            price_paid=Decimal("100.00"),
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+        )
+        online_paid_ticket.held_pass = held_pass
+        online_paid_ticket.save(update_fields=["held_pass"])
+
+        url = reverse(
+            "api:cancel_ticket",
+            kwargs={"event_id": event.pk, "ticket_id": online_paid_ticket.pk},
+        )
+        response = organization_owner_client.post(url, data={}, content_type="application/json")
+
+        assert response.status_code == 400, response.content
+        online_paid_ticket.refresh_from_db()
+        assert online_paid_ticket.status == Ticket.TicketStatus.ACTIVE
 
 
 # --- TestRefundContext ---

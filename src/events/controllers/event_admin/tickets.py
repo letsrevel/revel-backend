@@ -383,13 +383,12 @@ class EventAdminTicketsController(EventAdminBaseController):
         """
         event = self.get_one(event_id)
         ticket = get_object_or_404(
-            models.Ticket.objects.select_related("tier", "payment", "event__organization"),
+            models.Ticket.objects.select_related("tier", "event__organization"),
             pk=ticket_id,
             event=event,
         )
-        payment = get_object_or_404(models.Payment, ticket=ticket)
-        return refund_service.issue_refund(
-            payment,
+        return refund_service.issue_refund_for_ticket(
+            ticket,
             amount=payload.amount if payload else None,
             initiated_by=self.user(),
             reason=(payload.reason if payload else None) or "",

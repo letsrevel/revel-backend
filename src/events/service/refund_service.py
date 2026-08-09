@@ -155,6 +155,52 @@ def issue_refund(
     return refund_row
 
 
+def issue_refund_for_ticket(
+    ticket: Ticket,
+    *,
+    amount: Decimal | None,
+    initiated_by: RevelUser | None,
+    reason: str,
+    source: str,
+    metadata_extra: dict[str, str] | None = None,
+) -> Refund:
+    """Resolve ``ticket``'s Payment and issue a refund inside one atomic transaction.
+
+    Thin wrapper around :func:`issue_refund` for callers (the admin refund
+    endpoint) that start from a ``Ticket`` rather than an already-resolved
+    ``Payment``. Keeps two things consistent with every other refund path:
+
+    - "no payment on this ticket" answers 409 ``NothingToRefundError`` like
+      every other nothing-to-refund case, instead of a bare 404.
+    - the Stripe call happens inside ``transaction.atomic()`` so a failure
+      (e.g. ``balance_insufficient``) rolls back the PENDING ``Refund`` row
+      instead of committing an orphan (ATOMIC_REQUESTS only rolls back on an
+      *uncaught* exception escaping the view; Ninja Extra's own exception
+      handling means a mapped exception like this one does not propagate that
+      far, so the caller must open its own block).
+
+    Raises:
+        NothingToRefundError: no ``Payment`` row exists for this ticket.
+        HttpError: 400 when an explicit ``amount`` is not in (0, remaining].
+        RefundInsufficientBalanceError: Stripe declined for lack of funds.
+        StripeRefundFailed: any other Stripe error.
+    """
+    from django.db import transaction
+
+    payment = Payment.objects.filter(ticket=ticket).first()
+    if payment is None:
+        raise NothingToRefundError(str(_("This ticket has no payment to refund.")))
+    with transaction.atomic():
+        return issue_refund(
+            payment,
+            amount=amount,
+            initiated_by=initiated_by,
+            reason=reason,
+            source=source,
+            metadata_extra=metadata_extra,
+        )
+
+
 @dataclass(frozen=True)
 class RefundContext:
     """Admin refund preview for one ticket."""
