@@ -169,24 +169,40 @@ e2e-seed:
 
 # Stop the daemonized e2e backend. Idempotent: pid-file kill first, then any
 # stray listener on :8000 (stale gunicorn/runserver — the "stale backend
-# serving 200s" trap), then wait for the port to free up.
+# serving 200s" trap), then wait for the port to free up. Kills only processes
+# that look like our backend (gunicorn/manage.py/python) — a foreign process
+# holding :8000 is reported and left alone, and a pid file pointing at a
+# reused (non-gunicorn) pid is discarded without killing. The drain wait is
+# 35s because gunicorn's --graceful-timeout is 30: TERM lets in-flight
+# requests finish before workers exit.
 .PHONY: stop-e2e
 stop-e2e:
 	@if [ -f .e2e-gunicorn.pid ]; then \
-		echo "Stopping e2e gunicorn (pid $$(cat .e2e-gunicorn.pid))"; \
-		kill $$(cat .e2e-gunicorn.pid) 2>/dev/null || true; \
+		pid=$$(cat .e2e-gunicorn.pid); \
+		if ps -p $$pid -o command= 2>/dev/null | grep -q gunicorn; then \
+			echo "Stopping e2e gunicorn (pid $$pid)"; \
+			kill $$pid 2>/dev/null || true; \
+		else \
+			echo "Stale pid file (pid $$pid is gone or not gunicorn) — removing"; \
+		fi; \
 		rm -f .e2e-gunicorn.pid; \
 	fi
-	@pids=$$(lsof -ti:8000 2>/dev/null || true); \
-	if [ -n "$$pids" ]; then \
-		echo "Killing stale server(s) on :8000: $$pids"; \
-		kill $$pids 2>/dev/null || true; \
-	fi
-	@i=0; while [ $$i -lt 10 ] && [ -n "$$(lsof -ti:8000 2>/dev/null)" ]; do \
+	@for pid in $$(lsof -ti:8000 2>/dev/null); do \
+		cmd=$$(ps -p $$pid -o command= 2>/dev/null); \
+		if echo "$$cmd" | grep -Eq 'gunicorn|manage\.py|python'; then \
+			echo "Killing stale backend on :8000 (pid $$pid)"; \
+			kill $$pid 2>/dev/null || true; \
+		else \
+			echo "❌ :8000 is held by a non-backend process (pid $$pid): $$cmd"; \
+			echo "   Not killing it — stop it yourself and re-run."; \
+			exit 1; \
+		fi; \
+	done
+	@i=0; while [ $$i -lt 35 ] && [ -n "$$(lsof -ti:8000 2>/dev/null)" ]; do \
 		i=$$((i+1)); sleep 1; \
 	done; \
 	if [ -n "$$(lsof -ti:8000 2>/dev/null)" ]; then \
-		echo "❌ :8000 still busy after 10s"; exit 1; \
+		echo "❌ :8000 still busy after 35s (gunicorn --graceful-timeout is 30)"; exit 1; \
 	fi
 
 # run-e2e, daemonized: for `make e2e-setup` in revel-frontend. Kills any stale
@@ -208,7 +224,9 @@ run-e2e-daemon: stop-e2e
 		fi; \
 		i=$$((i+1)); sleep 1; \
 	done; \
-	echo "❌ Backend did not answer within 60s — see .e2e-gunicorn.log"; exit 1
+	echo "❌ Backend did not answer within 60s — see .e2e-gunicorn.log"; \
+	$(MAKE) stop-e2e; \
+	exit 1
 
 .PHONY: jwt
 jwt:
