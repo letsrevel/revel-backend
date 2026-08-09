@@ -172,6 +172,12 @@ class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
         blank=True,
         related_name="attendee_credit_notes",
     )
+    refunds = models.ManyToManyField(
+        "events.Refund",
+        related_name="credit_notes",
+        blank=True,
+        help_text="The refund attempts this credit note covers (amount-aware partial refunds).",
+    )
 
     issued_at = models.DateTimeField(null=True, blank=True)
     pdf_file = ProtectedFileField(upload_to="invoices/attendee/credit_notes/", null=True, blank=True)

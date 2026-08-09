@@ -34,6 +34,7 @@ class CancellationSource(models.TextChoices):
     USER = "user", "User self-service"
     ORGANIZER = "organizer", "Organizer via admin"
     STRIPE_DASHBOARD = "stripe_dashboard", "Stripe dashboard"
+    EVENT_CANCELLATION = "event_cancellation", "Bulk event cancellation"
 
 
 class CancellationBlockReason(models.TextChoices):
