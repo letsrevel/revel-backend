@@ -178,6 +178,9 @@ class TestRecordOnlyRefunds:
         payment.refresh_from_db()
         assert payment.status == Payment.PaymentStatus.REFUNDED
         assert payment.refund_amount == Decimal("40.00")
+        # The confirmation stamp drives revenue-report period attribution.
+        assert pending_row.succeeded_at == payment.refunded_at
+        assert pending_row.succeeded_at is not None
 
     def test_replay_is_idempotent(
         self,

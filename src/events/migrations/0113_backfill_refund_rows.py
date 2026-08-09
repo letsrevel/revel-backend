@@ -27,6 +27,9 @@ def backfill_refunds(apps, schema_editor):  # type: ignore[no-untyped-def]
                 failure_reason=payment.refund_failure_reason or "",
                 reason=payment.ticket.cancellation_reason or "",
                 source=source,
+                # Preserve period attribution for revenue reports: the legacy
+                # refund date is the closest thing to a confirmation timestamp.
+                succeeded_at=payment.refunded_at,
             )
         )
     Refund.objects.bulk_create(to_create, batch_size=500)

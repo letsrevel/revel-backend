@@ -31,6 +31,15 @@ class Refund(TimeStampedModel):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3)
     status = models.CharField(max_length=20, choices=RefundStatus.choices, default=RefundStatus.PENDING, db_index=True)
+    succeeded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=(
+            "When the charge.refunded webhook confirmed this refund as SUCCEEDED. "
+            "Revenue reporting attributes the refund to the period containing this date."
+        ),
+    )
     stripe_refund_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
     failure_reason = models.TextField(blank=True, default="")
     initiated_by = models.ForeignKey(

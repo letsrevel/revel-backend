@@ -432,8 +432,11 @@ class TicketRefundHandlersMixin:
                 currency=payment.currency,
                 source=Refund.Source.STRIPE_DASHBOARD,
             )
+        now = timezone.now()
         row.stripe_refund_id = refund_id
         row.status = Refund.RefundStatus.SUCCEEDED
+        if row.succeeded_at is None:  # period attribution for revenue reports — never re-stamped on replay
+            row.succeeded_at = now
         row.failure_reason = ""
         row.save()
 
@@ -443,7 +446,7 @@ class TicketRefundHandlersMixin:
         payment.stripe_refund_id = refund_id
         payment.refund_amount = total
         payment.refund_status = Payment.RefundStatus.SUCCEEDED
-        payment.refunded_at = timezone.now()
+        payment.refunded_at = now
         if total >= payment.amount:
             payment.status = Payment.PaymentStatus.REFUNDED
         payment.raw_response = raw_response
