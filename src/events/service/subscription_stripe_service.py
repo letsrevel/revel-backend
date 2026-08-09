@@ -164,7 +164,9 @@ def effective_application_fee_percent(org: Organization) -> Decimal | None:
     if not org.stripe_account_id or org.stripe_account_id == settings.STRIPE_ACCOUNT:
         return None
     site = SiteSettings.get_solo()
-    reverse_charge, rate = b2b_vat_context(org, site.platform_vat_country, site.platform_vat_rate)
+    reverse_charge, rate = b2b_vat_context(
+        org, site.platform_vat_country, site.platform_vat_rate, unknown_country_domestic=True
+    )
     if reverse_charge or rate <= 0:
         return org.platform_fee_percent
     grossed = (org.platform_fee_percent * (1 + rate / 100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

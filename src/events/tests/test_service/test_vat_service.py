@@ -357,14 +357,19 @@ class TestCalculatePlatformFeeVat:
         assert result.fee_vat == Decimal("2.20")
         assert result.reverse_charge is False
 
-    def test_empty_vat_country_code_treated_as_non_eu(self) -> None:
-        """Org with no country code set: treated as outside EU (no VAT)."""
+    def test_empty_vat_country_code_charged_domestic_vat(self) -> None:
+        """Org with no country code set: fee collection fails safe with domestic VAT.
+
+        The platform owes the VAT to its tax office either way — an org that
+        never filled its billing country must not be silently zero-rated.
+        """
         org = _make_org_mock(vat_country_code="", vat_id="", vat_id_validated=False)
 
         result = calculate_platform_fee_vat(self.FEE, org, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
 
         assert result.fee_net == self.FEE
-        assert result.fee_vat == Decimal("0.00")
+        assert result.fee_vat_rate == self.PLATFORM_VAT_RATE
+        assert result.fee_vat == Decimal("2.20")
         assert result.reverse_charge is False
 
     def test_lowercase_country_codes_work(self) -> None:

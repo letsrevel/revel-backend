@@ -1,14 +1,16 @@
 """Organization-related schemas."""
 
 import typing as t
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, EmailStr, Field, StringConstraints, model_validator
 
 from accounts.schema import BaseEmailJWTPayloadSchema, MemberUserSchema, MinimalRevelUserSchema
+from common.models import SiteSettings
 from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
+from common.service.vat_utils import TWO_PLACES, b2b_vat_context
 from events import models
 from events.models import (
     MembershipRequestStatus,
@@ -94,6 +96,18 @@ class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
 
 class VATIdUpdateSchema(VATIdUpdateBaseSchema):
     """Schema for setting/updating the organization's VAT ID."""
+
+
+def _platform_fee_vat_context(obj: Organization) -> tuple[bool, Decimal]:
+    """Return ``(reverse_charge, applicable_vat_rate)`` for the platform fee charged to this org.
+
+    Reads the platform's VAT registration from the :class:`~common.models.SiteSettings`
+    singleton (cached via ``SOLO_CACHE``, so this is not an extra query per request).
+    """
+    site = SiteSettings.get_solo()
+    # unknown_country_domestic mirrors the fee-collection paths so the
+    # advertised rate always equals what a checkout would actually charge.
+    return b2b_vat_context(obj, site.platform_vat_country, site.platform_vat_rate, unknown_country_domestic=True)
 
 
 def _resolve_public_contact_email(obj: Organization) -> str | None:
@@ -221,6 +235,22 @@ class OrganizationAdminDetailSchema(
     # Membership eligibility policy defaults
     default_membership_questionnaire_id: UUID | None = None
     default_requires_membership_approval: bool
+    # Platform-fee VAT context (issue #866): computed, read-only. Tells the FE what VAT
+    # applies to Revel's platform fee so net-payout previews can account for it.
+    platform_fee_vat_rate: str
+    platform_fee_reverse_charge: bool
+
+    @staticmethod
+    def resolve_platform_fee_vat_rate(obj: Organization, context: t.Any) -> str:
+        """VAT rate applied to the platform fee, e.g. "20.00" ("0.00" under reverse charge / non-EU)."""
+        _, rate = _platform_fee_vat_context(obj)
+        return str(rate.quantize(TWO_PLACES, rounding=ROUND_HALF_UP))
+
+    @staticmethod
+    def resolve_platform_fee_reverse_charge(obj: Organization, context: t.Any) -> bool:
+        """Whether the EU B2B reverse-charge mechanism applies to the platform fee."""
+        reverse_charge, _ = _platform_fee_vat_context(obj)
+        return reverse_charge
 
 
 class OrganizationPermissionsSchema(Schema):

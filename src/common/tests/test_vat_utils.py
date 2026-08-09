@@ -397,6 +397,38 @@ class TestCalculateB2BFeeVat:
         assert result.fee_vat == Decimal("0.00")
         assert result.reverse_charge is False
 
+    def test_empty_entity_country_with_unknown_country_domestic_charges_vat(self) -> None:
+        """Fee paths opt in to failing safe: unknown billing country -> platform domestic VAT."""
+        entity = _make_entity(vat_country_code="", vat_id="", vat_id_validated=False)
+
+        result = calculate_b2b_fee_vat(
+            self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE, unknown_country_domestic=True
+        )
+
+        assert result.reverse_charge is False
+        assert result.fee_vat_rate == self.PLATFORM_VAT_RATE
+        assert result.fee_vat == Decimal("2.00")
+
+    def test_blank_platform_country_charges_no_vat_and_never_reverse_charges(self) -> None:
+        """A half-configured platform (rate set, country blank) must not mislabel invoices."""
+        domestic = _make_entity(vat_country_code="AT", vat_id="ATU12345678", vat_id_validated=True)
+        eu_without_vat_id = _make_entity(vat_country_code="DE", vat_id="", vat_id_validated=False)
+
+        for entity in (domestic, eu_without_vat_id):
+            result = calculate_b2b_fee_vat(self.FEE, entity, "", self.PLATFORM_VAT_RATE)
+
+            assert result.reverse_charge is False
+            assert result.fee_vat == Decimal("0.00")
+
+    def test_greece_el_and_gr_compare_as_same_country(self) -> None:
+        """VIES uses the EL prefix, ISO uses GR: both must count as domestic, not reverse charge."""
+        entity = _make_entity(vat_country_code="EL", vat_id="EL123456789", vat_id_validated=True)
+
+        result = calculate_b2b_fee_vat(self.FEE, entity, "GR", self.PLATFORM_VAT_RATE)
+
+        assert result.reverse_charge is False
+        assert result.fee_vat == Decimal("2.00")
+
     def test_lowercase_country_codes_work(self) -> None:
         """Country codes should be case-insensitive (entity side)."""
         entity = _make_entity(vat_country_code="de", vat_id="DE123456789", vat_id_validated=True)

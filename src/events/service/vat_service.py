@@ -51,7 +51,11 @@ def calculate_platform_fee_vat(
         VAT breakdown where ``fee_net`` is the input amount and ``fee_gross``
         includes VAT when applicable.
     """
-    return calculate_b2b_fee_vat(net_platform_fee, org, platform_vat_country, platform_vat_rate)
+    # Fee collection fails safe: an org with no billing country yet is charged
+    # the platform's domestic VAT rather than silently zero-rated.
+    return calculate_b2b_fee_vat(
+        net_platform_fee, org, platform_vat_country, platform_vat_rate, unknown_country_domestic=True
+    )
 
 
 def get_effective_vat_rate(tier_vat_rate: Decimal | None, org_vat_rate: Decimal) -> Decimal:

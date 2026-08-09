@@ -1,5 +1,6 @@
 """Tests for organization admin core endpoints (details, media, contact email, Stripe)."""
 
+from decimal import Decimal
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +14,7 @@ from PIL import Image
 
 from accounts.jwt import create_token
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from common.utils import assert_image_equal
 from events import schema
 from events.models import Organization, OrganizationQuestionnaire, OrganizationStaff
@@ -574,6 +576,47 @@ class TestGetOrganizationAdmin:
 
         response = client.get(url)
         assert response.status_code == expected_status_code
+
+    @pytest.mark.parametrize(
+        "org_country,org_vat_id,org_vat_validated,expected_rate,expected_reverse_charge",
+        [
+            # Same country as the platform: domestic VAT applies.
+            ("AT", "ATU12345678", True, "20.00", False),
+            # Other EU country with a validated VAT ID: reverse charge, no VAT.
+            ("DE", "DE123456789", True, "0.00", True),
+            # Other EU country WITHOUT a validated VAT ID: platform domestic VAT.
+            ("DE", "DE123456789", False, "20.00", False),
+            # Outside the EU: export of services, no VAT.
+            ("US", "", False, "0.00", False),
+        ],
+    )
+    def test_get_organization_platform_fee_vat_context(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        org_country: str,
+        org_vat_id: str,
+        org_vat_validated: bool,
+        expected_rate: str,
+        expected_reverse_charge: bool,
+    ) -> None:
+        """The admin detail exposes the computed platform-fee VAT context (issue #866)."""
+        site = SiteSettings.get_solo()
+        site.platform_vat_country = "AT"
+        site.platform_vat_rate = Decimal("20.00")
+        site.save()
+        organization.vat_country_code = org_country
+        organization.vat_id = org_vat_id
+        organization.vat_id_validated = org_vat_validated
+        organization.save()
+
+        url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["platform_fee_vat_rate"] == expected_rate
+        assert data["platform_fee_reverse_charge"] is expected_reverse_charge
 
     def test_get_organization_without_stripe_connection(
         self, organization_owner_client: Client, organization: Organization
