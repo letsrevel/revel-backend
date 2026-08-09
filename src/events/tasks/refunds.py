@@ -10,6 +10,7 @@ from events.exceptions import NothingToRefundError, RefundInsufficientBalanceErr
 from events.models import Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationSource
 from events.service import refund_service
+from events.tasks.attendees import build_attendee_visibility_flags
 
 logger = structlog.get_logger(__name__)
 
@@ -58,9 +59,16 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
     Ticket-field mutations use a queryset ``.update()`` rather than ``instance.save()``
     so no ``post_save`` signal fires — attendees already get the single EVENT_CANCELLED
     blast (and organizers get Task 9's summary), so a per-ticket TICKET_CANCELLED
-    notification here would be a storm. This deliberately also skips the
-    visibility-flags and waitlist post_save side effects: the event is cancelled, so
-    there is nothing left to reprocess.
+    notification here would be a storm. That bypass also skips
+    ``events.signals.handle_ticket_visibility_and_potluck``, whose two jobs are handled
+    separately: the potluck-unclaim is judged harmless to skip (the event is dead, its
+    potluck is moot), but ``Event.attendee_count``/``is_full`` recompute is NOT optional
+    — it's the only path that keeps those fields from freezing at their
+    pre-cancellation value once the un-cancel guard makes the event unrecoverable — so
+    ``build_attendee_visibility_flags`` is dispatched explicitly below, once the cancel
+    transaction commits. It also deliberately skips
+    ``notifications.signals.waitlist.handle_ticket_waitlist_logic``: the event is
+    cancelled, so there is nothing left to reprocess on the waitlist.
 
     Already-cancelled tickets (a fully-completed prior run, or a ticket cancelled
     independently in the meantime) are a no-op.
@@ -117,3 +125,9 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
             cancellation_source=CancellationSource.EVENT_CANCELLATION,
             cancellation_reason=locked_ticket.event.cancellation_reason or "",
         )
+        # The .update() above fired no post_save signal, so the usual
+        # attendee_count/is_full recompute (events.signals
+        # .handle_ticket_visibility_and_potluck) never ran — replicate it explicitly,
+        # same per-ticket dispatch cost as the signal, and idempotent either way.
+        event_id = str(locked_ticket.event_id)
+        transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))

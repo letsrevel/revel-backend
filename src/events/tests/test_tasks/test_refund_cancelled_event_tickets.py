@@ -149,6 +149,35 @@ class TestRefundOneCancelledEventTicket:
         tk.refresh_from_db()
         assert tk.status == Ticket.TicketStatus.CANCELLED
 
+    def test_dispatches_attendee_visibility_flags_recompute_on_commit(
+        self,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """The ``.update()`` cancellation bypass skips the ``post_save`` signal that
+        normally recomputes ``Event.attendee_count``/``is_full`` — this task must
+        replicate that dispatch explicitly, or a cancelled event's public attendee
+        count freezes at its pre-cancellation value forever (un-cancel is blocked)."""
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("40.00"))
+        tk = ticket_factory(tier=online)
+        payment_factory(
+            ticket=tk,
+            amount=Decimal("40.00"),
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_payment_intent_id="pi_visibility",
+        )
+
+        with patch("events.tasks.refunds.build_attendee_visibility_flags.delay") as mock_visibility:
+            with patch("stripe.Refund.create") as mock_create:
+                mock_create.return_value.id = "re_visibility"
+                with django_capture_on_commit_callbacks(execute=True):
+                    refund_one_cancelled_event_ticket(str(tk.id), None)
+
+        mock_visibility.assert_called_once_with(str(event.id))
+
     def test_resumes_after_refund_succeeds_but_cancellation_did_not_commit(
         self,
         event: Event,
