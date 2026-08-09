@@ -268,18 +268,39 @@ class TicketRefundHandlersMixin:
         Covers the legacy Payment mirror, any Refund row already carrying this
         Stripe refund id (a replay), and our own metadata pointer — the exact
         anchor every refund issued through Revel carries.
+
+        Each DB leg below runs as a single bulk query across all candidates
+        rather than one query per candidate: this method executes once per
+        refund object while N Payment rows sit under ``select_for_update``,
+        and a batch's size is unbounded, so a per-candidate query here would
+        turn into O(N) round trips held under those locks.
         """
         refund_id: str | None = refund.get("id")
+
+        # Legacy Payment mirror — already loaded, no query.
         for p in candidates:
-            if p.stripe_refund_id and p.stripe_refund_id == refund_id:
+            if refund_id and p.stripe_refund_id == refund_id:
                 return [p]
-            if refund_id and Refund.objects.filter(payment=p, stripe_refund_id=refund_id).exists():
-                return [p]
+
+        if refund_id:
+            mirrored_ids = set(
+                Refund.objects.filter(payment__in=candidates, stripe_refund_id=refund_id).values_list(
+                    "payment_id", flat=True
+                )
+            )
+            for p in candidates:
+                if p.id in mirrored_ids:
+                    return [p]
 
         metadata_refund_id = (refund.get("metadata") or {}).get("refund_id")
         if metadata_refund_id:
+            pointed_ids = set(
+                Refund.objects.filter(pk__in=_safe_uuid_list(metadata_refund_id), payment__in=candidates).values_list(
+                    "payment_id", flat=True
+                )
+            )
             for p in candidates:
-                if Refund.objects.filter(pk__in=_safe_uuid_list(metadata_refund_id), payment=p).exists():
+                if p.id in pointed_ids:
                     return [p]
         return []
 
@@ -309,8 +330,11 @@ class TicketRefundHandlersMixin:
                     return [p]
 
         # Branch 2.5: a single-Payment intent — any refund on it belongs to that payment,
-        # whatever the amount (covers partial dashboard refunds).
-        if len(candidates) == 1:
+        # whatever the amount (covers partial dashboard refunds). Guarded on status: a
+        # fully-REFUNDED payment has no "remaining" amount to unambiguously absorb, so a
+        # further refund on it falls through to Branch 5 (logged, no mutation) instead of
+        # being silently matched here.
+        if len(candidates) == 1 and candidates[0].status != Payment.PaymentStatus.REFUNDED:
             return candidates
 
         unrefunded = [p for p in candidates if p.status != Payment.PaymentStatus.REFUNDED]

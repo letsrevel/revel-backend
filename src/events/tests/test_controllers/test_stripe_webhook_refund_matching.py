@@ -129,7 +129,7 @@ class TestChargeRefundedMatching:
         _batch(payments, "pi_batch")
         refund: dict[str, t.Any] = {"id": "re_ambig", "amount": 4000, "metadata": {}}  # matches any single payment
         event = _charge_event("pi_batch", [refund])
-        with caplog.at_level("WARNING", logger="events.service.stripe_webhooks"):
+        with caplog.at_level("WARNING", logger="events.service.stripe_webhook_refunds"):
             StripeEventHandler(event).handle_charge_refunded(event)
         for p in payments:
             p.refresh_from_db()
@@ -243,7 +243,7 @@ class TestNonUniformBatchRefunds:
         # Goodwill refund of 30.00 issued on ticket A from the Stripe Dashboard.
         refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
         event = _charge_event("pi_mixed", [refund])
-        with caplog.at_level("WARNING", logger="events.service.stripe_webhooks"):
+        with caplog.at_level("WARNING", logger="events.service.stripe_webhook_refunds"):
             StripeEventHandler(event).handle_charge_refunded(event)
 
         for payment in (payment_a, payment_b):
