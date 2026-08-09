@@ -127,6 +127,8 @@ __pypackages__/
 # Celery stuff
 celerybeat-schedule
 celerybeat.pid
+.e2e-gunicorn.pid
+.e2e-gunicorn.log
 
 # SageMath parsed files
 *.sage.py

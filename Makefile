@@ -135,19 +135,78 @@ run:
 # OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES: on macOS, gunicorn forking workers after an Apple
 # framework was initialized (WeasyPrint/Core Text, _scproxy) trips the ObjC fork-safety guard,
 # which SIGKILLs the workers. The var disables that guard; it's a no-op on Linux/CI.
+# Shared gunicorn invocation for run-e2e / run-e2e-daemon — see the comment on
+# run-e2e for why gthread+PgBouncer and the ObjC fork-safety var.
+E2E_GUNICORN = DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uv run gunicorn revel.wsgi:application \
+	--worker-class gthread \
+	--workers $${GUNICORN_WORKERS:-4} \
+	--threads $${GUNICORN_THREADS:-4} \
+	--bind 127.0.0.1:8000 \
+	--max-requests 4000 \
+	--max-requests-jitter 400 \
+	--timeout 60 \
+	--graceful-timeout 30
+
 .PHONY: run-e2e
 run-e2e:
 	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer && \
 	uv run python src/manage.py generate_test_jwts && \
-	cd src && DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uv run gunicorn revel.wsgi:application \
-		--worker-class gthread \
-		--workers $${GUNICORN_WORKERS:-4} \
-		--threads $${GUNICORN_THREADS:-4} \
-		--bind 127.0.0.1:8000 \
-		--max-requests 4000 \
-		--max-requests-jitter 400 \
-		--timeout 60 \
-		--graceful-timeout 30
+	cd src && $(E2E_GUNICORN)
+
+# Canonical E2E reseed, in the one order that works (see revel-frontend
+# tests/e2e/README.md): reset_events already re-runs bootstrap_events (a
+# following `make bootstrap` would fail on duplicates), and seed must run
+# BEFORE bootstrap-tests — the seeder's payment/quantity sweeps are global and
+# would mutate the test fixtures (e.g. randomly refunding the sold-out event's
+# tickets). Never reorder.
+.PHONY: e2e-seed
+e2e-seed:
+	uv run python src/manage.py reset_events --no-input
+	$(MAKE) seed
+	$(MAKE) bootstrap-tests
+
+# Stop the daemonized e2e backend. Idempotent: pid-file kill first, then any
+# stray listener on :8000 (stale gunicorn/runserver — the "stale backend
+# serving 200s" trap), then wait for the port to free up.
+.PHONY: stop-e2e
+stop-e2e:
+	@if [ -f .e2e-gunicorn.pid ]; then \
+		echo "Stopping e2e gunicorn (pid $$(cat .e2e-gunicorn.pid))"; \
+		kill $$(cat .e2e-gunicorn.pid) 2>/dev/null || true; \
+		rm -f .e2e-gunicorn.pid; \
+	fi
+	@pids=$$(lsof -ti:8000 2>/dev/null || true); \
+	if [ -n "$$pids" ]; then \
+		echo "Killing stale server(s) on :8000: $$pids"; \
+		kill $$pids 2>/dev/null || true; \
+	fi
+	@i=0; while [ $$i -lt 10 ] && [ -n "$$(lsof -ti:8000 2>/dev/null)" ]; do \
+		i=$$((i+1)); sleep 1; \
+	done; \
+	if [ -n "$$(lsof -ti:8000 2>/dev/null)" ]; then \
+		echo "❌ :8000 still busy after 10s"; exit 1; \
+	fi
+
+# run-e2e, daemonized: for `make e2e-setup` in revel-frontend. Kills any stale
+# backend first, writes .e2e-gunicorn.pid/.log at the repo root, and only
+# returns 0 once GET /api/version actually answers.
+.PHONY: run-e2e-daemon
+run-e2e-daemon: stop-e2e
+	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer
+	uv run python src/manage.py generate_test_jwts
+	cd src && $(E2E_GUNICORN) \
+		--daemon \
+		--pid $(CURDIR)/.e2e-gunicorn.pid \
+		--error-logfile $(CURDIR)/.e2e-gunicorn.log
+	@echo "Waiting for backend on http://localhost:8000/api/version ..."; \
+	i=0; while [ $$i -lt 60 ]; do \
+		if curl -fsS http://localhost:8000/api/version >/dev/null 2>&1; then \
+			echo "✅ Backend up (pid $$(cat .e2e-gunicorn.pid), log: .e2e-gunicorn.log)"; \
+			exit 0; \
+		fi; \
+		i=$$((i+1)); sleep 1; \
+	done; \
+	echo "❌ Backend did not answer within 60s — see .e2e-gunicorn.log"; exit 1
 
 .PHONY: jwt
 jwt:
