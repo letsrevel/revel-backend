@@ -1,7 +1,7 @@
 """Organization-related schemas."""
 
 import typing as t
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
@@ -242,7 +242,7 @@ class OrganizationAdminDetailSchema(
     def resolve_platform_fee_vat_rate(obj: Organization, context: t.Any) -> str:
         """VAT rate applied to the platform fee, e.g. "20.00" ("0.00" under reverse charge / non-EU)."""
         _, rate = _platform_fee_vat_context(obj)
-        return str(rate.quantize(TWO_PLACES))
+        return str(rate.quantize(TWO_PLACES, rounding=ROUND_HALF_UP))
 
     @staticmethod
     def resolve_platform_fee_reverse_charge(obj: Organization, context: t.Any) -> bool:
