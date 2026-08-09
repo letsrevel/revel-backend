@@ -3,16 +3,21 @@
 import structlog
 from celery import shared_task
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Count, F, Q
 from django.utils import timezone
 
 from events.exceptions import NothingToRefundError, RefundInsufficientBalanceError, StripeRefundFailed
-from events.models import Payment, Refund, Ticket, TicketTier
+from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationSource
 from events.service import refund_service
 from events.tasks.attendees import build_attendee_visibility_flags
+from notifications.signals.payment import send_event_refund_summary
 
 logger = structlog.get_logger(__name__)
+
+# Bound on send_event_refund_summary_task's self-rescheduling (30 * 120s = 1 hour).
+_SUMMARY_MAX_ATTEMPTS = 30
+_SUMMARY_RETRY_COUNTDOWN = 120
 
 
 @shared_task(name="events.refund_cancelled_event_tickets")
@@ -27,6 +32,11 @@ def refund_cancelled_event_tickets(event_id: str, initiated_by_id: str | None = 
     cancel-with-refund call) — there is no parent-level state to reconcile. Per-ticket
     outcomes live on ``Refund`` rows and ticket statuses; there is no live summary to
     return once the work is fanned out across independent tasks.
+
+    Once dispatched, schedules ``send_event_refund_summary_task`` (delayed by
+    ``_SUMMARY_RETRY_COUNTDOWN`` to give the fan-out a head start) to poll DB state and
+    notify org staff when the sweep completes. Skipped when there is nothing to
+    dispatch — an empty sweep has nothing to summarize.
     """
     ticket_ids = list(
         Ticket.objects.filter(event_id=event_id)
@@ -35,6 +45,9 @@ def refund_cancelled_event_tickets(event_id: str, initiated_by_id: str | None = 
     )
     for ticket_id in ticket_ids:
         refund_one_cancelled_event_ticket.delay(str(ticket_id), initiated_by_id)
+
+    if ticket_ids:
+        send_event_refund_summary_task.apply_async(args=(event_id,), countdown=_SUMMARY_RETRY_COUNTDOWN)
 
     logger.info("event_refund_sweep_dispatched", event_id=event_id, dispatched=len(ticket_ids))
     return {"dispatched": len(ticket_ids)}
@@ -131,3 +144,56 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
         # same per-ticket dispatch cost as the signal, and idempotent either way.
         event_id = str(locked_ticket.event_id)
         transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
+
+
+@shared_task(name="events.send_event_refund_summary")
+def send_event_refund_summary_task(event_id: str, attempt: int = 0) -> None:
+    """Poll DB state for the fan-out sweep's completion, then notify org staff.
+
+    Named ``..._task`` in code (registered as ``events.send_event_refund_summary``) to
+    keep it distinct from ``notifications.signals.payment.send_event_refund_summary``,
+    the notification-dispatch function this calls once the sweep is done — the two
+    share a concept but not a job.
+
+    There is no single point that knows when the fan-out from
+    ``refund_cancelled_event_tickets`` finishes (each ticket refunds/cancels
+    independently), so this re-schedules itself every ``_SUMMARY_RETRY_COUNTDOWN``
+    seconds, checking ticket state directly, until either every ticket on the event is
+    CANCELLED or ``_SUMMARY_MAX_ATTEMPTS`` is reached. Giving up still sends the
+    summary — with ``still_active`` counting whatever never finished — rather than
+    silently dropping the notification.
+    """
+    if (
+        Ticket.objects.filter(event_id=event_id).exclude(status=Ticket.TicketStatus.CANCELLED).exists()
+        and attempt < _SUMMARY_MAX_ATTEMPTS
+    ):
+        send_event_refund_summary_task.apply_async(args=(event_id, attempt + 1), countdown=_SUMMARY_RETRY_COUNTDOWN)
+        return
+
+    event = Event.objects.select_related("organization").filter(pk=event_id).first()
+    if event is None:  # pragma: no cover - event deletion is not a supported flow
+        return
+
+    cancelled = Ticket.objects.filter(
+        event_id=event_id, cancellation_source=CancellationSource.EVENT_CANCELLATION
+    ).count()
+    still_active = Ticket.objects.filter(event_id=event_id).exclude(status=Ticket.TicketStatus.CANCELLED).count()
+
+    sweep_refunds = Refund.objects.filter(source=Refund.Source.EVENT_CANCELLATION, payment__ticket__event_id=event_id)
+    refunded = sweep_refunds.filter(status__in=[Refund.RefundStatus.PENDING, Refund.RefundStatus.SUCCEEDED]).count()
+    # A payment counts as failed only if ALL of its sweep refund rows are FAILED — a
+    # retried-and-succeeded refund is not a failure, even though it also left a FAILED row.
+    failed = (
+        sweep_refunds.values("payment_id")
+        .annotate(non_failed_count=Count("id", filter=~Q(status=Refund.RefundStatus.FAILED)))
+        .filter(non_failed_count=0)
+        .count()
+    )
+
+    send_event_refund_summary(
+        event=event,
+        cancelled=cancelled,
+        refunded=refunded,
+        failed=failed,
+        still_active=still_active,
+    )

@@ -10,7 +10,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from common.models import SiteSettings
-from events.models import Payment, Ticket
+from events.models import Event, Payment, Ticket
 from notifications.context_schemas import RefundUnmatchedCandidate
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
@@ -261,5 +261,66 @@ def send_refund_unmatched(
         refund_id=refund_id,
         reason=reason,
         candidate_count=len(candidate_contexts),
+        recipient_count=notified,
+    )
+
+
+def send_event_refund_summary(
+    *,
+    event: Event,
+    cancelled: int,
+    refunded: int,
+    failed: int,
+    still_active: int,
+) -> None:
+    """Notify org staff that a bulk event-cancellation refund sweep has finished.
+
+    Called from ``events.send_event_refund_summary`` (the Celery task in
+    ``events/tasks/refunds.py``) once every ticket on the event is CANCELLED, or
+    once that task's retry budget (30 attempts, 120s apart) is exhausted — in
+    which case ``still_active`` is non-zero and the counts below are a
+    best-effort snapshot rather than a final tally. A plain function like
+    ``send_refund_unmatched``: the task runs outside any request transaction, so
+    there is nothing to defer the ``notification_requested.send`` behind.
+
+    Args:
+        event: The cancelled event the sweep ran against.
+        cancelled: Tickets whose ``cancellation_source`` is EVENT_CANCELLATION.
+        refunded: Refund rows (source=EVENT_CANCELLATION) that are PENDING or SUCCEEDED.
+        failed: Payments whose EVENT_CANCELLATION refund rows are all FAILED.
+        still_active: Non-CANCELLED tickets remaining on the event (0 unless the
+            sweep gave up waiting).
+    """
+    context: dict[str, t.Any] = {
+        "organization_id": str(event.organization_id),
+        "organization_name": event.organization.name,
+        "event_id": str(event.id),
+        "event_name": event.name,
+        "cancelled": cancelled,
+        "refunded": refunded,
+        "failed": failed,
+        "still_active": still_active,
+    }
+
+    recipients = get_staff_for_notification(event.organization_id, NotificationType.EVENT_REFUND_SUMMARY)
+    notified = 0
+    for staff_user in recipients:
+        prefs = getattr(staff_user, "notification_preferences", None)
+        if prefs and prefs.is_notification_type_enabled(NotificationType.EVENT_REFUND_SUMMARY):
+            notification_requested.send(
+                sender=send_event_refund_summary,
+                user=staff_user,
+                notification_type=NotificationType.EVENT_REFUND_SUMMARY,
+                context=context,
+            )
+            notified += 1
+
+    logger.info(
+        "event_refund_summary_notifications_sent",
+        event_id=str(event.id),
+        cancelled=cancelled,
+        refunded=refunded,
+        failed=failed,
+        still_active=still_active,
         recipient_count=notified,
     )

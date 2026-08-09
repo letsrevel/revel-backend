@@ -8,7 +8,14 @@ import pytest
 import stripe
 
 from events.models import Event, Payment, Refund, Ticket, TicketTier
-from events.tasks.refunds import refund_cancelled_event_tickets, refund_one_cancelled_event_ticket
+from events.models.ticket import CancellationSource
+from events.tasks.refunds import (
+    _SUMMARY_MAX_ATTEMPTS,
+    _SUMMARY_RETRY_COUNTDOWN,
+    refund_cancelled_event_tickets,
+    refund_one_cancelled_event_ticket,
+    send_event_refund_summary_task,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -37,6 +44,39 @@ class TestRefundCancelledEventTicketsFanOut:
         assert dispatched_ids == {str(t1.id), str(t2.id)}
         for call in mock_delay.call_args_list:
             assert call.args[1] == str(organization_owner_user.id)
+
+    def test_schedules_summary_task_when_something_was_dispatched(
+        self,
+        event: Event,
+        organization_owner_user: t.Any,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+    ) -> None:
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE)
+        ticket_factory(tier=online)
+
+        with (
+            patch("events.tasks.refunds.refund_one_cancelled_event_ticket.delay"),
+            patch("events.tasks.refunds.send_event_refund_summary_task.apply_async") as mock_apply_async,
+        ):
+            refund_cancelled_event_tickets(str(event.id), str(organization_owner_user.id))
+
+        mock_apply_async.assert_called_once_with(args=(str(event.id),), countdown=_SUMMARY_RETRY_COUNTDOWN)
+
+    def test_skips_summary_task_when_nothing_was_dispatched(
+        self,
+        event: Event,
+        organization_owner_user: t.Any,
+    ) -> None:
+        with (
+            patch("events.tasks.refunds.refund_one_cancelled_event_ticket.delay") as mock_delay,
+            patch("events.tasks.refunds.send_event_refund_summary_task.apply_async") as mock_apply_async,
+        ):
+            summary = refund_cancelled_event_tickets(str(event.id), str(organization_owner_user.id))
+
+        assert summary == {"dispatched": 0}
+        mock_delay.assert_not_called()
+        mock_apply_async.assert_not_called()
 
 
 class TestRefundOneCancelledEventTicket:
@@ -215,3 +255,127 @@ class TestRefundOneCancelledEventTicket:
         tk.refresh_from_db()
         assert tk.status == Ticket.TicketStatus.CANCELLED
         assert Refund.objects.filter(payment=payment).count() == 1
+
+
+class TestSendEventRefundSummaryTask:
+    """The summary task polls DB state — there is no synchronous fan-out completion signal."""
+
+    def test_reschedules_while_tickets_remain_and_under_attempt_budget(
+        self,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+    ) -> None:
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE)
+        ticket_factory(tier=online)  # still ACTIVE — fan-out hasn't finished
+
+        with (
+            patch("events.tasks.refunds.send_event_refund_summary_task.apply_async") as mock_apply_async,
+            patch("events.tasks.refunds.send_event_refund_summary") as mock_send,
+        ):
+            send_event_refund_summary_task(str(event.id), attempt=3)
+
+        mock_apply_async.assert_called_once_with(args=(str(event.id), 4), countdown=_SUMMARY_RETRY_COUNTDOWN)
+        mock_send.assert_not_called()
+
+    def test_sends_summary_with_correct_counts_once_every_ticket_is_cancelled(
+        self,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("40.00"))
+        t_succeeded = ticket_factory(
+            tier=online,
+            status=Ticket.TicketStatus.CANCELLED,
+            cancellation_source=CancellationSource.EVENT_CANCELLATION,
+        )
+        payment_succeeded = payment_factory(
+            ticket=t_succeeded, amount=Decimal("40.00"), status=Payment.PaymentStatus.REFUNDED
+        )
+        Refund.objects.create(
+            payment=payment_succeeded,
+            amount=Decimal("40.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.EVENT_CANCELLATION,
+        )
+
+        t_failed = ticket_factory(
+            tier=online,
+            status=Ticket.TicketStatus.CANCELLED,
+            cancellation_source=CancellationSource.EVENT_CANCELLATION,
+        )
+        payment_failed = payment_factory(ticket=t_failed, amount=Decimal("40.00"), status=Payment.PaymentStatus.FAILED)
+        Refund.objects.create(
+            payment=payment_failed,
+            amount=Decimal("40.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.FAILED,
+            failure_reason="card declined",
+            source=Refund.Source.EVENT_CANCELLATION,
+        )
+
+        with (
+            patch("events.tasks.refunds.send_event_refund_summary_task.apply_async") as mock_apply_async,
+            patch("events.tasks.refunds.send_event_refund_summary") as mock_send,
+        ):
+            send_event_refund_summary_task(str(event.id))
+
+        mock_apply_async.assert_not_called()
+        mock_send.assert_called_once_with(event=event, cancelled=2, refunded=1, failed=1, still_active=0)
+
+    def test_a_retried_and_succeeded_refund_is_not_counted_as_failed(
+        self,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """A payment with both a FAILED row and a later SUCCEEDED row is a success, not a failure."""
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("40.00"))
+        tk = ticket_factory(
+            tier=online,
+            status=Ticket.TicketStatus.CANCELLED,
+            cancellation_source=CancellationSource.EVENT_CANCELLATION,
+        )
+        payment = payment_factory(ticket=tk, amount=Decimal("40.00"), status=Payment.PaymentStatus.REFUNDED)
+        Refund.objects.create(
+            payment=payment,
+            amount=Decimal("40.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.FAILED,
+            failure_reason="transient error",
+            source=Refund.Source.EVENT_CANCELLATION,
+        )
+        Refund.objects.create(
+            payment=payment,
+            amount=Decimal("40.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.EVENT_CANCELLATION,
+        )
+
+        with patch("events.tasks.refunds.send_event_refund_summary") as mock_send:
+            send_event_refund_summary_task(str(event.id))
+
+        mock_send.assert_called_once_with(event=event, cancelled=1, refunded=1, failed=0, still_active=0)
+
+    def test_gives_up_after_max_attempts_and_sends_with_still_active_count(
+        self,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+    ) -> None:
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE)
+        ticket_factory(tier=online)  # never cancelled — simulates a stuck/lost subtask
+
+        with (
+            patch("events.tasks.refunds.send_event_refund_summary_task.apply_async") as mock_apply_async,
+            patch("events.tasks.refunds.send_event_refund_summary") as mock_send,
+        ):
+            send_event_refund_summary_task(str(event.id), attempt=_SUMMARY_MAX_ATTEMPTS)
+
+        mock_apply_async.assert_not_called()
+        mock_send.assert_called_once_with(event=event, cancelled=0, refunded=0, failed=0, still_active=1)

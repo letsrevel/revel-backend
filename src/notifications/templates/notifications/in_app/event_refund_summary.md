@@ -1,0 +1,5 @@
+{% load i18n %}**{% blocktranslate with event=context.event_name %}Refund sweep for {{ event }} finished{% endblocktranslate %}**
+
+{% blocktranslate with cancelled=context.cancelled refunded=context.refunded failed=context.failed %}{{ cancelled }} tickets cancelled, {{ refunded }} refunds issued, {{ failed }} refunds failed.{% endblocktranslate %}
+
+{% if context.still_active %}{% blocktranslate with active=context.still_active %}{{ active }} tickets were still not cancelled when this summary was sent — check the event's ticket admin.{% endblocktranslate %}{% endif %}

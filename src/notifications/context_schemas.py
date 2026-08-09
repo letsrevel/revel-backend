@@ -139,6 +139,25 @@ class RefundUnmatchedContext(BaseNotificationContext):
     resolve_url: str
 
 
+class EventRefundSummaryContext(BaseNotificationContext):
+    """Context for EVENT_REFUND_SUMMARY notification (to org staff).
+
+    Sent once the bulk cancel-and-refund sweep dispatched by
+    ``events.refund_cancelled_event_tickets`` finishes — or gives up waiting,
+    in which case ``still_active`` is non-zero and the counts are a
+    best-effort snapshot rather than a final tally.
+    """
+
+    organization_id: str
+    organization_name: str
+    event_id: str
+    event_name: str
+    cancelled: int
+    refunded: int
+    failed: int
+    still_active: int
+
+
 class TicketCheckedInContext(BaseNotificationContext):
     """Context for TICKET_CHECKED_IN notification."""
 
@@ -698,6 +717,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.TICKET_CHECKED_IN: TicketCheckedInContext,
     NotificationType.PAYMENT_CONFIRMATION: PaymentConfirmationContext,
     NotificationType.REFUND_UNMATCHED: RefundUnmatchedContext,
+    NotificationType.EVENT_REFUND_SUMMARY: EventRefundSummaryContext,
     NotificationType.EVENT_OPEN: EventOpenContext,
     NotificationType.EVENT_UPDATED: EventUpdatedContext,
     NotificationType.EVENT_REMINDER: EventReminderContext,
