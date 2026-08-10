@@ -8,7 +8,7 @@ import pytest
 import stripe
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.models import Event, Organization, Payment, Refund, Ticket, TicketTier
 from events.service.stripe_webhooks import StripeEventHandler
 
 pytestmark = pytest.mark.django_db
@@ -280,10 +280,11 @@ class TestStripeEventHandler:
         assert completed_payment.raw_response == dict(handler.event)
 
         ticket.refresh_from_db()
-        assert ticket.status == Ticket.TicketStatus.CANCELLED
+        assert ticket.status == Ticket.TicketStatus.ACTIVE, "refunds are record-only; the ticket stays active"
+        assert ticket.cancellation_source == ""
 
         tier.refresh_from_db()
-        assert tier.quantity_sold == 4  # Restored from 5 to 4
+        assert tier.quantity_sold == 5, "no seat may be reclaimed by a refund"
 
         # Verify notification signal was sent to ticket holder (and potentially staff)
         # The signal is called at least once for the ticket holder
@@ -308,17 +309,26 @@ class TestStripeEventHandler:
     ) -> None:
         """Test that duplicate refund webhooks are handled idempotently.
 
-        The new matching strategy uses ``refund_status == SUCCEEDED`` as the
-        idempotency key.  A payment that is already fully refunded is silently
-        skipped; ``stripe_refund_processed`` is still logged, but no mutations
-        occur and no ``stripe_webhook_duplicate_refund`` entry is emitted.
+        The idempotency key is a SUCCEEDED ``Refund`` row carrying this exact
+        ``stripe_refund_id`` (not the legacy Payment mirror): a payment that
+        already has one is silently skipped for *this* refund id — no second
+        row, no re-application. ``stripe_refund_processed`` is still logged.
         """
-        # Arrange — mark the payment as already fully refunded
+        # Arrange — mark the payment as already fully refunded, backed by a
+        # matching SUCCEEDED Refund row (the actual idempotency anchor now).
         completed_payment.status = Payment.PaymentStatus.REFUNDED
         completed_payment.refund_status = Payment.RefundStatus.SUCCEEDED
         completed_payment.stripe_refund_id = "re_dup"
         completed_payment.stripe_payment_intent_id = "pi_test123"
         completed_payment.save()
+        Refund.objects.create(
+            payment=completed_payment,
+            amount=completed_payment.amount,
+            currency=completed_payment.currency,
+            status=Refund.RefundStatus.SUCCEEDED,
+            stripe_refund_id="re_dup",
+            source=Refund.Source.STRIPE_DASHBOARD,
+        )
 
         mock_charge_data = {
             "id": "ch_test123",
@@ -343,6 +353,7 @@ class TestStripeEventHandler:
         completed_payment.refresh_from_db()
         assert completed_payment.status == Payment.PaymentStatus.REFUNDED
         assert completed_payment.refund_status == Payment.RefundStatus.SUCCEEDED
+        assert Refund.objects.filter(payment=completed_payment).count() == 1, "the replay must not create a second row"
         # The handler logs stripe_refund_processed with an empty newly_refunded list
         assert "stripe_refund_processed" in caplog.text
 

@@ -480,13 +480,24 @@ DRAFT → [org edits] → DRAFT → [org issues] → ISSUED → [refund] → CAN
 
 ### Credit Notes
 
-Generated on the `charge.refunded` webhook. For each refund:
+Generated on the `charge.refunded` webhook, keyed on the specific [`Refund`](#refunds) row(s) that
+webhook call just applied — not the whole `Payment` — so two separate partial refunds on the same
+payment each produce their own credit note:
 
 - If the invoice is `DRAFT` → delete the draft (nothing was issued)
-- If the invoice is `ISSUED` → create a credit note with the refunded amounts
+- If the invoice is `ISSUED` → create a credit note for `sum(refund.amount)`, with VAT pro-rated per
+  row from the original payment's VAT ratio (`refund.amount × payment.vat_amount / payment.amount`,
+  rounded half-up to the cent)
 - If total credited across all credit notes ≥ invoice total → mark invoice as `CANCELLED`
 
-Idempotency is enforced by checking for existing credit notes with the exact same set of refunded payment IDs.
+Idempotency is enforced by checking for an existing credit note covering the exact same set of
+refund ids (falling back to the legacy payment-id set for credit notes generated before this
+refund-row-keyed path existed).
+
+!!! note "±1 cent per split"
+    Each `Refund` row's VAT portion is rounded independently, so N partial refunds on the same
+    payment can sum to a cent or two off what a single full refund would have produced. This is an
+    accepted rounding characteristic, not a bug — see `_refund_vat_portion()`.
 
 ### Email Delivery
 
@@ -521,6 +532,84 @@ Emails are sent from the org's branded address:
 | `POST` | `/organization-admin/{slug}/attendee-invoices/{id}/issue` | Issue draft + send email |
 | `DELETE` | `/organization-admin/{slug}/attendee-invoices/{id}` | Delete draft |
 | `GET` | `/organization-admin/{slug}/attendee-credit-notes` | List attendee credit notes |
+
+## Refunds
+
+Refunding a ticket payment and cancelling the ticket are orthogonal operations: refunding never
+cancels, and cancelling never implies a refund unless explicitly requested. See the
+[organizer refund journeys](../guides/user-journey.md#organizer-refunds-event-cancellation) for the
+endpoint-level flow.
+
+### `Refund` Model
+
+`events.models.Refund` — one row per refund **attempt**, not per payment. A partial refund followed
+by a second partial refund on the same `Payment` produces two rows, never an updated one.
+
+| Field | Description |
+|---|---|
+| `payment` | The `Payment` being refunded (FK, `CASCADE` — mirrors `Payment`→`Ticket`→`User`) |
+| `amount` / `currency` | Amount of this specific attempt |
+| `status` | `pending` → `succeeded` / `failed` |
+| `source` | `organizer_api`, `user_cancellation`, `event_cancellation`, or `stripe_dashboard` |
+| `stripe_refund_id` | Stripe's refund object id — the anchor the webhook matcher uses |
+| `initiated_by` / `reason` | Audit fields |
+
+`Payment.refund_amount` stays a denormalized running total of `SUCCEEDED` rows, maintained by the
+webhook, so existing readers (revenue reporting, VAT decomposition) keep working unchanged.
+
+Every code path that moves refund money — the organizer API, user self-service cancellation,
+series-pass cancellation, and the bulk event-cancellation sweep — funnels through one primitive,
+`refund_service.issue_refund()`: it locks the `Payment`, computes `remaining_refundable()`
+(`payment.amount` minus every non-`FAILED` `Refund` row), creates a `PENDING` row, and calls
+`stripe.Refund.create()` with a deterministic idempotency key
+(`refund:{payment_id}:{sequence}:{amount}`, where `sequence` counts **all** of the payment's
+`Refund` rows regardless of status). A rolled-back attempt leaves no row, so a retry after a crash
+reuses the same key and the same Stripe refund instead of double-refunding; a persisted `FAILED`
+row advances the key, so retrying after e.g. `balance_insufficient` (the sweep's failure rows, or
+the standalone organizer endpoint — which records a `FAILED` row on Stripe failure) gets a fresh
+key instead of replaying the error response Stripe caches per key for ~24 hours.
+
+!!! note "The platform fee is never refunded"
+    Refunding a ticket returns the buyer's payment; Revel's platform fee is not reduced or returned
+    — mirroring Stripe's own behavior of keeping its processing fee on a refunded charge. This is by
+    design, not a gap. Pro-rata VAT on the *ticket* portion is still credited correctly (see
+    [Credit Notes](#credit-notes)).
+
+### Bulk Event-Cancellation Sweep
+
+Cancelling an event with `refund_tickets=true` dispatches `events.refund_cancelled_event_tickets`, a
+cheap fan-out task that snapshots every active ticket id and dispatches one
+`events.refund_one_cancelled_event_ticket` subtask per ticket — no monolithic in-process loop. Each
+subtask refunds (if the ticket has an online payment) **then** cancels, in that order and in separate
+transactions, so a crash between the two steps is safely resumable: re-dispatching finds
+`remaining_refundable() == 0` from the prior run's `Refund` row, falls through `NothingToRefundError`,
+and proceeds straight to cancellation. Cancellation happens regardless of whether the refund attempt
+succeeded, failed, or had nothing to do — a ticket must not survive a cancelled event just because
+Stripe declined the refund. Re-POSTing `update-status` with `status=cancelled, refund_tickets=true`
+is therefore the supported way to resume a crashed or partial sweep. A self-rescheduling task polls
+ticket state and sends org staff a single completion summary once the fan-out settles (or a bounded
+polling window elapses).
+
+### `charge.refunded` Webhook: Record-Only
+
+The webhook never cancels a ticket or reclaims tier capacity — a refund, whether issued through Revel
+or applied directly in the Stripe dashboard, only updates `Refund`/`Payment` state.
+`_handle_ticket_refunds` (in `events.service.stripe_webhook_refunds`) matches each refund object in
+the charge to its ticket `Payment` row(s), first match wins:
+
+1. An existing `stripe_refund_id` already on a `Payment` or `Refund` row (replay)
+2. `refund.metadata["refund_id"]` — our own `Refund` row pointer, set by `issue_refund()`
+3. `refund.metadata["ticket_id"]` — explicit pointer
+4. Exactly one `Payment` on the intent (unambiguous by construction)
+5. Exactly one unrefunded `Payment` with a matching amount — but only when every `Payment` on the
+   intent costs the same. On a mixed-price batch, a partial refund on the expensive ticket is
+   indistinguishable from a full refund of the cheap one, so the matcher refuses to guess
+6. The refund amount equals the sum of all unrefunded payments on the intent (a full-batch sweep)
+7. Ambiguous → logged, and a durable `REFUND_UNMATCHED` staff notification is raised; nothing is
+   mutated
+
+A Stripe-dashboard refund that matches lands as a `Refund` row with `source=stripe_dashboard` — the
+ticket stays valid until the organizer cancels it separately.
 
 ## Referral Payout Statements
 

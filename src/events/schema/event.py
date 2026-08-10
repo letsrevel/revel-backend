@@ -112,10 +112,17 @@ class EventStatusUpdatePayload(Schema):
     """Optional body for the update-status endpoint.
 
     ``cancellation_reason`` is honored only when transitioning to CANCELLED;
-    it is ignored for every other target status.
+    it is silently ignored for every other target status. ``refund_tickets=True``
+    is only valid alongside a transition to CANCELLED — the endpoint rejects it
+    with 400 for every other target status, rather than ignoring it.
     """
 
     cancellation_reason: StrippedString | None = Field(default=None, max_length=1000)
+    refund_tickets: bool = Field(
+        default=False,
+        description="Only valid when the target status is 'cancelled': cancel every ticket "
+        "and refund online payments in the background. Irreversible.",
+    )
 
 
 class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):

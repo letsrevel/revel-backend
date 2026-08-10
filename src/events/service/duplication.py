@@ -30,6 +30,9 @@ _EXCLUDED_FROM_COPY: frozenset[str] = frozenset(
         "attendee_count",
         "is_template",
         "is_modified",
+        # a duplicated event must start life un-refunded — never inherit the
+        # template/source event's un-cancel block (#870)
+        "tickets_refund_started_at",
         # explicit overrides
         "name",
         "status",

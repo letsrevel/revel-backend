@@ -42,6 +42,7 @@ from .preferences import (
 )
 from .questionnaire import EventQuestionnaireSubmission, OrganizationQuestionnaire
 from .recurrence_rule import RecurrenceRule
+from .refund import Refund
 from .reserved_slug_token import ReservedSlugToken
 from .rsvp import EventRSVP
 from .seating import EventSeatOverride, SeatHold
@@ -79,6 +80,7 @@ __all__ = [
     "PendingEventInvitation",
     "PotluckItem",
     "CancellationSource",
+    "Refund",
     "Ticket",
     "TicketTier",
     # Organizations

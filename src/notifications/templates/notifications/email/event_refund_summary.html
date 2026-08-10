@@ -1,0 +1,11 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% blocktranslate with event=context.event_name %}Refund sweep for {{ event }} finished{% endblocktranslate %}</h2>
+
+<p>{% blocktranslate with cancelled=context.cancelled refunded=context.refunded failed=context.failed %}{{ cancelled }} tickets cancelled, {{ refunded }} refunds issued, {{ failed }} refunds failed.{% endblocktranslate %}</p>
+
+{% if context.still_active %}
+<p>{% blocktranslate with active=context.still_active %}{{ active }} tickets were still not cancelled when this summary was sent &mdash; check the event's ticket admin.{% endblocktranslate %}</p>
+{% endif %}
+{% endblock %}

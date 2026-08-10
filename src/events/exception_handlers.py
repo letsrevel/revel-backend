@@ -26,22 +26,26 @@ from events.exceptions import (
     AlreadyMemberError,
     BillingInfoRequiredError,
     DuplicateDiscountCodeError,
+    EventRefundsStartedError,
     InvalidPeriodError,
     InvalidResourceStateError,
     InvalidStripeWebhookSignatureError,
     InvalidZoneSelectionError,
     MembershipPolicyManageSubscriptionsOnlyError,
     MembershipTierInUseError,
+    NothingToRefundError,
     OrganizationTokenGrantInvariantError,
     OrganizationTokenMembershipTierRequiredError,
     OrganizationTokenStaffGrantForbidden,
     PendingMembershipRequestExistsError,
+    RefundInsufficientBalanceError,
     RevenueReportCadenceOwnerOnlyError,
     SeriesPassCoverageError,
     SeriesPassHasHoldersError,
     SeriesPassNotPurchasableError,
     SessionTotalMismatchError,
     StripeNotConnectedError,
+    StripeRefundFailed,
     SubscriptionActivationPendingError,
     TicketAlreadyCancelledError,
     TooManyItemsError,
@@ -177,6 +181,18 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # Books-vs-charge invariant breach (#739): a bug on our side, and one we must never
     # paper over — 500, with a generic message so the amounts stay in the logs only.
     SessionTotalMismatchError: make_static_handler(500, _("Payment processing failed. Please try again later.")),
+    # Organizer refunds (#865): Stripe declined for lack of connected-account funds → 402.
+    RefundInsufficientBalanceError: make_static_handler(
+        402, _("Refund declined: the Stripe account balance is insufficient. Top it up and retry.")
+    ),
+    # Nothing refundable on this payment (already fully refunded / not an online payment) → 409.
+    NothingToRefundError: make_simple_handler(409),
+    # Bulk refunds already ran — the event can no longer be un-cancelled → 409.
+    EventRefundsStartedError: make_static_handler(
+        409, _("Ticket refunds have started for this event; it can no longer be un-cancelled.")
+    ),
+    # Stripe refund API failure → 502 (mirrors the public cancel endpoint's mapping).
+    StripeRefundFailed: make_simple_handler(502),
 }
 
 

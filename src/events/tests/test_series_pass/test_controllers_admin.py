@@ -764,7 +764,7 @@ def test_cancel_series_pass_delegates_to_cancel_held_pass_no_refund_for_free_pas
         "api:cancel_series_pass", kwargs={"series_id": series_pass.event_series_id, "held_pass_id": held_pass.pk}
     )
 
-    with patch("events.service.series_pass_service.cancellation_service._issue_stripe_refund") as mock_refund:
+    with patch("events.service.series_pass_service.refund_service.issue_refund") as mock_refund:
         response = _post_json(organization_owner_client, url, {"reason": "no longer needed"})
 
     assert response.status_code == 200

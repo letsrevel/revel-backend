@@ -1,6 +1,7 @@
 """Ticket cancellation and refund preview schemas."""
 
 from decimal import Decimal
+from uuid import UUID
 
 from ninja import Schema
 from pydantic import AwareDatetime, Field
@@ -8,6 +9,7 @@ from pydantic import AwareDatetime, Field
 from common.schema import StrippedString
 from events import models
 from events.models import Payment, TicketTier
+from events.models import Refund as RefundModel
 
 from .ticket_detail import UserTicketSchema
 from .ticket_tier import RefundPolicySchema
@@ -73,3 +75,68 @@ class AdminRefundTicketSchema(AdminCancelTicketSchema):
         ge=0,
         description="Explicit amount refunded. Defaults to the amount paid when omitted.",
     )
+
+
+# ---- Organizer Online Refund Schemas (#865) ----
+
+
+class TicketRefundSchema(Schema):
+    """A single refund attempt on a ticket payment.
+
+    Named distinctly from ``subscription.RefundSchema`` (a request payload for the
+    membership-payment refund endpoint) to avoid a bare-name OpenAPI/import clash —
+    see the naming note on ``MembershipPaymentSchema``.
+    """
+
+    id: UUID
+    amount: Decimal
+    currency: str
+    status: RefundModel.RefundStatus
+    source: RefundModel.Source
+    reason: str
+    stripe_refund_id: str
+    failure_reason: str
+    created_at: AwareDatetime
+
+
+class AdminIssueRefundSchema(Schema):
+    """Payload for the organizer online-refund endpoint."""
+
+    amount: Decimal | None = Field(
+        default=None,
+        gt=0,
+        description="Refund amount. Defaults to the full remaining refundable amount.",
+    )
+    reason: StrippedString | None = Field(default=None, max_length=500)
+
+
+class TicketRefundContextSchema(Schema):
+    """Admin preview: how much was paid, refunded, and remains refundable on a ticket."""
+
+    payment_method: TicketTier.PaymentMethod
+    amount_paid: Decimal
+    currency: str
+    total_refunded: Decimal
+    total_pending: Decimal
+    remaining_refundable: Decimal
+    policy_suggested_amount: Decimal | None = None
+    refunds: list[TicketRefundSchema] = Field(default_factory=list)
+
+
+class RefundPreviewCurrencyLine(Schema):
+    """Refund totals vs Stripe balance for one currency."""
+
+    currency: str
+    total_refundable: Decimal
+    available_balance: Decimal | None = None
+    balance_sufficient: bool | None = None
+
+
+class EventRefundPreviewSchema(Schema):
+    """Advisory pre-flight for the cancel-with-refunds flow. Never blocks."""
+
+    active_tickets: int
+    online_refundable_tickets: int
+    offline_tickets: int
+    currencies: list[RefundPreviewCurrencyLine]
+    tickets_refund_started_at: AwareDatetime | None = None

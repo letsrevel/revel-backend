@@ -397,19 +397,21 @@ def test_cancel_ticket_by_staff_without_permission(
     assert pending_offline_ticket.status == Ticket.TicketStatus.PENDING
 
 
-def test_cancel_ticket_online_ticket_rejected(
+def test_cancel_ticket_online_ticket_succeeds(
     organization_owner_client: Client,
     event: Event,
     active_online_ticket: Ticket,
 ) -> None:
-    """Test that online/Stripe tickets cannot be manually canceled (returns 404)."""
+    """Online/Stripe tickets can now be cancelled directly (#865); no refund_amount, no Stripe call."""
     url = reverse(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk},
     )
     response = organization_owner_client.post(url, data={}, content_type="application/json")
 
-    assert response.status_code == 404
+    assert response.status_code == 200
+    active_online_ticket.refresh_from_db()
+    assert active_online_ticket.status == Ticket.TicketStatus.CANCELLED
 
 
 def test_cancel_ticket_nonexistent_ticket(organization_owner_client: Client, event: Event) -> None:

@@ -8,7 +8,7 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.models import Event, Organization, Payment, Refund, Ticket, TicketTier
 from events.service import revenue_report_service as svc
 
 
@@ -105,7 +105,7 @@ def test_refund_reduces_bucket_and_reports_refund_total(
     ticket = Ticket.objects.create(
         event=event, tier=tier, user=user, status=Ticket.TicketStatus.CANCELLED, guest_name="Carol"
     )
-    Payment.objects.create(
+    payment = Payment.objects.create(
         ticket=ticket,
         user=user,
         status=Payment.PaymentStatus.REFUNDED,
@@ -120,12 +120,110 @@ def test_refund_reduces_bucket_and_reports_refund_total(
         platform_fee=Decimal("0.00"),
         stripe_session_id="cs_test_3",
     )
+    Refund.objects.create(
+        payment=payment,
+        amount=Decimal("120.00"),
+        currency="EUR",
+        status=Refund.RefundStatus.SUCCEEDED,
+        succeeded_at=timezone.now(),
+        source=Refund.Source.ORGANIZER_API,
+    )
     data = svc.build_revenue_report_data(_scope(org))
     section = next(s for s in data.sections if s.currency == "EUR")
     assert section.refunds_total == Decimal("120.00")
     assert section.net_taxable_turnover == Decimal("0.00")
     assert section.sold_count == 1
     assert section.refunded_count == 1
+
+
+@pytest.mark.django_db
+def test_two_partial_refunds_book_in_their_own_periods_and_old_periods_stay_stable(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """Each partial refund is attributed to the period containing its own ``succeeded_at``.
+
+    Previously the report booked ``payment.refund_amount`` (a running total) at
+    ``payment.refunded_at`` (overwritten by each refund), so a second partial in a
+    later month silently migrated the earlier month's booking (#865).
+    """
+    org, event, tier, user = org_event_tier
+    ticket = Ticket.objects.create(
+        event=event, tier=tier, user=user, status=Ticket.TicketStatus.ACTIVE, guest_name="Erin"
+    )
+    payment = Payment.objects.create(
+        ticket=ticket,
+        user=user,
+        status=Payment.PaymentStatus.SUCCEEDED,
+        amount=Decimal("120.00"),
+        currency="EUR",
+        platform_fee=Decimal("0.00"),
+        stripe_session_id="cs_test_periods",
+        # Legacy mirror as the webhook leaves it after the SECOND partial:
+        # running total, refunded_at overwritten to the later date.
+        refund_amount=Decimal("30.00"),
+        refund_status=Payment.RefundStatus.SUCCEEDED,
+        refunded_at=dt.datetime(2030, 2, 10, 12, 0, tzinfo=dt.UTC),
+    )
+    Refund.objects.create(
+        payment=payment,
+        amount=Decimal("10.00"),
+        currency="EUR",
+        status=Refund.RefundStatus.SUCCEEDED,
+        succeeded_at=dt.datetime(2030, 1, 15, 12, 0, tzinfo=dt.UTC),
+        source=Refund.Source.ORGANIZER_API,
+    )
+    jan_scope = svc.ReportScope(org=org, event_id=None, date_from=dt.date(2030, 1, 1), date_to=dt.date(2030, 1, 31))
+    feb_scope = svc.ReportScope(org=org, event_id=None, date_from=dt.date(2030, 2, 1), date_to=dt.date(2030, 2, 28))
+
+    jan_before = svc.build_revenue_report_data(jan_scope)
+    assert jan_before.sections[0].refunds_total == Decimal("10.00")
+
+    Refund.objects.create(
+        payment=payment,
+        amount=Decimal("20.00"),
+        currency="EUR",
+        status=Refund.RefundStatus.SUCCEEDED,
+        succeeded_at=dt.datetime(2030, 2, 10, 12, 0, tzinfo=dt.UTC),
+        source=Refund.Source.ORGANIZER_API,
+    )
+
+    # Regenerating January after the February refund landed must be stable.
+    jan_after = svc.build_revenue_report_data(jan_scope)
+    assert jan_after.sections[0].refunds_total == Decimal("10.00")
+    assert jan_after.sections[0].refunded_count == 1
+    feb = svc.build_revenue_report_data(feb_scope)
+    assert feb.sections[0].refunds_total == Decimal("20.00")
+    assert feb.sections[0].refunded_count == 1
+
+
+@pytest.mark.django_db
+def test_refund_row_without_succeeded_at_falls_back_to_updated_at(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """Rows predating the ``succeeded_at`` field still book, dated by ``updated_at``."""
+    org, event, tier, user = org_event_tier
+    ticket = Ticket.objects.create(
+        event=event, tier=tier, user=user, status=Ticket.TicketStatus.ACTIVE, guest_name="Fay"
+    )
+    payment = Payment.objects.create(
+        ticket=ticket,
+        user=user,
+        status=Payment.PaymentStatus.SUCCEEDED,
+        amount=Decimal("120.00"),
+        currency="EUR",
+        platform_fee=Decimal("0.00"),
+        stripe_session_id="cs_test_fallback",
+    )
+    Refund.objects.create(
+        payment=payment,
+        amount=Decimal("40.00"),
+        currency="EUR",
+        status=Refund.RefundStatus.SUCCEEDED,  # succeeded_at left null
+        source=Refund.Source.STRIPE_DASHBOARD,
+    )
+    data = svc.build_revenue_report_data(_scope(org))  # wide window covers updated_at (= now)
+    section = next(s for s in data.sections if s.currency == "EUR")
+    assert section.refunds_total == Decimal("40.00")
 
 
 @pytest.mark.django_db

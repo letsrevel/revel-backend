@@ -7,7 +7,7 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Payment, Ticket, TicketTier
+from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.service.revenue_aggregation import ReportScope, event_financials
 
 pytestmark = pytest.mark.django_db
@@ -35,7 +35,7 @@ def test_event_financials_gross_is_pre_refund(
 ) -> None:
     """gross stays the full charged amount; refunds reported separately; net = gross - refunds."""
     _online(public_user, event, event_ticket_tier, "20.00")
-    _online(
+    refunded = _online(
         member_user,
         event,
         event_ticket_tier,
@@ -44,6 +44,15 @@ def test_event_financials_gross_is_pre_refund(
         refund_amount=Decimal("4.00"),
         refund_status=Payment.RefundStatus.SUCCEEDED,
         refunded_at=timezone.now(),
+    )
+    # Refund attribution reads Refund rows (dated by succeeded_at), not the legacy mirror.
+    Refund.objects.create(
+        payment=refunded,
+        amount=Decimal("4.00"),
+        currency="EUR",
+        status=Refund.RefundStatus.SUCCEEDED,
+        succeeded_at=timezone.now(),
+        source=Refund.Source.ORGANIZER_API,
     )
     scope = ReportScope(org=event.organization, event_id=event.id, date_from=ALL_TIME[0], date_to=ALL_TIME[1])
     fin = event_financials(event, scope)

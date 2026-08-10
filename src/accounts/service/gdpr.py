@@ -449,6 +449,7 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "checked_in_tickets": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "cancelled_tickets": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "recorded_membership_payments": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "initiated_refunds": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "eventtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
     "organizationtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
     "created_announcements": ExportRule(include=False, reason="organization content authored in staff capacity"),

@@ -24,11 +24,13 @@ import typing as t
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
 from common.utils import update_db_instance
 from events import models
+from events.exceptions import EventRefundsStartedError
 from events.schema import EventCreateSchema, EventEditSchema, SeriesPassLinkInputSchema
 from events.service import series_pass_service
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
@@ -222,8 +224,10 @@ def update_status(
     new_status: models.Event.EventStatus,
     *,
     cancellation_reason: str | None = None,
+    refund_tickets: bool = False,
+    initiated_by: RevelUser | None = None,
 ) -> models.Event:
-    """Transition an event's status and fire matching waitlist side effects.
+    """Transition an event's status and fire matching waitlist/refund side effects.
 
     Behavior:
       * Persists ``status = new_status`` via ``update_fields``.
@@ -236,18 +240,53 @@ def update_status(
       * On transition AWAY from CANCELLED (un-cancel), clears any stale
         ``cancellation_reason`` (it describes a specific cancellation) and
         enqueues a waitlist processing pass so the freshly real seats can be
-        taken by waitlisted users.
+        taken by waitlisted users. Raises ``EventRefundsStartedError`` if the
+        bulk refund sweep already started — that process is irreversible.
+      * On transition to CANCELLED with ``refund_tickets=True``, ALWAYS
+        dispatches the bulk cancel-and-refund sweep on commit —
+        ``tickets_refund_started_at`` is stamped only the first time (a no-op
+        if already set). The sweep itself is idempotent per ticket, so
+        re-POSTing ``update-status/cancelled`` with the flag (e.g. after a
+        crashed/partial run) is the supported way to resume it.
+      * Locks the event row (``select_for_update``) before reading/stamping
+        ``tickets_refund_started_at`` so two concurrent calls can't both
+        observe the un-set stamp and race on the un-cancel guard / dispatch.
+
+    Requires an active transaction: the function re-fetches ``event`` under
+    ``select_for_update()`` as its first step, which raises
+    ``TransactionManagementError`` outside one. The ``@transaction.atomic``
+    decorator on this function provides it, so a direct call is always safe;
+    it also means every write here (or a rollback) is scoped to that block,
+    not the caller's.
 
     Args:
-        event: The event to mutate.
+        event: The event to mutate. Only its ``pk`` is used — the instance
+            itself is discarded in favor of a freshly locked re-fetch (see
+            Returns).
         new_status: The target status.
         cancellation_reason: Optional organizer-supplied reason, honored only
             when ``new_status`` is CANCELLED; ignored for other transitions.
+        refund_tickets: Only honored when ``new_status`` is CANCELLED: cancel
+            every ticket and refund online payments in the background.
+        initiated_by: The user requesting the transition, threaded through to
+            the refund sweep as the acting user. Ignored unless
+            ``refund_tickets`` triggers a dispatch.
 
     Returns:
-        The updated ``Event`` (same instance).
+        The updated ``Event`` — a distinct, freshly re-fetched instance
+        (``select_for_update().get(pk=event.pk)``), not the ``event`` object
+        the caller passed in.
+
+    Raises:
+        EventRefundsStartedError: On an un-cancel attempt after the bulk
+            refund sweep already started for this event.
     """
+    event = models.Event.objects.select_for_update().get(pk=event.pk)
     old_status = event.status
+    if old_status == models.Event.EventStatus.CANCELLED and new_status != models.Event.EventStatus.CANCELLED:
+        if event.tickets_refund_started_at is not None:
+            raise EventRefundsStartedError()
+
     update_fields = ["status"]
     event.status = new_status
 
@@ -265,6 +304,23 @@ def update_status(
         revoke_all_pending_offers(event.id)
     elif old_status == models.Event.EventStatus.CANCELLED:
         enqueue_waitlist_processing(event.id)
+
+    if new_status == models.Event.EventStatus.CANCELLED and refund_tickets:
+        if event.tickets_refund_started_at is None:
+            event.tickets_refund_started_at = timezone.now()
+            event.save(update_fields=["tickets_refund_started_at"])
+        event_id, actor_id = str(event.id), str(initiated_by.id) if initiated_by else None
+
+        def _dispatch_refund_sweep() -> None:
+            from events.tasks.refunds import refund_cancelled_event_tickets
+
+            refund_cancelled_event_tickets.delay(event_id, actor_id)
+
+        # ATOMIC_REQUESTS: never .delay() inside the request transaction.
+        # Always dispatch (not gated on the stamp): the parent fans out
+        # per-ticket subtasks that are individually idempotent, so
+        # re-dispatching is the supported resume path for a partial run.
+        transaction.on_commit(_dispatch_refund_sweep)
 
     return event
 

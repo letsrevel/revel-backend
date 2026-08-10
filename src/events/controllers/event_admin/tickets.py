@@ -4,6 +4,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from ninja import Body, Path, Query
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -15,7 +16,7 @@ from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.schema.financials import EventFinancialsSchema
-from events.service import revenue_aggregation, ticket_guest_name_service, ticket_service
+from events.service import refund_service, revenue_aggregation, ticket_guest_name_service, ticket_service
 
 from .base import EventAdminBaseController
 
@@ -338,33 +339,98 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.post(
         "/tickets/{ticket_id}/cancel",
         url_name="cancel_ticket",
-        response={200: schema.UserTicketSchema},
+        response={
+            200: schema.UserTicketSchema,
+            400: ErrorDetail,
+            409: ErrorDetail,
+            402: ErrorDetail,
+            502: ErrorDetail,
+        },
     )
     def cancel_ticket(
         self,
         event_id: UUID,
         ticket_id: UUID,
-        payload: t.Annotated[schema.AdminCancelTicketSchema | None, Body(None)] = None,
+        payload: t.Annotated[schema.AdminRefundTicketSchema | None, Body(None)] = None,
     ) -> models.Ticket:
-        """Cancel an offline/at-the-door ticket and record organizer audit fields.
+        """Cancel a ticket, of any payment method, and record organizer audit fields.
 
-        This endpoint is for offline/at-the-door tickets only.
-        Online tickets (Stripe) should be refunded via the Stripe Dashboard.
+        An optional ``refund_amount`` issues a Stripe refund alongside the cancellation
+        for online tickets, or records a manual refund for offline/at-the-door ones.
         """
         event = self.get_one(event_id)
         ticket = get_object_or_404(
             models.Ticket.objects.select_related("tier"),
             pk=ticket_id,
             event=event,
-            tier__payment_method__in=[
-                models.TicketTier.PaymentMethod.OFFLINE,
-                models.TicketTier.PaymentMethod.AT_THE_DOOR,
-            ],
         )
-        return ticket_service.cancel_offline_ticket(
+        return refund_service.admin_cancel_ticket(
             ticket,
             cancelled_by=self.user(),
             reason=payload.cancellation_reason if payload else None,
+            refund_amount=payload.refund_amount if payload else None,
+        )
+
+    @route.post(
+        "/tickets/{ticket_id}/refund",
+        url_name="refund_ticket_payment",
+        response={
+            200: schema.TicketRefundSchema,
+            400: ErrorDetail,
+            409: ErrorDetail,
+            402: ErrorDetail,
+            502: ErrorDetail,
+        },
+    )
+    def refund_ticket_payment(
+        self,
+        event_id: UUID,
+        ticket_id: UUID,
+        payload: t.Annotated[schema.AdminIssueRefundSchema | None, Body(None)] = None,
+    ) -> models.Refund:
+        """Refund an online ticket payment (full or partial) without cancelling the ticket.
+
+        Returns the ``Refund`` row in PENDING status — the ``charge.refunded`` webhook
+        finalizes it to SUCCEEDED once Stripe confirms the transfer.
+        """
+        event = self.get_one(event_id)
+        ticket = get_object_or_404(
+            models.Ticket.objects.select_related("tier", "event__organization"),
+            pk=ticket_id,
+            event=event,
+        )
+        return refund_service.issue_refund_for_ticket(
+            ticket,
+            amount=payload.amount if payload else None,
+            initiated_by=self.user(),
+            reason=(payload.reason if payload else None) or "",
+            source=models.Refund.Source.ORGANIZER_API,
+        )
+
+    @route.get(
+        "/tickets/{ticket_id}/refund-context",
+        url_name="ticket_refund_context",
+        response={200: schema.TicketRefundContextSchema},
+        throttle=UserDefaultThrottle(),
+    )
+    def ticket_refund_context(self, event_id: UUID, ticket_id: UUID) -> schema.TicketRefundContextSchema:
+        """Amounts paid/refunded/remaining plus the policy-suggested refund, for FE quick-select."""
+        event = self.get_one(event_id)
+        ticket = get_object_or_404(
+            models.Ticket.objects.select_related("tier", "payment", "event").prefetch_related("payment__refunds"),
+            pk=ticket_id,
+            event=event,
+        )
+        ctx = refund_service.build_refund_context(ticket, timezone.now())
+        return schema.TicketRefundContextSchema(
+            payment_method=ctx.payment_method,
+            amount_paid=ctx.amount_paid,
+            currency=ctx.currency,
+            total_refunded=ctx.total_refunded,
+            total_pending=ctx.total_pending,
+            remaining_refundable=ctx.remaining_refundable,
+            policy_suggested_amount=ctx.policy_suggested_amount,
+            refunds=[schema.TicketRefundSchema.from_orm(r) for r in ctx.refunds],
         )
 
     @route.post(

@@ -22,7 +22,7 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from common.service.vat_utils import calculate_vat_inclusive
-from events.models import MembershipPayment, Organization, Payment, Ticket, TicketTier
+from events.models import MembershipPayment, Organization, Payment, Refund, Ticket, TicketTier
 from events.service.seating.pricing import recorded_or_resolved_price
 from events.utils import get_organization_timezone
 
@@ -286,10 +286,16 @@ def _add_refund(acc: _CurrencyAcc, refund_gross: Decimal, rate: Decimal, rc: boo
 
 
 def _online_payments(scope: ReportScope) -> QuerySet[Payment]:
-    qs = Payment.objects.select_related("ticket__event", "ticket__tier").filter(
-        ticket__event__organization=scope.org,
-        ticket__tier__payment_method=TicketTier.PaymentMethod.ONLINE,
-        status__in=[Payment.PaymentStatus.SUCCEEDED, Payment.PaymentStatus.REFUNDED],
+    # ``refunds`` feeds the per-row refund attribution in _process_payment —
+    # prefetched here so the pass stays N+1-free.
+    qs = (
+        Payment.objects.select_related("ticket__event", "ticket__tier")
+        .prefetch_related("refunds")
+        .filter(
+            ticket__event__organization=scope.org,
+            ticket__tier__payment_method=TicketTier.PaymentMethod.ONLINE,
+            status__in=[Payment.PaymentStatus.SUCCEEDED, Payment.PaymentStatus.REFUNDED],
+        )
     )
     if scope.event_id is not None:
         qs = qs.filter(ticket__event_id=scope.event_id)
@@ -328,16 +334,25 @@ def _process_payment(
     net, vat, rate, rc = _resolve_payment_vat(payment, org_rate)
 
     sale_in = _in_period(_local_date(payment.created_at, tz), scope)
-    refund_in = (
-        payment.refund_status == Payment.RefundStatus.SUCCEEDED
-        and payment.refunded_at is not None
-        and _in_period(_local_date(payment.refunded_at, tz), scope)
-    )
+    # Refunds are attributed per Refund row, not via Payment's denormalized
+    # running total (#865): ``payment.refund_amount`` accumulates across partials
+    # and ``payment.refunded_at`` is overwritten by each one, which would migrate
+    # an earlier period's refund into the latest refund's period on regeneration.
+    # ``succeeded_at`` is the webhook's confirmation stamp; rows predating the
+    # field fall back to ``updated_at`` (last webhook touch).
+    in_period_refunds = [
+        r
+        for r in payment.refunds.all()
+        if r.status == Refund.RefundStatus.SUCCEEDED
+        and _in_period(_local_date(r.succeeded_at or r.updated_at, tz), scope)
+    ]
+    refund_total = sum((r.amount for r in in_period_refunds), ZERO)
+    refund_in = bool(in_period_refunds)
 
     if sale_in:
         _add_sale(acc, net, vat, payment.amount, rate, rc)
-    if refund_in and payment.refund_amount:
-        _add_refund(acc, payment.refund_amount, rate, rc)
+    if refund_in:
+        _add_refund(acc, refund_total, rate, rc)
 
     if (sale_in or refund_in) and include_transactions:
         acc.transactions.append(
@@ -353,7 +368,7 @@ def _process_payment(
                 vat_rate=rate,
                 vat_amount=vat,
                 discount=payment.ticket.discount_amount or ZERO,
-                refund_amount=(payment.refund_amount or ZERO) if refund_in else ZERO,
+                refund_amount=refund_total if refund_in else ZERO,
                 currency=currency,
                 stripe_session_id=payment.stripe_session_id,
                 stripe_payout_id="",

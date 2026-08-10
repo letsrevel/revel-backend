@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, TicketTier
+from events.models import Event, Organization, Refund, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
 from events.service.attendee_invoice_service import (
     generate_attendee_credit_note,
@@ -355,3 +355,220 @@ class TestGenerateAttendeeCreditNote:
         # Retry with both — all already credited, should return None
         result = generate_attendee_credit_note("cs_allcredited", [p1.id, p2.id])
         assert result is None
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_partial_refund_credit_note_uses_refund_amount_with_prorata_vat(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A refund-row-keyed credit note uses the refund's amount with pro-rata VAT."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        payment = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_refund_row",
+            amount=Decimal("40.00"),
+            net_amount=Decimal("33.33"),
+            vat_amount=Decimal("6.67"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_cn_refund_row")
+        assert invoice is not None
+
+        row = Refund.objects.create(
+            payment=payment,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        cn = generate_attendee_credit_note("cs_cn_refund_row", [payment.id], refund_ids=[row.id])
+        assert cn is not None
+        assert cn.amount_gross == Decimal("10.00")
+        assert cn.amount_vat == Decimal("1.67")
+        assert cn.amount_net == Decimal("8.33")
+        assert list(cn.refunds.all()) == [row]
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_two_partials_on_same_payment_produce_two_credit_notes(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Two partial refunds on the same Payment each get their own credit note."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        payment = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_two_partials",
+            amount=Decimal("40.00"),
+            net_amount=Decimal("33.33"),
+            vat_amount=Decimal("6.67"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_cn_two_partials")
+        assert invoice is not None
+
+        row1 = Refund.objects.create(
+            payment=payment,
+            amount=Decimal("10.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+        row2 = Refund.objects.create(
+            payment=payment,
+            amount=Decimal("15.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        cn1 = generate_attendee_credit_note("cs_cn_two_partials", [payment.id], refund_ids=[row1.id])
+        cn2 = generate_attendee_credit_note("cs_cn_two_partials", [payment.id], refund_ids=[row2.id])
+        assert cn1 is not None
+        assert cn2 is not None
+        assert cn1.id != cn2.id
+
+        # Exact-set idempotency on refund ids: calling again with the first set
+        # returns the FIRST cn, creates nothing.
+        cn1_retry = generate_attendee_credit_note("cs_cn_two_partials", [payment.id], refund_ids=[row1.id])
+        assert cn1_retry is not None
+        assert cn1_retry.id == cn1.id
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_full_refund_still_cancels_invoice_when_fully_credited(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Refund rows summing to the invoice total cancel the invoice."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        payment = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_full_via_rows",
+            amount=Decimal("40.00"),
+            net_amount=Decimal("33.33"),
+            vat_amount=Decimal("6.67"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_cn_full_via_rows")
+        assert invoice is not None
+
+        row = Refund.objects.create(
+            payment=payment,
+            amount=Decimal("40.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        cn = generate_attendee_credit_note("cs_cn_full_via_rows", [payment.id], refund_ids=[row.id])
+        assert cn is not None
+        assert cn.amount_gross == Decimal("40.00")
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_legacy_call_without_refund_ids_keeps_old_behavior(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Calling without refund_ids still produces a full-amount, payment-keyed credit note."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        payment = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_legacy",
+            amount=Decimal("40.00"),
+            net_amount=Decimal("33.33"),
+            vat_amount=Decimal("6.67"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_cn_legacy")
+        assert invoice is not None
+
+        cn = generate_attendee_credit_note("cs_cn_legacy", [payment.id])
+        assert cn is not None
+        assert cn.amount_gross == Decimal("40.00")
+        assert cn.amount_vat == Decimal("6.67")
+        assert cn.amount_net == Decimal("33.33")
+        assert list(cn.refunds.all()) == []
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_empty_refund_ids_list_falls_back_to_legacy_payment_keyed_path(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """``refund_ids=[]`` must behave like ``refund_ids=None``, not silently match zero rows.
+
+        Regression: an earlier ``if refund_ids is not None`` selector treated an empty list
+        as "refund-keyed", queried zero Refund rows, and returned None — dropping the credit
+        note entirely even though the payment was refunded.
+        """
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        payment = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_empty_refund_ids",
+            amount=Decimal("40.00"),
+            net_amount=Decimal("33.33"),
+            vat_amount=Decimal("6.67"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_cn_empty_refund_ids")
+        assert invoice is not None
+
+        cn = generate_attendee_credit_note("cs_cn_empty_refund_ids", [payment.id], refund_ids=[])
+        assert cn is not None
+        assert cn.amount_gross == Decimal("40.00")
+        assert list(cn.refunds.all()) == []
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED

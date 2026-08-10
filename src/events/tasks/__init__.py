@@ -34,6 +34,11 @@ from events.tasks.organization import (
 )
 from events.tasks.payments import cleanup_expired_payments, cleanup_ticket_file_cache
 from events.tasks.recurrence import generate_recurring_events_task, generate_single_series_events_task
+from events.tasks.refunds import (
+    refund_cancelled_event_tickets,
+    refund_one_cancelled_event_ticket,
+    send_event_refund_summary_task,
+)
 from events.tasks.revenue import generate_revenue_report_task, send_scheduled_revenue_reports_task
 from events.tasks.seating import cleanup_expired_seat_holds
 from events.tasks.series_pass import materialize_series_pass_holders
@@ -79,11 +84,14 @@ __all__ = [
     "prune_stripe_webhook_events",
     "reconcile_stripe_subscriptions",
     "redispatch_undelivered_invoices_task",
+    "refund_cancelled_event_tickets",
+    "refund_one_cancelled_event_ticket",
     "resend_announcements_to_new_signups",
     "reset_demo_data",
     "resync_org_subscription_fees",
     "revalidate_single_vat_id_task",
     "revalidate_vat_ids_task",
+    "send_event_refund_summary_task",
     "send_guest_rsvp_confirmation",
     "send_guest_ticket_confirmation",
     "send_invoice_email_task",

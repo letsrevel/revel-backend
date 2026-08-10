@@ -219,6 +219,53 @@ for now (capped-plan checkout traffic is a fraction of a hot tier's on-sale rush
 subscribe-path docstring carries the same NOTE). The reserve/session split is the upgrade
 path if a capped plan ever sees rush-level traffic.
 
+## Row locks across Stripe calls (refund paths)
+
+Unlike the reserve/session split above, the single-refund paths deliberately do **not**
+split the request. `refund_service.issue_refund` — and every caller: the organizer refund
+endpoint (`refund_ticket_payment` → `issue_refund_for_ticket`), cancel-with-refund
+(`admin_cancel_ticket`), user self-cancel (`cancellation_service.cancel_ticket_by_user` →
+`_refund_if_required`), and series-pass cancel (`series_pass_service.cancel_held_pass`,
+looping per ticket) — takes `select_for_update` on the `Payment` row (`admin_cancel_ticket`
+and series-pass cancel also lock the `Ticket`/`HeldSeriesPass` row) and holds it across one
+`stripe.Refund.create` round-trip, inside the `ATOMIC_REQUESTS` transaction. That lock
+releases only when the view returns, exactly the hazard the checkout split exists to avoid.
+
+**Why this one is accepted instead of split:** the same three guarantees documented on
+`cancel_ticket_by_user` apply to every caller. The idempotency key
+(`refund:{payment.pk}:{sequence}:{amount}`) is deterministic per attempt, so a retry after a
+post-Stripe DB failure (rollback) replays the same key and gets back the same Stripe refund
+object instead of double-refunding. The `charge.refunded` webhook self-heals a lost response
+regardless of whether a retry ever happens — it only finalizes a `Refund` row PENDING →
+SUCCEEDED via the `refund_id` metadata, it never re-cancels or re-decrements. And the locked
+rows are **user/payment-scoped**, not tier-scoped: the blast radius of one slow Stripe call is
+one payment intent, not every buyer of a hot tier. The worst realistic collision is that
+intent's own `charge.refunded` webhook delivery blocking for one round-trip behind the
+request that issued the refund — and Stripe retries webhook deliveries, so a blocked delivery
+is not lost, only delayed.
+
+**Scope discipline that must be preserved** if this area changes: never let a *tier/inventory*
+row join the locked set across the network call. Every cancel path refunds first and only
+`F("quantity_sold") - 1`s the `TicketTier`/`SeriesPass` row afterwards, as a separate
+lock-free `UPDATE` — that's what keeps this trade-off confined to one payment instead of
+regressing into the tier-wide contention the reserve/session split exists to prevent. On the
+webhook side, `stripe_webhook_refunds`'s `_resolve_refunds` (the `Refund.list` fallback for
+API versions where `charge.refunded` doesn't embed the refunds list) is called **before** any
+`Payment.select_for_update()` — the call site's own comment states why: holding the lock
+across that outbound call "would block concurrent user-initiated cancels
+(`cancellation_service` locks the same Payment rows) for its duration." The advisory balance
+preview (`build_event_refund_preview`, which calls `stripe.Balance.retrieve`) takes no row
+locks at all — it is read-only and racy by design.
+
+**Mitigation:** `STRIPE_HTTP_TIMEOUT_SECONDS` (`revel/settings/stripe.py`, default 15,
+configured on `stripe.default_http_client` in `stripe_service`/`stripe_webhooks` and every
+other module that pins `stripe.api_key` at import) bounds stripe-python's own HTTP timeout,
+which otherwise defaults to ~80s. `ATOMIC_REQUESTS` (see above) keeps the request's DB
+transaction — and with it the row lock and the PgBouncer connection it's pinned to for the
+transaction's lifetime (see the transaction-pooling note above) — open for as long as the
+slowest outbound call inside it takes; bounding that call to 15s bounds the whole window to
+15s instead of stripe-python's ~80s default.
+
 ## Migration Squashing (one per app per PR, never hand-edit schema migrations)
 
 Branch policy: a PR introduces at most **one schema migration per app** — iterative work

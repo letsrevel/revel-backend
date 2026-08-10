@@ -64,14 +64,24 @@ def deliver_attendee_invoice_task(invoice_id: str) -> None:
     retry_backoff_max=600,
     max_retries=3,
 )
-def generate_attendee_credit_note_task(stripe_session_id: str, refunded_payment_ids: list[str]) -> None:
+def generate_attendee_credit_note_task(
+    stripe_session_id: str, refunded_payment_ids: list[str], refund_ids: list[str] | None = None
+) -> None:
     """Generate a credit note PDF for refunded payments on an invoiced session.
+
+    ``refund_ids`` defaults to ``None`` so in-flight 2-arg messages queued
+    before this parameter existed keep working across the deploy. When given,
+    the credit note is keyed on those Refund rows (amount-aware, pro-rata VAT)
+    instead of full payment amounts.
 
     On success, chains to the delivery task.
     """
     from events.service.attendee_invoice_service import generate_attendee_credit_note
 
-    credit_note = generate_attendee_credit_note(stripe_session_id, [UUID(pid) for pid in refunded_payment_ids])
+    resolved_refund_ids = [UUID(rid) for rid in refund_ids] if refund_ids is not None else None
+    credit_note = generate_attendee_credit_note(
+        stripe_session_id, [UUID(pid) for pid in refunded_payment_ids], resolved_refund_ids
+    )
     if credit_note:
         deliver_attendee_credit_note_task.delay(str(credit_note.id))
 

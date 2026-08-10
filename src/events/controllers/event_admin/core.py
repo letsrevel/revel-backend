@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from django.utils.translation import gettext_lazy as _
 from ninja import File
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
@@ -8,12 +9,12 @@ from ninja_extra import api_controller, route
 from common.authentication import I18nJWTAuth
 from common.models import Tag
 from common.schema import ErrorDetail, TagSchema, ValidationErrorResponse
-from common.throttling import WriteThrottle
+from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.controllers.permissions import CanDuplicateEvent, EventPermission
-from events.service import event_service
+from events.service import event_service, refund_service
 
 from .base import EventAdminBaseController
 
@@ -124,7 +125,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/actions/update-status/{status}",
         url_name="update_event_status",
         permissions=[EventPermission("manage_event")],
-        response=schema.EventDetailSchema,
+        response={200: schema.EventDetailSchema, 400: ErrorDetail, 409: ErrorDetail},
     )
     def update_event_status(
         self,
@@ -137,14 +138,59 @@ class EventAdminCoreController(EventAdminBaseController):
         When ``status`` is ``cancelled``, an optional ``cancellation_reason`` in
         the request body is persisted on the event and surfaced in the
         EVENT_CANCELLED notification. The reason is ignored for every other
-        target status.
+        target status. ``refund_tickets=True`` additionally cancels every
+        ticket and refunds online payments in the background — only valid
+        alongside ``cancelled`` (400 otherwise). The sweep always dispatches
+        (even if a previous sweep already started), and each per-ticket
+        subtask is idempotent — so re-POSTing this endpoint with the flag
+        still set is the supported way to resume a crashed or partial sweep.
 
         Note: Event opening notifications are handled automatically by the post_save signal
         in events/signals.py which triggers when status field is updated.
         """
         event = self.get_one(event_id)
         cancellation_reason = payload.cancellation_reason if payload else None
-        return event_service.update_status(event, status, cancellation_reason=cancellation_reason)
+        refund_tickets = payload.refund_tickets if payload else False
+        if refund_tickets and status != models.Event.EventStatus.CANCELLED:
+            raise HttpError(400, str(_("refund_tickets is only valid when cancelling the event.")))
+        return event_service.update_status(
+            event,
+            status,
+            cancellation_reason=cancellation_reason,
+            refund_tickets=refund_tickets,
+            initiated_by=self.user(),
+        )
+
+    @route.get(
+        "/cancellation-refund-preview",
+        url_name="event_cancellation_refund_preview",
+        response=schema.EventRefundPreviewSchema,
+        permissions=[EventPermission("manage_event")],
+        throttle=UserDefaultThrottle(),  # read-only — don't burn the class-level WriteThrottle budget
+    )
+    def cancellation_refund_preview(self, event_id: UUID) -> schema.EventRefundPreviewSchema:
+        """Advisory pre-flight for cancel-with-refunds: totals vs Stripe balance. Never blocks.
+
+        Also the ONLY place ``tickets_refund_started_at`` is exposed — staff-gated by
+        this controller's permission; it must never appear in event schemas.
+        """
+        event = self.get_one(event_id)
+        preview = refund_service.build_event_refund_preview(event)
+        return schema.EventRefundPreviewSchema(
+            active_tickets=preview.active_tickets,
+            online_refundable_tickets=preview.online_refundable_tickets,
+            offline_tickets=preview.offline_tickets,
+            currencies=[
+                schema.RefundPreviewCurrencyLine(
+                    currency=line.currency,
+                    total_refundable=line.total_refundable,
+                    available_balance=line.available_balance,
+                    balance_sufficient=line.balance_sufficient,
+                )
+                for line in preview.currencies
+            ],
+            tickets_refund_started_at=preview.tickets_refund_started_at,
+        )
 
     @route.post(
         "/upload-logo",

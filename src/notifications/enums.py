@@ -25,6 +25,8 @@ class NotificationType(TextChoices):
     EVENT_UPDATED = "event_updated"
     EVENT_CANCELLED = "event_cancelled"
     EVENT_REMINDER = "event_reminder"  # Placeholder - requires Celery periodic task
+    # Bulk cancel-and-refund sweep on a cancelled event finished (staff only)
+    EVENT_REFUND_SUMMARY = "event_refund_summary"
 
     # RSVP notifications
     RSVP_CONFIRMATION = "rsvp_confirmation"

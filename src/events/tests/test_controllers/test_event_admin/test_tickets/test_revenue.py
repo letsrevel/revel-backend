@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Payment, Ticket, TicketTier
+from events.models import Event, Payment, Refund, Ticket, TicketTier
 
 pytestmark = pytest.mark.django_db
 
@@ -34,7 +34,7 @@ def _make_online_ticket(
     )
     # The unified engine requires refunded_at to count a refund in the period window.
     refunded_at = timezone.now() if refund_status == Payment.RefundStatus.SUCCEEDED else None
-    return Payment.objects.create(
+    payment = Payment.objects.create(
         ticket=ticket,
         user=user,
         stripe_session_id="sess",
@@ -46,6 +46,18 @@ def _make_online_ticket(
         refund_status=refund_status,
         refunded_at=refunded_at,
     )
+    # Refunds are attributed from Refund rows (dated by succeeded_at), not the
+    # legacy Payment mirror — create the row the webhook would have written.
+    if refund_amount is not None and refund_status == Payment.RefundStatus.SUCCEEDED:
+        Refund.objects.create(
+            payment=payment,
+            amount=refund_amount,
+            currency=currency,
+            status=Refund.RefundStatus.SUCCEEDED,
+            succeeded_at=refunded_at,
+            source=Refund.Source.ORGANIZER_API,
+        )
+    return payment
 
 
 def _revenue_url(event: Event) -> str:

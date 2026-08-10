@@ -15,10 +15,10 @@ from django.db import transaction
 from django.db.models import F
 from pydantic import ValidationError as PydanticValidationError
 
-from events.models import Payment, Ticket, TicketTier
+from events.exceptions import StripeRefundFailed as StripeRefundFailed
+from events.models import Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationBlockReason, CancellationSource
 from events.service.waitlist_service import enqueue_waitlist_processing
-from events.utils.currency import to_stripe_amount
 from events.utils.refund_policy import RefundPolicy, validate_refund_policy
 
 logger = structlog.get_logger(__name__)
@@ -42,19 +42,6 @@ class CancellationBlocked(Exception):
         """Initialize with the blocking reason."""
         super().__init__(str(reason.label))
         self.reason = reason
-
-
-class StripeRefundFailed(Exception):
-    """Raised when a Stripe refund attempt fails after all internal retries.
-
-    Attributes:
-        detail: Human-readable description of the Stripe error.
-    """
-
-    def __init__(self, detail: str) -> None:
-        """Initialize with the Stripe error detail string."""
-        super().__init__(detail)
-        self.detail = detail
 
 
 @dataclass(frozen=True)
@@ -126,6 +113,16 @@ def _ticket_amount(ticket: Ticket) -> Decimal:
     return Decimal(payment.amount)
 
 
+def _remaining_refundable(ticket: Ticket) -> Decimal:
+    """The payment's remaining refundable amount (gross − non-FAILED refund rows), 0 if no payment."""
+    from events.service import refund_service
+
+    payment = getattr(ticket, "payment", None)
+    if payment is None:
+        return _ZERO
+    return refund_service.remaining_refundable(payment)
+
+
 def _deadline(ticket: Ticket) -> datetime:
     hours = ticket.tier.cancellation_deadline_hours
     if hours is None:
@@ -192,10 +189,15 @@ def _compute_refund(policy: RefundPolicy, hours_remaining: Decimal, gross: Decim
 def quote_cancellation(ticket: Ticket, now: datetime) -> RefundQuote:
     """Compute whether ``ticket`` can be cancelled and the refund amount if so.
 
-    Pure + stateless. Ownership (NOT_OWNER) is enforced by the controller, not here.
+    Not pure: when the policy-computed refund is > 0, this reads
+    ``payment.refunds.all()`` (via ``_remaining_refundable``) to cap the quote at
+    what a prior partial refund left outstanding (#865) — a DB query unless the
+    caller already prefetched ``payment__refunds`` on ``ticket``. Ownership
+    (NOT_OWNER) is enforced by the controller, not here.
 
     Args:
-        ticket: The ticket to evaluate.
+        ticket: The ticket to evaluate. Prefetch ``payment__refunds`` to avoid an
+            extra query when the ticket has a prior refund.
         now: The current datetime (timezone-aware). Injected for testability.
 
     Returns:
@@ -235,6 +237,12 @@ def quote_cancellation(ticket: Ticket, now: datetime) -> RefundQuote:
     total_microseconds = delta.days * 86_400_000_000 + delta.seconds * 1_000_000 + delta.microseconds
     hours_remaining = Decimal(total_microseconds) / Decimal(3_600_000_000)
     refund = _compute_refund(policy, hours_remaining, gross)
+    # Policy math stays gross-based (the preview windows display policy tiers),
+    # but the quoted amount must never exceed what is actually still refundable —
+    # a prior organizer partial refund (#865) reduces the remainder while the
+    # ticket stays ACTIVE.
+    if refund > _ZERO:
+        refund = min(refund, _remaining_refundable(ticket))
     return RefundQuote(
         can_cancel=True,
         reason=None,
@@ -314,25 +322,35 @@ def cancel_ticket_by_user(
         CancellationNotOwner: caller is not the ticket holder.
         CancellationBlocked: business-rule guard failed.
         StripeRefundFailed: Stripe refund API call failed.
+        RefundInsufficientBalanceError: Stripe declined the refund for lack of
+            connected-account funds (``refund_service.issue_refund``).
+        NothingToRefundError: the payment has no refundable Stripe charge, or
+            is already fully refunded (should not occur on this path in
+            practice — the quote already gates on ``refund_amount > 0`` and an
+            online tier — but propagates from ``issue_refund`` regardless).
+        HttpError: 400 if the resolved refund amount somehow falls outside
+            ``(0, remaining]`` (same practical-unreachability caveat as above).
 
     Note:
         The Stripe ``Refund.create`` call happens **inside** the
         ``transaction.atomic()`` block. The trade-off is intentional:
 
-        * **No double-charge.** ``idempotency_key=f"refund:{ticket.id}"``
-          guarantees that a retry returns the same refund object, not a new
+        * **No double-charge.** ``idempotency_key=f"refund:{payment.pk}:{sequence}:{amount}"``
+          (``refund_service.issue_refund``) guarantees that a retry with the
+          same sequence/amount returns the same refund object, not a new
           one. So if the post-Stripe DB writes raise and the transaction
           rolls back, a user-driven retry produces the correct end state
           without charging twice.
         * **Self-healing via webhook.** Even without a retry, Stripe sends
-          ``charge.refunded`` seconds later. ``handle_charge_refunded``
-          matches the refund to the Payment via the ``ticket_id`` metadata
-          (Branch 2) and reaches the same end state (ticket CANCELLED,
-          payment REFUNDED, quantity_sold decremented) — but with degraded
-          audit fields: ``cancellation_source`` becomes
-          ``STRIPE_DASHBOARD`` instead of ``USER``, ``cancelled_by`` is
-          ``NULL``, and ``cancellation_reason`` is empty. The financial
-          state is correct; only the attribution is fuzzier.
+          ``charge.refunded`` seconds later. ``handle_charge_refunded`` is
+          record-only: it matches the refund to the ``Refund`` row via the
+          ``refund_id`` metadata (``issue_refund`` keeps sending it) and
+          flips that row PENDING → SUCCEEDED, updating ``Payment``'s
+          denormalized totals. It never re-cancels the ticket or touches
+          ``quantity_sold`` — the local cancel above already committed both,
+          synchronously, in this flow — so ``cancellation_source`` stays
+          ``USER``, ``cancelled_by`` stays this user, and
+          ``cancellation_reason`` keeps the caller's text.
         * **Lock contention is bounded.** The locked rows (this Ticket and
           its Payment) are user-scoped; concurrent cancels of *other*
           tickets on the same tier do not contend on these locks.
@@ -371,23 +389,30 @@ def cancel_ticket_by_user(
             raise CancellationBlocked(CancellationBlockReason.CHECKED_IN)
 
         # Online tickets with refund > 0 → hit Stripe before mutating local state.
-        refund_status = _refund_if_required(locked_ticket, quote)
-        _finalize_cancellation(locked_ticket, user, reason, now, quote)
+        refund_status, actual_refund_amount = _refund_if_required(locked_ticket, quote, user)
+        _finalize_cancellation(locked_ticket, user, reason, now, actual_refund_amount, quote.currency)
 
     return CancellationResult(
         ticket=locked_ticket,
-        refund_amount=quote.refund_amount,
+        refund_amount=actual_refund_amount,
         currency=quote.currency,
         refund_status=refund_status,
     )
 
 
-def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote) -> str | None:
+def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote, user: t.Any) -> tuple[str | None, Decimal]:
     """Issue a Stripe refund when the locked ticket is an online paid ticket with refund > 0.
 
     Must run inside ``cancel_ticket_by_user``'s atomic block (it acquires a row lock
-    on the Payment). Returns the refund status, or ``None`` when no refund applies.
+    on the Payment). Returns ``(refund_status, actual_amount)``: ``actual_amount`` is
+    the amount actually issued to Stripe — capped under the row lock, which may be
+    less than ``quote.refund_amount`` when a concurrent organizer/webhook refund
+    landed between the pre-atomic quote and this lock. Callers must report this
+    capped amount, not the pre-lock quote, so notifications and the API response
+    stay truthful. Returns ``(None, Decimal("0"))`` when no refund applies.
     """
+    from events.service import refund_service
+
     payment: Payment | None = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
     if (
         locked_ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
@@ -395,8 +420,22 @@ def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote) -> str | None
         and payment.stripe_payment_intent_id
         and quote.refund_amount > _ZERO
     ):
-        return _issue_stripe_refund(locked_ticket, payment, quote.refund_amount, quote.currency)
-    return None
+        # Re-cap under the row lock: the quote is already remaining-aware, but a
+        # concurrent organizer/webhook refund may have landed between the
+        # pre-atomic quote and this lock. A zero remainder means the money has
+        # already been returned — the cancellation itself must still proceed.
+        amount = min(quote.refund_amount, refund_service.remaining_refundable(payment))
+        if amount <= _ZERO:
+            return None, _ZERO
+        refund_service.issue_refund(
+            payment,
+            amount=amount,
+            initiated_by=user,
+            reason="user_cancellation",
+            source=Refund.Source.USER_CANCELLATION,
+        )
+        return str(Payment.RefundStatus.PENDING), amount
+    return None, _ZERO
 
 
 def _finalize_cancellation(
@@ -404,7 +443,8 @@ def _finalize_cancellation(
     user: t.Any,
     reason: str,
     now: datetime,
-    quote: RefundQuote,
+    refund_amount: Decimal,
+    currency: str,
 ) -> None:
     """Mutate ticket + tier rows for a confirmed cancellation (inside the caller's txn)."""
     # Set pre-save hints used by the TICKET_CANCELLED notification signal handler
@@ -412,9 +452,12 @@ def _finalize_cancellation(
     # the cancellation (rather than only later via TICKET_REFUNDED on webhook).
     # Skip when there is no refund — templates gate on `{% if context.refund_amount %}`
     # and the truthy string "0.00" would render a misleading "Refund of 0..." line.
-    if quote.refund_amount > _ZERO:
-        locked_ticket._refund_amount = str(quote.refund_amount)  # type: ignore[attr-defined]
-        locked_ticket._refund_currency = quote.currency  # type: ignore[attr-defined]
+    # ``refund_amount`` is the actually-issued (capped) amount from
+    # ``_refund_if_required``, not the pre-lock quote — a concurrent refund may
+    # have shrunk it between the quote and the row lock.
+    if refund_amount > _ZERO:
+        locked_ticket._refund_amount = str(refund_amount)  # type: ignore[attr-defined]
+        locked_ticket._refund_currency = currency  # type: ignore[attr-defined]
 
     locked_ticket.status = Ticket.TicketStatus.CANCELLED
     locked_ticket.cancelled_at = now
@@ -436,64 +479,3 @@ def _finalize_cancellation(
     )
 
     enqueue_waitlist_processing(locked_ticket.event_id)
-
-
-def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal, currency: str) -> str:
-    """Create a Stripe refund and mutate the Payment row. Returns refund_status.
-
-    Hits the Stripe API synchronously. On any Stripe error the exception propagates
-    so the enclosing ``transaction.atomic()`` rolls back and the ticket stays ACTIVE.
-
-    Args:
-        ticket: The ticket being cancelled (used for metadata and idempotency key).
-        payment: The ``Payment`` instance associated with the ticket.
-        amount: The refund amount in major currency units (e.g. ``Decimal("40.00")``).
-        currency: ISO 4217 currency code, used to scale ``amount`` to Stripe's
-            smallest-unit integer (matters for zero-decimal currencies like JPY).
-
-    Returns:
-        The string value of ``Payment.RefundStatus.PENDING``.
-
-    Raises:
-        StripeRefundFailed: on any Stripe error so the enclosing atomic() rolls back.
-    """
-    import stripe
-    from django.conf import settings
-
-    # Direct charges (created with stripe_account=org.stripe_account_id) live on
-    # the connected account, so the refund must target that account too. Skip
-    # when the org is using the platform's own Stripe account (test/bootstrap data).
-    org_stripe_account = ticket.event.organization.stripe_account_id
-    refund_kwargs: dict[str, t.Any] = {
-        "payment_intent": payment.stripe_payment_intent_id,
-        "amount": to_stripe_amount(amount, currency),
-        "metadata": {"ticket_id": str(ticket.id), "user_initiated": "true"},
-        "idempotency_key": f"refund:{ticket.id}",
-    }
-    if org_stripe_account and org_stripe_account != settings.STRIPE_ACCOUNT:
-        refund_kwargs["stripe_account"] = org_stripe_account
-
-    try:
-        refund = stripe.Refund.create(**refund_kwargs)
-    except stripe.error.StripeError as exc:
-        logger.error(
-            "stripe_refund_failed",
-            ticket_id=str(ticket.id),
-            payment_id=str(payment.id),
-            error=str(exc),
-        )
-        raise StripeRefundFailed(str(exc)) from exc
-
-    payment.stripe_refund_id = refund.id
-    payment.refund_amount = amount
-    payment.refund_status = Payment.RefundStatus.PENDING
-    payment.refund_failure_reason = ""
-    payment.save(
-        update_fields=[
-            "stripe_refund_id",
-            "refund_amount",
-            "refund_status",
-            "refund_failure_reason",
-        ]
-    )
-    return str(Payment.RefundStatus.PENDING)

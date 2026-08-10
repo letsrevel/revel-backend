@@ -347,6 +347,52 @@ sequenceDiagram
 !!! note "Permission Required"
     Check-in requires the `check_in_attendees` permission, typically granted to staff members.
 
+### Organizer Refunds & Event Cancellation
+
+Refunding a payment and cancelling a ticket are orthogonal operations — an organizer can do either
+independently. Refund money moves through `Refund` rows (one per attempt); the `charge.refunded`
+webhook confirms Stripe's side and never touches ticket status or capacity. See
+[Refunds](../architecture/billing-and-vat.md#refunds) for the full data-model and webhook detail.
+
+- `POST /event-admin/{event_id}/tickets/{ticket_id}/refund` — refund an online payment, full or
+  partial, without cancelling the ticket
+- `GET /event-admin/{event_id}/tickets/{ticket_id}/refund-context` — amounts paid/refunded/remaining
+  plus a `policy_suggested_amount` (the buyer's own cancellation-policy quote), letting the frontend
+  offer quick-select amounts (full remaining, or the policy-suggested one)
+- `POST /event-admin/{event_id}/tickets/{ticket_id}/cancel` — cancel a ticket of any payment method,
+  with an optional `refund_amount` that issues a Stripe refund (online tickets) or records a manual
+  refund note (offline/at-the-door) alongside the cancellation
+
+!!! note "A Stripe-dashboard refund does not cancel the ticket"
+    Refunding a charge directly from the Stripe dashboard is recorded — matched back to its
+    `Payment`/`Refund` rows via the `charge.refunded` webhook — but it never cancels the ticket or
+    reclaims tier capacity. The organizer must cancel separately if that's the intent.
+
+#### Cancelling an Entire Event with Refunds
+
+`PATCH /event-admin/{event_id}/update-status` accepts an opt-in `refund_tickets` flag, valid only
+together with `status=cancelled`:
+
+1. `GET /event-admin/{event_id}/cancellation-refund-preview` — an advisory pre-flight: total
+   refundable per currency vs. the organization's Stripe balance. It never blocks the
+   cancellation — a shortfall is surfaced (`balance_sufficient: false`) but the organizer can still
+   proceed.
+2. `PATCH .../update-status` with `status=cancelled, refund_tickets=true` stamps
+   `tickets_refund_started_at` and dispatches a background sweep: a parent task fans out one subtask
+   per active ticket, and each subtask refunds (if online) then cancels its ticket independently.
+3. Org staff receive a single summary notification once every ticket has settled (or after a bounded
+   polling window), reporting cancelled / refunded / failed counts and any tickets still not
+   cancelled.
+4. **Irreversible once started.** Un-cancelling the event (`update-status` back to a non-cancelled
+   status) after `tickets_refund_started_at` is set returns `409` — resuming a crashed or partial
+   sweep means re-POSTing the same cancel-with-refund call, not un-cancelling. Every per-ticket
+   subtask is idempotent, so re-dispatch safely skips already-cancelled tickets and
+   already-fully-refunded payments.
+
+!!! info "`tickets_refund_started_at` is staff-only"
+    This timestamp is exposed only in the `cancellation-refund-preview` response (gated by the
+    `manage_event` permission) — it must never appear on public/attendee event schemas.
+
 ---
 
 ## Additional Flows

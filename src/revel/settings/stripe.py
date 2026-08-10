@@ -27,6 +27,10 @@ STRIPE_API_VERSION = config("STRIPE_API_VERSION", default="2026-03-25.dahlia")
 # legitimately redelivered.
 STRIPE_WEBHOOK_EVENT_RETENTION_DAYS = config("STRIPE_WEBHOOK_EVENT_RETENTION_DAYS", cast=int, default=90)
 STRIPE_ACCOUNT = config("STRIPE_ACCOUNT", default="test_...")
+# Bounds every outbound stripe-python call (stripe-python's own default is
+# ~80s). Applied globally via stripe.default_http_client — see stripe_service
+# / stripe_webhooks for where it's configured.
+STRIPE_HTTP_TIMEOUT_SECONDS = config("STRIPE_HTTP_TIMEOUT_SECONDS", cast=int, default=15)
 # Note: minimum 30 minutes
 PAYMENT_DEFAULT_EXPIRY_MINUTES = config("PAYMENT_DEFAULT_EXPIRY_MINUTES", cast=int, default=45)
 # Short hold for a checkout reservation that has not yet reached the Stripe

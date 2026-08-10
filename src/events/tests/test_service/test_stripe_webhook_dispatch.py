@@ -237,7 +237,9 @@ def test_duplicate_refund_replay_reenqueues_credit_note(
         django_capture_on_commit_callbacks(execute=True),
     ):
         stripe_webhooks.handle_event(_make_refund_event("pi_replay_refund"))
-    delay_spy.assert_called_once_with("cs_replay_refund", [str(payment.id)])
+    # No Refund row exists for this fixture (only Payment.refund_status is set),
+    # so the partial-aware refund_ids collection comes back empty (#865).
+    delay_spy.assert_called_once_with("cs_replay_refund", [str(payment.id)], [])
 
 
 def test_handler_error_rolls_back_dedup_row() -> None:
