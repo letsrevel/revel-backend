@@ -394,6 +394,47 @@ class TestSeriesPassTicketNotificationGuard:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestTicketCancelledAttachmentFlags:
+    """Cancellation notifications must not request ticket attachments.
+
+    A cancellation email carrying the ticket PDF/pkpass would hand the user a
+    scannable pass for a ticket that is no longer valid.
+    """
+
+    def test_cancellation_context_disables_attachments(self, public_event: t.Any, member_user: RevelUser) -> None:
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Cancel Flags Tier",
+            price=Decimal("10.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        ticket = Ticket.objects.create(
+            event=public_event,
+            tier=tier,
+            user=member_user,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name=member_user.get_display_name(),
+        )
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                ticket.status = Ticket.TicketStatus.CANCELLED
+                ticket.save()
+
+        cancelled_calls = [
+            call
+            for call in send_mock.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.TICKET_CANCELLED
+        ]
+        assert cancelled_calls
+        for call in cancelled_calls:
+            context = call.kwargs["context"]
+            assert context["include_pdf"] is False
+            assert context["include_ics"] is False
+            assert context["include_pkpass"] is False
+
+
+@pytest.mark.django_db(transaction=True)
 class TestSeriesPassRefundNotificationGuard:
     """Payment.held_pass-ticket refunds skip the per-ticket TICKET_REFUNDED notification (#644).
 

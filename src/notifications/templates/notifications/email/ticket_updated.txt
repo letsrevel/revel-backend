@@ -16,7 +16,7 @@
 {% if context.event_location %}📍 {{ context.event_location }}{% endif %}
 
 {% trans "Ticket Information:" %}
-- {% trans "Tier:" %} {{ context.tier_name %}
+- {% trans "Tier:" %} {{ context.tier_name }}
 - {% trans "Status:" %} {% trans "Active" %}
 - {% trans "Ticket ID:" %} {{ context.ticket_id }}
 {% if context.google_wallet_save_url %}

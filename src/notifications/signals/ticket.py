@@ -304,7 +304,14 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
         ticket: The ticket being cancelled
         old_status: The previous ticket status
     """
-    context = _build_ticket_updated_context(ticket, old_status)
+    context = {
+        **_build_ticket_updated_context(ticket, old_status),
+        # A cancellation email must not carry the ticket files — the PDF/pkpass
+        # QR would still look like a valid pass for a now-dead ticket.
+        "include_pdf": False,
+        "include_ics": False,
+        "include_pkpass": False,
+    }
 
     # Notify ticket holder
     notification_requested.send(

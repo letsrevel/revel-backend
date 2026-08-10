@@ -83,6 +83,12 @@ def _generate_pkpass_attachment(ticket: Ticket) -> AttachmentResult | None:
     if not ticket.apple_pass_available:
         return None
 
+    # Never attach a scannable pass for a dead ticket. Only CANCELLED is excluded
+    # (not the ACTIVE/PENDING allowlist the Google link uses) because checked-in
+    # emails intentionally still attach the pass.
+    if ticket.status == Ticket.TicketStatus.CANCELLED:
+        return None
+
     try:
         from events.service.ticket_file_service import get_apple_pass_generator
 

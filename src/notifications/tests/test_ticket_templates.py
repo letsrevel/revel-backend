@@ -206,6 +206,24 @@ class TestGeneratePkpassAttachment:
 
         assert result is None
 
+    @patch("events.service.ticket_file_service.get_apple_pass_generator")
+    def test_returns_none_for_cancelled_ticket(
+        self,
+        mock_get_generator: MagicMock,
+        active_ticket: Ticket,
+    ) -> None:
+        """Should never attach a wallet pass for a cancelled ticket, even when configured."""
+        mock_generator = MagicMock()
+        mock_generator.generate_pass.return_value = b"PK\x03\x04 pkpass content"
+        mock_get_generator.return_value = mock_generator
+        active_ticket.status = Ticket.TicketStatus.CANCELLED
+
+        with patch.object(Ticket, "apple_pass_available", True):
+            result = _generate_pkpass_attachment(active_ticket)
+
+        assert result is None
+        mock_generator.generate_pass.assert_not_called()
+
 
 # --- _build_ticket_attachments Tests ---
 
@@ -585,6 +603,32 @@ class TestTicketUpdatedTemplate:
         title = template.get_in_app_title(notification)
 
         assert "Update" in title
+
+    def test_activation_email_text_renders_tier_name(
+        self,
+        ticket_holder: RevelUser,
+        active_ticket: Ticket,
+    ) -> None:
+        """Regression: a malformed tag rendered '{{ context.tier_name %}' literally."""
+        notification = _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.TICKET_UPDATED,
+            context={
+                "event_name": active_ticket.event.name,
+                "ticket_id": str(active_ticket.id),
+                "event_id": str(active_ticket.event.id),
+                "tier_name": active_ticket.tier.name,
+                "old_status": "pending",
+                "new_status": "active",
+                "action": "activated",
+            },
+        )
+        template = TicketUpdatedTemplate()
+
+        text = template.get_email_text_body(notification)
+
+        assert active_ticket.tier.name in text
+        assert "{{ context.tier_name" not in text
 
     @patch("notifications.service.templates.ticket_templates._build_ticket_attachments")
     def test_get_email_attachments_no_attachments_for_cancellation(
