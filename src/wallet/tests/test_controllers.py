@@ -349,3 +349,10 @@ class TestSignedApplePassEndpoint:
         response = Client().get(self._signed_url(ticket, expires))
 
         assert response.status_code == 503
+
+    def test_non_ascii_sig_returns_403(self, ticket: t.Any, apple_wallet_configured: None) -> None:
+        expires = int(time.time()) + 3600
+        path = reverse("api:ticket_apple_wallet_signed", kwargs={"ticket_id": ticket.id})
+        # Non-ASCII character in sig parameter should return 403, not 500
+        response = Client().get(f"{path}?exp={expires}&sig=é")
+        assert response.status_code == 403

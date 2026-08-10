@@ -133,7 +133,10 @@ def verify_signature(path: str, exp: str, sig: str) -> bool:
 
     # Generate expected signature and compare
     expected = generate_signature(path, expires)
-    return hmac.compare_digest(sig, expected)
+    try:
+        return hmac.compare_digest(sig, expected)
+    except ValueError, TypeError:
+        return False
 
 
 def generate_signed_url(
