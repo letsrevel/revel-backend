@@ -20,7 +20,8 @@ from common.throttling import WriteThrottle
 from events import models, schema
 from events.service import series_pass_file_service, series_pass_service
 from events.service.series_pass_purchase import SeriesPassPurchaseService
-from events.utils import apple_wallet_configured
+from events.utils import apple_wallet_configured, google_wallet_configured
+from wallet.google import service as google_wallet_service
 
 
 class _CheckoutResult(t.TypedDict):
@@ -241,3 +242,23 @@ class SeriesPassController(UserAwareController):
         safe_name = "series_pass_" + str(held_pass.id).split("-")[0]
         response["Content-Disposition"] = f'attachment; filename="{safe_name}.pkpass"'
         return response
+
+    @route.get(
+        "/me/{held_pass_id}/wallet/google",
+        url_name="series_pass_google_wallet_pass",
+        summary="Add series pass to Google Wallet",
+        description="Redirects to a signed 'save to Google Wallet' link for a held series pass.",
+        response={302: None, 404: None, 503: None},
+        auth=I18nJWTAuth(),
+    )
+    def google_wallet_save_link(self, held_pass_id: UUID) -> HttpResponse:
+        """Redirect to the Google Wallet save link for a held series pass. The user must own the pass."""
+        held_pass = t.cast(
+            models.HeldSeriesPass,
+            self.get_object_or_exception(models.HeldSeriesPass.objects.filter(user=self.user()), pk=held_pass_id),
+        )
+
+        if not google_wallet_configured():
+            raise HttpError(503, "Google Wallet is not configured")
+
+        return HttpResponseRedirect(google_wallet_service.series_pass_save_url(held_pass))
