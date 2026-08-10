@@ -14,6 +14,7 @@ from decimal import Decimal
 
 import pytest
 from django.core.management import call_command
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Event, Organization
@@ -199,8 +200,13 @@ class TestReportMischargedAttendeeVat:
             total_gross=Decimal("100.00"),
             total_vat=Decimal("0.00"),
         )
-        tomorrow = (invoice.created_at + datetime.timedelta(days=1)).date().isoformat()
-        today = invoice.created_at.date().isoformat()
+        # The command's created_at__date lookup truncates in the CURRENT time zone
+        # (Europe/Vienna), so the cutoff dates must be computed with localdate —
+        # .date() on the UTC value diverges between 22:00 and 24:00 UTC and made
+        # this test flaky in late-evening CI runs.
+        local_created = timezone.localdate(invoice.created_at)
+        tomorrow = (local_created + datetime.timedelta(days=1)).isoformat()
+        today = local_created.isoformat()
 
         assert [row["invoice_number"] for row in _run_command("--until", tomorrow)] == [invoice.invoice_number]
         assert _run_command("--until", today) == []
