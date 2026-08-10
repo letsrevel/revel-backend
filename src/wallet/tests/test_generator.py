@@ -616,7 +616,7 @@ class TestApplePassGeneratorConstants:
 
 
 class TestResolvePriceFromTicket:
-    """Tests for _resolve_price with actual price paid resolution."""
+    """Tests for resolve_ticket_price with actual price paid resolution."""
 
     def test_uses_tier_price_for_fixed_price_ticket(
         self,

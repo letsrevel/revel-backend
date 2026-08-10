@@ -32,6 +32,14 @@ Protected Paths:
     Any file path starting with 'protected/' requires signed URL access.
     Use ProtectedFileField or ProtectedImageField to ensure files are
     stored in the protected/ directory. See common/fields.py.
+
+Other Consumers:
+    The same sign/verify primitives also back signed *endpoint* URLs (no Caddy
+    involved): the auth-free Apple Wallet download in ticket emails
+    (``wallet/controllers.py::download_apple_pass_signed``) signs the API path
+    itself and verifies it in the view, with validity tied to the event
+    (end + 1 week) rather than the 1-hour media default. The 64-bit signature
+    rationale above still holds there (anonymous requests are throttled).
 """
 
 import hashlib
@@ -133,7 +141,10 @@ def verify_signature(path: str, exp: str, sig: str) -> bool:
 
     # Generate expected signature and compare
     expected = generate_signature(path, expires)
-    return hmac.compare_digest(sig, expected)
+    try:
+        return hmac.compare_digest(sig, expected)
+    except ValueError, TypeError:
+        return False
 
 
 def generate_signed_url(

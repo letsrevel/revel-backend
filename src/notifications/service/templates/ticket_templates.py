@@ -1,9 +1,12 @@
 """Templates for ticket-related notifications."""
 
 import base64
+import time
 import typing as t
+from datetime import timedelta
 
 import structlog
+from django.conf import settings
 from django.utils.translation import gettext as _
 
 from events.models import Event, Ticket
@@ -83,6 +86,12 @@ def _generate_pkpass_attachment(ticket: Ticket) -> AttachmentResult | None:
     if not ticket.apple_pass_available:
         return None
 
+    # Never attach a scannable pass for a dead ticket. Only CANCELLED is excluded
+    # (not the ACTIVE/PENDING allowlist the Google link uses) because checked-in
+    # emails intentionally still attach the pass.
+    if ticket.status == Ticket.TicketStatus.CANCELLED:
+        return None
+
     try:
         from events.service.ticket_file_service import get_apple_pass_generator
 
@@ -96,6 +105,84 @@ def _generate_pkpass_attachment(ticket: Ticket) -> AttachmentResult | None:
     except Exception:
         logger.exception("failed_to_generate_pkpass", ticket_id=str(ticket.id))
         return None
+
+
+def _google_wallet_save_url(ticket: Ticket) -> str | None:
+    """Build a Google Wallet save link for a ticket email, or None.
+
+    Never raises: email rendering must not fail because a wallet link could
+    not be generated (mirrors the pkpass attachment posture).
+    """
+    if not ticket.google_pass_available:
+        return None
+    try:
+        from wallet.google import service as google_wallet_service
+
+        return google_wallet_service.ticket_save_url(ticket)
+    except Exception:
+        logger.exception("failed_to_generate_google_wallet_link", ticket_id=str(ticket.id))
+        return None
+
+
+# How long past event end an emailed signed pkpass link keeps working (user decision).
+SIGNED_LINK_GRACE_PERIOD = timedelta(weeks=1)
+
+
+def _apple_wallet_signed_url(ticket: Ticket) -> str | None:
+    """Build a signed, auth-free Apple Wallet download link for a ticket email.
+
+    The link expires one week after the event ends, so an emailed badge never
+    outlives the ticket's usefulness by much. Never raises: email rendering
+    must not fail because a wallet link could not be built.
+    """
+    if not ticket.apple_pass_available:
+        return None
+    try:
+        from django.urls import reverse
+
+        from common.signing import generate_signature
+
+        expires = int((ticket.event.end + SIGNED_LINK_GRACE_PERIOD).timestamp())
+        if expires <= time.time():
+            return None
+        path = reverse("api:ticket_apple_wallet_signed", kwargs={"ticket_id": ticket.id})
+        sig = generate_signature(path, expires)
+        return f"{settings.BASE_URL.rstrip('/')}{path}?exp={expires}&sig={sig}"
+    except Exception:
+        logger.exception("failed_to_generate_apple_wallet_link", ticket_id=str(ticket.id))
+        return None
+
+
+def _add_wallet_context(base_context: dict[str, t.Any], notification: Notification) -> dict[str, t.Any]:
+    """Add wallet badge URLs to a ticket email template context.
+
+    Sets ``apple_wallet_signed_url`` and ``google_wallet_save_url`` when the
+    respective rail is configured. Gated on the ``include_pkpass`` context
+    flag plus server-side availability, like the pkpass attachment — but with
+    a stricter status gate: badges require ACTIVE/PENDING (mirroring
+    ``TicketWalletController.get_queryset()``), while the attachment excludes
+    only CANCELLED (checked-in emails intentionally keep the pass file).
+    """
+    from events.utils import apple_wallet_configured, google_wallet_configured
+
+    if not (apple_wallet_configured() or google_wallet_configured()):
+        return base_context
+    if not notification.context.get("include_pkpass", True):
+        return base_context
+    ticket_id = notification.context.get("ticket_id")
+    if not ticket_id:
+        return base_context
+    ticket = _load_ticket(ticket_id)
+    if ticket is None or ticket.status not in (Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING):
+        # Mirrors TicketWalletController.get_queryset()'s status filter: TICKET_CANCELLED and
+        # TICKET_REFUNDED notifications reuse TicketUpdatedTemplate with include_pkpass
+        # defaulting True, so a dead ticket must not get a save link.
+        return base_context
+    if url := _google_wallet_save_url(ticket):
+        base_context["context"]["google_wallet_save_url"] = url
+    if apple_url := _apple_wallet_signed_url(ticket):
+        base_context["context"]["apple_wallet_signed_url"] = apple_url
+    return base_context
 
 
 def _load_ticket(ticket_id: str) -> Ticket | None:
@@ -199,6 +286,10 @@ def _build_ticket_attachments(
 class TicketCreatedTemplate(NotificationTemplate):
     """Template for TICKET_CREATED notification."""
 
+    def _get_template_context(self, notification: Notification) -> dict[str, t.Any]:
+        """Enrich the base context with wallet badge links."""
+        return _add_wallet_context(super()._get_template_context(notification), notification)
+
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
         event_name = notification.context.get("event_name", "")
@@ -245,6 +336,10 @@ class TicketCreatedTemplate(NotificationTemplate):
 
 class TicketUpdatedTemplate(NotificationTemplate):
     """Template for TICKET_UPDATED notification."""
+
+    def _get_template_context(self, notification: Notification) -> dict[str, t.Any]:
+        """Enrich the base context with wallet badge links."""
+        return _add_wallet_context(super()._get_template_context(notification), notification)
 
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
@@ -311,6 +406,10 @@ class TicketUpdatedTemplate(NotificationTemplate):
 
 class PaymentConfirmationTemplate(NotificationTemplate):
     """Template for PAYMENT_CONFIRMATION notification."""
+
+    def _get_template_context(self, notification: Notification) -> dict[str, t.Any]:
+        """Enrich the base context with wallet badge links."""
+        return _add_wallet_context(super()._get_template_context(notification), notification)
 
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""

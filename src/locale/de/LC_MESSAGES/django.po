@@ -3336,6 +3336,12 @@ msgid "All times are shown in the event's local timezone."
 msgstr ""
 "Alle Zeiten werden in der lokalen Zeitzone der Veranstaltung angezeigt."
 
+msgid "Add to Apple Wallet"
+msgstr "Zu Apple Wallet hinzufügen"
+
+msgid "Add to Google Wallet"
+msgstr "Zu Google Wallet hinzufügen"
+
 msgid "Your account has been suspended for violating our Terms of Service."
 msgstr ""
 "Dein Konto wurde wegen eines Verstoßes gegen unsere Nutzungsbedingungen "
@@ -3732,6 +3738,12 @@ msgstr "Zahlungsdetails:"
 
 msgid "Ticket Information:"
 msgstr "Ticket-Informationen:"
+
+msgid "Add to Apple Wallet:"
+msgstr "Zu Apple Wallet hinzufügen:"
+
+msgid "Add to Google Wallet:"
+msgstr "Zu Google Wallet hinzufügen:"
 
 msgid "Sign up to accept this invitation and join the event:"
 msgstr ""
@@ -4718,6 +4730,9 @@ msgstr "Zahlungsanweisungen"
 msgid "Please contact the organizer to complete the payment."
 msgstr ""
 "Bitte kontaktiere den:die Veranstalter:in, um die Zahlung abzuschließen."
+
+msgid "Your ticket will arrive by email as soon as your payment is confirmed."
+msgstr "Dein Ticket erhältst du per E-Mail, sobald deine Zahlung bestätigt ist."
 
 #, python-format
 msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"

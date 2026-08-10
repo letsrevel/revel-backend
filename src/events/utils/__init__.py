@@ -305,6 +305,18 @@ def apple_wallet_configured() -> bool:
     )
 
 
+def google_wallet_configured() -> bool:
+    """Whether Google Wallet save-link generation is configured server-wide.
+
+    Single source of truth, shared by ``Ticket.google_pass_available`` and the
+    series-pass save-link endpoint.
+
+    Returns:
+        True if every required ``GOOGLE_WALLET_*`` setting is set.
+    """
+    return bool(settings.GOOGLE_WALLET_ISSUER_ID and settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH)
+
+
 def _file_to_data_uri(file_field: t.Any) -> str | None:
     """Convert a Django FileField/ImageField to a base64 data URI.
 
@@ -393,6 +405,10 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "ticket_id": str(ticket.id),
         "ticket_id_short": str(ticket.id)[:8].upper(),
         "cover_art_url": cover_art_data_uri,
+        # Pending tickets get a visible marker so a downloaded PDF can't pass
+        # for a paid ticket. Cleared automatically on activation: the status
+        # flip bumps updated_at, which invalidates the cached file.
+        "is_pending": ticket.status == ticket.TicketStatus.PENDING,
         # Venue/seating info
         "venue_name": ticket.venue.name if ticket.venue else None,
         "sector_name": ticket.sector.name if ticket.sector else None,

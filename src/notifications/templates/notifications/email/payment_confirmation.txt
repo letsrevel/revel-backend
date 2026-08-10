@@ -18,6 +18,12 @@
 
 {% trans "Your ticket is now active and attached to this email. Present it at the event entrance." %}
 
+{% if context.apple_wallet_signed_url %}
+{% trans "Add to Apple Wallet:" %} {{ context.apple_wallet_signed_url }}
+{% endif %}{% if context.google_wallet_save_url %}
+{% trans "Add to Google Wallet:" %} {{ context.google_wallet_save_url }}
+{% endif %}
+
 {% trans "View event details:" %} {{ context.event_url }}
 
 {% include "notifications/email/_footer.txt" %}

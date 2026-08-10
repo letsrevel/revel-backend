@@ -2090,8 +2090,8 @@ msgid ""
 "Refund amount must be between 0 and the remaining refundable amount "
 "(%(amount)s)."
 msgstr ""
-"L'importo del rimborso deve essere compreso tra 0 e l'importo "
-"rimborsabile residuo (%(amount)s)."
+"L'importo del rimborso deve essere compreso tra 0 e l'importo rimborsabile "
+"residuo (%(amount)s)."
 
 msgid "This ticket has no payment to refund."
 msgstr "Questo biglietto non ha alcun pagamento da rimborsare."
@@ -3290,6 +3290,12 @@ msgstr "Annulla l'iscrizione o gestisci le preferenze di notifica:"
 msgid "All times are shown in the event's local timezone."
 msgstr "Tutti gli orari sono indicati nel fuso orario locale dell'evento."
 
+msgid "Add to Apple Wallet"
+msgstr "Aggiungi ad Apple Wallet"
+
+msgid "Add to Google Wallet"
+msgstr "Aggiungi a Google Wallet"
+
 msgid "Your account has been suspended for violating our Terms of Service."
 msgstr ""
 "Il tuo account è stato sospeso per violazione dei nostri Termini di Servizio."
@@ -3374,26 +3380,25 @@ msgid ""
 "%(cancelled)s tickets cancelled, %(refunded)s refunds issued, %(failed)s "
 "refunds failed."
 msgstr ""
-"%(cancelled)s biglietti annullati, %(refunded)s rimborsi emessi, "
-"%(failed)s rimborsi falliti."
+"%(cancelled)s biglietti annullati, %(refunded)s rimborsi emessi, %(failed)s "
+"rimborsi falliti."
 
 #, python-format
 msgid ""
 "%(active)s tickets were still not cancelled when this summary was sent "
 "&mdash; check the event's ticket admin."
 msgstr ""
-"%(active)s biglietti risultavano ancora non annullati al momento "
-"dell'invio di questo riepilogo &mdash; controlla l'amministrazione dei "
-"biglietti dell'evento."
+"%(active)s biglietti risultavano ancora non annullati al momento dell'invio "
+"di questo riepilogo &mdash; controlla l'amministrazione dei biglietti "
+"dell'evento."
 
 #, python-format
 msgid ""
 "%(active)s tickets were still not cancelled when this summary was sent - "
 "check the event's ticket admin."
 msgstr ""
-"%(active)s biglietti risultavano ancora non annullati al momento "
-"dell'invio di questo riepilogo - controlla l'amministrazione dei "
-"biglietti dell'evento."
+"%(active)s biglietti risultavano ancora non annullati al momento dell'invio "
+"di questo riepilogo - controlla l'amministrazione dei biglietti dell'evento."
 
 #, python-format
 msgid "Reminder: <strong>%(event)s</strong> is tomorrow!"
@@ -3688,6 +3693,12 @@ msgstr "Dettagli pagamento:"
 
 msgid "Ticket Information:"
 msgstr "Informazioni biglietto:"
+
+msgid "Add to Apple Wallet:"
+msgstr "Aggiungi ad Apple Wallet:"
+
+msgid "Add to Google Wallet:"
+msgstr "Aggiungi a Google Wallet:"
 
 msgid "Sign up to accept this invitation and join the event:"
 msgstr "Registrati per accettare questo invito e partecipare all'evento:"
@@ -4674,6 +4685,9 @@ msgstr "Istruzioni per il pagamento"
 
 msgid "Please contact the organizer to complete the payment."
 msgstr "Contatta l'organizzatore per completare il pagamento."
+
+msgid "Your ticket will arrive by email as soon as your payment is confirmed."
+msgstr "Riceverai il tuo biglietto via e-mail non appena il pagamento sarà confermato."
 
 #, python-format
 msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"

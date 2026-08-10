@@ -38,6 +38,8 @@
                 <p>{% trans "Please contact the organizer to complete the payment." %}</p>
             {% endif %}
         </div>
+
+        <p>{% trans "Your ticket will arrive by email as soon as your payment is confirmed." %}</p>
     {% else %}
         <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> is confirmed! 🎉{% endblocktranslate %}</p>
 
@@ -53,6 +55,8 @@
             <div class="info-row"><span class="label">{% trans "Status:" %}</span> {% trans "Active" %}</div>
             <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
         </div>
+
+        {% include "notifications/email/_wallet_badges.html" %}
     {% endif %}
 {% endif %}
 

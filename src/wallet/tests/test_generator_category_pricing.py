@@ -1,6 +1,6 @@
 """The Wallet pass price agrees with the refund ceiling on a category-priced tier (#754).
 
-``ApplePassGenerator._resolve_price`` was the fourth ``price_paid → payment.amount →
+``resolve_ticket_price`` is the fourth ``price_paid → payment.amount →
 tier.price`` chain and the only one #739 did not revisit. Its last leg now goes through the
 same ``recorded_or_resolved_price`` the refund ceiling (``ticket_service``) and the revenue
 report (``revenue_aggregation``) use, so a ticket sold before its tier opted into category
@@ -17,6 +17,7 @@ from accounts.models import RevelUser
 from events.models import Event, PriceCategory, Ticket, TicketTier, Venue, VenueSeat, VenueSector
 from events.models.ticket import Payment
 from wallet.apple.generator import ApplePassGenerator
+from wallet.pricing import resolve_ticket_price
 
 pytestmark = pytest.mark.django_db
 
@@ -202,6 +203,6 @@ class TestCategoryPricedPassPrice:
         ticket = Ticket.objects.full().get(pk=legacy_ticket.pk)
 
         with django_assert_num_queries(0):
-            price, currency = ApplePassGenerator(signer=mock_signer)._resolve_price(ticket)
+            price, currency = resolve_ticket_price(ticket)
 
         assert (price, currency) == (PREMIUM, "EUR")

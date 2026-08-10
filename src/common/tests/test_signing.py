@@ -101,6 +101,12 @@ class TestVerifySignature:
         extended_expires = original_expires + 86400
         assert verify_signature(path, str(extended_expires), sig) is False
 
+    def test_non_ascii_signature_returns_false(self) -> None:
+        path = "/media/file/test.pdf"
+        expires = int(time.time()) + 3600
+        # Non-ASCII characters should return False, not raise TypeError
+        assert verify_signature(path, str(expires), "é") is False
+
 
 class TestGenerateSignedUrl:
     """Tests for generate_signed_url function."""

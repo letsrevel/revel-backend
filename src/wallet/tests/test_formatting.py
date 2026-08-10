@@ -1,5 +1,6 @@
 """Tests for wallet/apple/formatting.py."""
 
+import re
 from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -15,6 +16,7 @@ from wallet.apple.formatting import (
     format_iso_date,
     format_price,
     get_theme_colors,
+    get_theme_hex_background,
 )
 
 
@@ -243,3 +245,13 @@ class TestFormatPrice:
         """Should handle prices with cents."""
         result = format_price(Decimal("19.95"), "EUR")
         assert result == "EUR 19.95"
+
+
+def test_theme_hex_background_matches_rgb_theme() -> None:
+    """The Google-rail hex color must be the same crimson as the Apple rail."""
+    hex_color = get_theme_hex_background()
+    match = re.fullmatch(r"rgb\((\d+), (\d+), (\d+)\)", REVEL_THEME.background)
+    assert match is not None
+    expected = "#{:02X}{:02X}{:02X}".format(*(int(g) for g in match.groups()))
+    assert hex_color == expected
+    assert re.fullmatch(r"#[0-9A-F]{6}", hex_color)

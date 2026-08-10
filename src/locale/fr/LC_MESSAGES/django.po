@@ -2122,8 +2122,8 @@ msgid ""
 "Refund amount must be between 0 and the remaining refundable amount "
 "(%(amount)s)."
 msgstr ""
-"Le montant du remboursement doit être compris entre 0 et le montant "
-"restant remboursable (%(amount)s)."
+"Le montant du remboursement doit être compris entre 0 et le montant restant "
+"remboursable (%(amount)s)."
 
 msgid "This ticket has no payment to refund."
 msgstr "Ce ticket n'a aucun paiement à rembourser."
@@ -3331,6 +3331,12 @@ msgid "All times are shown in the event's local timezone."
 msgstr ""
 "Toutes les heures sont affichées dans le fuseau horaire local de l'événement."
 
+msgid "Add to Apple Wallet"
+msgstr "Ajouter à Apple Wallet"
+
+msgid "Add to Google Wallet"
+msgstr "Ajouter à Google Wallet"
+
 msgid "Your account has been suspended for violating our Terms of Service."
 msgstr ""
 "Ton compte a été suspendu pour avoir enfreint nos conditions d'utilisation."
@@ -3424,16 +3430,16 @@ msgid ""
 "%(active)s tickets were still not cancelled when this summary was sent "
 "&mdash; check the event's ticket admin."
 msgstr ""
-"%(active)s billets n'étaient toujours pas annulés au moment de l'envoi "
-"de ce résumé &mdash; vérifiez l'administration des billets de l'événement."
+"%(active)s billets n'étaient toujours pas annulés au moment de l'envoi de ce "
+"résumé &mdash; vérifiez l'administration des billets de l'événement."
 
 #, python-format
 msgid ""
 "%(active)s tickets were still not cancelled when this summary was sent - "
 "check the event's ticket admin."
 msgstr ""
-"%(active)s billets n'étaient toujours pas annulés au moment de l'envoi "
-"de ce résumé - vérifiez l'administration des billets de l'événement."
+"%(active)s billets n'étaient toujours pas annulés au moment de l'envoi de ce "
+"résumé - vérifiez l'administration des billets de l'événement."
 
 #, python-format
 msgid "Reminder: <strong>%(event)s</strong> is tomorrow!"
@@ -3730,6 +3736,12 @@ msgstr "Détails du paiement :"
 
 msgid "Ticket Information:"
 msgstr "Informations sur le ticket :"
+
+msgid "Add to Apple Wallet:"
+msgstr "Ajouter à Apple Wallet :"
+
+msgid "Add to Google Wallet:"
+msgstr "Ajouter à Google Wallet :"
 
 msgid "Sign up to accept this invitation and join the event:"
 msgstr ""
@@ -4705,6 +4717,9 @@ msgstr "Instructions de paiement"
 
 msgid "Please contact the organizer to complete the payment."
 msgstr "Contacte l'organisateur·rice pour finaliser le paiement."
+
+msgid "Your ticket will arrive by email as soon as your payment is confirmed."
+msgstr "Ton ticket te sera envoyé par e-mail dès que ton paiement sera confirmé."
 
 #, python-format
 msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"

@@ -1,5 +1,7 @@
 """Tests for wallet/controllers.py."""
 
+import time
+import typing as t
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -224,3 +226,133 @@ class TestTicketWalletControllerDownloadPdf:
         assert response.status_code == 302
         assert response["Location"] == signed
         mock_generate.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestGoogleWalletEndpoint:
+    """Tests for GET /api/tickets/{ticket_id}/wallet/google."""
+
+    def test_owner_gets_redirect_to_save_url(
+        self,
+        member_client: t.Any,
+        ticket: t.Any,
+        google_wallet_configured_settings: None,
+    ) -> None:
+        from wallet.google.signer import SAVE_URL_BASE
+
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url)
+
+        assert response.status_code == 302
+        assert response["Location"].startswith(SAVE_URL_BASE)
+
+    def test_format_json_returns_save_url(
+        self,
+        member_client: t.Any,
+        ticket: t.Any,
+        google_wallet_configured_settings: None,
+    ) -> None:
+        from wallet.google.signer import SAVE_URL_BASE
+
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url, {"format": "json"})
+
+        assert response.status_code == 200
+        assert response.json()["save_url"].startswith(SAVE_URL_BASE)
+
+    def test_format_rejects_unknown_value(
+        self,
+        member_client: t.Any,
+        ticket: t.Any,
+        google_wallet_configured_settings: None,
+    ) -> None:
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url, {"format": "xml"})
+
+        assert response.status_code == 422
+
+    def test_unconfigured_returns_503(
+        self,
+        member_client: t.Any,
+        ticket: t.Any,
+        google_wallet_not_configured: None,
+    ) -> None:
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url)
+
+        assert response.status_code == 503
+
+    def test_non_owner_gets_404(
+        self,
+        nonmember_client: t.Any,
+        ticket: t.Any,
+        google_wallet_configured_settings: None,
+    ) -> None:
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = nonmember_client.get(url)
+
+        assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestSignedApplePassEndpoint:
+    """Tests for GET /api/tickets/{ticket_id}/wallet/apple/signed."""
+
+    @staticmethod
+    def _signed_url(ticket: t.Any, expires: int) -> str:
+        from common.signing import generate_signature
+
+        path = reverse("api:ticket_apple_wallet_signed", kwargs={"ticket_id": ticket.id})
+        return f"{path}?exp={expires}&sig={generate_signature(path, expires)}"
+
+    def test_valid_signature_serves_pkpass_without_auth(
+        self, ticket: t.Any, apple_wallet_configured: None, mock_pass_generator: MagicMock
+    ) -> None:
+        expires = int(time.time()) + 3600
+        response = Client().get(self._signed_url(ticket, expires))
+
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/vnd.apple.pkpass"
+        assert response.content == b"mock_pkpass_content"
+
+    def test_tampered_signature_returns_403(self, ticket: t.Any, apple_wallet_configured: None) -> None:
+        expires = int(time.time()) + 3600
+        path = reverse("api:ticket_apple_wallet_signed", kwargs={"ticket_id": ticket.id})
+        response = Client().get(f"{path}?exp={expires}&sig=deadbeefdeadbeef")
+
+        assert response.status_code == 403
+
+    def test_expired_link_returns_410(self, ticket: t.Any, apple_wallet_configured: None) -> None:
+        expires = int(time.time()) - 10
+        response = Client().get(self._signed_url(ticket, expires))
+
+        assert response.status_code == 410
+
+    def test_malformed_exp_returns_403(self, ticket: t.Any, apple_wallet_configured: None) -> None:
+        path = reverse("api:ticket_apple_wallet_signed", kwargs={"ticket_id": ticket.id})
+        response = Client().get(f"{path}?exp=notanumber&sig=deadbeefdeadbeef")
+
+        assert response.status_code == 403
+
+    def test_cancelled_ticket_returns_404(
+        self, ticket: t.Any, apple_wallet_configured: None, mock_pass_generator: MagicMock
+    ) -> None:
+        ticket.status = Ticket.TicketStatus.CANCELLED
+        ticket.save(update_fields=["status"])
+        expires = int(time.time()) + 3600
+        response = Client().get(self._signed_url(ticket, expires))
+
+        assert response.status_code == 404
+
+    def test_unconfigured_returns_503(self, ticket: t.Any, apple_wallet_not_configured: None) -> None:
+        expires = int(time.time()) + 3600
+        response = Client().get(self._signed_url(ticket, expires))
+
+        assert response.status_code == 503
+
+    def test_non_ascii_sig_returns_403(self, ticket: t.Any, apple_wallet_configured: None) -> None:
+        expires = int(time.time()) + 3600
+        path = reverse("api:ticket_apple_wallet_signed", kwargs={"ticket_id": ticket.id})
+        # Non-ASCII character in sig parameter should return 403, not 500
+        response = Client().get(f"{path}?exp={expires}&sig=é")
+        assert response.status_code == 403

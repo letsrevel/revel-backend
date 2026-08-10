@@ -25,6 +25,7 @@
 </div>
 
 <p>{% trans "Your ticket is now active and attached to this email. Present it at the event entrance." %}</p>
+{% include "notifications/email/_wallet_badges.html" %}
 
 <center>
     <a href="{{ context.event_url }}" class="button">{% trans "View Event Details" %}</a>

@@ -1,0 +1,18 @@
+{% load i18n %}
+{% if context.apple_wallet_signed_url or context.google_wallet_save_url %}
+{% get_current_language as LANGUAGE_CODE %}
+<table role="presentation" align="center" border="0" cellpadding="0" cellspacing="0" style="margin: 16px auto;">
+    <tr>
+        {% if context.apple_wallet_signed_url %}
+        <td style="padding: 0 8px;">
+            <a href="{{ context.apple_wallet_signed_url }}"><img src="{{ frontend_base_url }}/images/wallet/apple/{{ LANGUAGE_CODE|slice:":2" }}.png" height="48" alt="{% trans "Add to Apple Wallet" %}" style="height: 48px; width: auto; border: 0;"></a>
+        </td>
+        {% endif %}
+        {% if context.google_wallet_save_url %}
+        <td style="padding: 0 8px;">
+            <a href="{{ context.google_wallet_save_url }}"><img src="{{ frontend_base_url }}/images/wallet/google/{{ LANGUAGE_CODE|slice:":2" }}.png" height="48" alt="{% trans "Add to Google Wallet" %}" style="height: 48px; width: auto; border: 0;"></a>
+        </td>
+        {% endif %}
+    </tr>
+</table>
+{% endif %}

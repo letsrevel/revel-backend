@@ -156,6 +156,11 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
         return  # Online payment - handled by payment service
 
     context = _build_ticket_created_context(ticket)
+    if ticket.status == Ticket.TicketStatus.PENDING:
+        # A pending-payment email carries no attachments — the PDF/pkpass QR
+        # would look like a valid pass before payment. Everything arrives with
+        # the activation email; until then the webapp is the only source.
+        context = {**context, "include_pdf": False, "include_ics": False, "include_pkpass": False}
 
     # Notify ticket holder
     notification_requested.send(
@@ -242,6 +247,11 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
             "total_price": str(first_ticket.tier.price),
             "frontend_url": frontend_url,
         }
+        if ticket.status == Ticket.TicketStatus.PENDING:
+            # Same rule as the single-ticket path: no attachments before payment.
+            ticket_context["include_pdf"] = False
+            ticket_context["include_ics"] = False
+            ticket_context["include_pkpass"] = False
 
         # Notify ticket holder
         notification_requested.send(
@@ -304,7 +314,14 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
         ticket: The ticket being cancelled
         old_status: The previous ticket status
     """
-    context = _build_ticket_updated_context(ticket, old_status)
+    context = {
+        **_build_ticket_updated_context(ticket, old_status),
+        # A cancellation email must not carry the ticket files — the PDF/pkpass
+        # QR would still look like a valid pass for a now-dead ticket.
+        "include_pdf": False,
+        "include_ics": False,
+        "include_pkpass": False,
+    }
 
     # Notify ticket holder
     notification_requested.send(

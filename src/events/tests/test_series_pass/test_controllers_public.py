@@ -3,6 +3,7 @@
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -27,6 +28,27 @@ from events.models import (
 )
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def google_wallet_settings(settings: t.Any, tmp_path: Path) -> None:
+    """Configure Google Wallet with a real (test-only) service-account key."""
+    import json
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    sa_path = tmp_path / "sa.json"
+    sa_path.write_text(json.dumps({"client_email": "wallet@test.iam.gserviceaccount.com", "private_key": pem}))
+    settings.GOOGLE_WALLET_ISSUER_ID = "3388000000012345678"
+    settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = str(sa_path)
+    settings.GOOGLE_WALLET_CLASS_PREFIX = "test"
 
 
 # ---- Fixture overrides: this suite exercises anonymous/stranger visibility, so the
@@ -555,6 +577,43 @@ class TestFileDownloads:
         settings.APPLE_WALLET_WWDR_CERT_PATH = "/path/wwdr.pem"
 
         url = reverse("api:series_pass_apple_wallet_pass", kwargs={"held_pass_id": held_pass.id})
+        response = other_user_client.get(url)
+
+        assert response.status_code == 404
+
+    def test_google_wallet_owner_gets_redirect(
+        self, revel_user_client: Client, held_pass: HeldSeriesPass, google_wallet_settings: None
+    ) -> None:
+        url = reverse("api:series_pass_google_wallet_pass", kwargs={"held_pass_id": held_pass.id})
+        response = revel_user_client.get(url)
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("https://pay.google.com/gp/v/save/")
+
+    def test_google_wallet_format_json_returns_save_url(
+        self, revel_user_client: Client, held_pass: HeldSeriesPass, google_wallet_settings: None
+    ) -> None:
+        url = reverse("api:series_pass_google_wallet_pass", kwargs={"held_pass_id": held_pass.id})
+        response = revel_user_client.get(url, {"format": "json"})
+
+        assert response.status_code == 200
+        assert response.json()["save_url"].startswith("https://pay.google.com/gp/v/save/")
+
+    def test_google_wallet_unconfigured_returns_503(
+        self, revel_user_client: Client, held_pass: HeldSeriesPass, settings: t.Any
+    ) -> None:
+        settings.GOOGLE_WALLET_ISSUER_ID = ""
+        settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = ""
+
+        url = reverse("api:series_pass_google_wallet_pass", kwargs={"held_pass_id": held_pass.id})
+        response = revel_user_client.get(url)
+
+        assert response.status_code == 503
+
+    def test_google_wallet_non_owner_404(
+        self, other_user_client: Client, held_pass: HeldSeriesPass, google_wallet_settings: None
+    ) -> None:
+        url = reverse("api:series_pass_google_wallet_pass", kwargs={"held_pass_id": held_pass.id})
         response = other_user_client.get(url)
 
         assert response.status_code == 404

@@ -2,17 +2,14 @@
 
 import base64
 import uuid
-from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, Ticket, TicketTier
+from events.models import Event, Ticket
 from events.models.ticket import CancellationSource
 from notifications.enums import NotificationType
-from notifications.models import Notification
 from notifications.service.templates.ticket_templates import (
     PaymentConfirmationTemplate,
     TicketCheckedInTemplate,
@@ -25,110 +22,9 @@ from notifications.service.templates.ticket_templates import (
     _load_event,
     _load_ticket,
 )
+from notifications.tests.conftest import _create_notification_for_test
 
 pytestmark = pytest.mark.django_db
-
-
-# --- Fixtures ---
-
-
-@pytest.fixture
-def ticket_holder(django_user_model: type[RevelUser]) -> RevelUser:
-    """A user who holds a ticket."""
-    return django_user_model.objects.create_user(
-        username="holder@example.com",
-        email="holder@example.com",
-        password="password",
-        first_name="Ticket",
-        last_name="Holder",
-    )
-
-
-@pytest.fixture
-def ticket_organization(ticket_holder: RevelUser) -> Organization:
-    """Organization for ticket tests."""
-    return Organization.objects.create(
-        name="Ticket Org",
-        slug="ticket-org",
-        owner=ticket_holder,
-    )
-
-
-@pytest.fixture
-def ticket_event(ticket_organization: Organization) -> Event:
-    """Event for ticket tests."""
-    next_week = timezone.now() + timedelta(days=7)
-    return Event.objects.create(
-        organization=ticket_organization,
-        name="Ticket Event",
-        slug="ticket-event",
-        visibility=Event.Visibility.PUBLIC,
-        event_type=Event.EventType.PUBLIC,
-        max_attendees=100,
-        status="open",
-        start=next_week,
-        end=next_week + timedelta(hours=3),
-        requires_ticket=True,
-    )
-
-
-@pytest.fixture
-def ticket_tier(ticket_event: Event) -> TicketTier:
-    """Ticket tier for tests.
-
-    When an event is created with requires_ticket=True, a default tier is
-    automatically created via signals. We return that tier instead of
-    creating a new one to avoid unique constraint violations.
-    """
-    return ticket_event.ticket_tiers.first()  # type: ignore[return-value]
-
-
-@pytest.fixture
-def active_ticket(
-    ticket_holder: RevelUser,
-    ticket_event: Event,
-    ticket_tier: TicketTier,
-) -> Ticket:
-    """An active ticket for testing."""
-    return Ticket.objects.create(
-        guest_name="Test Guest",
-        user=ticket_holder,
-        event=ticket_event,
-        tier=ticket_tier,
-        status=Ticket.TicketStatus.ACTIVE,
-    )
-
-
-@pytest.fixture
-def pending_ticket(
-    ticket_holder: RevelUser,
-    ticket_event: Event,
-    ticket_tier: TicketTier,
-) -> Ticket:
-    """A pending ticket for testing."""
-    return Ticket.objects.create(
-        guest_name="Test Guest",
-        user=ticket_holder,
-        event=ticket_event,
-        tier=ticket_tier,
-        status=Ticket.TicketStatus.PENDING,
-    )
-
-
-def _create_notification_for_test(
-    user: RevelUser,
-    notification_type: NotificationType,
-    context: dict[str, object],
-) -> Notification:
-    """Create a notification directly without context validation.
-
-    This is for unit testing templates where we only need specific context fields.
-    """
-    return Notification.objects.create(
-        user=user,
-        notification_type=notification_type,
-        context=context,
-    )
 
 
 # --- _load_ticket Tests ---
@@ -309,6 +205,24 @@ class TestGeneratePkpassAttachment:
             result = _generate_pkpass_attachment(active_ticket)
 
         assert result is None
+
+    @patch("events.service.ticket_file_service.get_apple_pass_generator")
+    def test_returns_none_for_cancelled_ticket(
+        self,
+        mock_get_generator: MagicMock,
+        active_ticket: Ticket,
+    ) -> None:
+        """Should never attach a wallet pass for a cancelled ticket, even when configured."""
+        mock_generator = MagicMock()
+        mock_generator.generate_pass.return_value = b"PK\x03\x04 pkpass content"
+        mock_get_generator.return_value = mock_generator
+        active_ticket.status = Ticket.TicketStatus.CANCELLED
+
+        with patch.object(Ticket, "apple_pass_available", True):
+            result = _generate_pkpass_attachment(active_ticket)
+
+        assert result is None
+        mock_generator.generate_pass.assert_not_called()
 
 
 # --- _build_ticket_attachments Tests ---
@@ -647,6 +561,32 @@ class TestTicketCreatedTemplate:
         assert call_kwargs["include_ics"] is True
         assert call_kwargs["include_pkpass"] is True
 
+    def test_pending_email_explains_ticket_arrives_after_payment(
+        self,
+        ticket_holder: RevelUser,
+        active_ticket: Ticket,
+    ) -> None:
+        """Pending emails carry no ticket files, so they must set expectations."""
+        notification = _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.TICKET_CREATED,
+            context={
+                "event_name": active_ticket.event.name,
+                "ticket_id": str(active_ticket.id),
+                "event_id": str(active_ticket.event.id),
+                "tier_name": active_ticket.tier.name,
+                "ticket_status": "pending",
+            },
+        )
+        template = TicketCreatedTemplate()
+
+        html = template.get_email_html_body(notification)
+        text = template.get_email_text_body(notification)
+
+        expected = "Your ticket will arrive by email as soon as your payment is confirmed."
+        assert html is not None and expected in html
+        assert expected in text
+
 
 class TestTicketUpdatedTemplate:
     """Tests for TicketUpdatedTemplate."""
@@ -689,6 +629,32 @@ class TestTicketUpdatedTemplate:
         title = template.get_in_app_title(notification)
 
         assert "Update" in title
+
+    def test_activation_email_text_renders_tier_name(
+        self,
+        ticket_holder: RevelUser,
+        active_ticket: Ticket,
+    ) -> None:
+        """Regression: a malformed tag rendered '{{ context.tier_name %}' literally."""
+        notification = _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.TICKET_UPDATED,
+            context={
+                "event_name": active_ticket.event.name,
+                "ticket_id": str(active_ticket.id),
+                "event_id": str(active_ticket.event.id),
+                "tier_name": active_ticket.tier.name,
+                "old_status": "pending",
+                "new_status": "active",
+                "action": "activated",
+            },
+        )
+        template = TicketUpdatedTemplate()
+
+        text = template.get_email_text_body(notification)
+
+        assert active_ticket.tier.name in text
+        assert "{{ context.tier_name" not in text
 
     @patch("notifications.service.templates.ticket_templates._build_ticket_attachments")
     def test_get_email_attachments_no_attachments_for_cancellation(
