@@ -245,6 +245,31 @@ class TestGoogleWalletEndpoint:
         assert response.status_code == 302
         assert response["Location"].startswith(SAVE_URL_BASE)
 
+    def test_format_json_returns_save_url(
+        self,
+        member_client: t.Any,
+        ticket: t.Any,
+        google_wallet_configured_settings: None,
+    ) -> None:
+        from wallet.google.signer import SAVE_URL_BASE
+
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url, {"format": "json"})
+
+        assert response.status_code == 200
+        assert response.json()["save_url"].startswith(SAVE_URL_BASE)
+
+    def test_format_rejects_unknown_value(
+        self,
+        member_client: t.Any,
+        ticket: t.Any,
+        google_wallet_configured_settings: None,
+    ) -> None:
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url, {"format": "xml"})
+
+        assert response.status_code == 422
+
     def test_unconfigured_returns_503(
         self,
         member_client: t.Any,

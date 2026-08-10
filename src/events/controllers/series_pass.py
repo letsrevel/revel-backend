@@ -6,7 +6,7 @@ from uuid import UUID
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
-from ninja import Body
+from ninja import Body, Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.exceptions import NotFound
@@ -22,6 +22,7 @@ from events.service import series_pass_file_service, series_pass_service
 from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.utils import apple_wallet_configured, google_wallet_configured
 from wallet.google import service as google_wallet_service
+from wallet.schema import GoogleWalletSaveUrlSchema
 
 
 class _CheckoutResult(t.TypedDict):
@@ -247,12 +248,21 @@ class SeriesPassController(UserAwareController):
         "/me/{held_pass_id}/wallet/google",
         url_name="series_pass_google_wallet_pass",
         summary="Add series pass to Google Wallet",
-        description="Redirects to a signed 'save to Google Wallet' link for a held series pass.",
-        response={302: None, 404: None, 503: None},
+        description="Redirects to a signed 'save to Google Wallet' link for a held series pass. "
+        "Pass ?format=json to receive the link as JSON instead — browser clients cannot "
+        "follow the cross-origin redirect.",
+        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: None},
         auth=I18nJWTAuth(),
     )
-    def google_wallet_save_link(self, held_pass_id: UUID) -> HttpResponse:
-        """Redirect to the Google Wallet save link for a held series pass. The user must own the pass."""
+    def google_wallet_save_link(
+        self,
+        held_pass_id: UUID,
+        format: t.Annotated[t.Literal["json"] | None, Query()] = None,
+    ) -> HttpResponse | tuple[int, GoogleWalletSaveUrlSchema]:
+        """Redirect to (or return as JSON) the Google Wallet save link for a held series pass.
+
+        The user must own the pass.
+        """
         held_pass = t.cast(
             models.HeldSeriesPass,
             self.get_object_or_exception(models.HeldSeriesPass.objects.filter(user=self.user()), pk=held_pass_id),
@@ -261,4 +271,7 @@ class SeriesPassController(UserAwareController):
         if not google_wallet_configured():
             raise HttpError(503, "Google Wallet is not configured")
 
-        return HttpResponseRedirect(google_wallet_service.series_pass_save_url(held_pass))
+        save_url = google_wallet_service.series_pass_save_url(held_pass)
+        if format == "json":
+            return 200, GoogleWalletSaveUrlSchema(save_url=save_url)
+        return HttpResponseRedirect(save_url)

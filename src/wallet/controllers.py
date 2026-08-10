@@ -1,9 +1,11 @@
 """Wallet pass controllers for downloading passes."""
 
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
+from ninja import Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 
@@ -13,6 +15,7 @@ from common.signing import get_file_url
 from events.models import Ticket
 from events.service import ticket_file_service
 from wallet.google import service as google_wallet_service
+from wallet.schema import GoogleWalletSaveUrlSchema
 
 
 @api_controller("/tickets", tags=["Tickets - Wallet"], auth=I18nJWTAuth())
@@ -58,11 +61,17 @@ class TicketWalletController(UserAwareController):
         "/{ticket_id}/wallet/google",
         url_name="ticket_google_wallet_pass",
         summary="Add ticket to Google Wallet",
-        description="Redirects to a signed 'save to Google Wallet' link for a ticket.",
-        response={302: None, 404: None, 503: None},
+        description="Redirects to a signed 'save to Google Wallet' link for a ticket. "
+        "Pass ?format=json to receive the link as JSON instead — browser clients cannot "
+        "follow the cross-origin redirect.",
+        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: None},
     )
-    def google_wallet_save_link(self, ticket_id: UUID) -> HttpResponse:
-        """Redirect to the Google Wallet save link for a ticket.
+    def google_wallet_save_link(
+        self,
+        ticket_id: UUID,
+        format: t.Annotated[t.Literal["json"] | None, Query()] = None,
+    ) -> HttpResponse | tuple[int, GoogleWalletSaveUrlSchema]:
+        """Redirect to (or return as JSON) the Google Wallet save link for a ticket.
 
         The user must own the ticket. Unlike the Apple rail there is no file:
         the pass is created by Google when the user opens the save link.
@@ -72,7 +81,10 @@ class TicketWalletController(UserAwareController):
         if not ticket.google_pass_available:
             raise HttpError(503, "Google Wallet is not configured")
 
-        return HttpResponseRedirect(google_wallet_service.ticket_save_url(ticket))
+        save_url = google_wallet_service.ticket_save_url(ticket)
+        if format == "json":
+            return 200, GoogleWalletSaveUrlSchema(save_url=save_url)
+        return HttpResponseRedirect(save_url)
 
     @route.get(
         "/{ticket_id}/pdf",

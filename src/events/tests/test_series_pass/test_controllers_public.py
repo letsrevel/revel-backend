@@ -590,6 +590,15 @@ class TestFileDownloads:
         assert response.status_code == 302
         assert response["Location"].startswith("https://pay.google.com/gp/v/save/")
 
+    def test_google_wallet_format_json_returns_save_url(
+        self, revel_user_client: Client, held_pass: HeldSeriesPass, google_wallet_settings: None
+    ) -> None:
+        url = reverse("api:series_pass_google_wallet_pass", kwargs={"held_pass_id": held_pass.id})
+        response = revel_user_client.get(url, {"format": "json"})
+
+        assert response.status_code == 200
+        assert response.json()["save_url"].startswith("https://pay.google.com/gp/v/save/")
+
     def test_google_wallet_unconfigured_returns_503(
         self, revel_user_client: Client, held_pass: HeldSeriesPass, settings: t.Any
     ) -> None:
