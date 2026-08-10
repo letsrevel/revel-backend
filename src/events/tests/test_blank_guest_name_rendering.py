@@ -41,8 +41,8 @@ def test_pdf_template_omits_guest_row_for_blank_name(ticket: Ticket) -> None:
 
     html = render_to_string("events/ticket.html", context)
 
-    assert "🎫 Guest" not in html
-    assert "🛒 Purchased by" in html
+    assert ">Guest<" not in html
+    assert ">Purchased by<" in html
 
 
 def test_pdf_template_keeps_guest_row_for_named_ticket(ticket: Ticket) -> None:
@@ -52,7 +52,7 @@ def test_pdf_template_keeps_guest_row_for_named_ticket(ticket: Ticket) -> None:
 
     html = render_to_string("events/ticket.html", _ticket_pdf_context(ticket))
 
-    assert "🎫 Guest" in html
+    assert ">Guest<" in html
     assert "Zaphod Beeblebrox" in html
 
 

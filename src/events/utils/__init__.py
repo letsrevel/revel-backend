@@ -376,22 +376,9 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
 
     qr_code_base64 = _qr_code_base64(str(ticket.id))
 
-    # Get branding assets with fallback priority: Event > EventSeries > Organization
-    logo_file, cover_art_file, branding_source_name = _get_branding_assets(event)
-
-    # Convert images to base64 data URIs for WeasyPrint
-    logo_data_uri = _file_to_data_uri(logo_file)
+    # Cover art with fallback priority: Event > EventSeries > Organization
+    _logo_file, cover_art_file, _branding_source_name = _get_branding_assets(event)
     cover_art_data_uri = _file_to_data_uri(cover_art_file)
-
-    # Generate color scheme from UUID
-    color_source_id = str(event.id)
-    if logo_file and event.event_series and event.event_series.logo:
-        color_source_id = str(event.event_series.id)
-    elif logo_file and event.organization.logo:
-        color_source_id = str(event.organization.id)
-
-    primary_color, secondary_color = _uuid_to_color(color_source_id)
-    logo_initials = _get_logo_initials(branding_source_name)
 
     # Prepare context for the HTML template
     context_data = {
@@ -405,11 +392,7 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "qr_code_base64": qr_code_base64,
         "ticket_id": str(ticket.id),
         "ticket_id_short": str(ticket.id)[:8].upper(),
-        "logo_url": logo_data_uri,
         "cover_art_url": cover_art_data_uri,
-        "logo_initials": logo_initials,
-        "primary_color": primary_color,
-        "secondary_color": secondary_color,
         # Venue/seating info
         "venue_name": ticket.venue.name if ticket.venue else None,
         "sector_name": ticket.sector.name if ticket.sector else None,
@@ -418,7 +401,7 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "seat_number": ticket.seat.number if ticket.seat else None,
         # Brand assets (absolute paths for WeasyPrint file:// resolution)
         "font_dir": str(settings.BASE_DIR / "fonts"),
-        "brand_logo": str(settings.BASE_DIR / "assets" / "brand" / "revel-logo.png"),
+        "brand_mark": str(settings.BASE_DIR / "assets" / "brand" / "revel-mark.svg"),
     }
 
     # Render and generate PDF

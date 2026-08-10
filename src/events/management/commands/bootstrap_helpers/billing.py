@@ -97,6 +97,21 @@ def _create_bootstrap_payments(
 ) -> int:
     """Create bootstrap payment records spread across the previous month."""
     payments_created = 0
+
+    # Seated tier: pick free seats so these tickets carry a seat like real purchases do.
+    free_seats: list[events_models.VenueSeat] = []
+    if tier.sector_id:
+        taken_seat_ids = (
+            events_models.Ticket.objects.filter(event=event, seat__isnull=False)
+            .exclude(status=events_models.Ticket.TicketStatus.CANCELLED)
+            .values_list("seat_id", flat=True)
+        )
+        free_seats = list(
+            events_models.VenueSeat.objects.filter(sector_id=tier.sector_id, is_active=True)
+            .exclude(id__in=taken_seat_ids)
+            .order_by("row_order", "adjacency_index")[: len(users)]
+        )
+
     for i, user in enumerate(users):
         payment_day = min(first_of_previous.day + (i * 6) + 3, last_of_previous.day)
         payment_date = first_of_previous.replace(day=payment_day)
@@ -105,12 +120,16 @@ def _create_bootstrap_payments(
         net_fee_amount = (tier.price * Decimal("0.10")).quantize(Decimal("0.01"))
         fee_vat = calculate_platform_fee_vat(net_fee_amount, org, site.platform_vat_country, site.platform_vat_rate)
 
+        seat = free_seats[i] if i < len(free_seats) else None
         ticket = events_models.Ticket.objects.create(
             event=event,
             user=user,
             tier=tier,
             status=events_models.Ticket.TicketStatus.ACTIVE,
             guest_name=f"Bootstrap Guest {i + 1}",
+            venue=tier.venue if seat else None,
+            sector=tier.sector if seat else None,
+            seat=seat,
         )
 
         payment = events_models.Payment(
