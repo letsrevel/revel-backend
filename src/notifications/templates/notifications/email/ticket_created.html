@@ -53,6 +53,12 @@
             <div class="info-row"><span class="label">{% trans "Status:" %}</span> {% trans "Active" %}</div>
             <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
         </div>
+
+        {% if context.google_wallet_save_url %}
+        <center>
+            <a href="{{ context.google_wallet_save_url }}" class="button">{% trans "Add to Google Wallet" %}</a>
+        </center>
+        {% endif %}
     {% endif %}
 {% endif %}
 

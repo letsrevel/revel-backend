@@ -98,6 +98,44 @@ def _generate_pkpass_attachment(ticket: Ticket) -> AttachmentResult | None:
         return None
 
 
+def _google_wallet_save_url(ticket: Ticket) -> str | None:
+    """Build a Google Wallet save link for a ticket email, or None.
+
+    Never raises: email rendering must not fail because a wallet link could
+    not be generated (mirrors the pkpass attachment posture).
+    """
+    if not ticket.google_pass_available:
+        return None
+    try:
+        from wallet.google import service as google_wallet_service
+
+        return google_wallet_service.ticket_save_url(ticket)
+    except Exception:
+        logger.exception("failed_to_generate_google_wallet_link", ticket_id=str(ticket.id))
+        return None
+
+
+def _add_google_wallet_context(base_context: dict[str, t.Any], notification: Notification) -> dict[str, t.Any]:
+    """Add ``google_wallet_save_url`` to a ticket email template context.
+
+    Gated the same way as the pkpass attachment: the ``include_pkpass``
+    context flag plus server-side availability.
+    """
+    from events.utils import google_wallet_configured
+
+    if not google_wallet_configured():
+        return base_context
+    if not notification.context.get("include_pkpass", True):
+        return base_context
+    ticket_id = notification.context.get("ticket_id")
+    if not ticket_id:
+        return base_context
+    ticket = _load_ticket(ticket_id)
+    if ticket is not None and (url := _google_wallet_save_url(ticket)):
+        base_context["context"]["google_wallet_save_url"] = url
+    return base_context
+
+
 def _load_ticket(ticket_id: str) -> Ticket | None:
     """Load a ticket by ID with related objects prefetched.
 
@@ -199,6 +237,10 @@ def _build_ticket_attachments(
 class TicketCreatedTemplate(NotificationTemplate):
     """Template for TICKET_CREATED notification."""
 
+    def _get_template_context(self, notification: Notification) -> dict[str, t.Any]:
+        """Enrich the base context with the Google Wallet save link."""
+        return _add_google_wallet_context(super()._get_template_context(notification), notification)
+
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
         event_name = notification.context.get("event_name", "")
@@ -245,6 +287,10 @@ class TicketCreatedTemplate(NotificationTemplate):
 
 class TicketUpdatedTemplate(NotificationTemplate):
     """Template for TICKET_UPDATED notification."""
+
+    def _get_template_context(self, notification: Notification) -> dict[str, t.Any]:
+        """Enrich the base context with the Google Wallet save link."""
+        return _add_google_wallet_context(super()._get_template_context(notification), notification)
 
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""

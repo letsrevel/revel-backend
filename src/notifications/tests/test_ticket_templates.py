@@ -1,8 +1,10 @@
 """Tests for ticket notification templates and attachment generation."""
 
 import base64
+import typing as t
 import uuid
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -938,3 +940,79 @@ class TestPendingTicketPaymentInstructions:
         rendered = self._render(template, instructions=None)
 
         assert "contact the organizer" in rendered
+
+
+# --- Google Wallet Save Link Tests ---
+
+
+@pytest.fixture
+def google_wallet_settings(settings: t.Any, tmp_path: Path) -> None:
+    """Configure Google Wallet with a real (test-only) service-account key."""
+    import json
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    sa_path = tmp_path / "sa.json"
+    sa_path.write_text(json.dumps({"client_email": "wallet@test.iam.gserviceaccount.com", "private_key": pem}))
+    settings.GOOGLE_WALLET_ISSUER_ID = "3388000000012345678"
+    settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = str(sa_path)
+    settings.GOOGLE_WALLET_CLASS_PREFIX = "test"
+
+
+class TestGoogleWalletEmailLink:
+    """Tests for the Google Wallet save link in ticket emails."""
+
+    @staticmethod
+    def _notification(ticket_holder: RevelUser, active_ticket: Ticket, **extra: object) -> Notification:
+        return _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.TICKET_CREATED,
+            context={
+                "event_name": active_ticket.event.name,
+                "ticket_status": "active",
+                "ticket_id": str(active_ticket.id),
+                "event_id": str(active_ticket.event.id),
+                **extra,
+            },
+        )
+
+    def test_link_present_when_configured(
+        self, ticket_holder: RevelUser, active_ticket: Ticket, google_wallet_settings: None
+    ) -> None:
+        notification = self._notification(ticket_holder, active_ticket)
+        template = TicketCreatedTemplate()
+
+        html = template.get_email_html_body(notification)
+        text = template.get_email_text_body(notification)
+
+        assert html is not None and "https://pay.google.com/gp/v/save/" in html
+        assert "https://pay.google.com/gp/v/save/" in text
+
+    def test_link_absent_when_unconfigured(
+        self, ticket_holder: RevelUser, active_ticket: Ticket, settings: t.Any
+    ) -> None:
+        settings.GOOGLE_WALLET_ISSUER_ID = ""
+        settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = ""
+        notification = self._notification(ticket_holder, active_ticket)
+        template = TicketCreatedTemplate()
+
+        html = template.get_email_html_body(notification)
+
+        assert html is not None and "pay.google.com" not in html
+
+    def test_link_absent_when_include_pkpass_false(
+        self, ticket_holder: RevelUser, active_ticket: Ticket, google_wallet_settings: None
+    ) -> None:
+        notification = self._notification(ticket_holder, active_ticket, include_pkpass=False)
+        template = TicketCreatedTemplate()
+
+        html = template.get_email_html_body(notification)
+
+        assert html is not None and "pay.google.com" not in html

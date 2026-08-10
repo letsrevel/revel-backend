@@ -33,7 +33,9 @@
 - {% trans "Tier:" %} {{ context.tier_name }}
 - {% trans "Status:" %} {% trans "Active" %}
 - {% trans "Ticket ID:" %} {{ context.ticket_id }}
-{% endif %}{% endif %}
+{% if context.google_wallet_save_url %}
+{% trans "Add to Google Wallet:" %} {{ context.google_wallet_save_url }}
+{% endif %}{% endif %}{% endif %}
 
 {% trans "View event details:" %} {{ context.event_url }}
 
