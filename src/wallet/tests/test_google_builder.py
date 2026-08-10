@@ -292,6 +292,8 @@ def test_series_pass_falls_back_to_latest_past_event(
     member_user: RevelUser,
 ) -> None:
     """Once every covered event has ended, the representative is the latest-starting past one."""
+    from events.utils import get_event_timezone
+    from wallet.apple.formatting import format_iso_date
     from wallet.google.builder import build_series_pass_payload
 
     _covered_event(
@@ -310,7 +312,10 @@ def test_series_pass_falls_back_to_latest_past_event(
     payload = build_series_pass_payload(held)
     cls = payload["eventTicketClasses"][0]
 
-    assert cls["dateTime"]["start"].startswith(str(latest.start.year))
+    # Exact formatted timestamp, not just the year: the -14-day and -7-day fixture events
+    # fall in the same year, so a year-only assertion can't tell "latest past" apart from
+    # "earliest past" (i.e. a max->min regression in the representative-event selection).
+    assert cls["dateTime"]["start"] == format_iso_date(latest.start, tz=get_event_timezone(latest))
 
 
 def test_series_pass_no_covered_events_falls_back_to_created_at(
