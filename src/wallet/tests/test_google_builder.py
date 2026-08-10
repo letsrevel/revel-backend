@@ -5,6 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -17,6 +18,9 @@ from events.models import (
     SeriesPassTierLink,
     Ticket,
     TicketTier,
+    Venue,
+    VenueSeat,
+    VenueSector,
 )
 from wallet.apple.formatting import get_theme_hex_background
 from wallet.google.builder import build_ticket_payload
@@ -55,6 +59,12 @@ def test_ticket_payload_shape(google_wallet_settings: None, ticket: Ticket) -> N
     assert obj["ticketType"]["defaultValue"]["value"] == ticket.tier.name
     assert obj["ticketHolderName"] == ticket.guest_name
 
+    # No tier/ticket venue, sector, or seat set, and no org logo / event cover_art: none of
+    # the optional fields should appear.
+    assert "seatInfo" not in obj
+    assert "logo" not in cls
+    assert "heroImage" not in cls
+
 
 def test_ticket_payload_price_module(google_wallet_settings: None, ticket: Ticket) -> None:
     payload = build_ticket_payload(ticket)
@@ -71,6 +81,80 @@ def test_ticket_payload_address_only_event(google_wallet_settings: None, ticket:
     cls = payload["eventTicketClasses"][0]
     assert cls["venue"]["name"]["defaultValue"]["value"] == "123 Test Street"
     assert cls["venue"]["address"]["defaultValue"]["value"] == "123 Test Street"
+
+
+@pytest.fixture
+def seated_venue(organization: Organization) -> Venue:
+    """A venue with an address, for testing venue/sector/seat resolution."""
+    return Venue.objects.create(organization=organization, name="Teatro Grande", address="1 Teatro Street")
+
+
+@pytest.fixture
+def seated_sector(seated_venue: Venue) -> VenueSector:
+    """The sector the seated tier sells."""
+    return VenueSector.objects.create(venue=seated_venue, name="Platea")
+
+
+@pytest.fixture
+def seated_seat(seated_sector: VenueSector) -> VenueSeat:
+    """A materialized seat in the sector."""
+    return VenueSeat.objects.create(sector=seated_sector, label="A-7", row_label="A", number=7)
+
+
+@pytest.fixture
+def seated_tier(event: Event, seated_venue: Venue, seated_sector: VenueSector) -> TicketTier:
+    """A tier wired to the venue/sector, for user-choice seat assignment."""
+    return TicketTier.objects.create(
+        event=event,
+        name="Platea Tier",
+        price=Decimal("10.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.OFFLINE,
+        venue=seated_venue,
+        sector=seated_sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+    )
+
+
+@pytest.fixture
+def seated_ticket(event: Event, member_user: RevelUser, seated_tier: TicketTier, seated_seat: VenueSeat) -> Ticket:
+    """A ticket for the seated tier, with a materialized seat assigned."""
+    return Ticket.objects.create(
+        event=event,
+        user=member_user,
+        tier=seated_tier,
+        seat=seated_seat,
+        status=Ticket.TicketStatus.ACTIVE,
+        guest_name=member_user.get_display_name(),
+    )
+
+
+def test_ticket_payload_venue_sector_seat(google_wallet_settings: None, seated_ticket: Ticket) -> None:
+    """Tier venue/sector and the ticket's seat surface on the class and object."""
+    payload = build_ticket_payload(seated_ticket)
+    cls = payload["eventTicketClasses"][0]
+    obj = payload["eventTicketObjects"][0]
+
+    assert cls["venue"]["name"]["defaultValue"]["value"] == "Teatro Grande"
+    assert cls["venue"]["address"]["defaultValue"]["value"] == "1 Teatro Street"
+    assert obj["seatInfo"]["section"]["defaultValue"]["value"] == "Platea"
+    assert obj["seatInfo"]["seat"]["defaultValue"]["value"] == "A-7"
+
+
+def test_ticket_payload_logo_and_hero_present_when_set(
+    google_wallet_settings: None, ticket: Ticket, png_bytes: bytes, settings: t.Any
+) -> None:
+    """Org logo and event cover_art surface as BASE_URL-prefixed logo/heroImage."""
+    organization = ticket.event.organization
+    organization.logo.save("logo.png", ContentFile(png_bytes), save=True)
+    ticket.event.cover_art.save("cover.png", ContentFile(png_bytes), save=True)
+
+    payload = build_ticket_payload(ticket)
+    cls = payload["eventTicketClasses"][0]
+
+    base_url = settings.BASE_URL.rstrip("/")
+    assert cls["logo"]["sourceUri"]["uri"] == f"{base_url}{organization.logo.url}"
+    assert cls["heroImage"]["sourceUri"]["uri"] == f"{base_url}{ticket.event.cover_art.url}"
 
 
 def test_ticket_payload_no_holder_name(google_wallet_settings: None, ticket: Ticket) -> None:
@@ -173,7 +257,10 @@ def held_series_pass(
     )
 
 
-def test_series_pass_payload(google_wallet_settings: None, held_series_pass: t.Any) -> None:
+def test_series_pass_payload(
+    google_wallet_settings: None, held_series_pass: t.Any, google_covered_events: list[Event]
+) -> None:
+    from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD
     from wallet.google.builder import build_series_pass_payload
 
     payload = build_series_pass_payload(held_series_pass)
@@ -186,3 +273,63 @@ def test_series_pass_payload(google_wallet_settings: None, held_series_pass: t.A
     assert obj["id"] == f"3388000000012345678.test.pass.{held_series_pass.id}"
     assert obj["barcode"] == {"type": "QR_CODE", "value": held_series_pass.qr_payload}
     assert obj["ticketType"]["defaultValue"]["value"] == "Series Pass"
+
+    # Latest-ending covered event (the 14-days-out one) plus the grace period.
+    latest_end = max(event.end for event in google_covered_events)
+    end = obj["validTimeInterval"]["end"]["date"]
+    assert end.startswith(str((latest_end + PASS_EXPIRATION_GRACE_PERIOD).year))
+
+    price_modules = [m for m in obj["textModulesData"] if m["id"] == "price"]
+    assert len(price_modules) == 1
+    assert price_modules[0]["body"] == "EUR 50.00"  # held_series_pass fixture price_paid
+
+
+def test_series_pass_falls_back_to_latest_past_event(
+    google_wallet_settings: None,
+    organization: Organization,
+    google_event_series: EventSeries,
+    google_series_pass: SeriesPass,
+    member_user: RevelUser,
+) -> None:
+    """Once every covered event has ended, the representative is the latest-starting past one."""
+    from wallet.google.builder import build_series_pass_payload
+
+    _covered_event(
+        organization, google_event_series, google_series_pass, "GW Old One", "gw-old-one", timedelta(days=-14)
+    )
+    latest = _covered_event(
+        organization, google_event_series, google_series_pass, "GW Old Two", "gw-old-two", timedelta(days=-7)
+    )
+    held = HeldSeriesPass.objects.create(
+        series_pass=google_series_pass,
+        user=member_user,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+        price_paid=Decimal("30"),
+    )
+
+    payload = build_series_pass_payload(held)
+    cls = payload["eventTicketClasses"][0]
+
+    assert cls["dateTime"]["start"].startswith(str(latest.start.year))
+
+
+def test_series_pass_no_covered_events_falls_back_to_created_at(
+    google_wallet_settings: None,
+    google_series_pass: SeriesPass,
+    member_user: RevelUser,
+) -> None:
+    """Defensive: a pass with no tier links still builds a valid payload from held_pass.created_at."""
+    from wallet.google.builder import build_series_pass_payload
+
+    held = HeldSeriesPass.objects.create(
+        series_pass=google_series_pass,
+        user=member_user,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+        price_paid=Decimal("0"),
+    )
+
+    payload = build_series_pass_payload(held)
+    cls = payload["eventTicketClasses"][0]
+
+    assert cls["dateTime"]["start"].startswith(str(held.created_at.year))
+    assert "heroImage" not in cls
