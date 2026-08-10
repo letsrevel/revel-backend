@@ -157,9 +157,11 @@ def _add_wallet_context(base_context: dict[str, t.Any], notification: Notificati
     """Add wallet badge URLs to a ticket email template context.
 
     Sets ``apple_wallet_signed_url`` and ``google_wallet_save_url`` when the
-    respective rail is configured. Gated the same way as the pkpass
-    attachment: the ``include_pkpass`` context flag plus server-side
-    availability and ticket status.
+    respective rail is configured. Gated on the ``include_pkpass`` context
+    flag plus server-side availability, like the pkpass attachment — but with
+    a stricter status gate: badges require ACTIVE/PENDING (mirroring
+    ``TicketWalletController.get_queryset()``), while the attachment excludes
+    only CANCELLED (checked-in emails intentionally keep the pass file).
     """
     from events.utils import apple_wallet_configured, google_wallet_configured
 
