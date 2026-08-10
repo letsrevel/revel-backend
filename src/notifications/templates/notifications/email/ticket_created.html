@@ -38,6 +38,8 @@
                 <p>{% trans "Please contact the organizer to complete the payment." %}</p>
             {% endif %}
         </div>
+
+        <p>{% trans "Your ticket will arrive by email as soon as your payment is confirmed." %}</p>
     {% else %}
         <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> is confirmed! 🎉{% endblocktranslate %}</p>
 

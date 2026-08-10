@@ -23,7 +23,9 @@
 {% if context.manual_payment_instructions %}{% trans "Payment Instructions:" %}
 {{ context.manual_payment_instructions|strip_leading_heading }}
 {% else %}{% trans "Please contact the organizer to complete the payment." %}
-{% endif %}{% else %}{% blocktranslate with event=context.event_name %}Your ticket for {{ event }} is confirmed! 🎉{% endblocktranslate %}
+{% endif %}
+{% trans "Your ticket will arrive by email as soon as your payment is confirmed." %}
+{% else %}{% blocktranslate with event=context.event_name %}Your ticket for {{ event }} is confirmed! 🎉{% endblocktranslate %}
 
 {% trans "Event Details:" %}
 📅 {{ context.event_start_formatted }}

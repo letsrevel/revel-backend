@@ -4731,6 +4731,9 @@ msgid "Please contact the organizer to complete the payment."
 msgstr ""
 "Bitte kontaktiere den:die Veranstalter:in, um die Zahlung abzuschließen."
 
+msgid "Your ticket will arrive by email as soon as your payment is confirmed."
+msgstr "Dein Ticket erhältst du per E-Mail, sobald deine Zahlung bestätigt ist."
+
 #, python-format
 msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"
 msgstr "Dein Ticket für <strong>%(event)s</strong> ist bestätigt! 🎉"

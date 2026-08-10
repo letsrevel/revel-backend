@@ -561,6 +561,32 @@ class TestTicketCreatedTemplate:
         assert call_kwargs["include_ics"] is True
         assert call_kwargs["include_pkpass"] is True
 
+    def test_pending_email_explains_ticket_arrives_after_payment(
+        self,
+        ticket_holder: RevelUser,
+        active_ticket: Ticket,
+    ) -> None:
+        """Pending emails carry no ticket files, so they must set expectations."""
+        notification = _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.TICKET_CREATED,
+            context={
+                "event_name": active_ticket.event.name,
+                "ticket_id": str(active_ticket.id),
+                "event_id": str(active_ticket.event.id),
+                "tier_name": active_ticket.tier.name,
+                "ticket_status": "pending",
+            },
+        )
+        template = TicketCreatedTemplate()
+
+        html = template.get_email_html_body(notification)
+        text = template.get_email_text_body(notification)
+
+        expected = "Your ticket will arrive by email as soon as your payment is confirmed."
+        assert html is not None and expected in html
+        assert expected in text
+
 
 class TestTicketUpdatedTemplate:
     """Tests for TicketUpdatedTemplate."""

@@ -394,6 +394,100 @@ class TestSeriesPassTicketNotificationGuard:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestPendingTicketAttachmentFlags:
+    """Pending-payment ticket emails must not carry the ticket files.
+
+    A pending ticket is not valid yet; attaching a scannable PDF/pkpass
+    alongside payment instructions invites door disputes. The ICS stays
+    (calendar hold, no QR). Attachments arrive with the activation email.
+    """
+
+    def _make_tier(self, public_event: t.Any, payment_method: str, name: str) -> TicketTier:
+        return TicketTier.objects.create(
+            event=public_event,
+            name=name,
+            price=Decimal("10.00"),
+            currency="EUR",
+            payment_method=payment_method,
+        )
+
+    def test_pending_created_context_disables_ticket_files(self, public_event: t.Any, member_user: RevelUser) -> None:
+        tier = self._make_tier(public_event, TicketTier.PaymentMethod.OFFLINE, "Pending Flags Tier")
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                Ticket.objects.create(
+                    event=public_event,
+                    tier=tier,
+                    user=member_user,
+                    status=Ticket.TicketStatus.PENDING,
+                    guest_name=member_user.get_display_name(),
+                )
+
+        holder_calls = [
+            call
+            for call in send_mock.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.TICKET_CREATED
+            and call.kwargs["user"] == member_user
+        ]
+        assert holder_calls
+        for call in holder_calls:
+            context = call.kwargs["context"]
+            assert context["include_pdf"] is False
+            assert context["include_pkpass"] is False
+            assert context.get("include_ics", True) is True
+
+    def test_active_created_context_keeps_ticket_files(self, public_event: t.Any, member_user: RevelUser) -> None:
+        tier = self._make_tier(public_event, TicketTier.PaymentMethod.FREE, "Active Flags Tier")
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                Ticket.objects.create(
+                    event=public_event,
+                    tier=tier,
+                    user=member_user,
+                    status=Ticket.TicketStatus.ACTIVE,
+                    guest_name=member_user.get_display_name(),
+                )
+
+        holder_calls = [
+            call
+            for call in send_mock.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.TICKET_CREATED
+            and call.kwargs["user"] == member_user
+        ]
+        assert holder_calls
+        for call in holder_calls:
+            context = call.kwargs["context"]
+            assert context.get("include_pdf", True) is True
+            assert context.get("include_pkpass", True) is True
+
+    def test_batch_pending_context_disables_ticket_files(self, public_event: t.Any, member_user: RevelUser) -> None:
+        from notifications.signals.ticket import send_batch_ticket_created_notifications
+
+        tier = self._make_tier(public_event, TicketTier.PaymentMethod.OFFLINE, "Batch Pending Tier")
+        ticket = Ticket.objects.create(
+            event=public_event,
+            tier=tier,
+            user=member_user,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name=member_user.get_display_name(),
+        )
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            send_batch_ticket_created_notifications([ticket])
+
+        holder_calls = [
+            call
+            for call in send_mock.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.TICKET_CREATED
+            and call.kwargs["user"] == member_user
+        ]
+        assert holder_calls
+        for call in holder_calls:
+            context = call.kwargs["context"]
+            assert context["include_pdf"] is False
+            assert context["include_pkpass"] is False
+
+
+@pytest.mark.django_db(transaction=True)
 class TestTicketCancelledAttachmentFlags:
     """Cancellation notifications must not request ticket attachments.
 
