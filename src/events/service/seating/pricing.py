@@ -169,7 +169,7 @@ def recorded_or_resolved_price(
     :func:`should_stamp_price_paid`): their 1:1 ``Payment`` row is authoritative, and
     its amount can be *net* (reverse charge), which no tier or seat price reconstructs.
     Callers that can see online rows must consult ``ticket.payment`` before falling
-    back here (as ``ApplePassGenerator._resolve_price`` does); the paths that call this
+    back here (as :func:`wallet.pricing.resolve_ticket_price` does); the paths that call this
     directly (offline refunds, the revenue report's offline rows) never carry online
     tickets.
 

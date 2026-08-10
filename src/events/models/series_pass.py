@@ -172,6 +172,6 @@ class HeldSeriesPass(TimeStampedModel):
 
         Check-in contract: ``ticket_service.resolve_check_in_ticket_id`` strips
         ``QR_PREFIX`` back off a scanned code to resolve the held pass id, so this
-        is the single source of truth every generator (PDF, Apple Wallet) must use.
+        is the single source of truth every generator (PDF, Apple Wallet, Google Wallet) must use.
         """
         return f"{self.QR_PREFIX}{self.id}"
