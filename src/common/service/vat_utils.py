@@ -107,23 +107,58 @@ def calculate_vat_exclusive(net_amount: Decimal, vat_rate: Decimal) -> VATBreakd
     )
 
 
-def b2b_vat_context(entity: VATEntity, platform_vat_country: str, platform_vat_rate: Decimal) -> tuple[bool, Decimal]:
+def _normalize_vat_country(code: str) -> str:
+    """Uppercase a VAT country code and canonicalize Greece (EL → GR).
+
+    VIES syncs Greek entities to the ``EL`` VAT prefix while ISO data uses
+    ``GR``; both spellings must compare as the same country.
+    """
+    normalized = code.upper() if code else ""
+    return "GR" if normalized == "EL" else normalized
+
+
+def b2b_vat_context(
+    entity: VATEntity,
+    platform_vat_country: str,
+    platform_vat_rate: Decimal,
+    *,
+    unknown_country_domestic: bool = False,
+) -> tuple[bool, Decimal]:
     """Return ``(reverse_charge, applicable_vat_rate)`` for a B2B fee.
 
     ``applicable_vat_rate`` is ``0`` for reverse charge and non-EU entities.
+
+    A blank ``platform_vat_country`` (half-configured SiteSettings) charges no
+    VAT and never labels anyone reverse charge — a misconfiguration must not
+    produce legally mislabeled invoices.
 
     Args:
         entity: Any object satisfying :class:`VATEntity`.
         platform_vat_country: The platform's VAT country code (e.g. ``"IT"``).
         platform_vat_rate: The platform's domestic VAT rate (e.g. ``22.00``).
+        unknown_country_domestic: When True, an entity with a blank country
+            code is charged the platform's domestic VAT instead of falling
+            into the non-EU (0%) bucket. Fee-collection paths pass True so an
+            org that never filled its billing country is never silently
+            zero-rated (the platform would owe that VAT out of its margin);
+            payout paths keep the default — when the platform is the
+            *customer*, failing safe means NOT crediting VAT to a payee whose
+            country is unknown.
 
     Returns:
         A ``(reverse_charge, applicable_vat_rate)`` pair.
     """
-    entity_country = entity.vat_country_code.upper() if entity.vat_country_code else ""
+    platform_country = _normalize_vat_country(platform_vat_country)
+    if not platform_country:
+        return False, Decimal("0.00")
+
+    entity_country = _normalize_vat_country(entity.vat_country_code)
+    if not entity_country and unknown_country_domestic:
+        return False, platform_vat_rate
+
     entity_has_valid_vat = bool(entity.vat_id and entity.vat_id_validated)
     entity_in_eu = entity_country in EU_MEMBER_STATES
-    same_country = entity_country == platform_vat_country.upper()
+    same_country = entity_country == platform_country
 
     if not entity_in_eu:
         # Outside EU: export of services, no VAT
@@ -140,6 +175,8 @@ def calculate_b2b_fee_vat(
     entity: VATEntity,
     platform_vat_country: str,
     platform_vat_rate: Decimal,
+    *,
+    unknown_country_domestic: bool = False,
 ) -> B2BFeeVATBreakdown:
     """Determine VAT treatment for a B2B fee (VAT-exclusive / net amount).
 
@@ -160,11 +197,15 @@ def calculate_b2b_fee_vat(
         entity: Any object satisfying :class:`VATEntity`.
         platform_vat_country: The platform's VAT country code (e.g. ``"IT"``).
         platform_vat_rate: The platform's domestic VAT rate (e.g. ``22.00``).
+        unknown_country_domestic: See :func:`b2b_vat_context` — fee-collection
+            paths pass True so a blank entity country is charged domestic VAT.
 
     Returns:
         :class:`B2BFeeVATBreakdown` with fee breakdown and reverse charge flag.
     """
-    reverse_charge, rate = b2b_vat_context(entity, platform_vat_country, platform_vat_rate)
+    reverse_charge, rate = b2b_vat_context(
+        entity, platform_vat_country, platform_vat_rate, unknown_country_domestic=unknown_country_domestic
+    )
     if reverse_charge or rate <= 0:
         return B2BFeeVATBreakdown(
             fee_gross=net_fee,
@@ -190,6 +231,8 @@ def b2b_fee_vat_from_gross(
     entity: VATEntity,
     platform_vat_country: str,
     platform_vat_rate: Decimal,
+    *,
+    unknown_country_domestic: bool = False,
 ) -> B2BFeeVATBreakdown:
     """Decompose a VAT-inclusive (gross) B2B fee into net + VAT.
 
@@ -202,11 +245,15 @@ def b2b_fee_vat_from_gross(
         entity: Any object satisfying :class:`VATEntity`.
         platform_vat_country: The platform's VAT country code (e.g. ``"IT"``).
         platform_vat_rate: The platform's domestic VAT rate (e.g. ``22.00``).
+        unknown_country_domestic: See :func:`b2b_vat_context` — fee-collection
+            paths pass True so a blank entity country is charged domestic VAT.
 
     Returns:
         :class:`B2BFeeVATBreakdown` with fee breakdown and reverse charge flag.
     """
-    reverse_charge, rate = b2b_vat_context(entity, platform_vat_country, platform_vat_rate)
+    reverse_charge, rate = b2b_vat_context(
+        entity, platform_vat_country, platform_vat_rate, unknown_country_domestic=unknown_country_domestic
+    )
     if reverse_charge or rate <= 0:
         return B2BFeeVATBreakdown(
             fee_gross=gross_fee,

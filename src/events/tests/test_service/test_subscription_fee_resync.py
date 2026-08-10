@@ -309,12 +309,31 @@ class TestVatChangeDispatch:
         stripe_org: Organization,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        """Domestic AT org (1.80% grossed) → no country at all (1.50% bare): resync queued.
+        """Cross-border DE org (1.50% bare, reverse charge) → no country at all: resync queued.
 
-        A *cross-border* org would see no change here — clearing empties the
-        country code, which the fee logic treats as non-EU and returns the
-        bare percent, same as reverse charge did.
+        Clearing empties the country code, which the fee paths now treat as
+        domestic (unknown-country fail-safe), so the percent flips from bare
+        to grossed.
         """
+        stripe_org.vat_country_code = "DE"
+        stripe_org.vat_id = "DE123456789"
+        stripe_org.vat_id_validated = True
+        stripe_org.save(update_fields=["vat_country_code", "vat_id", "vat_id_validated"])
+
+        with django_capture_on_commit_callbacks(execute=True):
+            vies_service.clear_org_vat_fields(stripe_org)
+
+        mock_delay.assert_called_once_with(str(stripe_org.id))
+
+    @mock.patch("events.tasks.subscriptions.resync_org_subscription_fees.delay")
+    def test_clearing_domestic_org_vat_fields_does_not_dispatch(
+        self,
+        mock_delay: mock.Mock,
+        site_settings: SiteSettings,
+        stripe_org: Organization,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Domestic AT org: grossed before AND after clearing (unknown-country fail-safe) — no resync."""
         stripe_org.vat_id = "ATU12345678"
         stripe_org.vat_id_validated = True
         stripe_org.save(update_fields=["vat_id", "vat_id_validated"])
@@ -322,7 +341,7 @@ class TestVatChangeDispatch:
         with django_capture_on_commit_callbacks(execute=True):
             vies_service.clear_org_vat_fields(stripe_org)
 
-        mock_delay.assert_called_once_with(str(stripe_org.id))
+        mock_delay.assert_not_called()
 
     @mock.patch("events.tasks.subscriptions.resync_org_subscription_fees.delay")
     def test_billing_info_update_without_fee_effect_does_not_dispatch(
