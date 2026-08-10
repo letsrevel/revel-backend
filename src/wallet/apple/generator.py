@@ -22,7 +22,6 @@ from django.utils import timezone
 
 from events.models import HeldSeriesPass, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
-from wallet.pricing import resolve_ticket_price
 from wallet.apple.formatting import (
     PassColors,
     format_date_compact,
@@ -41,6 +40,7 @@ from wallet.apple.images import (
     resolve_cover_art,
 )
 from wallet.apple.signer import ApplePassSigner, ApplePassSignerError
+from wallet.pricing import resolve_ticket_price
 
 logger = structlog.get_logger(__name__)
 

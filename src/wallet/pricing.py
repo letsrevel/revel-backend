@@ -1,6 +1,5 @@
 """Shared price resolution for wallet passes (Apple and Google rails)."""
 
-import typing as t
 from decimal import Decimal
 
 from events.models import Ticket
