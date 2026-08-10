@@ -126,6 +126,7 @@ class UserTicketSchema(ModelSchema):
     tier: TicketTierSchema
     status: Ticket.TicketStatus
     apple_pass_available: bool
+    google_pass_available: bool
     guest_name: str
     payment: MinimalPaymentSchema | None = None
     seat: MinimalSeatSchema | None = None

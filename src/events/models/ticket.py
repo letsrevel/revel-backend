@@ -14,7 +14,7 @@ from django.utils.translation import gettext_lazy as _
 
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
-from events.utils import apple_wallet_configured
+from events.utils import apple_wallet_configured, google_wallet_configured
 from events.utils.tier_pricing import validate_category_prices
 
 from .mixins import VisibilityMixin
@@ -843,6 +843,11 @@ class Ticket(TimeStampedModel):
     def apple_pass_available(self) -> bool:
         """Check if apple pass is available."""
         return apple_wallet_configured()
+
+    @cached_property
+    def google_pass_available(self) -> bool:
+        """Check if a Google Wallet pass is available."""
+        return google_wallet_configured()
 
 
 def _get_payment_default_expiry() -> datetime:
