@@ -38,14 +38,14 @@ def _hsl_to_rgb_string(hue: float, saturation: float, lightness: float) -> str:
     return f"rgb({int(rgb[0] * 255)}, {int(rgb[1] * 255)}, {int(rgb[2] * 255)})"
 
 
-# Revel dark theme colors (HSL from frontend app.css)
-# --background: 270 30% 8%
-# --foreground: 270 10% 95%
-# --muted-foreground: 270 10% 65%
+# Revel 2026 "crimson pop" theme (HSL tokens from frontend app.css):
+# crimson-deep panel (--poster-crimson-deep: 3 79% 50%, the AA-vs-white
+# variant of Light Crimson #E6332A), white text, lavender-paper labels
+# (--background light: 268 60% 96%, the paper #F3EFFA of the ticket PDF).
 REVEL_THEME = PassColors(
-    background=_hsl_to_rgb_string(270, 0.30, 0.08),
-    foreground=_hsl_to_rgb_string(270, 0.10, 0.95),
-    label=_hsl_to_rgb_string(270, 0.10, 0.65),
+    background=_hsl_to_rgb_string(3, 0.79, 0.50),
+    foreground="rgb(255, 255, 255)",
+    label=_hsl_to_rgb_string(268, 0.60, 0.96),
 )
 
 
