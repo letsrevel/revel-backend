@@ -4661,6 +4661,9 @@ msgstr "Contacta con quien organiza el evento para completar el pago."
 msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"
 msgstr "¡Tu entrada para <strong>%(event)s</strong> está confirmada! 🎉"
 
+msgid "Add to Google Wallet"
+msgstr "Añadir a Google Wallet"
+
 #, python-format
 msgid "%(holder)s has registered for %(event)s."
 msgstr "%(holder)s se ha registrado para %(event)s."
@@ -4678,6 +4681,9 @@ msgstr "Instrucciones de pago:"
 #, python-format
 msgid "Your ticket for %(event)s is confirmed! 🎉"
 msgstr "¡Tu entrada para %(event)s está confirmada! 🎉"
+
+msgid "Add to Google Wallet:"
+msgstr "Añadir a Google Wallet:"
 
 #, python-format
 msgid "Your ticket refund for <strong>%(event)s</strong> has been processed."

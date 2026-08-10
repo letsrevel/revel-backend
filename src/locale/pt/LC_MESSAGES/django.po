@@ -3334,16 +3334,16 @@ msgid ""
 "%(active)s tickets were still not cancelled when this summary was sent "
 "&mdash; check the event's ticket admin."
 msgstr ""
-"%(active)s bilhetes ainda não tinham sido cancelados quando este resumo "
-"foi enviado &mdash; verifica a administração de bilhetes do evento."
+"%(active)s bilhetes ainda não tinham sido cancelados quando este resumo foi "
+"enviado &mdash; verifica a administração de bilhetes do evento."
 
 #, python-format
 msgid ""
 "%(active)s tickets were still not cancelled when this summary was sent - "
 "check the event's ticket admin."
 msgstr ""
-"%(active)s bilhetes ainda não tinham sido cancelados quando este resumo "
-"foi enviado - verifica a administração de bilhetes do evento."
+"%(active)s bilhetes ainda não tinham sido cancelados quando este resumo foi "
+"enviado - verifica a administração de bilhetes do evento."
 
 #, python-format
 msgid "Reminder: <strong>%(event)s</strong> is tomorrow!"
@@ -4607,6 +4607,9 @@ msgstr "Contacta quem organiza para concluir o pagamento."
 msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"
 msgstr "O teu bilhete para <strong>%(event)s</strong> está confirmado! 🎉"
 
+msgid "Add to Google Wallet"
+msgstr "Adicionar à Google Wallet"
+
 #, python-format
 msgid "%(holder)s has registered for %(event)s."
 msgstr "%(holder)s registou-se para %(event)s."
@@ -4624,6 +4627,9 @@ msgstr "Instruções de pagamento:"
 #, python-format
 msgid "Your ticket for %(event)s is confirmed! 🎉"
 msgstr "O teu bilhete para %(event)s está confirmado! 🎉"
+
+msgid "Add to Google Wallet:"
+msgstr "Adicionar à Google Wallet:"
 
 #, python-format
 msgid "Your ticket refund for <strong>%(event)s</strong> has been processed."
