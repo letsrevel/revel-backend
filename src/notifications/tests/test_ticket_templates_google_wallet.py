@@ -183,6 +183,25 @@ class TestAppleWalletEmailLink:
         params = parse_qs(parsed.query)
         assert verify_signature(parsed.path, params["exp"][0], params["sig"][0])
 
+    def test_apple_badge_rendered_in_html(
+        self,
+        ticket_holder: RevelUser,
+        active_ticket: Ticket,
+        apple_wallet_settings: None,
+        google_wallet_settings: None,
+    ) -> None:
+        """HTML-level counterpart to test_apple_url_present_and_verifiable.
+
+        Task 4 wired the badge partial into the templates, so both wallet URLs
+        now surface in the rendered HTML, not just the template context.
+        """
+        notification = _make_notification(ticket_holder, active_ticket)
+        html = TicketCreatedTemplate().get_email_html_body(notification)
+
+        assert html is not None
+        assert "/wallet/apple/signed" in html
+        assert "https://pay.google.com/gp/v/save/" in html
+
     def test_apple_url_absent_when_unconfigured(
         self,
         ticket_holder: RevelUser,
@@ -248,3 +267,105 @@ class TestAppleWalletEmailLink:
         ctx = PaymentConfirmationTemplate()._get_template_context(notification)
         assert "apple_wallet_signed_url" in ctx["context"]
         assert "google_wallet_save_url" in ctx["context"]
+
+    def test_payment_confirmation_badges_rendered_in_html(
+        self,
+        ticket_holder: RevelUser,
+        active_ticket: Ticket,
+        apple_wallet_settings: None,
+        google_wallet_settings: None,
+    ) -> None:
+        """HTML-level counterpart to test_payment_confirmation_gets_badges.
+
+        Task 4 wired the badge partial into payment_confirmation.html.
+        """
+        notification = _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.PAYMENT_CONFIRMATION,
+            context={
+                "event_name": active_ticket.event.name,
+                "ticket_id": str(active_ticket.id),
+                "event_id": str(active_ticket.event.id),
+                "tier_name": active_ticket.tier.name,
+                "payment_amount": "10.00",
+                "payment_currency": "EUR",
+                "payment_id": "pay_123",
+                "payment_date": "2026-08-10",
+            },
+        )
+
+        html = PaymentConfirmationTemplate().get_email_html_body(notification)
+
+        assert html is not None
+        assert "/wallet/apple/signed" in html
+        assert "https://pay.google.com/gp/v/save/" in html
+
+
+class TestWalletBadges:
+    """Tests for the shared _wallet_badges.html partial rendering both badges."""
+
+    def test_badges_rendered_in_activation_email(
+        self,
+        ticket_holder: RevelUser,
+        active_ticket: Ticket,
+        apple_wallet_settings: None,
+        google_wallet_settings: None,
+    ) -> None:
+        notification = _make_notification(
+            ticket_holder, active_ticket, old_status="pending", new_status="active", action="activated"
+        )
+        # TICKET_UPDATED notification type for the activation email
+        notification.notification_type = NotificationType.TICKET_UPDATED
+        notification.save(update_fields=["notification_type"])
+        template = TicketUpdatedTemplate()
+
+        html = template.get_email_html_body(notification)
+        text = template.get_email_text_body(notification)
+
+        assert html is not None
+        assert "/images/wallet/apple/en.png" in html
+        assert "/images/wallet/google/en.png" in html
+        assert "/wallet/apple/signed" in html
+        assert "https://pay.google.com/gp/v/save/" in html
+        assert "Add to Apple Wallet:" in text
+        assert "Add to Google Wallet:" in text
+
+    def test_badge_localized_for_german_user(
+        self,
+        ticket_holder: RevelUser,
+        active_ticket: Ticket,
+        apple_wallet_settings: None,
+        google_wallet_settings: None,
+    ) -> None:
+        from django.utils import translation
+
+        notification = _make_notification(ticket_holder, active_ticket)
+        with translation.override("de"):
+            html = TicketCreatedTemplate().get_email_html_body(notification)
+
+        assert html is not None
+        assert "/images/wallet/apple/de.png" in html
+        assert "/images/wallet/google/de.png" in html
+
+    def test_single_badge_when_only_google_configured(
+        self,
+        ticket_holder: RevelUser,
+        active_ticket: Ticket,
+        google_wallet_settings: None,
+        settings: t.Any,
+    ) -> None:
+        # Explicitly clear Apple Wallet settings — local dev .env may configure real
+        # certs (Task 2/3 development), which would otherwise leak into this "Google
+        # only" case and falsely pass or fail depending on machine state.
+        settings.APPLE_WALLET_PASS_TYPE_ID = ""
+        settings.APPLE_WALLET_TEAM_ID = ""
+        settings.APPLE_WALLET_CERT_PATH = ""
+        settings.APPLE_WALLET_KEY_PATH = ""
+        settings.APPLE_WALLET_WWDR_CERT_PATH = ""
+        notification = _make_notification(ticket_holder, active_ticket)
+
+        html = TicketCreatedTemplate().get_email_html_body(notification)
+
+        assert html is not None
+        assert "/images/wallet/google/en.png" in html
+        assert "/images/wallet/apple/" not in html
