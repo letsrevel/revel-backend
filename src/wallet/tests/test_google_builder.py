@@ -137,6 +137,7 @@ def test_ticket_payload_logo_and_hero_present_when_set(
     google_wallet_configured_settings: None, ticket: Ticket, png_bytes: bytes, settings: t.Any
 ) -> None:
     """Org logo and event cover_art surface as BASE_URL-prefixed logo/heroImage."""
+    settings.BASE_URL = "https://letsrevel.io"
     organization = ticket.event.organization
     organization.logo.save("logo.png", ContentFile(png_bytes), save=True)
     ticket.event.cover_art.save("cover.png", ContentFile(png_bytes), save=True)
@@ -147,6 +148,22 @@ def test_ticket_payload_logo_and_hero_present_when_set(
     base_url = settings.BASE_URL.rstrip("/")
     assert cls["logo"]["sourceUri"]["uri"] == f"{base_url}{organization.logo.url}"
     assert cls["heroImage"]["sourceUri"]["uri"] == f"{base_url}{ticket.event.cover_art.url}"
+
+
+def test_ticket_payload_images_omitted_for_non_https_base_url(
+    google_wallet_configured_settings: None, ticket: Ticket, png_bytes: bytes, settings: t.Any
+) -> None:
+    """Non-HTTPS image URLs (local dev) void the whole save link — Google fetches them — so they are omitted."""
+    settings.BASE_URL = "http://localhost:5173"
+    organization = ticket.event.organization
+    organization.logo.save("logo.png", ContentFile(png_bytes), save=True)
+    ticket.event.cover_art.save("cover.png", ContentFile(png_bytes), save=True)
+
+    payload = build_ticket_payload(ticket)
+    cls = payload["eventTicketClasses"][0]
+
+    assert "logo" not in cls
+    assert "heroImage" not in cls
 
 
 def test_ticket_payload_no_holder_name(google_wallet_configured_settings: None, ticket: Ticket) -> None:

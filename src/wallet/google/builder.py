@@ -41,8 +41,13 @@ def _absolute_media_url(file_field: FieldFile | None) -> str | None:
 
 
 def _image(url: str | None) -> dict[str, t.Any] | None:
-    """Wrap a URL in Google's Image shape."""
-    if not url:
+    """Wrap a URL in Google's Image shape.
+
+    Google's servers fetch the image when the pass is saved and reject
+    non-HTTPS URLs, which voids the entire save link (e.g. local dev's
+    http://localhost media URLs) — omit the image instead.
+    """
+    if not url or not url.startswith("https://"):
         return None
     return {"sourceUri": {"uri": url}}
 
