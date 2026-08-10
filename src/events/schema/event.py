@@ -6,7 +6,7 @@ from uuid import UUID
 from annotated_types import Len
 from django.utils.translation import gettext as _
 from ninja import ModelSchema, Schema
-from pydantic import AwareDatetime, BaseModel, Field, StringConstraints
+from pydantic import AwareDatetime, BaseModel, Field, StringConstraints, field_validator
 
 from accounts.models import RevelUser
 from common.schema import (
@@ -14,6 +14,7 @@ from common.schema import (
     OneToSixtyFourString,
     ProfilePictureSchemaMixin,
     StrippedString,
+    validate_country_code,
     viewer_from_context,
 )
 from events.models import Event, ResourceVisibility
@@ -72,6 +73,19 @@ class EventEditSchema(CityEditMixin):
     # toggle means "no change", exactly like omitting any other field here.
     visibility_settings: EventVisibilitySettingsSchema = Field(default_factory=EventVisibilitySettingsSchema)
     series_pass_links: list[SeriesPassLinkInputSchema] | None = None
+    is_virtual: bool = False
+    vat_country_code: str = Field(
+        "",
+        max_length=2,
+        description="Explicit VAT country override (ISO 3166-1 alpha-2). Empty = derived from "
+        "the venue/event city, falling back to the organization's VAT country.",
+    )
+
+    @field_validator("vat_country_code")
+    @classmethod
+    def validate_vat_country_code(cls, v: str) -> str:
+        """Validate ISO 3166-1 alpha-2 country code (stored uppercase) or allow empty."""
+        return (validate_country_code(v) or "").upper()
 
 
 class EventCreateSchema(EventEditSchema):
@@ -158,6 +172,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     apply_before: AwareDatetime | None = None
     can_attend_without_login: bool
     require_ticket_names: bool
+    is_virtual: bool = False
     # Recurring-series fields. Included in the base schema so list views can
     # show series context (e.g. occurrence position). ``is_template`` is
     # always ``False`` in user-facing responses because ``Event.objects.for_user()``
@@ -286,6 +301,26 @@ class EventDetailSchema(EventBaseSchema):
     check_in_starts_at: AwareDatetime | None = None
     check_in_ends_at: AwareDatetime | None = None
     schedule: list[EventScheduleSessionSchema] = []
+    vat_country_code: str = ""
+    effective_vat_country: str = ""
+    vat_country_mismatch: bool = Field(
+        default=False,
+        description="Organizer warning (#869): the event's VAT country differs from the organization's — "
+        "a local VAT registration or OSS may be needed; ask a tax adviser.",
+    )
+
+    @staticmethod
+    def resolve_vat_country_mismatch(obj: Event) -> bool:
+        """Flag physical events whose VAT country differs from the org's.
+
+        Virtual events are supplied from the org's establishment, so the flag
+        never applies to them; orgs without a configured VAT country are
+        skipped (nothing to mismatch against).
+        """
+        org_country = obj.organization.vat_country_code
+        if obj.is_virtual or not org_country:
+            return False
+        return obj.effective_vat_country != org_country.upper()
 
     @staticmethod
     def resolve_address(obj: Event, context: t.Any) -> str | None:

@@ -385,6 +385,37 @@ class Event(
         help_text="Optional venue for this event.",
     )
 
+    # Place of supply for VAT (#869). Physical admission is taxed where the
+    # event takes place (Art. 53/54(1) VAT Directive); virtual attendance
+    # follows the post-2025 rules (Directive (EU) 2022/542).
+    is_virtual = models.BooleanField(
+        default=False,
+        help_text="Virtual (streamed) attendance — changes the VAT place-of-supply rules.",
+    )
+    vat_country_code = models.CharField(
+        max_length=2,
+        blank=True,
+        default="",
+        help_text="Explicit VAT country override (ISO 3166-1 alpha-2). Blank = derived from the "
+        "venue's city, then the event's city, falling back to the organization's VAT country.",
+    )
+
+    @property
+    def effective_vat_country(self) -> str:
+        """The country whose VAT applies to admission to this event (#869).
+
+        Resolution order: explicit ``vat_country_code`` override → venue city →
+        event city → organization VAT country. Callers on hot paths should have
+        ``venue__city``, ``city`` and ``organization`` selected.
+        """
+        if self.vat_country_code:
+            return self.vat_country_code.upper()
+        if self.venue is not None and self.venue.city is not None:
+            return self.venue.city.iso2.upper()
+        if self.city is not None:
+            return self.city.iso2.upper()
+        return self.organization.vat_country_code.upper()
+
     # Recurring event fields
     # NOTE: when adding new fields to Event, check whether they should be
     # excluded from duplication in ``events.service.duplication._EXCLUDED_FROM_COPY``.

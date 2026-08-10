@@ -626,10 +626,13 @@ sequenceDiagram
 
 | Buyer Scenario | VAT Treatment |
 |---|---|
-| Domestic (same country as org) | Org's VAT rate |
-| EU cross-border B2B (valid VAT ID) | Reverse charge (0%) |
-| EU cross-border B2C (no VAT ID) | Org's VAT rate |
-| Non-EU | No VAT (export) |
+| Physical event — any buyer (domestic, EU cross-border B2B/B2C, non-EU) | Org's VAT rate — admission is taxed where the event takes place (#868) |
+| Virtual event — cross-border EU B2B (validated VAT ID) | Reverse charge (buyer pays net, #869) |
+| Virtual event — non-EU buyer | No EU VAT (buyer pays net, #869) |
+| Virtual event — domestic buyer | Org's VAT rate (correct: buyer residence = org country) |
+| Virtual event — cross-border EU B2C | Org's VAT rate as interim treatment — buyer-country rate legally applies via OSS; flagged with `virtual_b2c_disclaimer` (#869) |
+
+For physical events a validated VAT ID never discounts the price; it is only printed on B2B invoices.
 
 ### Invoice Lifecycle (HYBRID Mode)
 

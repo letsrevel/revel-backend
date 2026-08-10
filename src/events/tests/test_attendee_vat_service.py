@@ -1,12 +1,13 @@
-"""Tests for attendee VAT calculation logic.
+"""Tests for attendee VAT calculation logic (phase 1 of #868).
+
+Admission to events is taxed where the event takes place (Art. 53/54(1) VAT
+Directive), so it is a domestic supply of the organizer: every buyer pays the
+gross price at the seller's rate. Reverse charge and non-EU export zero-rating
+never apply to admission.
 
 Tests cover:
-- determine_attendee_vat() for all 5 EU VAT scenarios:
-  - Domestic B2C (same country, no VAT ID) -> full VAT
-  - Domestic B2B (same country, valid VAT ID) -> full VAT
-  - EU cross-border B2B (different EU country, valid VAT ID) -> reverse charge
-  - EU cross-border B2C (different EU country, no VAT ID) -> full VAT
-  - Non-EU buyer -> no VAT (export)
+- determine_attendee_vat() — the identical gross-at-seller-rate result for
+  every buyer profile (domestic/EU/non-EU, with or without a validated VAT ID)
 - get_effective_vat_rate() tier override vs org fallback
 """
 
@@ -22,7 +23,7 @@ from events.service.attendee_vat_service import (
 )
 
 # ---------------------------------------------------------------------------
-# determine_attendee_vat — 5 EU VAT scenarios
+# determine_attendee_vat — every buyer profile pays gross at the seller rate
 # ---------------------------------------------------------------------------
 
 
@@ -92,10 +93,15 @@ class TestDetermineAttendeeVatDomesticB2B:
 
 
 class TestDetermineAttendeeVatEUCrossBorderB2B:
-    """EU cross-border B2B: different EU country, valid VAT ID -> reverse charge."""
+    """EU cross-border B2B: different EU country, valid VAT ID -> still full VAT (#868).
 
-    def test_eu_cross_border_b2b_reverse_charge(self) -> None:
-        """Buyer in a different EU country with valid VAT ID gets reverse charge (0% VAT)."""
+    Admission is taxed where the event takes place, so a validated VAT ID never
+    converts the sale into a reverse-charge supply — the ID only feeds invoice
+    display.
+    """
+
+    def test_eu_cross_border_b2b_charges_full_vat(self) -> None:
+        """Buyer in a different EU country with valid VAT ID pays full gross at the seller rate."""
         result = determine_attendee_vat(
             gross_price=Decimal("122.00"),
             seller_vat_rate=Decimal("22.00"),
@@ -104,14 +110,14 @@ class TestDetermineAttendeeVatEUCrossBorderB2B:
             buyer_vat_id_valid=True,
         )
 
-        assert result.reverse_charge is True
-        assert result.vat_amount == Decimal("0.00")
-        assert result.vat_rate == Decimal("0.00")
-        # Buyer pays net amount only
-        assert result.effective_price == result.net_amount
+        assert result.reverse_charge is False
+        assert result.effective_price == Decimal("122.00")
+        assert result.vat_rate == Decimal("22.00")
+        assert result.vat_amount > Decimal("0.00")
+        assert result.net_amount + result.vat_amount == result.effective_price
 
-    def test_eu_cross_border_b2b_effective_price_is_net(self) -> None:
-        """Reverse charge means buyer pays the net amount, not the gross."""
+    def test_eu_cross_border_b2b_vat_breakdown_is_correct(self) -> None:
+        """The gross stays gross: net + VAT reconcile at the seller's rate."""
         result = determine_attendee_vat(
             gross_price=Decimal("100.00"),
             seller_vat_rate=Decimal("22.00"),
@@ -120,12 +126,12 @@ class TestDetermineAttendeeVatEUCrossBorderB2B:
             buyer_vat_id_valid=True,
         )
 
-        # Net = 100 / 1.22 = 81.97
-        assert result.effective_price == Decimal("81.97")
+        assert result.effective_price == Decimal("100.00")
         assert result.net_amount == Decimal("81.97")
+        assert result.vat_amount == Decimal("18.03")
 
-    def test_eu_cross_border_b2b_fr_to_de(self) -> None:
-        """Cross-border B2B from France to Germany triggers reverse charge."""
+    def test_eu_cross_border_b2b_fr_to_de_charges_sellers_rate(self) -> None:
+        """Cross-border B2B from France to Germany is taxed at the French seller's rate."""
         result = determine_attendee_vat(
             gross_price=Decimal("120.00"),
             seller_vat_rate=Decimal("20.00"),
@@ -134,9 +140,9 @@ class TestDetermineAttendeeVatEUCrossBorderB2B:
             buyer_vat_id_valid=True,
         )
 
-        assert result.reverse_charge is True
-        assert result.vat_amount == Decimal("0.00")
-        assert result.effective_price == Decimal("100.00")  # 120 / 1.20
+        assert result.reverse_charge is False
+        assert result.effective_price == Decimal("120.00")
+        assert result.vat_amount == Decimal("20.00")  # 120 incl. 20% -> net 100 + VAT 20
 
 
 class TestDetermineAttendeeVatEUCrossBorderB2C:
@@ -181,10 +187,10 @@ class TestDetermineAttendeeVatEUCrossBorderB2C:
 
 
 class TestDetermineAttendeeVatNonEU:
-    """Non-EU buyer: no VAT (export of services)."""
+    """Non-EU buyer: full VAT at the seller's rate — no export zero-rating (#868)."""
 
-    def test_non_eu_buyer_no_vat(self) -> None:
-        """Buyer outside the EU pays no VAT (export of services)."""
+    def test_non_eu_buyer_pays_full_vat(self) -> None:
+        """Buyer outside the EU pays the gross price at the seller's rate."""
         result = determine_attendee_vat(
             gross_price=Decimal("122.00"),
             seller_vat_rate=Decimal("22.00"),
@@ -193,14 +199,13 @@ class TestDetermineAttendeeVatNonEU:
             buyer_vat_id_valid=False,
         )
 
-        assert result.vat_amount == Decimal("0.00")
-        assert result.vat_rate == Decimal("0.00")
+        assert result.effective_price == Decimal("122.00")
+        assert result.vat_rate == Decimal("22.00")
+        assert result.vat_amount == Decimal("22.00")
         assert result.reverse_charge is False
-        # Buyer pays net amount only
-        assert result.effective_price == result.net_amount
 
-    def test_non_eu_buyer_with_vat_id_still_no_vat(self) -> None:
-        """Non-EU buyer with a (foreign) VAT ID also pays no VAT."""
+    def test_non_eu_buyer_with_vat_id_still_pays_full_vat(self) -> None:
+        """Non-EU buyer with a (foreign) VAT ID also pays full VAT."""
         result = determine_attendee_vat(
             gross_price=Decimal("100.00"),
             seller_vat_rate=Decimal("22.00"),
@@ -209,12 +214,13 @@ class TestDetermineAttendeeVatNonEU:
             buyer_vat_id_valid=True,
         )
 
-        assert result.vat_amount == Decimal("0.00")
-        assert result.effective_price == Decimal("81.97")
+        assert result.effective_price == Decimal("100.00")
+        assert result.net_amount == Decimal("81.97")
+        assert result.vat_amount == Decimal("18.03")
 
     @pytest.mark.parametrize("country", ["US", "GB", "CH", "NO", "JP", "AU", "CA"])
-    def test_non_eu_countries_are_vat_exempt(self, country: str) -> None:
-        """Various non-EU countries should all be VAT-exempt."""
+    def test_non_eu_countries_all_pay_full_vat(self, country: str) -> None:
+        """Various non-EU countries all pay gross at the seller's rate."""
         result = determine_attendee_vat(
             gross_price=Decimal("100.00"),
             seller_vat_rate=Decimal("22.00"),
@@ -223,15 +229,16 @@ class TestDetermineAttendeeVatNonEU:
             buyer_vat_id_valid=False,
         )
 
-        assert result.vat_amount == Decimal("0.00")
+        assert result.effective_price == Decimal("100.00")
+        assert result.vat_amount == Decimal("18.03")
         assert result.reverse_charge is False
 
 
 class TestDetermineAttendeeVatEdgeCases:
-    """Edge cases and normalization."""
+    """Edge cases and buyer-profile invariance."""
 
-    def test_country_codes_are_case_insensitive(self) -> None:
-        """Lowercase country codes should be treated identically to uppercase."""
+    def test_country_casing_never_affects_the_result(self) -> None:
+        """Countries no longer affect the price, so casing trivially cannot either."""
         result_lower = determine_attendee_vat(
             gross_price=Decimal("100.00"),
             seller_vat_rate=Decimal("22.00"),
@@ -249,20 +256,36 @@ class TestDetermineAttendeeVatEdgeCases:
 
         assert result_lower == result_upper
 
-    def test_greek_el_gr_normalization(self) -> None:
-        """Greek EL (VIES) and GR (ISO) should be treated as same country."""
+    @pytest.mark.parametrize(
+        ("buyer_country", "buyer_vat_id_valid"),
+        [
+            ("IT", False),  # domestic B2C
+            ("IT", True),  # domestic B2B
+            ("DE", True),  # EU cross-border B2B (formerly reverse charge)
+            ("DE", False),  # EU cross-border B2C
+            ("US", False),  # non-EU (formerly export zero-rated)
+            ("US", True),  # non-EU with foreign VAT ID
+        ],
+        ids=["domestic-b2c", "domestic-b2b", "eu-b2b", "eu-b2c", "non-eu", "non-eu-b2b"],
+    )
+    def test_buyer_profile_never_affects_the_result(self, buyer_country: str, buyer_vat_id_valid: bool) -> None:
+        """Same gross and rate yield the IDENTICAL result for every buyer profile (#868)."""
+        baseline = determine_attendee_vat(
+            gross_price=Decimal("100.00"),
+            seller_vat_rate=Decimal("22.00"),
+            seller_country="IT",
+            buyer_country="IT",
+            buyer_vat_id_valid=False,
+        )
         result = determine_attendee_vat(
             gross_price=Decimal("100.00"),
-            seller_vat_rate=Decimal("24.00"),
-            seller_country="EL",  # VIES prefix for Greece
-            buyer_country="GR",  # ISO code for Greece
-            buyer_vat_id_valid=True,
+            seller_vat_rate=Decimal("22.00"),
+            seller_country="IT",
+            buyer_country=buyer_country,
+            buyer_vat_id_valid=buyer_vat_id_valid,
         )
 
-        # Should be domestic (same country), not reverse charge
-        assert result.reverse_charge is False
-        assert result.vat_amount > Decimal("0.00")
-        assert result.effective_price == Decimal("100.00")
+        assert result == baseline
 
     def test_zero_vat_rate_yields_no_vat(self) -> None:
         """A 0% VAT rate should result in zero VAT regardless of scenario."""

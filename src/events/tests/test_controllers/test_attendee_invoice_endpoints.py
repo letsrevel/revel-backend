@@ -229,7 +229,7 @@ class TestVATPreviewEndpoint:
         mock_vies.assert_not_called()
 
     @patch("common.service.vies_service.validate_vat_id_cached")
-    def test_vat_preview_eu_cross_border_b2b_with_valid_vat(
+    def test_vat_preview_validated_vat_id_no_longer_discounts_the_price(
         self,
         mock_vies: MagicMock,
         organization_owner_client: Client,
@@ -237,7 +237,7 @@ class TestVATPreviewEndpoint:
         event: Event,
         event_ticket_tier: TicketTier,
     ) -> None:
-        """EU B2B cross-border with valid VAT ID should show reverse charge."""
+        """EU B2B cross-border: VIES still validates (for invoice display) but the price stays gross (#868)."""
         from common.service.vies_service import VIESValidationResult
 
         _make_org_invoicing_ready(organization)
@@ -264,8 +264,10 @@ class TestVATPreviewEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["vat_id_valid"] is True
-        assert data["reverse_charge"] is True
-        assert Decimal(data["total_vat"]) == Decimal("0.00")
+        assert data["reverse_charge"] is False
+        # Full gross at the org's 22% rate: 10.00 = 8.20 net + 1.80 VAT
+        assert Decimal(data["total_gross"]) == Decimal("10.00")
+        assert Decimal(data["total_vat"]) == Decimal("1.80")
 
     @patch("common.service.vies_service.validate_vat_id_cached")
     def test_vat_preview_vies_unavailable(

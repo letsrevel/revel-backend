@@ -360,7 +360,7 @@ These require `manage_organization` (not owner), and return the data described u
 
 ## Attendee Invoicing
 
-Revel generates invoices for attendees (buyers) **on behalf of organizers** (sellers) for online ticket purchases. The organizer is the legal seller; Revel acts as an intermediary. VAT treatment is determined at checkout time based on the buyer's billing info.
+Revel generates invoices for attendees (buyers) **on behalf of organizers** (sellers) for online ticket purchases. The organizer is the legal seller; Revel acts as an intermediary. The VAT breakdown is snapshotted at checkout time; for physical events the buyer's billing info feeds the invoice (name, address, verified VAT ID) but never changes the price (#868). Virtual events are the exception — see [Per-event place of supply](#per-event-place-of-supply-869) (#869): cross-border EU B2B and non-EU buyers pay net.
 
 ### Architecture Overview
 
@@ -415,26 +415,32 @@ Organizations opt in to attendee invoicing by setting `Organization.invoicing_mo
 
 Setting to `NONE` is always allowed.
 
-### Buyer-Specific VAT at Checkout
+### Attendee VAT at Checkout: Admission Is a Domestic Supply
 
-Unlike platform fee VAT (which is B2B between Revel and the org), attendee VAT follows EU rules for event ticket sales where the **buyer's billing info** affects the price:
+Admission to events is taxed **where the event takes place** — Art. 53 (B2B) and Art. 54(1) (B2C) of the VAT Directive, with "admission" (including season tickets → series passes) defined by Art. 32 IR 282/2011. Reverse charge (Art. 44/196) never applies to admission, and there is no zero-rated "export of services" for it (#868). Therefore **every buyer pays the full gross price at the seller's rate**, regardless of country or VAT ID status:
 
 | Scenario | VAT Treatment | Buyer Pays |
 |----------|--------------|------------|
-| Domestic B2C/B2B (same country) | Org's VAT rate | Full gross price |
-| EU cross-border B2B (valid VAT ID, different country) | **Reverse charge** (0%) | Net only |
-| EU cross-border B2C (no valid VAT ID) | Org's VAT rate | Full gross price |
-| Non-EU buyer | No VAT (export) | Net only |
+| Any buyer (domestic, EU cross-border B2B/B2C, non-EU) | Org's VAT rate (tier override wins) | Full gross price |
 
-This means the Stripe checkout amount varies per buyer. The platform fee is calculated on the **amount actually charged** (reduced for reverse charge/export).
+VIES validation still runs at preview/checkout, but only so a **verified buyer VAT ID can be printed on B2B invoices** — for physical events it never affects the price. The pre-#868 reverse-charge/export branches under-collected VAT; `python manage.py report_mischarged_attendee_vat` lists the historically affected invoices for review with a tax adviser. Historical invoices re-render exactly as issued (snapshot design).
 
-Because the charged amount can be **net**, online tickets never copy `Payment.amount` into `Ticket.price_paid` — it stays `NULL` **permanently**, and the 1:1 `Payment` row is authoritative (decision on issue #758). Stamping it would make `price_paid`'s meaning depend on the buyer's VAT status. Every money-bearing reader of an online ticket consults its `Payment` row (the revenue report aggregates payments directly; the Apple Wallet pass checks `ticket.payment` before any fallback) — see `should_stamp_price_paid` in `events/service/seating/pricing.py`.
+#### Per-event place of supply (#869)
+
+Place of supply is a per-event fact, not "the org's home country":
+
+- **`Event.is_virtual`** (default `False`) distinguishes physical admission from virtual attendance.
+- **Event VAT country** — explicit `Event.vat_country_code` override, else derived `venue.city.iso2` → `event.city.iso2` → `org.vat_country_code` (`Event.effective_vat_country`). For physical events it drives the **invoice's seller VAT country**; when it differs from the org's VAT country, `EventDetailSchema.vat_country_mismatch` is `True` so the FE can warn the organizer ("local VAT registration or OSS may be needed — ask your adviser"). Virtual events are supplied from the org's establishment (invoice country = org country).
+- **Virtual events** (Directive (EU) 2022/542): cross-border EU B2B with a validated VAT ID → **reverse charge** (Art. 44/196, buyer pays net); non-EU buyer → no EU VAT (pays net); EU B2C legally owes the buyer-country rate via OSS — charged at the organizer's rate as an **interim treatment**, flagged via `virtual_b2c_disclaimer` on the VAT preview and a tax notice on the invoice.
+- **Series passes** always charge org-rate VAT on gross (admission incl. season tickets, Art. 32 IR 282/2011) — unchanged by `is_virtual`.
+
+Online tickets never copy `Payment.amount` into `Ticket.price_paid` — it stays `NULL` **permanently**, and the 1:1 `Payment` row is authoritative (decision on issue #758; originally motivated by buyer-dependent net charging, kept for its own merits). Every money-bearing reader of an online ticket consults its `Payment` row (the revenue report aggregates payments directly; the Apple Wallet pass checks `ticket.payment` before any fallback) — see `should_stamp_price_paid` in `events/service/seating/pricing.py`.
 
 ### Service: `events.service.attendee_vat_service`
 
 | Function | Purpose |
 |----------|---------|
-| `determine_attendee_vat(gross_price, seller_vat_rate, seller_country, buyer_country, buyer_vat_id_valid)` | Pure calculation: returns effective price, net, VAT, rate, reverse_charge |
+| `determine_attendee_vat(gross_price, seller_vat_rate, seller_country, buyer_country, buyer_vat_id_valid, is_virtual)` | Pure calculation: returns effective price, net, VAT, rate, reverse_charge. Physical admission: always gross, never reverse-charged (#868). Virtual: reverse charge for cross-border EU B2B, no EU VAT for non-EU buyers (#869) |
 | `get_effective_vat_rate(tier, org)` | Tier override vs. org default |
 | `calculate_vat_preview(event, billing_info, items, discount_code, price_per_ticket)` | Full preview with VIES validation, discount/PWYC support |
 

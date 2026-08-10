@@ -86,3 +86,9 @@ class VATPreviewResponseSchema(Schema):
     total_vat: Decimal
     total_gross: Decimal
     currency: str
+    virtual_b2c_disclaimer: bool = Field(
+        default=False,
+        description="Virtual event, cross-border EU B2C buyer (#869): VAT is charged at the "
+        "organizer's rate as an interim treatment; the buyer's country's rate may legally "
+        "apply via OSS. The frontend should render a disclaimer.",
+    )

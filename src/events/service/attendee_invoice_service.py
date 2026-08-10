@@ -168,7 +168,13 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             stripe_session_id=stripe_session_id,
             status=Payment.PaymentStatus.SUCCEEDED,
         )
-        .select_related("ticket__event__organization", "ticket__tier", "ticket__discount_code")
+        .select_related(
+            "ticket__event__organization",
+            "ticket__event__venue__city",
+            "ticket__event__city",
+            "ticket__tier",
+            "ticket__discount_code",
+        )
         .order_by("created_at")
     )
 
@@ -237,10 +243,12 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             discount_code_text=", ".join(sorted(discount_codes)),
             discount_amount_total=discount_amount_total,
             line_items=line_items,
-            # Seller snapshot
+            # Seller snapshot. Physical admission is taxed where the event takes
+            # place, so the event's VAT country drives the invoice country; a
+            # virtual event is supplied from the org's establishment (#869).
             seller_name=org.billing_name or org.name,
             seller_vat_id=org.vat_id,
-            seller_vat_country=org.vat_country_code,
+            seller_vat_country=org.vat_country_code.upper() if event.is_virtual else event.effective_vat_country,
             seller_address=org.billing_address,
             seller_email=org.billing_email or org.contact_email or "",
             # Buyer snapshot
@@ -272,9 +280,40 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
 
 
 def _is_export(invoice: AttendeeInvoice) -> bool:
-    """Check if the invoice is for a non-EU export (no VAT, not reverse charge)."""
+    """Check if the invoice was issued as a non-EU export (historical rendering only).
+
+    Admission is never zero-rated as an export (#868), so no new invoice is
+    created with this treatment. The ``total_vat == 0`` gate keeps the export
+    wording on historical zero-rated documents (which must re-render as issued)
+    while new non-EU invoices — which now carry full VAT — render normally.
+    """
     buyer_country = invoice.buyer_vat_country.upper() if invoice.buyer_vat_country else ""
-    return bool(buyer_country and buyer_country not in EU_MEMBER_STATES and not invoice.reverse_charge)
+    return bool(
+        buyer_country
+        and buyer_country not in EU_MEMBER_STATES
+        and not invoice.reverse_charge
+        and invoice.total_vat == 0
+    )
+
+
+def _is_virtual_interim(invoice: AttendeeInvoice) -> bool:
+    """Whether the invoice carries the virtual-event EU B2C interim treatment (#869).
+
+    A cross-border EU B2C buyer of a virtual event legally owes their own
+    country's VAT via OSS; we charge the seller's rate as the interim treatment
+    and disclose that on the document.
+    """
+    event = invoice.event
+    buyer_country = invoice.buyer_vat_country.upper() if invoice.buyer_vat_country else ""
+    return bool(
+        event is not None
+        and event.is_virtual
+        and not invoice.reverse_charge
+        and invoice.total_vat > 0
+        and buyer_country
+        and buyer_country in EU_MEMBER_STATES
+        and buyer_country != invoice.seller_vat_country.upper()
+    )
 
 
 def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
@@ -284,6 +323,7 @@ def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
         "invoice": invoice,
         "is_draft": invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT,
         "is_export": _is_export(invoice),
+        "is_virtual_interim": _is_virtual_interim(invoice),
     }
     pdf_bytes = render_pdf(template, context)
     filename = f"{invoice.invoice_number}.pdf"
@@ -781,6 +821,7 @@ def _generate_credit_note_pdf(credit_note: AttendeeInvoiceCreditNote) -> None:
         "credit_note": credit_note,
         "invoice": invoice,
         "is_export": _is_export(invoice),
+        "is_virtual_interim": _is_virtual_interim(invoice),
     }
     pdf_bytes = render_pdf(template, context)
     filename = f"{credit_note.credit_note_number}.pdf"

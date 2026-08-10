@@ -137,6 +137,13 @@
       <div class="notes-text">
         Export of services — no VAT applicable.
       </div>
+      {% elif is_virtual_interim %}
+      <div class="footer-label">Tax Notice</div>
+      <div class="notes-text">
+        Virtual event — VAT charged at the seller's rate.<br>
+        Depending on your country of residence,<br>
+        VAT may instead be due there.
+      </div>
       {% endif %}
     </div>
   </div>
