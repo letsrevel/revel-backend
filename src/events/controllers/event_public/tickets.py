@@ -371,6 +371,7 @@ class EventPublicTicketsController(EventPublicBaseController):
             total_vat=result.total_vat,
             total_gross=result.total_gross,
             currency=result.currency,
+            virtual_b2c_disclaimer=result.virtual_b2c_disclaimer,
         )
 
     @route.post(

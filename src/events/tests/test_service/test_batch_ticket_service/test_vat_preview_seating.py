@@ -162,7 +162,7 @@ def _domestic() -> BuyerBillingInfoSchema:
 
 
 def _non_eu() -> BuyerBillingInfoSchema:
-    """A US buyer: export of services, zero-rated, so gross drops to the net amount."""
+    """A US buyer: admission is taxed at the venue (#868), so they pay full 22% VAT like everyone."""
     return BuyerBillingInfoSchema(billing_name="John Doe", vat_country_code="US")  # type: ignore[call-arg]
 
 
@@ -290,15 +290,13 @@ class TestMixedCategoryCart:
         assert sum(li.line_gross for li in result.line_items) == result.total_gross
         assert result.total_net + result.total_vat == result.total_gross
 
-    def test_non_eu_buyer_is_zero_rated_on_every_line(
+    def test_non_eu_buyer_pays_full_vat_on_every_line(
         self, seated_event: Event, online_tier: TicketTier, seats: list[VenueSeat]
     ) -> None:
-        """Export of services: each seat's own list price drops to its own net.
+        """Admission is taxed at the venue (#868): a non-EU buyer pays each seat's gross price.
 
-        ``unit_price_gross`` keeps its pre-existing meaning — the *list* price the seat
-        carries, before the buyer's VAT treatment — while ``line_*`` carry what is
-        actually charged. That split predates this change and is preserved verbatim;
-        what is new is that both are now per category instead of per tier.
+        Each line charges its own list price with the seller's 22% VAT inside it —
+        identical to the domestic quote, per category instead of per tier.
         """
         result = _preview(seated_event, online_tier, seats=seats, billing=_non_eu())
 
@@ -307,14 +305,11 @@ class TestMixedCategoryCart:
             ("Standard", 1, STANDARD),
             (None, 1, FLAT),
         ]
-        # 80/30/50 inclusive of 22% → 65.57 / 24.59 / 40.98
-        assert [li.line_gross for li in result.line_items] == [
-            Decimal("65.57"),
-            Decimal("24.59"),
-            Decimal("40.98"),
-        ]
-        assert result.total_vat == Decimal("0.00")
-        assert result.total_gross == Decimal("131.14")
+        assert [li.line_gross for li in result.line_items] == [PREMIUM, STANDARD, FLAT]
+        # 80/30/50 inclusive of 22% → VAT 14.43 / 5.41 / 9.02
+        assert result.total_vat == Decimal("28.86")
+        assert result.total_gross == GROSS_TOTAL
+        assert result.reverse_charge is False
 
     def test_partial_seat_context_is_refused(self, online_tier: TicketTier, seats: list[VenueSeat]) -> None:
         """Two seats for three tickets would silently price the third at the flat rate."""
@@ -522,16 +517,16 @@ class TestBestAvailableZonePreview:
         assert _quote(result.line_items) == [("Standard", 2, STANDARD)]
         assert result.total_gross == Decimal("60.00")
 
-    def test_non_eu_buyer_is_zero_rated_on_a_zone_line(
+    def test_non_eu_buyer_pays_full_vat_on_a_zone_line(
         self, seated_event: Event, ba_tier: TicketTier, categories: tuple[PriceCategory, PriceCategory]
     ) -> None:
-        """VAT is applied to the zone price, not the tier's flat one."""
+        """VAT is applied to the zone price, not the tier's flat one — full gross for non-EU too (#868)."""
         premium, _standard = categories
 
         result = _preview(seated_event, ba_tier, count=2, zone=premium, billing=_non_eu())
 
-        assert result.line_items[0].line_gross == Decimal("131.14")  # 2 × 65.57
-        assert result.total_vat == ZERO
+        assert result.line_items[0].line_gross == Decimal("160.00")  # 2 × 80.00
+        assert result.total_vat == Decimal("28.86")  # 2 × 14.43 inside the gross
         assert result.reverse_charge is False
 
     def test_discount_code_applies_to_the_zone_price(
@@ -749,7 +744,7 @@ class TestModeAgnosticResponseShape:
 class TestPreviewMatchesTheCharge:
     """The point of the task: the quote and the charge are the same number."""
 
-    @pytest.mark.parametrize("billing", [_domestic(), _non_eu()], ids=["domestic-b2c", "non-eu-export"])
+    @pytest.mark.parametrize("billing", [_domestic(), _non_eu()], ids=["domestic-b2c", "non-eu"])
     def test_preview_total_equals_the_sum_of_the_payment_rows(
         self,
         seated_event: Event,

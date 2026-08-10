@@ -26,6 +26,7 @@ from events.models import Event, Organization, Ticket, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
 from events.models.ticket import Payment
 from events.service.attendee_invoice_service import (
+    _is_export,
     delete_draft_invoice,
     generate_attendee_invoice,
     issue_draft_invoice,
@@ -465,7 +466,12 @@ class TestGenerateAttendeeInvoice:
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """Reverse charge flag set when billing snapshot records reverse_charge=True."""
+        """Reverse charge flag set when billing snapshot records reverse_charge=True.
+
+        Snapshot passthrough only: checkout no longer produces reverse_charge=True
+        snapshots (#868 — admission is taxed where the event takes place), but the
+        invoice service still honors historical snapshots on webhook replays.
+        """
         org = _make_org_invoicing_ready(organization)
         org.invoicing_mode = Organization.InvoicingMode.HYBRID
         org.save()
@@ -512,6 +518,47 @@ class TestGenerateAttendeeInvoice:
         assert invoice.total_gross == Decimal("200.00")
         assert invoice.total_net == Decimal("163.94")
         assert len(invoice.line_items) == 2
+
+
+# ---------------------------------------------------------------------------
+# _is_export — PDF export wording gate
+# ---------------------------------------------------------------------------
+
+
+class TestIsExport:
+    """Export wording is gated on total_vat == 0 (#868).
+
+    Admission is never zero-rated as an export anymore, so only historical
+    zero-rated documents (which must re-render as issued) get the export
+    wording; new non-EU invoices carry full VAT and render normally.
+    """
+
+    @staticmethod
+    def _invoice(**overrides: t.Any) -> AttendeeInvoice:
+        """An unsaved invoice shaped like a historical non-EU zero-rated document."""
+        fields: dict[str, t.Any] = {
+            "buyer_vat_country": "US",
+            "reverse_charge": False,
+            "total_vat": Decimal("0.00"),
+        }
+        fields.update(overrides)
+        return AttendeeInvoice(**fields)
+
+    def test_non_eu_invoice_with_vat_is_not_export(self) -> None:
+        """A new non-EU invoice carrying full VAT (#868) must not render export wording."""
+        assert _is_export(self._invoice(total_vat=Decimal("18.03"))) is False
+
+    def test_historical_zero_rated_non_eu_invoice_is_export(self) -> None:
+        """A historical document (total_vat=0, non-EU buyer, not RC) still renders as export."""
+        assert _is_export(self._invoice()) is True
+
+    def test_reverse_charge_invoice_is_not_export(self) -> None:
+        """Reverse-charge documents get RC wording, never export wording."""
+        assert _is_export(self._invoice(reverse_charge=True)) is False
+
+    def test_eu_buyer_zero_vat_invoice_is_not_export(self) -> None:
+        """A zero-VAT invoice for an EU buyer (e.g. 0% org rate) is not an export."""
+        assert _is_export(self._invoice(buyer_vat_country="DE")) is False
 
 
 # ---------------------------------------------------------------------------

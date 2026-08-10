@@ -180,6 +180,8 @@ def _attendee_vat_from_context(
     tier: TicketTier,
     org: Organization,
     base_price: Decimal,
+    *,
+    is_virtual: bool = False,
 ) -> "tuple[AttendeeVATResult | None, bool]":
     """Price arithmetic for a pre-resolved buyer VAT context — no network I/O.
 
@@ -198,6 +200,7 @@ def _attendee_vat_from_context(
         seller_country=org.vat_country_code,
         buyer_country=context.buyer_country,
         buyer_vat_id_valid=context.buyer_vat_validated,
+        is_virtual=is_virtual,
     )
     return vat_result, context.buyer_vat_validated
 
@@ -228,6 +231,7 @@ def _resolve_ticket_amounts(
     tier: TicketTier,
     org: Organization,
     buyer_vat_context: "BuyerVATContext | None",
+    is_virtual: bool = False,
 ) -> tuple[list[TicketAmounts], bool]:
     """Split every ticket's price into its VAT components — memoised by price.
 
@@ -244,6 +248,8 @@ def _resolve_ticket_amounts(
         tier: The locked tier being purchased.
         org: The selling organization.
         buyer_vat_context: The pre-resolved buyer VAT context, if any.
+        is_virtual: Whether the event is attended virtually (#869) — enables
+            the reverse-charge / non-EU branches of ``determine_attendee_vat``.
 
     Returns:
         The per-ticket amounts in cart order, and whether the buyer's VAT ID
@@ -259,7 +265,9 @@ def _resolve_ticket_amounts(
         if buyer_vat_context is not None:
             # Arithmetic only — recomputed from the locked tier's fresh price, so a
             # repricing during the pre-lock VIES round-trip can't go stale.
-            attendee_vat_result, buyer_vat_validated = _attendee_vat_from_context(buyer_vat_context, tier, org, price)
+            attendee_vat_result, buyer_vat_validated = _attendee_vat_from_context(
+                buyer_vat_context, tier, org, price, is_virtual=is_virtual
+            )
         if attendee_vat_result is not None:
             cache[price] = TicketAmounts(
                 effective_price=attendee_vat_result.effective_price,
@@ -556,7 +564,7 @@ def reserve_batch_payments(
     if buyer_vat_context is None:
         buyer_vat_context = resolve_attendee_vat_for_reserve(billing_info=billing_info)
     amounts, buyer_vat_validated = _resolve_ticket_amounts(
-        prices, tier=tier, org=org, buyer_vat_context=buyer_vat_context
+        prices, tier=tier, org=org, buyer_vat_context=buyer_vat_context, is_virtual=event.is_virtual
     )
 
     # Round per ticket, then sum (seating.pricing pins that ordering); the fee then
@@ -788,10 +796,9 @@ def reserve_series_pass_payments(
     fee_gross_shares = distribute_amount_across_items(total_fee_vat.fee_gross, len(tickets))
     fee_vat_shares = distribute_amount_across_items(total_fee_vat.fee_vat, len(tickets))
 
-    # billing_info is out of scope for pass v1: no attendee VAT re-resolution, just a
-    # snapshot for attendee invoicing.
-    # ponytail: attendee reverse-charge VAT for passes deferred; upgrade = mirror
-    # the batch flow (resolve_attendee_vat_for_reserve + _attendee_vat_from_context) per-tier
+    # billing_info is just a snapshot for attendee invoicing. Passes always charge
+    # org-rate VAT on the gross price — correct under Art. 53 (season tickets are
+    # admission, IR 282/2011 Art. 32), so there is nothing to re-resolve per buyer.
     billing_snapshot: BuyerBillingSnapshot | None = None
     if billing_info:
         billing_snapshot = _build_billing_snapshot(billing_info, False, False)

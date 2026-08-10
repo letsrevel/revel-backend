@@ -2,14 +2,21 @@
 
 Determines VAT treatment based on buyer billing info (country, VAT ID)
 and the seller (organization) VAT configuration. The tier price is always
-VAT-inclusive; for reverse charge / non-EU buyers, the price is reduced
-to the net amount.
+VAT-inclusive.
 
-EU VAT rules for event tickets:
-- Domestic (same country): seller's VAT rate applies regardless of B2B/B2C
-- EU cross-border B2B (valid VAT ID, different country): reverse charge (0%)
-- EU cross-border B2C (no valid VAT ID): seller's VAT rate applies
-- Non-EU buyer: no VAT (export of services)
+Admission to *physical* events (tickets, series passes — Art. 32 IR 282/2011)
+is taxed where the event takes place (Arts. 53/54(1) of Directive 2006/112/EC),
+so it is a domestic supply of the organizer: every buyer pays the gross price
+at the seller's rate, regardless of B2B/B2C status or country. Reverse charge
+(Art. 44/196) never applies to physical admission, and there is no zero-rated
+"export of services" for it either (#868). VIES validation is still performed
+so a verified buyer VAT ID can be printed on B2B invoices.
+
+*Virtual* attendance (``Event.is_virtual``, #869) follows the post-2025 rules
+(Directive (EU) 2022/542): cross-border EU B2B with a validated VAT ID is
+reverse-charged under Art. 44/196; a non-EU buyer owes no EU VAT; EU B2C
+legally owes the buyer-country rate via OSS — charged at the organizer's rate
+as an interim treatment, with an explicit disclaimer in preview and invoice.
 """
 
 import typing as t
@@ -74,39 +81,51 @@ def determine_attendee_vat(
     seller_country: str,
     buyer_country: str,
     buyer_vat_id_valid: bool,
+    is_virtual: bool = False,
 ) -> AttendeeVATResult:
     """Determine VAT treatment for an attendee ticket purchase.
+
+    Physical admission is taxed where the event takes place (Art. 53/54(1)
+    VAT Directive), so every buyer pays the gross price at the seller's rate —
+    reverse charge and export zero-rating never apply, regardless of the
+    buyer's country or VAT ID status (#868).
+
+    Virtual attendance (#869) applies the general place-of-supply rules:
+    cross-border EU B2B with a validated VAT ID is reverse-charged (Art.
+    44/196, buyer pays net); a non-EU buyer owes no EU VAT (pays net); EU B2C
+    is charged the seller's rate as the interim OSS treatment.
 
     Args:
         gross_price: The VAT-inclusive tier price.
         seller_vat_rate: The seller's (org) applicable VAT rate.
         seller_country: The seller's VAT country code.
         buyer_country: The buyer's billing country code.
-        buyer_vat_id_valid: Whether the buyer has a validated VAT ID.
+        buyer_vat_id_valid: Whether the buyer has a validated VAT ID
+            (affects the price only for virtual events; always printed on
+            B2B invoices).
+        is_virtual: Whether the event is attended virtually.
 
     Returns:
         AttendeeVATResult with effective price and VAT breakdown.
     """
+    breakdown = calculate_vat_inclusive(gross_price, seller_vat_rate)
+    full_vat = AttendeeVATResult(
+        effective_price=gross_price,
+        net_amount=breakdown.net_amount,
+        vat_amount=breakdown.vat_amount,
+        vat_rate=breakdown.vat_rate,
+        reverse_charge=False,
+    )
+    if not is_virtual:
+        return full_vat
+
     seller_country = _normalize_country(seller_country)
     buyer_country = _normalize_country(buyer_country)
-    buyer_in_eu = buyer_country in EU_MEMBER_STATES
-    same_country = buyer_country == seller_country
+    if buyer_country == seller_country:
+        return full_vat
 
-    # Extract net from the VAT-inclusive price
-    breakdown = calculate_vat_inclusive(gross_price, seller_vat_rate)
-
-    # Domestic (same country): always charge VAT
-    if same_country:
-        return AttendeeVATResult(
-            effective_price=gross_price,
-            net_amount=breakdown.net_amount,
-            vat_amount=breakdown.vat_amount,
-            vat_rate=breakdown.vat_rate,
-            reverse_charge=False,
-        )
-
-    # EU cross-border B2B with valid VAT ID: reverse charge
-    if buyer_in_eu and buyer_vat_id_valid:
+    # Virtual, cross-border EU B2B with a validated VAT ID: reverse charge
+    if buyer_country in EU_MEMBER_STATES and buyer_vat_id_valid:
         return AttendeeVATResult(
             effective_price=breakdown.net_amount,
             net_amount=breakdown.net_amount,
@@ -115,17 +134,11 @@ def determine_attendee_vat(
             reverse_charge=True,
         )
 
-    # EU cross-border B2C (no valid VAT ID): seller's VAT rate
-    if buyer_in_eu:
-        return AttendeeVATResult(
-            effective_price=gross_price,
-            net_amount=breakdown.net_amount,
-            vat_amount=breakdown.vat_amount,
-            vat_rate=breakdown.vat_rate,
-            reverse_charge=False,
-        )
+    # Virtual, cross-border EU B2C: interim treatment — seller's rate (OSS deferred)
+    if buyer_country in EU_MEMBER_STATES:
+        return full_vat
 
-    # Non-EU buyer: no VAT (export)
+    # Virtual, non-EU buyer: outside EU VAT scope
     return AttendeeVATResult(
         effective_price=breakdown.net_amount,
         net_amount=breakdown.net_amount,
@@ -179,6 +192,7 @@ class VATPreviewResult:
     total_vat: Decimal
     total_gross: Decimal
     currency: str
+    virtual_b2c_disclaimer: bool = False
 
 
 def validate_and_resolve_buyer_country(
@@ -512,6 +526,7 @@ def calculate_vat_preview(
                 seller_country=org.vat_country_code,
                 buyer_country=buyer_country,
                 buyer_vat_id_valid=buyer_vat_valid,
+                is_virtual=event.is_virtual,
             )
 
             line_net = (vat_result.net_amount * count).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
@@ -539,6 +554,15 @@ def calculate_vat_preview(
             if vat_result.reverse_charge:
                 reverse_charge = True
 
+    # Virtual EU B2C legally owes the buyer-country rate via OSS; we charge the
+    # seller's rate as the interim treatment and tell the buyer so (#869).
+    virtual_b2c_disclaimer = (
+        event.is_virtual
+        and not buyer_vat_valid
+        and _normalize_country(buyer_country) in EU_MEMBER_STATES
+        and _normalize_country(buyer_country) != _normalize_country(org.vat_country_code)
+    )
+
     return VATPreviewResult(
         vat_id_valid=vat_id_valid,
         vat_id_validation_error=vat_id_validation_error,
@@ -548,4 +572,5 @@ def calculate_vat_preview(
         total_vat=total_vat.quantize(TWO_PLACES, rounding=ROUND_HALF_UP),
         total_gross=total_gross.quantize(TWO_PLACES, rounding=ROUND_HALF_UP),
         currency=currency,
+        virtual_b2c_disclaimer=virtual_b2c_disclaimer,
     )

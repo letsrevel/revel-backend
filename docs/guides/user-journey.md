@@ -626,10 +626,9 @@ sequenceDiagram
 
 | Buyer Scenario | VAT Treatment |
 |---|---|
-| Domestic (same country as org) | Org's VAT rate |
-| EU cross-border B2B (valid VAT ID) | Reverse charge (0%) |
-| EU cross-border B2C (no VAT ID) | Org's VAT rate |
-| Non-EU | No VAT (export) |
+| Any buyer (domestic, EU cross-border B2B/B2C, non-EU) | Org's VAT rate — admission is taxed where the event takes place (#868) |
+
+A validated VAT ID never discounts the price; it is only printed on B2B invoices.
 
 ### Invoice Lifecycle (HYBRID Mode)
 

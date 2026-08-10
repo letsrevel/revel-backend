@@ -94,7 +94,7 @@ quantized to cents, where `passed_events` counts tier-linked events with `start 
 - **One Stripe session**, a single line item at the locked-in quote price, `held_pass_id` in metadata, connected account + `application_fee_amount` as with regular checkouts.
 - **N `Payment` rows** — one per materialized ticket, all sharing the `stripe_session_id`. The total, the platform-fee gross, and the platform-fee VAT are each split **penny-exact** with `distribute_amount_across_items` (`vat_service`; remainder cents go to the first items, sums always reconcile).
 - **Per-tier VAT**: each Payment's `net_amount` / `vat_amount` / `vat_rate` come from *its own ticket's tier* (`get_effective_vat_rate(tier.vat_rate, org.vat_rate)`), so a pass spanning tiers with different VAT rates stays tax-correct. See [Billing & VAT](billing-and-vat.md).
-- Buyer billing info is snapshotted only in v1 — no reverse-charge re-resolution for pass checkouts yet.
+- Buyer billing info is snapshotted for invoicing only. Passes always charge org-rate VAT on the gross price — the correct treatment under Art. 53 (season tickets are admission, Art. 32 IR 282/2011), so there is no per-buyer VAT re-resolution to add (#868).
 
 Activation happens in the `checkout.session.completed` webhook: an idempotent conditional `.update()` flips PENDING→ACTIVE, then `backfill_missing_tickets` grants tickets for any events linked while the pass sat PENDING, then the single pass-level purchase notification fires on commit.
 
