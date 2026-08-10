@@ -248,7 +248,7 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             # virtual event is supplied from the org's establishment (#869).
             seller_name=org.billing_name or org.name,
             seller_vat_id=org.vat_id,
-            seller_vat_country=org.vat_country_code if event.is_virtual else event.effective_vat_country,
+            seller_vat_country=org.vat_country_code.upper() if event.is_virtual else event.effective_vat_country,
             seller_address=org.billing_address,
             seller_email=org.billing_email or org.contact_email or "",
             # Buyer snapshot

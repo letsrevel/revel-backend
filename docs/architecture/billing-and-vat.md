@@ -360,7 +360,7 @@ These require `manage_organization` (not owner), and return the data described u
 
 ## Attendee Invoicing
 
-Revel generates invoices for attendees (buyers) **on behalf of organizers** (sellers) for online ticket purchases. The organizer is the legal seller; Revel acts as an intermediary. The VAT breakdown is snapshotted at checkout time; the buyer's billing info feeds the invoice (name, address, verified VAT ID) but never changes the price (#868).
+Revel generates invoices for attendees (buyers) **on behalf of organizers** (sellers) for online ticket purchases. The organizer is the legal seller; Revel acts as an intermediary. The VAT breakdown is snapshotted at checkout time; for physical events the buyer's billing info feeds the invoice (name, address, verified VAT ID) but never changes the price (#868). Virtual events are the exception — see [Per-event place of supply](#per-event-place-of-supply-869) (#869): cross-border EU B2B and non-EU buyers pay net.
 
 ### Architecture Overview
 

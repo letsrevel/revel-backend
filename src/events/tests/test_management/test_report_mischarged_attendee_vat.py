@@ -155,6 +155,56 @@ class TestReportMischargedAttendeeVat:
         # 81.97 * 22 / 100 = 18.0334 → 18.03
         assert Decimal(rows[0]["estimated_uncollected_vat"]) == Decimal("18.03")
 
+    def test_virtual_event_invoices_are_not_listed(
+        self, org: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """Legitimate #869 virtual-event documents are not mischarges.
+
+        A virtual event's cross-border EU B2B invoice is genuinely
+        reverse-charged and its non-EU invoice genuinely carries zero VAT —
+        neither may pollute the historical report.
+        """
+        event.is_virtual = True
+        event.save(update_fields=["is_virtual"])
+        _make_invoice(
+            org,
+            event,
+            member_user,
+            buyer_country="DE",
+            total_gross=Decimal("81.97"),
+            total_vat=Decimal("0.00"),
+            reverse_charge=True,
+        )
+        _make_invoice(
+            org,
+            event,
+            member_user,
+            buyer_country="US",
+            total_gross=Decimal("81.97"),
+            total_vat=Decimal("0.00"),
+        )
+
+        assert _run_command() == []
+
+    def test_invoice_with_deleted_event_is_still_listed(
+        self, org: Organization, member_user: RevelUser, event: Event
+    ) -> None:
+        """A historical invoice whose event was deleted (SET_NULL) stays in the report."""
+        invoice = _make_invoice(
+            org,
+            event,
+            member_user,
+            buyer_country="US",
+            total_gross=Decimal("100.00"),
+            total_vat=Decimal("0.00"),
+        )
+        # SET_NULL writes at the SQL level, bypassing full_clean — mirror that.
+        AttendeeInvoice.objects.filter(pk=invoice.pk).update(event=None)
+
+        rows = _run_command()
+
+        assert [row["invoice_number"] for row in rows] == [invoice.invoice_number]
+
     def test_both_treatments_are_listed_together(self, org: Organization, event: Event, member_user: RevelUser) -> None:
         """One run reports both sets, oldest first."""
         rc = _make_invoice(

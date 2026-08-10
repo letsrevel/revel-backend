@@ -182,6 +182,34 @@ class TestSellerVatCountrySnapshot:
         assert invoice.seller_vat_country == "IT"
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_virtual_event_uppercases_org_country(
+        self,
+        mock_pdf: MagicMock,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A lowercase-stored org country still snapshots uppercase, matching the physical branch."""
+        _make_org_invoicing_ready(organization)
+        organization.vat_country_code = "it"
+        organization.save(update_fields=["vat_country_code"])
+        event.is_virtual = True
+        event.save(update_fields=["is_virtual"])
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_pos_virtual_case",
+            buyer_billing_snapshot=_billing_snapshot(),
+        )
+
+        invoice = generate_attendee_invoice("cs_pos_virtual_case")
+
+        assert invoice is not None
+        assert invoice.seller_vat_country == "IT"
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_physical_event_without_location_falls_back_to_org_country(
         self,
         mock_pdf: MagicMock,

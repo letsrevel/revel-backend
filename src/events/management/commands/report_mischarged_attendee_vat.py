@@ -13,6 +13,10 @@ Two sets are reported:
   non-reverse-charge invoice (mirrors the historical ``_is_export`` render
   heuristic), which is why the treatment is spelled out as its own column.
 
+Invoices for virtual events are excluded: under the #869 rules those
+legitimately carry reverse charge (cross-border EU B2B) or zero VAT (non-EU),
+so they are not mischarges.
+
 The snapshot ``vat_rate`` on these invoices is 0.00 (that was the bug), so the
 uncollected VAT is *estimated* at the organization's currently configured VAT
 rate over the invoiced amount (which the buyer paid as net).
@@ -34,8 +38,14 @@ class Command(BaseCommand):
 
     def handle(self, *args: t.Any, **options: t.Any) -> None:
         """Write the affected invoices as CSV to stdout."""
+        # Virtual events (#869) legitimately produce reverse-charge (EU B2B) and
+        # zero-VAT (non-EU) invoices, so they are excluded — only physical-event
+        # documents can carry the pre-#868 mischarge. Excluding via the event FK
+        # keeps rows whose event was since deleted (SET_NULL): those predate
+        # is_virtual and are exactly the historical set this report is for.
         invoices = (
             AttendeeInvoice.objects.filter(Q(reverse_charge=True) | Q(total_vat=0))
+            .exclude(event__is_virtual=True)
             .select_related("organization")
             .order_by("created_at")
         )
