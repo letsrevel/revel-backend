@@ -12,6 +12,7 @@ import io
 import typing as t
 from collections.abc import Generator
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
@@ -361,3 +362,47 @@ def nonmember_client(nonmember_user: t.Any) -> t.Any:
 
     refresh = RefreshToken.for_user(nonmember_user)
     return Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+
+
+# --- Google Wallet Fixtures ---
+
+
+@pytest.fixture
+def google_sa_key_file(tmp_path: Path, mock_private_key: rsa.RSAPrivateKey) -> Path:
+    """Write a fake Google service-account JSON with a real RSA key."""
+    import json
+
+    from cryptography.hazmat.primitives import serialization
+
+    pem = mock_private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    sa = {
+        "type": "service_account",
+        "project_id": "test-project",
+        "private_key_id": "test-key-id",
+        "private_key": pem,
+        "client_email": "wallet@test-project.iam.gserviceaccount.com",
+        "client_id": "1234567890",
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+    path = tmp_path / "google_wallet_sa.json"
+    path.write_text(json.dumps(sa))
+    return path
+
+
+@pytest.fixture
+def google_wallet_configured_settings(settings: t.Any, google_sa_key_file: Path) -> None:
+    """Configure Google Wallet settings pointing at the fixture SA key."""
+    settings.GOOGLE_WALLET_ISSUER_ID = "3388000000012345678"
+    settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = str(google_sa_key_file)
+    settings.GOOGLE_WALLET_CLASS_PREFIX = "test"
+
+
+@pytest.fixture
+def google_wallet_not_configured(settings: t.Any) -> None:
+    """Clear Google Wallet settings for tests."""
+    settings.GOOGLE_WALLET_ISSUER_ID = ""
+    settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = ""

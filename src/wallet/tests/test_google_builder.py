@@ -28,15 +28,7 @@ from wallet.google.builder import build_ticket_payload
 pytestmark = pytest.mark.django_db
 
 
-@pytest.fixture
-def google_wallet_settings(settings: t.Any) -> None:
-    """Configure Google Wallet settings for tests."""
-    settings.GOOGLE_WALLET_ISSUER_ID = "3388000000012345678"
-    settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = "/path/sa.json"
-    settings.GOOGLE_WALLET_CLASS_PREFIX = "test"
-
-
-def test_ticket_payload_shape(google_wallet_settings: None, ticket: Ticket) -> None:
+def test_ticket_payload_shape(google_wallet_configured_settings: None, ticket: Ticket) -> None:
     payload = build_ticket_payload(ticket)
 
     assert len(payload["eventTicketClasses"]) == 1
@@ -66,7 +58,7 @@ def test_ticket_payload_shape(google_wallet_settings: None, ticket: Ticket) -> N
     assert "heroImage" not in cls
 
 
-def test_ticket_payload_price_module(google_wallet_settings: None, ticket: Ticket) -> None:
+def test_ticket_payload_price_module(google_wallet_configured_settings: None, ticket: Ticket) -> None:
     payload = build_ticket_payload(ticket)
     obj = payload["eventTicketObjects"][0]
     price_modules = [m for m in obj["textModulesData"] if m["id"] == "price"]
@@ -74,7 +66,7 @@ def test_ticket_payload_price_module(google_wallet_settings: None, ticket: Ticke
     assert price_modules[0]["body"] == "EUR 10.00"  # tier fixture price
 
 
-def test_ticket_payload_address_only_event(google_wallet_settings: None, ticket: Ticket) -> None:
+def test_ticket_payload_address_only_event(google_wallet_configured_settings: None, ticket: Ticket) -> None:
     """Event fixture has address='123 Test Street' and no venue: both venue
     sub-fields fall back to the address."""
     payload = build_ticket_payload(ticket)
@@ -129,7 +121,7 @@ def seated_ticket(event: Event, member_user: RevelUser, seated_tier: TicketTier,
     )
 
 
-def test_ticket_payload_venue_sector_seat(google_wallet_settings: None, seated_ticket: Ticket) -> None:
+def test_ticket_payload_venue_sector_seat(google_wallet_configured_settings: None, seated_ticket: Ticket) -> None:
     """Tier venue/sector and the ticket's seat surface on the class and object."""
     payload = build_ticket_payload(seated_ticket)
     cls = payload["eventTicketClasses"][0]
@@ -142,7 +134,7 @@ def test_ticket_payload_venue_sector_seat(google_wallet_settings: None, seated_t
 
 
 def test_ticket_payload_logo_and_hero_present_when_set(
-    google_wallet_settings: None, ticket: Ticket, png_bytes: bytes, settings: t.Any
+    google_wallet_configured_settings: None, ticket: Ticket, png_bytes: bytes, settings: t.Any
 ) -> None:
     """Org logo and event cover_art surface as BASE_URL-prefixed logo/heroImage."""
     organization = ticket.event.organization
@@ -157,13 +149,13 @@ def test_ticket_payload_logo_and_hero_present_when_set(
     assert cls["heroImage"]["sourceUri"]["uri"] == f"{base_url}{ticket.event.cover_art.url}"
 
 
-def test_ticket_payload_no_holder_name(google_wallet_settings: None, ticket: Ticket) -> None:
+def test_ticket_payload_no_holder_name(google_wallet_configured_settings: None, ticket: Ticket) -> None:
     ticket.guest_name = ""
     payload = build_ticket_payload(ticket)
     assert "ticketHolderName" not in payload["eventTicketObjects"][0]
 
 
-def test_ticket_payload_valid_time_interval(google_wallet_settings: None, ticket: Ticket) -> None:
+def test_ticket_payload_valid_time_interval(google_wallet_configured_settings: None, ticket: Ticket) -> None:
     from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD
 
     payload = build_ticket_payload(ticket)
@@ -258,7 +250,7 @@ def held_series_pass(
 
 
 def test_series_pass_payload(
-    google_wallet_settings: None, held_series_pass: t.Any, google_covered_events: list[Event]
+    google_wallet_configured_settings: None, held_series_pass: t.Any, google_covered_events: list[Event]
 ) -> None:
     from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD
     from wallet.google.builder import build_series_pass_payload
@@ -285,7 +277,7 @@ def test_series_pass_payload(
 
 
 def test_series_pass_falls_back_to_latest_past_event(
-    google_wallet_settings: None,
+    google_wallet_configured_settings: None,
     organization: Organization,
     google_event_series: EventSeries,
     google_series_pass: SeriesPass,
@@ -319,7 +311,7 @@ def test_series_pass_falls_back_to_latest_past_event(
 
 
 def test_series_pass_no_covered_events_falls_back_to_created_at(
-    google_wallet_settings: None,
+    google_wallet_configured_settings: None,
     google_series_pass: SeriesPass,
     member_user: RevelUser,
 ) -> None:
