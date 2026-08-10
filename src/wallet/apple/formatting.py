@@ -38,15 +38,36 @@ def _hsl_to_rgb_string(hue: float, saturation: float, lightness: float) -> str:
     return f"rgb({int(rgb[0] * 255)}, {int(rgb[1] * 255)}, {int(rgb[2] * 255)})"
 
 
+# HSL tokens shared by both wallet rails (see the theme comment below).
+_CRIMSON_DEEP_HSL = (3, 0.79, 0.50)
+_LAVENDER_PAPER_HSL = (268, 0.60, 0.96)
+
+
+def _hsl_to_hex_string(hue: float, saturation: float, lightness: float) -> str:
+    """Convert HSL values to an uppercase #RRGGBB hex string.
+
+    Args:
+        hue: Hue in degrees (0-360).
+        saturation: Saturation (0-1).
+        lightness: Lightness (0-1).
+
+    Returns:
+        Uppercase hex color string in format "#RRGGBB".
+    """
+    # colorsys uses HLS order (hue, lightness, saturation)
+    rgb = colorsys.hls_to_rgb(hue / 360, lightness, saturation)
+    return "#{:02X}{:02X}{:02X}".format(int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255))
+
+
 # Revel 2026 "crimson pop" theme (HSL tokens from frontend app.css):
 # crimson-deep panel (--poster-crimson-deep: 3 79% 50%, the AA-vs-white
 # variant of Light Crimson #E6332A), white text, lavender-paper labels
 # (--background light: 268 60% 96%, rendering as #F4EEFA — one RGB unit
 # off the ticket PDF's paper #F3EFFA; the HSL token is the contract).
 REVEL_THEME = PassColors(
-    background=_hsl_to_rgb_string(3, 0.79, 0.50),
+    background=_hsl_to_rgb_string(*_CRIMSON_DEEP_HSL),
     foreground="rgb(255, 255, 255)",
-    label=_hsl_to_rgb_string(268, 0.60, 0.96),
+    label=_hsl_to_rgb_string(*_LAVENDER_PAPER_HSL),
 )
 
 
@@ -57,6 +78,16 @@ def get_theme_colors() -> PassColors:
         PassColors with the Revel dark theme.
     """
     return REVEL_THEME
+
+
+def get_theme_hex_background() -> str:
+    """Get the crimson-deep background as hex, for the Google Wallet rail.
+
+    Returns:
+        Uppercase #RRGGBB string derived from the same HSL token as
+        ``REVEL_THEME.background``.
+    """
+    return _hsl_to_hex_string(*_CRIMSON_DEEP_HSL)
 
 
 def format_iso_date(dt: datetime, tz: ZoneInfo | None = None) -> str:
