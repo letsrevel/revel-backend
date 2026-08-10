@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-11
+
+### Added
+- **Google Wallet passes**: Android users get a first-class "add to wallet" experience alongside the existing Apple Wallet pass (PDF remains the universal fallback)
+  - `GET /tickets/{ticket_id}/wallet/google` and `GET /series-passes/me/{held_pass_id}/wallet/google` redirect to a signed Google Wallet save link; `google_pass_available` on ticket schemas mirrors the Apple flag
+  - Ticket and payment-confirmation emails now show the official Apple/Google "Add to Wallet" badges (localized in all 5 languages), backed by a signed, auth-free Apple pkpass link that works straight from the email client
+- **Organizer refunds**: organizers with `manage_tickets` can refund online (Stripe) tickets from the API — full or partial — instead of being redirected to the Stripe Dashboard
+  - `POST .../tickets/{id}/refund` (money only), ticket cancel extended to online tiers with an optional `refund_amount`, plus refund-context and event-wide cancellation-refund-preview endpoints
+  - Cancelling an event can opt into `refund_tickets` — a background sweep refunds every online ticket and sends staff a summary when it completes; un-cancelling is blocked once refunds start
+  - Partial refunds produce amount-aware credit notes with pro-rata VAT, and revenue reports book each refund in the period it succeeded
+- **Per-event place of supply**: `Event.is_virtual` and `Event.vat_country_code` override, with the effective VAT country resolved venue city → event city → organization; `vat_country_mismatch` on the event detail warns organizers when local registration or OSS may be needed. Virtual events get their own VAT treatment: EU B2B with validated VAT ID → reverse charge, non-EU → no EU VAT, EU B2C → organizer's rate as interim treatment (flagged on VAT previews and invoices)
+- Platform-fee VAT context (`platform_fee_vat_rate`, `platform_fee_reverse_charge`) on the organization admin detail, unblocking the frontend's per-tier net-payout preview
+- `timezone` on `MinimalEventSchema`, so dashboard ticket/RSVP lists can render event-local times
+- `report_mischarged_attendee_vat` management command — CSV of historical invoices affected by the previous attendee-VAT treatment, for review with a tax adviser
+
+### Changed
+- **Admission VAT is now charged where the event takes place**: buyers of physical-event tickets always pay the full gross price at the organizer's rate — EU B2B reverse charge and non-EU zero-rating no longer apply to admission (and a self-declared non-EU billing country no longer buys a discount). VIES validation still runs so a verified buyer VAT ID prints on B2B invoices; historical invoices re-render exactly as issued
+- **Stripe Dashboard refunds no longer cancel tickets**: refund and cancel are now orthogonal — a refund issued from the Stripe Dashboard is recorded but leaves the ticket active, and the organizer cancels explicitly. User self-cancel and series-pass flows are unaffected
+- Ticket PDFs redesigned for the 2026 rebrand: boarding-pass layout with a tear-off stub carrying the QR, the seat in display type (`Seat C8` / `Row C · Balcony`), and the short ticket ID; brand palette and typography; always a single A4 page
+- Apple Wallet passes rebranded to the crimson-pop brand theme
+- `GET /api/me/billing` returns `200` with `null` instead of `404` when no billing profile exists
+
+### Fixed
+- Pending-ticket notifications no longer show the "Payment Instructions" heading twice when the organizer's instructions start with their own heading (email, in-app, and Telegram)
+- Cancellation emails no longer attach a still-scannable Apple Wallet pass for the cancelled ticket; wallet passes and save links are only offered while a ticket is active or pending
+- Plain-text ticket-update emails no longer render a broken template tag in place of the tier name
+
 ## [2.1.1] - 2026-08-07
 
 ### Changed
