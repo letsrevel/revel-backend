@@ -1,5 +1,6 @@
 """Wallet pass controllers for downloading passes."""
 
+import time
 import typing as t
 from uuid import UUID
 
@@ -11,7 +12,7 @@ from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
-from common.signing import get_file_url
+from common.signing import get_file_url, verify_signature
 from events.models import Ticket
 from events.service import ticket_file_service
 from wallet.google import service as google_wallet_service
@@ -85,6 +86,55 @@ class TicketWalletController(UserAwareController):
         if format == "json":
             return 200, GoogleWalletSaveUrlSchema(save_url=save_url)
         return HttpResponseRedirect(save_url)
+
+    @route.get(
+        "/{ticket_id}/wallet/apple/signed",
+        url_name="ticket_apple_wallet_signed",
+        summary="Download Apple Wallet pass via signed link",
+        description="Auth-free pkpass download guarded by an HMAC signature and expiry; "
+        "used by the Add to Apple Wallet badge in ticket emails.",
+        response={200: None, 403: None, 404: None, 410: None, 503: None},
+        auth=None,
+    )
+    def download_apple_pass_signed(
+        self,
+        ticket_id: UUID,
+        exp: t.Annotated[str, Query()],
+        sig: t.Annotated[str, Query()],
+    ) -> HttpResponse:
+        """Serve a ticket's pkpass from a signed email link.
+
+        Capability URL: possession of a valid signature authorizes the download
+        (same exposure as the .pkpass attached to the same email). The signature
+        expires when the pass itself would (event end + grace).
+        """
+        try:
+            expires = int(exp)
+        except ValueError:
+            raise HttpError(403, "Invalid link")
+        if expires <= time.time():
+            raise HttpError(410, "Link expired")
+
+        request_path = self.context.request.path  # type: ignore[union-attr]
+        if not verify_signature(request_path, exp, sig):
+            raise HttpError(403, "Invalid link")
+
+        ticket = self.get_object_or_exception(
+            Ticket.objects.full().filter(
+                status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING]
+            ),
+            id=ticket_id,
+        )
+
+        if not ticket.apple_pass_available:
+            raise HttpError(503, "Apple Wallet is not configured")
+
+        pkpass_bytes = ticket_file_service.get_or_generate_pkpass(ticket)
+
+        response = HttpResponse(pkpass_bytes, content_type="application/vnd.apple.pkpass")
+        safe_name = "ticket_" + str(ticket.id).split("-")[0]
+        response["Content-Disposition"] = f'attachment; filename="{safe_name}.pkpass"'
+        return response
 
     @route.get(
         "/{ticket_id}/pdf",
