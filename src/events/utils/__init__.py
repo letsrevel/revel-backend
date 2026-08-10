@@ -405,6 +405,10 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "ticket_id": str(ticket.id),
         "ticket_id_short": str(ticket.id)[:8].upper(),
         "cover_art_url": cover_art_data_uri,
+        # Pending tickets get a visible marker so a downloaded PDF can't pass
+        # for a paid ticket. Cleared automatically on activation: the status
+        # flip bumps updated_at, which invalidates the cached file.
+        "is_pending": ticket.status == ticket.TicketStatus.PENDING,
         # Venue/seating info
         "venue_name": ticket.venue.name if ticket.venue else None,
         "sector_name": ticket.sector.name if ticket.sector else None,

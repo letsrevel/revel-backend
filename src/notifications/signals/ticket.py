@@ -157,10 +157,10 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
 
     context = _build_ticket_created_context(ticket)
     if ticket.status == Ticket.TicketStatus.PENDING:
-        # A pending-payment email must not carry the ticket files — the PDF/pkpass
-        # QR would look like a valid pass before payment. The ICS calendar hold
-        # stays; the files arrive with the activation email.
-        context = {**context, "include_pdf": False, "include_pkpass": False}
+        # A pending-payment email carries no attachments — the PDF/pkpass QR
+        # would look like a valid pass before payment. Everything arrives with
+        # the activation email; until then the webapp is the only source.
+        context = {**context, "include_pdf": False, "include_ics": False, "include_pkpass": False}
 
     # Notify ticket holder
     notification_requested.send(
@@ -248,8 +248,9 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
             "frontend_url": frontend_url,
         }
         if ticket.status == Ticket.TicketStatus.PENDING:
-            # Same rule as the single-ticket path: no ticket files before payment.
+            # Same rule as the single-ticket path: no attachments before payment.
             ticket_context["include_pdf"] = False
+            ticket_context["include_ics"] = False
             ticket_context["include_pkpass"] = False
 
         # Notify ticket holder

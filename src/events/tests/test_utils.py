@@ -219,6 +219,84 @@ def test_create_ticket_pdf_context_data(
 @patch("qrcode.QRCode")
 @patch("weasyprint.HTML")
 @patch("events.utils.render_to_string")
+def test_create_ticket_pdf_marks_pending_ticket(
+    mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket
+) -> None:
+    """A pending ticket's PDF context must carry is_pending so the template renders the marker."""
+    mock_qr_instance = Mock()
+    mock_qr.return_value = mock_qr_instance
+    mock_qr_instance.make_image.return_value = Mock()
+    mock_html_instance = Mock()
+    mock_html.return_value = mock_html_instance
+    mock_html_instance.write_pdf.return_value = b"fake-pdf"
+    mock_render.return_value = "<html></html>"
+    ticket.status = models.Ticket.TicketStatus.PENDING
+
+    create_ticket_pdf(ticket)
+
+    _, kwargs = mock_render.call_args
+    assert kwargs["context"]["is_pending"] is True
+
+
+@pytest.mark.django_db
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
+@patch("events.utils.render_to_string")
+def test_create_ticket_pdf_active_ticket_not_pending(
+    mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket
+) -> None:
+    """An active ticket's PDF context must not carry the pending marker."""
+    mock_qr_instance = Mock()
+    mock_qr.return_value = mock_qr_instance
+    mock_qr_instance.make_image.return_value = Mock()
+    mock_html_instance = Mock()
+    mock_html.return_value = mock_html_instance
+    mock_html_instance.write_pdf.return_value = b"fake-pdf"
+    mock_render.return_value = "<html></html>"
+
+    create_ticket_pdf(ticket)
+
+    _, kwargs = mock_render.call_args
+    assert kwargs["context"]["is_pending"] is False
+
+
+@pytest.mark.django_db
+def test_ticket_template_renders_pending_marker() -> None:
+    """The ticket PDF template shows the pending banner only when is_pending is set."""
+    from django.template.loader import render_to_string
+
+    base_context = {
+        "event_name": "Test Event",
+        "organization_name": "Test Org",
+        "user_display_name": "Test User",
+        "guest_name": "Test Guest",
+        "tier_name": "General",
+        "start_datetime": "Jan 1, 2027 20:00",
+        "address": "Somewhere 1",
+        "qr_code_base64": "",
+        "ticket_id": "abc",
+        "ticket_id_short": "ABC",
+        "cover_art_url": None,
+        "venue_name": None,
+        "sector_name": None,
+        "seat_label": None,
+        "seat_row": None,
+        "seat_number": None,
+        "font_dir": "",
+        "brand_mark": "",
+    }
+
+    pending_html = render_to_string("events/ticket.html", context={**base_context, "is_pending": True})
+    active_html = render_to_string("events/ticket.html", context={**base_context, "is_pending": False})
+
+    assert "Payment not confirmed" in pending_html
+    assert "Payment not confirmed" not in active_html
+
+
+@pytest.mark.django_db
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
+@patch("events.utils.render_to_string")
 def test_create_ticket_pdf_handles_missing_address(
     mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket
 ) -> None:

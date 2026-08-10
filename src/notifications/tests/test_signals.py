@@ -395,11 +395,12 @@ class TestSeriesPassTicketNotificationGuard:
 
 @pytest.mark.django_db(transaction=True)
 class TestPendingTicketAttachmentFlags:
-    """Pending-payment ticket emails must not carry the ticket files.
+    """Pending-payment ticket emails must carry no attachments at all.
 
     A pending ticket is not valid yet; attaching a scannable PDF/pkpass
-    alongside payment instructions invites door disputes. The ICS stays
-    (calendar hold, no QR). Attachments arrive with the activation email.
+    alongside payment instructions invites door disputes. Everything
+    (including the ICS) arrives with the activation email; before that the
+    webapp is the only source, where the UI states the pending status.
     """
 
     def _make_tier(self, public_event: t.Any, payment_method: str, name: str) -> TicketTier:
@@ -434,7 +435,7 @@ class TestPendingTicketAttachmentFlags:
             context = call.kwargs["context"]
             assert context["include_pdf"] is False
             assert context["include_pkpass"] is False
-            assert context.get("include_ics", True) is True
+            assert context["include_ics"] is False
 
     def test_active_created_context_keeps_ticket_files(self, public_event: t.Any, member_user: RevelUser) -> None:
         tier = self._make_tier(public_event, TicketTier.PaymentMethod.FREE, "Active Flags Tier")
@@ -485,6 +486,7 @@ class TestPendingTicketAttachmentFlags:
             context = call.kwargs["context"]
             assert context["include_pdf"] is False
             assert context["include_pkpass"] is False
+            assert context["include_ics"] is False
 
 
 @pytest.mark.django_db(transaction=True)

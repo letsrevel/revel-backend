@@ -41,6 +41,13 @@
         .banner-overlay h1 { margin: 0; font-size: 21pt; font-weight: 600; letter-spacing: 0.2px; }
         .banner-overlay .org { margin: 1.5mm 0 0; font-size: 10pt; opacity: 0.92; }
 
+        /* Pending-payment marker: unmistakable, brand crimson */
+        .pending-banner {
+            background: #E6332A; color: #FFFFFF; text-align: center;
+            font-size: 8.5pt; font-weight: 700; letter-spacing: 1.6px;
+            text-transform: uppercase; padding: 2.2mm 0;
+        }
+
         /* Body: main info + tear-off stub */
         .body { flex: 1; display: flex; }
         .main { flex: 1; padding: 8mm 8mm 6mm 9mm; }
@@ -105,6 +112,8 @@
                 <p class="org">{{ organization_name }}</p>
             </div>
         </div>
+
+        {% if is_pending %}<div class="pending-banner">Pending &mdash; Payment not confirmed</div>{% endif %}
 
         <div class="body">
             <div class="main">
