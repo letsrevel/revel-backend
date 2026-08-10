@@ -34,7 +34,7 @@ from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.seating.pricing import should_stamp_price_paid
 from events.tests.test_service.test_batch_ticket_service.conftest import PREMIUM, make_category_tier
-from wallet.apple.generator import ApplePassGenerator
+from wallet.pricing import resolve_ticket_price
 
 pytestmark = pytest.mark.django_db
 
@@ -95,7 +95,7 @@ def test_online_checkout_leaves_price_paid_null_and_payment_row_carries_the_amou
         payment = Payment.objects.get(ticket=ticket)
         assert payment.amount == FLAT_ONLINE_PRICE
         # The money-bearing read path resolves via the Payment row.
-        price, currency = ApplePassGenerator._resolve_price(ticket)
+        price, currency = resolve_ticket_price(ticket)
         assert (price, currency) == (payment.amount, "EUR")
 
 
@@ -137,6 +137,6 @@ def test_online_checkout_never_asks_the_stamp_authority_even_when_it_says_true(
     net_amount = Decimal("64.00")
     Payment.objects.filter(pk=payment.pk).update(amount=net_amount)
     fresh_ticket = Ticket.objects.select_related("tier", "seat").get(pk=ticket.pk)
-    price, currency = ApplePassGenerator._resolve_price(fresh_ticket)
+    price, currency = resolve_ticket_price(fresh_ticket)
     assert (price, currency) == (net_amount, "EUR"), "the reader must consult the Payment row first"
     assert price != PREMIUM, "falling back to the seat's price would misreport a reverse-charge sale"

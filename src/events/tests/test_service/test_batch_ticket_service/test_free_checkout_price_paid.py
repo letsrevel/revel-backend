@@ -30,7 +30,7 @@ from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.seating.pricing import recorded_or_resolved_price
 from events.tests.test_service.test_batch_ticket_service.conftest import PREMIUM, make_category_tier
-from wallet.apple.generator import ApplePassGenerator
+from wallet.pricing import resolve_ticket_price
 
 pytestmark = pytest.mark.django_db
 
@@ -149,6 +149,6 @@ def test_free_comp_on_a_category_priced_tier_records_zero_not_null(
 
     # The two money-bearing readers the NULL used to mislead.
     assert recorded_or_resolved_price(ticket.tier, ticket.seat, ticket.price_paid) == Decimal("0.00")
-    price, currency = ApplePassGenerator._resolve_price(ticket)
+    price, currency = resolve_ticket_price(ticket)
     assert (price, currency) == (Decimal("0.00"), "EUR")
     assert price != PREMIUM, "the wallet pass printed the seat's 80.00 before the fix"
