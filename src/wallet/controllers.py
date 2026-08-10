@@ -120,9 +120,7 @@ class TicketWalletController(UserAwareController):
             raise HttpError(403, "Invalid link")
 
         ticket = self.get_object_or_exception(
-            Ticket.objects.full().filter(
-                status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING]
-            ),
+            Ticket.objects.full().filter(status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING]),
             id=ticket_id,
         )
 
