@@ -77,29 +77,20 @@ class TestGetThemeColors:
         colors = get_theme_colors()
         assert colors is REVEL_THEME
 
-    def test_theme_has_dark_background(self) -> None:
-        """The theme should have a dark background (low lightness)."""
+    def test_theme_has_crimson_background(self) -> None:
+        """The theme background is the brand crimson-deep panel (3 79% 50%)."""
         colors = get_theme_colors()
-        # Parse RGB values from background
-        # "rgb(r, g, b)" format
-        rgb_str = colors.background
-        parts = rgb_str.replace("rgb(", "").replace(")", "").split(",")
-        r, g, b = int(parts[0].strip()), int(parts[1].strip()), int(parts[2].strip())
-        # Dark background means low RGB values
-        assert r < 50
-        assert g < 50
-        assert b < 50
+        assert colors.background == "rgb(228, 36, 26)"
 
-    def test_theme_has_light_foreground(self) -> None:
-        """The theme should have a light foreground (high lightness)."""
+    def test_theme_has_white_foreground(self) -> None:
+        """The theme foreground is white (AA on the crimson-deep panel)."""
         colors = get_theme_colors()
-        rgb_str = colors.foreground
-        parts = rgb_str.replace("rgb(", "").replace(")", "").split(",")
-        r, g, b = int(parts[0].strip()), int(parts[1].strip()), int(parts[2].strip())
-        # Light foreground means high RGB values
-        assert r > 200
-        assert g > 200
-        assert b > 200
+        assert colors.foreground == "rgb(255, 255, 255)"
+
+    def test_theme_has_paper_label(self) -> None:
+        """The label color is the light lavender paper (268 60% 96%)."""
+        colors = get_theme_colors()
+        assert colors.label == "rgb(244, 238, 250)"
 
 
 class TestFormatIsoDate:
