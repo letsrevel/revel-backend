@@ -8,6 +8,7 @@ CURRENT vat_rate over the invoiced amount.
 """
 
 import csv
+import datetime
 import io
 from decimal import Decimal
 
@@ -66,10 +67,10 @@ def _make_invoice(
     )
 
 
-def _run_command() -> list[dict[str, str]]:
+def _run_command(*args: str) -> list[dict[str, str]]:
     """Run the command and parse its CSV output."""
     stdout = io.StringIO()
-    call_command("report_mischarged_attendee_vat", stdout=stdout, stderr=io.StringIO())
+    call_command("report_mischarged_attendee_vat", *args, stdout=stdout, stderr=io.StringIO())
     return list(csv.DictReader(io.StringIO(stdout.getvalue())))
 
 
@@ -185,6 +186,24 @@ class TestReportMischargedAttendeeVat:
         )
 
         assert _run_command() == []
+
+    def test_until_cutoff_excludes_later_invoices(
+        self, org: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """--until (exclusive) bounds the report to invoices created before the cutoff."""
+        invoice = _make_invoice(
+            org,
+            event,
+            member_user,
+            buyer_country="US",
+            total_gross=Decimal("100.00"),
+            total_vat=Decimal("0.00"),
+        )
+        tomorrow = (invoice.created_at + datetime.timedelta(days=1)).date().isoformat()
+        today = invoice.created_at.date().isoformat()
+
+        assert [row["invoice_number"] for row in _run_command("--until", tomorrow)] == [invoice.invoice_number]
+        assert _run_command("--until", today) == []
 
     def test_invoice_with_deleted_event_is_still_listed(
         self, org: Organization, member_user: RevelUser, event: Event

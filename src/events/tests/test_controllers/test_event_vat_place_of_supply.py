@@ -315,9 +315,9 @@ class TestVatCountryMismatchFlag:
     """EventDetailSchema.vat_country_mismatch resolver."""
 
     def _detail(self, client: Client, event: Event) -> dict[str, object]:
-        """Fetch the detail body via a no-op PUT (returns EventDetailSchema)."""
-        url = reverse("api:edit_event", kwargs={"event_id": event.pk})
-        response = client.put(url, data=orjson.dumps({"name": event.name}), content_type="application/json")
+        """Fetch the detail body via the read-only event endpoint (returns EventDetailSchema)."""
+        url = reverse("api:get_event", kwargs={"event_id": event.pk})
+        response = client.get(url)
         assert response.status_code == 200
         return dict(response.json())
 

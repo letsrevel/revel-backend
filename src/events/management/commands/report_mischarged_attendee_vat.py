@@ -15,7 +15,10 @@ Two sets are reported:
 
 Invoices for virtual events are excluded: under the #869 rules those
 legitimately carry reverse charge (cross-border EU B2B) or zero VAT (non-EU),
-so they are not mischarges.
+so they are not mischarges. Pass ``--until YYYY-MM-DD`` (exclusive; use the
+date the #868 fix was deployed) to bound the report to the historical set —
+e.g. it keeps a 0%-rate org's legitimate post-#868 non-EU invoices out of the
+implied-export column.
 
 The snapshot ``vat_rate`` on these invoices is 0.00 (that was the bug), so the
 uncollected VAT is *estimated* at the organization's currently configured VAT
@@ -23,10 +26,11 @@ rate over the invoiced amount (which the buyer paid as net).
 """
 
 import csv
+import datetime
 import typing as t
 from decimal import ROUND_HALF_UP, Decimal
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandParser
 from django.db.models import Q
 
 from common.constants import EU_MEMBER_STATES
@@ -35,6 +39,16 @@ from events.models import AttendeeInvoice
 
 class Command(BaseCommand):
     help = "List attendee invoices issued with reverse-charge or non-EU zero-rating (wrong for admission, #868)."
+
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Add the optional historical cutoff."""
+        parser.add_argument(
+            "--until",
+            type=datetime.date.fromisoformat,
+            default=None,
+            help="Only report invoices created before this date (exclusive). "
+            "Pass the #868 deploy date to bound the report to the historical set.",
+        )
 
     def handle(self, *args: t.Any, **options: t.Any) -> None:
         """Write the affected invoices as CSV to stdout."""
@@ -49,6 +63,8 @@ class Command(BaseCommand):
             .select_related("organization")
             .order_by("created_at")
         )
+        if options["until"] is not None:
+            invoices = invoices.filter(created_at__date__lt=options["until"])
 
         writer = csv.writer(self.stdout)
         writer.writerow(
