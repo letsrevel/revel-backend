@@ -1,5 +1,6 @@
 """Tests for wallet/controllers.py."""
 
+import typing as t
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -224,3 +225,44 @@ class TestTicketWalletControllerDownloadPdf:
         assert response.status_code == 302
         assert response["Location"] == signed
         mock_generate.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestGoogleWalletEndpoint:
+    """Tests for GET /api/tickets/{ticket_id}/wallet/google."""
+
+    def test_owner_gets_redirect_to_save_url(
+        self,
+        member_client: t.Any,
+        ticket: t.Any,
+        google_wallet_configured_settings: None,
+    ) -> None:
+        from wallet.google.signer import SAVE_URL_BASE
+
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url)
+
+        assert response.status_code == 302
+        assert response["Location"].startswith(SAVE_URL_BASE)
+
+    def test_unconfigured_returns_503(
+        self,
+        member_client: t.Any,
+        ticket: t.Any,
+        google_wallet_not_configured: None,
+    ) -> None:
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url)
+
+        assert response.status_code == 503
+
+    def test_non_owner_gets_404(
+        self,
+        nonmember_client: t.Any,
+        ticket: t.Any,
+        google_wallet_configured_settings: None,
+    ) -> None:
+        url = reverse("api:ticket_google_wallet_pass", kwargs={"ticket_id": ticket.id})
+        response = nonmember_client.get(url)
+
+        assert response.status_code == 404
