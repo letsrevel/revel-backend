@@ -7,7 +7,7 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization
+from events.models import Event, Organization, Ticket, TicketTier
 from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery
 
@@ -165,4 +165,103 @@ def nonmember_user(django_user_model: type[RevelUser]) -> RevelUser:
         username="nonmember@example.com",
         email="nonmember@example.com",
         password="pass",
+    )
+
+
+@pytest.fixture
+def ticket_holder(django_user_model: type[RevelUser]) -> RevelUser:
+    """A user who holds a ticket."""
+    return django_user_model.objects.create_user(
+        username="holder@example.com",
+        email="holder@example.com",
+        password="password",
+        first_name="Ticket",
+        last_name="Holder",
+    )
+
+
+@pytest.fixture
+def ticket_organization(ticket_holder: RevelUser) -> Organization:
+    """Organization for ticket tests."""
+    return Organization.objects.create(
+        name="Ticket Org",
+        slug="ticket-org",
+        owner=ticket_holder,
+    )
+
+
+@pytest.fixture
+def ticket_event(ticket_organization: Organization) -> Event:
+    """Event for ticket tests."""
+    next_week = timezone.now() + timedelta(days=7)
+    return Event.objects.create(
+        organization=ticket_organization,
+        name="Ticket Event",
+        slug="ticket-event",
+        visibility=Event.Visibility.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
+        max_attendees=100,
+        status="open",
+        start=next_week,
+        end=next_week + timedelta(hours=3),
+        requires_ticket=True,
+    )
+
+
+@pytest.fixture
+def ticket_tier(ticket_event: Event) -> TicketTier:
+    """Ticket tier for tests.
+
+    When an event is created with requires_ticket=True, a default tier is
+    automatically created via signals. We return that tier instead of
+    creating a new one to avoid unique constraint violations.
+    """
+    return ticket_event.ticket_tiers.first()  # type: ignore[return-value]
+
+
+@pytest.fixture
+def active_ticket(
+    ticket_holder: RevelUser,
+    ticket_event: Event,
+    ticket_tier: TicketTier,
+) -> Ticket:
+    """An active ticket for testing."""
+    return Ticket.objects.create(
+        guest_name="Test Guest",
+        user=ticket_holder,
+        event=ticket_event,
+        tier=ticket_tier,
+        status=Ticket.TicketStatus.ACTIVE,
+    )
+
+
+@pytest.fixture
+def pending_ticket(
+    ticket_holder: RevelUser,
+    ticket_event: Event,
+    ticket_tier: TicketTier,
+) -> Ticket:
+    """A pending ticket for testing."""
+    return Ticket.objects.create(
+        guest_name="Test Guest",
+        user=ticket_holder,
+        event=ticket_event,
+        tier=ticket_tier,
+        status=Ticket.TicketStatus.PENDING,
+    )
+
+
+def _create_notification_for_test(
+    user: RevelUser,
+    notification_type: NotificationType,
+    context: dict[str, object],
+) -> Notification:
+    """Create a notification directly without context validation.
+
+    This is for unit testing templates where we only need specific context fields.
+    """
+    return Notification.objects.create(
+        user=user,
+        notification_type=notification_type,
+        context=context,
     )
