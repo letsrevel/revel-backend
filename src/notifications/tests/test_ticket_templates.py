@@ -1016,3 +1016,54 @@ class TestGoogleWalletEmailLink:
         html = template.get_email_html_body(notification)
 
         assert html is not None and "pay.google.com" not in html
+
+    def test_link_absent_when_ticket_cancelled(
+        self, ticket_holder: RevelUser, active_ticket: Ticket, google_wallet_settings: None
+    ) -> None:
+        """TICKET_CANCELLED/TICKET_REFUNDED reuse TicketUpdatedTemplate with include_pkpass
+
+        defaulting True — a cancelled ticket must never get a save link, mirroring
+        TicketWalletController.get_queryset()'s ACTIVE/PENDING status filter.
+        """
+        active_ticket.status = Ticket.TicketStatus.CANCELLED
+        active_ticket.save(update_fields=["status"])
+        notification = _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.TICKET_UPDATED,
+            context={
+                "event_name": active_ticket.event.name,
+                "action": "cancelled",
+                "ticket_status": "cancelled",
+                "ticket_id": str(active_ticket.id),
+                "event_id": str(active_ticket.event.id),
+            },
+        )
+        template = TicketUpdatedTemplate()
+
+        html = template.get_email_html_body(notification)
+
+        assert html is not None and "pay.google.com" not in html
+
+    def test_ticket_updated_activation_link_present_when_configured(
+        self, ticket_holder: RevelUser, active_ticket: Ticket, google_wallet_settings: None
+    ) -> None:
+        """Pins the TicketUpdatedTemplate placement in the pending->active activation branch."""
+        notification = _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.TICKET_UPDATED,
+            context={
+                "event_name": active_ticket.event.name,
+                "old_status": "pending",
+                "new_status": "active",
+                "ticket_status": "active",
+                "ticket_id": str(active_ticket.id),
+                "event_id": str(active_ticket.event.id),
+            },
+        )
+        template = TicketUpdatedTemplate()
+
+        html = template.get_email_html_body(notification)
+        text = template.get_email_text_body(notification)
+
+        assert html is not None and "https://pay.google.com/gp/v/save/" in html
+        assert "https://pay.google.com/gp/v/save/" in text

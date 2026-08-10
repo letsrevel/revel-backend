@@ -131,7 +131,12 @@ def _add_google_wallet_context(base_context: dict[str, t.Any], notification: Not
     if not ticket_id:
         return base_context
     ticket = _load_ticket(ticket_id)
-    if ticket is not None and (url := _google_wallet_save_url(ticket)):
+    if ticket is None or ticket.status not in (Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING):
+        # Mirrors TicketWalletController.get_queryset()'s status filter: TICKET_CANCELLED and
+        # TICKET_REFUNDED notifications reuse TicketUpdatedTemplate with include_pkpass
+        # defaulting True, so a dead ticket must not get a save link.
+        return base_context
+    if url := _google_wallet_save_url(ticket):
         base_context["context"]["google_wallet_save_url"] = url
     return base_context
 

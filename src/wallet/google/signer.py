@@ -6,6 +6,7 @@ and returns the ``https://pay.google.com/gp/v/save/{jwt}`` link. There is no
 stale. See: https://developers.google.com/wallet/tickets/events/web
 """
 
+import functools
 import json
 import time
 import typing as t
@@ -23,8 +24,12 @@ class GooglePassSignerError(Exception):
     """Raised when the Google Wallet signer is misconfigured."""
 
 
+@functools.lru_cache(maxsize=2)
 def _load_service_account(path: str) -> tuple[str, str]:
     """Load (client_email, private_key_pem) from a service-account JSON file.
+
+    Cached by path (mirrors the Apple rail's cached pass generator) so each
+    notification render doesn't re-read the key file from disk.
 
     Raises:
         GooglePassSignerError: If the file is missing, unreadable, or malformed.
