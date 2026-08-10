@@ -35,7 +35,7 @@ The wizard prompts you for:
 3. **Email** — SMTP host, port, credentials, and the from-address used for verification and
    ticket delivery. (You can opt into `EMAIL_DRY_RUN=True` for a test instance.)
 4. **Optional integrations** — whether to enable Stripe (paid events), Telegram, the LLM
-   questionnaire evaluator, and Apple Wallet. Anything you skip is left disabled via feature
+   questionnaire evaluator, Apple Wallet, and Google Wallet. Anything you skip is left disabled via feature
    flags, and the corresponding service is left out of the Compose profiles.
 5. **Secrets** — it generates `SECRET_KEY`, `SALT_KEY`, and database/Redis passwords for you, and
    collects any third-party keys (Stripe, OpenAI) you opted into.

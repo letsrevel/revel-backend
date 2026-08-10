@@ -55,6 +55,7 @@ each dependency does, whether you can omit it, and the lever you use to do so:
 | Telegram | Yes | Per-user delivery skipped | `FEATURE_TELEGRAM=False`; profile off |
 | Google SSO | Yes (opt-in) | Login button hidden; password auth only | `FEATURE_GOOGLE_SSO=True` + OAuth creds |
 | Apple Wallet | Yes | `/wallet/apple` → 503; PDF tickets fine | leave certs unset |
+| Google Wallet | Yes | `/wallet/google` → 503; PDF tickets fine | leave issuer ID / key unset |
 | Email / SMTP | Required* | Needed for verification | real SMTP or `EMAIL_DRY_RUN=True` |
 
 !!! note "Email is effectively required"
@@ -62,6 +63,21 @@ each dependency does, whether you can omit it, and the lever you use to do so:
     delivery all flow through it. For a real instance, configure a working SMTP provider. For a
     throwaway test instance you can set `EMAIL_DRY_RUN=True`, which logs messages instead of
     sending them.
+
+## Google Wallet setup (one-time)
+
+1. Create an issuer account in the [Google Pay & Wallet Console](https://pay.google.com/business/console)
+   (requires business verification — can take days) and accept the Google Wallet API ToS to get your
+   **Issuer ID**.
+2. Create a GCP service account, enable the Google Wallet API in its project, and add the service
+   account's email under **Users** in the Wallet Console.
+3. Provision the service-account JSON key to the backend host and set:
+   `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH` (and optionally
+   `GOOGLE_WALLET_CLASS_PREFIX`, default `revel`).
+4. Passes show **[TEST ONLY]** until you request publishing access in the Wallet Console.
+
+If your GCP org enforces `iam.disableServiceAccountKeyCreation`, creating the key requires a
+temporary project-scoped org-policy override (allow ~2 minutes of propagation before retrying).
 
 ## Where to next
 
