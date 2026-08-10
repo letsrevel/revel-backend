@@ -18,9 +18,9 @@ _CANCELLATION_CHANNELS: tuple[str, ...] = (
 
 
 class TestTicketPdfBranding:
-    """Ticket PDF template must carry Let's Revel branding while remaining organiser-centric."""
+    """Ticket PDF template carries the Bubble brand (2026 rebrand): brand palette, gradient wordmark, stub layout."""
 
-    def _render_ticket_html(self) -> str:
+    def _render_ticket_html(self, **overrides: t.Any) -> str:
         """Render the ticket HTML template with a minimal but sufficient context."""
         from django.conf import settings
         from django.template.loader import render_to_string
@@ -28,15 +28,8 @@ class TestTicketPdfBranding:
         ctx: dict[str, t.Any] = {
             # Brand assets injected by create_ticket_pdf
             "font_dir": str(settings.BASE_DIR / "fonts"),
-            "brand_logo": str(settings.BASE_DIR / "assets" / "brand" / "revel-logo.png"),
-            # Org-centric fields (kept as leads)
-            # Use a distinctive colour so we can assert org colour flows through
-            # to accents and is not replaced by a hard-coded brand purple.
-            "logo_url": None,
+            "brand_mark": str(settings.BASE_DIR / "assets" / "brand" / "revel-mark.svg"),
             "cover_art_url": None,
-            "logo_initials": "TE",
-            "primary_color": "#123456",
-            "secondary_color": "#654321",
             # Event / ticket fields
             "event_name": "Test Event",
             "organization_name": "Test Org",
@@ -54,6 +47,7 @@ class TestTicketPdfBranding:
             "seat_row": None,
             "seat_number": None,
         }
+        ctx.update(overrides)
         return render_to_string("events/ticket.html", ctx)
 
     def test_ticket_html_contains_nata_sans(self) -> None:
@@ -62,59 +56,62 @@ class TestTicketPdfBranding:
         assert "Nata Sans" in html, "Missing 'Nata Sans' in ticket HTML"
 
     def test_ticket_html_contains_powered_by_wordmark(self) -> None:
-        """Ticket template must carry a 'Powered by let's revel.' footer."""
-        html = self._render_ticket_html()
-        assert "Powered by let's revel." in html, "Missing 'Powered by let's revel.' in ticket HTML"
+        """Ticket template must carry the 'Powered by revel.' footer lockup in <body>.
 
-    def test_ticket_html_contains_brand_logo_reference(self) -> None:
-        """Ticket template must reference revel-logo.png for the brand footer."""
-        html = self._render_ticket_html()
-        assert "revel-logo.png" in html, "Missing revel-logo.png reference in ticket HTML"
-
-    def test_ticket_brand_logo_is_in_body_not_head(self) -> None:
-        """Brand logo must live in <body> — WeasyPrint suppresses anything in <head>."""
+        WeasyPrint suppresses anything in <head>, so the lockup must render in <body>.
+        """
         html = self._render_ticket_html()
         body_part = html.split("<body", 1)[1]
-        assert "revel-logo.png" in body_part, "brand logo is not inside <body>; WeasyPrint would suppress it"
+        assert "Powered by" in body_part, "Missing 'Powered by' in ticket HTML body"
 
-    def test_ticket_powered_by_is_in_body_not_head(self) -> None:
-        """'Powered by' text must live in <body> — WeasyPrint suppresses anything in <head>."""
+    def test_ticket_html_contains_brand_mark_in_body(self) -> None:
+        """Ticket template must reference revel-mark.svg in <body> for the footer lockup."""
         html = self._render_ticket_html()
         body_part = html.split("<body", 1)[1]
-        assert "Powered by let's revel." in body_part, (
-            "'Powered by let's revel.' is not inside <body>; WeasyPrint would suppress it"
-        )
+        assert "revel-mark.svg" in body_part, "Missing revel-mark.svg reference in ticket HTML body"
+
+    def test_ticket_html_wordmark_gradient_endpoints(self) -> None:
+        """The 'revel' wordmark must span the brand gradient: Hearty Purple → Light Crimson."""
+        html = self._render_ticket_html()
+        assert "#8C3CDD" in html, "Wordmark gradient start #8C3CDD (Hearty Purple) missing"
+        assert "#E6332A" in html, "Wordmark gradient end #E6332A (Light Crimson) missing"
+
+    def test_ticket_html_uses_brand_palette(self) -> None:
+        """Ticket chrome must use the Bubble palette: lavender paper and ink."""
+        html = self._render_ticket_html()
+        assert "#F3EFFA" in html, "Lavender paper #F3EFFA missing from ticket HTML"
+        assert "#0D1E1C" in html, "Ink #0D1E1C missing from ticket HTML"
 
     def test_ticket_html_has_no_legacy_accent_667eea(self) -> None:
         """Ticket template must not contain the legacy indigo accent #667eea."""
         html = self._render_ticket_html()
         assert "#667eea" not in html, "Legacy accent #667eea still present in ticket HTML"
 
-    def test_ticket_html_keeps_org_logo_section(self) -> None:
-        """Org logo section (logo-section / logo-container) must still be present."""
+    def test_ticket_html_has_no_uuid_derived_colors(self) -> None:
+        """Per-event UUID-derived colours are gone: no template placeholders may leak unrendered."""
         html = self._render_ticket_html()
-        assert "logo-section" in html, "Org logo section was removed from ticket HTML"
+        assert "primary_color" not in html
+        assert "hsl(" not in html, "UUID-derived hsl() colour still present in ticket HTML"
 
-    def test_ticket_html_accent_uses_org_primary_color(self) -> None:
-        """Org primary_color must flow through to accent elements (not hard-coded brand purple)."""
-        html = self._render_ticket_html()
-        assert "#123456" in html, "Org primary_color (#123456) not found in ticket HTML — accents may be hard-coded"
-
-    def test_ticket_html_accent_uses_org_secondary_color(self) -> None:
-        """Org secondary_color must flow through to accent-bar gradient (not hard-coded brand lilac)."""
-        html = self._render_ticket_html()
-        assert "#654321" in html, (
-            "Org secondary_color (#654321) not found in ticket HTML — accent-bar may be hard-coded"
+    def test_ticket_html_seat_renders_in_stub(self) -> None:
+        """A seated ticket shows seat, row, and sector prominently in the stub."""
+        html = self._render_ticket_html(
+            venue_name="Revel Concert Hall", sector_name="Balcony", seat_label="C8", seat_row="C", seat_number=8
         )
+        assert "Seat C8" in html, "Seat label missing from stub"
+        assert "Row C" in html, "Seat row missing from stub"
+        assert "Balcony" in html, "Sector missing from ticket"
 
-    def test_ticket_html_no_hardcoded_brand_purple_in_org_accents(self) -> None:
-        """Brand purple #8C3CDD must not appear in the ticket when org colour is different.
+    def test_ticket_html_sector_fallback_without_seat(self) -> None:
+        """A sector-only ticket (GA within a sector) shows the sector in the stub."""
+        html = self._render_ticket_html(venue_name="Revel Concert Hall", sector_name="Standing Room")
+        assert "Standing Room" in html
+        assert "Seat " not in html
 
-        Let's Revel branding belongs only in the Powered-by footer
-        (whose text is #aaa, not purple), so #8C3CDD must be absent entirely.
-        """
+    def test_ticket_html_tier_fallback_without_seating(self) -> None:
+        """With no seat or sector, the stub falls back to the tier name."""
         html = self._render_ticket_html()
-        assert "#8C3CDD" not in html, "#8C3CDD (brand purple) found in ticket HTML — org accent colours are hard-coded"
+        assert html.count("General Admission") >= 2, "Tier name fallback missing from stub"
 
 
 class TestTicketCancelledStaffTemplateBranching:

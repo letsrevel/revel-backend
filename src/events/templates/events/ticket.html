@@ -5,349 +5,158 @@
     <title>Ticket - {{ event_name }}</title>
     {% include "_fonts.html" %}
     <style>
-        @page {
-            size: A4;
-            margin: 0;
-        }
+        /* Bubble brand palette (2026 rebrand — mirrors revel-frontend/src/app.css):
+           paper #F3EFFA · ink #0D1E1C · Hearty Purple #8C3CDD · Light Crimson #E6332A */
+        @page { size: A4; margin: 0; }
+        html, body { margin: 0; padding: 0; }
         body {
             font-family: 'Nata Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            color: #333;
-            margin: 0;
-            padding: 0;
+            font-weight: 300;
+            color: #0D1E1C;
+            background: #F3EFFA;
         }
-        .ticket-container {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            page-break-inside: avoid;
+        .page {
+            width: 210mm; height: 296mm;
+            padding: 10mm;
+            box-sizing: border-box;
         }
-
-        /* Cover Art Banner */
-        .cover-banner {
-            width: 100%;
-            height: 180px;
-            background: linear-gradient(135deg, {{ primary_color }} 0%, {{ secondary_color }} 100%);
-            position: relative;
+        .card {
+            background: #FFFFFF;
+            border-radius: 18px;
             overflow: hidden;
-        }
-        .cover-banner img {
-            width: 100%;
             height: 100%;
-            object-fit: cover;
-        }
-        .cover-overlay {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%);
-            padding: 20px 30px;
-            color: white;
-        }
-        .cover-overlay h1 {
-            margin: 0;
-            font-size: 24px;
-            font-weight: 600;
-        }
-        .cover-overlay .org-name {
-            margin: 5px 0 0 0;
-            font-size: 14px;
-            opacity: 0.9;
+            display: flex; flex-direction: column;
+            border: 1px solid #D6CBE6;
         }
 
-        /* Logo Section */
-        .logo-section {
-            display: flex;
-            align-items: center;
-            padding: 25px 30px;
-            background: white;
-            border-bottom: 2px solid #f0f0f0;
+        /* Cover banner */
+        .banner { height: 46mm; position: relative; overflow: hidden; background: linear-gradient(135deg, #8C3CDD, #E6332A); }
+        .banner img.cover { width: 100%; height: 100%; object-fit: cover; }
+        .banner-overlay {
+            position: absolute; left: 0; right: 0; bottom: 0;
+            padding: 6mm 9mm 5mm;
+            background: linear-gradient(to top, rgba(13,30,28,0.82), rgba(13,30,28,0));
+            color: #FFFFFF;
         }
-        .logo-container {
-            width: 60px;
-            height: 60px;
-            border-radius: 8px;
-            background: {{ primary_color }};
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 15px;
-            flex-shrink: 0;
-            overflow: hidden;
-        }
-        .logo-container img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .logo-initials {
-            color: white;
-            font-size: 24px;
-            font-weight: 700;
-        }
-        .ticket-type {
-            flex: 1;
-        }
-        .ticket-type .tier {
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
-            margin: 0;
-        }
-        .ticket-type .status {
-            font-size: 12px;
-            color: #666;
-            margin: 3px 0 0 0;
-        }
+        .banner-overlay h1 { margin: 0; font-size: 21pt; font-weight: 600; letter-spacing: 0.2px; }
+        .banner-overlay .org { margin: 1.5mm 0 0; font-size: 10pt; opacity: 0.92; }
 
-        /* Content Section */
-        .content-section {
-            padding: 25px 30px;
-            background: white;
-            flex: 1;
-        }
-        .info-card {
-            background: #f8f9fa;
-            border-left: 4px solid {{ primary_color }};
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 4px;
-        }
-        .info-row {
-            display: flex;
-            margin: 8px 0;
-            font-size: 13px;
-        }
-        .info-label {
-            font-weight: 600;
-            color: #666;
-            min-width: 90px;
-        }
-        .info-value {
-            color: #333;
-            flex: 1;
-        }
+        /* Body: main info + tear-off stub */
+        .body { flex: 1; display: flex; }
+        .main { flex: 1; padding: 8mm 8mm 6mm 9mm; }
 
-        /* Seating Card */
-        .seating-card {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border: 2px solid {{ primary_color }};
-            border-radius: 8px;
-            padding: 15px 20px;
-            margin: 15px 0;
-            display: flex;
-            align-items: center;
-            gap: 20px;
+        .eyebrow {
+            font-size: 6.5pt; font-weight: 600; letter-spacing: 1.6px;
+            text-transform: uppercase; color: #8C3CDD; margin: 0 0 1.2mm;
         }
-        .seat-icon {
-            width: 50px;
-            height: 50px;
-            background: {{ primary_color }};
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-        .seat-icon span {
-            font-size: 24px;
-        }
-        .seating-details {
-            flex: 1;
-        }
-        .seating-venue {
-            font-size: 11px;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin: 0 0 4px 0;
-        }
-        .seating-main {
-            font-size: 18px;
-            font-weight: 700;
-            color: #333;
-            margin: 0;
-        }
-        .seating-sector {
-            font-size: 12px;
-            color: #555;
-            margin: 4px 0 0 0;
-        }
+        .tier-name { font-size: 15pt; font-weight: 600; margin: 0 0 6mm; }
 
-        /* QR Code Section */
-        .qr-section {
-            text-align: center;
-            padding: 20px 30px;
-            background: white;
-            border-top: 1px solid #e0e0e0;
+        table.info { border-collapse: collapse; width: 100%; }
+        table.info td { padding: 1.8mm 0; vertical-align: top; font-size: 10pt; line-height: 1.45; }
+        table.info td.label {
+            width: 32mm; font-size: 8pt; font-weight: 600; color: #46405E;
+            text-transform: uppercase; letter-spacing: 0.8px; padding-right: 4mm; padding-top: 2.3mm;
         }
-        .qr-code-container {
-            display: inline-block;
-            padding: 15px;
-            background: white;
-            border: 2px solid {{ primary_color }};
-            border-radius: 8px;
-        }
-        .qr-code-container img {
-            display: block;
-        }
-        .qr-instruction {
-            margin-top: 12px;
-            font-size: 11px;
-            color: {{ primary_color }};
-        }
+        table.info tr + tr td { border-top: 1px solid #EDE7F6; }
 
-        /* Footer Section */
-        .footer-section {
-            padding: 16px 30px;
-            background: #f8f9fa;
-            border-top: 1px solid #e0e0e0;
-            text-align: center;
-        }
-        .footer-section p {
-            margin: 4px 0;
-            font-size: 10px;
-            color: #888;
-        }
-        .ticket-id {
-            font-family: monospace;
-            color: #666;
-        }
+        /* Perforation */
+        .perf { width: 0; border-left: 1.6px dashed #C9BCE0; }
 
-        /* Powered by Let's Revel footer */
-        .brand-footer {
-            padding: 10px 30px 14px;
-            background: #f8f9fa;
-            text-align: center;
-            border-top: 1px solid #e9e9e9;
+        /* Stub */
+        .stub {
+            width: 58mm; background: #F8F5FC;
+            padding: 8mm 6mm 6mm; box-sizing: content-box;
+            display: flex; flex-direction: column; align-items: center; text-align: center;
         }
-        .brand-footer-inner {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
+        .stub .eyebrow { color: #E6332A; }
+        .qr-sticker {
+            background: #FFFFFF; border: 1px solid #D6CBE6; border-radius: 14px;
+            padding: 4mm; margin: 3mm 0 4mm;
         }
-        .brand-footer img {
-            height: 18px;
-            width: auto;
-            opacity: 0.55;
-        }
-        .brand-footer-text {
-            font-size: 9px;
-            color: #aaa;
-            letter-spacing: 0.2px;
-        }
+        .qr-sticker img { display: block; width: 36mm; height: 36mm; }
+        .seat-big { font-size: 17pt; font-weight: 600; margin: 0; }
+        .seat-sub { font-size: 9pt; color: #46405E; margin: 1.2mm 0 0; }
+        .stub .instruction { font-size: 7.5pt; color: #46405E; margin-top: 4mm; line-height: 1.5; }
+        .stub .tid { font-family: monospace; font-size: 7pt; color: #8C3CDD; margin-top: 6mm; }
 
-        /* Decorative elements */
-        .accent-bar {
-            height: 4px;
-            background: linear-gradient(to right, {{ primary_color }}, {{ secondary_color }});
+        /* Footer */
+        .footer {
+            border-top: 1px solid #EDE7F6;
+            padding: 4mm 9mm; display: flex; align-items: center; justify-content: space-between;
         }
+        .legal { font-size: 7pt; color: #8A82A6; margin: 0; }
+        /* "Powered by revel." lockup — mirrors the FE RevelWordmark: "revel" SemiBold in the
+           brand gradient (per-letter #8C3CDD → #E6332A: WeasyPrint has no background-clip:text),
+           period in ink, tracking 0.06em on the wordmark. */
+        .powered { display: flex; align-items: center; gap: 1.8mm; white-space: nowrap; }
+        .powered img { width: 4.2mm; height: 4.8mm; }
+        .powered .by { font-size: 8pt; font-weight: 300; color: #46405E; }
+        .powered .wordmark { font-size: 8.5pt; font-weight: 600; letter-spacing: 0.06em; }
+        .powered .dot { color: #0D1E1C; }
     </style>
 </head>
 <body>
-    <div class="ticket-container">
-        <!-- Cover Art Banner -->
-        <div class="cover-banner">
-            {% if cover_art_url %}
-            <img src="{{ cover_art_url }}" alt="Event Cover">
-            {% endif %}
-            <div class="cover-overlay">
+<div class="page">
+    <div class="card">
+        <div class="banner">
+            {% if cover_art_url %}<img class="cover" src="{{ cover_art_url }}" alt="">{% endif %}
+            <div class="banner-overlay">
                 <h1>{{ event_name }}</h1>
-                <p class="org-name">{{ organization_name }}</p>
+                <p class="org">{{ organization_name }}</p>
             </div>
         </div>
 
-        <div class="accent-bar"></div>
+        <div class="body">
+            <div class="main">
+                <p class="eyebrow">Ticket</p>
+                <p class="tier-name">{{ tier_name }}</p>
 
-        <!-- Logo and Ticket Type -->
-        <div class="logo-section">
-            <div class="logo-container">
-                {% if logo_url %}
-                <img src="{{ logo_url }}" alt="Logo">
-                {% else %}
-                <span class="logo-initials">{{ logo_initials }}</span>
-                {% endif %}
-            </div>
-            <div class="ticket-type">
-                <p class="tier">{{ tier_name }}</p>
-                <p class="status">Ticket ID: {{ ticket_id_short }}</p>
-            </div>
-        </div>
-
-        <!-- Event Details -->
-        <div class="content-section">
-            <div class="info-card">
-                {% if guest_name %}
-                <div class="info-row">
-                    <span class="info-label">🎫 Guest</span>
-                    <span class="info-value">{{ guest_name }}</span>
-                </div>
-                {% endif %}
-                {% if guest_name != user_display_name %}
-                <div class="info-row">
-                    <span class="info-label">🛒 Purchased by</span>
-                    <span class="info-value">{{ user_display_name }}</span>
-                </div>
-                {% endif %}
-                <div class="info-row">
-                    <span class="info-label">📅 Date & Time</span>
-                    <span class="info-value">{{ start_datetime }}</span>
-                </div>
-                {% if address %}
-                <div class="info-row">
-                    <span class="info-label">📍 Location</span>
-                    <span class="info-value">{{ address }}</span>
-                </div>
-                {% endif %}
-            </div>
-
-            {% if seat_label or sector_name or venue_name %}
-            <!-- Seating Information -->
-            <div class="seating-card">
-                <div class="seat-icon">
-                    <span>💺</span>
-                </div>
-                <div class="seating-details">
+                <table class="info">
+                    {% if guest_name %}
+                    <tr><td class="label">Guest</td><td>{{ guest_name }}</td></tr>
+                    {% endif %}
+                    {% if guest_name != user_display_name %}
+                    <tr><td class="label">Purchased by</td><td>{{ user_display_name }}</td></tr>
+                    {% endif %}
+                    <tr><td class="label">Date &amp; time</td><td>{{ start_datetime }}</td></tr>
+                    {% if address %}
+                    <tr><td class="label">Location</td><td>{{ address }}</td></tr>
+                    {% endif %}
                     {% if venue_name %}
-                    <p class="seating-venue">{{ venue_name }}</p>
+                    <tr><td class="label">Venue</td><td>{{ venue_name }}{% if sector_name %} &middot; {{ sector_name }}{% endif %}</td></tr>
                     {% endif %}
-                    {% if seat_label %}
-                    <p class="seating-main">Seat {{ seat_label }}{% if seat_row %} &middot; Row {{ seat_row }}{% endif %}</p>
-                    {% elif sector_name %}
-                    <p class="seating-main">{{ sector_name }}</p>
-                    {% endif %}
-                    {% if sector_name and seat_label %}
-                    <p class="seating-sector">{{ sector_name }}</p>
-                    {% endif %}
+                </table>
+            </div>
+
+            <div class="perf"></div>
+
+            <div class="stub">
+                <p class="eyebrow">Admit one</p>
+                <div class="qr-sticker">
+                    <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Ticket QR Code">
                 </div>
-            </div>
-            {% endif %}
-        </div>
-
-        <!-- QR Code -->
-        <div class="qr-section">
-            <div class="qr-code-container">
-                <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Ticket QR Code" width="140" height="140">
-            </div>
-            <p class="qr-instruction">Present this QR code at the event entrance</p>
-        </div>
-
-        <!-- Footer -->
-        <div class="footer-section">
-            <p>This ticket is valid for one person only and must be presented for entry.</p>
-            <p class="ticket-id">{{ ticket_id }}</p>
-        </div>
-
-        <!-- Powered by Let's Revel -->
-        <div class="brand-footer">
-            <div class="brand-footer-inner">
-                {% if brand_logo %}
-                <img src="file://{{ brand_logo }}" alt="let's revel.">
+                {% if seat_label %}
+                <p class="seat-big">Seat {{ seat_label }}</p>
+                <p class="seat-sub">{% if seat_row %}Row {{ seat_row }}{% endif %}{% if seat_row and sector_name %} &middot; {% endif %}{{ sector_name|default:"" }}</p>
+                {% elif sector_name %}
+                <p class="seat-big">{{ sector_name }}</p>
+                {% else %}
+                <p class="seat-big">{{ tier_name }}</p>
                 {% endif %}
-                <span class="brand-footer-text">Powered by let's revel.</span>
+                <p class="instruction">Present this QR code at the event entrance.</p>
+                <p class="tid">{{ ticket_id_short }}</p>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p class="legal">Valid for one person only &middot; {{ ticket_id }}</p>
+            <div class="powered">
+                <img src="file://{{ brand_mark }}" alt="">
+                <span class="by">Powered by</span>
+                <span class="wordmark"><span style="color:#8C3CDD">r</span><span style="color:#A33AB0">e</span><span style="color:#B93884">v</span><span style="color:#D03557">e</span><span style="color:#E6332A">l</span><span class="dot">.</span></span>
             </div>
         </div>
     </div>
+</div>
 </body>
 </html>
