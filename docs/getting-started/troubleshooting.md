@@ -197,6 +197,7 @@ Most external services have safe defaults for local development. Here's what act
 |---------|---------|---------|-------|
 | PostgreSQL | `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` | `revel`, `db-password`, `revel`, `5432` | Provided by Docker Compose (values from `.env.example`) |
 | Redis | `REDIS_HOST` | `localhost` | Provided by Docker Compose |
+| Redis timeouts | `REDIS_SOCKET_CONNECT_TIMEOUT`, `REDIS_SOCKET_TIMEOUT` | `1.0`, `1.0` | Seconds; bound every cache op so a hung Redis errors instead of blocking requests (#880) |
 
 ### Required for specific features
 

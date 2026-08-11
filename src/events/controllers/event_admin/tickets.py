@@ -42,8 +42,7 @@ TicketOrdering = t.Literal[
 # else the recorded price (offline/at-the-door PWYC, discounted, or category-priced),
 # else the tier list price. tier.price is non-nullable (defaults to 0), so the result is
 # never NULL — no NULLS FIRST/LAST handling needed. All three operands are already joined
-# via Ticket.objects.full(), but the COALESCE itself must be annotated so it appears in
-# the SELECT list (required for SELECT DISTINCT).
+# via Ticket.objects.full(); the COALESCE is annotated so it can be used in ORDER BY.
 #
 # KNOWN LIMITATION — category-priced tiers (spec §5.5). This is a DB-level expression used
 # to sort and display a list; it cannot walk seat → price category → the tier's
@@ -106,11 +105,11 @@ class EventAdminTicketsController(EventAdminBaseController):
     def list_ticket_tiers(self, event_id: UUID) -> QuerySet[models.TicketTier]:
         """List all ticket tiers for an event."""
         self.get_one(event_id)
+        # No .distinct(): all joins are to-one (#880).
         return (
             models.TicketTier.objects.with_venue_and_sector()
             .select_related("event__organization")
             .filter(event_id=event_id)
-            .distinct()
         )
 
     @route.post(
@@ -224,7 +223,9 @@ class EventAdminTicketsController(EventAdminBaseController):
             qs = qs.filter(held_pass__isnull=(source == "direct"))
         qs = params.filter(qs).annotate(effective_price_paid=EFFECTIVE_PRICE_PAID)
         # "-id" is a stable tiebreaker so pagination stays deterministic across equal sort keys.
-        return qs.distinct().order_by(TICKET_ORDER_FIELDS[order_by], "-id")
+        # No .distinct(): every filter/search/order field is a to-one join, and DISTINCT over
+        # the wide full() select costs ~600ms of Postgres *planning* time per request (#880).
+        return qs.order_by(TICKET_ORDER_FIELDS[order_by], "-id")
 
     @route.get(
         "/tickets/{ticket_id}",

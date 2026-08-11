@@ -210,12 +210,18 @@ class VenueSeatInline(TabularInline):  # type: ignore[misc]
 class TicketTierInline(TabularInline):  # type: ignore[misc]
     model = models.TicketTier
     extra = 1
+    # raw_id: plain <select>s here enumerate every venue/sector/membership-tier in the DB
+    # and fire one __str__ query per <option>, per row + empty form (#880).
+    raw_id_fields = ["venue", "sector", "restricted_to_membership_tiers"]
 
 
 class EventInvitationInline(TabularInline):  # type: ignore[misc]
     model = models.EventInvitation
     extra = 1
     autocomplete_fields = ["user"]
+    # raw_id: the tiers multi-select enumerates every TicketTier across all events,
+    # one Event __str__ query per <option> (#880).
+    raw_id_fields = ["tiers"]
 
 
 class EventRSVPInline(TabularInline):  # type: ignore[misc]
@@ -228,6 +234,10 @@ class TicketInline(TabularInline):  # type: ignore[misc]
     model = models.Ticket
     extra = 0
     autocomplete_fields = ["user", "tier", "checked_in_by"]
+    # raw_id: these rendered as plain <select>s over EVERY seat/venue/sector/discount
+    # code/held pass in the DB, with one __str__ query per <option>, per ticket row +
+    # empty form — thousands of queries on a seated event's change page (#880).
+    raw_id_fields = ["venue", "sector", "seat", "discount_code", "held_pass"]
     readonly_fields = ["id", "checked_in_at"]
     can_delete = False
 
@@ -245,6 +255,9 @@ class WaitlistOfferInline(TabularInline):  # type: ignore[misc]
     model = models.WaitlistOffer
     extra = 0
     fields = ("user", "status", "expires_at", "is_cutoff_batch", "batch_id", "created_at")
+    # Without this, `user` rendered as a <select> over every registered user, once per
+    # offer row + empty form (#880).
+    autocomplete_fields = ["user"]
     readonly_fields = ("created_at", "batch_id")
     show_change_link = True
 
