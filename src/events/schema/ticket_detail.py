@@ -245,8 +245,6 @@ class MemberScanResponseSchema(Schema):
     @classmethod
     def from_result(cls, result: "MemberScanResult") -> "MemberScanResponseSchema":
         """Build the no-check-in scan response (zero or multiple tickets)."""
-        from .organization import MemberVerificationSchema
-
         if result.tickets:
             detail = str(_("This member holds multiple tickets for this event. Scan the specific ticket QR."))
         else:

@@ -146,6 +146,25 @@ def format_date_compact(dt: datetime, tz: ZoneInfo | None = None) -> str:
     return dt.strftime("%b %-d, %H:%M")
 
 
+def format_date_year(dt: datetime, tz: ZoneInfo | None = None) -> str:
+    """Format a datetime with the year but no time, for evergreen pass fields.
+
+    Unlike ``format_date_compact``, the year is kept and the time is dropped —
+    for fields like "member since" on a permanent card, where clock time is
+    noise but the year is the only thing that makes the date unambiguous.
+
+    Args:
+        dt: The datetime to format.
+        tz: Optional timezone to convert to before formatting.
+
+    Returns:
+        Formatted string like "Mar 1, 2025".
+    """
+    if tz:
+        dt = dt.astimezone(tz)
+    return dt.strftime("%b %-d, %Y")
+
+
 def format_date_full(dt: datetime, tz: ZoneInfo | None = None) -> str:
     """Format a datetime for full display (back fields).
 

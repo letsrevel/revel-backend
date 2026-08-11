@@ -26,6 +26,7 @@ from wallet.apple.formatting import (
     PassColors,
     format_date_compact,
     format_date_full,
+    format_date_year,
     format_iso_date,
     format_price,
     get_theme_colors,
@@ -234,7 +235,7 @@ class ApplePassGenerator:
             {
                 "key": "member_since",
                 "label": "MEMBER SINCE",
-                "value": format_date_compact(data.member_since, tz=data.org_tz),
+                "value": format_date_year(data.member_since, tz=data.org_tz),
             }
         )
 

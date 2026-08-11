@@ -22,10 +22,10 @@ MEMBERSHIP_SIGNED_LINK_TTL = timedelta(days=30)
 def _add_membership_wallet_context(base_context: dict[str, t.Any], notification: Notification) -> dict[str, t.Any]:
     """Add membership-card badge URLs to a membership email template context.
 
-    Sets ``apple_wallet_signed_url``, ``google_wallet_save_url`` and
-    ``membership_pdf_url`` when available. Never raises — email rendering must
-    not fail because a wallet link could not be built. CANCELLED/BANNED members
-    get no links (mirrors ``MembershipWalletController.get_member()``).
+    Sets ``apple_wallet_signed_url`` and ``google_wallet_save_url`` when
+    available. Never raises — email rendering must not fail because a wallet
+    link could not be built. CANCELLED/BANNED members get no links (mirrors
+    ``MembershipWalletController.get_member()``).
     """
     from events.models import OrganizationMember
     from events.utils import apple_wallet_configured, google_wallet_configured
@@ -40,10 +40,6 @@ def _add_membership_wallet_context(base_context: dict[str, t.Any], notification:
         member = qs.filter(organization_id=organization_id, user=notification.user).first()
     if member is None:
         return base_context
-
-    base_context["context"]["membership_pdf_url"] = (
-        f"{settings.BASE_URL.rstrip('/')}/api/me/organizations/{member.organization.slug}/membership/pdf"
-    )
 
     if google_wallet_configured():
         try:
