@@ -19,7 +19,7 @@ from django.utils import timezone
 from events.models import Event, HeldSeriesPass, Organization, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import format_iso_date, format_price, get_theme_hex_background
-from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD
+from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD, POWERED_BY_URL
 from wallet.pricing import resolve_ticket_price
 
 
@@ -31,6 +31,11 @@ def _pass_id(kind: str, entity_id: t.Any) -> str:
 def _localized(value: str) -> dict[str, t.Any]:
     """Wrap a string in Google's LocalizedString shape."""
     return {"defaultValue": {"language": "en", "value": value}}
+
+
+def _powered_by_links() -> dict[str, t.Any]:
+    """Platform attribution link — mirrors the Apple rail's powered_by back field."""
+    return {"uris": [{"id": "powered_by", "uri": POWERED_BY_URL, "description": "Powered by Revel"}]}
 
 
 def _org_logo_url(org: Organization) -> str | None:
@@ -159,6 +164,7 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
         "ticketType": _localized(ticket.tier.name),
         "validTimeInterval": {"end": {"date": format_iso_date(event.end + PASS_EXPIRATION_GRACE_PERIOD, tz=tz)}},
         "textModulesData": [{"id": "price", "header": "Price", "body": format_price(price, currency)}],
+        "linksModuleData": _powered_by_links(),
     }
     if ticket.guest_name:
         obj["ticketHolderName"] = ticket.guest_name
@@ -235,6 +241,7 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
         "textModulesData": [
             {"id": "price", "header": "Price", "body": format_price(held_pass.price_paid, series_pass.currency)}
         ],
+        "linksModuleData": _powered_by_links(),
     }
     return {"eventTicketClasses": [cls], "eventTicketObjects": [obj]}
 
@@ -281,6 +288,7 @@ def build_membership_payload(member: OrganizationMember) -> dict[str, t.Any]:
                 "body": "Your newest membership card supersedes any older ones.",
             },
         ],
+        "linksModuleData": _powered_by_links(),
     }
     if member.tier:
         obj["subheader"] = _localized(member.tier.name)

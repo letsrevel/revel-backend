@@ -52,6 +52,14 @@ logger = structlog.get_logger(__name__)
 # Gives attendees time after the event officially ends (e.g. encores, delays).
 PASS_EXPIRATION_GRACE_PERIOD = timedelta(hours=12)
 
+# Platform attribution on the back of every pass — the wallet equivalent of the
+# PDF footer's "Powered by revel." lockup. Product URL, not the instance URL:
+# attribution points at the project even on self-hosted deployments. Also used
+# by the Google rail (linksModuleData) so both rails stay in sync.
+POWERED_BY_LABEL = "Powered by"
+POWERED_BY_VALUE = "Revel — https://letsrevel.io"
+POWERED_BY_URL = "https://letsrevel.io"
+
 
 @dataclass
 class PassData:
@@ -264,6 +272,7 @@ class ApplePassGenerator:
                 "backFields": [
                     {"key": "member_id", "label": "Member ID", "value": data.serial_number},
                     {"key": "org", "label": "Organization", "value": data.organization_name},
+                    {"key": "powered_by", "label": POWERED_BY_LABEL, "value": POWERED_BY_VALUE},
                 ],
             },
         }
@@ -588,6 +597,8 @@ class ApplePassGenerator:
                     "value": "\n".join(seating_parts),
                 }
             )
+
+        fields.append({"key": "powered_by", "label": POWERED_BY_LABEL, "value": POWERED_BY_VALUE})
 
         return fields
 
