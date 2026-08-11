@@ -7,12 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-11
+
 ### Added
 
-- **Membership wallet cards** (#878): organization members can add their membership to Apple Wallet or Google Wallet, or download it as a PDF, mirroring the existing ticket wallet experience
+- **Membership wallet cards**: organization members can add their membership to Apple Wallet or Google Wallet, or download it as a PDF, mirroring the existing ticket wallet experience
   - `GET /me/organizations/{slug}/membership/wallet/apple`, `.../wallet/google`, and `.../membership/pdf`; `apple_pass_available` / `google_pass_available` flags exposed on `GET /me/memberships`
-- **Member verification at the door** (#878): staff with `check_in_attendees` can scan a membership card to verify a member's status (active/paused/cancelled/banned) via `GET .../members/verify/{code}` — side-effect-free, so it works even when the member has no ticket
-- **Membership cards at event check-in** (#878): the existing ticket check-in endpoint now also accepts a membership-card scan — if the member holds exactly one non-cancelled ticket for the event it is checked in automatically, otherwise staff get a report of the member's tickets so they can scan the right one
+- **Member verification at the door**: staff with `check_in_attendees` can scan a membership card to verify a member's status (active/paused/cancelled/banned) via `GET .../members/verify/{code}` — side-effect-free, so it works even when the member has no ticket
+- **Membership cards at event check-in**: the existing ticket check-in endpoint now also accepts a membership-card scan — if the member holds exactly one non-cancelled ticket for the event it is checked in automatically, otherwise staff get a report of the member's tickets so they can scan the right one
+
+### Changed
+
+- **API performance**: dashboard ticket/RSVP/invitation lists and organizer ticket/tier lists are dramatically faster (a redundant `DISTINCT` was costing ~600ms of query planning per request), the OpenAPI schema is now built once per process instead of on every `/api/openapi.json` hit, and `my-permissions` is served from a short-lived cache invalidated immediately when memberships or staff permissions change; Django admin Event pages no longer render every seat/tier/user in inline dropdowns. New `REDIS_SOCKET_CONNECT_TIMEOUT` / `REDIS_SOCKET_TIMEOUT` settings (default 1s) keep a hung Redis from blocking requests
+- Wallet passes rebranded to the official brand identity: Apple Wallet passes (tickets and series passes) get a vertical Hearty Purple → Light Crimson gradient background, Google Wallet cards the solid Hearty Purple `#8C3CDD`
+
+### Fixed
+
+- Google Wallet save links no longer break when an organization's logo or event cover art is replaced after the link was issued — passes now embed stable image URLs (`GET /api/organizations/{id}/logo`, `GET /api/events/{id}/cover-art`) that always serve the current image, falling back to a neutral placeholder
 
 ## [2.2.0] - 2026-08-11
 
