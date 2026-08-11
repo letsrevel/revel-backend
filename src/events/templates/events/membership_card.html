@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Membership Card - {{ organization_name }}</title>
+    {% include "_fonts.html" %}
+    <style>
+        /* Bubble brand palette (2026 rebrand — mirrors revel-frontend/src/app.css, matches
+           ticket.html/wallet passes):
+           paper #F3EFFA · ink #0D1E1C · Hearty Purple #8C3CDD · Light Crimson #E6332A */
+        @page {
+            size: A4;
+            margin: 0;
+        }
+        body {
+            font-family: 'Nata Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-weight: 300;
+            color: #0D1E1C;
+            margin: 0;
+            padding: 0;
+        }
+        .card-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            page-break-inside: avoid;
+        }
+
+        /* Cover Banner */
+        .cover-banner {
+            width: 100%;
+            height: 180px;
+            background: linear-gradient(135deg, #8C3CDD 0%, #E6332A 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .cover-banner img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .cover-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(13,30,28,0.82) 0%, rgba(13,30,28,0) 100%);
+            padding: 20px 30px;
+            color: #FFFFFF;
+        }
+        .cover-overlay .eyebrow {
+            margin: 0;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            opacity: 0.92;
+        }
+        .cover-overlay h1 {
+            margin: 4px 0 0 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        /* Logo Section */
+        .logo-section {
+            display: flex;
+            align-items: center;
+            padding: 25px 30px;
+            background: #FFFFFF;
+            border-bottom: 2px solid #EDE7F6;
+        }
+        .logo-container {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            flex-shrink: 0;
+            overflow: hidden;
+            margin-right: 15px;
+        }
+        .logo-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .member-name {
+            flex: 1;
+        }
+        .member-name .name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #0D1E1C;
+            margin: 0;
+        }
+        .member-name .since {
+            font-size: 12px;
+            color: #46405E;
+            margin: 3px 0 0 0;
+        }
+        .tier-badge {
+            display: inline-block;
+            background: #8C3CDD;
+            color: #FFFFFF;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            padding: 5px 12px;
+            border-radius: 999px;
+            margin-left: 10px;
+        }
+
+        /* Content Section */
+        .content-section {
+            padding: 25px 30px;
+            background: #FFFFFF;
+            flex: 1;
+        }
+        .info-card {
+            background: #F8F5FC;
+            border-left: 4px solid #8C3CDD;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .info-row {
+            display: flex;
+            margin: 8px 0;
+            font-size: 13px;
+        }
+        .info-label {
+            font-weight: 600;
+            color: #46405E;
+            min-width: 110px;
+        }
+        .info-value {
+            color: #0D1E1C;
+            flex: 1;
+        }
+
+        /* QR Code Section */
+        .qr-section {
+            text-align: center;
+            padding: 20px 30px;
+            background: #FFFFFF;
+            border-top: 1px solid #EDE7F6;
+        }
+        .qr-code-container {
+            display: inline-block;
+            padding: 15px;
+            background: #FFFFFF;
+            border: 2px solid #8C3CDD;
+            border-radius: 8px;
+        }
+        .qr-code-container img {
+            display: block;
+        }
+        .qr-instruction {
+            margin-top: 12px;
+            font-size: 11px;
+            color: #8C3CDD;
+        }
+        .member-id-short {
+            margin-top: 6px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #46405E;
+        }
+
+        /* Footer Section */
+        .footer-section {
+            padding: 16px 30px;
+            background: #F8F5FC;
+            border-top: 1px solid #EDE7F6;
+            text-align: center;
+        }
+        .footer-section p {
+            margin: 4px 0;
+            font-size: 10px;
+            color: #8A82A6;
+        }
+        .member-id {
+            font-family: monospace;
+            color: #46405E;
+        }
+
+        /* Powered by revel. footer */
+        .brand-footer {
+            padding: 10px 30px 14px;
+            background: #F8F5FC;
+            text-align: center;
+            border-top: 1px solid #EDE7F6;
+        }
+        .brand-footer-inner {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .brand-footer img {
+            width: 4.2mm;
+            height: 4.8mm;
+        }
+        .brand-footer-text {
+            font-size: 9px;
+            color: #8A82A6;
+            letter-spacing: 0.2px;
+        }
+        .brand-footer .wordmark {
+            font-size: 9.5px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+        }
+
+        /* Decorative accent bar */
+        .accent-bar {
+            height: 4px;
+            background: linear-gradient(to right, #8C3CDD, #E6332A);
+        }
+    </style>
+</head>
+<body>
+    <div class="card-container">
+        <!-- Cover Banner -->
+        <div class="cover-banner">
+            {% if cover_art_url %}
+            <img src="{{ cover_art_url }}" alt="">
+            {% endif %}
+            <div class="cover-overlay">
+                <p class="eyebrow">Membership</p>
+                <h1>{{ organization_name }}</h1>
+            </div>
+        </div>
+
+        <div class="accent-bar"></div>
+
+        <!-- Logo and Member Name -->
+        <div class="logo-section">
+            {% if logo_url %}
+            <div class="logo-container">
+                <img src="{{ logo_url }}" alt="">
+            </div>
+            {% endif %}
+            <div class="member-name">
+                <p class="name">{{ member_name }}{% if tier_name %}<span class="tier-badge">{{ tier_name }}</span>{% endif %}</p>
+                <p class="since">Member since {{ member_since }}</p>
+            </div>
+        </div>
+
+        <!-- Details -->
+        <div class="content-section">
+            <div class="info-card">
+                <div class="info-row">
+                    <span class="info-label">Organization</span>
+                    <span class="info-value">{{ organization_name }}</span>
+                </div>
+                {% if tier_name %}
+                <div class="info-row">
+                    <span class="info-label">Tier</span>
+                    <span class="info-value">{{ tier_name }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- QR Code -->
+        <div class="qr-section">
+            <div class="qr-code-container">
+                <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Membership Card QR Code" width="140" height="140">
+            </div>
+            <p class="qr-instruction">Present this QR code to check in at member-only events</p>
+            <p class="member-id-short">{{ member_id_short }}</p>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer-section">
+            <p>This card identifies an active membership and must be presented for entry.</p>
+            <p class="member-id">{{ member_id }}</p>
+        </div>
+
+        <!-- Powered by revel. -->
+        <div class="brand-footer">
+            <div class="brand-footer-inner">
+                {% if brand_mark %}
+                <img src="file://{{ brand_mark }}" alt="">
+                {% endif %}
+                <span class="brand-footer-text">Powered by</span>
+                <span class="wordmark"><span style="color:#8C3CDD">r</span><span style="color:#A33AB0">e</span><span style="color:#B93884">v</span><span style="color:#D03557">e</span><span style="color:#E6332A">l</span><span style="color:#0D1E1C">.</span></span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -23,7 +23,7 @@ from django.utils.dateformat import format as date_format
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
     from events import models
-    from events.models import HeldSeriesPass, Organization, Ticket
+    from events.models import HeldSeriesPass, Organization, OrganizationMember, Ticket
 
 logger = structlog.get_logger(__name__)
 
@@ -495,5 +495,45 @@ def create_series_pass_pdf(held_pass: "HeldSeriesPass") -> bytes:
     }
 
     html_string = render_to_string("events/series_pass.html", context=context_data)
+    html = HTML(string=html_string)
+    return t.cast(bytes, html.write_pdf())
+
+
+def create_membership_pdf(member: "OrganizationMember") -> bytes:
+    """Generates a PDF membership card using weasyprint.
+
+    Args:
+        member: The OrganizationMember, expected to have ``organization``,
+            ``user`` and ``tier`` select_related to avoid N+1 queries.
+
+    Returns:
+        The PDF content as bytes.
+    """
+    from weasyprint import HTML
+
+    organization = member.organization
+
+    # member.qr_payload is the single source of truth for the scan contract
+    # (see ticket_service.resolve_check_in_ticket_id / scan_member_code).
+    qr_code_base64 = _qr_code_base64(member.qr_payload)
+
+    logo_file = organization.logo_thumbnail or organization.logo
+    cover_art_file = organization.cover_art_social or organization.cover_art
+
+    context_data = {
+        "organization_name": organization.name,
+        "member_name": member.user.get_display_name(),
+        "tier_name": member.tier.name if member.tier else None,
+        "member_since": format_organization_datetime(member.created_at, organization),
+        "qr_code_base64": qr_code_base64,
+        "member_id": str(member.id),
+        "member_id_short": str(member.id)[:8].upper(),
+        "logo_url": _file_to_data_uri(logo_file),
+        "cover_art_url": _file_to_data_uri(cover_art_file),
+        "font_dir": str(settings.BASE_DIR / "fonts"),
+        "brand_mark": str(settings.BASE_DIR / "assets" / "brand" / "revel-mark.svg"),
+    }
+
+    html_string = render_to_string("events/membership_card.html", context=context_data)
     html = HTML(string=html_string)
     return t.cast(bytes, html.write_pdf())
