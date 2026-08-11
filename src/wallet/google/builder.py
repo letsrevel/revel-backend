@@ -16,7 +16,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 
-from events.models import Event, HeldSeriesPass, Organization, Ticket
+from events.models import Event, HeldSeriesPass, Organization, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import format_iso_date, format_price, get_theme_hex_background
 from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD
@@ -237,3 +237,54 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
         ],
     }
     return {"eventTicketClasses": [cls], "eventTicketObjects": [obj]}
+
+
+def build_membership_payload(member: OrganizationMember) -> dict[str, t.Any]:
+    """Build the fat-JWT payload for a membership card (generic pass).
+
+    The tier is baked into the OBJECT ID (``membercard.<member_id>-<tier_id>``):
+    Google treats a save JWT whose object ID already exists as a no-op (it serves
+    the stored object without updating it), so a tier change must mint a NEW
+    object for the re-download to show the new tier. The superseded card lingers
+    in the user's wallet until manually removed — hence the note text module.
+    The barcode, by contrast, is always the stable ``member:<member_id>`` payload.
+
+    Args:
+        member: The organization member to build a card payload for.
+
+    Returns:
+        ``{"genericClasses": [...], "genericObjects": [...]}``
+    """
+    org = member.organization
+    tz = get_organization_timezone(org)
+
+    cls: dict[str, t.Any] = {"id": _pass_id("memberorg", org.id)}
+
+    tier_suffix = str(member.tier_id) if member.tier_id else "base"
+    obj: dict[str, t.Any] = {
+        "id": _pass_id("membercard", f"{member.id}-{tier_suffix}"),
+        "classId": cls["id"],
+        "state": "ACTIVE",
+        "cardTitle": _localized(org.name),
+        "header": _localized(member.user.get_display_name()),
+        "hexBackgroundColor": get_theme_hex_background(),
+        "barcode": {"type": "QR_CODE", "value": member.qr_payload},
+        "textModulesData": [
+            {
+                "id": "member_since",
+                "header": "Member since",
+                "body": format_iso_date(member.created_at, tz=tz)[:10],
+            },
+            {
+                "id": "note",
+                "header": "Note",
+                "body": "Your newest membership card supersedes any older ones.",
+            },
+        ],
+    }
+    if member.tier:
+        obj["subheader"] = _localized(member.tier.name)
+    if logo := _image(_org_logo_url(org)):
+        obj["logo"] = logo
+
+    return {"genericClasses": [cls], "genericObjects": [obj]}
