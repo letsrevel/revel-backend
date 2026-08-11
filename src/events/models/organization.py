@@ -778,18 +778,28 @@ class OrganizationMember(TimeStampedModel):
         return f"{self.QR_PREFIX}{self.id}"
 
     @property
+    def _can_hold_card(self) -> bool:
+        """Whether this member's status allows holding a membership card.
+
+        Mirrors ``for_visibility()`` / ``MembershipWalletController.get_member``:
+        CANCELLED and BANNED members get a 404 from every card download endpoint,
+        so availability flags must not advertise a button that would fail.
+        """
+        return self.status not in (self.MembershipStatus.CANCELLED, self.MembershipStatus.BANNED)
+
+    @property
     def apple_pass_available(self) -> bool:
-        """Whether an Apple Wallet membership card can be generated (server-wide config)."""
+        """Whether an Apple Wallet membership card is available for this member."""
         from events.utils import apple_wallet_configured
 
-        return apple_wallet_configured()
+        return apple_wallet_configured() and self._can_hold_card
 
     @property
     def google_pass_available(self) -> bool:
-        """Whether a Google Wallet membership card can be generated (server-wide config)."""
+        """Whether a Google Wallet membership card is available for this member."""
         from events.utils import google_wallet_configured
 
-        return google_wallet_configured()
+        return google_wallet_configured() and self._can_hold_card
 
 
 class OrganizationToken(TokenMixin):

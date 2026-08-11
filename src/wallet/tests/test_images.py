@@ -327,6 +327,33 @@ class TestResolveOrgLogo:
 
         assert result is None
 
+    def test_falls_back_to_logo_when_thumbnail_read_fails(self) -> None:
+        """A broken/missing thumbnail file must fall back to the original (#879 contract)."""
+        org = MagicMock()
+        org.id = UUID("12345678-1234-5678-1234-567812345678")
+        org.logo_thumbnail = MagicMock()
+        org.logo_thumbnail.open.side_effect = Exception("missing file")
+        org.logo = MagicMock()
+        org.logo.read.return_value = b"full-bytes"
+
+        result = resolve_org_logo(org)
+
+        assert result == b"full-bytes"
+        org.logo.close.assert_called_once()
+
+    def test_closes_file_when_read_fails(self) -> None:
+        """The file handle must be closed even when read() raises."""
+        org = MagicMock()
+        org.id = UUID("12345678-1234-5678-1234-567812345678")
+        org.logo_thumbnail = None
+        org.logo = MagicMock()
+        org.logo.read.side_effect = Exception("io error")
+
+        result = resolve_org_logo(org)
+
+        assert result is None
+        org.logo.close.assert_called_once()
+
 
 class TestGenerateFallbackLogo:
     """Tests for generate_fallback_logo function."""

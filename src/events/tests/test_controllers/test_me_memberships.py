@@ -188,9 +188,52 @@ class TestListMyMemberships:
         OrganizationMember.objects.create(organization=organization, user=subscriber_user)
         settings.GOOGLE_WALLET_ISSUER_ID = "1234"
         settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = "/tmp/fake.json"
+        # Pin Apple to unconfigured so the flag assertion is environment-independent.
+        settings.APPLE_WALLET_PASS_TYPE_ID = ""
         url = reverse("api:list_my_memberships")
         response = subscriber_client.get(url)
         assert response.status_code == 200
         row = response.json()["results"][0]
         assert row["google_pass_available"] is True
-        assert "apple_pass_available" in row
+        assert row["apple_pass_available"] is False
+
+    def test_banned_membership_reports_no_wallet_availability(
+        self,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        organization: Organization,
+        settings: t.Any,
+    ) -> None:
+        """CANCELLED/BANNED rows must not advertise wallet buttons that would 404.
+
+        The download endpoints filter with for_visibility(), so the flags mirror that.
+        """
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=subscriber_user,
+            status=OrganizationMember.MembershipStatus.BANNED,
+        )
+        settings.GOOGLE_WALLET_ISSUER_ID = "1234"
+        settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = "/tmp/fake.json"
+        url = reverse("api:list_my_memberships")
+        response = subscriber_client.get(url)
+        assert response.status_code == 200
+        row = response.json()["results"][0]
+        assert row["status"] == OrganizationMember.MembershipStatus.BANNED
+        assert row["google_pass_available"] is False
+        assert row["apple_pass_available"] is False
+
+    def test_my_memberships_expose_member_id_and_qr_payload(
+        self,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """The FE renders the membership QR/card in-app from qr_payload."""
+        member = OrganizationMember.objects.create(organization=organization, user=subscriber_user)
+        url = reverse("api:list_my_memberships")
+        response = subscriber_client.get(url)
+        assert response.status_code == 200
+        row = response.json()["results"][0]
+        assert row["id"] == str(member.id)
+        assert row["qr_payload"] == f"member:{member.id}"

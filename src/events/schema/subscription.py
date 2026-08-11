@@ -569,8 +569,15 @@ class MyMembershipSchema(Schema):
 
     Surfaces both legacy memberships (no subscription) and subscription-backed memberships
     in a single shape.
+
+    ``qr_payload`` (``member:<member_id>``) is the scan contract — exposed so the
+    frontend can render the membership QR/card in-app without a wallet download.
+    A rendered (or screenshotted) QR carries no entitlement by itself: scanning
+    always resolves live status server-side.
     """
 
+    id: UUID
+    qr_payload: str
     organization_id: UUID
     organization_name: str
     organization_slug: str
