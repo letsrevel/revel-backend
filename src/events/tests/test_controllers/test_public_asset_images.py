@@ -67,6 +67,20 @@ class TestOrganizationLogo:
         assert response.status_code == 200
         assert response.content.startswith(PNG_MAGIC)
 
+    def test_falls_back_to_original_when_thumbnail_file_missing(
+        self, client: Client, organization: Organization, png_bytes: bytes
+    ) -> None:
+        """A broken thumbnail file falls back to the original logo, not the placeholder."""
+        organization.logo.save("logo.png", ContentFile(png_bytes), save=True)
+        organization.logo_thumbnail.save("logo_thumb.png", ContentFile(b"thumb-bytes"), save=True)
+        organization.logo_thumbnail.storage.delete(organization.logo_thumbnail.name)
+        url = reverse("api:organization_logo", kwargs={"organization_id": organization.id})
+
+        response = client.get(url)
+
+        assert response.status_code == 200
+        assert response.content == png_bytes
+
     def test_private_org_logo_still_served_anonymously(
         self, client: Client, organization: Organization, png_bytes: bytes
     ) -> None:

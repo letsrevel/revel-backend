@@ -353,30 +353,36 @@ def _placeholder_png_bytes() -> bytes:
     return buffer.getvalue()
 
 
-def serve_image_or_placeholder(file_field: FieldFile | None) -> HttpResponse:
-    """Serve an image field's current bytes, or a neutral placeholder.
+def serve_image_or_placeholder(*file_fields: FieldFile | None) -> HttpResponse:
+    """Serve the first readable image field's bytes, or a neutral placeholder.
 
     Backs stable image URLs embedded in external artifacts (e.g. Google
     Wallet save links in old emails): uploads delete the replaced file from
-    storage, so these URLs must degrade to a placeholder — never an error —
-    when the file was replaced, removed, or never set.
+    storage, so these URLs must degrade — never error — when a file was
+    replaced, removed, or never set. Candidates are tried in order (e.g.
+    thumbnail, then original) so a broken optimized variant falls back to
+    the original rather than the placeholder (same contract as
+    ``wallet.apple.images.resolve_cover_art``, #358).
 
     Args:
-        file_field: A Django FileField/ImageField value, or None.
+        file_fields: Django FileField/ImageField values, best first; falsy
+            entries are skipped.
 
     Returns:
         A cacheable image response.
     """
     body = _placeholder_png_bytes()
     content_type = "image/png"
-    if file_field:
+    for file_field in file_fields:
+        if not file_field:
+            continue
         try:
             with file_field.open("rb") as f:
                 body = f.read()
             content_type = mimetypes.guess_type(file_field.name or "")[0] or "application/octet-stream"
+            break
         except OSError, ValueError:
-            body = _placeholder_png_bytes()
-            content_type = "image/png"
+            continue
     response = HttpResponse(body, content_type=content_type)
     response["Cache-Control"] = "public, max-age=3600"
     return response

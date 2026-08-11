@@ -193,7 +193,7 @@ class OrganizationController(UserAwareController):
         and logo files are already served unauthenticated from /media.
         """
         organization = get_object_or_404(models.Organization, id=organization_id)
-        return serve_image_or_placeholder(organization.logo_thumbnail or organization.logo)
+        return serve_image_or_placeholder(organization.logo_thumbnail, organization.logo)
 
     @route.get("/{slug}", url_name="get_organization", response=schema.OrganizationRetrieveSchema)
     def get_organization(self, slug: str) -> models.Organization:
