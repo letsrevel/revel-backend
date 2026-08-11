@@ -207,6 +207,25 @@ def resolve_cover_art(event: t.Any) -> bytes | None:
     return None
 
 
+def resolve_org_logo(organization: t.Any) -> bytes | None:
+    """Read the organization's logo bytes (thumbnail preferred), or None.
+
+    Mirrors ``resolve_cover_art``'s never-raise posture: a broken file must not
+    break pass generation — callers fall back to ``generate_fallback_logo``.
+    """
+    file_field = organization.logo_thumbnail or organization.logo
+    if not file_field:
+        return None
+    try:
+        file_field.open("rb")
+        data = t.cast(bytes, file_field.read())
+        file_field.close()
+        return data
+    except Exception:
+        logger.debug("org_logo_read_failed", organization_id=str(organization.id))
+        return None
+
+
 def generate_fallback_logo(organization: t.Any) -> bytes:
     """Generate a fallback logo based on organization ID.
 
