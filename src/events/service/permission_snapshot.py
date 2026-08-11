@@ -8,10 +8,11 @@ Safety model: no server-side authorization ever reads this payload — every adm
 purchase endpoint re-checks ``has_org_permission``/``is_owner_or_staff``/membership
 against the DB per request — so a stale entry can only mis-render UI affordances for up
 to the TTL, never grant access. Explicit invalidation therefore exists only where a
-*grant* is part of an interactive flow (org creation, invitation-token claim) and a
-stale miss would 403 the very page the frontend navigates to next; every other mutation
-(staff/member changes, bans, subscription syncs, admin edits, cascades) deliberately
-rides the TTL.
+*grant* is part of an interactive flow and a stale entry would 403 or blank the very
+surface the grant was made for: org creation, invitation-token claim, and staff grants
+(add_staff, update_staff_permissions — #884). Every other mutation (staff/member
+removals, bans, subscription syncs, admin edits, cascades) deliberately rides the TTL —
+narrowing directions can only mis-render dead affordances, never leak access.
 
 Cache ops fail open: a broken/unreachable Redis degrades to the plain DB build and never
 fails a request or a mutation.
