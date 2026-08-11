@@ -1,16 +1,19 @@
 """Tests for wallet/apple/images.py."""
 
 import io
+import typing as t
 from unittest.mock import MagicMock
 from uuid import UUID
 
 from PIL import Image
 
 from wallet.apple.images import (
+    BACKGROUND_SIZES,
     ICON_SIZES,
     LOGO_SIZES,
     generate_colored_icon,
     generate_fallback_logo,
+    generate_gradient_background,
     generate_text_logo,
     parse_rgb_color,
     resize_image,
@@ -379,3 +382,51 @@ class TestParseRgbColor:
         """Should parse white color."""
         result = parse_rgb_color("rgb(255, 255, 255)")
         assert result == (255, 255, 255)
+
+
+class TestGenerateGradientBackground:
+    """Tests for generate_gradient_background."""
+
+    def test_background_sizes_are_apple_spec(self) -> None:
+        """background.png is 180x220 points at 1x/2x/3x scales."""
+        assert BACKGROUND_SIZES == {
+            "background.png": (180, 220),
+            "background@2x.png": (360, 440),
+            "background@3x.png": (540, 660),
+        }
+
+    def test_generates_valid_png_at_each_size(self) -> None:
+        """Every declared size renders a PNG with exactly those dimensions."""
+        for size in BACKGROUND_SIZES.values():
+            png_bytes = generate_gradient_background(size)
+            img = Image.open(io.BytesIO(png_bytes))
+            assert img.format == "PNG"
+            assert img.size == size
+            assert img.mode == "RGB"
+
+    def test_gradient_runs_purple_to_crimson_vertically(self) -> None:
+        """Top edge is Hearty Purple, bottom edge is Light Crimson."""
+        png_bytes = generate_gradient_background((180, 220))
+        img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+        top = t.cast(tuple[int, int, int], img.getpixel((90, 0)))
+        bottom = t.cast(tuple[int, int, int], img.getpixel((90, 219)))
+        for channel, expected in zip(top, (140, 60, 221)):
+            assert abs(channel - expected) <= 3
+        for channel, expected in zip(bottom, (230, 51, 42)):
+            assert abs(channel - expected) <= 3
+
+    def test_gradient_is_horizontally_uniform(self) -> None:
+        """A vertical gradient has identical pixels across each row."""
+        png_bytes = generate_gradient_background((180, 220))
+        img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+        for y in (0, 110, 219):
+            assert img.getpixel((0, y)) == img.getpixel((90, y)) == img.getpixel((179, y))
+
+    def test_gradient_midpoint_blends_endpoints(self) -> None:
+        """The center pixel sits between the endpoints (a real gradient, not a fill)."""
+        png_bytes = generate_gradient_background((180, 220))
+        img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+        center = t.cast(tuple[int, int, int], img.getpixel((90, 110)))
+        for channel, start, end in zip(center, (140, 60, 221), (230, 51, 42)):
+            low, high = min(start, end), max(start, end)
+            assert low < channel < high
