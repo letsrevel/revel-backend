@@ -31,10 +31,12 @@ from wallet.apple.formatting import (
     get_theme_colors,
 )
 from wallet.apple.images import (
+    BACKGROUND_SIZES,
     ICON_SIZES,
     LOGO_SIZES,
     generate_colored_icon,
     generate_fallback_logo,
+    generate_gradient_background,
     parse_rgb_color,
     resize_image,
     resolve_cover_art,
@@ -299,6 +301,10 @@ class ApplePassGenerator:
         # Logos
         for filename, size in LOGO_SIZES.items():
             files[filename] = resize_image(pass_data.logo_image, size)
+
+        # Vertical brand-gradient background (iOS blurs it behind the pass)
+        for filename, size in BACKGROUND_SIZES.items():
+            files[filename] = generate_gradient_background(size)
 
         return files
 
