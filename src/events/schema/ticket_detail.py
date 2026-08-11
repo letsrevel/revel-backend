@@ -14,7 +14,7 @@ from events import models
 from events.models import DiscountCode, Payment, Ticket
 
 from .event import MinimalEventSchema
-from .organization import MinimalOrganizationMemberSchema
+from .organization import MemberVerificationSchema, MinimalOrganizationMemberSchema
 from .ticket_tier import Currencies, TicketTierSchema
 from .venue import MinimalSeatSchema
 
@@ -179,6 +179,7 @@ class CheckInRequestSchema(Schema):
 class CheckInResponseSchema(ModelSchema):
     """Schema for ticket check-in response."""
 
+    kind: t.Literal["checked_in"] = "checked_in"
     user: MinimalRevelUserSchema
     tier: TicketTierSchema | None = None
     price_paid: Decimal | None = None
@@ -213,3 +214,26 @@ class ConfirmPaymentSchema(Schema):
     """
 
     price_paid: Decimal | None = Field(None, gt=0)
+
+
+class MemberScanTicketSummarySchema(Schema):
+    """Minimal ticket row for the multiple-tickets member-scan outcome."""
+
+    id: UUID
+    tier_name: str | None = None
+    status: Ticket.TicketStatus
+
+
+class MemberScanResponseSchema(Schema):
+    """Member-card scan outcome when no ticket was checked in.
+
+    ``kind`` discriminates against ``CheckInResponseSchema`` in the check-in
+    union. ``tickets`` is empty for the no-ticket outcome and lists the
+    member's non-cancelled tickets when there are several (staff must scan
+    the specific ticket QR — the endpoint never guesses which one to burn).
+    """
+
+    kind: t.Literal["member"] = "member"
+    member: MemberVerificationSchema
+    tickets: list[MemberScanTicketSummarySchema] = Field(default_factory=list)
+    detail: str
