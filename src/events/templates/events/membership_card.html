@@ -8,285 +8,142 @@
         /* Brand tokens from docs/brand-style-guide.md (hexes are the contract):
            paper #F3EFFA · ink #0D1E1C · Hearty Purple #8C3CDD · Light Crimson #E6332A.
            Brand gradient is linear VERTICAL, Hearty Purple (top) -> Light Crimson (bottom). */
-        @page {
-            size: A4;
-            margin: 0;
-        }
+        @page { size: A4; margin: 0; }
+        html, body { margin: 0; padding: 0; }
         body {
             font-family: 'Nata Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             font-weight: 300;
             color: #0D1E1C;
-            margin: 0;
-            padding: 0;
+            background: #F3EFFA;
         }
-        .card-container {
-            width: 100%;
+        .page {
+            width: 210mm; height: 296mm;
+            padding: 10mm;
+            box-sizing: border-box;
+        }
+        .card {
+            background: #FFFFFF;
+            border-radius: 18px;
+            overflow: hidden;
             height: 100%;
-            display: flex;
-            flex-direction: column;
-            page-break-inside: avoid;
+            display: flex; flex-direction: column;
+            border: 1px solid #D6CBE6;
         }
 
-        /* Cover Banner */
-        .cover-banner {
-            width: 100%;
-            height: 180px;
-            background: linear-gradient(to bottom, #8C3CDD 0%, #E6332A 100%);
-            position: relative;
-            overflow: hidden;
-        }
-        .cover-banner img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .cover-overlay {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(to top, rgba(13,30,28,0.82) 0%, rgba(13,30,28,0) 100%);
-            padding: 20px 30px;
+        /* Cover banner */
+        .banner { height: 46mm; position: relative; overflow: hidden; background: linear-gradient(to bottom, #8C3CDD, #E6332A); }
+        .banner img.cover { width: 100%; height: 100%; object-fit: cover; }
+        .banner-overlay {
+            position: absolute; left: 0; right: 0; bottom: 0;
+            padding: 6mm 9mm 5mm;
+            background: linear-gradient(to top, rgba(13,30,28,0.82), rgba(13,30,28,0));
             color: #FFFFFF;
         }
-        .cover-overlay .eyebrow {
-            margin: 0;
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: 1.6px;
-            text-transform: uppercase;
-            opacity: 0.92;
+        .banner-overlay .eyebrow {
+            margin: 0 0 1.2mm; font-size: 6.5pt; font-weight: 600;
+            letter-spacing: 1.6px; text-transform: uppercase; opacity: 0.92;
         }
-        .cover-overlay h1 {
-            margin: 4px 0 0 0;
-            font-size: 24px;
-            font-weight: 600;
-        }
+        .banner-overlay h1 { margin: 0; font-size: 21pt; font-weight: 600; letter-spacing: 0.2px; }
 
-        /* Logo Section */
-        .logo-section {
-            display: flex;
-            align-items: center;
-            padding: 25px 30px;
-            background: #FFFFFF;
-            border-bottom: 2px solid #EDE7F6;
+        /* Member identity row */
+        .identity {
+            display: flex; align-items: center;
+            padding: 7mm 9mm;
+            border-bottom: 1px solid #EDE7F6;
         }
-        .logo-container {
-            width: 60px;
-            height: 60px;
-            border-radius: 8px;
-            flex-shrink: 0;
-            overflow: hidden;
-            margin-right: 15px;
+        .logo {
+            width: 16mm; height: 16mm; border-radius: 10px;
+            overflow: hidden; flex-shrink: 0; margin-right: 5mm;
+            border: 1px solid #EDE7F6;
         }
-        .logo-container img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .member-name {
-            flex: 1;
-        }
-        .member-name .name {
-            font-size: 18px;
-            font-weight: 600;
-            color: #0D1E1C;
-            margin: 0;
-        }
-        .member-name .since {
-            font-size: 12px;
-            color: #46405E;
-            margin: 3px 0 0 0;
-        }
+        .logo img { width: 100%; height: 100%; object-fit: cover; }
+        .identity .who { flex: 1; }
+        .identity .name { margin: 0; font-size: 15pt; font-weight: 600; }
+        .identity .since { margin: 1.2mm 0 0; font-size: 9pt; color: #46405E; }
         .tier-badge {
             display: inline-block;
-            background: #8C3CDD;
-            color: #FFFFFF;
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: 0.4px;
+            background: #8C3CDD; color: #FFFFFF;
+            font-size: 7.5pt; font-weight: 600; letter-spacing: 0.8px;
             text-transform: uppercase;
-            padding: 5px 12px;
-            border-radius: 999px;
-            margin-left: 10px;
+            padding: 1.6mm 4mm; border-radius: 999px;
+            margin-left: 4mm; vertical-align: middle;
         }
 
-        /* Content Section */
-        .content-section {
-            padding: 25px 30px;
-            background: #FFFFFF;
+        /* QR centerpiece */
+        .qr-zone {
             flex: 1;
-        }
-        .info-card {
-            background: #F8F5FC;
-            border-left: 4px solid #8C3CDD;
-            padding: 15px;
-            border-radius: 4px;
-        }
-        .info-row {
-            display: flex;
-            margin: 8px 0;
-            font-size: 13px;
-        }
-        .info-label {
-            font-weight: 600;
-            color: #46405E;
-            min-width: 110px;
-        }
-        .info-value {
-            color: #0D1E1C;
-            flex: 1;
-        }
-
-        /* QR Code Section */
-        .qr-section {
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
             text-align: center;
-            padding: 20px 30px;
-            background: #FFFFFF;
-            border-top: 1px solid #EDE7F6;
+            padding: 8mm 9mm;
         }
-        .qr-code-container {
-            display: inline-block;
-            padding: 15px;
-            background: #FFFFFF;
-            border: 2px solid #8C3CDD;
-            border-radius: 8px;
+        .qr-zone .eyebrow {
+            font-size: 6.5pt; font-weight: 600; letter-spacing: 1.6px;
+            text-transform: uppercase; color: #8C3CDD; margin: 0 0 3mm;
         }
-        .qr-code-container img {
-            display: block;
+        .qr-sticker {
+            background: #FFFFFF; border: 1px solid #D6CBE6; border-radius: 14px;
+            padding: 5mm; margin: 0 0 5mm;
         }
-        .qr-instruction {
-            margin-top: 12px;
-            font-size: 11px;
-            color: #8C3CDD;
-        }
-        .member-id-short {
-            margin-top: 6px;
-            font-family: monospace;
-            font-size: 11px;
-            color: #46405E;
-        }
+        .qr-sticker img { display: block; width: 48mm; height: 48mm; }
+        .instruction { font-size: 9pt; color: #46405E; margin: 0; line-height: 1.5; }
+        .mid { font-family: monospace; font-size: 8pt; color: #8C3CDD; margin: 4mm 0 0; }
 
-        /* Footer Section */
-        .footer-section {
-            padding: 16px 30px;
-            background: #F8F5FC;
+        /* Footer */
+        .footer {
             border-top: 1px solid #EDE7F6;
-            text-align: center;
+            padding: 4mm 9mm; display: flex; align-items: center; justify-content: space-between;
         }
-        .footer-section p {
-            margin: 4px 0;
-            font-size: 10px;
-            color: #8A82A6;
-        }
-        .member-id {
-            font-family: monospace;
-            color: #46405E;
-        }
-
-        /* Powered by revel. footer */
-        .brand-footer {
-            padding: 10px 30px 14px;
-            background: #F8F5FC;
-            text-align: center;
-            border-top: 1px solid #EDE7F6;
-        }
-        .brand-footer-inner {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .brand-footer img {
-            width: 4.2mm;
-            height: 4.8mm;
-        }
-        .brand-footer-text {
-            font-size: 9px;
-            color: #8A82A6;
-            letter-spacing: 0.2px;
-        }
-        .brand-footer .wordmark {
-            font-size: 9.5px;
-            font-weight: 600;
-            letter-spacing: 0.06em;
-        }
-
-        /* Decorative accent bar */
-        .accent-bar {
-            height: 4px;
-            background: linear-gradient(to right, #8C3CDD, #E6332A);
-        }
+        .legal { font-size: 7pt; color: #8A82A6; margin: 0; }
+        /* "Powered by revel." lockup — mirrors the FE RevelWordmark: "revel" SemiBold in the
+           brand gradient (per-letter #8C3CDD → #E6332A: WeasyPrint has no background-clip:text),
+           period in ink, tracking 0.06em on the wordmark. */
+        .powered { display: flex; align-items: center; gap: 1.8mm; white-space: nowrap; }
+        .powered img { width: 4.2mm; height: 4.8mm; }
+        .powered .by { font-size: 8pt; font-weight: 300; color: #46405E; }
+        .powered .wordmark { font-size: 8.5pt; font-weight: 600; letter-spacing: 0.06em; }
+        .powered .dot { color: #0D1E1C; }
     </style>
 </head>
 <body>
-    <div class="card-container">
-        <!-- Cover Banner -->
-        <div class="cover-banner">
-            {% if cover_art_url %}
-            <img src="{{ cover_art_url }}" alt="">
-            {% endif %}
-            <div class="cover-overlay">
+<div class="page">
+    <div class="card">
+        <div class="banner">
+            {% if cover_art_url %}<img class="cover" src="{{ cover_art_url }}" alt="">{% endif %}
+            <div class="banner-overlay">
                 <p class="eyebrow">Membership</p>
                 <h1>{{ organization_name }}</h1>
             </div>
         </div>
 
-        <div class="accent-bar"></div>
-
-        <!-- Logo and Member Name -->
-        <div class="logo-section">
+        <div class="identity">
             {% if logo_url %}
-            <div class="logo-container">
-                <img src="{{ logo_url }}" alt="">
-            </div>
+            <div class="logo"><img src="{{ logo_url }}" alt=""></div>
             {% endif %}
-            <div class="member-name">
+            <div class="who">
                 <p class="name">{{ member_name }}{% if tier_name %}<span class="tier-badge">{{ tier_name }}</span>{% endif %}</p>
                 <p class="since">Member since {{ member_since }}</p>
             </div>
         </div>
 
-        <!-- Details -->
-        <div class="content-section">
-            <div class="info-card">
-                <div class="info-row">
-                    <span class="info-label">Organization</span>
-                    <span class="info-value">{{ organization_name }}</span>
-                </div>
-                {% if tier_name %}
-                <div class="info-row">
-                    <span class="info-label">Tier</span>
-                    <span class="info-value">{{ tier_name }}</span>
-                </div>
-                {% endif %}
+        <div class="qr-zone">
+            <p class="eyebrow">Member</p>
+            <div class="qr-sticker">
+                <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Membership Card QR Code">
             </div>
+            <p class="instruction">Present this QR code to verify your membership.</p>
+            <p class="mid">{{ member_id_short }}</p>
         </div>
 
-        <!-- QR Code -->
-        <div class="qr-section">
-            <div class="qr-code-container">
-                <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Membership Card QR Code" width="140" height="140">
-            </div>
-            <p class="qr-instruction">Present this QR code to verify your membership</p>
-            <p class="member-id-short">{{ member_id_short }}</p>
-        </div>
-
-        <!-- Footer -->
-        <div class="footer-section">
-            <p>This card identifies its holder as a member; status is confirmed at scan time. Event entry requires a valid ticket.</p>
-            <p class="member-id">{{ member_id }}</p>
-        </div>
-
-        <!-- Powered by revel. -->
-        <div class="brand-footer">
-            <div class="brand-footer-inner">
-                {% if brand_mark %}
+        <div class="footer">
+            <p class="legal">Status is confirmed at scan time &middot; Event entry requires a valid ticket &middot; {{ member_id }}</p>
+            <div class="powered">
                 <img src="file://{{ brand_mark }}" alt="">
-                {% endif %}
-                <span class="brand-footer-text">Powered by</span>
-                <span class="wordmark"><span style="color:#8C3CDD">r</span><span style="color:#A33AB0">e</span><span style="color:#B93884">v</span><span style="color:#D03557">e</span><span style="color:#E6332A">l</span><span style="color:#0D1E1C">.</span></span>
+                <span class="by">Powered by</span>
+                <span class="wordmark"><span style="color:#8C3CDD">r</span><span style="color:#A33AB0">e</span><span style="color:#B93884">v</span><span style="color:#D03557">e</span><span style="color:#E6332A">l</span><span class="dot">.</span></span>
             </div>
         </div>
     </div>
+</div>
 </body>
 </html>
