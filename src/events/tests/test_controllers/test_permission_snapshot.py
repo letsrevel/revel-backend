@@ -1,8 +1,9 @@
 """Tests for the my-permissions payload cache (#880).
 
 Pins the contract of ``events.service.permission_snapshot``: short-TTL per-user cache,
-post-commit (never in-transaction) invalidation at the grant sites, rollback safety,
-and fail-open behavior when the cache backend errors.
+post-commit (never in-transaction) invalidation at the grant sites and via the
+membership/staff signal receivers (#886), rollback safety, and fail-open behavior
+when the cache backend errors.
 """
 
 import typing as t
@@ -14,7 +15,14 @@ from django.test.client import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
-from events.models import Organization, OrganizationStaff, OrganizationToken, PermissionMap, PermissionsSchema
+from events.models import (
+    Organization,
+    OrganizationMember,
+    OrganizationStaff,
+    OrganizationToken,
+    PermissionMap,
+    PermissionsSchema,
+)
 from events.service import permission_snapshot
 from events.service.organization_service import lifecycle, membership, tokens
 
@@ -124,6 +132,77 @@ def test_update_staff_permissions_invalidates_on_commit(
 
     payload = permission_snapshot.get_my_permissions_payload(user)
     assert payload["organization_permissions"][str(organization.id)]["default"]["create_event"] is True
+
+
+def test_membership_create_invalidates_on_commit(
+    user: RevelUser, organization: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Any OrganizationMember save busts the member's cached map after commit (#886)."""
+    key = permission_snapshot.get_cache_key(user.id)
+    permission_snapshot.get_my_permissions_payload(user)
+    assert cache.get(key) is not None
+
+    with django_capture_on_commit_callbacks(execute=True):
+        OrganizationMember.objects.create(organization=organization, user=user)
+    assert cache.get(key) is None
+
+    payload = permission_snapshot.get_my_permissions_payload(user)
+    assert str(organization.id) in payload["memberships"]
+
+
+def test_membership_status_change_invalidates_on_commit(
+    user: RevelUser, organization: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """A status update on an existing membership busts the cached map after commit (#886)."""
+    with django_capture_on_commit_callbacks(execute=True):
+        member = OrganizationMember.objects.create(organization=organization, user=user)
+    key = permission_snapshot.get_cache_key(user.id)
+    permission_snapshot.get_my_permissions_payload(user)
+    assert cache.get(key) is not None
+
+    with django_capture_on_commit_callbacks(execute=True):
+        member.status = OrganizationMember.MembershipStatus.PAUSED
+        member.save()
+    assert cache.get(key) is None
+
+    payload = permission_snapshot.get_my_permissions_payload(user)
+    assert payload["memberships"][str(organization.id)]["status"] == "paused"
+
+
+def test_membership_delete_invalidates_on_commit(
+    user: RevelUser, organization: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Deleting a membership busts the cached map after commit (#886)."""
+    with django_capture_on_commit_callbacks(execute=True):
+        member = OrganizationMember.objects.create(organization=organization, user=user)
+    key = permission_snapshot.get_cache_key(user.id)
+    permission_snapshot.get_my_permissions_payload(user)
+    assert cache.get(key) is not None
+
+    with django_capture_on_commit_callbacks(execute=True):
+        member.delete()
+    assert cache.get(key) is None
+
+    payload = permission_snapshot.get_my_permissions_payload(user)
+    assert payload["memberships"] == {}
+
+
+def test_remove_staff_invalidates_on_commit(
+    user: RevelUser, organization: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Revoking staff status busts the ex-staffer's cached map after commit (#886)."""
+    with django_capture_on_commit_callbacks(execute=True):
+        OrganizationStaff.objects.create(organization=organization, user=user)
+    key = permission_snapshot.get_cache_key(user.id)
+    payload = permission_snapshot.get_my_permissions_payload(user)
+    assert str(organization.id) in payload["organization_permissions"]
+
+    with django_capture_on_commit_callbacks(execute=True):
+        membership.remove_staff(organization, user)
+    assert cache.get(key) is None
+
+    payload = permission_snapshot.get_my_permissions_payload(user)
+    assert payload["organization_permissions"] == {}
 
 
 def test_rollback_leaves_cache_untouched(user: RevelUser) -> None:
