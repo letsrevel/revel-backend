@@ -120,6 +120,10 @@ Revel is a Django-based event management & ticketing platform (apps under `src/`
   consistent tags; `PageNumberPaginationExtra`; `@searching` for search.
 - **Permissions** — `events/controllers/permissions.py`; org roles (Owner/Staff/Member);
   event-level eligibility; JWT auth with optional anonymous access.
+- **Brand tokens** — colors, gradient (vertical, Hearty Purple → Light Crimson), and
+  typography from the official style guide are recorded in
+  [`docs/brand-style-guide.md`](docs/brand-style-guide.md); use those exact hex/RGB
+  values, never re-derive them from HSL.
 
 ### Quality bar
 ruff (format + lint) · mypy `--strict` + Django plugin · Google-style docstrings ·
