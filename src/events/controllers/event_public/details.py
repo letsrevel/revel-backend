@@ -2,6 +2,8 @@ import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from ninja import Query
 from ninja_extra import (
     api_controller,
@@ -12,6 +14,7 @@ from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth, OptionalAuth
+from common.utils import serve_image_or_placeholder
 from events import filters, models, schema
 from events.service import announcement_service, event_service
 
@@ -39,6 +42,19 @@ class EventPublicDetailsController(EventPublicBaseController):
         ticket tiers, and visibility settings. Use this to display the event detail page.
         """
         return self.get_one(event_id)
+
+    @route.get("/{uuid:event_id}/cover-art", url_name="event_cover_art", response={200: None, 404: None})
+    def get_event_cover_art(self, event_id: UUID) -> HttpResponse:
+        """Serve the event's current cover art, or a placeholder.
+
+        Stable URL embedded in Google Wallet save links: it must resolve to an
+        image for as long as the event exists, even after the cover art file is
+        replaced or removed (old links live in ticket emails forever).
+        Bypasses visibility filtering — Google's image fetcher is anonymous,
+        and cover art files are already served unauthenticated from /media.
+        """
+        event = get_object_or_404(models.Event, id=event_id)
+        return serve_image_or_placeholder(event.cover_art)
 
     @route.get(
         "/{uuid:event_id}/attendee-list",

@@ -1,4 +1,6 @@
+import functools
 import hashlib
+import mimetypes
 import sys
 import typing as t
 from io import BytesIO
@@ -9,6 +11,8 @@ from django.core.exceptions import ValidationError
 from django.core.files import File
 from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.db import IntegrityError, models, transaction
+from django.db.models.fields.files import FieldFile
+from django.http import HttpResponse
 from PIL import Image
 from pydantic import BaseModel
 
@@ -339,3 +343,40 @@ def safe_save_uploaded_file(
         )
 
     return instance
+
+
+@functools.lru_cache(maxsize=1)
+def _placeholder_png_bytes() -> bytes:
+    """A neutral 150x150 solid-gray PNG, generated once per process."""
+    buffer = BytesIO()
+    Image.new("RGB", (150, 150), (203, 213, 225)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def serve_image_or_placeholder(file_field: FieldFile | None) -> HttpResponse:
+    """Serve an image field's current bytes, or a neutral placeholder.
+
+    Backs stable image URLs embedded in external artifacts (e.g. Google
+    Wallet save links in old emails): uploads delete the replaced file from
+    storage, so these URLs must degrade to a placeholder — never an error —
+    when the file was replaced, removed, or never set.
+
+    Args:
+        file_field: A Django FileField/ImageField value, or None.
+
+    Returns:
+        A cacheable image response.
+    """
+    body = _placeholder_png_bytes()
+    content_type = "image/png"
+    if file_field:
+        try:
+            with file_field.open("rb") as f:
+                body = f.read()
+            content_type = mimetypes.guess_type(file_field.name or "")[0] or "application/octet-stream"
+        except OSError, ValueError:
+            body = _placeholder_png_bytes()
+            content_type = "image/png"
+    response = HttpResponse(body, content_type=content_type)
+    response["Cache-Control"] = "public, max-age=3600"
+    return response
