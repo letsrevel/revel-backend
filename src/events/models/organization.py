@@ -722,6 +722,8 @@ class OrganizationMember(TimeStampedModel):
         CANCELLED = "cancelled"
         BANNED = "banned"
 
+    QR_PREFIX: t.ClassVar[str] = "member:"
+
     organization = models.ForeignKey(
         Organization,
         on_delete=models.CASCADE,
@@ -762,6 +764,32 @@ class OrganizationMember(TimeStampedModel):
         super().clean()
         if self.tier and self.tier.organization_id != self.organization_id:
             raise DjangoValidationError({"tier": _("The tier must belong to the same organization as the membership.")})
+
+    @property
+    def qr_payload(self) -> str:
+        """QR/barcode payload for this membership card.
+
+        Check-in/verification contract: scanners submit this string verbatim, and the
+        resolvers strip ``QR_PREFIX`` back off to get the member id — so this is the
+        single source of truth every generator (PDF, Apple Wallet, Google Wallet) must use.
+        The member row is unique per (organization, user) and reused across
+        cancel/rejoin, so the payload is stable for the lifetime of the relationship.
+        """
+        return f"{self.QR_PREFIX}{self.id}"
+
+    @property
+    def apple_pass_available(self) -> bool:
+        """Whether an Apple Wallet membership card can be generated (server-wide config)."""
+        from events.utils import apple_wallet_configured
+
+        return apple_wallet_configured()
+
+    @property
+    def google_pass_available(self) -> bool:
+        """Whether a Google Wallet membership card can be generated (server-wide config)."""
+        from events.utils import google_wallet_configured
+
+        return google_wallet_configured()
 
 
 class OrganizationToken(TokenMixin):
