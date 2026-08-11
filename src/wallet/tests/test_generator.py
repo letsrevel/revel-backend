@@ -507,7 +507,7 @@ class TestApplePassGeneratorGenerateFiles:
             logo_image=sample_logo_bytes,
         )
 
-        files = generator._generate_files(data)
+        files = generator._generate_files(generator._build_pass_json(data), data.colors, data.logo_image)
 
         for background_name, expected_size in BACKGROUND_SIZES.items():
             assert background_name in files

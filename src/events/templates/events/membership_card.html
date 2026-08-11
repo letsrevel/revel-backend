@@ -5,9 +5,9 @@
     <title>Membership Card - {{ organization_name }}</title>
     {% include "_fonts.html" %}
     <style>
-        /* Bubble brand palette (2026 rebrand — mirrors revel-frontend/src/app.css, matches
-           ticket.html/wallet passes):
-           paper #F3EFFA · ink #0D1E1C · Hearty Purple #8C3CDD · Light Crimson #E6332A */
+        /* Brand tokens from docs/brand-style-guide.md (hexes are the contract):
+           paper #F3EFFA · ink #0D1E1C · Hearty Purple #8C3CDD · Light Crimson #E6332A.
+           Brand gradient is linear VERTICAL, Hearty Purple (top) -> Light Crimson (bottom). */
         @page {
             size: A4;
             margin: 0;
@@ -31,7 +31,7 @@
         .cover-banner {
             width: 100%;
             height: 180px;
-            background: linear-gradient(135deg, #8C3CDD 0%, #E6332A 100%);
+            background: linear-gradient(to bottom, #8C3CDD 0%, #E6332A 100%);
             position: relative;
             overflow: hidden;
         }
