@@ -38,34 +38,36 @@ def _hsl_to_rgb_string(hue: float, saturation: float, lightness: float) -> str:
     return f"rgb({int(rgb[0] * 255)}, {int(rgb[1] * 255)}, {int(rgb[2] * 255)})"
 
 
-# HSL tokens shared by both wallet rails (see the theme comment below).
-_CRIMSON_DEEP_HSL = (3, 0.79, 0.50)
+# Brand tokens. The two primaries use the digital style guide's exact values
+# (Revel Digital Brand Styleguide, "Colours"): the hexes are the contract —
+# HSL->RGB truncation would land one unit off (#8C3BDC != #8C3CDD), and the
+# guide PDF's printed RGB for Light Crimson (230, 52, 42) is itself a typo
+# for hex E6332A. The label keeps the frontend's lavender-paper HSL token
+# (--background light: 268 60% 96%, rendering as #F4EEFA — one RGB unit
+# off the ticket PDF's paper #F3EFFA; the HSL token is the contract there).
+_HEARTY_PURPLE_RGB = (140, 60, 221)  # #8C3CDD, frontend --logo-from / --poster-purple
+_LIGHT_CRIMSON_RGB = (230, 51, 42)  # #E6332A, frontend --logo-to / --poster-crimson
 _LAVENDER_PAPER_HSL = (268, 0.60, 0.96)
 
 
-def _hsl_to_hex_string(hue: float, saturation: float, lightness: float) -> str:
-    """Convert HSL values to an uppercase #RRGGBB hex string.
+def _rgb_string(rgb: tuple[int, int, int]) -> str:
+    """Format an RGB tuple as Apple's expected "rgb(r, g, b)" string.
 
     Args:
-        hue: Hue in degrees (0-360).
-        saturation: Saturation (0-1).
-        lightness: Lightness (0-1).
+        rgb: (r, g, b) channel values, 0-255.
 
     Returns:
-        Uppercase hex color string in format "#RRGGBB".
+        Color string in format "rgb(r, g, b)".
     """
-    # colorsys uses HLS order (hue, lightness, saturation)
-    rgb = colorsys.hls_to_rgb(hue / 360, lightness, saturation)
-    return "#{:02X}{:02X}{:02X}".format(int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255))
+    return f"rgb({rgb[0]}, {rgb[1]}, {rgb[2]})"
 
 
-# Revel 2026 "crimson pop" theme (HSL tokens from frontend app.css):
-# crimson-deep panel (--poster-crimson-deep: 3 79% 50%, the AA-vs-white
-# variant of Light Crimson #E6332A), white text, lavender-paper labels
-# (--background light: 268 60% 96%, rendering as #F4EEFA — one RGB unit
-# off the ticket PDF's paper #F3EFFA; the HSL token is the contract).
+# Revel brand theme (2026 gradient rebrand): Hearty Purple panel (white text
+# measures ~5.5:1, AA pass), lavender-paper labels. The Apple rail layers the
+# vertical purple->crimson gradient background.png on top of this
+# backgroundColor; the Google rail can only render the solid hex.
 REVEL_THEME = PassColors(
-    background=_hsl_to_rgb_string(*_CRIMSON_DEEP_HSL),
+    background=_rgb_string(_HEARTY_PURPLE_RGB),
     foreground="rgb(255, 255, 255)",
     label=_hsl_to_rgb_string(*_LAVENDER_PAPER_HSL),
 )
@@ -75,19 +77,28 @@ def get_theme_colors() -> PassColors:
     """Get the Revel theme colors for passes.
 
     Returns:
-        PassColors with the Revel dark theme.
+        PassColors with the Revel brand theme.
     """
     return REVEL_THEME
 
 
-def get_theme_hex_background() -> str:
-    """Get the crimson-deep background as hex, for the Google Wallet rail.
+def get_gradient_rgb() -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """Get the brand gradient endpoints for image generation.
 
     Returns:
-        Uppercase #RRGGBB string derived from the same HSL token as
+        (start, end) RGB tuples: Hearty Purple -> Light Crimson.
+    """
+    return _HEARTY_PURPLE_RGB, _LIGHT_CRIMSON_RGB
+
+
+def get_theme_hex_background() -> str:
+    """Get the Hearty Purple background as hex, for the Google Wallet rail.
+
+    Returns:
+        Uppercase #RRGGBB string for the same RGB token as
         ``REVEL_THEME.background``.
     """
-    return _hsl_to_hex_string(*_CRIMSON_DEEP_HSL)
+    return "#{:02X}{:02X}{:02X}".format(*_HEARTY_PURPLE_RGB)
 
 
 def format_iso_date(dt: datetime, tz: ZoneInfo | None = None) -> str:

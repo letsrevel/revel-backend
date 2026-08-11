@@ -5,11 +5,14 @@ including creating placeholder logos, resizing images, and generating icons.
 """
 
 import colorsys
+import functools
 import io
 import typing as t
 
 import structlog
 from PIL import Image, ImageDraw, ImageFont
+
+from wallet.apple.formatting import get_gradient_rgb
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +30,13 @@ LOGO_SIZES: dict[str, tuple[int, int]] = {
     "logo@3x.png": (480, 150),
 }
 
+# Apple background image: 180x220 points, blurred by iOS behind the pass front.
+BACKGROUND_SIZES: dict[str, tuple[int, int]] = {
+    "background.png": (180, 220),
+    "background@2x.png": (360, 440),
+    "background@3x.png": (540, 660),
+}
+
 
 def generate_colored_icon(size: tuple[int, int], color: tuple[int, int, int]) -> bytes:
     """Generate a simple colored square icon.
@@ -39,6 +49,30 @@ def generate_colored_icon(size: tuple[int, int], color: tuple[int, int, int]) ->
         PNG image as bytes.
     """
     img = Image.new("RGB", size, color)
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+@functools.lru_cache(maxsize=len(BACKGROUND_SIZES))
+def generate_gradient_background(size: tuple[int, int]) -> bytes:
+    """Generate the vertical brand-gradient background PNG.
+
+    Bilinear upscaling of a 1x2 image renders an exact linear gradient from
+    the top color to the bottom one (digital style guide "Logo Gradient":
+    Hearty Purple -> Light Crimson). Cached per size: the gradient only
+    depends on the brand tokens, so each size renders once per process.
+
+    Args:
+        size: (width, height) of the output image in pixels.
+
+    Returns:
+        PNG image bytes.
+    """
+    start, end = get_gradient_rgb()
+    endpoints = Image.new("RGB", (1, 2))
+    endpoints.putdata([start, end])
+    img = endpoints.resize(size, Image.Resampling.BILINEAR)
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     return buffer.getvalue()

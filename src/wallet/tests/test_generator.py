@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.utils import timezone
+from PIL import Image
 
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier
@@ -17,7 +18,7 @@ from events.models.ticket import Payment
 from events.models.venue import Venue
 from wallet.apple.formatting import PassColors
 from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD, ApplePassGenerator, ApplePassGeneratorError, PassData
-from wallet.apple.images import ICON_SIZES, LOGO_SIZES
+from wallet.apple.images import BACKGROUND_SIZES, ICON_SIZES, LOGO_SIZES
 from wallet.apple.signer import ApplePassSignerError
 
 pytestmark = pytest.mark.django_db
@@ -481,6 +482,39 @@ class TestApplePassGeneratorGenerateFiles:
         for logo_name in LOGO_SIZES:
             assert logo_name in files
 
+    def test_generates_gradient_backgrounds(
+        self, settings: t.Any, mock_signer: MagicMock, sample_logo_bytes: bytes
+    ) -> None:
+        """Should generate the brand-gradient background at all scales."""
+        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
+        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
+
+        generator = ApplePassGenerator(signer=mock_signer)
+        now = timezone.now()
+        colors = PassColors(background="rgb(0,0,0)", foreground="rgb(255,255,255)", label="rgb(128,128,128)")
+
+        data = PassData(
+            serial_number="serial",
+            description="Test",
+            organization_name="Org",
+            event_name="Event",
+            event_start=now,
+            event_end=now + timedelta(hours=1),
+            address=None,
+            ticket_tier="Tier",
+            ticket_price="Free",
+            colors=colors,
+            logo_image=sample_logo_bytes,
+        )
+
+        files = generator._generate_files(data)
+
+        for background_name, expected_size in BACKGROUND_SIZES.items():
+            assert background_name in files
+            assert files[background_name][:8] == b"\x89PNG\r\n\x1a\n"
+            image = Image.open(io.BytesIO(files[background_name]))
+            assert image.size == expected_size
+
 
 class TestApplePassGeneratorCreateArchive:
     """Tests for _create_archive method."""
@@ -567,6 +601,11 @@ class TestApplePassGeneratorGeneratePass:
             # Should contain logos
             assert "logo.png" in namelist
             assert "logo@2x.png" in namelist
+
+            # Should contain gradient backgrounds
+            assert "background.png" in namelist
+            assert "background@2x.png" in namelist
+            assert "background@3x.png" in namelist
 
     def test_raises_on_signer_error(
         self,
