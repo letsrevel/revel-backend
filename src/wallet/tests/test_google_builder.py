@@ -42,6 +42,7 @@ def test_ticket_payload_shape(google_wallet_configured_settings: None, ticket: T
     assert cls["eventName"]["defaultValue"]["value"] == event.name
     assert cls["reviewStatus"] == "UNDER_REVIEW"
     assert cls["hexBackgroundColor"] == get_theme_hex_background()
+    assert cls["hexBackgroundColor"] == "#8C3CDD"
     assert cls["dateTime"]["start"].startswith(str(event.start.year))
 
     assert obj["id"] == f"3388000000012345678.test.ticket.{ticket.id}"

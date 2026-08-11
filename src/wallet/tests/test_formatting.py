@@ -15,6 +15,7 @@ from wallet.apple.formatting import (
     format_date_full,
     format_iso_date,
     format_price,
+    get_gradient_rgb,
     get_theme_colors,
     get_theme_hex_background,
 )
@@ -79,13 +80,13 @@ class TestGetThemeColors:
         colors = get_theme_colors()
         assert colors is REVEL_THEME
 
-    def test_theme_has_crimson_background(self) -> None:
-        """The theme background is the brand crimson-deep panel (3 79% 50%)."""
+    def test_theme_has_hearty_purple_background(self) -> None:
+        """The theme background is the brand primary Hearty Purple (#8C3CDD)."""
         colors = get_theme_colors()
-        assert colors.background == "rgb(228, 36, 26)"
+        assert colors.background == "rgb(140, 60, 221)"
 
     def test_theme_has_white_foreground(self) -> None:
-        """The theme foreground is white (AA on the crimson-deep panel)."""
+        """The theme foreground is white (AA on Hearty Purple, ~5.5:1)."""
         colors = get_theme_colors()
         assert colors.foreground == "rgb(255, 255, 255)"
 
@@ -248,10 +249,22 @@ class TestFormatPrice:
 
 
 def test_theme_hex_background_matches_rgb_theme() -> None:
-    """The Google-rail hex color must be the same crimson as the Apple rail."""
+    """The Google-rail hex color must be the same color as the Apple rail."""
     hex_color = get_theme_hex_background()
     match = re.fullmatch(r"rgb\((\d+), (\d+), (\d+)\)", REVEL_THEME.background)
     assert match is not None
     expected = "#{:02X}{:02X}{:02X}".format(*(int(g) for g in match.groups()))
     assert hex_color == expected
     assert re.fullmatch(r"#[0-9A-F]{6}", hex_color)
+
+
+def test_theme_hex_background_is_hearty_purple() -> None:
+    """The Google-rail hex is the exact style-guide Hearty Purple."""
+    assert get_theme_hex_background() == "#8C3CDD"
+
+
+def test_gradient_endpoints_match_style_guide() -> None:
+    """Gradient runs Hearty Purple -> Light Crimson (digital style guide hexes)."""
+    start, end = get_gradient_rgb()
+    assert start == (140, 60, 221)  # #8C3CDD
+    assert end == (230, 51, 42)  # #E6332A
