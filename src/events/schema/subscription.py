@@ -579,6 +579,8 @@ class MyMembershipSchema(Schema):
     status: OrganizationMember.MembershipStatus
     tier: MembershipTierSchema | None = None
     subscription: MySubscriptionSchema | None = None
+    apple_pass_available: bool
+    google_pass_available: bool
 
     @staticmethod
     def resolve_organization_id(obj: OrganizationMember) -> UUID:

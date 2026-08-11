@@ -290,6 +290,24 @@ class TestListMyMemberships:
         data = response.json()
         assert data["count"] == 1
 
+    def test_my_memberships_expose_wallet_availability(
+        self,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        organization: Organization,
+        settings: t.Any,
+    ) -> None:
+        """Membership response includes apple_pass_available and google_pass_available."""
+        OrganizationMember.objects.create(organization=organization, user=subscriber_user)
+        settings.GOOGLE_WALLET_ISSUER_ID = "1234"
+        settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = "/tmp/fake.json"
+        url = reverse("api:list_my_memberships")
+        response = subscriber_client.get(url)
+        assert response.status_code == 200
+        row = response.json()["results"][0]
+        assert row["google_pass_available"] is True
+        assert "apple_pass_available" in row
+
 
 class TestSubscribeEndpoint:
     @pytest.fixture
