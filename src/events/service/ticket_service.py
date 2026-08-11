@@ -558,7 +558,18 @@ def check_in_ticket(
     # Get the ticket
     ticket = get_object_or_404(
         # seat/sector feed the check-in response payload (door staff see "Row C seat 12").
-        Ticket.objects.select_related("user", "tier", "held_pass__series_pass", "seat", "sector"),
+        # tier__event__organization / tier__venue / tier__sector / the M2M prefetch cover
+        # what CheckInResponseSchema's nested TicketTierSchema resolves, trimming ~4
+        # queries per scan.
+        Ticket.objects.select_related(
+            "user",
+            "tier__event__organization",
+            "tier__venue",
+            "tier__sector",
+            "held_pass__series_pass",
+            "seat",
+            "sector",
+        ).prefetch_related("tier__restricted_to_membership_tiers"),
         pk=ticket_id,
         event=event,
     )

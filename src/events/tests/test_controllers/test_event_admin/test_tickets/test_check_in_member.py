@@ -4,6 +4,7 @@ Fixtures modeled on ``test_check_in.py`` (same directory) and
 ``test_series_pass/test_checkin.py`` (URL helper pattern).
 """
 
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
 
@@ -271,3 +272,30 @@ def test_member_scan_price_paid_pwyc_offline_checks_in(
     ticket.refresh_from_db()
     assert ticket.status == Ticket.TicketStatus.CHECKED_IN
     assert ticket.price_paid == Decimal("12.50")
+
+
+# --- 11. Regression guard: check-in must not regress into an unbounded query count ---
+
+
+def test_check_in_query_budget(
+    organization_owner_client: Client,
+    event: Event,
+    active_online_ticket: Ticket,
+    django_assert_max_num_queries: t.Any,
+) -> None:
+    """Pins the ``check_in_ticket`` select_related/prefetch trim (Task 11).
+
+    Measured directly against this endpoint+fixture shape: 24 queries before the
+    ``ticket_service.check_in_ticket`` trim (bare ``select_related("user", "tier", ...)``,
+    no ``tier__venue``/``tier__sector``/``tier__event__organization`` and no
+    ``restricted_to_membership_tiers`` prefetch), 22 after — the difference is smaller
+    than the "~4 queries" the trim targets because this ticket's tier has no venue/sector
+    (a null FK short-circuits without a query), so only the M2M prefetch and the
+    tier->event->organization join actually pay off here; a seated/venue tier saves more.
+    23 sits strictly between the two, so reverting the trim (back to 24) fails this guard.
+    """
+    with django_assert_max_num_queries(23):
+        response = organization_owner_client.post(
+            _check_in_url(event, str(active_online_ticket.id)), content_type="application/json"
+        )
+    assert response.status_code == 200, response.content
