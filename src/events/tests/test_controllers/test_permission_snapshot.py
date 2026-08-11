@@ -108,16 +108,29 @@ def test_rollback_leaves_cache_untouched(user: RevelUser) -> None:
     assert cache.get(key) is not None
 
 
+class _BrokenCache:
+    """Stand-in for a down Redis: every operation raises.
+
+    Swapped in for the *module binding* in ``permission_snapshot`` only — patching
+    methods on the shared Django cache proxy would also break the global throttles,
+    which 500 the request before it ever reaches the endpoint.
+    """
+
+    def get(self, *args: t.Any, **kwargs: t.Any) -> t.Any:
+        raise ConnectionError("redis down")
+
+    def set(self, *args: t.Any, **kwargs: t.Any) -> t.Any:
+        raise ConnectionError("redis down")
+
+    def delete_many(self, *args: t.Any, **kwargs: t.Any) -> t.Any:
+        raise ConnectionError("redis down")
+
+
 def test_endpoint_fails_open_when_cache_errors(
     member_client: Client, member_user: RevelUser, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A broken cache backend degrades to the DB build — never a 500."""
-
-    def boom(*args: t.Any, **kwargs: t.Any) -> t.Any:
-        raise ConnectionError("redis down")
-
-    monkeypatch.setattr(permission_snapshot.cache, "get", boom)
-    monkeypatch.setattr(permission_snapshot.cache, "set", boom)
+    monkeypatch.setattr(permission_snapshot, "cache", _BrokenCache())
 
     response = member_client.get(reverse("api:my_permissions"))
     assert response.status_code == 200
@@ -128,11 +141,7 @@ def test_invalidation_delete_failure_does_not_raise(
     user: RevelUser, monkeypatch: pytest.MonkeyPatch, django_capture_on_commit_callbacks: t.Any
 ) -> None:
     """A failed cache delete is swallowed — the mutation must never fail on Redis."""
-
-    def boom(*args: t.Any, **kwargs: t.Any) -> t.Any:
-        raise ConnectionError("redis down")
-
-    monkeypatch.setattr(permission_snapshot.cache, "delete_many", boom)
+    monkeypatch.setattr(permission_snapshot, "cache", _BrokenCache())
     with django_capture_on_commit_callbacks(execute=True):
         permission_snapshot.invalidate_my_permissions(user.id)  # must not raise
 
