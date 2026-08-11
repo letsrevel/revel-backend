@@ -25,7 +25,7 @@ from events.models import (
     OrganizationStaff,
     OrganizationToken,
 )
-from events.service import blacklist_service
+from events.service import blacklist_service, permission_snapshot
 
 # Canned messages for the organization-token guard exceptions. Co-located with
 # the service that raises them so the per-app exception handlers (and any caller)
@@ -305,4 +305,7 @@ def claim_invitation(user: RevelUser, token: str) -> Organization | None:
     if not created:
         return None
     OrganizationToken.objects.filter(pk=token).update(uses=F("uses") + 1)
+    # The claimer is mid-flow and about to load pages gated on the permission map —
+    # the cached map must not outlive this grant (#880).
+    permission_snapshot.invalidate_my_permissions(user.id)
     return organization_token.organization

@@ -260,6 +260,15 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": f"redis://{REDIS_HOST}:{REDIS_PORT}",
+        # Bound every cache op: the default redis-py client has NO timeouts, so a hung
+        # (vs refused) Redis would block indefinitely — and the cache sits on every
+        # request's hot path via the global throttles (#880). A refused/timed-out op
+        # raises instead, which callers either surface (throttling) or absorb
+        # (fail-open caches like events.service.permission_snapshot).
+        "OPTIONS": {
+            "socket_connect_timeout": config("REDIS_SOCKET_CONNECT_TIMEOUT", cast=float, default=1.0),
+            "socket_timeout": config("REDIS_SOCKET_TIMEOUT", cast=float, default=1.0),
+        },
     }
 }
 

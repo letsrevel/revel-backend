@@ -1,7 +1,10 @@
+import typing as t
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import Http404, HttpRequest
 from django.utils.translation import gettext_lazy as _
+from ninja.openapi.schema import OpenAPISchema
 from ninja_extra import NinjaExtraAPI
 
 from accounts.controllers.account import AccountController
@@ -46,7 +49,37 @@ from wallet.controllers import TicketWalletController
 
 from .exception_handlers import handle_django_validation_error, handle_general_exception
 
-api = NinjaExtraAPI(
+
+class CachedSchemaNinjaExtraAPI(NinjaExtraAPI):
+    """NinjaExtraAPI whose OpenAPI schema is generated once per process.
+
+    ninja rebuilds the entire schema (~540 component schemas, ~850KB) on every
+    ``/openapi.json`` request — seconds of CPU per hit, on a public, unthrottled
+    view (#880). The schema depends only on the registered routes and the mount
+    ``path_prefix``, both fixed after startup, so it is safe to memoize.
+    """
+
+    _schema_cache: dict[str, OpenAPISchema]
+
+    def get_openapi_schema(
+        self,
+        *,
+        path_prefix: str | None = None,
+        path_params: dict[str, t.Any] | None = None,
+    ) -> OpenAPISchema:
+        """Return the (memoized) OpenAPI schema for this API."""
+        if path_prefix is None:
+            path_prefix = self.get_root_path(path_params or {})
+        cache = getattr(self, "_schema_cache", None)
+        if cache is None:
+            cache = self._schema_cache = {}
+        if path_prefix not in cache:
+            # Racing threads both build; the result is identical and idempotent.
+            cache[path_prefix] = super().get_openapi_schema(path_prefix=path_prefix)
+        return cache[path_prefix]
+
+
+api = CachedSchemaNinjaExtraAPI(
     title="REVEL Backend API",
     docs_url="/docs",
     # docs_decorator=staff_member_required if not settings.DEBUG else None,

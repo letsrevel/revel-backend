@@ -209,8 +209,10 @@ class DashboardController(UserAwareController):
         payment method. Results are ordered by newest first.
         """
         # Use full() manager which includes: event, organization, tier (with venue/sector/city), seat, payment
+        # No .distinct(): every filter/search field is a to-one join, and DISTINCT over the wide
+        # full() select costs ~600ms of Postgres *planning* time per request (#880).
         qs = models.Ticket.objects.full().filter(user=self.user()).order_by("-created_at")
-        return params.filter(qs).distinct()
+        return params.filter(qs)
 
     @route.patch(
         "/tickets/{ticket_id}/guest-name",
@@ -250,7 +252,8 @@ class DashboardController(UserAwareController):
         qs = models.EventInvitationRequest.objects.with_event_details().filter(user=self.user())
         if event_id:
             qs = qs.filter(event_id=event_id)
-        return params.filter(qs).distinct()
+        # No .distinct(): all filter/search fields are to-one joins (#880).
+        return params.filter(qs)
 
     @route.get(
         "/rsvps",
@@ -271,7 +274,8 @@ class DashboardController(UserAwareController):
         Supports filtering by status (yes/no/maybe). Results are ordered by newest first.
         """
         qs = models.EventRSVP.objects.with_event_details().filter(user=self.user()).order_by("-created_at")
-        return params.filter(qs).distinct()
+        # No .distinct(): all filter/search fields are to-one joins (#880).
+        return params.filter(qs)
 
     @route.get(
         "/invoices",

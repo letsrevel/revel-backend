@@ -21,9 +21,19 @@ pytestmark = pytest.mark.django_db
 
 
 def _components() -> dict[str, t.Any]:
+    # Drop the process-level memo (#880) so the guard actually observes generation.
+    api._schema_cache = {}
     with schema_name_collision_guard():
         schema = api.get_openapi_schema()
     return t.cast(dict[str, t.Any], schema["components"]["schemas"])
+
+
+def test_openapi_schema_is_memoized() -> None:
+    """Repeat calls return the same object — the schema is built once per process (#880)."""
+    api._schema_cache = {}
+    first = api.get_openapi_schema()
+    second = api.get_openapi_schema()
+    assert first is second
 
 
 def test_schema_generation_has_no_component_name_collisions() -> None:

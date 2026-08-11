@@ -9,6 +9,7 @@ from accounts.models import RevelUser
 from events import schema
 from events.exceptions import MembershipPolicyManageSubscriptionsOnlyError, RevenueReportCadenceOwnerOnlyError
 from events.models import Organization
+from events.service import permission_snapshot
 from events.service.organization_service.contact import (
     create_and_send_contact_email_verification,
     validate_contact_method,
@@ -101,6 +102,10 @@ def create_organization(
     # Send verification email if contact email is not auto-verified
     if not contact_email_verified:
         create_and_send_contact_email_verification(organization, contact_email, owner)
+
+    # The FE navigates straight to the org admin layout, which 403s on a permission
+    # map that lacks the new org — the cached map must not outlive this grant (#880).
+    permission_snapshot.invalidate_my_permissions(owner.id)
 
     return organization
 

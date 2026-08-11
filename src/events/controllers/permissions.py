@@ -14,7 +14,7 @@ from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from events import models, schema
-from events.models import OrganizationMember
+from events.service import permission_snapshot
 
 
 class RootPermission(BasePermission):
@@ -231,26 +231,12 @@ class PermissionController(UserAwareController):
         url_name="my_permissions",
         response=schema.OrganizationPermissionsSchema,
     )
-    def my_permissions(self) -> schema.OrganizationPermissionsSchema:
-        """Get a user's permission map, per organization."""
-        user = self.user()
-        perms = models.OrganizationStaff.objects.select_related("organization").filter(user=user)
-        owner_perms = {
-            str(org_id): "owner"
-            for org_id in models.Organization.objects.filter(owner=user).all().values_list("id", flat=True)
-        }
-        staff_perms = {str(perm.organization.id): perm.permissions for perm in perms}
-        permissions = {**staff_perms, **owner_perms}
+    def my_permissions(self) -> dict[str, t.Any]:
+        """Get a user's permission map, per organization.
 
-        # Build memberships dict with minimal member info
-        memberships: dict[str, schema.MinimalOrganizationMemberSchema] = {}
-        members = (
-            models.OrganizationMember.objects.select_related("tier")
-            .filter(user=user)
-            .exclude(status=OrganizationMember.MembershipStatus.BANNED)
-        )
-        for member in members:
-            org_id_str = str(member.organization_id)
-            memberships[org_id_str] = schema.MinimalOrganizationMemberSchema.from_orm(member)
-
-        return schema.OrganizationPermissionsSchema(organization_permissions=permissions, memberships=memberships)
+        Served from a short-TTL per-user cache (#880) — see
+        ``events.service.permission_snapshot`` for the staleness/safety model.
+        The returned dict is re-validated against ``OrganizationPermissionsSchema``
+        by ninja, so a corrupt cache entry fails loudly rather than silently.
+        """
+        return permission_snapshot.get_my_permissions_payload(self.user())
