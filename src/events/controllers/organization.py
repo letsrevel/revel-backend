@@ -3,6 +3,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
@@ -22,6 +23,7 @@ from common.throttling import (
     UserRequestThrottle,
     WriteThrottle,
 )
+from common.utils import serve_image_or_placeholder
 from events import filters, models, schema
 from events.service import (
     announcement_service,
@@ -179,6 +181,19 @@ class OrganizationController(UserAwareController):
         Stripe checkout return URLs (#848) back to slug pages.
         """
         return self.get_one_by_id(organization_id)
+
+    @route.get("/{uuid:organization_id}/logo", url_name="organization_logo", response={200: None, 404: None})
+    def get_organization_logo(self, organization_id: UUID) -> HttpResponse:
+        """Serve the organization's current logo, or a placeholder.
+
+        Stable URL embedded in Google Wallet save links: it must resolve to an
+        image for as long as the organization exists, even after the logo file
+        is replaced or removed (old links live in ticket emails forever).
+        Bypasses visibility filtering — Google's image fetcher is anonymous,
+        and logo files are already served unauthenticated from /media.
+        """
+        organization = get_object_or_404(models.Organization, id=organization_id)
+        return serve_image_or_placeholder(organization.logo_thumbnail, organization.logo)
 
     @route.get("/{slug}", url_name="get_organization", response=schema.OrganizationRetrieveSchema)
     def get_organization(self, slug: str) -> models.Organization:

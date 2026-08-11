@@ -136,7 +136,11 @@ def test_ticket_payload_venue_sector_seat(google_wallet_configured_settings: Non
 def test_ticket_payload_logo_and_hero_present_when_set(
     google_wallet_configured_settings: None, ticket: Ticket, png_bytes: bytes, settings: t.Any
 ) -> None:
-    """Org logo and event cover_art surface as BASE_URL-prefixed logo/heroImage."""
+    """Org logo and event cover_art surface as stable indirection URLs (not raw media paths).
+
+    Raw media URLs die when the file is replaced — uploads delete the old file
+    from storage — which would void save links already sitting in old emails.
+    """
     settings.BASE_URL = "https://letsrevel.io"
     organization = ticket.event.organization
     organization.logo.save("logo.png", ContentFile(png_bytes), save=True)
@@ -146,8 +150,8 @@ def test_ticket_payload_logo_and_hero_present_when_set(
     cls = payload["eventTicketClasses"][0]
 
     base_url = settings.BASE_URL.rstrip("/")
-    assert cls["logo"]["sourceUri"]["uri"] == f"{base_url}{organization.logo.url}"
-    assert cls["heroImage"]["sourceUri"]["uri"] == f"{base_url}{ticket.event.cover_art.url}"
+    assert cls["logo"]["sourceUri"]["uri"] == f"{base_url}/api/organizations/{organization.id}/logo"
+    assert cls["heroImage"]["sourceUri"]["uri"] == f"{base_url}/api/events/{ticket.event.id}/cover-art"
 
 
 def test_ticket_payload_images_omitted_for_non_https_base_url(

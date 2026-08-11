@@ -13,10 +13,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db.models.fields.files import FieldFile
+from django.urls import reverse
 from django.utils import timezone
 
-from events.models import HeldSeriesPass, Ticket
+from events.models import Event, HeldSeriesPass, Organization, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import format_iso_date, format_price, get_theme_hex_background
 from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD
@@ -33,11 +33,25 @@ def _localized(value: str) -> dict[str, t.Any]:
     return {"defaultValue": {"language": "en", "value": value}}
 
 
-def _absolute_media_url(file_field: FieldFile | None) -> str | None:
-    """Absolute public URL for a media file, or None when unset."""
-    if not file_field:
+def _org_logo_url(org: Organization) -> str | None:
+    """Stable indirection URL for the org logo, or None when unset.
+
+    Raw media URLs die when a logo is replaced (uploads delete the old file),
+    which would void every save link already sitting in ticket emails. The
+    API endpoint always serves the *current* logo or a placeholder.
+    """
+    if not (org.logo_thumbnail or org.logo):
         return None
-    return f"{settings.BASE_URL.rstrip('/')}{file_field.url}"
+    path = reverse("api:organization_logo", kwargs={"organization_id": org.id})
+    return f"{settings.BASE_URL.rstrip('/')}{path}"
+
+
+def _event_cover_url(event: Event) -> str | None:
+    """Stable indirection URL for the event cover art, or None when unset."""
+    if not event.cover_art:
+        return None
+    path = reverse("api:event_cover_art", kwargs={"event_id": event.id})
+    return f"{settings.BASE_URL.rstrip('/')}{path}"
 
 
 def _image(url: str | None) -> dict[str, t.Any] | None:
@@ -133,8 +147,8 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
         tz=tz,
         venue_name=venue_name,
         address=address,
-        logo_url=_absolute_media_url(org.logo_thumbnail or org.logo),
-        hero_url=_absolute_media_url(event.cover_art),
+        logo_url=_org_logo_url(org),
+        hero_url=_event_cover_url(event),
     )
 
     obj: dict[str, t.Any] = {
@@ -188,7 +202,7 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
         address = (venue.full_address() if venue else None) or representative.address or None
         tz = get_event_timezone(representative)
         event_start = representative.start
-        hero_url = _absolute_media_url(representative.cover_art)
+        hero_url = _event_cover_url(representative)
     else:
         venue_name = None
         address = None
@@ -207,7 +221,7 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
         tz=tz,
         venue_name=venue_name,
         address=address,
-        logo_url=_absolute_media_url(org.logo_thumbnail or org.logo),
+        logo_url=_org_logo_url(org),
         hero_url=hero_url,
     )
 
