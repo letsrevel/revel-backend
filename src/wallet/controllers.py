@@ -178,10 +178,13 @@ class MembershipWalletController(UserAwareController):
 
     def get_member(self, slug: str) -> OrganizationMember:
         """The caller's own membership in the org; CANCELLED/BANNED are a 404."""
-        return self.get_object_or_exception(
-            OrganizationMember.objects.for_visibility().select_related("organization", "tier", "user"),
-            organization__slug=slug,
-            user=self.user(),
+        return t.cast(
+            OrganizationMember,
+            self.get_object_or_exception(
+                OrganizationMember.objects.for_visibility().select_related("organization", "tier", "user"),
+                organization__slug=slug,
+                user=self.user(),
+            ),
         )
 
     @route.get(
