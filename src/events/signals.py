@@ -29,6 +29,7 @@ from events.models import (
     TicketTier,
 )
 from events.models.organization import MembershipTier
+from events.service import permission_snapshot
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import unclaim_user_potluck_items
@@ -273,6 +274,25 @@ def handle_membership_removed(sender: type[OrganizationMember], instance: Organi
         )
 
     transaction.on_commit(send_removal_notification)
+
+
+@receiver(post_save, sender=OrganizationMember)
+@receiver(post_delete, sender=OrganizationMember)
+@receiver(post_save, sender=OrganizationStaff)
+@receiver(post_delete, sender=OrganizationStaff)
+def invalidate_permission_snapshot(
+    sender: type[OrganizationMember | OrganizationStaff],
+    instance: OrganizationMember | OrganizationStaff,
+    **kwargs: t.Any,
+) -> None:
+    """Bust the user's cached my-permissions payload on any membership/staff write (#886).
+
+    Membership writes are scattered across services, Stripe sync, admin and signals, so
+    a receiver beats enumerating call sites. Note: ``bulk_create``/``bulk_update``
+    bypass signals — no such call sites exist for these models today; if one is added,
+    it must invalidate explicitly.
+    """
+    permission_snapshot.invalidate_my_permissions(instance.user_id)
 
 
 @receiver(post_save, sender=OrganizationStaff)

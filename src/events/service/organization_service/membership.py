@@ -32,7 +32,7 @@ if t.TYPE_CHECKING:
 # events/migrations/0001_initial.py (referenced as a field `default=`), so it
 # cannot be renamed without breaking historical migrations.
 from events.models.organization import _get_default_permissions
-from events.service import blacklist_service, permission_snapshot
+from events.service import blacklist_service
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -592,11 +592,8 @@ def add_staff(
 
     permission_data = permissions.model_dump(mode="json") if permissions else _get_default_permissions()
 
-    staff = OrganizationStaff.objects.create(organization=organization, user=user, permissions=permission_data)
-    # Staff grants are interactive ("try now") — the grantee's cached map must not
-    # outlive this grant (#884).
-    permission_snapshot.invalidate_my_permissions(user.id)
-    return staff
+    # Snapshot invalidation (#884) now happens in the OrganizationStaff signal receivers (#886).
+    return OrganizationStaff.objects.create(organization=organization, user=user, permissions=permission_data)
 
 
 def remove_staff(organization: Organization, user: RevelUser) -> None:
@@ -609,7 +606,4 @@ def update_staff_permissions(staff_member: OrganizationStaff, permissions: Permi
     """Update the permissions for a staff member."""
     staff_member.permissions = permissions.model_dump(mode="json")
     staff_member.save()
-    # Staff grants are interactive ("try now") — the grantee's cached map must not
-    # outlive this grant (#884).
-    permission_snapshot.invalidate_my_permissions(staff_member.user_id)
     return staff_member
