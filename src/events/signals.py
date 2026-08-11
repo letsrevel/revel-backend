@@ -295,6 +295,49 @@ def invalidate_permission_snapshot(
     permission_snapshot.invalidate_my_permissions(instance.user_id)
 
 
+@receiver(pre_save, sender=OrganizationMember)
+def capture_member_old_tier(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
+    """Stash the pre-save tier id so post_save can detect tier changes."""
+    if instance.pk:
+        instance._old_tier_id = (  # type: ignore[attr-defined]
+            OrganizationMember.objects.filter(pk=instance.pk).values_list("tier_id", flat=True).first()
+        )
+
+
+@receiver(post_save, sender=OrganizationMember)
+def handle_membership_tier_changed(
+    sender: type[OrganizationMember], instance: OrganizationMember, created: bool, **kwargs: t.Any
+) -> None:
+    """Send a card re-download notification when a member's tier changes.
+
+    The wallet card face shows the tier, and passes are write-once (Google saves
+    with a known object id are no-ops — the tier is part of the object id), so a
+    tier change requires the member to re-add the card.
+    """
+    if created:
+        return
+    old_tier_id = getattr(instance, "_old_tier_id", instance.tier_id)
+    if old_tier_id == instance.tier_id:
+        return
+
+    def send_card_updated_notification() -> None:
+        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        notification_requested.send(
+            sender=sender,
+            user=instance.user,
+            notification_type=NotificationType.MEMBERSHIP_CARD_UPDATED,
+            context={
+                "organization_id": str(instance.organization_id),
+                "organization_name": instance.organization.name,
+                "member_id": str(instance.id),
+                "tier_name": instance.tier.name if instance.tier else "",
+                "frontend_url": f"{frontend_base_url}/org/{instance.organization.slug}",
+            },
+        )
+
+    transaction.on_commit(send_card_updated_notification)
+
+
 @receiver(post_save, sender=OrganizationStaff)
 def handle_membership_promoted(
     sender: type[OrganizationStaff], instance: OrganizationStaff, created: bool, **kwargs: t.Any

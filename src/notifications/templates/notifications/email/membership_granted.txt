@@ -8,5 +8,9 @@
 - {%trans "Connect with other members"%}
 
 {%trans "View organization:" %} {{ context.frontend_url }}
-
+{% if context.apple_wallet_signed_url %}
+{% trans "Add to Apple Wallet:" %} {{ context.apple_wallet_signed_url }}
+{% endif %}{% if context.google_wallet_save_url %}
+{% trans "Add to Google Wallet:" %} {{ context.google_wallet_save_url }}
+{% endif %}
 {% include "notifications/email/_footer.txt" %}

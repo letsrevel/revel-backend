@@ -372,6 +372,15 @@ class MembershipContext(BaseNotificationContext):
     actioned_by_name: t.NotRequired[str]
 
 
+class MembershipCardUpdatedContext(BaseNotificationContext):
+    """Context for MEMBERSHIP_CARD_UPDATED notification (tier changed)."""
+
+    organization_id: str
+    organization_name: str
+    member_id: str
+    tier_name: str
+
+
 class MembershipRequestCreatedContext(BaseNotificationContext):
     """Context for MEMBERSHIP_REQUEST_CREATED notification (to organizers)."""
 
@@ -738,6 +747,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_GRANTED: MembershipContext,
     NotificationType.MEMBERSHIP_PROMOTED: MembershipContext,
     NotificationType.MEMBERSHIP_REMOVED: MembershipContext,
+    NotificationType.MEMBERSHIP_CARD_UPDATED: MembershipCardUpdatedContext,
     NotificationType.MEMBERSHIP_REQUEST_CREATED: MembershipRequestCreatedContext,
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipRequestApprovedContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipRequestRejectedContext,

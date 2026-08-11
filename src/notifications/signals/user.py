@@ -36,6 +36,7 @@ def _get_guest_notification_type_settings() -> dict[str, t.Any]:
         NotificationType.MEMBERSHIP_GRANTED,  # Can't be members
         NotificationType.MEMBERSHIP_PROMOTED,
         NotificationType.MEMBERSHIP_REMOVED,
+        NotificationType.MEMBERSHIP_CARD_UPDATED,
         NotificationType.MEMBERSHIP_REQUEST_APPROVED,
         NotificationType.MEMBERSHIP_REQUEST_REJECTED,
         NotificationType.ORG_ANNOUNCEMENT,  # Not members
