@@ -45,7 +45,7 @@ from notifications.controllers.preference_controller import NotificationPreferen
 from polls.controllers import POLL_CONTROLLERS
 from questionnaires.controllers import QuestionnaireFileController
 from telegram.controllers import TelegramController
-from wallet.controllers import TicketWalletController
+from wallet.controllers import MembershipWalletController, MembershipWalletSignedController, TicketWalletController
 
 from .exception_handlers import handle_django_validation_error, handle_general_exception
 
@@ -197,6 +197,8 @@ api.register_controllers(
     TelegramController,
     # Wallet controllers
     TicketWalletController,
+    MembershipWalletController,
+    MembershipWalletSignedController,
 )
 
 # Only truly global handlers live here. App-specific exceptions self-register

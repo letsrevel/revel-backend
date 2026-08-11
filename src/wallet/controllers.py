@@ -13,8 +13,10 @@ from ninja_extra import api_controller, route
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.signing import get_file_url, verify_signature
-from events.models import Ticket
+from events.models import OrganizationMember, Ticket
 from events.service import ticket_file_service
+from events.service.ticket_file_service import get_apple_pass_generator
+from events.utils import create_membership_pdf
 from wallet.google import service as google_wallet_service
 from wallet.schema import GoogleWalletSaveUrlSchema
 
@@ -167,4 +169,114 @@ class TicketWalletController(UserAwareController):
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         safe_name = "ticket_" + str(ticket.id).split("-")[0]
         response["Content-Disposition"] = f'attachment; filename="{safe_name}.pdf"'
+        return response
+
+
+@api_controller("/me/organizations/{slug}/membership", tags=["Membership - Wallet"], auth=I18nJWTAuth())
+class MembershipWalletController(UserAwareController):
+    """Member-facing membership card downloads (Apple / Google / PDF)."""
+
+    def get_member(self, slug: str) -> OrganizationMember:
+        """The caller's own membership in the org; CANCELLED/BANNED are a 404."""
+        return self.get_object_or_exception(
+            OrganizationMember.objects.for_visibility().select_related("organization", "tier", "user"),
+            organization__slug=slug,
+            user=self.user(),
+        )
+
+    @route.get(
+        "/wallet/apple",
+        url_name="me_membership_apple_wallet_pass",
+        summary="Download Apple Wallet membership card",
+        response={200: None, 404: None, 503: None},
+    )
+    def download_apple_pass(self, slug: str) -> HttpResponse:
+        """Generate and download the caller's membership card (.pkpass)."""
+        member = self.get_member(slug)
+        if not member.apple_pass_available:
+            raise HttpError(503, "Apple Wallet is not configured")
+        pkpass_bytes = get_apple_pass_generator().generate_membership_pass(member)
+        response = HttpResponse(pkpass_bytes, content_type="application/vnd.apple.pkpass")
+        safe_name = "membership_" + str(member.id).split("-")[0]
+        response["Content-Disposition"] = f'attachment; filename="{safe_name}.pkpass"'
+        return response
+
+    @route.get(
+        "/wallet/google",
+        url_name="me_membership_google_wallet_pass",
+        summary="Add membership card to Google Wallet",
+        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: None},
+    )
+    def google_wallet_save_link(
+        self,
+        slug: str,
+        format: t.Annotated[t.Literal["json"] | None, Query()] = None,
+    ) -> HttpResponse | tuple[int, GoogleWalletSaveUrlSchema]:
+        """Redirect to (or return as JSON) the Google Wallet save link for the caller's card."""
+        member = self.get_member(slug)
+        if not member.google_pass_available:
+            raise HttpError(503, "Google Wallet is not configured")
+        save_url = google_wallet_service.membership_save_url(member)
+        if format == "json":
+            return 200, GoogleWalletSaveUrlSchema(save_url=save_url)
+        return HttpResponseRedirect(save_url)
+
+    @route.get(
+        "/pdf",
+        url_name="me_membership_pdf",
+        summary="Download PDF membership card",
+        response={200: None, 404: None},
+    )
+    def download_pdf(self, slug: str) -> HttpResponse:
+        """Generate and download the caller's membership card as a PDF."""
+        member = self.get_member(slug)
+        # ponytail: generated per-request (rare downloads); if this gets hot, cache
+        # like ticket_file_service.get_or_generate_pdf (needs a file field + migration).
+        pdf_bytes = create_membership_pdf(member)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        safe_name = "membership_" + str(member.id).split("-")[0]
+        response["Content-Disposition"] = f'attachment; filename="{safe_name}.pdf"'
+        return response
+
+
+@api_controller("/memberships", tags=["Membership - Wallet"], auth=I18nJWTAuth())
+class MembershipWalletSignedController(UserAwareController):
+    """Signed (auth-free) membership card download for email badges."""
+
+    @route.get(
+        "/{member_id}/wallet/apple/signed",
+        url_name="membership_apple_wallet_signed",
+        summary="Download Apple Wallet membership card via signed link",
+        description="Auth-free pkpass download guarded by an HMAC signature and expiry; "
+        "used by the Add to Apple Wallet badge in membership emails.",
+        response={200: None, 403: None, 404: None, 410: None, 503: None},
+        auth=None,
+    )
+    def download_apple_pass_signed(
+        self,
+        member_id: UUID,
+        exp: t.Annotated[str, Query()],
+        sig: t.Annotated[str, Query()],
+    ) -> HttpResponse:
+        """Serve a membership pkpass from a signed email link (capability URL)."""
+        try:
+            expires = int(exp)
+        except ValueError:
+            raise HttpError(403, "Invalid link")
+        if expires <= time.time():
+            raise HttpError(410, "Link expired")
+        request_path = self.context.request.path  # type: ignore[union-attr]
+        if not verify_signature(request_path, exp, sig):
+            raise HttpError(403, "Invalid link")
+
+        member = self.get_object_or_exception(
+            OrganizationMember.objects.for_visibility().select_related("organization", "tier", "user"),
+            id=member_id,
+        )
+        if not member.apple_pass_available:
+            raise HttpError(503, "Apple Wallet is not configured")
+        pkpass_bytes = get_apple_pass_generator().generate_membership_pass(member)
+        response = HttpResponse(pkpass_bytes, content_type="application/vnd.apple.pkpass")
+        safe_name = "membership_" + str(member.id).split("-")[0]
+        response["Content-Disposition"] = f'attachment; filename="{safe_name}.pkpass"'
         return response
