@@ -482,50 +482,6 @@ def resolve_check_in_ticket_id(event: Event, code: str) -> UUID:
         raise Http404("Invalid ticket code.") from None
 
 
-@dataclass
-class MemberScanResult:
-    """Outcome of scanning a ``member:`` code at an event door.
-
-    ``checked_in`` is set only when the member had exactly one non-cancelled
-    ticket and it passed ``check_in_ticket``'s gates. With several tickets the
-    endpoint never guesses which one to burn — staff scan the ticket QR instead.
-    """
-
-    member: OrganizationMember
-    tickets: list[Ticket]
-    checked_in: Ticket | None
-
-
-def scan_member_code(
-    event: Event, code: str, checked_in_by: RevelUser, price_paid: Decimal | None = None
-) -> MemberScanResult:
-    """Resolve a ``member:<uuid>`` scan against an event.
-
-    Report-only by design: a membership card is an identity credential, not an
-    admission instrument. The single-ticket fast path delegates to
-    ``check_in_ticket`` so status errors (already checked in, cancelled,
-    window closed) surface exactly as they would for a direct ticket scan.
-    """
-    try:
-        member_id = UUID(code[len(OrganizationMember.QR_PREFIX) :])
-    except ValueError:
-        raise Http404("Invalid member code.") from None
-    member = get_object_or_404(
-        OrganizationMember.objects.select_related("user", "tier"),
-        pk=member_id,
-        organization_id=event.organization_id,
-    )
-    tickets = list(
-        Ticket.objects.select_related("tier", "held_pass__series_pass")
-        .filter(event=event, user_id=member.user_id)
-        .exclude(status=Ticket.TicketStatus.CANCELLED)
-    )
-    if len(tickets) == 1:
-        checked_in = check_in_ticket(event, tickets[0].id, checked_in_by, price_paid=price_paid)
-        return MemberScanResult(member=member, tickets=tickets, checked_in=checked_in)
-    return MemberScanResult(member=member, tickets=tickets, checked_in=None)
-
-
 def _pending_check_in_allowed(ticket: Ticket) -> bool:
     """Whether a PENDING ticket may be checked in (payment collected at the door).
 
@@ -555,24 +511,12 @@ def check_in_ticket(
         price_paid is intentionally not validated against the tier's pwyc_min/pwyc_max
         bounds. Admins are trusted to override these limits at check-in.
     """
-    # Get the ticket
-    ticket = get_object_or_404(
-        # seat/sector feed the check-in response payload (door staff see "Row C seat 12").
-        # tier__event__organization / tier__venue / tier__sector / the M2M prefetch cover
-        # what CheckInResponseSchema's nested TicketTierSchema resolves, trimming ~4
-        # queries per scan.
-        Ticket.objects.select_related(
-            "user",
-            "tier__event__organization",
-            "tier__venue",
-            "tier__sector",
-            "held_pass__series_pass",
-            "seat",
-            "sector",
-        ).prefetch_related("tier__restricted_to_membership_tiers"),
-        pk=ticket_id,
-        event=event,
-    )
+    # tier__* + the M2M prefetch cover CheckInResponseSchema's nested TicketTierSchema;
+    # seat/sector feed the seat display. Trims ~4 queries per scan.
+    ticket_qs = Ticket.objects.select_related(
+        "user", "tier__event__organization", "tier__venue", "tier__sector", "held_pass__series_pass", "seat", "sector"
+    ).prefetch_related("tier__restricted_to_membership_tiers")
+    ticket = get_object_or_404(ticket_qs, pk=ticket_id, event=event)
 
     # Check if ticket status is valid for check-in
     # ACTIVE tickets can be checked in directly.

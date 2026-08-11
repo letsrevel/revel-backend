@@ -15,7 +15,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
 from events.models import Event, Organization, OrganizationMember, Ticket, TicketTier
-from events.service.ticket_service import scan_member_code
+from events.service.member_scan_service import scan_member_code
 
 pytestmark = pytest.mark.django_db
 

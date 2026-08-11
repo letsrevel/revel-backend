@@ -16,7 +16,13 @@ from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.schema.financials import EventFinancialsSchema
-from events.service import refund_service, revenue_aggregation, ticket_guest_name_service, ticket_service
+from events.service import (
+    member_scan_service,
+    refund_service,
+    revenue_aggregation,
+    ticket_guest_name_service,
+    ticket_service,
+)
 
 from .base import EventAdminBaseController
 
@@ -62,7 +68,7 @@ EFFECTIVE_PRICE_PAID = Coalesce("payment__amount", "price_paid", "tier__price")
 # Check-in codes are a bare canonical ticket UUID (36 chars), a series pass QR payload
 # ("series:" + UUID), or a membership card QR payload ("member:" + UUID) — both prefixes
 # are 7 chars, so max length stays 43. See ticket_service.resolve_check_in_ticket_id()
-# and ticket_service.scan_member_code(). Bounding length/shape here rejects garbage
+# and member_scan_service.scan_member_code(). Bounding length/shape here rejects garbage
 # before it reaches the resolver (422 instead of an unbounded str hitting the ORM/service).
 CHECK_IN_CODE_PATTERN = (
     r"^(series:|member:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -463,7 +469,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         # lookup — the bare-UUID ticket path (the common case) stays query-free
         # until its own fetch inside check_in_ticket.
         if code.startswith(models.OrganizationMember.QR_PREFIX):
-            result = ticket_service.scan_member_code(event, code, self.user(), price_paid=price_paid)
+            result = member_scan_service.scan_member_code(event, code, self.user(), price_paid=price_paid)
             if result.checked_in is not None:
                 return result.checked_in
             return schema.MemberScanResponseSchema.from_result(result)

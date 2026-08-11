@@ -20,7 +20,7 @@ from .ticket_tier import Currencies, TicketTierSchema
 from .venue import MinimalSeatSchema
 
 if t.TYPE_CHECKING:
-    from events.service.ticket_service import MemberScanResult
+    from events.service.member_scan_service import MemberScanResult
 
 
 class PaymentSchema(ModelSchema):

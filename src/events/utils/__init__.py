@@ -514,7 +514,7 @@ def create_membership_pdf(member: "OrganizationMember") -> bytes:
     organization = member.organization
 
     # member.qr_payload is the single source of truth for the scan contract
-    # (see ticket_service.resolve_check_in_ticket_id / scan_member_code).
+    # (see ticket_service.resolve_check_in_ticket_id / member_scan_service.scan_member_code).
     qr_code_base64 = _qr_code_base64(member.qr_payload)
 
     logo_file = organization.logo_thumbnail or organization.logo
