@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Membership wallet cards** (#878): organization members can add their membership to Apple Wallet or Google Wallet, or download it as a PDF, mirroring the existing ticket wallet experience
+  - `GET /me/organizations/{slug}/membership/wallet/apple`, `.../wallet/google`, and `.../wallet/pdf`; `apple_pass_available` / `google_pass_available` flags exposed on `GET /me/memberships`
+- **Member verification at the door** (#878): staff with `check_in_attendees` can scan a membership card to verify a member's status (active/paused/cancelled/banned) via `GET .../members/verify/{code}` — side-effect-free, so it works even when the member has no ticket
+- **Membership cards at event check-in** (#878): the existing ticket check-in endpoint now also accepts a membership-card scan — if the member holds exactly one non-cancelled ticket for the event it is checked in automatically, otherwise staff get a report of the member's tickets so they can scan the right one
+
 ## [2.2.0] - 2026-08-11
 
 ### Added
