@@ -1,7 +1,7 @@
 """Tests for the my-permissions payload cache (#880).
 
 Pins the contract of ``events.service.permission_snapshot``: short-TTL per-user cache,
-post-commit (never in-transaction) invalidation at the two grant sites, rollback safety,
+post-commit (never in-transaction) invalidation at the grant sites, rollback safety,
 and fail-open behavior when the cache backend errors.
 """
 
@@ -14,9 +14,9 @@ from django.test.client import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
-from events.models import Organization, OrganizationStaff, OrganizationToken
+from events.models import Organization, OrganizationStaff, OrganizationToken, PermissionMap, PermissionsSchema
 from events.service import permission_snapshot
-from events.service.organization_service import lifecycle, tokens
+from events.service.organization_service import lifecycle, membership, tokens
 
 pytestmark = pytest.mark.django_db
 
@@ -91,6 +91,39 @@ def test_claim_invitation_invalidates_on_commit(
 
     payload = permission_snapshot.get_my_permissions_payload(user)
     assert str(organization.id) in payload["organization_permissions"]
+
+
+def test_add_staff_invalidates_on_commit(
+    user: RevelUser, organization: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Granting staff status busts the grantee's cached map after commit (#884)."""
+    key = permission_snapshot.get_cache_key(user.id)
+    permission_snapshot.get_my_permissions_payload(user)
+    assert cache.get(key) is not None
+
+    with django_capture_on_commit_callbacks(execute=True):
+        membership.add_staff(organization, user)
+    assert cache.get(key) is None
+
+    payload = permission_snapshot.get_my_permissions_payload(user)
+    assert str(organization.id) in payload["organization_permissions"]
+
+
+def test_update_staff_permissions_invalidates_on_commit(
+    user: RevelUser, organization: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Changing a staff member's permission map busts their cached map after commit (#884)."""
+    staff = OrganizationStaff.objects.create(organization=organization, user=user)
+    key = permission_snapshot.get_cache_key(user.id)
+    permission_snapshot.get_my_permissions_payload(user)
+    assert cache.get(key) is not None
+
+    with django_capture_on_commit_callbacks(execute=True):
+        membership.update_staff_permissions(staff, PermissionsSchema(default=PermissionMap(create_event=True)))
+    assert cache.get(key) is None
+
+    payload = permission_snapshot.get_my_permissions_payload(user)
+    assert payload["organization_permissions"][str(organization.id)]["default"]["create_event"] is True
 
 
 def test_rollback_leaves_cache_untouched(user: RevelUser) -> None:
