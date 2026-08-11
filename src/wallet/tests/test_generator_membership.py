@@ -4,12 +4,13 @@ import json
 import typing as t
 import zipfile
 from io import BytesIO
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from events.models import MembershipTier, Organization, OrganizationMember
-from wallet.apple.generator import ApplePassGenerator
+from wallet.apple.generator import ApplePassGenerator, ApplePassGeneratorError
+from wallet.apple.signer import ApplePassSignerError
 
 
 def _extract_pass_json(pkpass_bytes: bytes) -> dict[str, t.Any]:
@@ -57,3 +58,24 @@ def test_membership_pass_tier_shown_and_omitted(
     without = _extract_pass_json(generator.generate_membership_pass(member))
     keys = [f["key"] for f in without["generic"]["secondaryFields"]]
     assert "tier" not in keys
+
+
+@pytest.mark.django_db
+def test_membership_pass_raises_on_signer_error(member: OrganizationMember) -> None:
+    """ApplePassSignerError must propagate unchanged (mirrors the ticket generator contract)."""
+    mock_signer = MagicMock()
+    mock_signer.create_manifest.side_effect = ApplePassSignerError("Signing failed")
+    generator = ApplePassGenerator(signer=mock_signer)
+
+    with pytest.raises(ApplePassSignerError):
+        generator.generate_membership_pass(member)
+
+
+@pytest.mark.django_db
+def test_membership_pass_raises_generator_error_on_failure(
+    generator: ApplePassGenerator, member: OrganizationMember
+) -> None:
+    """General failures surface as ApplePassGeneratorError."""
+    with patch.object(generator, "_build_membership_pass_data", side_effect=Exception("Build error")):
+        with pytest.raises(ApplePassGeneratorError, match="Failed to generate pass"):
+            generator.generate_membership_pass(member)

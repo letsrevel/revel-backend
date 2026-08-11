@@ -139,10 +139,16 @@ class TestMembershipGoogleWallet:
 
     def test_bare_redirects_to_save_url(
         self,
+        google_wallet_configured_settings: None,
         member_client: Client,
         member: OrganizationMember,
     ) -> None:
-        """Should redirect to the Google Wallet save URL by default."""
+        """Should redirect to the Google Wallet save URL by default.
+
+        The availability gate reads real settings (CI has none), so the
+        configured-settings fixture is required — mocking membership_save_url
+        alone is not enough.
+        """
         save_url = "https://pay.google.com/gp/v/save/faketoken"
         with patch("wallet.controllers.google_wallet_service.membership_save_url", return_value=save_url):
             url = reverse("api:me_membership_google_wallet_pass", kwargs={"slug": member.organization.slug})
@@ -153,6 +159,7 @@ class TestMembershipGoogleWallet:
 
     def test_format_json_returns_save_url(
         self,
+        google_wallet_configured_settings: None,
         member_client: Client,
         member: OrganizationMember,
     ) -> None:

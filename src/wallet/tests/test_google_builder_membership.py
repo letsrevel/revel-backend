@@ -71,3 +71,21 @@ def test_membership_logo_omitted_when_unset(member: OrganizationMember, settings
 
     obj = build_membership_payload(member)["genericObjects"][0]
     assert "logo" not in obj
+
+
+@pytest.mark.django_db
+def test_membership_logo_omitted_for_non_https_base_url(
+    member: OrganizationMember, png_bytes: bytes, settings: t.Any
+) -> None:
+    """Non-HTTPS indirection URLs (e.g. local dev) must be dropped, not embedded.
+
+    Google's image fetcher rejects non-HTTPS URLs and voids the entire save link.
+    """
+    settings.GOOGLE_WALLET_ISSUER_ID = "1234"
+    settings.GOOGLE_WALLET_CLASS_PREFIX = "revel"
+    settings.BASE_URL = "http://localhost:8000"
+    organization = member.organization
+    organization.logo.save("logo.png", ContentFile(png_bytes), save=True)
+
+    obj = build_membership_payload(member)["genericObjects"][0]
+    assert "logo" not in obj
