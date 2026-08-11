@@ -131,6 +131,8 @@ SUBSCRIPTION_PATH_MARKERS = (
 
 def _declared_error_schemas(status_filter: t.Callable[[str], bool]) -> dict[tuple[str, str, str], set[str]]:
     """Map each ``(path, method, status)`` matching ``status_filter`` to its component names."""
+    # Drop the process-level memo (#880) so the guard actually observes generation.
+    api._schema_cache = {}
     with schema_name_collision_guard():
         spec = api.get_openapi_schema()
 
