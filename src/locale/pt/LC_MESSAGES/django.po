@@ -1504,6 +1504,16 @@ msgstr "Morada visível apenas para o staff"
 msgid "Address visible to attendees only"
 msgstr "Morada visível apenas para os participantes"
 
+msgid ""
+"This member holds multiple tickets for this event. Scan the specific ticket "
+"QR."
+msgstr ""
+"Este membro tem vários bilhetes para este evento. Digitaliza o código QR "
+"do bilhete específico."
+
+msgid "This member has no ticket for this event."
+msgstr "Este membro não tem bilhete para este evento."
+
 msgid "Only draft invoices can be edited."
 msgstr "Só é possível editar faturas em rascunho."
 
@@ -2829,6 +2839,13 @@ msgid "Welcome to %(org)s"
 msgstr "Boas-vindas a %(org)s"
 
 #, python-format
+msgid "Your membership card was updated: %(org)s"
+msgstr "O teu cartão de membro foi atualizado: %(org)s"
+
+msgid "Your membership card was updated"
+msgstr "O teu cartão de membro foi atualizado"
+
+#, python-format
 msgid "You've been promoted to %(role)s in %(org)s"
 msgstr "Foste promovido a %(role)s em %(org)s"
 
@@ -3473,6 +3490,37 @@ msgid "View and manage this request:"
 msgstr "Ver e gerir este pedido:"
 
 #, python-format
+msgid ""
+"Your membership tier in <strong>%(org)s</strong> changed to "
+"<strong>%(tier)s</strong>."
+msgstr ""
+"O teu nível de adesão em <strong>%(org)s</strong> mudou para "
+"<strong>%(tier)s</strong>."
+
+msgid ""
+"Your wallet card shows your tier, so it needs to be re-added to reflect the "
+"change."
+msgstr ""
+"O teu cartão wallet mostra o teu nível, por isso tem de ser adicionado "
+"novamente para refletir a alteração."
+
+msgid "View Organization"
+msgstr "Ver organização"
+
+#, python-format
+msgid "Your membership tier in %(org)s changed to %(tier)s."
+msgstr "O teu nível de adesão em %(org)s mudou para %(tier)s."
+
+msgid "Add to Apple Wallet:"
+msgstr "Adicionar à Apple Wallet:"
+
+msgid "Add to Google Wallet:"
+msgstr "Adicionar à Google Wallet:"
+
+msgid "View organization:"
+msgstr "Ver organização:"
+
+#, python-format
 msgid "You are now a <strong>%(role)s</strong> of <strong>%(org)s</strong>!"
 msgstr "Agora és <strong>%(role)s</strong> de <strong>%(org)s</strong>!"
 
@@ -3488,15 +3536,9 @@ msgstr "Receber os anúncios da organização"
 msgid "Connect with other members"
 msgstr "Ligar-te a outros membros"
 
-msgid "View Organization"
-msgstr "Ver organização"
-
 #, python-format
 msgid "You are now a %(role)s of %(org)s!"
 msgstr "Agora és %(role)s de %(org)s!"
-
-msgid "View organization:"
-msgstr "Ver organização:"
 
 msgid "Please check the details of this notification."
 msgstr "Verifica os detalhes desta notificação."
@@ -3637,12 +3679,6 @@ msgstr "Detalhes do pagamento:"
 
 msgid "Ticket Information:"
 msgstr "Informações do bilhete:"
-
-msgid "Add to Apple Wallet:"
-msgstr "Adicionar à Apple Wallet:"
-
-msgid "Add to Google Wallet:"
-msgstr "Adicionar à Google Wallet:"
 
 msgid "Sign up to accept this invitation and join the event:"
 msgstr "Regista-te para aceitar este convite e participar no evento:"
@@ -4616,7 +4652,8 @@ msgid "Please contact the organizer to complete the payment."
 msgstr "Contacta quem organiza para concluir o pagamento."
 
 msgid "Your ticket will arrive by email as soon as your payment is confirmed."
-msgstr "Receberás o teu bilhete por e-mail assim que o teu pagamento for confirmado."
+msgstr ""
+"Receberás o teu bilhete por e-mail assim que o teu pagamento for confirmado."
 
 #, python-format
 msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"

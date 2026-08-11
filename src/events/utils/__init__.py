@@ -23,7 +23,7 @@ from django.utils.dateformat import format as date_format
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
     from events import models
-    from events.models import HeldSeriesPass, Organization, Ticket
+    from events.models import HeldSeriesPass, Organization, OrganizationMember, Ticket
 
 logger = structlog.get_logger(__name__)
 
@@ -56,7 +56,7 @@ def get_user_timezone(user: "RevelUser") -> ZoneInfo | None:
         return None
     try:
         return ZoneInfo(tz_name)
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         logger.warning("invalid_timezone_for_user", user_id=user.id, timezone=tz_name)
         return None
 
@@ -198,35 +198,12 @@ def get_invitation_message(display_name: str, event: "models.Event") -> str:
         }
         try:
             return event.invitation_message.format_map(defaultdict(_SafeAccessStr, safe_context))
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             logger.warning("invitation_message_format_error", event_id=str(event.id))
             return event.invitation_message
 
     context = {"display_name": display_name, "event": event}
     return render_to_string("events/default_invitation_message.txt", context=context)
-
-
-def _uuid_to_color(uuid_value: str) -> tuple[str, str]:
-    """Convert a UUID to a consistent HSL color palette.
-
-    Args:
-        uuid_value: UUID string to convert
-
-    Returns:
-        Tuple of (primary_color, secondary_color) as HSL strings
-    """
-    # Use first 8 chars of UUID to generate a hue (0-360)
-    hash_value = int(uuid_value.replace("-", "")[:8], 16)
-    hue = hash_value % 360
-
-    # Primary color: vibrant
-    primary = f"hsl({hue}, 65%, 55%)"
-
-    # Secondary color: shifted hue, slightly lighter
-    secondary_hue = (hue + 30) % 360
-    secondary = f"hsl({secondary_hue}, 60%, 60%)"
-
-    return primary, secondary
 
 
 def _get_logo_initials(name: str) -> str:
@@ -456,25 +433,18 @@ def create_series_pass_pdf(held_pass: "HeldSeriesPass") -> bytes:
     # existing Event > EventSeries > Organization fallback keyed off the
     # earliest covered event (all covered events share the same series).
     if links:
-        logo_file, cover_art_file, branding_source_name = _get_branding_assets(links[0].event)
+        logo_file, cover_art_file, _branding_source_name = _get_branding_assets(links[0].event)
     else:
-        logo_file = (
-            event_series.logo_thumbnail or event_series.logo or organization.logo_thumbnail or organization.logo
-        )
+        logo_file = event_series.logo_thumbnail or event_series.logo or organization.logo_thumbnail or organization.logo
         cover_art_file = (
             event_series.cover_art_social
             or event_series.cover_art
             or organization.cover_art_social
             or organization.cover_art
         )
-        branding_source_name = event_series.name
 
     logo_data_uri = _file_to_data_uri(logo_file)
     cover_art_data_uri = _file_to_data_uri(cover_art_file)
-
-    color_source_id = str(event_series.id) if (event_series.logo or event_series.cover_art) else str(organization.id)
-    primary_color, secondary_color = _uuid_to_color(color_source_id)
-    logo_initials = _get_logo_initials(branding_source_name)
 
     context_data = {
         "series_name": event_series.name,
@@ -487,13 +457,50 @@ def create_series_pass_pdf(held_pass: "HeldSeriesPass") -> bytes:
         "pass_id_short": str(held_pass.id)[:8].upper(),
         "logo_url": logo_data_uri,
         "cover_art_url": cover_art_data_uri,
-        "logo_initials": logo_initials,
-        "primary_color": primary_color,
-        "secondary_color": secondary_color,
         "font_dir": str(settings.BASE_DIR / "fonts"),
-        "brand_logo": str(settings.BASE_DIR / "assets" / "brand" / "revel-logo.png"),
+        "brand_mark": str(settings.BASE_DIR / "assets" / "brand" / "revel-mark.svg"),
     }
 
     html_string = render_to_string("events/series_pass.html", context=context_data)
+    html = HTML(string=html_string)
+    return t.cast(bytes, html.write_pdf())
+
+
+def create_membership_pdf(member: "OrganizationMember") -> bytes:
+    """Generates a PDF membership card using weasyprint.
+
+    Args:
+        member: The OrganizationMember, expected to have ``organization``,
+            ``user`` and ``tier`` select_related to avoid N+1 queries.
+
+    Returns:
+        The PDF content as bytes.
+    """
+    from weasyprint import HTML
+
+    organization = member.organization
+
+    # member.qr_payload is the single source of truth for the scan contract
+    # (see ticket_service.resolve_check_in_ticket_id / member_scan_service.scan_member_code).
+    qr_code_base64 = _qr_code_base64(member.qr_payload)
+
+    logo_file = organization.logo_thumbnail or organization.logo
+    cover_art_file = organization.cover_art_social or organization.cover_art
+
+    context_data = {
+        "organization_name": organization.name,
+        "member_name": member.user.get_display_name(),
+        "tier_name": member.tier.name if member.tier else None,
+        "member_since": format_organization_datetime(member.created_at, organization),
+        "qr_code_base64": qr_code_base64,
+        "member_id": str(member.id),
+        "member_id_short": str(member.id)[:8].upper(),
+        "logo_url": _file_to_data_uri(logo_file),
+        "cover_art_url": _file_to_data_uri(cover_art_file),
+        "font_dir": str(settings.BASE_DIR / "fonts"),
+        "brand_mark": str(settings.BASE_DIR / "assets" / "brand" / "revel-mark.svg"),
+    }
+
+    html_string = render_to_string("events/membership_card.html", context=context_data)
     html = HTML(string=html_string)
     return t.cast(bytes, html.write_pdf())

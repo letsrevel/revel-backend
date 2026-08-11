@@ -4,6 +4,7 @@ import typing as t
 from decimal import Decimal
 from uuid import UUID
 
+from django.utils.translation import gettext as _
 from ninja import ModelSchema, Schema
 from pydantic import Field
 
@@ -14,9 +15,12 @@ from events import models
 from events.models import DiscountCode, Payment, Ticket
 
 from .event import MinimalEventSchema
-from .organization import MinimalOrganizationMemberSchema
+from .organization import MemberVerificationSchema, MinimalOrganizationMemberSchema
 from .ticket_tier import Currencies, TicketTierSchema
 from .venue import MinimalSeatSchema
+
+if t.TYPE_CHECKING:
+    from events.service.member_scan_service import MemberScanResult
 
 
 class PaymentSchema(ModelSchema):
@@ -179,6 +183,7 @@ class CheckInRequestSchema(Schema):
 class CheckInResponseSchema(ModelSchema):
     """Schema for ticket check-in response."""
 
+    kind: t.Literal["checked_in"] = "checked_in"
     user: MinimalRevelUserSchema
     tier: TicketTierSchema | None = None
     price_paid: Decimal | None = None
@@ -213,3 +218,46 @@ class ConfirmPaymentSchema(Schema):
     """
 
     price_paid: Decimal | None = Field(None, gt=0)
+
+
+class MemberScanTicketSummarySchema(Schema):
+    """Minimal ticket row for the multiple-tickets member-scan outcome."""
+
+    id: UUID
+    tier_name: str | None = None
+    status: Ticket.TicketStatus
+
+
+class MemberScanResponseSchema(Schema):
+    """Member-card scan outcome when no ticket was checked in.
+
+    ``kind`` discriminates against ``CheckInResponseSchema`` in the check-in
+    union. ``tickets`` is empty for the no-ticket outcome and lists the
+    member's non-cancelled tickets when there are several (staff must scan
+    the specific ticket QR — the endpoint never guesses which one to burn).
+    """
+
+    kind: t.Literal["member"] = "member"
+    member: MemberVerificationSchema
+    tickets: list[MemberScanTicketSummarySchema] = Field(default_factory=list)
+    detail: str
+
+    @classmethod
+    def from_result(cls, result: "MemberScanResult") -> "MemberScanResponseSchema":
+        """Build the no-check-in scan response (zero or multiple tickets)."""
+        if result.tickets:
+            detail = str(_("This member holds multiple tickets for this event. Scan the specific ticket QR."))
+        else:
+            detail = str(_("This member has no ticket for this event."))
+        return cls(
+            member=MemberVerificationSchema.from_member(result.member),
+            tickets=[
+                MemberScanTicketSummarySchema(
+                    id=tk.id,
+                    tier_name=tk.tier.name if tk.tier else None,
+                    status=t.cast(Ticket.TicketStatus, tk.status),
+                )
+                for tk in result.tickets
+            ],
+            detail=detail,
+        )

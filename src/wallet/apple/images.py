@@ -207,6 +207,28 @@ def resolve_cover_art(event: t.Any) -> bytes | None:
     return None
 
 
+def resolve_org_logo(organization: t.Any) -> bytes | None:
+    """Read the organization's logo bytes (thumbnail preferred), or None.
+
+    Mirrors ``resolve_cover_art``: candidates are tried individually so a
+    broken/missing thumbnail file falls back to the original (same contract
+    ``serve_image_or_placeholder`` documents, #879), and a read failure never
+    raises — callers fall back to ``generate_fallback_logo``.
+    """
+    for file_field in (organization.logo_thumbnail, organization.logo):
+        if not file_field:
+            continue
+        try:
+            file_field.open("rb")
+            try:
+                return t.cast(bytes, file_field.read())
+            finally:
+                file_field.close()
+        except Exception:
+            logger.debug("org_logo_read_failed", organization_id=str(organization.id))
+    return None
+
+
 def generate_fallback_logo(organization: t.Any) -> bytes:
     """Generate a fallback logo based on organization ID.
 

@@ -1,0 +1,13 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p style="font-size:18px;">{% blocktranslate with org=context.organization_name tier=context.tier_name %}Your membership tier in <strong>{{ org }}</strong> changed to <strong>{{ tier }}</strong>.{% endblocktranslate %}</p>
+<div class="card">
+    <p>{% trans "Your wallet card shows your tier, so it needs to be re-added to reflect the change." %}</p>
+</div>
+{% include "notifications/email/_wallet_badges.html" %}
+<center>
+    <a href="{{ context.frontend_url }}" class="button">{% trans "View Organization" %}</a>
+</center>
+{% endblock %}

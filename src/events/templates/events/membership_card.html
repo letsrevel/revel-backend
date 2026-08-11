@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Series Pass - {{ pass_name }}</title>
+    <title>Membership Card - {{ organization_name }}</title>
     {% include "_fonts.html" %}
     <style>
         /* Brand tokens from docs/brand-style-guide.md (hexes are the contract):
@@ -62,11 +62,6 @@
             font-size: 24px;
             font-weight: 600;
         }
-        .cover-overlay .org-name {
-            margin: 5px 0 0 0;
-            font-size: 14px;
-            opacity: 0.9;
-        }
 
         /* Logo Section */
         .logo-section {
@@ -89,19 +84,31 @@
             height: 100%;
             object-fit: cover;
         }
-        .pass-title {
+        .member-name {
             flex: 1;
         }
-        .pass-title .name {
+        .member-name .name {
             font-size: 18px;
             font-weight: 600;
             color: #0D1E1C;
             margin: 0;
         }
-        .pass-title .pass-id-line {
+        .member-name .since {
             font-size: 12px;
             color: #46405E;
             margin: 3px 0 0 0;
+        }
+        .tier-badge {
+            display: inline-block;
+            background: #8C3CDD;
+            color: #FFFFFF;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            padding: 5px 12px;
+            border-radius: 999px;
+            margin-left: 10px;
         }
 
         /* Content Section */
@@ -114,7 +121,6 @@
             background: #F8F5FC;
             border-left: 4px solid #8C3CDD;
             padding: 15px;
-            margin: 0 0 15px 0;
             border-radius: 4px;
         }
         .info-row {
@@ -125,45 +131,11 @@
         .info-label {
             font-weight: 600;
             color: #46405E;
-            min-width: 90px;
+            min-width: 110px;
         }
         .info-value {
             color: #0D1E1C;
             flex: 1;
-        }
-
-        /* Covered Events Card */
-        .events-card {
-            background: #F8F5FC;
-            border: 2px solid #8C3CDD;
-            border-radius: 8px;
-            padding: 15px 20px;
-        }
-        .events-card h2 {
-            margin: 0 0 10px 0;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: #46405E;
-        }
-        .event-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 6px 0;
-            font-size: 13px;
-            border-bottom: 1px solid #EDE7F6;
-        }
-        .event-row:last-child {
-            border-bottom: none;
-        }
-        .event-row .event-name {
-            font-weight: 600;
-            color: #0D1E1C;
-        }
-        .event-row .event-start {
-            color: #46405E;
-            text-align: right;
         }
 
         /* QR Code Section */
@@ -188,7 +160,7 @@
             font-size: 11px;
             color: #8C3CDD;
         }
-        .pass-id-short {
+        .member-id-short {
             margin-top: 6px;
             font-family: monospace;
             font-size: 11px;
@@ -207,7 +179,7 @@
             font-size: 10px;
             color: #8A82A6;
         }
-        .pass-id {
+        .member-id {
             font-family: monospace;
             color: #46405E;
         }
@@ -254,65 +226,55 @@
             <img src="{{ cover_art_url }}" alt="">
             {% endif %}
             <div class="cover-overlay">
-                <p class="eyebrow">Series Pass</p>
-                <h1>{{ pass_name }}</h1>
-                <p class="org-name">{{ organization_name }}</p>
+                <p class="eyebrow">Membership</p>
+                <h1>{{ organization_name }}</h1>
             </div>
         </div>
 
         <div class="accent-bar"></div>
 
-        <!-- Logo and Pass Title -->
+        <!-- Logo and Member Name -->
         <div class="logo-section">
             {% if logo_url %}
             <div class="logo-container">
                 <img src="{{ logo_url }}" alt="">
             </div>
             {% endif %}
-            <div class="pass-title">
-                <p class="name">{{ series_name }}</p>
-                <p class="pass-id-line">Pass ID: {{ pass_id_short }}</p>
+            <div class="member-name">
+                <p class="name">{{ member_name }}{% if tier_name %}<span class="tier-badge">{{ tier_name }}</span>{% endif %}</p>
+                <p class="since">Member since {{ member_since }}</p>
             </div>
         </div>
 
-        <!-- Holder Details -->
+        <!-- Details -->
         <div class="content-section">
             <div class="info-card">
                 <div class="info-row">
-                    <span class="info-label">Holder</span>
-                    <span class="info-value">{{ user_display_name }}</span>
+                    <span class="info-label">Organization</span>
+                    <span class="info-value">{{ organization_name }}</span>
                 </div>
+                {% if tier_name %}
                 <div class="info-row">
-                    <span class="info-label">Series</span>
-                    <span class="info-value">{{ series_name }}</span>
+                    <span class="info-label">Tier</span>
+                    <span class="info-value">{{ tier_name }}</span>
                 </div>
-            </div>
-
-            <!-- Covered Events -->
-            <div class="events-card">
-                <h2>Covered Events</h2>
-                {% for covered_event in covered_events %}
-                <div class="event-row">
-                    <span class="event-name">{{ covered_event.name }}</span>
-                    <span class="event-start">{{ covered_event.start }}</span>
-                </div>
-                {% endfor %}
+                {% endif %}
             </div>
         </div>
 
         <!-- QR Code -->
         <div class="qr-section">
             <div class="qr-code-container">
-                <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Series Pass QR Code" width="140" height="140">
+                <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Membership Card QR Code" width="140" height="140">
             </div>
-            <p class="qr-instruction">Present this QR code at the entrance of any covered event</p>
-            <p class="pass-id-short">{{ pass_id_short }}</p>
+            <p class="qr-instruction">Present this QR code to verify your membership</p>
+            <p class="member-id-short">{{ member_id_short }}</p>
         </div>
 
         <!-- Footer -->
         <div class="footer-section">
-            <p>This pass is valid for all events listed above and must be presented for entry.</p>
-            <p class="pass-id">{{ pass_id }}</p>
+            <p>This card identifies its holder as a member; status is confirmed at scan time. Event entry requires a valid ticket.</p>
+            <p class="member-id">{{ member_id }}</p>
         </div>
 
         <!-- Powered by revel. -->

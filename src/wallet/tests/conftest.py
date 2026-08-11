@@ -342,14 +342,33 @@ def ticket(event: t.Any, member_user: t.Any, event_ticket_tier: t.Any) -> t.Any:
 
 
 @pytest.fixture
-def member_client(member_user: t.Any, organization: t.Any) -> t.Any:
-    """API client for a member user."""
+def member(organization: t.Any, member_user: t.Any) -> t.Any:
+    """Organization member for wallet membership pass tests."""
+    from events.models import OrganizationMember
+
+    return OrganizationMember.objects.create(organization=organization, user=member_user, tier=None)
+
+
+@pytest.fixture
+def tier(organization: t.Any) -> t.Any:
+    """Membership tier for wallet membership pass tests."""
+    from events.models import MembershipTier
+
+    return MembershipTier.objects.create(organization=organization, name="Gold")
+
+
+@pytest.fixture
+def member_client(member_user: t.Any, member: t.Any) -> t.Any:
+    """API client for a member user.
+
+    Depends on the ``member`` fixture (rather than creating its own
+    OrganizationMember row) so tests can request both ``member_client`` and
+    ``member`` together without hitting the (organization, user) unique
+    constraint.
+    """
     from django.test.client import Client
     from ninja_jwt.tokens import RefreshToken
 
-    from events.models import OrganizationMember
-
-    OrganizationMember.objects.create(organization=organization, user=member_user)
     refresh = RefreshToken.for_user(member_user)
     return Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
 

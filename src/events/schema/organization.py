@@ -380,6 +380,44 @@ class MembershipTierUpdateSchema(Schema):
     requires_membership_approval: bool | None = None
 
 
+class MemberVerificationTierSchema(Schema):
+    """Minimal tier info for door verification."""
+
+    id: UUID
+    name: str
+
+
+class MemberVerificationSchema(Schema):
+    """Lean door-verification view of a membership.
+
+    Deliberately reports EVERY status (paused, cancelled, banned) rather than
+    404ing on non-active members: the door needs to see "banned", not a lookup
+    failure. Identity fields (name, photo via user) are the anti-impersonation
+    measure — staff compare the face to the card.
+
+    No ``kind`` discriminator here: this schema is the sole response of the
+    verify endpoint and appears nested (as ``member``) in the check-in union —
+    the discriminators live on the two top-level union schemas only.
+    """
+
+    member_id: UUID
+    status: OrganizationMember.MembershipStatus
+    tier: MemberVerificationTierSchema | None = None
+    member_since: AwareDatetime
+    user: MinimalRevelUserSchema
+
+    @classmethod
+    def from_member(cls, member: OrganizationMember) -> "MemberVerificationSchema":
+        """Build from a member row with ``user`` and ``tier`` select_related."""
+        return cls(
+            member_id=member.id,
+            status=t.cast(OrganizationMember.MembershipStatus, member.status),
+            tier=MemberVerificationTierSchema(id=member.tier.id, name=member.tier.name) if member.tier else None,
+            member_since=member.created_at,
+            user=MinimalRevelUserSchema.from_orm(member.user),
+        )
+
+
 class MinimalOrganizationMemberSchema(ModelSchema):
     """Organization member info without user details - used in permission contexts."""
 

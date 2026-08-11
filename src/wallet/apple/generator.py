@@ -20,12 +20,13 @@ import structlog
 from django.conf import settings
 from django.utils import timezone
 
-from events.models import HeldSeriesPass, Ticket
+from events.models import HeldSeriesPass, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import (
     PassColors,
     format_date_compact,
     format_date_full,
+    format_date_year,
     format_iso_date,
     format_price,
     get_theme_colors,
@@ -40,6 +41,7 @@ from wallet.apple.images import (
     parse_rgb_color,
     resize_image,
     resolve_cover_art,
+    resolve_org_logo,
 )
 from wallet.apple.signer import ApplePassSigner, ApplePassSignerError
 from wallet.pricing import resolve_ticket_price
@@ -76,6 +78,22 @@ class PassData:
     seat_label: str | None = None
 
 
+@dataclass
+class MembershipPassData:
+    """Data structure for building a generic-style membership card."""
+
+    serial_number: str
+    description: str
+    organization_name: str
+    member_name: str
+    member_since: datetime
+    tier_name: str | None
+    colors: PassColors
+    logo_image: bytes
+    org_tz: ZoneInfo
+    barcode_message: str
+
+
 class ApplePassGeneratorError(Exception):
     """Raised when pass generation fails."""
 
@@ -110,7 +128,7 @@ class ApplePassGenerator:
         """
         try:
             pass_data = self._build_pass_data(ticket)
-            files = self._generate_files(pass_data)
+            files = self._generate_files(self._build_pass_json(pass_data), pass_data.colors, pass_data.logo_image)
 
             # Create manifest and sign
             manifest = self.signer.create_manifest(files)
@@ -148,7 +166,7 @@ class ApplePassGenerator:
         """
         try:
             pass_data = self._build_series_pass_data(held_pass)
-            files = self._generate_files(pass_data)
+            files = self._generate_files(self._build_pass_json(pass_data), pass_data.colors, pass_data.logo_image)
 
             manifest = self.signer.create_manifest(files)
             files["manifest.json"] = manifest
@@ -170,6 +188,86 @@ class ApplePassGenerator:
         except Exception as e:
             logger.error("series_pass_generation_failed", held_pass_id=str(held_pass.id), error=str(e))
             raise ApplePassGeneratorError(f"Failed to generate pass: {e}")
+
+    def generate_membership_pass(self, member: OrganizationMember) -> bytes:
+        """Generate a .pkpass membership card for an organization member."""
+        try:
+            data = self._build_membership_pass_data(member)
+            files = self._generate_files(self._build_membership_pass_json(data), data.colors, data.logo_image)
+            manifest = self.signer.create_manifest(files)
+            files["manifest.json"] = manifest
+            files["signature"] = self.signer.sign_manifest(manifest)
+            pkpass_bytes = self._create_archive(files)
+            logger.info("membership_pass_generated", member_id=str(member.id), size=len(pkpass_bytes))
+            return pkpass_bytes
+        except ApplePassSignerError:
+            raise
+        except Exception as e:
+            logger.error("membership_pass_generation_failed", member_id=str(member.id), error=str(e))
+            raise ApplePassGeneratorError(f"Failed to generate pass: {e}")
+
+    def _build_membership_pass_data(self, member: OrganizationMember) -> MembershipPassData:
+        org = member.organization
+        logo_image = resolve_org_logo(org) or generate_fallback_logo(org)
+        return MembershipPassData(
+            serial_number=str(member.id),
+            description=f"Membership card for {org.name}",
+            organization_name=org.name,
+            member_name=member.user.get_display_name(),
+            member_since=member.created_at,
+            tier_name=member.tier.name if member.tier else None,
+            colors=get_theme_colors(),
+            logo_image=logo_image,
+            org_tz=get_organization_timezone(org),
+            barcode_message=member.qr_payload,
+        )
+
+    def _build_membership_pass_json(self, data: MembershipPassData) -> bytes:
+        """Build pass.json for the generic (membership card) style.
+
+        No relevantDate / expirationDate: the card is evergreen — validity is
+        resolved live at scan time, never baked into the pass.
+        """
+        secondary_fields: list[dict[str, t.Any]] = []
+        if data.tier_name:
+            secondary_fields.append({"key": "tier", "label": "TIER", "value": data.tier_name})
+        secondary_fields.append(
+            {
+                "key": "member_since",
+                "label": "MEMBER SINCE",
+                "value": format_date_year(data.member_since, tz=data.org_tz),
+            }
+        )
+
+        pass_dict: dict[str, t.Any] = {
+            "formatVersion": 1,
+            "passTypeIdentifier": self._pass_type_id,
+            "serialNumber": data.serial_number,
+            "teamIdentifier": self._team_id,
+            "organizationName": data.organization_name,
+            "description": data.description,
+            "backgroundColor": data.colors.background,
+            "foregroundColor": data.colors.foreground,
+            "labelColor": data.colors.label,
+            "barcodes": [
+                {
+                    "format": "PKBarcodeFormatQR",
+                    "message": data.barcode_message,
+                    "messageEncoding": "iso-8859-1",
+                }
+            ],
+            "generic": {
+                "primaryFields": [
+                    {"key": "member", "label": data.organization_name, "value": data.member_name},
+                ],
+                "secondaryFields": secondary_fields,
+                "backFields": [
+                    {"key": "member_id", "label": "Member ID", "value": data.serial_number},
+                    {"key": "org", "label": "Organization", "value": data.organization_name},
+                ],
+            },
+        }
+        return json.dumps(pass_dict, indent=2).encode("utf-8")
 
     def _build_series_pass_data(self, held_pass: HeldSeriesPass) -> PassData:
         """Build PassData from a HeldSeriesPass model.
@@ -286,21 +384,21 @@ class ApplePassGenerator:
             seat_label=seat_label,
         )
 
-    def _generate_files(self, pass_data: PassData) -> dict[str, bytes]:
+    def _generate_files(self, pass_json: bytes, colors: PassColors, logo_image: bytes) -> dict[str, bytes]:
         """Generate all files needed for a pass."""
         files: dict[str, bytes] = {}
 
         # pass.json
-        files["pass.json"] = self._build_pass_json(pass_data)
+        files["pass.json"] = pass_json
 
         # Icons
-        icon_color = parse_rgb_color(pass_data.colors.background)
+        icon_color = parse_rgb_color(colors.background)
         for filename, size in ICON_SIZES.items():
             files[filename] = generate_colored_icon(size, icon_color)
 
         # Logos
         for filename, size in LOGO_SIZES.items():
-            files[filename] = resize_image(pass_data.logo_image, size)
+            files[filename] = resize_image(logo_image, size)
 
         # Vertical brand-gradient background (iOS blurs it behind the pass)
         for filename, size in BACKGROUND_SIZES.items():

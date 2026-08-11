@@ -16,7 +16,13 @@ from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.schema.financials import EventFinancialsSchema
-from events.service import refund_service, revenue_aggregation, ticket_guest_name_service, ticket_service
+from events.service import (
+    member_scan_service,
+    refund_service,
+    revenue_aggregation,
+    ticket_guest_name_service,
+    ticket_service,
+)
 
 from .base import EventAdminBaseController
 
@@ -59,11 +65,14 @@ TicketOrdering = t.Literal[
 # (`revenue_aggregation._process_ticket`) — resolve per row and are unaffected.
 EFFECTIVE_PRICE_PAID = Coalesce("payment__amount", "price_paid", "tier__price")
 
-# Check-in codes are either a bare canonical ticket UUID (36 chars) or a series pass
-# QR payload, HeldSeriesPass.QR_PREFIX ("series:") + canonical UUID (43 chars) — see
-# ticket_service.resolve_check_in_ticket_id(). Bounding length/shape here rejects garbage
+# Check-in codes are a bare canonical ticket UUID (36 chars), a series pass QR payload
+# ("series:" + UUID), or a membership card QR payload ("member:" + UUID) — both prefixes
+# are 7 chars, so max length stays 43. See ticket_service.resolve_check_in_ticket_id()
+# and member_scan_service.scan_member_code(). Bounding length/shape here rejects garbage
 # before it reaches the resolver (422 instead of an unbounded str hitting the ORM/service).
-CHECK_IN_CODE_PATTERN = r"^(series:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+CHECK_IN_CODE_PATTERN = (
+    r"^(series:|member:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 # Maps the public ``order_by`` value to the actual queryset ordering field.
 TICKET_ORDER_FIELDS: dict[TicketOrdering, str] = {
@@ -437,7 +446,10 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.post(
         "/tickets/{code}/check-in",
         url_name="check_in_ticket",
-        response={200: schema.CheckInResponseSchema, 400: ValidationErrorResponse | ErrorDetail},
+        response={
+            200: schema.CheckInResponseSchema | schema.MemberScanResponseSchema,
+            400: ValidationErrorResponse | ErrorDetail,
+        },
         permissions=[EventPermission("check_in_attendees")],
     )
     def check_in_ticket(
@@ -445,13 +457,24 @@ class EventAdminTicketsController(EventAdminBaseController):
         event_id: UUID,
         code: t.Annotated[str, Path(..., min_length=36, max_length=43, pattern=CHECK_IN_CODE_PATTERN)],
         payload: t.Annotated[schema.ConfirmPaymentSchema | None, Body(None)] = None,
-    ) -> models.Ticket:
-        """Check in an attendee by scanning their ticket or series pass QR."""
+    ) -> models.Ticket | schema.MemberScanResponseSchema:
+        """Check in a scanned code: ticket UUID, series pass, or membership card.
+
+        Membership cards are report-only unless the member holds exactly one
+        non-cancelled ticket for this event, in which case it is checked in.
+        """
         event = self.get_one(event_id)
+        price_paid = payload.price_paid if payload else None
+        # String-prefix dispatch: no branch pays queries for another namespace's
+        # lookup — the bare-UUID ticket path (the common case) stays query-free
+        # until its own fetch inside check_in_ticket.
+        if code.startswith(models.OrganizationMember.QR_PREFIX):
+            result = member_scan_service.scan_member_code(event, code, self.user(), price_paid=price_paid)
+            if result.checked_in is not None:
+                return result.checked_in
+            return schema.MemberScanResponseSchema.from_result(result)
         ticket_id = ticket_service.resolve_check_in_ticket_id(event, code)
-        return ticket_service.check_in_ticket(
-            event, ticket_id, self.user(), price_paid=payload.price_paid if payload else None
-        )
+        return ticket_service.check_in_ticket(event, ticket_id, self.user(), price_paid=price_paid)
 
     @route.get(
         "/revenue",

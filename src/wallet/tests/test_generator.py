@@ -418,7 +418,7 @@ class TestApplePassGeneratorGenerateFiles:
             logo_image=b"\x89PNG\r\n\x1a\n" + b"\x00" * 100,  # Minimal PNG-like
         )
 
-        files = generator._generate_files(data)
+        files = generator._generate_files(generator._build_pass_json(data), data.colors, data.logo_image)
 
         assert "pass.json" in files
         # Verify it's valid JSON
@@ -447,7 +447,7 @@ class TestApplePassGeneratorGenerateFiles:
             logo_image=sample_logo_bytes,
         )
 
-        files = generator._generate_files(data)
+        files = generator._generate_files(generator._build_pass_json(data), data.colors, data.logo_image)
 
         for icon_name in ICON_SIZES:
             assert icon_name in files
@@ -477,7 +477,7 @@ class TestApplePassGeneratorGenerateFiles:
             logo_image=sample_logo_bytes,
         )
 
-        files = generator._generate_files(data)
+        files = generator._generate_files(generator._build_pass_json(data), data.colors, data.logo_image)
 
         for logo_name in LOGO_SIZES:
             assert logo_name in files
@@ -507,7 +507,7 @@ class TestApplePassGeneratorGenerateFiles:
             logo_image=sample_logo_bytes,
         )
 
-        files = generator._generate_files(data)
+        files = generator._generate_files(generator._build_pass_json(data), data.colors, data.logo_image)
 
         for background_name, expected_size in BACKGROUND_SIZES.items():
             assert background_name in files

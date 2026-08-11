@@ -4,7 +4,7 @@ from uuid import UUID
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
-from ninja import Query
+from ninja import Path, Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -20,6 +20,10 @@ from events.controllers.permissions import IsOrganizationOwner, IsOrganizationSt
 from events.service import organization_service
 
 from .base import OrganizationAdminBaseController
+
+# Verification codes are a membership card QR payload ("member:" + UUID) or a bare
+# member UUID (tolerant — lets staff paste an id from the members list).
+MEMBER_VERIFY_CODE_PATTERN = r"^(member:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 
 
 @api_controller(
@@ -99,6 +103,33 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
             )
         )
         return params.filter(qs).distinct()
+
+    @route.get(
+        "/members/verify/{code}",
+        url_name="verify_organization_member",
+        response=schema.MemberVerificationSchema,
+        permissions=[OrganizationPermission("check_in_attendees")],
+        throttle=UserDefaultThrottle(),
+    )
+    def verify_member(
+        self,
+        slug: str,
+        code: t.Annotated[str, Path(..., min_length=36, max_length=43, pattern=MEMBER_VERIFY_CODE_PATTERN)],
+    ) -> schema.MemberVerificationSchema:
+        """Verify a membership card scanned at a door (side-effect-free).
+
+        Reports the member's true status (including paused/cancelled/banned) so
+        door staff see the state, not a lookup failure; the name and photo in
+        ``user`` are the anti-impersonation check.
+        """
+        organization = self.get_one(slug)
+        raw = code.removeprefix(models.OrganizationMember.QR_PREFIX)
+        member = get_object_or_404(
+            models.OrganizationMember.objects.select_related("user", "tier"),
+            pk=UUID(raw),
+            organization=organization,
+        )
+        return schema.MemberVerificationSchema.from_member(member)
 
     @route.put(
         "/members/{user_id}",

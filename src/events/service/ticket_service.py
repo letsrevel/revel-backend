@@ -511,13 +511,12 @@ def check_in_ticket(
         price_paid is intentionally not validated against the tier's pwyc_min/pwyc_max
         bounds. Admins are trusted to override these limits at check-in.
     """
-    # Get the ticket
-    ticket = get_object_or_404(
-        # seat/sector feed the check-in response payload (door staff see "Row C seat 12").
-        Ticket.objects.select_related("user", "tier", "held_pass__series_pass", "seat", "sector"),
-        pk=ticket_id,
-        event=event,
-    )
+    # tier__* + the M2M prefetch cover CheckInResponseSchema's nested TicketTierSchema;
+    # seat/sector feed the seat display. Trims ~4 queries per scan.
+    ticket_qs = Ticket.objects.select_related(
+        "user", "tier__event__organization", "tier__venue", "tier__sector", "held_pass__series_pass", "seat", "sector"
+    ).prefetch_related("tier__restricted_to_membership_tiers")
+    ticket = get_object_or_404(ticket_qs, pk=ticket_id, event=event)
 
     # Check if ticket status is valid for check-in
     # ACTIVE tickets can be checked in directly.

@@ -53,6 +53,7 @@ class NotificationType(TextChoices):
     MEMBERSHIP_GRANTED = "membership_granted"
     MEMBERSHIP_PROMOTED = "membership_promoted"
     MEMBERSHIP_REMOVED = "membership_removed"
+    MEMBERSHIP_CARD_UPDATED = "membership_card_updated"  # Tier changed - wallet card needs re-adding
     MEMBERSHIP_REQUEST_CREATED = "membership_request_created"  # User requests to join organization
     MEMBERSHIP_REQUEST_APPROVED = "membership_request_approved"
     MEMBERSHIP_REQUEST_REJECTED = "membership_request_rejected"
