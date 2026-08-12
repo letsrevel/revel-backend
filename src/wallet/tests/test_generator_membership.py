@@ -61,6 +61,20 @@ def test_membership_pass_tier_shown_and_omitted(
 
 
 @pytest.mark.django_db
+def test_membership_pass_back_fields_carry_powered_by(
+    generator: ApplePassGenerator, member: OrganizationMember
+) -> None:
+    """The membership card carries the platform attribution back field."""
+    pass_json = _extract_pass_json(generator.generate_membership_pass(member))
+    back = pass_json["generic"]["backFields"]
+    assert back[-1] == {
+        "key": "powered_by",
+        "label": "Powered by",
+        "value": "Revel — https://letsrevel.io",
+    }
+
+
+@pytest.mark.django_db
 def test_membership_pass_raises_on_signer_error(member: OrganizationMember) -> None:
     """ApplePassSignerError must propagate unchanged (mirrors the ticket generator contract)."""
     mock_signer = MagicMock()

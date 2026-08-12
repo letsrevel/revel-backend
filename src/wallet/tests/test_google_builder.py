@@ -352,3 +352,17 @@ def test_series_pass_no_covered_events_falls_back_to_created_at(
 
     assert cls["dateTime"]["start"].startswith(str(held.created_at.year))
     assert "heroImage" not in cls
+
+
+def test_payload_objects_carry_powered_by_link(
+    google_wallet_configured_settings: None,
+    ticket: Ticket,
+    held_series_pass: t.Any,
+    google_covered_events: list[Event],
+) -> None:
+    """Ticket and series-pass objects carry the platform attribution link (mirrors the Apple back field)."""
+    from wallet.google.builder import build_series_pass_payload
+
+    expected = {"uris": [{"id": "powered_by", "uri": "https://letsrevel.io", "description": "Powered by Revel"}]}
+    assert build_ticket_payload(ticket)["eventTicketObjects"][0]["linksModuleData"] == expected
+    assert build_series_pass_payload(held_series_pass)["eventTicketObjects"][0]["linksModuleData"] == expected

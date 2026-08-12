@@ -922,3 +922,18 @@ class TestPassJsonFieldLayout:
         secondary = pass_dict["eventTicket"]["secondaryFields"]
 
         assert all(f["key"] not in ("venue", "address") for f in secondary)
+
+    def test_back_fields_end_with_powered_by(self, settings: t.Any, mock_signer: MagicMock) -> None:
+        """Every pass carries the platform attribution as the last back field."""
+        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
+        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
+        generator = ApplePassGenerator(signer=mock_signer)
+
+        pass_dict = self._build_and_parse(generator)
+        back = pass_dict["eventTicket"]["backFields"]
+
+        assert back[-1] == {
+            "key": "powered_by",
+            "label": "Powered by",
+            "value": "Revel — https://letsrevel.io",
+        }
