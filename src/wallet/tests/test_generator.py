@@ -932,6 +932,8 @@ class TestPassJsonFieldLayout:
         pass_dict = self._build_and_parse(generator)
         back = pass_dict["eventTicket"]["backFields"]
 
-        assert back[-1]["key"] == "powered_by"
-        assert back[-1]["label"] == "Powered by"
-        assert "https://letsrevel.io" in back[-1]["value"]
+        assert back[-1] == {
+            "key": "powered_by",
+            "label": "Powered by",
+            "value": "Revel — https://letsrevel.io",
+        }

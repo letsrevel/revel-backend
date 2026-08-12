@@ -67,8 +67,11 @@ def test_membership_pass_back_fields_carry_powered_by(
     """The membership card carries the platform attribution back field."""
     pass_json = _extract_pass_json(generator.generate_membership_pass(member))
     back = pass_json["generic"]["backFields"]
-    assert back[-1]["key"] == "powered_by"
-    assert "https://letsrevel.io" in back[-1]["value"]
+    assert back[-1] == {
+        "key": "powered_by",
+        "label": "Powered by",
+        "value": "Revel — https://letsrevel.io",
+    }
 
 
 @pytest.mark.django_db
