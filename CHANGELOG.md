@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-08-12
+
+### Changed
+
+- Membership card PDF redesigned onto the ticket PDF's design system: rounded card on lavender paper, cover banner with gradient fallback, member identity row (logo, name, tier, member-since), enlarged centered QR sticker with scan instruction, and the standard legal/"Powered by revel." footer
+- Apple and Google Wallet passes (tickets, series passes, and membership cards) now carry a "Powered by Revel" attribution — an Apple back field and a Google links entry pointing at https://letsrevel.io
+
 ## [2.3.0] - 2026-08-11
 
 ### Added
