@@ -1,0 +1,61 @@
+{# Shared A4 print chrome for the pass/ticket PDFs (ticket.html, membership_card.html). #}
+{# Include via: {% include "events/_pass_base_styles.html" %}, then add a per-template   #}
+{# <style> block for page-specific rules.                                               #}
+{# Brand tokens from docs/brand-style-guide.md (hexes are the contract):                #}
+{#   paper #F3EFFA · ink #0D1E1C · Hearty Purple #8C3CDD · Light Crimson #E6332A.       #}
+{#   Brand gradient is linear VERTICAL, Hearty Purple (top) -> Light Crimson (bottom).  #}
+{% include "_fonts.html" %}
+<style>
+    @page { size: A4; margin: 0; }
+    html, body { margin: 0; padding: 0; }
+    body {
+        font-family: 'Nata Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        font-weight: 300;
+        color: #0D1E1C;
+        background: #F3EFFA;
+    }
+    .page {
+        width: 210mm; height: 296mm;
+        padding: 10mm;
+        box-sizing: border-box;
+    }
+    .card {
+        background: #FFFFFF;
+        border-radius: 18px;
+        overflow: hidden;
+        height: 100%;
+        display: flex; flex-direction: column;
+        border: 1px solid #D6CBE6;
+    }
+
+    /* Cover banner */
+    .banner { height: 46mm; position: relative; overflow: hidden; background: linear-gradient(to bottom, #8C3CDD, #E6332A); }
+    .banner img.cover { width: 100%; height: 100%; object-fit: cover; }
+    .banner-overlay {
+        position: absolute; left: 0; right: 0; bottom: 0;
+        padding: 6mm 9mm 5mm;
+        background: linear-gradient(to top, rgba(13,30,28,0.82), rgba(13,30,28,0));
+        color: #FFFFFF;
+    }
+    .banner-overlay h1 { margin: 0; font-size: 21pt; font-weight: 600; letter-spacing: 0.2px; }
+
+    /* QR sticker frame (padding, margin and img size are set per template) */
+    .qr-sticker {
+        background: #FFFFFF; border: 1px solid #D6CBE6; border-radius: 14px;
+    }
+
+    /* Footer */
+    .footer {
+        border-top: 1px solid #EDE7F6;
+        padding: 4mm 9mm; display: flex; align-items: center; justify-content: space-between;
+    }
+    .legal { font-size: 7pt; color: #8A82A6; margin: 0; }
+    /* "Powered by revel." lockup — mirrors the FE RevelWordmark: "revel" SemiBold in the
+       brand gradient (per-letter #8C3CDD → #E6332A: WeasyPrint has no background-clip:text),
+       period in ink, tracking 0.06em on the wordmark. */
+    .powered { display: flex; align-items: center; gap: 1.8mm; white-space: nowrap; }
+    .powered img { width: 4.2mm; height: 4.8mm; }
+    .powered .by { font-size: 8pt; font-weight: 300; color: #46405E; }
+    .powered .wordmark { font-size: 8.5pt; font-weight: 600; letter-spacing: 0.06em; }
+    .powered .dot { color: #0D1E1C; }
+</style>
