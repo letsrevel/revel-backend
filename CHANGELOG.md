@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-08-12
+
+### Fixed
+
+- Email headers and CTA buttons now use the brand's vertical purple → crimson gradient (was the superseded diagonal look)
+- Destructive-action email buttons (account deletion, ticket cancelled, membership removed/rejected, …) now use the deep crimson `#E4251B`, restoring WCAG AA contrast behind white copy
+- Invoice, credit-note, payout, and VAT-report PDFs now use the brand Ink color instead of an off-brand near-black
+
 ## [2.3.1] - 2026-08-12
 
 ### Changed
