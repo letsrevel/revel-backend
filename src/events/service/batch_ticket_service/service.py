@@ -365,11 +365,13 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # misconfiguration, not a free tier — it keeps falling through to the 400 in
         # reserve_batch_payments.
         #
-        # ``stamps`` is carried into the reroute: getting here means the buyer moved the
-        # price, so every flag is True, and there is no Payment row to hold the amount
-        # instead. Dropping it left ``price_paid`` NULL — the positive claim that
-        # ``tier.price`` reconstructs the sale — on a ticket that cost 0.00 (spec §5.5).
-        # Still threaded per group rather than collapsed: the flag is a per-tier fact.
+        # ``stamps`` is carried into the reroute: there is no Payment row here to hold the
+        # amount instead, so a group the buyer DID move must record its 0.00 — dropping the
+        # flag left ``price_paid`` NULL, the positive claim that ``tier.price`` reconstructs
+        # the sale, on a ticket that cost 0.00 (spec §5.5). Threaded per group rather than
+        # forced True across the cart: the reroute is a cart-level decision, but the flag
+        # is a per-tier fact, and a group with no PWYC/discount input on a genuinely 0.00
+        # tier correctly keeps its NULL.
         result: list[Ticket] | tuple[list[Ticket], UUID]
         if self._reroutes_to_free(locked_payment_method, pricings):
             result = self._free_checkout(self.groups, seats_per_group, locked_tiers, pricings, stamps)
@@ -393,7 +395,13 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         if self.discount_code is not None:
             from events.service import discount_code_service
 
-            discount_code_service.apply_discount(self.discount_code, self.user, len(created_tickets))
+            # Count the tickets that actually CARRY the code, not the cart. apply_discount
+            # both re-checks ``times_used + batch_size > max_uses`` under lock and adds
+            # ``batch_size`` to ``times_used``, so charging a scoped code for the groups it
+            # doesn't price would burn uses that were never granted — and could refuse a
+            # legitimate cart with a 400 on a limit it hasn't actually reached.
+            discounted_count = len([ticket for ticket in created_tickets if ticket.discount_code_id is not None])
+            discount_code_service.apply_discount(self.discount_code, self.user, discounted_count)
         self._claim_waitlist_offer_if_any()
 
         return result

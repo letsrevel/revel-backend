@@ -225,6 +225,75 @@ class TestDiscountScoping:
             code.id,
         )
         assert (ticket_b.price_paid, ticket_b.discount_amount, ticket_b.discount_code_id) == (None, None, None)
+        # Usage is charged for the ONE ticket that carries the code, not the cart:
+        # apply_discount adds batch_size to times_used AND re-checks it against
+        # max_uses under lock, so over-counting burns uses and can 400 a valid cart.
+        code.refresh_from_db()
+        assert code.times_used == 1
+
+    def test_a_pwyc_group_never_carries_the_cart_code(
+        self, batch_event: Event, batch_user: RevelUser, code: DiscountCode
+    ) -> None:
+        """``validate_discount_code`` refuses PWYC tiers, so no valid-ids set may hand one the code.
+
+        The default ``discount_valid_tier_ids=None`` ("valid for every group") must not
+        override that: the PWYC tickets would carry a code that took 0.00 off them.
+        """
+        fixed_tier = _offline_tier(batch_event, "Fixed")
+        pwyc_tier = TicketTier.objects.create(
+            event=batch_event,
+            name="PWYC",
+            price=Decimal("0.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            price_type=TicketTier.PriceType.PWYC,
+            pwyc_min=Decimal("5.00"),
+            total_quantity=100,
+        )
+        groups = [
+            CartGroup(tier=fixed_tier, items=[TicketPurchaseItem(guest_name="Ann")]),
+            CartGroup(tier=pwyc_tier, items=[TicketPurchaseItem(guest_name="Bob")], pwyc_amount=Decimal("25.00")),
+        ]
+
+        result = BatchTicketService(batch_event, user=batch_user, discount_code=code, groups=groups).create_batch()
+
+        assert isinstance(result, list)
+        fixed_ticket = next(ticket for ticket in result if ticket.tier_id == fixed_tier.id)
+        pwyc_ticket = next(ticket for ticket in result if ticket.tier_id == pwyc_tier.id)
+        assert fixed_ticket.discount_code_id == code.id
+        assert (pwyc_ticket.discount_code_id, pwyc_ticket.discount_amount) == (None, None)
+        assert pwyc_ticket.price_paid == Decimal("25.00")  # the buyer's amount, undiscounted
+        code.refresh_from_db()
+        assert code.times_used == 1
+
+    def test_min_purchase_ignores_a_pwyc_group_the_code_cannot_touch(
+        self, batch_event: Event, batch_user: RevelUser, code: DiscountCode
+    ) -> None:
+        """A 40.00 threshold is not met by 20.00 of discountable + 25.00 of PWYC."""
+        code.min_purchase_amount = Decimal("40.00")
+        code.save(update_fields=["min_purchase_amount"])
+        fixed_tier = _offline_tier(batch_event, "Fixed")
+        pwyc_tier = TicketTier.objects.create(
+            event=batch_event,
+            name="PWYC",
+            price=Decimal("0.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            price_type=TicketTier.PriceType.PWYC,
+            pwyc_min=Decimal("5.00"),
+            total_quantity=100,
+        )
+        groups = [
+            CartGroup(tier=fixed_tier, items=[TicketPurchaseItem(guest_name="Ann")]),
+            CartGroup(tier=pwyc_tier, items=[TicketPurchaseItem(guest_name="Bob")], pwyc_amount=Decimal("25.00")),
+        ]
+
+        with pytest.raises(HttpError) as exc_info:
+            BatchTicketService(batch_event, user=batch_user, discount_code=code, groups=groups).create_batch()
+
+        assert exc_info.value.status_code == 400
+        assert "Minimum purchase amount" in str(exc_info.value.message)
+        assert Ticket.objects.filter(event=batch_event).count() == 0
 
     def test_min_purchase_amount_sums_only_the_applicable_groups(
         self, batch_event: Event, batch_user: RevelUser, code: DiscountCode

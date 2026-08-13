@@ -115,6 +115,17 @@ class BatchTicketContext:
         the rest of the cart. Every pricing/stamping decision therefore asks this
         instead of reading ``self.discount_code`` directly.
 
+        **PWYC groups never get the code, whatever the valid-ids set says.**
+        ``validate_discount_code`` refuses a PWYC tier outright ("Discount codes cannot
+        be applied to pay-what-you-can tickets"), so a code can never legitimately have
+        been validated for one — but the ``None``-means-every-group default would hand
+        it over anyway. Two things went wrong when it did: the PWYC tickets got
+        ``discount_code`` stamped with a ``0.00`` ``discount_amount`` (the buyer chose
+        the price; the code took nothing off), and the PWYC group's gross counted toward
+        ``min_purchase_amount``, letting a threshold be met by revenue the code cannot
+        touch. Enforced here rather than at the call sites so no future caller can
+        reintroduce it.
+
         Args:
             tier: The group's tier.
 
@@ -123,6 +134,8 @@ class BatchTicketContext:
             ``discount_valid_tier_ids is None`` means "validated for every group" —
             what the single-tier form has always done.
         """
-        if self.discount_code is None or self.discount_valid_tier_ids is None:
+        if self.discount_code is None or tier.price_type == TicketTier.PriceType.PWYC:
+            return None
+        if self.discount_valid_tier_ids is None:
             return self.discount_code
         return self.discount_code if tier.pk in self.discount_valid_tier_ids else None
