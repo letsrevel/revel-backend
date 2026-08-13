@@ -33,11 +33,14 @@ class ChartSeatSchema(Schema):
 #   sector `metadata.aisles` / `metadata.transform`;
 # - the multi-floor convention (letsrevel/revel-frontend#680): venue
 #   `metadata.floors = [{id, name, order}]`, sector `metadata.floor = <floor id>`.
+# - per-seat rotation (letsrevel/revel-frontend#852): the designer's row-layout recipe
+#   (sector `metadata.rowLayout`) stays admin-only; only its compact buyer-facing mirror,
+#   sector `metadata.seatRotations = {"<seat label>": <degrees clockwise>}`, is whitelisted.
 # Admin/designer endpoints keep serving the full blob. Applied via
 # ``project_chart_metadata`` in ``events.service.seating.chart.build_chart`` (both levels)
 # and ``events.service.venue_service.get_tier_seat_availability`` (sector level).
 CHART_VENUE_METADATA_KEYS: t.Final = frozenset({"stage", "floors"})
-CHART_SECTOR_METADATA_KEYS: t.Final = frozenset({"transform", "aisles", "floor"})
+CHART_SECTOR_METADATA_KEYS: t.Final = frozenset({"transform", "aisles", "floor", "seatRotations"})
 
 
 def project_chart_metadata(metadata: dict[str, t.Any] | None, allowed: frozenset[str]) -> dict[str, t.Any] | None:
