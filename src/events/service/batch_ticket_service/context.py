@@ -5,6 +5,9 @@ import typing as t
 from decimal import Decimal
 from uuid import UUID
 
+from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
+
 from accounts.models import RevelUser
 from events.models import Event, TicketTier
 from events.models.discount_code import DiscountCode
@@ -23,6 +26,79 @@ class CartGroup:
     pwyc_amount: Decimal | None = None
     price_category_id: UUID | None = None
     accessible_required: bool = False
+
+
+def assert_pwyc_amount(group: CartGroup) -> None:
+    """Assert this group's PWYC amount is present exactly when its tier is PWYC, and in range.
+
+    Args:
+        group: The cart group to check.
+
+    Raises:
+        HttpError: 400 when the amount is missing, forbidden, or out of bounds.
+    """
+    tier = group.tier
+    is_pwyc = tier.price_type == TicketTier.PriceType.PWYC
+    if is_pwyc and group.pwyc_amount is None:
+        raise HttpError(400, str(_("This tier requires a pay-what-you-can amount.")))
+    if not is_pwyc and group.pwyc_amount is not None:
+        raise HttpError(400, str(_("This tier does not accept a pay-what-you-can amount.")))
+    if group.pwyc_amount is None:
+        return
+    if group.pwyc_amount < tier.pwyc_min:
+        raise HttpError(400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min))
+    if tier.pwyc_max and group.pwyc_amount > tier.pwyc_max:
+        raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
+
+
+def validate_cart_shape(groups: list[CartGroup]) -> None:
+    """Reject a malformed cart before anything is locked, priced or written.
+
+    The single authority for cart-*shape* validation (#846 review fix): both
+    ``BatchTicketService._validate_cart`` and the guest checkout's pre-branch
+    (``events.service.guest.handle_guest_ticket_checkout``, which must 400 a
+    malformed non-online cart *before* sending a confirmation email — see its
+    call site) run this exact function, so the two can never drift.
+
+    Cart *shape* only — whether this buyer may take these tickets (eligibility) and
+    whether there is room (capacity) are the caller's business. Every rule here is a
+    whole-cart question that no per-tier step can answer:
+
+    - **One group per tier**, so the per-group loops elsewhere can't double-count a
+      tier's capacity or write two ``quantity_sold`` increments the caps never saw.
+    - **Uniform currency**, because a cart settles as one payment; mixing them would
+      need a per-currency split no downstream writer (Payment, invoice) supports.
+    - **Uniform payment method**, because the branch dispatch is per cart: an ONLINE
+      + FREE mix would have to be two checkouts.
+    - **PWYC per group** — see :func:`assert_pwyc_amount`.
+    - **No seat twice.** Two groups naming the same seat each pass their own
+      USER_CHOICE validation (it matches distinct ids against the shared lock) and
+      collide only at the ``unique_ticket_event_seat`` constraint — a 500 where the
+      buyer deserves a 400. Payload-level, so it catches a repeat within one group too.
+
+    Args:
+        groups: The cart's groups, in cart order.
+
+    Raises:
+        HttpError: 400 for a duplicated tier, mixed currency, mixed payment method, a
+            missing/forbidden/out-of-bounds PWYC amount, or a seat requested twice.
+    """
+    tier_ids = [group.tier.pk for group in groups]
+    if len(set(tier_ids)) != len(tier_ids):
+        raise HttpError(400, str(_("Each tier may appear only once per checkout.")))
+
+    if len({group.tier.currency for group in groups}) > 1:
+        raise HttpError(400, str(_("All tickets in one checkout must use the same currency.")))
+
+    if len({group.tier.payment_method for group in groups}) > 1:
+        raise HttpError(400, str(_("All tickets in one checkout must use the same payment method.")))
+
+    for group in groups:
+        assert_pwyc_amount(group)
+
+    seat_ids = [item.seat_id for group in groups for item in group.items if item.seat_id is not None]
+    if len(set(seat_ids)) != len(seat_ids):
+        raise HttpError(400, str(_("The same seat cannot be purchased twice.")))
 
 
 class BatchTicketContext:

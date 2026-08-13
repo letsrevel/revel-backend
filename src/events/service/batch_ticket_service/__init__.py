@@ -13,7 +13,7 @@ checkout. It is assembled from four mixins, each owning one question:
 :mod:`.context` holds the constructor and the request-scoped state the mixins share.
 """
 
-from .context import CartGroup
+from .context import CartGroup, validate_cart_shape
 from .service import BatchTicketService
 
-__all__ = ["BatchTicketService", "CartGroup"]
+__all__ = ["BatchTicketService", "CartGroup", "validate_cart_shape"]

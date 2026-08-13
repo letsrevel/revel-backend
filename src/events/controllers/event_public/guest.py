@@ -12,7 +12,6 @@ from common.authentication import OptionalAuth
 from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import WriteThrottle
 from events import models, schema
-from events.service import discount_code_service
 from events.service import guest as guest_service
 from events.service.batch_ticket_service import CartGroup
 from events.service.event_manager import EventUserEligibility
@@ -101,28 +100,22 @@ class EventPublicGuestController(EventPublicBaseController):
         )
         if tier.price_type == models.TicketTier.PriceType.PWYC:
             raise HttpError(400, str(_("Use /pwyc endpoint for pay-what-you-can tickets")))
-        # Discount validation needs a real user, so the guest user is created/fetched
-        # here rather than left to handle_guest_ticket_checkout — mirrors the
-        # authenticated single-tier route (#846).
-        dc = None
-        if payload.discount_code:
-            guest_user = guest_service.get_or_create_guest_user(payload.email, payload.first_name, payload.last_name)
-            dc = discount_code_service.validate_discount_code(
-                payload.discount_code, event.organization, tier, guest_user, len(payload.tickets)
-            )
         group = CartGroup(
             tier=tier,
             items=payload.tickets,
             price_category_id=payload.price_category_id,
             accessible_required=payload.accessible_required,
         )
+        # handle_guest_ticket_checkout owns the discount code string: it must run
+        # the guest-access gate and eligibility check before creating a guest user
+        # or validating the code (#846 review fix) — see its docstring.
         return guest_service.handle_guest_ticket_checkout(
             event,
             [group],
             payload.email,
             payload.first_name,
             payload.last_name,
-            discount_code=dc,
+            discount_code=payload.discount_code,
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
         )
@@ -234,16 +227,6 @@ class EventPublicGuestController(EventPublicBaseController):
         if len(tiers) != len({g.tier_id for g in payload.items}):
             raise HttpError(404, str(_("One or more ticket tiers were not found.")))
 
-        # Discount validation needs a real user, so the guest user is created/fetched
-        # here rather than left to handle_guest_ticket_checkout — mirrors the
-        # authenticated multi-tier route (#846) and the single-tier guest routes above.
-        dc, valid_tier_ids = None, None
-        if payload.discount_code:
-            guest_user = guest_service.get_or_create_guest_user(payload.email, payload.first_name, payload.last_name)
-            dc, valid_tier_ids = discount_code_service.validate_cart_discount(
-                payload.discount_code, event, tiers, payload.items, guest_user
-            )
-
         groups = [
             CartGroup(
                 tier=tiers[g.tier_id],
@@ -254,14 +237,16 @@ class EventPublicGuestController(EventPublicBaseController):
             )
             for g in payload.items
         ]
+        # handle_guest_ticket_checkout owns the discount code string: it must run
+        # the guest-access gate and eligibility check before creating a guest user
+        # or validating the code (#846 review fix) — see its docstring.
         return guest_service.handle_guest_ticket_checkout(
             event,
             groups,
             payload.email,
             payload.first_name,
             payload.last_name,
-            discount_code=dc,
-            discount_valid_tier_ids=valid_tier_ids,
+            discount_code=payload.discount_code,
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
         )

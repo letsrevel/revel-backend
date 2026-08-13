@@ -13,7 +13,7 @@ from events.models import Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.capacity import CapacityMixin
 from events.service.batch_ticket_service.checkout import CheckoutMixin
-from events.service.batch_ticket_service.context import CartGroup
+from events.service.batch_ticket_service.context import CartGroup, validate_cart_shape
 from events.service.batch_ticket_service.eligibility import PurchaseEligibilityMixin
 from events.service.batch_ticket_service.seats import SeatResolutionMixin
 from events.service.discount_code_service import assert_min_purchase_amount
@@ -89,73 +89,18 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         elif items is not None or pwyc_amount is not None:
             raise TypeError("items/pwyc_amount belong to the groups in the cart form")
 
-    def _assert_pwyc_amount(self, group: CartGroup) -> None:
-        """Assert this group's PWYC amount is present exactly when its tier is PWYC, and in range.
-
-        Service-authoritative (#846). The controllers check the same thing — the plain
-        checkout endpoint refuses a PWYC tier, the PWYC endpoint refuses a non-PWYC one
-        and range-checks the amount — but a cart reaches ``create_batch`` through several
-        doors, and the amount is now per group rather than per request. The bound
-        messages are the controllers' verbatim, so the buyer sees one wording.
-
-        Args:
-            group: The cart group to check.
-
-        Raises:
-            HttpError: 400 when the amount is missing, forbidden, or out of bounds.
-        """
-        tier = group.tier
-        is_pwyc = tier.price_type == TicketTier.PriceType.PWYC
-        if is_pwyc and group.pwyc_amount is None:
-            raise HttpError(400, str(_("This tier requires a pay-what-you-can amount.")))
-        if not is_pwyc and group.pwyc_amount is not None:
-            raise HttpError(400, str(_("This tier does not accept a pay-what-you-can amount.")))
-        if group.pwyc_amount is None:
-            return
-        if group.pwyc_amount < tier.pwyc_min:
-            raise HttpError(400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min))
-        if tier.pwyc_max and group.pwyc_amount > tier.pwyc_max:
-            raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
-
     def _validate_cart(self) -> None:
         """Reject a malformed cart before anything is locked, priced or written.
 
-        Cart *shape* only — whether this buyer may take these tickets (eligibility) and
-        whether there is room (capacity) are the next steps' business. Every rule here
-        is a whole-cart question that no per-tier step can answer:
-
-        - **One group per tier**, so the per-group loops below can't double-count a tier's
-          capacity or write two ``quantity_sold`` increments the caps never saw.
-        - **Uniform currency**, because a cart settles as one payment; mixing them would
-          need a per-currency split no downstream writer (Payment, invoice) supports.
-        - **Uniform payment method**, because the branch dispatch is per cart: an ONLINE
-          + FREE mix would have to be two checkouts.
-        - **PWYC per group** — see :meth:`_assert_pwyc_amount`.
-        - **No seat twice.** Two groups naming the same seat each pass their own
-          USER_CHOICE validation (it matches distinct ids against the shared lock) and
-          collide only at the ``unique_ticket_event_seat`` constraint — a 500 where the
-          buyer deserves a 400. Payload-level, so it catches a repeat within one group too.
+        Delegates to :func:`~events.service.batch_ticket_service.context.validate_cart_shape`
+        (#846 review fix) — the single authority for cart-shape validation, shared
+        with the guest checkout's pre-branch so the two can never drift.
 
         Raises:
             HttpError: 400 for a duplicated tier, mixed currency, mixed payment method, a
                 missing/forbidden/out-of-bounds PWYC amount, or a seat requested twice.
         """
-        tier_ids = [group.tier.pk for group in self.groups]
-        if len(set(tier_ids)) != len(tier_ids):
-            raise HttpError(400, str(_("Each tier may appear only once per checkout.")))
-
-        if len({group.tier.currency for group in self.groups}) > 1:
-            raise HttpError(400, str(_("All tickets in one checkout must use the same currency.")))
-
-        if len({group.tier.payment_method for group in self.groups}) > 1:
-            raise HttpError(400, str(_("All tickets in one checkout must use the same payment method.")))
-
-        for group in self.groups:
-            self._assert_pwyc_amount(group)
-
-        seat_ids = [item.seat_id for group in self.groups for item in group.items if item.seat_id is not None]
-        if len(set(seat_ids)) != len(seat_ids):
-            raise HttpError(400, str(_("The same seat cannot be purchased twice.")))
+        validate_cart_shape(self.groups)
 
     def _price_cart(
         self, locked_tiers: list[TicketTier], seats_per_group: list[list[VenueSeat | None]]

@@ -23,7 +23,6 @@ from events import models, schema
 from events.service.event_manager import EventManager
 
 if t.TYPE_CHECKING:
-    from events.models.discount_code import DiscountCode
     from events.service.batch_ticket_service.context import CartGroup
 
 logger = structlog.get_logger(__name__)
@@ -339,28 +338,32 @@ def handle_guest_ticket_checkout(
     first_name: str,
     last_name: str,
     *,
-    discount_code: "DiscountCode | None" = None,
-    discount_valid_tier_ids: set[UUID] | None = None,
+    discount_code: str | None = None,
     billing_info: "schema.BuyerBillingInfoSchema | None" = None,
     guest_session: str | None = None,
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request, spanning as many tiers as the cart holds (#846).
 
+    Ordering is load-bearing (#846 review fix): the guest-access gate and eligibility
+    check must run BEFORE any guest ``RevelUser`` row is created and before the
+    discount code is validated — both of the latter need a real user, but running
+    them first would (a) create a guest account for an attacker-supplied email even
+    when the event requires login, and (b) turn "an account with this email already
+    exists" into an account-existence oracle answered *before* the login-required
+    400. This function alone owns that order — callers pass a raw discount code
+    string, never a pre-validated ``DiscountCode``.
+
     Args:
         event: Event object.
         groups: One :class:`~events.service.batch_ticket_service.context.CartGroup`
-            per tier in the cart. The caller resolves and validates the tiers and,
-            when a discount code is present, validates it (``discount_code_service.
-            validate_cart_discount``) — both need a real user, and this function is
-            the one that creates/fetches the guest ``RevelUser``, so the caller must
-            do so itself first to run that validation ahead of this call (mirrors
-            the single-tier controllers, which validate the code before checkout).
+            per tier in the cart. Tiers are resolved by the caller; validation
+            (cart shape, PWYC, zone, discount, eligibility) all happens here.
         email: Guest email.
         first_name: Guest first name.
         last_name: Guest last name.
-        discount_code: Already-validated discount code, if any.
-        discount_valid_tier_ids: The tiers ``discount_code`` was validated for —
-            threaded straight into ``BatchTicketService`` (``None`` means every group).
+        discount_code: Optional discount code string. Validated here (cart-aware,
+            via ``discount_code_service.validate_cart_discount`` — the same helper
+            the authenticated multi-tier endpoint uses), after eligibility.
         billing_info: Optional buyer billing info for attendee invoicing.
         guest_session: Resolved guest-hold session id (seat holds are owned by it).
 
@@ -375,7 +378,9 @@ def handle_guest_ticket_checkout(
             issues, or eligibility checks fail.
         InvalidZoneSelectionError: 400 if a requested zone is unusable on its tier.
     """
+    from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
+    from events.service.batch_ticket_service.context import validate_cart_shape
     from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
 
@@ -391,41 +396,54 @@ def handle_guest_ticket_checkout(
     if event.require_ticket_names and any(item.guest_name is None for item in all_items):
         raise HttpError(400, str(_("This event requires a name on every ticket.")))
 
-    # Create or update guest user
+    # Create or update guest user. Must come AFTER the two gates above (#846 review
+    # fix): both are answerable with no user at all, and creating a row / touching
+    # the "does an account exist" check before them turns a login-required event
+    # into an account-creation side channel / existence oracle.
     user = get_or_create_guest_user(email, first_name, last_name)
 
-    # Check eligibility (before validating PWYC to prevent information leakage)
+    # Check eligibility (before validating PWYC/discount to prevent information leakage)
     manager = EventManager(user, event)
     manager.check_eligibility(raise_on_false=True)
 
-    # Every group must agree on one payment method — the cart settles as one payment
-    # (the same rule ``BatchTicketService._validate_cart`` enforces). Checked here
-    # too, not only inside create_batch: the non-online branch below never reaches
-    # create_batch until the confirmation click, so a mixed cart must 400 now — not
-    # after an email already promised a purchase — and this is also what decides
-    # which branch below applies.
-    if len({group.tier.payment_method for group in groups}) > 1:
-        raise HttpError(400, str(_("All tickets in one checkout must use the same payment method.")))
+    # Cart-shape validation (duplicate tier, uniform currency/payment method, PWYC
+    # required-iff-PWYC and in bounds, no seat twice) — the single authority shared
+    # with BatchTicketService (#846 review fix; see validate_cart_shape's docstring).
+    # Checked here too, not only inside create_batch: the non-online branch below
+    # never reaches create_batch until the confirmation click, so a malformed cart
+    # must 400 now — not after an email already promised a purchase — and this is
+    # also what proves every group agrees on the payment method the branch below reads.
+    validate_cart_shape(groups)
 
-    # Validate PWYC amount and the requested zone per group, for the same reason as
-    # the names check above: the non-online branch defers pricing and seat
-    # assignment to the confirmation click, so an out-of-bounds amount or unusable
-    # zone would otherwise cost the buyer an email and a dead link instead of a 400.
-    # create_batch re-validates both, authoritatively, at confirm/purchase time.
+    # Validate the discount code if provided — AFTER eligibility, mirroring the
+    # pre-#846 single-tier handler's order. Cart-aware even for a one-group cart,
+    # via the same helper backing the authenticated multi-tier endpoint (#846): a
+    # code need not apply to every group, only some.
+    dc, valid_tier_ids = None, None
+    if discount_code:
+        tiers = {group.tier.id: group.tier for group in groups}
+        checkout_items = [
+            schema.CheckoutGroupSchema(
+                tier_id=group.tier.id,
+                tickets=group.items,
+                pwyc_amount=group.pwyc_amount,
+                price_category_id=group.price_category_id,
+                accessible_required=group.accessible_required,
+            )
+            for group in groups
+        ]
+        dc, valid_tier_ids = discount_code_service.validate_cart_discount(
+            discount_code, event, tiers, checkout_items, user
+        )
+
+    # Validate the requested zone per group HERE, not only downstream: the
+    # non-online branch below defers seat assignment to the confirmation click, so
+    # an unusable zone would otherwise cost the buyer an email and a dead link
+    # instead of a 400.
     for group in groups:
-        tier = group.tier
-        if group.pwyc_amount is not None:
-            if group.pwyc_amount < tier.pwyc_min:
-                raise HttpError(
-                    400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min)
-                )
-            if tier.pwyc_max and group.pwyc_amount > tier.pwyc_max:
-                raise HttpError(
-                    400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max)
-                )
-        resolve_requested_zone(tier, group.price_category_id)
+        resolve_requested_zone(group.tier, group.price_category_id)
 
-    payment_method = groups[0].tier.payment_method
+    payment_method = groups[0].tier.payment_method  # uniform — validate_cart_shape just proved it
 
     # Branch by payment method
     if payment_method == models.TicketTier.PaymentMethod.ONLINE:
@@ -434,8 +452,8 @@ def handle_guest_ticket_checkout(
             event,
             user=user,
             groups=groups,
-            discount_code=discount_code,
-            discount_valid_tier_ids=discount_valid_tier_ids,
+            discount_code=dc,
+            discount_valid_tier_ids=valid_tier_ids,
             guest_session=guest_session,
         )
         result = service.create_batch(billing_info=billing_info)
@@ -469,7 +487,7 @@ def handle_guest_ticket_checkout(
             user,
             event.id,
             groups=groups,
-            discount_code=discount_code.code if discount_code else None,
+            discount_code=discount_code,
             guest_session=guest_session,
         )
         tier_name = _cart_tier_name_summary(groups)

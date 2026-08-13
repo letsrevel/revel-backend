@@ -22,6 +22,7 @@ from accounts.jwt import create_token
 from accounts.models import RevelUser
 from events import schema
 from events.models import Event, Organization, Ticket, TicketTier
+from events.models.discount_code import DiscountCode
 
 pytestmark = pytest.mark.django_db
 
@@ -32,15 +33,17 @@ def _tier(
     *,
     method: TicketTier.PaymentMethod = TicketTier.PaymentMethod.FREE,
     price: Decimal = Decimal("0.00"),
+    currency: str = "EUR",
+    price_type: TicketTier.PriceType = TicketTier.PriceType.FIXED,
     **kwargs: object,
 ) -> TicketTier:
     return TicketTier.objects.create(
         event=event,
         name=name,
         price=price,
-        currency="EUR",
+        currency=currency,
         payment_method=method,
-        price_type=TicketTier.PriceType.FIXED,
+        price_type=price_type,
         total_quantity=100,
         **kwargs,
     )
@@ -156,6 +159,58 @@ class TestGuestFreeOfflineCart:
         mock_send_email.assert_not_called()
 
 
+class TestGuestCartShapeValidation:
+    """Cart-shape errors (``validate_cart_shape``) must 400 before the email is queued.
+
+    Without this, a malformed non-online cart 200s "check your email" and the buyer
+    hits a dead 400 on the confirm link — the exact outcome the pre-branch check
+    exists to prevent (#846 review fix).
+    """
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_pwyc_tier_missing_pwyc_amount_is_400_no_email(self, mock_send_email: Mock, guest_event: Event) -> None:
+        pwyc_tier = _tier(
+            guest_event,
+            "PWYC",
+            method=TicketTier.PaymentMethod.OFFLINE,
+            price_type=TicketTier.PriceType.PWYC,
+            pwyc_min=Decimal("5.00"),
+            pwyc_max=Decimal("50.00"),
+        )
+        payload = {
+            "email": "pwycnoamount@example.com",
+            "items": [{"tier_id": str(pwyc_tier.id), "tickets": [{"guest_name": "A"}]}],
+        }
+        client = Client()
+
+        response = client.post(_url(guest_event), data=payload, content_type="application/json")
+
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"] == "This tier requires a pay-what-you-can amount."
+        mock_send_email.assert_not_called()
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_mixed_currency_cart_is_400_no_email(self, mock_send_email: Mock, guest_event: Event) -> None:
+        tier_a = _tier(guest_event, "Tier A", method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("10.00"))
+        tier_b = _tier(
+            guest_event, "Tier B", method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("10.00"), currency="USD"
+        )
+        payload = {
+            "email": "mixedcurrency@example.com",
+            "items": [
+                {"tier_id": str(tier_a.id), "tickets": [{"guest_name": "A"}]},
+                {"tier_id": str(tier_b.id), "tickets": [{"guest_name": "B"}]},
+            ],
+        }
+        client = Client()
+
+        response = client.post(_url(guest_event), data=payload, content_type="application/json")
+
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"] == "All tickets in one checkout must use the same currency."
+        mock_send_email.assert_not_called()
+
+
 class TestGuestOnlineCart:
     def test_online_two_tier_cart_reserves_then_sessions(self, guest_event: Event) -> None:
         guest_event.max_tickets_per_user = None
@@ -197,6 +252,53 @@ class TestGuestOnlineCart:
         assert session_response.json()["checkout_url"] == fake.url
 
 
+class TestGuestDiscountConfirm:
+    """A multi-group v2 token carrying a discount_code re-validates and applies it
+    per group on confirm (coverage gap flagged in review — previously only the
+    authenticated multi-tier route and single-group guest carts were exercised)."""
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    @pytest.mark.django_db(transaction=True)
+    def test_multi_group_discount_applies_per_group_on_confirm(self, mock_send_email: Mock, guest_event: Event) -> None:
+        guest_event.max_tickets_per_user = None
+        guest_event.save(update_fields=["max_tickets_per_user"])
+        tier_a = _tier(guest_event, "Tier A", method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("20.00"))
+        tier_b = _tier(guest_event, "Tier B", method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("30.00"))
+        DiscountCode.objects.create(
+            code="CART10",
+            organization=guest_event.organization,
+            discount_type=DiscountCode.DiscountType.PERCENTAGE,
+            discount_value=Decimal("10.00"),
+            is_active=True,
+            max_uses_per_user=5,
+        )
+        payload = {
+            "email": "discountcart@example.com",
+            "items": [
+                {"tier_id": str(tier_a.id), "tickets": [{"guest_name": "A"}]},
+                {"tier_id": str(tier_b.id), "tickets": [{"guest_name": "B"}]},
+            ],
+            "discount_code": "CART10",
+        }
+        client = Client()
+
+        response = client.post(_url(guest_event), data=payload, content_type="application/json")
+
+        assert response.status_code == 200, response.content
+        mock_send_email.assert_called_once()
+        token = mock_send_email.call_args[0][1]
+
+        confirm_url = reverse("api:confirm_guest_action")
+        confirm_response = client.post(confirm_url, data={"token": token}, content_type="application/json")
+
+        assert confirm_response.status_code == 200, confirm_response.content
+        tickets = Ticket.objects.filter(event=guest_event, user__email="discountcart@example.com")
+        assert tickets.count() == 2
+        by_tier = {t.tier_id: t for t in tickets}
+        assert by_tier[tier_a.id].discount_amount == Decimal("2.00")
+        assert by_tier[tier_b.id].discount_amount == Decimal("3.00")
+
+
 class TestLegacyTokenCompat:
     """A flat-shape token minted before #846 (no ``groups``) must still confirm."""
 
@@ -236,6 +338,31 @@ class TestGuestAccessDisabled:
         payload = {
             "email": "blocked@example.com",
             "items": [{"tier_id": str(tier.id), "tickets": [{"guest_name": "Blocked"}]}],
+        }
+        client = Client()
+
+        response = client.post(_url(login_required_event), data=payload, content_type="application/json")
+
+        assert response.status_code == 400, response.content
+        assert "login" in response.json()["detail"].lower()
+
+    def test_login_required_gate_precedes_guest_user_creation_and_discount_validation(
+        self, login_required_event: Event
+    ) -> None:
+        """#846 review fix: the guest-access gate must run before any guest user is
+        created and before the discount code is validated. Otherwise a login-required
+        event either creates a guest ``RevelUser`` row for an unvalidated request, or
+        (when the email belongs to an existing non-guest account) turns "an account
+        with this email already exists" into an account-existence oracle answered
+        *before* the login-required 400.
+        """
+        tier = _tier(login_required_event, "Tier A", price=Decimal("10.00"))
+        existing_email = "already-has-an-account@example.com"
+        RevelUser.objects.create_user(username=existing_email, email=existing_email, guest=False)
+        payload = {
+            "email": existing_email,
+            "items": [{"tier_id": str(tier.id), "tickets": [{"guest_name": "Blocked"}]}],
+            "discount_code": "WHATEVER",
         }
         client = Client()
 
