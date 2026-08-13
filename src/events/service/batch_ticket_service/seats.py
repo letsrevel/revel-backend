@@ -339,14 +339,24 @@ class SeatResolutionMixin(BatchTicketContext):
                     str(_("Seat selection is required for this ticket tier.")),
                 )
             all_seat_ids.extend(sid for sid in seat_ids if sid is not None)
+        uc_sector_ids = {groups[i].tier.sector_id for i in uc_indices if groups[i].tier.sector_id is not None}
 
         # Single PK-ordered lock over every USER_CHOICE seat in the cart, matching
-        # the global seat-lock protocol (holds/overrides). Not scoped to any one
-        # group's sector — per-group sector validation happens below, against this
-        # shared map. An empty id__in is a no-op query (no USER_CHOICE groups).
+        # the global seat-lock protocol (holds/overrides). Scoped to the UNION of
+        # this cart's USER_CHOICE sectors (not any one group's sector alone) — a
+        # client-supplied seat_id from an unrelated event/venue must never be
+        # select_for_update()-locked at all, only rejected; without this filter a
+        # foreign id widens the lock surface into a cross-event contention
+        # (griefing) vector. Per-group sector validation still happens below,
+        # against this shared map — a seat from ANOTHER group's sector in this
+        # same cart passes this filter (it's in the union) but is correctly
+        # rejected there. An empty id__in/sector_id__in is a no-op query (no
+        # USER_CHOICE groups).
         locked = {
             seat.id: seat
-            for seat in VenueSeat.objects.filter(id__in=all_seat_ids, is_active=True).order_by("pk").select_for_update()
+            for seat in VenueSeat.objects.filter(id__in=all_seat_ids, sector_id__in=uc_sector_ids, is_active=True)
+            .order_by("pk")
+            .select_for_update()
         }
 
         results: list[list[VenueSeat | None]] = []

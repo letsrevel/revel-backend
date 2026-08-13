@@ -158,9 +158,12 @@ class TestMissingSeatId:
 
 
 class TestWrongSector:
-    """A seat that exists but belongs to a different sector than the requesting
-    group's tier is refused — even though the shared lock query (which doesn't
-    filter by sector) successfully locks it.
+    """A seat that exists (in the SAME venue) but belongs to a different sector than
+    the requesting group's tier is refused. The shared lock query is scoped to the
+    union of this cart's USER_CHOICE sectors, so ``sector_b`` — home to another
+    tier's seats, not this cart's — is outside that union too: the row is never
+    matched (never locked), and the per-group count-match check rejects it exactly
+    as it would a nonexistent id.
     """
 
     @pytest.fixture
@@ -194,6 +197,64 @@ class TestWrongSector:
 
         assert exc_info.value.status_code == 400
         assert "not in the correct sector" in str(exc_info.value.message)
+
+
+class TestForeignEventSeat:
+    """A seat_id from a completely unrelated organization/venue — not just the
+    wrong sector within this cart's own venue, but another tenant's data entirely.
+
+    Regression coverage for the cross-event lock-contention (griefing) vector: the
+    shared lock query used to be scoped only by ``id__in``/``is_active``, so a
+    client-supplied foreign seat_id got ``select_for_update()``-locked for the life
+    of the request before being rejected. The query is now additionally scoped to
+    ``sector_id__in`` the union of this cart's USER_CHOICE sectors, so a foreign
+    sector's row is excluded from the query's own result set — Postgres never
+    matches, and therefore never locks, that row at all.
+    """
+
+    @pytest.fixture
+    def sector(self, venue: Venue) -> VenueSector:
+        return VenueSector.objects.create(venue=venue, name="Sector")
+
+    @pytest.fixture
+    def tier(self, cart_event: Event, venue: Venue, sector: VenueSector) -> TicketTier:
+        return _uc_tier(cart_event, venue, sector, "UC Tier")
+
+    @pytest.fixture
+    def foreign_seat(self, django_user_model: type[RevelUser]) -> VenueSeat:
+        """A seat in a totally unrelated organization/venue/sector — outside this cart's reach."""
+        owner = django_user_model.objects.create_user(
+            username="foreign-owner", email="foreign-owner@example.com", password="pass"
+        )
+        foreign_org = Organization.objects.create(
+            name="Foreign Org", slug="foreign-org", owner=owner, accept_membership_requests=True
+        )
+        foreign_venue = Venue.objects.create(organization=foreign_org, name="Foreign Venue", capacity=100)
+        foreign_sector = VenueSector.objects.create(venue=foreign_venue, name="Foreign Sector")
+        return _make_seats(foreign_sector, 1)[0]
+
+    def test_foreign_sector_seat_rejected_and_never_locked(
+        self,
+        cart_event: Event,
+        tier: TicketTier,
+        foreign_seat: VenueSeat,
+        member_user: RevelUser,
+    ) -> None:
+        group = CartGroup(tier=tier, items=[_item(foreign_seat)])
+        service = BatchTicketService(cart_event, user=member_user, groups=[group])
+
+        with CaptureQueriesContext(connection) as ctx, pytest.raises(HttpError) as exc_info:
+            service.resolve_cart_seats([group])
+
+        assert exc_info.value.status_code == 400
+        assert "not in the correct sector" in str(exc_info.value.message)
+
+        # Sector-scoped: the query text itself carries the sector filter, and
+        # (per the docstring above) a foreign-sector row can never be part of what
+        # it matches/locks — the security fix under test.
+        lock_queries = [q["sql"] for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+        assert len(lock_queries) == 1
+        assert "sector_id" in lock_queries[0]
 
 
 class TestBestAvailablePlusNone:
