@@ -16,6 +16,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.template.loader import render_to_string
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -169,11 +170,80 @@ class TestMixedCartAttendeeInvoice:
             vip_payment.vat_amount or Decimal("0.00")
         )
 
-        # Header `vat_rate` is intentionally a scalar, documented in
-        # generate_attendee_invoice as "Dominant VAT rate (from first payment)"
-        # -- unlike the per-row line_items, it does NOT attempt to represent a
-        # mixed-rate cart. Pin that it really is the first (by created_at)
-        # payment's rate, whichever tier that happens to be -- the per-tier
-        # rates the two lines above show are the authoritative breakdown; the
-        # header is a display simplification only.
+        # Header `vat_rate` is STORED as a scalar (documented in
+        # generate_attendee_invoice as "Dominant VAT rate (from first payment)"),
+        # and that stays: it is the first (by created_at) payment's rate.
         assert invoice.vat_rate == payments[0].vat_rate
+        # But a mixed-rate cart must not RENDER a totals label claiming that one
+        # rate applies to the whole document -- see the rendering test below.
+        assert invoice.has_mixed_vat_rates is True
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_mixed_rate_totals_label_claims_no_single_rate(
+        self,
+        mock_pdf: t.Any,
+        mixed_event: Event,
+        tier_standard: TicketTier,
+        tier_vip: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """The rendered totals row says plain "VAT" -- the per-rate detail is in the line items."""
+        billing_info = BuyerBillingInfoSchema(  # type: ignore[call-arg]
+            billing_name="Buyer GmbH", billing_email="buyer@example.de"
+        )
+        groups = [
+            CartGroup(tier=tier_standard, items=[TicketPurchaseItem(guest_name="Ann")]),
+            CartGroup(tier=tier_vip, items=[TicketPurchaseItem(guest_name="Bob")]),
+        ]
+        result = BatchTicketService(mixed_event, user=member_user, groups=groups).create_batch(
+            billing_info=billing_info
+        )
+        assert isinstance(result, tuple)
+        _tickets, reservation_id = result
+        session_id = "cs_mixed_cart_label"
+        Payment.objects.filter(reservation_id=reservation_id).update(
+            status=Payment.PaymentStatus.SUCCEEDED, stripe_session_id=session_id
+        )
+
+        invoice = generate_attendee_invoice(session_id)
+        assert invoice is not None
+
+        # Render the very context the service handed to render_pdf (mocked away,
+        # WeasyPrint is slow) through the real template.
+        template_name, context = mock_pdf.call_args.args
+        html = render_to_string(template_name, context)
+
+        assert "<span>VAT</span>" in html  # the plain, rate-free totals label
+        assert "VAT (22.00%)" not in html  # neither tier's rate may speak for the cart
+        assert "VAT (10.00%)" not in html
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_single_rate_cart_keeps_the_rate_in_the_label(
+        self,
+        mock_pdf: t.Any,
+        mixed_event: Event,
+        tier_standard: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """The unmixed case is untouched: one rate across the cart still prints it."""
+        billing_info = BuyerBillingInfoSchema(  # type: ignore[call-arg]
+            billing_name="Buyer GmbH", billing_email="buyer@example.de"
+        )
+        groups = [CartGroup(tier=tier_standard, items=[TicketPurchaseItem(guest_name="Ann")])]
+        result = BatchTicketService(mixed_event, user=member_user, groups=groups).create_batch(
+            billing_info=billing_info
+        )
+        assert isinstance(result, tuple)
+        _tickets, reservation_id = result
+        session_id = "cs_single_rate_label"
+        Payment.objects.filter(reservation_id=reservation_id).update(
+            status=Payment.PaymentStatus.SUCCEEDED, stripe_session_id=session_id
+        )
+
+        invoice = generate_attendee_invoice(session_id)
+        assert invoice is not None
+        assert invoice.has_mixed_vat_rates is False
+
+        template_name, context = mock_pdf.call_args.args
+        html = render_to_string(template_name, context)
+        assert "VAT (22.00%)" in html

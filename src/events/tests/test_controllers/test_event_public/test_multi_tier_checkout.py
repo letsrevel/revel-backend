@@ -154,6 +154,13 @@ class TestCartShapeValidation:
         response = member_client.post(_url(public_event), data={"items": items}, content_type="application/json")
         assert response.status_code == 422, response.content
 
+    def test_more_than_50_tickets_in_one_group_is_422(self, member_client: Client, public_event: Event) -> None:
+        """The per-group ticket list is bounded too — 20 groups x unbounded was the hole."""
+        tier = _tier(public_event, "Tier A")
+        items = [{"tier_id": str(tier.id), "tickets": [{"guest_name": "A"} for _ in range(51)]}]
+        response = member_client.post(_url(public_event), data={"items": items}, content_type="application/json")
+        assert response.status_code == 422, response.content
+
 
 class TestTierLookupScoping:
     """The tier map is scoped to the event — an unknown or cross-event id is a 404."""
@@ -197,24 +204,45 @@ class TestTierLookupScoping:
 
 
 class TestDiscountNoMatch:
-    def test_discount_code_matching_no_tier_in_cart_is_400(
-        self, member_client: Client, public_event: Event, organization: Organization
-    ) -> None:
-        """Both groups are FREE tiers — ``validate_discount_code`` refuses free tickets
-        outright, so no group ends up in ``valid_tier_ids``."""
-        tier_a = TicketTier.objects.create(
-            event=public_event, name="Free A", payment_method=TicketTier.PaymentMethod.FREE
-        )
-        tier_b = TicketTier.objects.create(
-            event=public_event, name="Free B", payment_method=TicketTier.PaymentMethod.FREE
-        )
-        DiscountCode.objects.create(
+    """Which message a cart gets when the code qualifies for NO group (``_no_qualifying_group_error``).
+
+    The per-group reason is surfaced whenever it is unambiguous — one group checked, or
+    every group rejected for the same reason — and only a genuinely mixed set of
+    reasons collapses to the generic cart message.
+    """
+
+    @staticmethod
+    def _code(organization: Organization, **kwargs: object) -> DiscountCode:
+        return DiscountCode.objects.create(
             code="NOPE10",
             organization=organization,
             discount_type=DiscountCode.DiscountType.PERCENTAGE,
             discount_value=Decimal("10.00"),
             is_active=True,
+            **kwargs,
         )
+
+    def test_single_group_surfaces_the_specific_reason(
+        self, member_client: Client, public_event: Event, organization: Organization
+    ) -> None:
+        """One group == the deprecated single-tier route's cart: its error passes through verbatim."""
+        tier = _tier(public_event, "Paid A")
+        self._code(organization, valid_until=timezone.now() - timedelta(days=1))
+        payload = {
+            "items": [{"tier_id": str(tier.id), "tickets": [{"guest_name": "Ann"}]}],
+            "discount_code": "NOPE10",
+        }
+        response = member_client.post(_url(public_event), data=payload, content_type="application/json")
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"] == "This discount code has expired."
+
+    def test_multi_group_same_reason_surfaces_the_specific_reason(
+        self, member_client: Client, public_event: Event, organization: Organization
+    ) -> None:
+        """An expired code fails identically on every group, so the reason is unambiguous."""
+        tier_a = _tier(public_event, "Paid A")
+        tier_b = _tier(public_event, "Paid B")
+        self._code(organization, valid_until=timezone.now() - timedelta(days=1))
         payload = {
             "items": [
                 {"tier_id": str(tier_a.id), "tickets": [{"guest_name": "Ann"}]},
@@ -224,7 +252,55 @@ class TestDiscountNoMatch:
         }
         response = member_client.post(_url(public_event), data=payload, content_type="application/json")
         assert response.status_code == 400, response.content
+        assert response.json()["detail"] == "This discount code has expired."
+
+    def test_multi_group_different_reasons_is_generic(
+        self, member_client: Client, public_event: Event, organization: Organization
+    ) -> None:
+        """PWYC group vs out-of-scope group: no single per-group reason describes the cart."""
+        pwyc_tier = _tier(
+            public_event,
+            "PWYC",
+            price_type=TicketTier.PriceType.PWYC,
+            pwyc_min=Decimal("5.00"),
+            pwyc_max=Decimal("50.00"),
+        )
+        other_tier = _tier(public_event, "Paid B")
+        code = self._code(organization)
+        code.tiers.add(pwyc_tier)  # scoped to the PWYC tier -> the other group is out of scope
+        payload = {
+            "items": [
+                {"tier_id": str(pwyc_tier.id), "tickets": [{"guest_name": "Ann"}], "pwyc_amount": "10.00"},
+                {"tier_id": str(other_tier.id), "tickets": [{"guest_name": "Bob"}]},
+            ],
+            "discount_code": "NOPE10",
+        }
+        response = member_client.post(_url(public_event), data=payload, content_type="application/json")
+        assert response.status_code == 400, response.content
         assert response.json()["detail"] == "This discount code does not apply to any tier in your cart."
+
+    def test_multi_group_free_tiers_share_one_reason(
+        self, member_client: Client, public_event: Event, organization: Organization
+    ) -> None:
+        """Both groups are FREE tiers — ``validate_discount_code`` refuses free tickets
+        outright with the SAME message, so that message (not the generic one) is raised."""
+        tier_a = TicketTier.objects.create(
+            event=public_event, name="Free A", payment_method=TicketTier.PaymentMethod.FREE
+        )
+        tier_b = TicketTier.objects.create(
+            event=public_event, name="Free B", payment_method=TicketTier.PaymentMethod.FREE
+        )
+        self._code(organization)
+        payload = {
+            "items": [
+                {"tier_id": str(tier_a.id), "tickets": [{"guest_name": "Ann"}]},
+                {"tier_id": str(tier_b.id), "tickets": [{"guest_name": "Bob"}]},
+            ],
+            "discount_code": "NOPE10",
+        }
+        response = member_client.post(_url(public_event), data=payload, content_type="application/json")
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"] == "Discount codes cannot be applied to free tickets."
 
 
 class TestSaleWindow:

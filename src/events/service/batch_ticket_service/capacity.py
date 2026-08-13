@@ -140,7 +140,9 @@ class CapacityMixin(BatchTicketContext):
             sectors[tier.sector_id] = tier.sector
             capacities[tier.sector_id] = tier.sector.capacity
 
-        for sector_id, count in demand.items():
+        # Sorted: sectors are locked in a deterministic (id) order, so two carts
+        # touching the same two sectors cannot lock-order-invert against each other.
+        for sector_id, count in sorted(demand.items()):
             sector = sectors[sector_id]
             # Count all non-cancelled tickets in this sector for this event with row-level locking
             current_count = (

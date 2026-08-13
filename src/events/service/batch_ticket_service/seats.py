@@ -7,7 +7,7 @@ inside a savepoint, and the buyer's own holds are consumed on success.
 
 from uuid import UUID
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -16,6 +16,8 @@ from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.context import BatchTicketContext, CartGroup
 from events.service.seating import holds as holds_service
 from events.service.seating.pick import resolve_requested_zone
+
+_DEADLOCK_SQLSTATE = "40P01"
 
 
 class _SeatConflictError(Exception):
@@ -34,6 +36,13 @@ class SeatResolutionMixin(BatchTicketContext):
     ALL groups in a single PK-ordered query before validating each group's picks —
     two tiers sharing a sector, locked per-group instead, would lock-order-invert
     against a concurrent cart naming the same two tiers in the opposite order.
+
+    A mixed USER_CHOICE + BEST_AVAILABLE cart still widens the documented BA deadlock
+    window (final-review I4): the UC lock is held for the rest of the transaction
+    while each BA group runs its own pick/lock rounds, so a concurrent cart taking
+    those same seats in the other order can still deadlock. Postgres picks a victim
+    and raises SQLSTATE ``40P01``; ``resolve_cart_seats`` maps that to a retryable
+    409 ("please try again") instead of letting it surface as a 500.
     """
 
     def _resolve_seats_none(self, count: int) -> list[VenueSeat | None]:
@@ -296,6 +305,33 @@ class SeatResolutionMixin(BatchTicketContext):
         raise HttpError(409, str(_("Could not secure adjacent seats — please try again.")))
 
     def resolve_cart_seats(self, groups: list[CartGroup]) -> list[list[VenueSeat | None]]:
+        """Resolve the cart's seats, mapping a Postgres deadlock to a retryable 409.
+
+        Thin wrapper over :meth:`_resolve_cart_seats` (which does the actual work and
+        documents it): a mixed UC+BA cart can still deadlock against a concurrent cart
+        (class docstring), and the losing transaction's SQLSTATE ``40P01`` must reach
+        the buyer as the documented retryable 409, not a 500. Any other
+        ``OperationalError`` propagates untouched.
+
+        Args:
+            groups: The cart's per-tier groups, in cart order.
+
+        Returns:
+            Per-group seat lists, positionally aligned with ``groups[i].items``.
+
+        Raises:
+            HttpError: 409 on deadlock; otherwise whatever ``_resolve_cart_seats`` raises.
+        """
+        try:
+            return self._resolve_cart_seats(groups)
+        except OperationalError as exc:
+            # psycopg3 exposes the SQLSTATE as ``sqlstate``; psycopg2 called it ``pgcode``.
+            cause = exc.__cause__
+            if _DEADLOCK_SQLSTATE not in {getattr(cause, "sqlstate", None), getattr(cause, "pgcode", None)}:
+                raise
+            raise HttpError(409, str(_("Could not secure adjacent seats — please try again."))) from exc
+
+    def _resolve_cart_seats(self, groups: list[CartGroup]) -> list[list[VenueSeat | None]]:
         """Resolve every group's seats in one cross-group pass — the cart entry point.
 
         USER_CHOICE seats across every group are locked PK-ordered in a SINGLE query

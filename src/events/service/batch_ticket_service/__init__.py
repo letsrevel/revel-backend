@@ -1,7 +1,7 @@
 """Batch ticket purchase package.
 
 ``BatchTicketService`` is the request-scoped workflow behind every ticket
-checkout. It is assembled from four mixins, each owning one question:
+checkout. It is assembled from five mixins, each owning one question:
 
 - :mod:`.eligibility` — *may this buyer take this many tickets?*
 - :mod:`.capacity` — *is there room for them?* (tier, event, sector)

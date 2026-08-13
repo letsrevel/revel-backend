@@ -104,6 +104,12 @@
         <span>VAT (export)</span>
         <span>{{ invoice.total_vat|format_currency:invoice.currency }}</span>
       </div>
+      {% elif invoice.has_mixed_vat_rates %}
+      {# Mixed-rate cart (#846): no single rate can be claimed here — the per-rate breakdown is in the line items above. #}
+      <div class="totals-row vat">
+        <span>VAT</span>
+        <span>{{ invoice.total_vat|format_currency:invoice.currency }}</span>
+      </div>
       {% else %}
       <div class="totals-row vat">
         <span>VAT ({{ invoice.vat_rate }}%)</span>

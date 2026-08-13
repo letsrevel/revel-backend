@@ -148,6 +148,18 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
             models.Index(fields=["user", "created_at"]),
         ]
 
+    @property
+    def has_mixed_vat_rates(self) -> bool:
+        """Whether the line items carry more than one VAT rate (a mixed-rate cart, #846).
+
+        The stored ``vat_rate`` header column is a scalar taken from the first
+        payment; a multi-tier cart can mix rates (e.g. a 22% standard tier and a
+        10% reduced one), and the rendered totals label must then not claim any
+        single rate — the per-rate breakdown lives in the line items.
+        """
+        rates = {item.get("vat_rate") for item in self.line_items}
+        return len(rates) > 1
+
     def __str__(self) -> str:
         return f"{self.invoice_number} ({self.seller_name})"
 

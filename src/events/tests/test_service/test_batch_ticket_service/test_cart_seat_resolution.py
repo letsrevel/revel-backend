@@ -15,9 +15,11 @@ seat behavior for now.
 
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
+import psycopg
 import pytest
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from ninja.errors import HttpError
@@ -329,3 +331,44 @@ class TestBestAvailablePlusNone:
 
         assert {s.id for s in resolved[0] if s is not None} == {s.id for s in ba_seats}
         assert resolved[1] == [None, None]
+
+    def test_deadlock_becomes_retryable_409(
+        self,
+        cart_event: Event,
+        ba_tier: TicketTier,
+        category: PriceCategory,
+        member_user: RevelUser,
+    ) -> None:
+        """A Postgres deadlock (SQLSTATE 40P01) must reach the buyer as a retryable 409, not a 500.
+
+        Mixed UC+BA carts widened the BA deadlock window (final-review I4): the cart's
+        USER_CHOICE lock is held while each BA group runs its own lock rounds.
+        """
+        ba_group = CartGroup(tier=ba_tier, items=[_item()], price_category_id=category.id)
+        service = BatchTicketService(cart_event, user=member_user, groups=[ba_group])
+        deadlock = OperationalError("deadlock detected")
+        deadlock.__cause__ = psycopg.errors.DeadlockDetected()  # sqlstate 40P01
+
+        with patch("events.service.seating.best_available.pick_best_available", side_effect=deadlock):
+            with pytest.raises(HttpError) as exc_info:
+                service.resolve_cart_seats([ba_group])
+
+        assert exc_info.value.status_code == 409
+        assert "please try again" in str(exc_info.value.message)
+
+    def test_non_deadlock_operational_error_propagates(
+        self,
+        cart_event: Event,
+        ba_tier: TicketTier,
+        category: PriceCategory,
+        member_user: RevelUser,
+    ) -> None:
+        """Only 40P01 is translated — any other OperationalError keeps its own (500) handling."""
+        ba_group = CartGroup(tier=ba_tier, items=[_item()], price_category_id=category.id)
+        service = BatchTicketService(cart_event, user=member_user, groups=[ba_group])
+        other = OperationalError("connection lost")
+        other.__cause__ = psycopg.errors.AdminShutdown()
+
+        with patch("events.service.seating.best_available.pick_best_available", side_effect=other):
+            with pytest.raises(OperationalError):
+                service.resolve_cart_seats([ba_group])

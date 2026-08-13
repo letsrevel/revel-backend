@@ -342,6 +342,33 @@ def validate_discount_code_anonymous(
     return _validate_core(code, organization, tier)
 
 
+def _no_qualifying_group_error(errors: list[HttpError]) -> HttpError:
+    """Pick the error to raise when a cart code qualified for no group at all (#846).
+
+    A single generic "does not apply to any tier" message hid the real reason
+    (expired, usage limit reached, wrong currency...) that the deprecated
+    single-tier routes used to surface verbatim. So:
+
+    * one group checked → re-raise ITS error (byte-identical to the legacy path);
+    * several groups, all rejected for the SAME reason (identical messages, e.g. an
+      expired code, which fails the same way everywhere) → re-raise that error, it
+      is both more specific and unambiguous;
+    * several groups rejected for DIFFERENT reasons → the generic cart message, since
+      no single per-group reason describes the cart.
+
+    Args:
+        errors: The per-group rejections, in cart order (never empty in practice:
+            a cart has at least one group and no group qualified).
+
+    Returns:
+        The ``HttpError`` the caller should raise.
+    """
+    messages = {str(exc) for exc in errors}
+    if errors and len(messages) == 1:
+        return errors[0]
+    return HttpError(400, str(_("This discount code does not apply to any tier in your cart.")))
+
+
 def validate_cart_discount(
     code: str,
     event: Event,
@@ -354,7 +381,9 @@ def validate_cart_discount(
     A cart code need not apply to every group: this runs :func:`validate_discount_code`
     per group and simply drops the ones it rejects (wrong scope, a free/PWYC tier,
     currency mismatch, etc.) rather than failing the whole cart. Only when NO group
-    qualifies is the cart itself rejected.
+    qualifies is the cart itself rejected — and then the specific per-group reason is
+    surfaced whenever it is unambiguous (see :func:`_no_qualifying_group_error`)
+    instead of collapsing to one generic message.
 
     The definitive validation call — the one whose returned :class:`DiscountCode` and
     usage-limit check get threaded into
@@ -374,21 +403,25 @@ def validate_cart_discount(
         The validated ``DiscountCode`` and the set of tier ids it applies to.
 
     Raises:
-        HttpError: 400 if the code applies to none of the cart's tiers.
+        HttpError: If the code applies to none of the cart's tiers — the single
+            per-group rejection when every group failed for the same reason,
+            otherwise 400 with the generic cart message.
     """
     valid_tier_ids: set[UUID] = set()
     applicable_count = 0
+    errors: list[HttpError] = []
     for group in items:
         tier = tiers[group.tier_id]
         try:
             validate_discount_code(code, event.organization, tier, user, len(group.tickets))
-        except HttpError:
+        except HttpError as exc:
+            errors.append(exc)
             continue
         valid_tier_ids.add(group.tier_id)
         applicable_count += len(group.tickets)
 
     if not valid_tier_ids:
-        raise HttpError(400, str(_("This discount code does not apply to any tier in your cart.")))
+        raise _no_qualifying_group_error(errors)
 
     # Any already-qualified tier stands in for the final scope/currency re-check;
     # what this call actually re-verifies is the usage limits, against the real total.

@@ -490,6 +490,65 @@ class TestPendingTicketAttachmentFlags:
             assert context["include_ics"] is False
 
 
+class TestBatchNotificationsPerTierContext:
+    """A multi-tier cart (#846) sends one email per ticket, each about ITS OWN tier.
+
+    ``send_batch_ticket_created_notifications`` used to hoist the tier name, price and
+    manual payment instructions off ``tickets[0]``; a mixed OFFLINE cart then told every
+    buyer to pay the first tier's price into the first tier's bank details.
+    """
+
+    @staticmethod
+    def _offline_tier(event: t.Any, name: str, price: str, instructions: str) -> TicketTier:
+        return TicketTier.objects.create(
+            event=event,
+            name=name,
+            price=Decimal(price),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            manual_payment_instructions=instructions,
+        )
+
+    def test_mixed_cart_emails_carry_their_own_tier(self, public_event: t.Any, member_user: RevelUser) -> None:
+        from notifications.signals.ticket import send_batch_ticket_created_notifications
+
+        tier_a = self._offline_tier(public_event, "Standard", "20.00", "Wire 20 EUR to IBAN AAA")
+        tier_b = self._offline_tier(public_event, "VIP", "80.00", "Wire 80 EUR to IBAN BBB")
+        tickets = [
+            Ticket.objects.create(
+                event=public_event,
+                tier=tier,
+                user=member_user,
+                status=Ticket.TicketStatus.PENDING,
+                guest_name=member_user.get_display_name(),
+            )
+            for tier in (tier_a, tier_b)
+        ]
+
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            send_batch_ticket_created_notifications(tickets)
+
+        contexts = {
+            call.kwargs["context"]["ticket_id"]: call.kwargs["context"]
+            for call in send_mock.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.TICKET_CREATED
+            and call.kwargs["user"] == member_user
+        }
+        assert len(contexts) == 2
+
+        for ticket, tier in zip(tickets, (tier_a, tier_b), strict=True):
+            context = contexts[str(ticket.id)]
+            assert context["tier_name"] == tier.name
+            assert context["tier_price"] == str(tier.price)
+            assert context["total_price"] == str(tier.price)
+            assert context["manual_payment_instructions"] == tier.manual_payment_instructions
+        # ...and nothing leaked sideways: the two emails really do differ.
+        assert (
+            contexts[str(tickets[0].id)]["manual_payment_instructions"]
+            != (contexts[str(tickets[1].id)]["manual_payment_instructions"])
+        )
+
+
 @pytest.mark.django_db(transaction=True)
 class TestTicketCancelledAttachmentFlags:
     """Cancellation notifications must not request ticket attachments.

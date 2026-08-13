@@ -296,9 +296,9 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
     )
 
     # Get eligible tiers (can purchase) and all visible tiers for this user
-    eligible_tiers = get_eligible_tiers(event, user)
-    eligible_tier_ids = {t.id for t in eligible_tiers}
+    eligible_tier_ids = {t.id for t in get_eligible_tiers(event, user)}
     visible_tiers = list(TicketTier.objects.for_visible_event(event, user))
+    user_event_count = sum(user_ticket_counts.values())  # cart-wide, invariant across tiers
 
     remaining_list: list[TierRemainingTickets] = []
 
@@ -310,7 +310,7 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
                 tier,
                 event_capacity_remaining=event_capacity_remaining,
                 user_tier_count=user_ticket_counts.get(tier.id, 0),
-                user_event_count=sum(user_ticket_counts.values()),
+                user_event_count=user_event_count,
             )
             tier_sold_out = tier.total_quantity is not None and (tier.total_quantity - tier.quantity_sold) <= 0
             remaining_list.append(
