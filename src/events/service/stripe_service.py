@@ -226,26 +226,27 @@ class TicketAmounts:
 
 
 def _resolve_ticket_amounts(
-    prices: list[Decimal],
+    pairs: list[tuple[Decimal, TicketTier]],
     *,
-    tier: TicketTier,
     org: Organization,
     buyer_vat_context: "BuyerVATContext | None",
     is_virtual: bool = False,
 ) -> tuple[list[TicketAmounts], bool]:
-    """Split every ticket's price into its VAT components — memoised by price.
+    """Split every ticket's price into its VAT components — memoised by (tier, price).
 
     **No network I/O.** The only network step in attendee VAT is the VIES lookup,
     and it already happened in ``resolve_attendee_vat_for_reserve`` before the
     caller took the TicketTier lock; what is left here is arithmetic over
-    ``buyer_vat_context`` (see ``_attendee_vat_from_context``). Memoising by unit
-    price bounds the work at one computation per *distinct* price rather than one
-    per ticket, and makes it structurally obvious that a per-ticket lookup is not
-    being introduced under the lock (#632).
+    ``buyer_vat_context`` (see ``_attendee_vat_from_context``). Memoising by
+    ``(tier.pk, price)`` bounds the work at one computation per *distinct*
+    tier/price pair rather than one per ticket — a mixed-tier cart no longer
+    collapses two tiers' equal prices into one cache entry, which would have
+    stamped one tier's VAT rate onto the other's rows — and makes it
+    structurally obvious that a per-ticket lookup is not being introduced under
+    the lock (#632).
 
     Args:
-        prices: Pre-VAT unit price per ticket, in cart order.
-        tier: The locked tier being purchased.
+        pairs: Each ticket's (pre-VAT unit price, own tier), in cart order.
         org: The selling organization.
         buyer_vat_context: The pre-resolved buyer VAT context, if any.
         is_virtual: Whether the event is attended virtually (#869) — enables
@@ -255,12 +256,15 @@ def _resolve_ticket_amounts(
         The per-ticket amounts in cart order, and whether the buyer's VAT ID
         validated (price-independent, so it is the same for every ticket).
     """
-    fallback_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
-    cache: dict[Decimal, TicketAmounts] = {}
+    fallback_vat_rate_cache: dict[UUID, Decimal] = {}
+    cache: dict[tuple[UUID, Decimal], TicketAmounts] = {}
     buyer_vat_validated = False
-    for price in prices:
-        if price in cache:
+    for price, tier in pairs:
+        key = (tier.pk, price)
+        if key in cache:
             continue
+        if tier.pk not in fallback_vat_rate_cache:
+            fallback_vat_rate_cache[tier.pk] = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
         attendee_vat_result = None
         if buyer_vat_context is not None:
             # Arithmetic only — recomputed from the locked tier's fresh price, so a
@@ -269,7 +273,7 @@ def _resolve_ticket_amounts(
                 buyer_vat_context, tier, org, price, is_virtual=is_virtual
             )
         if attendee_vat_result is not None:
-            cache[price] = TicketAmounts(
+            cache[key] = TicketAmounts(
                 effective_price=attendee_vat_result.effective_price,
                 net_amount=attendee_vat_result.net_amount,
                 vat_amount=attendee_vat_result.vat_amount,
@@ -277,15 +281,15 @@ def _resolve_ticket_amounts(
                 reverse_charge=attendee_vat_result.reverse_charge,
             )
         else:
-            breakdown = calculate_vat_inclusive(price, fallback_vat_rate)
-            cache[price] = TicketAmounts(
+            breakdown = calculate_vat_inclusive(price, fallback_vat_rate_cache[tier.pk])
+            cache[key] = TicketAmounts(
                 effective_price=price,
                 net_amount=breakdown.net_amount,
                 vat_amount=breakdown.vat_amount,
                 vat_rate=breakdown.vat_rate,
                 reverse_charge=False,
             )
-    return [cache[price] for price in prices], buyer_vat_validated
+    return [cache[(tier.pk, price)] for price, tier in pairs], buyer_vat_validated
 
 
 class StripeLineItem(t.TypedDict):
@@ -434,7 +438,7 @@ def _create_payment_records(
     tickets: list[Ticket],
     user: RevelUser,
     session_id: str,
-    tier: TicketTier,
+    anchor_tier: TicketTier,
     amounts: list[TicketAmounts],
     total_fee_vat: "PlatformFeeVATResult",
     billing_info: "BuyerBillingInfoSchema | None",
@@ -447,6 +451,10 @@ def _create_payment_records(
     One row per ticket at that ticket's own amount — a mixed cart records 50.00
     and 30.00, and a ticket a discount drove to zero still gets its 0.00 row so
     the 1:1 ticket↔Payment pairing (which the refund matcher relies on) holds.
+
+    ``anchor_tier`` is read only for ``currency`` — ``_validate_cart`` already
+    proved the whole cart settles in one currency, so any tier in it names the
+    right one; per-ticket money (price, VAT) comes from ``amounts`` instead.
     """
     # Distribute gross and vat pro-rata by each ticket's price, so a row carries the
     # share of the fee its own revenue earned (#753). Splitting evenly would misbill
@@ -474,7 +482,7 @@ def _create_payment_records(
             reservation_id=reservation_id,
             amount=amounts[i].effective_price,
             platform_fee=per_ticket_gross[i],
-            currency=tier.currency,
+            currency=anchor_tier.currency,
             status=Payment.PaymentStatus.PENDING,
             raw_response={},
             expires_at=expires_at,
@@ -525,7 +533,6 @@ def resolve_attendee_vat_for_reserve(
 def reserve_batch_payments(
     *,
     event: Event,
-    tier: TicketTier,
     user: RevelUser,
     tickets: list[Ticket],
     reservation_id: UUID,
@@ -535,26 +542,35 @@ def reserve_batch_payments(
 ) -> None:
     """Create PENDING Payment rows for a reserved batch — NO Stripe call (#632).
 
-    Runs under the caller's TicketTier select_for_update, so callers should keep
-    network I/O out of it: pre-resolve the VIES round-trip via
+    Runs under the caller's TicketTier select_for_update(s), so callers should
+    keep network I/O out of it: pre-resolve the VIES round-trip via
     resolve_attendee_vat_for_reserve and thread it in as ``buyer_vat_context``
     (omitting it falls back to resolving here, paying the VIES cost under the
-    caller's lock); only the price arithmetic runs here, against THIS (locked)
-    tier's fresh price. The Stripe session is created later by create_batch_session, which
+    caller's lock); only the price arithmetic runs here, against THOSE (locked)
+    tiers' fresh prices. The Stripe session is created later by create_batch_session, which
     stamps stripe_session_id onto these rows. Because the Payment rows already
     exist, "paid session with no Payment row" (Window B) is unreachable.
 
+    Per-ticket, not per-tier: ``tickets`` may span several tiers (a multi-tier
+    cart, #846) — each ticket prices and VATs off its OWN ``tier``, read from
+    ``ticket.tier``. ``anchor_tier = tickets[0].tier`` is used only for the
+    reads ``_validate_cart`` already proved uniform across the cart: currency
+    and the fixed-fee conversion.
+
     ``lines`` is the per-ticket price vector from ``seating.pricing`` — a mixed
     cart bills each ticket at its own price, and the platform fee is derived from
-    the true total, not ``unit × n``. Omitting it prices every ticket at
+    the true total, not ``unit × n``. Omitting it prices every ticket at its own
     ``tier.price``.
     """
     if not event.organization.is_stripe_connected:
         raise HttpError(400, str(_("This organization is not configured to accept payments.")))
-    prices = [line.unit_price for line in lines] if lines is not None else [tier.price] * len(tickets)
+    # Uniform currency is a cart-shape invariant (_validate_cart), so any ticket's
+    # tier names the right one for cart-wide, currency-only reads.
+    anchor_tier = tickets[0].tier
+    prices = [line.unit_price for line in lines] if lines is not None else [tk.tier.price for tk in tickets]
     # A cart where nothing can be charged is a misconfigured tier; a *mixed* cart
     # with some zero-priced tickets is legitimate and stays on the paid path.
-    if max(prices, default=tier.price) <= 0:
+    if max(prices, default=anchor_tier.price) <= 0:
         raise HttpError(400, str(_("This ticket tier cannot be purchased online.")))
 
     org = event.organization
@@ -563,15 +579,16 @@ def reserve_batch_payments(
     # self-contained, at the cost of VIES under that caller's lock).
     if buyer_vat_context is None:
         buyer_vat_context = resolve_attendee_vat_for_reserve(billing_info=billing_info)
+    pairs = list(zip(prices, [tk.tier for tk in tickets], strict=True))
     amounts, buyer_vat_validated = _resolve_ticket_amounts(
-        prices, tier=tier, org=org, buyer_vat_context=buyer_vat_context, is_virtual=event.is_virtual
+        pairs, org=org, buyer_vat_context=buyer_vat_context, is_virtual=event.is_virtual
     )
 
     # Round per ticket, then sum (seating.pricing pins that ordering); the fee then
     # rounds ROUND_HALF_UP on the resulting true total.
     total_amount = sum((amount.effective_price for amount in amounts), Decimal("0"))
     net_fee = (total_amount * org.platform_fee_percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
+    fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, anchor_tier.currency)
     net_fee_total = net_fee + fixed_fee
 
     site = SiteSettings.get_solo()
@@ -583,7 +600,7 @@ def reserve_batch_payments(
         tickets=tickets,
         user=user,
         session_id="",
-        tier=tier,
+        anchor_tier=anchor_tier,
         amounts=amounts,
         total_fee_vat=total_fee_vat,
         billing_info=billing_info,
@@ -634,26 +651,28 @@ def create_batch_session(*, reservation_id: UUID) -> str:
         # 404 (not 400) and the same message as "not found" avoids leaking reservation
         # existence/type to a client probing with someone else's reservation_id.
         raise HttpError(404, str(_("No pending reservation found.")))
-    tier = tickets[0].tier
+    # Uniform currency is a cart-shape invariant (_validate_cart), so any ticket's
+    # tier names the right one for the currency-only reads below (#846).
+    anchor_tier = tickets[0].tier
     event = tickets[0].event
     user = payments[0].user
 
     # Per-row line items, then the total invariant — both derived from the Payment
     # rows themselves, so a mixed-price cart (#739) bills each ticket at its own
     # amount regardless of the order this later request read them back in.
-    line_items = _build_line_items(payments, tier)
-    _reconcile_line_items(line_items, payments, tier.currency)
+    line_items = _build_line_items(payments, anchor_tier)
+    _reconcile_line_items(line_items, payments, anchor_tier.currency)
 
     # Already per-row: the batch's platform fee is the sum of each Payment's own
     # platform_fee, never a scalar × N, so a mixed cart's fee follows the true total.
     total_fee_gross = sum((p.platform_fee for p in payments), Decimal("0"))
-    application_fee_amount = to_stripe_amount(total_fee_gross, tier.currency)
+    application_fee_amount = to_stripe_amount(total_fee_gross, anchor_tier.currency)
     site = SiteSettings.get_solo()
     expires_at = hold_anchor + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
     session = _create_stripe_session(
         event=event,
-        tier=tier,
+        tier=anchor_tier,
         user=user,
         tickets=tickets,
         line_items=line_items,

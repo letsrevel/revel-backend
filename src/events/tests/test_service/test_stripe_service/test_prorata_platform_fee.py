@@ -82,7 +82,6 @@ def _reserve(
     reservation_id = uuid4()
     stripe_service.reserve_batch_payments(
         event=event,
-        tier=tier,
         user=user,
         tickets=tickets,
         reservation_id=reservation_id,

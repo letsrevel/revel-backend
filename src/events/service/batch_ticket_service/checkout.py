@@ -94,15 +94,11 @@ class CheckoutMixin(TicketWriterMixin):
 
         # Create PENDING Payment rows for the reservation (no Stripe call). One
         # reservation covers the whole cart, so the tickets and lines go in flattened
-        # in cart order — they stay positionally aligned.
-        # ponytail: reserve_batch_payments still takes ONE scalar tier, so a multi-tier
-        # ONLINE cart would resolve VAT and stamp every Payment row against the FIRST
-        # group's tier. Harmless today — no caller can build one (the cart-form
-        # endpoints don't exist yet) — and the ceiling lifts when the per-tier
-        # signature lands in the next task; until then keep ONLINE carts single-tier.
+        # in cart order — they stay positionally aligned. reserve_batch_payments prices
+        # and VATs each ticket off its OWN tier (ticket.tier), so a multi-tier ONLINE
+        # cart bills every group at its own tier's price and VAT rate (#846).
         stripe_service.reserve_batch_payments(
             event=self.event,
-            tier=locked_tiers[0],
             user=self.user,
             tickets=tickets,
             reservation_id=reservation_id,

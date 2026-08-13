@@ -151,7 +151,6 @@ class TestCheckoutSessionAtPinnedVersion:
         reservation_id = uuid.uuid4()
         stripe_service.reserve_batch_payments(
             event=event,
-            tier=event_ticket_tier,
             user=member_user,
             tickets=[ticket],
             reservation_id=reservation_id,

@@ -190,7 +190,6 @@ class TestResumeUnsessionedReservation:
         rid = uuid4()
         stripe_service.reserve_batch_payments(
             event=event,
-            tier=paid_ticket_tier,
             user=organization_owner_user,
             tickets=[ticket],
             reservation_id=rid,

@@ -64,7 +64,6 @@ class TestReserveBatchPayments:
         with mock.patch("stripe.checkout.Session.create") as create:
             stripe_service.reserve_batch_payments(
                 event=event,
-                tier=paid_ticket_tier,
                 user=organization_owner_user,
                 tickets=tickets,
                 reservation_id=rid,
@@ -89,7 +88,7 @@ class TestReserveBatchPayments:
         rid = uuid4()
         before = timezone.now()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         payment = Payment.objects.get(reservation_id=rid)
         hold_ceiling = before + timedelta(minutes=settings.RESERVATION_HOLD_MINUTES)
@@ -104,7 +103,7 @@ class TestReserveBatchPayments:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user, guest_name=n) for n in ["A", "B"]]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         payments = list(Payment.objects.filter(reservation_id=rid))
         assert len(payments) == 2
@@ -122,7 +121,7 @@ class TestReserveBatchPayments:
         rid = uuid4()
         with pytest.raises(HttpError) as exc:
             stripe_service.reserve_batch_payments(
-                event=event, tier=tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+                event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
             )
         assert exc.value.status_code == 400
         assert not Payment.objects.filter(reservation_id=rid).exists()
@@ -136,7 +135,6 @@ class TestReserveBatchPayments:
         with pytest.raises(HttpError) as exc:
             stripe_service.reserve_batch_payments(
                 event=event,
-                tier=paid_ticket_tier,
                 user=organization_owner_user,
                 tickets=tickets,
                 reservation_id=rid,
@@ -154,7 +152,6 @@ class TestReserveBatchPayments:
         with mock.patch.object(stripe_service, "resolve_attendee_vat_for_reserve") as resolve:
             stripe_service.reserve_batch_payments(
                 event=event,
-                tier=paid_ticket_tier,
                 user=organization_owner_user,
                 tickets=tickets,
                 reservation_id=rid,
@@ -187,7 +184,7 @@ class TestCreateBatchSession:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         fake = mock.Mock(id="cs_test_123", url="https://checkout.stripe.com/c/cs_test_123")
         with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
@@ -204,7 +201,7 @@ class TestCreateBatchSession:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user, guest_name=n) for n in ["A", "B"]]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         payments = list(Payment.objects.filter(reservation_id=rid))
         expected_fee = to_stripe_amount(
@@ -232,7 +229,7 @@ class TestCreateBatchSession:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         hold_expiry = Payment.objects.get(reservation_id=rid).expires_at
 
@@ -257,7 +254,7 @@ class TestCreateBatchSession:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         Payment.objects.filter(reservation_id=rid).update(expires_at=timezone.now() - timedelta(minutes=1))
 
@@ -274,7 +271,7 @@ class TestCreateBatchSession:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         Payment.objects.filter(reservation_id=rid).update(stripe_session_id="cs_already")
 
@@ -302,7 +299,7 @@ class TestCreateBatchSessionExcludesCancelledTickets:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user, guest_name=n) for n in ["A", "B"]]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         # The state cancel_ticket_by_user leaves behind: ticket CANCELLED, Payment PENDING.
         Ticket.objects.filter(pk=tickets[0].pk).update(status=Ticket.TicketStatus.CANCELLED)
@@ -328,7 +325,7 @@ class TestCreateBatchSessionExcludesCancelledTickets:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         Ticket.objects.filter(pk=tickets[0].pk).update(status=Ticket.TicketStatus.CANCELLED)
 
@@ -351,7 +348,7 @@ class TestCreateBatchSessionDoubleSubmit:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
 
         def winner_stamped(reservation_id: UUID) -> None:
@@ -377,7 +374,7 @@ class TestCreateBatchSessionDoubleSubmit:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user, guest_name=n) for n in ["A", "B"]]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         stamped = Payment.objects.get(reservation_id=rid, ticket=tickets[1])
         Payment.objects.filter(pk=stamped.pk).update(stripe_session_id="cs_partial")
@@ -397,7 +394,7 @@ class TestMinimalStripePayload:
     def _session_kwargs(self, event: Event, tier: TicketTier, user: RevelUser, guest_name: str) -> dict[str, t.Any]:
         tickets = [_make_ticket(event, tier, user, guest_name=guest_name)]
         rid = uuid4()
-        stripe_service.reserve_batch_payments(event=event, tier=tier, user=user, tickets=tickets, reservation_id=rid)
+        stripe_service.reserve_batch_payments(event=event, user=user, tickets=tickets, reservation_id=rid)
         fake = mock.Mock(id="cs_minimal", url="https://checkout.stripe.com/c/cs_minimal")
         with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
             stripe_service.create_batch_session(reservation_id=rid)
@@ -438,7 +435,7 @@ class TestClaimReservationHoldExtendOnly:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         long_expiry = timezone.now() + timedelta(minutes=45)
         Payment.objects.filter(reservation_id=rid).update(expires_at=long_expiry)
@@ -455,7 +452,7 @@ class TestClaimReservationHoldExtendOnly:
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
         rid = uuid4()
         stripe_service.reserve_batch_payments(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+            event=event, user=organization_owner_user, tickets=tickets, reservation_id=rid
         )
         Payment.objects.filter(reservation_id=rid).update(expires_at=timezone.now() + timedelta(minutes=1))
 

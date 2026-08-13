@@ -5,8 +5,9 @@
 runs per group, while the cart-level ones (event capacity, per-user caps, discount
 usage, the waitlist claim) run once over the whole cart.
 
-ONLINE carts stay single-tier until ``reserve_batch_payments`` goes per-tier, so
-everything here uses free / offline tiers.
+ONLINE multi-tier carts are covered separately in ``test_multi_tier_online.py``
+(reserve_batch_payments went per-tier in #846 Task 8); everything here uses
+free / offline tiers.
 """
 
 from datetime import timedelta

@@ -53,9 +53,7 @@ def _reserve(event: Event, tier: TicketTier, user: RevelUser) -> Payment:
     """Reserve one ticket (un-sessioned Payment row) and return it."""
     ticket = _make_ticket(event, tier, user)
     reservation_id = uuid4()
-    stripe_service.reserve_batch_payments(
-        event=event, tier=tier, user=user, tickets=[ticket], reservation_id=reservation_id
-    )
+    stripe_service.reserve_batch_payments(event=event, user=user, tickets=[ticket], reservation_id=reservation_id)
     payment = Payment.objects.get(ticket=ticket)
     assert payment.stripe_session_id == ""
     assert payment.reservation_id == reservation_id
