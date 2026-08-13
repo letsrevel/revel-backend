@@ -129,6 +129,11 @@ class CapacityMixin(BatchTicketContext):
         two carts touching the same sectors cannot lock-order-invert — gives those carts
         a common mutex, and the capacities are re-read off the locked rows.
 
+        Accepted tradeoff: organizer-side writes to a ``VenueSector`` row (renames,
+        capacity edits) now block behind — and are blocked by — in-flight checkouts
+        for that sector. Sector edits are rare and checkout transactions are short,
+        so the serialization is deliberate; do not "optimize" the lock away.
+
         Args:
             groups: The cart's groups (one per tier).
 
