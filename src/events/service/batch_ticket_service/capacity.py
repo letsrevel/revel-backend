@@ -5,11 +5,17 @@ inside ``create_batch``'s transaction and in a fixed order (tier → event → s
 The buyer-side half — per-user limits and tier access — lives in :mod:`.eligibility`.
 """
 
+import typing as t
+from uuid import UUID
+
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
-from events.models import Event, Ticket, TicketTier, WaitlistOffer
+from events.models import Event, Ticket, TicketTier, VenueSector, WaitlistOffer
 from events.service.batch_ticket_service.context import BatchTicketContext
+
+if t.TYPE_CHECKING:
+    from events.service.batch_ticket_service.context import CartGroup
 
 
 class CapacityMixin(BatchTicketContext):
@@ -103,44 +109,52 @@ class CapacityMixin(BatchTicketContext):
                 str(_("Only {available} spot(s) remaining for this event.")).format(available=available),
             )
 
-    def _assert_sector_capacity(self, count: int) -> None:
-        """Assert that the sector has capacity for the requested tickets.
+    def assert_sector_capacities(self, groups: "list[CartGroup]") -> None:
+        """Assert every sector touched by the cart's GA groups can hold their combined demand.
 
         This is a HARD limit that cannot be overridden by special invitations.
         Only applies to GA tiers (seat_assignment_mode=NONE) with a sector assigned.
         For seated tiers, capacity is implicitly enforced by available seats.
 
-        Uses select_for_update to prevent race conditions.
+        Two GA tiers can share a sector; asserting per tier would let each group
+        pass individually while their sum oversells the sector. Demand is summed
+        per sector first, then each sector is locked-and-asserted once.
 
         Args:
-            count: Number of tickets being requested.
+            groups: The cart's groups (one per tier).
 
         Raises:
-            HttpError: If the sector is full or doesn't have enough capacity.
+            HttpError: If a sector is full or doesn't have enough capacity for its
+                cart groups' combined demand.
         """
-        # Only enforce for GA tiers with a sector
-        if self.tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
-            return  # Seated tiers are limited by available seats
-        if not self.tier.sector_id:
-            return  # No sector assigned
+        demand: dict[UUID, int] = {}
+        sectors: dict[UUID, VenueSector] = {}
+        capacities: dict[UUID, int] = {}
+        for group in groups:
+            tier = group.tier
+            if tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
+                continue  # Seated tiers are limited by available seats
+            if not tier.sector_id or not tier.sector or not tier.sector.capacity:
+                continue  # No sector assigned, or no capacity limit set
+            demand[tier.sector_id] = demand.get(tier.sector_id, 0) + len(group.items)
+            sectors[tier.sector_id] = tier.sector
+            capacities[tier.sector_id] = tier.sector.capacity
 
-        sector = self.tier.sector
-        if not sector or not sector.capacity:
-            return  # No capacity limit set
-
-        # Count all non-cancelled tickets in this sector for this event with row-level locking
-        current_count = (
-            Ticket.objects.select_for_update()
-            .filter(event=self.event, sector=sector)
-            .exclude(status=Ticket.TicketStatus.CANCELLED)
-            .count()
-        )
-
-        available = sector.capacity - current_count
-        if available <= 0:
-            raise HttpError(429, str(_("This sector is full.")))
-        if count > available:
-            raise HttpError(
-                400,
-                str(_("Only {available} spot(s) remaining in this sector.")).format(available=available),
+        for sector_id, count in demand.items():
+            sector = sectors[sector_id]
+            # Count all non-cancelled tickets in this sector for this event with row-level locking
+            current_count = (
+                Ticket.objects.select_for_update()
+                .filter(event=self.event, sector=sector)
+                .exclude(status=Ticket.TicketStatus.CANCELLED)
+                .count()
             )
+
+            available = capacities[sector_id] - current_count
+            if available <= 0:
+                raise HttpError(429, str(_("This sector is full.")))
+            if count > available:
+                raise HttpError(
+                    400,
+                    str(_("Only {available} spot(s) remaining in this sector.")).format(available=available),
+                )

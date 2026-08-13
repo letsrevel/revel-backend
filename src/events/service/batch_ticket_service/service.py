@@ -154,7 +154,7 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         self.assert_event_capacity(len(items))
 
         # Check sector capacity for GA tiers (hard limit - cannot be overridden)
-        self._assert_sector_capacity(len(items))
+        self.assert_sector_capacities(self.groups)
 
         # Resolve seats
         seats = self.resolve_seats(items)
