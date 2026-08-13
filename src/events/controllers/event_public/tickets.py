@@ -303,7 +303,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/checkout",
         url_name="multi_tier_checkout",
-        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail},
+        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail, 404: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],

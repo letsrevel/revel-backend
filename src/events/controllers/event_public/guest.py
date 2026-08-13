@@ -190,7 +190,7 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/checkout/public",
         url_name="guest_multi_tier_checkout",
-        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail},
+        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail, 404: ErrorDetail},
         throttle=WriteThrottle(),
     )
     def guest_multi_tier_checkout(
