@@ -17,7 +17,7 @@ from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import CanPurchaseTicket
 from events.service import discount_code_service, ticket_service
-from events.service.batch_ticket_service import BatchTicketService
+from events.service.batch_ticket_service import BatchTicketService, CartGroup
 from events.service.event_manager import EventManager, EventUserEligibility
 
 from .base import EventPublicBaseController
@@ -119,6 +119,7 @@ class EventPublicTicketsController(EventPublicBaseController):
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
+        deprecated=True,
     )
     def ticket_checkout(
         self,
@@ -152,6 +153,8 @@ class EventPublicTicketsController(EventPublicBaseController):
         `POST /events/reservations/{reservation_id}/checkout-session` next to obtain the
         Stripe `checkout_url`. Free / offline / at-the-door tiers complete here
         (`requires_payment=false`, tickets returned).
+
+        Deprecated: use POST /events/{event_id}/checkout (a single-group cart) instead.
         """
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
         user = self.user()
@@ -210,6 +213,7 @@ class EventPublicTicketsController(EventPublicBaseController):
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
+        deprecated=True,
     )
     def ticket_pwyc_checkout(
         self,
@@ -238,6 +242,8 @@ class EventPublicTicketsController(EventPublicBaseController):
         `POST /events/reservations/{reservation_id}/checkout-session` next to obtain the
         Stripe `checkout_url`. Free / offline / at-the-door tiers complete here
         (`requires_payment=false`, tickets returned).
+
+        Deprecated: use POST /events/{event_id}/checkout (a single-group cart) instead.
         """
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
         user = self.user()
@@ -279,6 +285,91 @@ class EventPublicTicketsController(EventPublicBaseController):
         result = service.create_batch(
             payload.tickets, pwyc_amount=payload.price_per_ticket, billing_info=payload.billing_info
         )
+
+        if isinstance(result, tuple):
+            tickets, reservation_id = result
+            return schema.BatchCheckoutResponse(
+                checkout_url=None,
+                tickets=[],
+                reservation_id=reservation_id,
+                requires_payment=True,
+            )
+        return schema.BatchCheckoutResponse(
+            checkout_url=None,
+            tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+            requires_payment=False,
+        )
+
+    @route.post(
+        "/{uuid:event_id}/checkout",
+        url_name="multi_tier_checkout",
+        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+        permissions=[CanPurchaseTicket()],
+    )
+    def multi_tier_checkout(
+        self,
+        event_id: UUID,
+        payload: schema.MultiTierCheckoutPayload,
+    ) -> schema.BatchCheckoutResponse:
+        """Purchase tickets spanning multiple tiers of the same event in one cart.
+
+        Each entry in `items` is one tier's slice of the cart: its own tickets, PWYC
+        amount (required iff that tier is PWYC), best-available zone and accessible
+        seating flag. Every tier must belong to (and be visible in) this event, and the
+        whole cart must share one currency and one payment method — see
+        `POST /{event_id}/tickets/{tier_id}/checkout` for the per-rule error messages.
+
+        `discount_code` is validated per group: a code need not discount every tier in
+        the cart, only some — but if it matches none of them the request is rejected.
+
+        Returns 404 if any `tier_id` does not resolve to a tier of this event. On
+        eligibility failure, returns 400 with eligibility details explaining what's
+        blocking you and what next_step to take.
+
+        **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
+        `POST /events/reservations/{reservation_id}/checkout-session` next to obtain the
+        Stripe `checkout_url`. Free / offline / at-the-door tiers complete here
+        (`requires_payment=false`, tickets returned).
+        """
+        event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
+        user = self.user()
+        tiers = {
+            tier.id: tier
+            for tier in models.TicketTier.objects.for_visible_event(event, user).filter(
+                pk__in=[g.tier_id for g in payload.items]
+            )
+        }
+        if len(tiers) != len({g.tier_id for g in payload.items}):
+            raise HttpError(404, str(_("One or more ticket tiers were not found.")))
+
+        manager = EventManager(user, event)
+        manager.check_eligibility(raise_on_false=True)
+
+        # Validate discount code per group; the applicable subset (never the full
+        # cart) is threaded into the service so a code scoped to one tier cannot
+        # leak a discount onto the rest of the cart (see CartGroup._dc_for).
+        dc, valid_tier_ids = None, None
+        if payload.discount_code:
+            dc, valid_tier_ids = discount_code_service.validate_cart_discount(
+                payload.discount_code, event, tiers, payload.items, user
+            )
+
+        groups = [
+            CartGroup(
+                tier=tiers[g.tier_id],
+                items=g.tickets,
+                pwyc_amount=g.pwyc_amount,
+                price_category_id=g.price_category_id,
+                accessible_required=g.accessible_required,
+            )
+            for g in payload.items
+        ]
+        service = BatchTicketService(
+            event, user=user, groups=groups, discount_code=dc, discount_valid_tier_ids=valid_tier_ids
+        )
+        result = service.create_batch(billing_info=payload.billing_info)
 
         if isinstance(result, tuple):
             tickets, reservation_id = result

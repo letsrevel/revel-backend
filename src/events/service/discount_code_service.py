@@ -342,6 +342,61 @@ def validate_discount_code_anonymous(
     return _validate_core(code, organization, tier)
 
 
+def validate_cart_discount(
+    code: str,
+    event: Event,
+    tiers: dict[UUID, TicketTier],
+    items: "list[schema.CheckoutGroupSchema]",
+    user: RevelUser,
+) -> tuple[DiscountCode, set[UUID]]:
+    """Validate a discount code against every tier in a multi-tier cart (#846).
+
+    A cart code need not apply to every group: this runs :func:`validate_discount_code`
+    per group and simply drops the ones it rejects (wrong scope, a free/PWYC tier,
+    currency mismatch, etc.) rather than failing the whole cart. Only when NO group
+    qualifies is the cart itself rejected.
+
+    The definitive validation call — the one whose returned :class:`DiscountCode` and
+    usage-limit check get threaded into
+    :class:`~events.service.batch_ticket_service.BatchTicketService` — reruns with the
+    SUMMED ticket count across every applicable group, so per-user/global usage limits
+    see the cart's true consumption instead of one group's slice of it.
+
+    Args:
+        code: The discount code string.
+        event: The event being checked out.
+        tiers: Every tier referenced by ``items``, keyed by id (already scoped to the
+            event by the caller).
+        items: The cart's groups, as submitted by the buyer.
+        user: The purchasing user.
+
+    Returns:
+        The validated ``DiscountCode`` and the set of tier ids it applies to.
+
+    Raises:
+        HttpError: 400 if the code applies to none of the cart's tiers.
+    """
+    valid_tier_ids: set[UUID] = set()
+    applicable_count = 0
+    for group in items:
+        tier = tiers[group.tier_id]
+        try:
+            validate_discount_code(code, event.organization, tier, user, len(group.tickets))
+        except HttpError:
+            continue
+        valid_tier_ids.add(group.tier_id)
+        applicable_count += len(group.tickets)
+
+    if not valid_tier_ids:
+        raise HttpError(400, str(_("This discount code does not apply to any tier in your cart.")))
+
+    # Any already-qualified tier stands in for the final scope/currency re-check;
+    # what this call actually re-verifies is the usage limits, against the real total.
+    representative_tier = tiers[next(iter(valid_tier_ids))]
+    dc = validate_discount_code(code, event.organization, representative_tier, user, applicable_count)
+    return dc, valid_tier_ids
+
+
 def preview_discount_code(
     code: str,
     organization: Organization,

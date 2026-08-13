@@ -200,6 +200,73 @@ class TestTicketCheckoutErrorContracts:
         assert_detail_body(response)
 
 
+class TestMultiTierCheckoutErrorContracts:
+    """``multi_tier_checkout`` (#846) declared only ``EventUserEligibility``; the tier-lookup
+    404 and the cart-shape/discount 400s all emit ``{detail}``.
+    """
+
+    def _url(self, event: Event) -> str:
+        from django.urls import reverse
+
+        return reverse("api:multi_tier_checkout", kwargs={"event_id": event.id})
+
+    def test_unknown_tier_returns_404_detail(self, member_client: Client, public_event: Event) -> None:
+        import uuid
+
+        response = member_client.post(
+            self._url(public_event),
+            data={"items": [{"tier_id": str(uuid.uuid4()), "tickets": [{"guest_name": "A"}]}]},
+            content_type="application/json",
+        )
+        assert_detail_body_with_status(response, 404)
+
+    def test_duplicate_tier_returns_detail(
+        self, member_client: Client, public_event: Event, vip_tier: TicketTier
+    ) -> None:
+        response = member_client.post(
+            self._url(public_event),
+            data={
+                "items": [
+                    {"tier_id": str(vip_tier.id), "tickets": [{"guest_name": "A"}]},
+                    {"tier_id": str(vip_tier.id), "tickets": [{"guest_name": "B"}]},
+                ]
+            },
+            content_type="application/json",
+        )
+        assert_detail_body(response)
+
+    def test_discount_code_matching_no_tier_returns_detail(
+        self, member_client: Client, public_event: Event, organization: Organization
+    ) -> None:
+        tier_a = TicketTier.objects.create(
+            event=public_event, name="Free A", payment_method=TicketTier.PaymentMethod.FREE
+        )
+        tier_b = TicketTier.objects.create(
+            event=public_event, name="Free B", payment_method=TicketTier.PaymentMethod.FREE
+        )
+        from events.models.discount_code import DiscountCode
+
+        DiscountCode.objects.create(
+            code="CONTRACT10",
+            organization=organization,
+            discount_type=DiscountCode.DiscountType.PERCENTAGE,
+            discount_value=Decimal("10.00"),
+            is_active=True,
+        )
+        response = member_client.post(
+            self._url(public_event),
+            data={
+                "items": [
+                    {"tier_id": str(tier_a.id), "tickets": [{"guest_name": "A"}]},
+                    {"tier_id": str(tier_b.id), "tickets": [{"guest_name": "B"}]},
+                ],
+                "discount_code": "CONTRACT10",
+            },
+            content_type="application/json",
+        )
+        assert_detail_body(response)
+
+
 class TestGuestErrorContracts:
     """The three guest endpoints declared ``ResponseMessage``; they emit ``{detail}``/eligibility."""
 

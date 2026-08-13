@@ -56,6 +56,7 @@ class EventPublicGuestController(EventPublicBaseController):
         url_name="guest_ticket_checkout",
         response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail},
         throttle=WriteThrottle(),
+        deprecated=True,
     )
     def guest_ticket_checkout(
         self, event_id: UUID, tier_id: UUID, payload: schema.GuestBatchCheckoutPayload
@@ -86,6 +87,8 @@ class EventPublicGuestController(EventPublicBaseController):
         `POST /events/reservations/{reservation_id}/checkout-session/public` next to
         obtain the Stripe `checkout_url`. Free / offline / at-the-door tiers complete
         here (`requires_payment=false`, email confirmation sent).
+
+        Deprecated: use POST /events/{event_id}/checkout (a single-group cart) instead.
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
@@ -115,6 +118,7 @@ class EventPublicGuestController(EventPublicBaseController):
         url_name="guest_ticket_pwyc_checkout",
         response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail},
         throttle=WriteThrottle(),
+        deprecated=True,
     )
     def guest_ticket_pwyc_checkout(
         self, event_id: UUID, tier_id: UUID, payload: schema.GuestBatchCheckoutPWYCPayload
@@ -147,6 +151,8 @@ class EventPublicGuestController(EventPublicBaseController):
         `POST /events/reservations/{reservation_id}/checkout-session/public` next to
         obtain the Stripe `checkout_url`. Free / offline / at-the-door tiers complete
         here (`requires_payment=false`, email confirmation sent).
+
+        Deprecated: use POST /events/{event_id}/checkout (a single-group cart) instead.
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
