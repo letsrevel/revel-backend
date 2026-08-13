@@ -1001,6 +1001,9 @@ msgstr ""
 "Ce point d'accès est réservé aux tickets avec tarif libre (paie ce que tu "
 "peux)"
 
+msgid "One or more ticket tiers were not found."
+msgstr "Une ou plusieurs catégories de billets sont introuvables."
+
 msgid "No pending reservation found."
 msgstr "Aucune réservation en attente trouvée."
 
@@ -1558,8 +1561,8 @@ msgid ""
 "This member holds multiple tickets for this event. Scan the specific ticket "
 "QR."
 msgstr ""
-"Ce membre possède plusieurs tickets pour cet événement. Scanne le QR code "
-"du ticket concerné."
+"Ce membre possède plusieurs tickets pour cet événement. Scanne le QR code du "
+"ticket concerné."
 
 msgid "This member has no ticket for this event."
 msgstr "Ce membre n'a pas de ticket pour cet événement."
@@ -1616,8 +1619,39 @@ msgstr "Ce secteur est complet."
 msgid "Only {available} spot(s) remaining in this sector."
 msgstr "Seulement {available} place·s restante·s dans ce secteur."
 
+msgid "This tier requires a pay-what-you-can amount."
+msgstr "Cette catégorie nécessite un montant à tarif libre."
+
+msgid "This tier does not accept a pay-what-you-can amount."
+msgstr "Cette catégorie n'accepte pas de montant à tarif libre."
+
+msgid "Each tier may appear only once per checkout."
+msgstr "Chaque catégorie ne peut apparaître qu'une seule fois par achat."
+
+msgid "All tickets in one checkout must use the same currency."
+msgstr "Tous les billets d'un même achat doivent utiliser la même devise."
+
+msgid "All tickets in one checkout must use the same payment method."
+msgstr ""
+"Tous les billets d'un même achat doivent utiliser le même moyen de paiement."
+
+msgid "The same seat cannot be purchased twice."
+msgstr "Le même siège ne peut pas être acheté deux fois."
+
 msgid "You are not allowed to purchase from this tier."
 msgstr "Tu n'es pas autorisé·e à acheter des tickets de cette catégorie."
+
+msgid "You're outside of the sale window."
+msgstr "Tu es en dehors de la période de vente."
+
+msgid "You have reached the maximum number of tickets for this event."
+msgstr "Tu as atteint le nombre maximum de tickets pour cet événement."
+
+#, python-brace-format
+msgid "You can only purchase {remaining} more ticket(s) for this event."
+msgstr ""
+"Tu ne peux acheter que {remaining} ticket·s supplémentaire·s pour cet "
+"événement."
 
 msgid "You have reached the maximum number of tickets for this tier."
 msgstr "Tu as atteint le nombre maximum de tickets pour cette catégorie."
@@ -1630,9 +1664,6 @@ msgstr ""
 
 msgid "This event requires a name on every ticket."
 msgstr "Cet événement exige un nom sur chaque ticket."
-
-msgid "Seat selection is required for this ticket tier."
-msgstr "Le choix du siège est requis pour cette catégorie de tickets."
 
 msgid "One or more selected seats are no longer available."
 msgstr "Un ou plusieurs sièges sélectionnés ne sont plus disponibles."
@@ -1651,6 +1682,9 @@ msgstr ""
 
 msgid "Could not secure adjacent seats — please try again."
 msgstr "Impossible de réserver des sièges adjacents — veuillez réessayer."
+
+msgid "Seat selection is required for this ticket tier."
+msgstr "Le choix du siège est requis pour cette catégorie de tickets."
 
 msgid "Unknown seat assignment mode."
 msgstr "Mode d'attribution des sièges inconnu."
@@ -1713,6 +1747,9 @@ msgstr ""
 
 msgid "You have already used this discount code the maximum number of times."
 msgstr "Tu as déjà utilisé ce code de réduction le nombre maximum de fois."
+
+msgid "This discount code does not apply to any tier in your cart."
+msgstr "Ce code de réduction ne s'applique à aucune catégorie de ton panier."
 
 msgid "Only members are allowed."
 msgstr "Seul·e·s les membres sont autorisé·e·s."

@@ -981,6 +981,9 @@ msgstr "Usa el endpoint /pwyc para las entradas de aportación voluntaria"
 msgid "This endpoint is only for pay-what-you-can tickets"
 msgstr "Este endpoint es solo para entradas de aportación voluntaria"
 
+msgid "One or more ticket tiers were not found."
+msgstr "Uno o más tipos de entrada no se encontraron."
+
 msgid "No pending reservation found."
 msgstr "No se ha encontrado ninguna reserva pendiente."
 
@@ -1530,8 +1533,8 @@ msgid ""
 "This member holds multiple tickets for this event. Scan the specific ticket "
 "QR."
 msgstr ""
-"Este miembro tiene varias entradas para este evento. Escanea el código QR "
-"de la entrada específica."
+"Este miembro tiene varias entradas para este evento. Escanea el código QR de "
+"la entrada específica."
 
 msgid "This member has no ticket for this event."
 msgstr "Este miembro no tiene ninguna entrada para este evento."
@@ -1588,8 +1591,37 @@ msgstr "Este sector está completo."
 msgid "Only {available} spot(s) remaining in this sector."
 msgstr "Solo quedan {available} plaza(s) en este sector."
 
+msgid "This tier requires a pay-what-you-can amount."
+msgstr "Este tipo de entrada requiere un importe de aportación voluntaria."
+
+msgid "This tier does not accept a pay-what-you-can amount."
+msgstr "Este tipo de entrada no acepta un importe de aportación voluntaria."
+
+msgid "Each tier may appear only once per checkout."
+msgstr "Cada tipo de entrada solo puede aparecer una vez por compra."
+
+msgid "All tickets in one checkout must use the same currency."
+msgstr "Todas las entradas de una misma compra deben usar la misma moneda."
+
+msgid "All tickets in one checkout must use the same payment method."
+msgstr ""
+"Todas las entradas de una misma compra deben usar el mismo método de pago."
+
+msgid "The same seat cannot be purchased twice."
+msgstr "El mismo asiento no se puede comprar dos veces."
+
 msgid "You are not allowed to purchase from this tier."
 msgstr "No puedes comprar entradas de este tipo."
+
+msgid "You're outside of the sale window."
+msgstr "Estás fuera de la ventana de venta."
+
+msgid "You have reached the maximum number of tickets for this event."
+msgstr "Has alcanzado el número máximo de entradas para este evento."
+
+#, python-brace-format
+msgid "You can only purchase {remaining} more ticket(s) for this event."
+msgstr "Solo puedes comprar {remaining} entrada(s) más para este evento."
 
 msgid "You have reached the maximum number of tickets for this tier."
 msgstr "Has alcanzado el número máximo de entradas para este tipo."
@@ -1600,9 +1632,6 @@ msgstr "Solo puedes comprar {remaining} entrada(s) más de este tipo."
 
 msgid "This event requires a name on every ticket."
 msgstr "Este evento requiere un nombre en cada entrada."
-
-msgid "Seat selection is required for this ticket tier."
-msgstr "Es obligatorio seleccionar asiento para este tipo de entrada."
 
 msgid "One or more selected seats are no longer available."
 msgstr "Uno o más asientos seleccionados ya no están disponibles."
@@ -1621,6 +1650,9 @@ msgstr ""
 
 msgid "Could not secure adjacent seats — please try again."
 msgstr "No se han podido asegurar asientos contiguos — inténtalo de nuevo."
+
+msgid "Seat selection is required for this ticket tier."
+msgstr "Es obligatorio seleccionar asiento para este tipo de entrada."
 
 msgid "Unknown seat assignment mode."
 msgstr "Modo de asignación de asientos desconocido."
@@ -1684,6 +1716,10 @@ msgstr ""
 
 msgid "You have already used this discount code the maximum number of times."
 msgstr "Ya has usado este código de descuento el número máximo de veces."
+
+msgid "This discount code does not apply to any tier in your cart."
+msgstr ""
+"Este código de descuento no se aplica a ningún tipo de entrada de tu carrito."
 
 msgid "Only members are allowed."
 msgstr "Solo se permite la participación a los miembros."
@@ -3543,15 +3579,15 @@ msgid ""
 "Your membership tier in <strong>%(org)s</strong> changed to "
 "<strong>%(tier)s</strong>."
 msgstr ""
-"Tu nivel de membresía en <strong>%(org)s</strong> cambió a "
-"<strong>%(tier)s</strong>."
+"Tu nivel de membresía en <strong>%(org)s</strong> cambió a <strong>%(tier)s</"
+"strong>."
 
 msgid ""
 "Your wallet card shows your tier, so it needs to be re-added to reflect the "
 "change."
 msgstr ""
-"Tu tarjeta de wallet muestra tu nivel, así que debes añadirla de nuevo "
-"para reflejar el cambio."
+"Tu tarjeta de wallet muestra tu nivel, así que debes añadirla de nuevo para "
+"reflejar el cambio."
 
 msgid "View Organization"
 msgstr "Ver organización"

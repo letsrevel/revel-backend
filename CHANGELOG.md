@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-tier checkout**: buyers can now purchase any mix of ticket tiers — including seated and general-admission tiers together — in a single cart, paid through one Stripe session, instead of checking out each tier separately. `POST /events/{event_id}/checkout` (authenticated) and `POST /events/{event_id}/checkout/public` (guest) accept a cart of tier/quantity groups, with per-group pay-what-you-can amounts and a single cart-level discount code applied across every eligible tier
+
+### Fixed
+
+- **`max_tickets_per_user` on an event is now enforced across all of its tiers, not per tier**: on events with multiple ticket tiers, a per-tier limit used to override the event-wide limit, so a buyer could purchase up to the per-tier cap *again* on every tier and exceed the event's intended maximum. Both limits now apply independently (whichever is stricter wins) — existing multi-tier events with an event-level cap will see it enforced more strictly than before
+- Ticket tier sale windows (`sales_start_at` / `sales_end_at`) are now enforced server-side on every purchase, closing a gap where a direct API call to the per-tier checkout endpoint could buy a ticket outside its sale window
+
+### Deprecated
+
+- The four per-tier checkout endpoints (`POST /events/{event_id}/tickets/{tier_id}/checkout`, `.../checkout/public`, `.../checkout/pwyc`, `.../checkout/pwyc/public`) are deprecated in favor of the new cart endpoints above; they remain functional for now
+
 ## [2.3.2] - 2026-08-12
 
 ### Fixed
