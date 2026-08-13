@@ -13,6 +13,7 @@ from events.models import Ticket, TicketTier
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.capacity import CapacityMixin
 from events.service.batch_ticket_service.checkout import CheckoutMixin
+from events.service.batch_ticket_service.context import CartGroup
 from events.service.batch_ticket_service.eligibility import PurchaseEligibilityMixin
 from events.service.batch_ticket_service.seats import SeatResolutionMixin
 from events.service.discount_code_service import assert_min_purchase_amount
@@ -41,10 +42,46 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         """Whether no ticket in this cart can cost anything — see ``pricing.cart_is_certainly_free``."""
         return cart_is_certainly_free(self.tier, pwyc_amount=pwyc_amount, discount_code=self.discount_code)
 
+    def _resolve_single_group(
+        self, items: list[TicketPurchaseItem] | None, pwyc_amount: Decimal | None
+    ) -> tuple[list[TicketPurchaseItem], Decimal | None]:
+        """Populate ``self.groups`` from whichever constructor form was used and return the one group's cart.
+
+        Args:
+            items: ``create_batch``'s ``items`` argument — single-tier form only.
+            pwyc_amount: ``create_batch``'s ``pwyc_amount`` argument — single-tier form only.
+
+        Returns:
+            The sole group's ``(items, pwyc_amount)``, for the rest of ``create_batch`` to read.
+
+        Raises:
+            TypeError: The single-tier form is missing ``items``, or the cart form was given
+                ``items``/``pwyc_amount`` (those belong on each group instead).
+            NotImplementedError: The cart holds more than one group — lifted by the
+                multi-group cart engine task.
+        """
+        if self._single_tier_form:
+            if items is None:
+                raise TypeError("items is required in the single-tier form")
+            self.groups = [
+                CartGroup(
+                    tier=self.tier,
+                    items=items,
+                    pwyc_amount=pwyc_amount,
+                    price_category_id=self.price_category_id,
+                    accessible_required=self.accessible_required,
+                )
+            ]
+        elif items is not None or pwyc_amount is not None:
+            raise TypeError("items/pwyc_amount belong to the groups in the cart form")
+        if len(self.groups) > 1:
+            raise NotImplementedError  # lifted by the cart-engine task
+        return self.groups[0].items, self.groups[0].pwyc_amount
+
     @transaction.atomic
     def create_batch(
         self,
-        items: list[TicketPurchaseItem],
+        items: list[TicketPurchaseItem] | None = None,
         pwyc_amount: Decimal | None = None,
         billing_info: "BuyerBillingInfoSchema | None" = None,
     ) -> list[Ticket] | tuple[list[Ticket], UUID]:
@@ -56,10 +93,13 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
 
         Args:
             items: List of ticket purchase items with guest_name and optional seat_id.
+                Single-tier form only — required there, forbidden in the cart form
+                (where each :class:`~events.service.batch_ticket_service.context.CartGroup`
+                carries its own items).
             pwyc_amount: The buyer's pay-what-you-can amount. **PWYC only** — a
                 discount is no longer pre-computed into this parameter by callers;
                 pass the validated code as ``discount_code`` to the constructor and
-                the pricing service applies it per ticket.
+                the pricing service applies it per ticket. Single-tier form only.
             billing_info: Optional buyer billing info for attendee invoicing.
 
         Returns:
@@ -67,10 +107,16 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
             method, or a list of created Tickets for free/offline/at-the-door.
 
         Raises:
+            TypeError: If the single-tier form is missing ``items``, or the cart
+                form is given ``items``/``pwyc_amount``.
+            NotImplementedError: If the cart holds more than one group — lifted by
+                the multi-group cart engine task.
             HttpError: If validation fails or ticket creation fails.
             UserIsIneligibleError: If the tier is gated to membership tiers the buyer
                 does not hold.
         """
+        items, pwyc_amount = self._resolve_single_group(items, pwyc_amount)
+
         # Validate purchasability (invitation-linked restrictions, membership, etc.)
         self._assert_purchasable_by()
         # ...and the membership *tier* the organizer gated this tier to (#807). Runs

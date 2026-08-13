@@ -428,7 +428,7 @@ class TestDriftedCategory:
             _preview(seated_event, online_tier, seats=[drifted])
 
         with pytest.raises(HttpError) as checkout_exc:
-            BatchTicketService(seated_event, online_tier, RevelUser.objects.first()).create_batch(  # type: ignore[arg-type]
+            BatchTicketService(seated_event, online_tier, RevelUser.objects.first()).create_batch(
                 [TicketPurchaseItem(guest_name="Guest", seat_id=drifted.pk)]
             )
 
