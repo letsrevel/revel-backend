@@ -341,7 +341,8 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     max_tickets_per_user = models.PositiveIntegerField(
         null=True,
         blank=True,
-        help_text="Override event's max_tickets_per_user for this tier. Null = inherit from event.",
+        help_text="Additional per-tier cap on tickets per user. Null = no per-tier cap "
+        "(the event-level cap still applies).",
     )
 
     vat_rate = models.DecimalField(
