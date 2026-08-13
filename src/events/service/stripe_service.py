@@ -569,8 +569,10 @@ def reserve_batch_payments(
     anchor_tier = tickets[0].tier
     prices = [line.unit_price for line in lines] if lines is not None else [tk.tier.price for tk in tickets]
     # A cart where nothing can be charged is a misconfigured tier; a *mixed* cart
-    # with some zero-priced tickets is legitimate and stays on the paid path.
-    if max(prices, default=anchor_tier.price) <= 0:
+    # with some zero-priced tickets is legitimate and stays on the paid path. No
+    # `default=` here: `anchor_tier = tickets[0].tier` above already raised on an
+    # empty `tickets`, so `prices` (same cardinality) is never empty either.
+    if max(prices) <= 0:
         raise HttpError(400, str(_("This ticket tier cannot be purchased online.")))
 
     org = event.organization

@@ -125,15 +125,25 @@ class TestMultiTierPerTierVatRate:
     """A tier-level ``vat_rate`` override must not leak onto a sibling tier's rows.
 
     This pins the per-tier memoization in ``_resolve_ticket_amounts`` (cache keyed by
-    ``(tier.pk, price)``): the old scalar-tier code computed ONE ``fallback_vat_rate``
-    from ``locked_tiers[0]`` for the whole cart, so tier B's rows would have carried
-    tier A's 10% override instead of the org's 22% fallback. This test would FAIL
-    against that code (tier B's rows would show 10.00, not 22.00).
+    ``(tier.pk, price)``, not bare ``price``): the two tiers here are priced IDENTICALLY
+    (50.00 each) so a bare-``price`` cache key cannot tell them apart — the second tier
+    resolved would hit the first tier's cache entry and inherit its VAT rate regardless
+    of which tier's row it actually is. The old scalar-tier code (fallback_vat_rate
+    computed ONCE from ``locked_tiers[0]``) fails this the same way, for the same
+    underlying reason. This test would FAIL against either bug (tier B's rows would
+    show 10.00, not 22.00) — confirmed by temporarily reverting the cache key to bare
+    ``price`` (see the task-8 fix report for the RED run).
     """
 
     def test_each_tier_effective_vat_rate_lands_on_its_own_rows(
-        self, online_event: Event, tier_a: TicketTier, tier_b: TicketTier, member_user: RevelUser
+        self, online_event: Event, member_user: RevelUser
     ) -> None:
+        # Same price on both tiers: this is what actually exercises the (tier.pk, price)
+        # cache key. Two tiers at different prices (e.g. the tier_a/tier_b fixtures,
+        # 50.00/30.00) would pass even with a bare-price cache key, since two distinct
+        # prices already produce two cache entries — that would NOT pin this bug.
+        tier_a = _online_tier(online_event, "Tier A", Decimal("50.00"))
+        tier_b = _online_tier(online_event, "Tier B", Decimal("50.00"))
         tier_a.vat_rate = Decimal("10.00")
         tier_a.save(update_fields=["vat_rate"])
         assert tier_b.vat_rate is None  # falls back to the org's 22.00
