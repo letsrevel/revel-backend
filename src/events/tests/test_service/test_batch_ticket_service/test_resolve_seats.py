@@ -1,4 +1,4 @@
-"""Tests for BatchTicketService resolve_seats method."""
+"""Tests for BatchTicketService.resolve_cart_seats — single-group carts."""
 
 from datetime import timedelta
 from decimal import Decimal
@@ -19,12 +19,13 @@ from events.models import (
 )
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
+from events.service.batch_ticket_service.context import CartGroup
 
 pytestmark = pytest.mark.django_db
 
 
 class TestResolveSeatsModeNone:
-    """Tests for resolve_seats with NONE mode."""
+    """Tests for resolve_cart_seats with NONE mode."""
 
     @pytest.fixture
     def event(self, organization: Organization) -> Event:
@@ -64,12 +65,12 @@ class TestResolveSeatsModeNone:
             TicketPurchaseItem(guest_name="Guest 1"),
             TicketPurchaseItem(guest_name="Guest 2"),
         ]
-        seats = service.resolve_seats(items)
+        seats = service.resolve_cart_seats([CartGroup(tier=tier, items=items)])[0]
         assert seats == [None, None]
 
 
 class TestResolveSeatsUserChoiceMode:
-    """Tests for resolve_seats with USER_CHOICE mode."""
+    """Tests for resolve_cart_seats with USER_CHOICE mode."""
 
     @pytest.fixture
     def event(self, organization: Organization) -> Event:
@@ -145,7 +146,7 @@ class TestResolveSeatsUserChoiceMode:
             TicketPurchaseItem(guest_name="Guest 1", seat_id=seats[0].id),
             TicketPurchaseItem(guest_name="Guest 2", seat_id=seats[1].id),
         ]
-        resolved = service.resolve_seats(items)
+        resolved = service.resolve_cart_seats([CartGroup(tier=tier, items=items)])[0]
         assert len(resolved) == 2
         assert resolved[0] == seats[0]
         assert resolved[1] == seats[1]
@@ -161,7 +162,7 @@ class TestResolveSeatsUserChoiceMode:
         service = BatchTicketService(event, tier, member_user)
         items = [TicketPurchaseItem(guest_name="Guest 1")]
         with pytest.raises(HttpError) as exc_info:
-            service.resolve_seats(items)
+            service.resolve_cart_seats([CartGroup(tier=tier, items=items)])
         assert exc_info.value.status_code == 400
         assert "Seat selection is required" in str(exc_info.value.message)
 
@@ -188,6 +189,6 @@ class TestResolveSeatsUserChoiceMode:
         service = BatchTicketService(event, tier, member_user)
         items = [TicketPurchaseItem(guest_name="Guest 1", seat_id=seats[0].id)]
         with pytest.raises(HttpError) as exc_info:
-            service.resolve_seats(items)
+            service.resolve_cart_seats([CartGroup(tier=tier, items=items)])
         assert exc_info.value.status_code == 400
         assert "no longer available" in str(exc_info.value.message)

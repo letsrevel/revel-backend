@@ -158,8 +158,10 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # Check sector capacity for GA tiers (hard limit - cannot be overridden)
         self.assert_sector_capacities(self.groups)
 
-        # Resolve seats
-        seats = self.resolve_seats(items)
+        # Resolve seats. Single-group form only for now — Task 7's cart engine
+        # consumes the full per-group list.
+        seats_per_group = self.resolve_cart_seats(self.groups)
+        seats = seats_per_group[0]
 
         # Price every ticket. Single source of truth for PWYC *and* discounts, and
         # the only place that reads the tier's category map. Priced off the LOCKED
