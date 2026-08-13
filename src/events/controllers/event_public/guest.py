@@ -12,7 +12,9 @@ from common.authentication import OptionalAuth
 from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import WriteThrottle
 from events import models, schema
+from events.service import discount_code_service
 from events.service import guest as guest_service
+from events.service.batch_ticket_service import CartGroup
 from events.service.event_manager import EventUserEligibility
 from events.service.guest_hold_session import GUEST_HOLD_COOKIE, resolve_guest_session
 
@@ -99,18 +101,30 @@ class EventPublicGuestController(EventPublicBaseController):
         )
         if tier.price_type == models.TicketTier.PriceType.PWYC:
             raise HttpError(400, str(_("Use /pwyc endpoint for pay-what-you-can tickets")))
+        # Discount validation needs a real user, so the guest user is created/fetched
+        # here rather than left to handle_guest_ticket_checkout — mirrors the
+        # authenticated single-tier route (#846).
+        dc = None
+        if payload.discount_code:
+            guest_user = guest_service.get_or_create_guest_user(payload.email, payload.first_name, payload.last_name)
+            dc = discount_code_service.validate_discount_code(
+                payload.discount_code, event.organization, tier, guest_user, len(payload.tickets)
+            )
+        group = CartGroup(
+            tier=tier,
+            items=payload.tickets,
+            price_category_id=payload.price_category_id,
+            accessible_required=payload.accessible_required,
+        )
         return guest_service.handle_guest_ticket_checkout(
             event,
-            tier,
+            [group],
             payload.email,
             payload.first_name,
             payload.last_name,
-            payload.tickets,
-            discount_code=payload.discount_code,
+            discount_code=dc,
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
-            accessible_required=payload.accessible_required,
-            price_category_id=payload.price_category_id,
         )
 
     @route.post(
@@ -163,18 +177,93 @@ class EventPublicGuestController(EventPublicBaseController):
         )
         if tier.price_type != models.TicketTier.PriceType.PWYC:
             raise HttpError(400, str(_("This endpoint is only for pay-what-you-can tickets")))
+        group = CartGroup(
+            tier=tier,
+            items=payload.tickets,
+            pwyc_amount=payload.price_per_ticket,
+            price_category_id=payload.price_category_id,
+            accessible_required=payload.accessible_required,
+        )
         return guest_service.handle_guest_ticket_checkout(
             event,
-            tier,
+            [group],
             payload.email,
             payload.first_name,
             payload.last_name,
-            payload.tickets,
-            pwyc_amount=payload.price_per_ticket,
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
-            accessible_required=payload.accessible_required,
-            price_category_id=payload.price_category_id,
+        )
+
+    @route.post(
+        "/{uuid:event_id}/checkout/public",
+        url_name="guest_multi_tier_checkout",
+        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail},
+        throttle=WriteThrottle(),
+    )
+    def guest_multi_tier_checkout(
+        self, event_id: UUID, payload: schema.GuestMultiTierCheckoutPayload
+    ) -> schema.GuestCheckoutResponseSchema:
+        """Purchase tickets spanning multiple tiers of the same event, without authentication.
+
+        The guest mirror of `POST /events/{event_id}/checkout` (#846): each entry in
+        `items` is one tier's slice of the cart — its own tickets, PWYC amount
+        (required iff that tier is PWYC), best-available zone and accessible seating
+        flag. Every tier must belong to (and be visible in) this event, and the whole
+        cart must share one currency and one payment method.
+
+        `discount_code` is validated per group: a code need not discount every tier in
+        the cart, only some — but if it matches none of them the request is rejected.
+
+        Returns 404 if any `tier_id` does not resolve to a tier of this event. Returns
+        400 if event doesn't allow guest access, if a non-guest account exists with the
+        email, or on eligibility failure (with details explaining what's blocking you).
+
+        **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
+        `POST /events/reservations/{reservation_id}/checkout-session/public` next to
+        obtain the Stripe `checkout_url`. Free / offline / at-the-door tiers complete
+        here (`requires_payment=false`, email confirmation sent).
+        """
+        self.ensure_not_authenticated()
+        event = self.get_one(event_id)
+        tiers = {
+            tier.id: tier
+            for tier in models.TicketTier.objects.for_visible_event(event, self.maybe_user()).filter(
+                pk__in=[g.tier_id for g in payload.items]
+            )
+        }
+        if len(tiers) != len({g.tier_id for g in payload.items}):
+            raise HttpError(404, str(_("One or more ticket tiers were not found.")))
+
+        # Discount validation needs a real user, so the guest user is created/fetched
+        # here rather than left to handle_guest_ticket_checkout — mirrors the
+        # authenticated multi-tier route (#846) and the single-tier guest routes above.
+        dc, valid_tier_ids = None, None
+        if payload.discount_code:
+            guest_user = guest_service.get_or_create_guest_user(payload.email, payload.first_name, payload.last_name)
+            dc, valid_tier_ids = discount_code_service.validate_cart_discount(
+                payload.discount_code, event, tiers, payload.items, guest_user
+            )
+
+        groups = [
+            CartGroup(
+                tier=tiers[g.tier_id],
+                items=g.tickets,
+                pwyc_amount=g.pwyc_amount,
+                price_category_id=g.price_category_id,
+                accessible_required=g.accessible_required,
+            )
+            for g in payload.items
+        ]
+        return guest_service.handle_guest_ticket_checkout(
+            event,
+            groups,
+            payload.email,
+            payload.first_name,
+            payload.last_name,
+            discount_code=dc,
+            discount_valid_tier_ids=valid_tier_ids,
+            billing_info=payload.billing_info,
+            guest_session=self._resolve_guest_session(),
         )
 
     @route.post(

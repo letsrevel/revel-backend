@@ -16,6 +16,7 @@ from accounts.models import RevelUser
 from events import schema
 from events.models import Event, EventRSVP, TicketTier
 from events.service import guest as guest_service
+from events.service.batch_ticket_service import CartGroup
 from events.service.event_manager import UserIsIneligibleError
 
 pytestmark = pytest.mark.django_db
@@ -337,11 +338,12 @@ class TestGuestServiceLayer:
     def test_handle_guest_ticket_checkout_offline(
         self, mock_send_email: Mock, guest_event_with_tickets: Event, offline_tier: TicketTier
     ) -> None:
-        """Test handle_guest_ticket_checkout for offline payment."""
+        """Test handle_guest_ticket_checkout for offline payment (cart form, #846)."""
         # Act
         tickets = [schema.TicketPurchaseItem(guest_name="Offline Test")]
+        group = CartGroup(tier=offline_tier, items=tickets)
         result = guest_service.handle_guest_ticket_checkout(
-            guest_event_with_tickets, offline_tier, "offline@test.com", "Offline", "Test", tickets
+            guest_event_with_tickets, [group], "offline@test.com", "Offline", "Test"
         )
 
         # Assert
@@ -356,9 +358,10 @@ class TestGuestServiceLayer:
         """Online guest checkout should reserve (reservation_id, no checkout_url) without calling Stripe (#632)."""
         # Act
         tickets = [schema.TicketPurchaseItem(guest_name="Stripe Test")]
+        group = CartGroup(tier=online_tier, items=tickets)
         with patch("stripe.checkout.Session.create") as mock_stripe:
             result = guest_service.handle_guest_ticket_checkout(
-                guest_event_with_tickets, online_tier, "stripe@test.com", "Stripe", "Test", tickets
+                guest_event_with_tickets, [group], "stripe@test.com", "Stripe", "Test"
             )
             mock_stripe.assert_not_called()
 
@@ -374,15 +377,14 @@ class TestGuestServiceLayer:
         """Test that PWYC amount validation works in service layer."""
         # Act & Assert
         tickets = [schema.TicketPurchaseItem(guest_name="Test User")]
+        group = CartGroup(tier=pwyc_tier, items=tickets, pwyc_amount=Decimal("1.00"))  # Below min of 5.00
         with pytest.raises(Exception) as exc_info:
             guest_service.handle_guest_ticket_checkout(
                 guest_event_with_tickets,
-                pwyc_tier,
+                [group],
                 "test@test.com",
                 "Test",
                 "User",
-                tickets,
-                pwyc_amount=Decimal("1.00"),  # Below min of 5.00
             )
         assert "at least" in str(exc_info.value).lower()
 
@@ -392,15 +394,14 @@ class TestGuestServiceLayer:
         """Test that PWYC max validation works in service layer."""
         # Act & Assert
         tickets = [schema.TicketPurchaseItem(guest_name="Test User")]
+        group = CartGroup(tier=pwyc_tier, items=tickets, pwyc_amount=Decimal("100.00"))  # Above max of 50.00
         with pytest.raises(Exception) as exc_info:
             guest_service.handle_guest_ticket_checkout(
                 guest_event_with_tickets,
-                pwyc_tier,
+                [group],
                 "test@test.com",
                 "Test",
                 "User",
-                tickets,
-                pwyc_amount=Decimal("100.00"),  # Above max of 50.00
             )
         assert "at most" in str(exc_info.value).lower()
 

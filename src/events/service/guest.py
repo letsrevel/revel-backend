@@ -22,6 +22,10 @@ from accounts.models import RevelUser
 from events import models, schema
 from events.service.event_manager import EventManager
 
+if t.TYPE_CHECKING:
+    from events.models.discount_code import DiscountCode
+    from events.service.batch_ticket_service.context import CartGroup
+
 logger = structlog.get_logger(__name__)
 
 
@@ -100,64 +104,119 @@ def create_guest_rsvp_token(
 def create_guest_ticket_token(
     user: RevelUser,
     event_id: UUID,
-    tier_id: UUID,
-    tickets: list[schema.TicketPurchaseItem],
+    tier_id: UUID | None = None,
+    tickets: list[schema.TicketPurchaseItem] | None = None,
     pwyc_amount: Decimal | None = None,
     discount_code: str | None = None,
     *,
     accessible_required: bool = False,
     price_category_id: UUID | None = None,
     guest_session: str | None = None,
+    groups: "list[CartGroup] | None" = None,
 ) -> str:
     """Create JWT token for guest ticket purchase confirmation.
 
     Only used for non-online-payment tickets (free/offline/at-the-door).
     Online payment tickets go directly to Stripe without email confirmation.
 
+    Supports two construction forms (#846), mirroring ``BatchTicketService``:
+
+    - **Single-tier form** (legacy): pass ``tier_id``/``tickets``. The minted token
+      carries the v1 flat fields at the top level — exactly what every pre-#846
+      token looked like. Still used by the deprecated single-tier guest routes.
+    - **Cart form**: pass ``groups`` (one
+      :class:`~events.service.batch_ticket_service.context.CartGroup` per tier).
+      The token instead carries ``groups``; the flat fields stay at their defaults.
+
+    Exactly one of ``tier_id`` / ``groups`` must be given.
+
     Args:
-        user: The guest user
-        event_id: Event ID
-        tier_id: Ticket tier ID
-        tickets: List of ticket purchase items with guest_name and optional seat_id
-        pwyc_amount: Optional PWYC amount
-        discount_code: Optional discount code string
-        accessible_required: Whether best-available assignment at confirm time must
-            use the accessible seat pool (applies to the whole block)
-        price_category_id: Zone selected at checkout, carried in the token so the
-            confirm-time assignment draws from the same pool the buyer chose
+        user: The guest user.
+        event_id: Event ID.
+        tier_id: Ticket tier ID — single-tier form only.
+        tickets: List of ticket purchase items with guest_name and optional seat_id —
+            single-tier form only.
+        pwyc_amount: Optional PWYC amount — single-tier form only (the cart form
+            carries it per group, on ``CartGroup.pwyc_amount``).
+        discount_code: Optional discount code string. Cart-level either way — a
+            multi-tier cart's code is not per group, matching
+            ``MultiTierCheckoutPayload``/``GuestMultiTierCheckoutPayload``.
+        accessible_required: Single-tier form only (per group in the cart form).
+        price_category_id: Single-tier form only (per group in the cart form).
         guest_session: Hold-owner session id captured at checkout, embedded in the
             token so confirm-time assignment consumes the buyer's own holds even
             when the confirmation link is opened on a different device.
+        groups: The cart's groups — cart form only.
 
     Returns:
-        JWT token string
-    """
-    # Convert TicketPurchaseItem to GuestTicketItemPayload for JWT storage
-    # None ("no name given") travels as "" in the token; confirm maps it back.
-    ticket_payloads = [schema.GuestTicketItemPayload(guest_name=t.guest_name or "", seat_id=t.seat_id) for t in tickets]
+        JWT token string.
 
-    payload = schema.GuestTicketJWTPayloadSchema(
-        user_id=user.id,
-        email=user.email,
-        event_id=event_id,
-        tier_id=tier_id,
-        pwyc_amount=pwyc_amount,
-        discount_code=discount_code,
-        tickets=ticket_payloads,
-        accessible_required=accessible_required,
-        price_category_id=price_category_id,
-        guest_session=guest_session,
-        exp=timezone.now() + timedelta(hours=1),
-        jti=str(uuid4()),
-    )
+    Raises:
+        TypeError: If neither, or both, of ``tier_id``/``groups`` are given, or the
+            single-tier form is missing ``tickets``.
+    """
+    if (tier_id is None) == (not groups):
+        raise TypeError("exactly one of tier_id or groups is required")
+
+    if groups:
+        group_payloads = [
+            schema.GuestCheckoutGroupPayload(
+                tier_id=g.tier.id,
+                # None ("no name given") travels as "" in the token; confirm maps it back.
+                tickets=[
+                    schema.GuestTicketItemPayload(guest_name=item.guest_name or "", seat_id=item.seat_id)
+                    for item in g.items
+                ],
+                pwyc_amount=g.pwyc_amount,
+                price_category_id=g.price_category_id,
+                accessible_required=g.accessible_required,
+            )
+            for g in groups
+        ]
+        payload = schema.GuestTicketJWTPayloadSchema(
+            user_id=user.id,
+            email=user.email,
+            event_id=event_id,
+            discount_code=discount_code,
+            guest_session=guest_session,
+            groups=group_payloads,
+            exp=timezone.now() + timedelta(hours=1),
+            jti=str(uuid4()),
+        )
+        log_tier_ids = [str(g.tier.id) for g in groups]
+        log_ticket_count = sum(len(g.items) for g in groups)
+    else:
+        if tickets is None:
+            raise TypeError("tickets is required in the single-tier form")
+        # Convert TicketPurchaseItem to GuestTicketItemPayload for JWT storage
+        # None ("no name given") travels as "" in the token; confirm maps it back.
+        ticket_payloads = [
+            schema.GuestTicketItemPayload(guest_name=item.guest_name or "", seat_id=item.seat_id) for item in tickets
+        ]
+        payload = schema.GuestTicketJWTPayloadSchema(
+            user_id=user.id,
+            email=user.email,
+            event_id=event_id,
+            tier_id=tier_id,
+            pwyc_amount=pwyc_amount,
+            discount_code=discount_code,
+            tickets=ticket_payloads,
+            accessible_required=accessible_required,
+            price_category_id=price_category_id,
+            guest_session=guest_session,
+            exp=timezone.now() + timedelta(hours=1),
+            jti=str(uuid4()),
+        )
+        log_tier_ids = [str(tier_id)]
+        log_ticket_count = len(tickets)
+
     token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
     logger.info(
         "guest_ticket_token_created",
         user_id=str(user.id),
         event_id=str(event_id),
-        tier_id=str(tier_id),
-        ticket_count=len(tickets),
-        pwyc_amount=str(pwyc_amount) if pwyc_amount else None,
+        tier_ids=log_tier_ids,
+        ticket_count=log_ticket_count,
     )
     return token
 
@@ -250,49 +309,72 @@ def handle_guest_rsvp(
     return schema.GuestActionResponseSchema(message=str(_("Please check your email to confirm your RSVP")))
 
 
+def _cart_tier_name_summary(groups: "list[CartGroup]", max_length: int = 120) -> str:
+    """Build the confirmation email's ``tier_name`` context var for a guest cart (#846).
+
+    A single-group cart keeps the exact string the template has always shown (just
+    that one tier's name). A multi-group cart lists every tier name, comma-joined and
+    capped — the template only needs a human-readable label for the sentence "You've
+    requested a ticket for {event} ({tier_name})", not a full itemization.
+
+    Args:
+        groups: The cart's groups, in cart order.
+        max_length: Truncation ceiling so a 20-tier cart can't blow up the subject/body.
+
+    Returns:
+        The tier-name label for the email.
+    """
+    if len(groups) == 1:
+        return groups[0].tier.name
+    names = ", ".join(group.tier.name for group in groups)
+    if len(names) > max_length:
+        names = names[: max_length - 1].rstrip() + "…"
+    return names
+
+
 def handle_guest_ticket_checkout(
     event: models.Event,
-    tier: models.TicketTier,
+    groups: "list[CartGroup]",
     email: str,
     first_name: str,
     last_name: str,
-    tickets: list[schema.TicketPurchaseItem],
-    pwyc_amount: Decimal | None = None,
-    discount_code: str | None = None,
+    *,
+    discount_code: "DiscountCode | None" = None,
+    discount_valid_tier_ids: set[UUID] | None = None,
     billing_info: "schema.BuyerBillingInfoSchema | None" = None,
     guest_session: str | None = None,
-    accessible_required: bool = False,
-    price_category_id: UUID | None = None,
 ) -> schema.GuestCheckoutResponseSchema:
-    """Handle guest ticket checkout request (business logic extracted from controller).
+    """Handle guest ticket checkout request, spanning as many tiers as the cart holds (#846).
 
     Args:
-        event: Event object
-        tier: Ticket tier object
-        email: Guest email
-        first_name: Guest first name
-        last_name: Guest last name
-        tickets: List of ticket purchase items with guest_name and optional seat_id
-        pwyc_amount: Optional PWYC amount (must be the same for all tickets)
-        discount_code: Optional discount code string
-        billing_info: Optional buyer billing info for attendee invoicing
-        guest_session: Resolved guest-hold session id (seat holds are owned by it)
-        accessible_required: Whether best-available seat assignment must use the
-            accessible pool (applies to the whole checkout block)
-        price_category_id: Zone the best-available pool is drawn from (#749);
-            validated by ``resolve_requested_zone`` inside the batch service
+        event: Event object.
+        groups: One :class:`~events.service.batch_ticket_service.context.CartGroup`
+            per tier in the cart. The caller resolves and validates the tiers and,
+            when a discount code is present, validates it (``discount_code_service.
+            validate_cart_discount``) — both need a real user, and this function is
+            the one that creates/fetches the guest ``RevelUser``, so the caller must
+            do so itself first to run that validation ahead of this call (mirrors
+            the single-tier controllers, which validate the code before checkout).
+        email: Guest email.
+        first_name: Guest first name.
+        last_name: Guest last name.
+        discount_code: Already-validated discount code, if any.
+        discount_valid_tier_ids: The tiers ``discount_code`` was validated for —
+            threaded straight into ``BatchTicketService`` (``None`` means every group).
+        billing_info: Optional buyer billing info for attendee invoicing.
+        guest_session: Resolved guest-hold session id (seat holds are owned by it).
 
     Returns:
-        GuestCheckoutResponseSchema. Non-online tiers: `message` (email confirmation sent).
-        Online tiers: `requires_payment=True` and a `reservation_id` (#632) — the caller
-        must then POST the guest `checkout-session` endpoint to obtain the Stripe
-        `checkout_url`.
+        GuestCheckoutResponseSchema. Non-online carts: `message` (email confirmation
+        sent). Online carts: `requires_payment=True` and a `reservation_id` (#632) —
+        the caller must then POST the guest `checkout-session` endpoint to obtain the
+        Stripe `checkout_url`.
 
     Raises:
-        HttpError: If event doesn't allow guest access, tier issues, or eligibility checks fail
-        InvalidZoneSelectionError: 400 if the requested zone is unusable on this tier
+        HttpError: If event doesn't allow guest access, the cart is malformed, tier
+            issues, or eligibility checks fail.
+        InvalidZoneSelectionError: 400 if a requested zone is unusable on its tier.
     """
-    from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
     from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
@@ -305,7 +387,8 @@ def handle_guest_ticket_checkout(
     # non-online branch defers create_batch to the confirmation click, so a nameless
     # cart would otherwise cost the buyer an email and a dead link instead of a 400.
     # create_batch stays the authoritative gate on every path that reaches it.
-    if event.require_ticket_names and any(item.guest_name is None for item in tickets):
+    all_items = [item for group in groups for item in group.items]
+    if event.require_ticket_names and any(item.guest_name is None for item in all_items):
         raise HttpError(400, str(_("This event requires a name on every ticket.")))
 
     # Create or update guest user
@@ -315,38 +398,47 @@ def handle_guest_ticket_checkout(
     manager = EventManager(user, event)
     manager.check_eligibility(raise_on_false=True)
 
-    # Validate PWYC amount if provided (after eligibility confirmed)
-    if pwyc_amount is not None:
-        if pwyc_amount < tier.pwyc_min:
-            raise HttpError(400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min))
+    # Every group must agree on one payment method — the cart settles as one payment
+    # (the same rule ``BatchTicketService._validate_cart`` enforces). Checked here
+    # too, not only inside create_batch: the non-online branch below never reaches
+    # create_batch until the confirmation click, so a mixed cart must 400 now — not
+    # after an email already promised a purchase — and this is also what decides
+    # which branch below applies.
+    if len({group.tier.payment_method for group in groups}) > 1:
+        raise HttpError(400, str(_("All tickets in one checkout must use the same payment method.")))
 
-        if tier.pwyc_max and pwyc_amount > tier.pwyc_max:
-            raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
+    # Validate PWYC amount and the requested zone per group, for the same reason as
+    # the names check above: the non-online branch defers pricing and seat
+    # assignment to the confirmation click, so an out-of-bounds amount or unusable
+    # zone would otherwise cost the buyer an email and a dead link instead of a 400.
+    # create_batch re-validates both, authoritatively, at confirm/purchase time.
+    for group in groups:
+        tier = group.tier
+        if group.pwyc_amount is not None:
+            if group.pwyc_amount < tier.pwyc_min:
+                raise HttpError(
+                    400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min)
+                )
+            if tier.pwyc_max and group.pwyc_amount > tier.pwyc_max:
+                raise HttpError(
+                    400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max)
+                )
+        resolve_requested_zone(tier, group.price_category_id)
 
-    # Validate discount code if provided. Only the code travels onward — the
-    # per-ticket discounted price is the pricing service's job, not ours.
-    dc = None
-    if discount_code:
-        dc = discount_code_service.validate_discount_code(discount_code, event.organization, tier, user, len(tickets))
-
-    # Validate the requested zone HERE, not only downstream: the non-online branch
-    # below defers seat assignment to the confirmation click, so an unusable zone
-    # would otherwise cost the buyer an email and a dead link instead of a 400.
-    resolve_requested_zone(tier, price_category_id)
+    payment_method = groups[0].tier.payment_method
 
     # Branch by payment method
-    if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
+    if payment_method == models.TicketTier.PaymentMethod.ONLINE:
         # Online payment: use BatchTicketService (Stripe provides security)
         service = BatchTicketService(
             event,
-            tier,
-            user,
-            discount_code=dc,
+            user=user,
+            groups=groups,
+            discount_code=discount_code,
+            discount_valid_tier_ids=discount_valid_tier_ids,
             guest_session=guest_session,
-            accessible_required=accessible_required,
-            price_category_id=price_category_id,
         )
-        result = service.create_batch(tickets, pwyc_amount=pwyc_amount, billing_info=billing_info)
+        result = service.create_batch(billing_info=billing_info)
 
         # Branch on the returned SHAPE, never on the tier's payment method (#740):
         # a PWYC/discount input that zeroes every unit reroutes an ONLINE cart to
@@ -372,19 +464,16 @@ def handle_guest_ticket_checkout(
         )
     else:
         # Non-online payment: require email confirmation
-        # Store ticket info in JWT token for later creation
+        # Store the cart in the JWT token for later creation
         token = create_guest_ticket_token(
             user,
             event.id,
-            tier.id,
-            tickets,
-            pwyc_amount,
-            discount_code,
-            accessible_required=accessible_required,
-            price_category_id=price_category_id,
+            groups=groups,
+            discount_code=discount_code.code if discount_code else None,
             guest_session=guest_session,
         )
-        transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name))
+        tier_name = _cart_tier_name_summary(groups)
+        transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier_name))
         return schema.GuestCheckoutResponseSchema(
             message=str(_("Please check your email to confirm your ticket purchase")),
             checkout_url=None,
@@ -411,7 +500,7 @@ def confirm_guest_action(
     Raises:
         HttpError: If token is invalid, expired, already used, or eligibility checks fail
     """
-    from events.service.batch_ticket_service import BatchTicketService
+    from events.service.batch_ticket_service import BatchTicketService, CartGroup
 
     # Decode token using discriminated union
     payload = validate_and_decode_guest_token(token)
@@ -444,46 +533,93 @@ def confirm_guest_action(
         from events.service import discount_code_service
 
         event = get_object_or_404(models.Event, id=payload.event_id)
-        tier = get_object_or_404(models.TicketTier, id=payload.tier_id, event=event)
+
+        # Normalize both token generations into one shape (#846): a v2 (grouped)
+        # token carries `groups` directly; a v1 (flat) token — every one minted
+        # before this deploy, plus one built by create_guest_ticket_token's
+        # single-tier form — synthesizes a single group from its top-level fields,
+        # preserving the legacy "no tickets list" fallback to the user's own name.
+        if payload.groups:
+            raw_groups = payload.groups
+        else:
+            if payload.tier_id is None:
+                # Every legacy (v1) token was minted with a tier_id; a payload with
+                # neither `groups` nor `tier_id` is not a shape this schema allows to
+                # exist, but mypy can't see that across the discriminated union.
+                raise HttpError(400, str(_("Invalid token payload.")))
+            raw_groups = [
+                schema.GuestCheckoutGroupPayload(
+                    tier_id=payload.tier_id,
+                    tickets=payload.tickets or [schema.GuestTicketItemPayload(guest_name=user.get_display_name())],
+                    pwyc_amount=payload.pwyc_amount,
+                    price_category_id=payload.price_category_id,
+                    accessible_required=payload.accessible_required,
+                )
+            ]
+
+        tiers = {
+            raw_group.tier_id: get_object_or_404(models.TicketTier, id=raw_group.tier_id, event=event)
+            for raw_group in raw_groups
+        }
 
         # Re-check eligibility (event state may have changed)
         manager = EventManager(user, event)
         manager.check_eligibility(raise_on_false=True)
 
-        # Convert JWT payload items back to TicketPurchaseItem for BatchTicketService
-        # Handle legacy tokens that don't have tickets list (backward compatibility)
-        if payload.tickets:
-            ticket_items = [
-                schema.TicketPurchaseItem(guest_name=t.guest_name or None, seat_id=t.seat_id) for t in payload.tickets
+        # Convert JWT payload items back to TicketPurchaseItem for BatchTicketService,
+        # once per group — shared by the discount re-check and the cart build below.
+        items_by_tier = {
+            raw_group.tier_id: [
+                schema.TicketPurchaseItem(guest_name=item.guest_name or None, seat_id=item.seat_id)
+                for item in raw_group.tickets
             ]
-        else:
-            # Legacy token without tickets list - create single ticket with user's name
-            ticket_items = [schema.TicketPurchaseItem(guest_name=user.get_display_name())]
+            for raw_group in raw_groups
+        }
 
-        # Re-validate discount code if one was stored in the token. As at checkout,
-        # only the code is threaded through; pricing happens per ticket downstream.
-        dc = None
+        # Re-validate the discount code if one was stored in the token, exactly like
+        # the multi-tier checkout endpoint (#846): only the groups it actually
+        # applies to get it, so a code scoped to one tier cannot leak a discount
+        # onto the rest of a multi-tier cart.
+        dc, valid_tier_ids = None, None
         if payload.discount_code:
-            dc = discount_code_service.validate_discount_code(
-                payload.discount_code, event.organization, tier, user, len(ticket_items)
+            checkout_items = [
+                schema.CheckoutGroupSchema(
+                    tier_id=raw_group.tier_id,
+                    tickets=items_by_tier[raw_group.tier_id],
+                    pwyc_amount=raw_group.pwyc_amount,
+                    price_category_id=raw_group.price_category_id,
+                    accessible_required=raw_group.accessible_required,
+                )
+                for raw_group in raw_groups
+            ]
+            dc, valid_tier_ids = discount_code_service.validate_cart_discount(
+                payload.discount_code, event, tiers, checkout_items, user
             )
+
+        groups = [
+            CartGroup(
+                tier=tiers[raw_group.tier_id],
+                items=items_by_tier[raw_group.tier_id],
+                pwyc_amount=raw_group.pwyc_amount,
+                price_category_id=raw_group.price_category_id,
+                accessible_required=raw_group.accessible_required,
+            )
+            for raw_group in raw_groups
+        ]
 
         # Use BatchTicketService for proper seat handling
         service = BatchTicketService(
             event,
-            tier,
-            user,
+            user=user,
+            groups=groups,
             discount_code=dc,
+            discount_valid_tier_ids=valid_tier_ids,
             # Prefer the hold-owner session captured in the token so the buyer's own
             # holds are consumed even when confirming from a different device; fall
             # back to the confirming request's cookie for legacy tokens (None).
             guest_session=payload.guest_session or guest_session,
-            accessible_required=payload.accessible_required,
-            # Absent from pre-v3 tokens (defaults to None) — a legacy token still
-            # decodes and buys from the tier's whole sector, as it did when minted.
-            price_category_id=payload.price_category_id,
         )
-        result = service.create_batch(ticket_items, pwyc_amount=payload.pwyc_amount)
+        result = service.create_batch()
 
         # Blacklist token after successful creation
         blacklist_token(token)

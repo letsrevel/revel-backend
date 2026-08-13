@@ -507,7 +507,9 @@ class TestGuestAccessibleSeating:
         token = mock_send_email.call_args[0][1]
         decoded = guest_service.validate_and_decode_guest_token(token)
         assert isinstance(decoded, schema.GuestTicketJWTPayloadSchema)
-        assert decoded.accessible_required is True
+        # The controller now mints every token via the cart (groups) form (#846),
+        # even for this single-tier route — the flag lives on the one group.
+        assert decoded.groups[0].accessible_required is True
 
     def test_confirm_assigns_accessible_seats_when_flag_set(
         self,
@@ -787,7 +789,9 @@ class TestGuestZoneSelection:
         token = mock_send_email.call_args[0][1]
         decoded = guest_service.validate_and_decode_guest_token(token)
         assert isinstance(decoded, schema.GuestTicketJWTPayloadSchema)
-        assert decoded.price_category_id == back.id
+        # The controller now mints every token via the cart (groups) form (#846),
+        # even for this single-tier route — the zone lives on the one group.
+        assert decoded.groups[0].price_category_id == back.id
 
     def test_confirm_assigns_a_seat_from_the_token_zone(
         self,

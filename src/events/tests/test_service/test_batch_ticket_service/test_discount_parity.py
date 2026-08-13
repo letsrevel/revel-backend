@@ -48,6 +48,7 @@ from accounts.models import RevelUser
 from events import schema
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
+from events.service.batch_ticket_service import CartGroup
 from events.service.guest import confirm_guest_action, handle_guest_ticket_checkout
 
 pytestmark = pytest.mark.django_db
@@ -391,6 +392,22 @@ def _guest_items(count: int = 2) -> list[schema.TicketPurchaseItem]:
     return [schema.TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(count)]
 
 
+def _guest_dc(code: str | None, event: Event, tier: TicketTier, email: str, item_count: int) -> DiscountCode | None:
+    """Validate a discount code the way the guest controllers do now (#846).
+
+    ``handle_guest_ticket_checkout`` takes an already-validated ``DiscountCode``,
+    not a raw code string — the caller validates it (needing a real user, hence
+    creating/fetching the guest user first, exactly like the controllers do).
+    """
+    if code is None:
+        return None
+    from events.service import discount_code_service
+    from events.service.guest import get_or_create_guest_user
+
+    user = get_or_create_guest_user(email)
+    return discount_code_service.validate_discount_code(code, event.organization, tier, user, item_count)
+
+
 class TestGuestOnlineParity:
     """``handle_guest_ticket_checkout`` reserves online batches directly."""
 
@@ -413,14 +430,15 @@ class TestGuestOnlineParity:
     ) -> None:
         """The guest online path must price identically to the authenticated one."""
         code = None if code_fixture is None else t.cast(DiscountCode, request.getfixturevalue(code_fixture)).code
+        dc = _guest_dc(code, parity_event, online_tier, "guest-online@example.com", 2)
+        group = CartGroup(tier=online_tier, items=_guest_items())
         response = handle_guest_ticket_checkout(
             parity_event,
-            online_tier,
+            [group],
             email="guest-online@example.com",
             first_name="Gina",
             last_name="Guest",
-            tickets=_guest_items(),
-            discount_code=code,
+            discount_code=dc,
         )
 
         assert response.requires_payment is True
@@ -452,14 +470,15 @@ class TestGuestOnlineParity:
         no ``Payment`` row exists on this path, so the free checkout must record the
         amount itself. Previously NULL.
         """
+        dc = _guest_dc(fix_full.code, parity_event, online_tier, "guest-free@example.com", 2)
+        group = CartGroup(tier=online_tier, items=_guest_items())
         response = handle_guest_ticket_checkout(
             parity_event,
-            online_tier,
+            [group],
             email="guest-free@example.com",
             first_name="Gina",
             last_name="Guest",
-            tickets=_guest_items(),
-            discount_code=fix_full.code,
+            discount_code=dc,
         )
 
         assert response.requires_payment is False
@@ -489,14 +508,14 @@ class TestGuestOnlineParity:
         online_tier.price = Decimal("0.00")
         online_tier.save(update_fields=["price"])
 
+        group = CartGroup(tier=online_tier, items=_guest_items())
         with pytest.raises(HttpError) as exc:
             handle_guest_ticket_checkout(
                 parity_event,
-                online_tier,
+                [group],
                 email="guest-zero@example.com",
                 first_name="Gina",
                 last_name="Guest",
-                tickets=_guest_items(),
             )
 
         assert exc.value.status_code == 400
@@ -531,14 +550,15 @@ class TestGuestConfirmParity:
     ) -> None:
         """The second guest call site must price identically to the first."""
         code = None if code_fixture is None else t.cast(DiscountCode, request.getfixturevalue(code_fixture)).code
+        dc = _guest_dc(code, parity_event, offline_tier, "guest-offline@example.com", 2)
+        group = CartGroup(tier=offline_tier, items=_guest_items())
         checkout = handle_guest_ticket_checkout(
             parity_event,
-            offline_tier,
+            [group],
             email="guest-offline@example.com",
             first_name="Gino",
             last_name="Guest",
-            tickets=_guest_items(),
-            discount_code=code,
+            discount_code=dc,
         )
         assert checkout.message is not None
         assert not Ticket.objects.filter(tier=offline_tier).exists()
