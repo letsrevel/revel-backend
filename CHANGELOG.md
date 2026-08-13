@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`max_tickets_per_user` on an event is now enforced across all of its tiers, not per tier**: on events with multiple ticket tiers, a per-tier limit used to override the event-wide limit, so a buyer could purchase up to the per-tier cap *again* on every tier and exceed the event's intended maximum. Both limits now apply independently (whichever is stricter wins) — existing multi-tier events with an event-level cap will see it enforced more strictly than before
+- **`max_tickets_per_user` on an event is now enforced across all of its tiers, not per tier**: on events with multiple ticket tiers, a per-tier limit used to override the event-wide limit, so a buyer could purchase up to the per-tier cap *again* on every tier and exceed the event's intended maximum. Both limits now apply independently (whichever is stricter wins). Because the event-level field defaults to `1`, applying this rule as-is would have shrunk existing events that relied on a per-tier override down to a single ticket; a data migration therefore preserves every existing event's effective allowances exactly — each event's cap is materialized onto the tiers that were inheriting it, and the event cap itself is reset to unlimited on events that have tiers. Only newly created events get the new default of one ticket per buyer in total
 - Ticket tier sale windows (`sales_start_at` / `sales_end_at`) are now enforced server-side on every purchase, closing a gap where a direct API call to the per-tier checkout endpoint could buy a ticket outside its sale window
 
 ### Deprecated
