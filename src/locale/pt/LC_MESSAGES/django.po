@@ -1572,7 +1572,7 @@ msgid "This tier requires a pay-what-you-can amount."
 msgstr "Este tipo de bilhete requer um valor livre (paga o que puderes)."
 
 msgid "This tier does not accept a pay-what-you-can amount."
-msgstr "Este tipo de bilhete não aceita um valor livre."
+msgstr "Este tipo de bilhete não aceita um valor livre (paga o que puderes)."
 
 msgid "Each tier may appear only once per checkout."
 msgstr "Cada tipo de bilhete só pode aparecer uma vez por checkout."

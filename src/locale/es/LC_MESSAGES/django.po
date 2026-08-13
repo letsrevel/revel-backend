@@ -982,7 +982,7 @@ msgid "This endpoint is only for pay-what-you-can tickets"
 msgstr "Este endpoint es solo para entradas de aportación voluntaria"
 
 msgid "One or more ticket tiers were not found."
-msgstr "Uno o más tipos de entrada no se encontraron."
+msgstr "No se encontraron uno o más tipos de entrada."
 
 msgid "No pending reservation found."
 msgstr "No se ha encontrado ninguna reserva pendiente."
