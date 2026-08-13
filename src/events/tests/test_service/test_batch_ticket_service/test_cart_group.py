@@ -53,6 +53,11 @@ class TestDualFormConstructor:
         with pytest.raises(TypeError):
             BatchTicketService(batch_event, user=batch_user)
 
+    def test_empty_groups_list_is_not_a_valid_cart_form(self, batch_event: Event, batch_user: RevelUser) -> None:
+        """An explicit ``groups=[]`` must fail the same way as omitting groups entirely."""
+        with pytest.raises(TypeError):
+            BatchTicketService(batch_event, user=batch_user, groups=[])
+
     def test_cart_form_forbids_items_arg(
         self, batch_event: Event, batch_offline_tier: TicketTier, batch_user: RevelUser
     ) -> None:

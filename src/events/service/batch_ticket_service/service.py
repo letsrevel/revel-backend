@@ -75,7 +75,7 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         elif items is not None or pwyc_amount is not None:
             raise TypeError("items/pwyc_amount belong to the groups in the cart form")
         if len(self.groups) > 1:
-            raise NotImplementedError  # lifted by the cart-engine task
+            raise NotImplementedError("multi-group carts are not implemented yet")  # lifted by the cart-engine task
         return self.groups[0].items, self.groups[0].pwyc_amount
 
     @transaction.atomic

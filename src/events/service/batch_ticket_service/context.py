@@ -76,7 +76,10 @@ class BatchTicketContext:
         """
         if user is None:
             raise TypeError("user is required")
-        if (tier is None) == (groups is None):
+        # `not groups` (not just `groups is None`) so an explicit groups=[] counts as
+        # "not given" too — otherwise it would sail past this gate and blow up as an
+        # IndexError below instead of the documented TypeError.
+        if (tier is None) == (not groups):
             raise TypeError("exactly one of tier or groups is required")
         self.event = event
         self.user = user
@@ -89,10 +92,11 @@ class BatchTicketContext:
         self._single_tier_form = tier is not None
         # Compat attr every pre-Task-7 mixin reads directly (self.tier.price, etc.).
         # Single-tier form: the tier the caller passed. Cart form: the first (and,
-        # until the cart engine lands, only) group's tier — create_batch rejects
-        # more than one group before any mixin runs, so this is never wrong for a
-        # tier a mixin actually sees. Removed in the final engine task — do not add
-        # new readers.
+        # until the cart engine lands, only) group's tier — the gate above already
+        # guarantees a non-empty groups list here, and create_batch rejects more
+        # than one group before any mixin runs, so this is never wrong for a tier a
+        # mixin actually sees. Removed in the final engine task — do not add new
+        # readers.
         self.tier: TicketTier = tier if tier is not None else self.groups[0].tier
         self.accessible_required = accessible_required
         self.price_category_id = price_category_id
