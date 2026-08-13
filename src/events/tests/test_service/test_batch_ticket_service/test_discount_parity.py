@@ -86,6 +86,11 @@ def parity_event(parity_org: Organization) -> Event:
         max_attendees=100,
         requires_ticket=True,
         can_attend_without_login=True,
+        # Layered per-user caps (#846 Decision 4): the event cap is now an
+        # independent ceiling rather than a fallback a tier override replaces, so
+        # the model's default of 1 would otherwise cap every 2-ticket parity case
+        # below regardless of each tier's own max_tickets_per_user=5.
+        max_tickets_per_user=None,
     )
 
 

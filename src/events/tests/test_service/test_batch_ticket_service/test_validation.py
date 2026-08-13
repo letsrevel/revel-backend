@@ -14,13 +14,15 @@ from events.models import (
     Ticket,
     TicketTier,
 )
+from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
+from events.service.batch_ticket_service.context import CartGroup
 
 pytestmark = pytest.mark.django_db
 
 
-class TestValidateBatchSize:
-    """Tests for validate_batch_size method."""
+class TestAssertPerUserLimits:
+    """Tests for assert_per_user_limits (replaces validate_batch_size, #846 Decision 4)."""
 
     @pytest.fixture
     def event(self, organization: Organization) -> Event:
@@ -55,7 +57,7 @@ class TestValidateBatchSize:
     ) -> None:
         """Should not raise when within limit."""
         service = BatchTicketService(event, tier, member_user)
-        service.validate_batch_size(3)  # Should not raise
+        service.assert_per_user_limits([CartGroup(tier=tier, items=[TicketPurchaseItem()] * 3)])  # Should not raise
 
     def test_raises_when_exceeds_limit(
         self,
@@ -66,7 +68,7 @@ class TestValidateBatchSize:
         """Should raise HttpError when exceeding limit."""
         service = BatchTicketService(event, tier, member_user)
         with pytest.raises(HttpError) as exc_info:
-            service.validate_batch_size(4)
+            service.assert_per_user_limits([CartGroup(tier=tier, items=[TicketPurchaseItem()] * 4)])
         assert exc_info.value.status_code == 400
         assert "can only purchase 3" in str(exc_info.value.message)
 
@@ -88,7 +90,7 @@ class TestValidateBatchSize:
             )
         service = BatchTicketService(event, tier, member_user)
         with pytest.raises(HttpError) as exc_info:
-            service.validate_batch_size(1)
+            service.assert_per_user_limits([CartGroup(tier=tier, items=[TicketPurchaseItem()])])
         assert exc_info.value.status_code == 400
         assert "reached the maximum" in str(exc_info.value.message)
 
@@ -102,4 +104,4 @@ class TestValidateBatchSize:
         event.max_tickets_per_user = None
         event.save()
         service = BatchTicketService(event, tier, member_user)
-        service.validate_batch_size(100)  # Should not raise
+        service.assert_per_user_limits([CartGroup(tier=tier, items=[TicketPurchaseItem()] * 100)])  # Should not raise

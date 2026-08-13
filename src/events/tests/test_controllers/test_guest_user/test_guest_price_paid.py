@@ -32,7 +32,12 @@ def seated_venue(organization: Organization, guest_event_with_tickets: Event) ->
     venue = Venue.objects.create(organization=organization, name="Guest Hall", capacity=100)
     sector = VenueSector.objects.create(venue=venue, name="Stalls")
     guest_event_with_tickets.venue = venue
-    guest_event_with_tickets.save(update_fields=["venue"])
+    # Layered per-user caps (#846 Decision 4): the event cap now counts across
+    # every tier, so the model's default of 1 would block the 3-seat batch below
+    # regardless of the tier's own max_tickets_per_user=5. Unrelated to what this
+    # module tests (price_paid stamping), so disable it.
+    guest_event_with_tickets.max_tickets_per_user = None
+    guest_event_with_tickets.save(update_fields=["venue", "max_tickets_per_user"])
     return venue, sector
 
 

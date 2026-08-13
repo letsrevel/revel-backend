@@ -171,6 +171,13 @@ class TestUserEventStatusCanPurchase:
     ) -> None:
         """Event with both purchasable and non-purchasable visible tiers."""
         _give_user_a_ticket(event, invited_user)
+        # Layered per-user caps (#846 Decision 4): the event cap now counts across
+        # every tier, so the model's default of 1 would already be exhausted by the
+        # seed ticket above, leaving public_tier's remaining at 0 regardless of its
+        # own (unset) per-tier cap. Bump it so this test exercises what it's
+        # actually about — the can_purchase flag by tier access rules, not caps.
+        event.max_tickets_per_user = 2
+        event.save(update_fields=["max_tickets_per_user"])
         public_tier = TicketTier.objects.create(
             event=event,
             name="Public",

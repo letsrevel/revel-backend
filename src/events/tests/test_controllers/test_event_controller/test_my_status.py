@@ -93,6 +93,12 @@ def test_get_my_event_status_multi_tier(
     This tests the core multi-tier functionality where a user can see different
     tiers with different remaining counts.
     """
+    # Layered per-user caps (#846 Decision 4): the event cap now counts across
+    # every tier, so the model's default of 1 would swamp both tiers' own caps
+    # below. Disable it — this test is about per-tier caps, not the event cap.
+    public_event.max_tickets_per_user = None
+    public_event.save()
+
     # Get the auto-created default tier
     default_tier = public_event.ticket_tiers.first()
     assert default_tier is not None
@@ -154,6 +160,12 @@ def test_get_my_event_status_multi_tier_with_sold_out(
     public_event: Event,
 ) -> None:
     """Test status returns sold_out=True for tiers that have no inventory."""
+    # Layered per-user caps (#846 Decision 4): the event cap now counts across
+    # every tier, so the model's default of 1 would swamp both tiers' own caps
+    # below. Disable it — this test is about per-tier caps, not the event cap.
+    public_event.max_tickets_per_user = None
+    public_event.save()
+
     # Get the auto-created default tier and make it sold out
     sold_out_tier = public_event.ticket_tiers.first()
     assert sold_out_tier is not None
@@ -216,6 +228,13 @@ def test_get_my_event_status_all_tiers_sold_out(
     remaining quota but not sold_out status. A user could have personal quota
     remaining but still cannot purchase if all tiers are sold out.
     """
+    # Layered per-user caps (#846 Decision 4): the event cap now counts across
+    # every tier, so the model's default of 1 would swamp the tier's own cap
+    # below. Disable it — this test is about the tier's cap and sold_out, not
+    # the event cap.
+    public_event.max_tickets_per_user = None
+    public_event.save()
+
     # Get the auto-created default tier and make it sold out
     sold_out_tier = public_event.ticket_tiers.first()
     assert sold_out_tier is not None

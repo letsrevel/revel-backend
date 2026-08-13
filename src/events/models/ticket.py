@@ -384,16 +384,6 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
 
     objects = TicketTierManager()
 
-    def get_max_tickets_per_user(self) -> int | None:
-        """Return tier limit or fall back to event limit.
-
-        Returns:
-            The maximum tickets per user for this tier, or None if unlimited.
-        """
-        if self.max_tickets_per_user is not None:
-            return self.max_tickets_per_user
-        return self.event.max_tickets_per_user
-
     def _validate_sales_window(self) -> None:
         """Validate sales window constraints."""
         if self.sales_start_at and self.sales_start_at > self.event.start:

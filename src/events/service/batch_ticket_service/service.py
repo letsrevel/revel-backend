@@ -117,18 +117,20 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         """
         items, pwyc_amount = self._resolve_single_group(items, pwyc_amount)
 
-        # Validate purchasability (invitation-linked restrictions, membership, etc.)
-        self._assert_purchasable_by()
-        # ...and the membership *tier* the organizer gated this tier to (#807). Runs
-        # second so the coarser purchasable_by 403 still answers first.
-        self._assert_membership_tier_allowed()
-
-        # Validate batch size
-        self.validate_batch_size(len(items))
+        # Per-tier eligibility: purchasability (invitation-linked restrictions,
+        # membership), the membership *tier* the organizer gated this tier to (#807,
+        # runs second so the coarser purchasable_by 403 still answers first), and the
+        # sale window (#846 — previously never enforced on this path at all).
+        for group in self.groups:
+            self._assert_purchasable_by(group.tier)
+            self._assert_membership_tier_allowed(group.tier)
+            self._assert_sale_window(group.tier)
+        # Per-user ticket caps, layered across the whole cart (#846 Decision 4).
+        self.assert_per_user_limits(self.groups)
 
         # Names are enforced here — not in the schema — because only the event knows
         # whether it requires them (#845).
-        self.assert_ticket_names(items)
+        self.assert_ticket_names([item for g in self.groups for item in g.items])
 
         # Resolve the buyer's VAT context (incl. the VIES round-trip) BEFORE
         # locking the tier, so the contended row is never held across VIES

@@ -309,6 +309,11 @@ class TestGuestCheckoutReservedSeating:
     ) -> None:
         """Test confirming multiple tickets creates all with correct seats."""
         # Arrange
+        # Layered per-user caps (#846 Decision 4): the event cap is now an
+        # independent ceiling from the tier's own max_tickets_per_user=10, and the
+        # model's default of 1 would otherwise block this 2-ticket confirm.
+        guest_event_with_tickets.max_tickets_per_user = 10
+        guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
         tickets = [
             schema.TicketPurchaseItem(guest_name="Guest 1", seat_id=seats[0].id),
             schema.TicketPurchaseItem(guest_name="Guest 2", seat_id=seats[1].id),
@@ -381,6 +386,11 @@ class TestGuestCheckoutReservedSeating:
         org.stripe_charges_enabled = True
         org.stripe_details_submitted = True
         org.save()
+        # Layered per-user caps (#846 Decision 4): the event cap is now an
+        # independent ceiling from the tier's own max_tickets_per_user below, and
+        # the model's default of 1 would otherwise block this 2-ticket checkout.
+        guest_event_with_tickets.max_tickets_per_user = 10
+        guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
         online_user_choice_tier = TicketTier.objects.create(
             event=guest_event_with_tickets,
             name="Online Reserved",
@@ -510,6 +520,11 @@ class TestGuestAccessibleSeating:
         # Arrange
         best_available_tier.max_tickets_per_user = 10
         best_available_tier.save(update_fields=["max_tickets_per_user"])
+        # Layered per-user caps (#846 Decision 4): the event cap is now an
+        # independent ceiling from the tier's own cap above, and the model's
+        # default of 1 would otherwise block this 2-ticket confirm.
+        guest_event_with_tickets.max_tickets_per_user = 10
+        guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
         tickets = [
             schema.TicketPurchaseItem(guest_name="Guest 1"),
             schema.TicketPurchaseItem(guest_name="Guest 2"),
@@ -546,6 +561,11 @@ class TestGuestAccessibleSeating:
         # Arrange: 3 tickets but only 2 accessible seats (3 general seats remain free)
         best_available_tier.max_tickets_per_user = 10
         best_available_tier.save(update_fields=["max_tickets_per_user"])
+        # Layered per-user caps (#846 Decision 4): the event cap is now an
+        # independent ceiling from the tier's own cap above, and the model's
+        # default of 1 would otherwise block this 3-ticket confirm.
+        guest_event_with_tickets.max_tickets_per_user = 10
+        guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
         tickets = [schema.TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(3)]
         token = guest_service.create_guest_ticket_token(
             existing_guest_user,
