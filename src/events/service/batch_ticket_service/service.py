@@ -206,23 +206,36 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # amount instead. Dropping it left ``price_paid`` NULL — the positive claim that
         # ``tier.price`` reconstructs the sale — on a ticket that cost 0.00 (spec §5.5).
         buyer_reduced_price = pwyc_amount is not None or self.discount_code is not None
+        result: list[Ticket] | tuple[list[Ticket], UUID]
         if (
             locked_tier.payment_method == TicketTier.PaymentMethod.ONLINE
             and buyer_reduced_price
             and pricing.lines
             and all(line.unit_price <= 0 for line in pricing.lines)
         ):
-            return self._free_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
+            result = self._free_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
+        else:
+            # Delegate to payment-specific method
+            match locked_tier.payment_method:
+                case TicketTier.PaymentMethod.ONLINE:
+                    result = self._online_checkout(items, seats, locked_tier, pricing, billing_info)
+                case TicketTier.PaymentMethod.OFFLINE:
+                    result = self._offline_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
+                case TicketTier.PaymentMethod.AT_THE_DOOR:
+                    result = self._at_the_door_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
+                case TicketTier.PaymentMethod.FREE:
+                    result = self._free_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
+                case _:
+                    raise HttpError(400, str(_("Unknown payment method.")))
 
-        # Delegate to payment-specific method
-        match locked_tier.payment_method:
-            case TicketTier.PaymentMethod.ONLINE:
-                return self._online_checkout(items, seats, locked_tier, pricing, billing_info)
-            case TicketTier.PaymentMethod.OFFLINE:
-                return self._offline_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
-            case TicketTier.PaymentMethod.AT_THE_DOOR:
-                return self._at_the_door_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
-            case TicketTier.PaymentMethod.FREE:
-                return self._free_checkout(items, seats, locked_tier, pricing, stamp_price_paid)
-            case _:
-                raise HttpError(400, str(_("Unknown payment method.")))
+        # Cart-level effects, applied once regardless of which branch above wrote the
+        # tickets. Single-group today (identical count/order to the pre-hoist behavior);
+        # Task 7's cart engine will call these once after every group has been written.
+        created_tickets = result[0] if isinstance(result, tuple) else result
+        if self.discount_code is not None:
+            from events.service import discount_code_service
+
+            discount_code_service.apply_discount(self.discount_code, self.user, len(created_tickets))
+        self._claim_waitlist_offer_if_any()
+
+        return result

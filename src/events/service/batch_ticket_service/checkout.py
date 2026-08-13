@@ -58,7 +58,9 @@ class CheckoutMixin(TicketWriterMixin):
         # PENDING tickets; price_paid stays NULL online — PERMANENTLY (#758). Payment.amount is
         # authoritative (spec §5.5) and is net for a reverse-charge buyer, so stamping it would
         # make price_paid's meaning depend on the buyer's VAT status. Never pass stamp_price_paid.
-        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.PENDING, pricing.lines)
+        tickets = self.create_tickets(
+            items, seats, Ticket.TicketStatus.PENDING, pricing.lines, tier=locked_tier, discount_code=self.discount_code
+        )
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
@@ -100,7 +102,13 @@ class CheckoutMixin(TicketWriterMixin):
             List of created PENDING tickets.
         """
         tickets = self.create_tickets(
-            items, seats, Ticket.TicketStatus.PENDING, pricing.lines, stamp_price_paid=stamp_price_paid
+            items,
+            seats,
+            Ticket.TicketStatus.PENDING,
+            pricing.lines,
+            tier=locked_tier,
+            discount_code=self.discount_code,
+            stamp_price_paid=stamp_price_paid,
         )
 
         # Update quantity sold
@@ -135,7 +143,13 @@ class CheckoutMixin(TicketWriterMixin):
             List of created ACTIVE tickets.
         """
         tickets = self.create_tickets(
-            items, seats, Ticket.TicketStatus.ACTIVE, pricing.lines, stamp_price_paid=stamp_price_paid
+            items,
+            seats,
+            Ticket.TicketStatus.ACTIVE,
+            pricing.lines,
+            tier=locked_tier,
+            discount_code=self.discount_code,
+            stamp_price_paid=stamp_price_paid,
         )
 
         # Update quantity sold
@@ -183,7 +197,13 @@ class CheckoutMixin(TicketWriterMixin):
         """
         lines = [dataclasses.replace(line, unit_price=ZERO) for line in pricing.lines]
         tickets = self.create_tickets(
-            items, seats, Ticket.TicketStatus.ACTIVE, lines, stamp_price_paid=stamp_price_paid
+            items,
+            seats,
+            Ticket.TicketStatus.ACTIVE,
+            lines,
+            tier=locked_tier,
+            discount_code=self.discount_code,
+            stamp_price_paid=stamp_price_paid,
         )
 
         # Update quantity sold

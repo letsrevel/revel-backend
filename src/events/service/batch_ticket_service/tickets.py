@@ -9,7 +9,8 @@ import copy
 
 from django.db import transaction
 
-from events.models import Ticket, VenueSeat
+from events.models import Ticket, TicketTier, VenueSeat
+from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.context import BatchTicketContext
 from events.service.seating.pricing import TicketPrice
@@ -28,9 +29,16 @@ class TicketWriterMixin(BatchTicketContext):
         status: Ticket.TicketStatus,
         lines: list[TicketPrice],
         *,
+        tier: TicketTier,
+        discount_code: DiscountCode | None,
         stamp_price_paid: bool = False,
     ) -> list[Ticket]:
         """Create ticket objects with the specified status.
+
+        Pure row construction: builds, cleans and ``bulk_create``s the tickets for
+        one group and returns them. Does **not** apply discount usage or claim a
+        waitlist offer — those are cart-level effects the caller (``create_batch``)
+        applies once, after every group in the cart has been written.
 
         ``price_paid`` and ``discount_amount`` are stamped **per ticket** from the
         price vector; on a mixed cart both legitimately differ row to row.
@@ -43,39 +51,43 @@ class TicketWriterMixin(BatchTicketContext):
             seats: List of seats (or None) corresponding to items.
             status: The status to set on created tickets.
             lines: Per-ticket prices, positionally aligned with ``items``.
+            tier: The tier this group of tickets belongs to (a cart can span
+                several tiers — Task 7 passes each group's own locked tier).
+            discount_code: The code applicable to this group, or ``None`` when the
+                cart's code doesn't apply to it (a cart's code applies only to some
+                groups).
             stamp_price_paid: Whether to write the unit price to ``price_paid``. Never
                 decided here — ask ``pricing.should_stamp_price_paid`` (spec §5.5).
 
         Returns:
             List of created Ticket objects.
         """
-        dc = self.discount_code
         default_name = self._default_guest_name()
 
         tickets = []
         for item, seat, line in zip(items, seats, lines, strict=True):
             ticket = Ticket(
                 event=self.event,
-                tier=self.tier,
+                tier=tier,
                 user=self.user,
                 status=status,
                 guest_name=item.guest_name or default_name,
                 price_paid=line.unit_price if stamp_price_paid else None,
-                discount_code=dc,
-                discount_amount=line.discount_amount if dc is not None else None,
+                discount_code=discount_code,
+                discount_amount=line.discount_amount if discount_code is not None else None,
                 # Deep-copy the JSON snapshot so the ticket row doesn't share a dict
                 # reference with the live tier. Protects the "immutable snapshot"
                 # contract against future in-place mutation of tier.refund_policy.
-                refund_policy_snapshot=(copy.deepcopy(self.tier.refund_policy) if self.tier.refund_policy else None),
+                refund_policy_snapshot=(copy.deepcopy(tier.refund_policy) if tier.refund_policy else None),
             )
             if seat:
                 ticket.seat = seat
                 ticket.sector = seat.sector
                 ticket.venue = seat.sector.venue
-            elif self.tier.venue:
-                ticket.venue = self.tier.venue
-                if self.tier.sector:
-                    ticket.sector = self.tier.sector
+            elif tier.venue:
+                ticket.venue = tier.venue
+                if tier.sector:
+                    ticket.sector = tier.sector
 
             # Skip FK validation - we've already validated event, tier, user exist
             # full_clean() would query DB to check each FK exists (3+ queries per ticket)
@@ -85,16 +97,7 @@ class TicketWriterMixin(BatchTicketContext):
             ticket.clean()
             tickets.append(ticket)
 
-        created = Ticket.objects.bulk_create(tickets)
-
-        # Apply discount usage increment after successful ticket creation
-        if dc is not None:
-            from events.service import discount_code_service
-
-            discount_code_service.apply_discount(dc, self.user, len(created))
-
-        self._claim_waitlist_offer_if_any()
-        return created
+        return Ticket.objects.bulk_create(tickets)
 
     def _default_guest_name(self) -> str:
         """Holder-name fallback when the buyer omitted one (flag off).
