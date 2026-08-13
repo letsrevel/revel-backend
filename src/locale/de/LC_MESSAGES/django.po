@@ -1616,6 +1616,9 @@ msgstr "Diese Kategorie erfordert einen \"Zahl-was-du-kannst\"-Betrag."
 msgid "This tier does not accept a pay-what-you-can amount."
 msgstr "Diese Kategorie akzeptiert keinen \"Zahl-was-du-kannst\"-Betrag."
 
+msgid "Your cart is empty."
+msgstr "Dein Warenkorb ist leer."
+
 msgid "Each tier may appear only once per checkout."
 msgstr "Jede Kategorie darf pro Checkout nur einmal vorkommen."
 
@@ -1910,6 +1913,13 @@ msgstr "Bitte überprüfe deine E-Mails, um deine RSVP zu bestätigen"
 
 msgid "This event requires login to purchase tickets."
 msgstr "Dieses Event erfordert eine Anmeldung, um Tickets zu kaufen."
+
+msgid ""
+"Your cart is too large for guest checkout. Please log in or split your "
+"purchase."
+msgstr ""
+"Dein Warenkorb ist zu groß für den Gast-Checkout. Bitte melde dich an oder "
+"teile deinen Kauf auf."
 
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Bitte überprüfe deine E-Mails, um deinen Ticketkauf zu bestätigen"

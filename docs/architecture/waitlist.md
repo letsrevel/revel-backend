@@ -245,7 +245,7 @@ Every code path that can **free capacity** explicitly calls `enqueue_waitlist_pr
 | Event un-cancelled | `controllers/event_admin/core.py::update_event_status` | `CANCELLED` → other status restores meaningful capacity |
 | Waitlist join (self-heal) | `controllers/event_public/attendance.py::join_waitlist` | Race with concurrent cancellation could leave the joiner first in line with seats already free |
 | Leave-waitlist while holding an offer | `controllers/event_public/attendance.py::leave_waitlist` | EXPIRES the offer, then enqueues |
-| Offer claim (defensive nudge) | `service/event_manager/manager.py::_claim_active_offer` and `service/batch_ticket_service.py::_claim_waitlist_offer_if_any` | Other unclaimed offers in the batch could otherwise strand seats |
+| Offer claim (defensive nudge) | `service/event_manager/manager.py::_claim_active_offer` and `service/batch_ticket_service.py::claim_waitlist_offer_if_any` | Other unclaimed offers in the batch could otherwise strand seats |
 | Offer expiry sweeper | `tasks.py::expire_waitlist_offers_task` | Per affected event after bulk EXPIRE |
 | Hourly safety net | `tasks.py::nudge_open_waitlists_task` | See [Soft-lock defense](#soft-lock-defense) |
 | Admin revokes a pending offer | `controllers/event_admin/waitlist_offers.py::revoke_waitlist_offer` | Returns the seat |
@@ -282,7 +282,7 @@ EventWaitList.objects.filter(event=..., user=...).delete()
 enqueue_waitlist_processing(self.event.id)  # defensive nudge
 ```
 
-### `BatchTicketService._claim_waitlist_offer_if_any()`
+### `BatchTicketService.claim_waitlist_offer_if_any()`
 
 Called inside `BatchTicketService._create_tickets()` after `bulk_create` (`src/events/service/batch_ticket_service.py:591-625`). Same shape as above. Fires on **PENDING-ticket creation** too (online checkout) because the PENDING ticket already counts toward capacity — without claiming the offer here, the user would consume two capacity slots.
 
@@ -403,7 +403,7 @@ A **soft-lock** is a state where the waitlist has eligible members and the event
 
 ### Defensive nudge on every claim
 
-`_claim_active_offer` and `_claim_waitlist_offer_if_any` both call `enqueue_waitlist_processing(event_id)` immediately after a successful claim, even though the claim itself doesn't free a seat. The rationale: if a batch had 5 offers and only 3 claimed, the remaining 2 must EXPIRE before their seats are returned. The defensive nudge at claim time ensures **as soon as one user claims**, a new processing pass runs — which is a cheap no-op when there's nothing to do (the processor short-circuits on `available <= 0`).
+`_claim_active_offer` and `claim_waitlist_offer_if_any` both call `enqueue_waitlist_processing(event_id)` immediately after a successful claim, even though the claim itself doesn't free a seat. The rationale: if a batch had 5 offers and only 3 claimed, the remaining 2 must EXPIRE before their seats are returned. The defensive nudge at claim time ensures **as soon as one user claims**, a new processing pass runs — which is a cheap no-op when there's nothing to do (the processor short-circuits on `available <= 0`).
 
 ### Hourly nudge task
 
@@ -429,7 +429,7 @@ Writers that follow this order:
 - `EventManager._assert_capacity` (`event_manager/manager.py`)
 - `BatchTicketService._assert_event_capacity` (`batch_ticket_service.py`)
 - `EventManager._claim_active_offer` (`event_manager/manager.py`)
-- `BatchTicketService._claim_waitlist_offer_if_any` (`batch_ticket_service.py`)
+- `BatchTicketService.claim_waitlist_offer_if_any` (`batch_ticket_service.py`)
 
 Because the Event row is the **single common ancestor** of all concurrent flows, locking it first means at most one writer can be inside the critical section per event at a time, and deadlocks between concurrent writers are impossible.
 

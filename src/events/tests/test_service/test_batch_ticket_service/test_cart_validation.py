@@ -16,6 +16,7 @@ from events.models import Event, Ticket, TicketTier, Venue, VenueSeat, VenueSect
 from events.models.organization import Organization
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService, CartGroup
+from events.service.batch_ticket_service.context import validate_cart_shape
 
 pytestmark = pytest.mark.django_db
 
@@ -75,6 +76,19 @@ def _run(event: Event, user: RevelUser, groups: list[CartGroup]) -> HttpError:
 
 class TestCartShape:
     """Duplicate tiers and the uniformity rules."""
+
+    def test_empty_cart_is_rejected(self) -> None:
+        """An empty cart is a buyer 400, not an IndexError downstream.
+
+        Called directly: the cart-form service constructor already refuses
+        ``groups=[]`` with a TypeError, so this rule can only be reached by the
+        guest pre-branch, which runs ``validate_cart_shape`` on its own.
+        """
+        with pytest.raises(HttpError) as exc_info:
+            validate_cart_shape([])
+
+        assert exc_info.value.status_code == 400
+        assert str(exc_info.value.message) == "Your cart is empty."
 
     def test_duplicate_tier_is_rejected(self, batch_event: Event, tier_a: TicketTier, batch_user: RevelUser) -> None:
         groups = [

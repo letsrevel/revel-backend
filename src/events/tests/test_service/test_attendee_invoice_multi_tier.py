@@ -130,6 +130,16 @@ class TestMixedCartAttendeeInvoice:
         )
         assert updated == 2
 
+        # ``generate_attendee_invoice`` orders the payments by ``created_at`` and stamps
+        # the header ``vat_rate`` from the first one. Both rows are written inside one
+        # transaction, so their timestamps can TIE and "first" would then be whatever
+        # the planner returned — pin an explicit spread (in pk order) so the header
+        # assertion below is about the rule and not about row order luck.
+        for offset, payment_pk in enumerate(
+            Payment.objects.filter(reservation_id=reservation_id).order_by("pk").values_list("pk", flat=True)
+        ):
+            Payment.objects.filter(pk=payment_pk).update(created_at=timezone.now() + timedelta(seconds=offset))
+
         invoice = generate_attendee_invoice(session_id)
         assert invoice is not None
         assert invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT  # HYBRID mode
@@ -172,7 +182,8 @@ class TestMixedCartAttendeeInvoice:
 
         # Header `vat_rate` is STORED as a scalar (documented in
         # generate_attendee_invoice as "Dominant VAT rate (from first payment)"),
-        # and that stays: it is the first (by created_at) payment's rate.
+        # and that stays: it is the first payment's rate under the SAME ordering the
+        # service uses (`order_by("created_at")`), which the spread above made total.
         assert invoice.vat_rate == payments[0].vat_rate
         # But a mixed-rate cart must not RENDER a totals label claiming that one
         # rate applies to the whole document -- see the rendering test below.
@@ -216,6 +227,12 @@ class TestMixedCartAttendeeInvoice:
         assert "<span>VAT</span>" in html  # the plain, rate-free totals label
         assert "VAT (22.00%)" not in html  # neither tier's rate may speak for the cart
         assert "VAT (10.00%)" not in html
+
+        # ...but the breakdown must still be READABLE somewhere: each line item
+        # prints its own rate, which is the only place it survives once the totals
+        # label goes rate-free.
+        assert "(22.00%)" in html
+        assert "(10.00%)" in html
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_single_rate_cart_keeps_the_rate_in_the_label(

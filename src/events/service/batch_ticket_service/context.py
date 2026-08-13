@@ -64,6 +64,8 @@ def validate_cart_shape(groups: list[CartGroup]) -> None:
     whether there is room (capacity) are the caller's business. Every rule here is a
     whole-cart question that no per-tier step can answer:
 
+    - **A non-empty cart**, because every rule below and every downstream branch
+      (payment method, currency) reads ``groups[0]`` or reduces over the groups.
     - **One group per tier**, so the per-group loops elsewhere can't double-count a
       tier's capacity or write two ``quantity_sold`` increments the caps never saw.
     - **Uniform currency**, because a cart settles as one payment; mixing them would
@@ -80,9 +82,13 @@ def validate_cart_shape(groups: list[CartGroup]) -> None:
         groups: The cart's groups, in cart order.
 
     Raises:
-        HttpError: 400 for a duplicated tier, mixed currency, mixed payment method, a
-            missing/forbidden/out-of-bounds PWYC amount, or a seat requested twice.
+        HttpError: 400 for an empty cart, a duplicated tier, mixed currency, mixed
+            payment method, a missing/forbidden/out-of-bounds PWYC amount, or a seat
+            requested twice.
     """
+    if not groups:
+        raise HttpError(400, str(_("Your cart is empty.")))
+
     tier_ids = [group.tier.pk for group in groups]
     if len(set(tier_ids)) != len(tier_ids):
         raise HttpError(400, str(_("Each tier may appear only once per checkout.")))

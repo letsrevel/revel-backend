@@ -1597,6 +1597,9 @@ msgstr "Este tipo de entrada requiere un importe de aportación voluntaria."
 msgid "This tier does not accept a pay-what-you-can amount."
 msgstr "Este tipo de entrada no acepta un importe de aportación voluntaria."
 
+msgid "Your cart is empty."
+msgstr "Tu carrito está vacío."
+
 msgid "Each tier may appear only once per checkout."
 msgstr "Cada tipo de entrada solo puede aparecer una vez por compra."
 
@@ -1882,6 +1885,13 @@ msgstr "Consulta tu correo para confirmar tu asistencia"
 
 msgid "This event requires login to purchase tickets."
 msgstr "Este evento requiere iniciar sesión para comprar entradas."
+
+msgid ""
+"Your cart is too large for guest checkout. Please log in or split your "
+"purchase."
+msgstr ""
+"Tu carrito es demasiado grande para la compra como invitado. Inicia sesión o "
+"divide tu compra."
 
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Consulta tu correo para confirmar la compra de la entrada"

@@ -111,7 +111,7 @@ class TicketWriterMixin(BatchTicketContext):
         """
         return self.user.preferred_name or self.user.get_full_name()
 
-    def _claim_waitlist_offer_if_any(self) -> None:
+    def claim_waitlist_offer_if_any(self) -> None:
         """Mark a pending unexpired WaitlistOffer for this (event, user) as CLAIMED.
 
         Mirrors EventManager._claim_active_offer for ticket purchase flows.
@@ -120,6 +120,10 @@ class TicketWriterMixin(BatchTicketContext):
         already counts toward capacity — without claiming the offer here the
         user would consume two capacity slots. No-op when the user has no
         pending offer.
+
+        Public (no leading underscore) because it is a deliberate cross-module API:
+        ``create_batch`` calls it once per cart, and ``seating.box_office.sell``
+        calls it directly for door sales, which bypass ``create_batch`` entirely.
         """
         from django.utils import timezone
 

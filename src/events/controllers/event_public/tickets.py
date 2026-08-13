@@ -349,7 +349,7 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         # Validate discount code per group; the applicable subset (never the full
         # cart) is threaded into the service so a code scoped to one tier cannot
-        # leak a discount onto the rest of the cart (see CartGroup._dc_for).
+        # leak a discount onto the rest of the cart (see BatchTicketContext._dc_for).
         dc, valid_tier_ids = None, None
         if payload.discount_code:
             dc, valid_tier_ids = discount_code_service.validate_cart_discount(
@@ -388,7 +388,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.post(
         "/reservations/{uuid:reservation_id}/checkout-session",
         url_name="checkout_session",
-        response={200: schema.CheckoutSessionResponse, 404: ResponseMessage},
+        response={200: schema.CheckoutSessionResponse, 404: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )

@@ -121,9 +121,9 @@ class GuestTicketItemPayload(Schema):
 class GuestCheckoutGroupPayload(Schema):
     """One tier group inside the guest confirmation JWT (#846).
 
-    Mirrors :class:`~events.schema.checkout.CheckoutGroupSchema`, but every field is
-    optional-with-defaults: it is decoded from a signed token, not validated buyer
-    input, and a group is only ever built server-side from an already-validated cart.
+    Mirrors :class:`~events.schema.checkout.CheckoutGroupSchema`, but every field except
+    ``tier_id`` is optional-with-defaults: it is decoded from a signed token, not validated
+    buyer input, and a group is only ever built server-side from an already-validated cart.
     """
 
     tier_id: UUID4

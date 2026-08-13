@@ -8,6 +8,8 @@ each individually pass while their sum oversells the sector.
 from decimal import Decimal
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -113,6 +115,31 @@ class TestSectorCapacityAggregation:
 
         assert exc.value.status_code == 429
         assert "sector is full" in str(exc.value.message).lower()
+
+    def test_sector_rows_themselves_are_locked_before_counting(
+        self,
+        batch_event: Event,
+        sector_with_capacity_8: VenueSector,
+        batch_user: RevelUser,
+    ) -> None:
+        """The guard must lock the VenueSector row, not just the existing tickets.
+
+        Locking the ticket rows cannot block a concurrent INSERT, so two carts on
+        different tiers of the same sector would both pass and oversell. Pin that a
+        ``SELECT ... FOR UPDATE`` against ``VenueSector`` is issued (a behavioural
+        concurrency test is out of scope here — this pins the lock exists).
+        """
+        tier_a = make_ga_tier(batch_event, sector_with_capacity_8, "Tier A")
+        groups = [CartGroup(tier=tier_a, items=[TicketPurchaseItem(guest_name="A0")])]
+        service = BatchTicketService(batch_event, user=batch_user, groups=groups)
+
+        with CaptureQueriesContext(connection) as captured:
+            service.assert_sector_capacities(groups)
+
+        sector_table = VenueSector._meta.db_table
+        assert any("FOR UPDATE" in q["sql"].upper() and sector_table in q["sql"] for q in captured.captured_queries), [
+            q["sql"] for q in captured.captured_queries
+        ]
 
     def test_seated_and_no_sector_groups_are_skipped(
         self,

@@ -168,7 +168,7 @@ def sell(
     service.trigger_bulk_create_side_effects(tickets)
     # Door sales bypass create_batch (no cart to hoist into), so claim the offer here —
     # mirrors the cart-level call create_batch makes after every group is written.
-    service._claim_waitlist_offer_if_any()
+    service.claim_waitlist_offer_if_any()
     return tickets[0]
 
 

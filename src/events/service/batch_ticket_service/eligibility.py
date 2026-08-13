@@ -6,7 +6,9 @@ in :mod:`.capacity`.
 """
 
 import typing as t
+from uuid import UUID
 
+from django.db.models import Count
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -208,6 +210,11 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         ``validate_batch_size`` — see #846 Decision 4 for why the two layers are
         independent rather than one falling back to the other.
 
+        The tier counts come from ONE grouped aggregate over the capped tiers rather
+        than a count per group: the per-group call was an N+1 that grew with cart
+        width (#846 review fix). ``get_user_ticket_count`` keeps its single-tier form
+        for the other callers.
+
         Args:
             groups: The cart's groups (one per tier).
 
@@ -229,11 +236,26 @@ class PurchaseEligibilityMixin(BatchTicketContext):
                     ),
                 )
 
+        capped_tier_ids = [group.tier.pk for group in groups if group.tier.max_tickets_per_user is not None]
+        if not capped_tier_ids:
+            return
+        tier_counts: dict[UUID, int] = {
+            row["tier_id"]: row["count"]
+            for row in Ticket.objects.filter(
+                event=self.event,
+                user=self.user,
+                tier_id__in=capped_tier_ids,
+                status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
+            )
+            .values("tier_id")
+            .annotate(count=Count("id"))
+        }
+
         for group in groups:
             cap = group.tier.max_tickets_per_user
             if cap is None:
                 continue
-            existing = self.get_user_ticket_count(group.tier)
+            existing = tier_counts.get(group.tier.pk, 0)
             remaining = max(0, cap - existing)
             if len(group.items) > remaining:
                 if remaining == 0:

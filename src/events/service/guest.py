@@ -27,6 +27,12 @@ if t.TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Ceiling on the guest confirmation JWT, which travels in the emailed link's query
+# string. Kept well under the ~8 KB total-URL limit the strictest mainstream servers,
+# mail clients and link scanners enforce, leaving room for the frontend origin, the
+# path and any tracking wrapper the buyer's mail provider adds.
+_GUEST_TOKEN_MAX_CHARS = 4096
+
 
 def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = "") -> RevelUser:
     """Get existing guest user or create a new one.
@@ -375,7 +381,8 @@ def handle_guest_ticket_checkout(
 
     Raises:
         HttpError: If event doesn't allow guest access, the cart is malformed, tier
-            issues, or eligibility checks fail.
+            issues, eligibility checks fail, or (non-online carts) the confirmation
+            token would exceed ``_GUEST_TOKEN_MAX_CHARS``.
         InvalidZoneSelectionError: 400 if a requested zone is unusable on its tier.
     """
     from events.service import discount_code_service
@@ -490,6 +497,21 @@ def handle_guest_ticket_checkout(
             discount_code=discount_code,
             guest_session=guest_session,
         )
+        # A multi-tier cart is serialized WHOLE into this token (every group, every
+        # item's guest_name and seat_id), so a wide cart with long holder names mints
+        # a JWT of tens of KB. The confirmation link carries it as a query parameter,
+        # and mail clients, link scanners and proxies truncate long URLs — the buyer
+        # would get a 200 here and a dead link in their inbox, with no ticket and no
+        # way back. Refuse up front instead. The ceiling is the token alone; the rest
+        # of the URL (frontend origin + path) is comfortably inside the ~8 KB that the
+        # most restrictive mainstream handlers accept.
+        # ponytail: the real fix is to persist the cart and put an opaque handle in the
+        # link (as the ONLINE branch's reservation_id already does) — see #632.
+        if len(token) > _GUEST_TOKEN_MAX_CHARS:
+            raise HttpError(
+                400, str(_("Your cart is too large for guest checkout. Please log in or split your purchase."))
+            )
+
         tier_name = _cart_tier_name_summary(groups)
         transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier_name))
         return schema.GuestCheckoutResponseSchema(

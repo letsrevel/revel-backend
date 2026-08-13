@@ -703,7 +703,7 @@ def handle_waitlist_entry_deleted(sender: type[EventWaitList], instance: EventWa
     decisions log). This handler is the deliberate exception: ``EventWaitList``
     rows are deleted from many paths — admin ``delete_waitlist_entry``,
     user-side ``leave_waitlist``, ``EventManager._claim_active_offer``,
-    ``BatchTicketService._claim_waitlist_offer_if_any``, ad-hoc ORM
+    ``BatchTicketService.claim_waitlist_offer_if_any``, ad-hoc ORM
     ``.filter().delete()`` calls — and wiring each one inline is repetitive
     and easy to miss. Callers should still document inline that the offer
     revoke is handled here so future readers don't have to chase it down.

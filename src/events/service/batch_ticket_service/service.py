@@ -347,6 +347,6 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
             # legitimate cart with a 400 on a limit it hasn't actually reached.
             discounted_count = len([ticket for ticket in created_tickets if ticket.discount_code_id is not None])
             discount_code_service.apply_discount(self.discount_code, self.user, discounted_count)
-        self._claim_waitlist_offer_if_any()
+        self.claim_waitlist_offer_if_any()
 
         return result

@@ -13,6 +13,7 @@ from conftest import RevelUserFactory
 from events.models import (
     Event,
     EventSeatOverride,
+    EventWaitList,
     PriceCategory,
     SeatHold,
     Ticket,
@@ -20,6 +21,7 @@ from events.models import (
     Venue,
     VenueSeat,
     VenueSector,
+    WaitlistOffer,
 )
 from events.service.seating import box_office
 
@@ -263,6 +265,39 @@ def test_sell_event_without_venue_rejected(event: Event, tier: TicketTier, recip
             event, tier, seat_id=uuid.uuid4(), payment_method=TicketTier.PaymentMethod.AT_THE_DOOR, recipient=recipient
         )
     assert exc.value.status_code == 400
+
+
+def test_sell_claims_recipients_pending_waitlist_offer(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, recipient: RevelUser
+) -> None:
+    """A door sale to an offer holder must consume the offer, not stack on top of it.
+
+    A pending unexpired ``WaitlistOffer`` already reserves a capacity slot for its
+    holder; selling them a seat without claiming it would have them occupy two.
+    Door sales bypass ``create_batch``, so ``box_office.sell`` calls
+    ``claim_waitlist_offer_if_any`` itself — this pins that call.
+    """
+    event, seats = seated_event
+    EventWaitList.objects.create(event=event, user=recipient)
+    offer = WaitlistOffer.objects.create(
+        event=event,
+        user=recipient,
+        expires_at=timezone.now() + timedelta(hours=1),
+        batch_id=uuid.uuid4(),
+    )
+
+    box_office.sell(
+        event,
+        tier,
+        seat_id=seats[0].id,
+        payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+        recipient=recipient,
+    )
+
+    offer.refresh_from_db()
+    assert offer.status == WaitlistOffer.WaitlistOfferStatus.CLAIMED
+    assert offer.claimed_at is not None
+    assert not EventWaitList.objects.filter(event=event, user=recipient).exists()
 
 
 # ---- category-priced tiers (spec §5.8) ----

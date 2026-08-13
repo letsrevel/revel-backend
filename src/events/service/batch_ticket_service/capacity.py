@@ -120,6 +120,15 @@ class CapacityMixin(BatchTicketContext):
         pass individually while their sum oversells the sector. Demand is summed
         per sector first, then each sector is locked-and-asserted once.
 
+        **The lock is on the ``VenueSector`` rows, not on the tickets** (#846 review
+        fix). ``select_for_update`` over the ticket count locks the rows that already
+        exist, which is no guard at all against the phantom INSERT that actually
+        oversells: two carts buying from *different* tiers of the same sector share no
+        tier lock, so nothing serializes them and both read the same free space. Taking
+        the sector rows themselves — in one PK-ordered query, before any counting, so
+        two carts touching the same sectors cannot lock-order-invert — gives those carts
+        a common mutex, and the capacities are re-read off the locked rows.
+
         Args:
             groups: The cart's groups (one per tier).
 
@@ -128,8 +137,6 @@ class CapacityMixin(BatchTicketContext):
                 cart groups' combined demand.
         """
         demand: dict[UUID, int] = {}
-        sectors: dict[UUID, VenueSector] = {}
-        capacities: dict[UUID, int] = {}
         for group in groups:
             tier = group.tier
             if tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
@@ -137,22 +144,28 @@ class CapacityMixin(BatchTicketContext):
             if not tier.sector_id or not tier.sector or not tier.sector.capacity:
                 continue  # No sector assigned, or no capacity limit set
             demand[tier.sector_id] = demand.get(tier.sector_id, 0) + len(group.items)
-            sectors[tier.sector_id] = tier.sector
-            capacities[tier.sector_id] = tier.sector.capacity
 
-        # Sorted: sectors are locked in a deterministic (id) order, so two carts
-        # touching the same two sectors cannot lock-order-invert against each other.
+        if not demand:
+            return
+
+        locked_sectors: dict[UUID, VenueSector] = {
+            sector.pk: sector
+            for sector in VenueSector.objects.select_for_update().filter(pk__in=sorted(demand)).order_by("pk")
+        }
+
         for sector_id, count in sorted(demand.items()):
-            sector = sectors[sector_id]
-            # Count all non-cancelled tickets in this sector for this event with row-level locking
+            sector = locked_sectors[sector_id]
+            capacity = sector.capacity
+            if not capacity:
+                continue  # Capacity limit lifted between the cart read and the lock
+            # Count all non-cancelled tickets in this sector for this event
             current_count = (
-                Ticket.objects.select_for_update()
-                .filter(event=self.event, sector=sector)
+                Ticket.objects.filter(event=self.event, sector=sector)
                 .exclude(status=Ticket.TicketStatus.CANCELLED)
                 .count()
             )
 
-            available = capacities[sector_id] - current_count
+            available = capacity - current_count
             if available <= 0:
                 raise HttpError(429, str(_("This sector is full.")))
             if count > available:

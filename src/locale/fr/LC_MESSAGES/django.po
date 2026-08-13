@@ -1625,6 +1625,9 @@ msgstr "Cette catégorie nécessite un montant à tarif libre."
 msgid "This tier does not accept a pay-what-you-can amount."
 msgstr "Cette catégorie n'accepte pas de montant à tarif libre."
 
+msgid "Your cart is empty."
+msgstr "Ton panier est vide."
+
 msgid "Each tier may appear only once per checkout."
 msgstr "Chaque catégorie ne peut apparaître qu'une seule fois par achat."
 
@@ -1921,6 +1924,13 @@ msgstr "Consulte tes e-mails pour confirmer ta réponse à l'invitation"
 
 msgid "This event requires login to purchase tickets."
 msgstr "Cet événement nécessite de se connecter pour acheter des tickets."
+
+msgid ""
+"Your cart is too large for guest checkout. Please log in or split your "
+"purchase."
+msgstr ""
+"Ton panier est trop volumineux pour l'achat en tant qu'invité. Connecte-toi "
+"ou divise ton achat."
 
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Consulte tes e-mails pour confirmer ton achat de ticket"

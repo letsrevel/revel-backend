@@ -1599,6 +1599,9 @@ msgstr "Questo livello richiede un importo a offerta libera."
 msgid "This tier does not accept a pay-what-you-can amount."
 msgstr "Questo livello non accetta un importo a offerta libera."
 
+msgid "Your cart is empty."
+msgstr "Il tuo carrello è vuoto."
+
 msgid "Each tier may appear only once per checkout."
 msgstr "Ogni livello può comparire una sola volta per checkout."
 
@@ -1886,6 +1889,13 @@ msgstr "Controlla la tua email per confermare la tua partecipazione"
 
 msgid "This event requires login to purchase tickets."
 msgstr "Questo evento richiede l'accesso per acquistare i biglietti."
+
+msgid ""
+"Your cart is too large for guest checkout. Please log in or split your "
+"purchase."
+msgstr ""
+"Il tuo carrello è troppo grande per il checkout come ospite. Accedi oppure "
+"dividi il tuo acquisto."
 
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Controlla la tua email per confermare l'acquisto del biglietto"

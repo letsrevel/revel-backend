@@ -639,7 +639,7 @@ class TestZoneValidation:
         ``price_category_id`` (the picker assigns the seats) and is a 400 from
         ``resolve_requested_zone``. Asymmetric, too: a zone on a user-choice tier *is*
         refused. The zone rule is now asked for every mode, exactly as checkout's
-        ``resolve_seats`` asks it.
+        ``resolve_cart_seats`` asks it.
         """
         with pytest.raises(InvalidZoneSelectionError) as exc:
             _preview(seated_event, ba_tier, seats=[seats[0], seats[1]])

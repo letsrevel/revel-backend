@@ -352,6 +352,44 @@ class TestGuestServiceLayer:
         assert result.checkout_url is None
         mock_send_email.assert_called_once()
 
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_handle_guest_ticket_checkout_rejects_oversized_cart(
+        self, mock_send_email: Mock, guest_event_with_tickets: Event, offline_tier: TicketTier
+    ) -> None:
+        """A cart whose confirmation JWT would blow past the URL budget is a 400, not an email.
+
+        The non-online branch serializes the WHOLE cart into the emailed link's
+        token; a wide cart of long holder names mints a token mail clients and
+        proxies truncate, so the buyer would get a 200 and a dead link. The guard
+        must fire BEFORE the confirmation task is queued.
+        """
+        items = [schema.TicketPurchaseItem(guest_name="N" * 255) for _ in range(50)]
+        group = CartGroup(tier=offline_tier, items=items)
+
+        with pytest.raises(HttpError) as exc_info:
+            guest_service.handle_guest_ticket_checkout(
+                guest_event_with_tickets, [group], "biggie@test.com", "Big", "Cart"
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "too large" in str(exc_info.value.message)
+        mock_send_email.assert_not_called()
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_handle_guest_ticket_checkout_ordinary_cart_is_unaffected(
+        self, mock_send_email: Mock, guest_event_with_tickets: Event, offline_tier: TicketTier
+    ) -> None:
+        """A realistic multi-ticket cart stays comfortably under the token ceiling."""
+        items = [schema.TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(6)]
+        group = CartGroup(tier=offline_tier, items=items)
+
+        result = guest_service.handle_guest_ticket_checkout(
+            guest_event_with_tickets, [group], "normal@test.com", "Normal", "Cart"
+        )
+
+        assert result.message is not None
+        mock_send_email.assert_called_once()
+
     def test_handle_guest_ticket_checkout_online(
         self, guest_event_with_tickets: Event, online_tier: TicketTier
     ) -> None:

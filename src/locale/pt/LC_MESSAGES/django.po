@@ -1574,6 +1574,9 @@ msgstr "Este tipo de bilhete requer um valor livre (paga o que puderes)."
 msgid "This tier does not accept a pay-what-you-can amount."
 msgstr "Este tipo de bilhete não aceita um valor livre (paga o que puderes)."
 
+msgid "Your cart is empty."
+msgstr "O teu carrinho está vazio."
+
 msgid "Each tier may appear only once per checkout."
 msgstr "Cada tipo de bilhete só pode aparecer uma vez por checkout."
 
@@ -1859,6 +1862,13 @@ msgstr "Consulta o teu e-mail para confirmares a tua presença"
 
 msgid "This event requires login to purchase tickets."
 msgstr "Este evento requer início de sessão para comprar bilhetes."
+
+msgid ""
+"Your cart is too large for guest checkout. Please log in or split your "
+"purchase."
+msgstr ""
+"O teu carrinho é demasiado grande para a compra como convidado. Inicia "
+"sessão ou divide a tua compra."
 
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Consulta o teu e-mail para confirmares a compra do bilhete"

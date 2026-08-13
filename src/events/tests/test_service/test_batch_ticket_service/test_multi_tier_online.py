@@ -172,7 +172,7 @@ class TestMultiTierZeroedCartReroute:
         pwyc_b = _online_pwyc_tier(online_event, "PWYC B")
         # Relax the buyer-facing floor below full_clean's MinValueValidator(1) via
         # .update() (bypasses TimeStampedModel.save's full_clean) so a 0.00 PWYC
-        # amount is accepted by _assert_pwyc_amount.
+        # amount is accepted by validate_cart_shape.
         TicketTier.objects.filter(pk__in=[pwyc_a.pk, pwyc_b.pk]).update(pwyc_min=Decimal("0.00"))
         pwyc_a.refresh_from_db()
         pwyc_b.refresh_from_db()

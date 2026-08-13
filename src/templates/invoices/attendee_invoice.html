@@ -81,7 +81,8 @@
           {% if item.discount_amount and item.discount_amount != "0.00" %}<br><small style="color: #888;">Discount: -{{ item.discount_amount|format_number }}</small>{% endif %}
         </td>
         <td>{{ item.net_amount|format_number }}</td>
-        <td>{{ item.vat_amount|format_number }}</td>
+        {# Per-line rate (#846): with a mixed-rate cart the totals row can claim no single rate, so this is the only place the breakdown survives. #}
+        <td>{{ item.vat_amount|format_number }} <small style="color: #888;">({{ item.vat_rate }}%)</small></td>
         <td>{{ item.unit_price_gross|format_number }}</td>
       </tr>
       {% endfor %}

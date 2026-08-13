@@ -46,6 +46,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
+from events.models.discount_code import DiscountCode
 
 pytestmark = pytest.mark.django_db
 
@@ -244,8 +245,6 @@ class TestMultiTierCheckoutErrorContracts:
         tier_b = TicketTier.objects.create(
             event=public_event, name="Free B", payment_method=TicketTier.PaymentMethod.FREE
         )
-        from events.models.discount_code import DiscountCode
-
         DiscountCode.objects.create(
             code="CONTRACT10",
             organization=organization,

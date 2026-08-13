@@ -157,8 +157,8 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         10% reduced one), and the rendered totals label must then not claim any
         single rate — the per-rate breakdown lives in the line items.
         """
-        rates = {item.get("vat_rate") for item in self.line_items}
-        return len(rates) > 1
+        items: list[InvoiceLineItemDict] = self.line_items
+        return len({item["vat_rate"] for item in items}) > 1
 
     def __str__(self) -> str:
         return f"{self.invoice_number} ({self.seller_name})"

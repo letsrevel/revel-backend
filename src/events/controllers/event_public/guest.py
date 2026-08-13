@@ -9,7 +9,7 @@ from ninja_extra import (
 )
 
 from common.authentication import OptionalAuth
-from common.schema import ErrorDetail, ResponseMessage
+from common.schema import ErrorDetail
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.service import guest as guest_service
@@ -89,7 +89,7 @@ class EventPublicGuestController(EventPublicBaseController):
         obtain the Stripe `checkout_url`. Free / offline / at-the-door tiers complete
         here (`requires_payment=false`, email confirmation sent).
 
-        Deprecated: use POST /events/{event_id}/checkout (a single-group cart) instead.
+        Deprecated: use POST /events/{event_id}/checkout/public (a single-group cart) instead.
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
@@ -159,7 +159,7 @@ class EventPublicGuestController(EventPublicBaseController):
         obtain the Stripe `checkout_url`. Free / offline / at-the-door tiers complete
         here (`requires_payment=false`, email confirmation sent).
 
-        Deprecated: use POST /events/{event_id}/checkout (a single-group cart) instead.
+        Deprecated: use POST /events/{event_id}/checkout/public (a single-group cart) instead.
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
@@ -254,7 +254,7 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/reservations/{uuid:reservation_id}/checkout-session/public",
         url_name="guest_checkout_session",
-        response={200: schema.CheckoutSessionResponse, 404: ResponseMessage},
+        response={200: schema.CheckoutSessionResponse, 404: ErrorDetail},
         throttle=WriteThrottle(),
     )
     def guest_checkout_session(self, reservation_id: UUID) -> schema.CheckoutSessionResponse:
