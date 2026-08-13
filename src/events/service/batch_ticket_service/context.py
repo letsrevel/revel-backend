@@ -53,6 +53,7 @@ class BatchTicketContext:
         accessible_required: bool = False,
         price_category_id: UUID | None = None,
         groups: list[CartGroup] | None = None,
+        discount_valid_tier_ids: set[UUID] | None = None,
     ) -> None:
         """Initialize the batch ticket service.
 
@@ -69,6 +70,12 @@ class BatchTicketContext:
                 request parameter, validated once by
                 :func:`events.service.seating.pick.resolve_requested_zone` (#749).
             groups: One :class:`CartGroup` per tier in the cart (cart form).
+            discount_valid_tier_ids: The tiers ``discount_code`` was validated for.
+                ``None`` means "every group" — the single-tier form's behavior, where
+                the caller validated the code against the one tier it is buying. The
+                cart-form controllers validate per group and pass the subset that
+                passed, so a code scoped to one tier cannot leak onto the rest of the
+                cart (see :meth:`_dc_for`).
 
         Raises:
             TypeError: If ``user`` is missing, or if ``tier``/``groups`` aren't
@@ -84,20 +91,38 @@ class BatchTicketContext:
         self.event = event
         self.user = user
         self.discount_code = discount_code
+        self.discount_valid_tier_ids = discount_valid_tier_ids
         self.guest_session = guest_session
         self.groups: list[CartGroup] = groups or []
         # Which form the caller used — create_batch reads this instead of testing
-        # self.tier, so self.tier can stay a plain TicketTier (not Optional) for
-        # every existing mixin reader below.
+        # self.tier, so self.tier can stay a plain TicketTier (not Optional).
         self._single_tier_form = tier is not None
-        # Compat attr every pre-Task-7 mixin reads directly (self.tier.price, etc.).
-        # Single-tier form: the tier the caller passed. Cart form: the first (and,
-        # until the cart engine lands, only) group's tier — the gate above already
-        # guarantees a non-empty groups list here, and create_batch rejects more
-        # than one group before any mixin runs, so this is never wrong for a tier a
-        # mixin actually sees. Removed in the final engine task — do not add new
-        # readers.
+        # The single-tier form's tier, kept only so ``create_batch`` can assemble that
+        # form's one CartGroup from it. Nothing else may read it: every step runs per
+        # group and a cart spans several tiers, so on the cart form this attribute is
+        # merely the FIRST group's tier and answering any question with it would be
+        # silently wrong. Do not add readers — take the tier from the group.
         self.tier: TicketTier = tier if tier is not None else self.groups[0].tier
         self.accessible_required = accessible_required
         self.price_category_id = price_category_id
         self._reserve_buyer_vat: "BuyerVATContext | None" = None
+
+    def _dc_for(self, tier: TicketTier) -> DiscountCode | None:
+        """The cart's discount code, if it applies to this tier.
+
+        A cart's code is validated per group by the caller (organization scope, tier
+        restrictions, usage limits), and a code restricted to one tier must not price
+        the rest of the cart. Every pricing/stamping decision therefore asks this
+        instead of reading ``self.discount_code`` directly.
+
+        Args:
+            tier: The group's tier.
+
+        Returns:
+            The code when it was validated for this tier, otherwise ``None``.
+            ``discount_valid_tier_ids is None`` means "validated for every group" —
+            what the single-tier form has always done.
+        """
+        if self.discount_code is None or self.discount_valid_tier_ids is None:
+            return self.discount_code
+        return self.discount_code if tier.pk in self.discount_valid_tier_ids else None
