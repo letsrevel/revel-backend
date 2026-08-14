@@ -73,9 +73,11 @@ def test_chart_projects_metadata_to_whitelisted_keys(
     """The anonymous chart serves a whitelisted projection, not the verbatim blob (#761).
 
     Venue level keeps only ``stage``/``floors``; sector level only
-    ``transform``/``aisles``/``floor`` — the keys the buyer renderer reads, including
-    the floors convention (letsrevel/revel-frontend#680). Whitelisted values pass
-    through verbatim; everything else the designer wrote is stripped.
+    ``transform``/``aisles``/``floor``/``seatRotations`` — the keys the buyer renderer
+    reads, including the floors convention (letsrevel/revel-frontend#680) and per-seat
+    rotation (letsrevel/revel-frontend#852). Whitelisted values pass through verbatim;
+    everything else the designer wrote — including the admin-only ``rowLayout`` recipe
+    that ``seatRotations`` is mirrored from — is stripped.
     """
     event, seats = seated_event
     venue = event.venue
@@ -91,7 +93,16 @@ def test_chart_projects_metadata_to_whitelisted_keys(
     sector = seats[0].sector
     transform = {"x": 0.0, "y": 120.0, "rotation": 90.0}
     aisles = {"verticalAisles": [4], "horizontalAisles": [2], "invertRowOrder": False}
-    sector.metadata = {"transform": transform, "aisles": aisles, "floor": "ground", "scratch": "not for buyers"}
+    seat_rotations = {"A1": 45}
+    row_layout = {"curve": 0.3, "seed": 7}  # admin-only recipe; must never reach buyers
+    sector.metadata = {
+        "transform": transform,
+        "aisles": aisles,
+        "floor": "ground",
+        "seatRotations": seat_rotations,
+        "rowLayout": row_layout,
+        "scratch": "not for buyers",
+    }
     sector.save(update_fields=["metadata"])
 
     resp = client.get(f"/api/events/{event.id}/seating/chart")
@@ -99,7 +110,14 @@ def test_chart_projects_metadata_to_whitelisted_keys(
     assert resp.status_code == 200, resp.content
     body = resp.json()
     assert body["metadata"] == {"stage": stage, "floors": floors}
-    assert body["sectors"][0]["metadata"] == {"transform": transform, "aisles": aisles, "floor": "ground"}
+    sector_metadata = body["sectors"][0]["metadata"]
+    assert sector_metadata == {
+        "transform": transform,
+        "aisles": aisles,
+        "floor": "ground",
+        "seatRotations": seat_rotations,
+    }
+    assert "rowLayout" not in sector_metadata
 
 
 def test_chart_projects_non_whitelisted_metadata_to_empty_object(
@@ -158,20 +176,37 @@ def test_tier_seats_projects_sector_metadata_to_whitelisted_keys(
     """The anonymous seats endpoint serves the chart's sector projection, not the verbatim blob (#769).
 
     ``GET /events/{event_id}/tickets/{tier_id}/seats`` is the second anonymous surface
-    carrying sector metadata — same whitelist as the chart: ``transform``/``aisles``/``floor``.
+    carrying sector metadata — same whitelist as the chart: ``transform``/``aisles``/
+    ``floor``/``seatRotations`` (letsrevel/revel-frontend#852). The admin-only ``rowLayout``
+    recipe that ``seatRotations`` is mirrored from must never reach this surface.
     """
     event, seats = seated_event
     tier = _seated_tier(event, seats)
     sector = seats[0].sector
     transform = {"x": 0.0, "y": 120.0, "rotation": 90.0}
     aisles = {"verticalAisles": [4], "horizontalAisles": [2], "invertRowOrder": False}
-    sector.metadata = {"transform": transform, "aisles": aisles, "floor": "ground", "designer_note": "dock code 4711"}
+    seat_rotations = {"A1": 45}
+    sector.metadata = {
+        "transform": transform,
+        "aisles": aisles,
+        "floor": "ground",
+        "seatRotations": seat_rotations,
+        "rowLayout": {"curve": 0.3, "seed": 7},
+        "designer_note": "dock code 4711",
+    }
     sector.save(update_fields=["metadata"])
 
     resp = client.get(f"/api/events/{event.id}/tickets/{tier.id}/seats")
 
     assert resp.status_code == 200, resp.content
-    assert resp.json()["metadata"] == {"transform": transform, "aisles": aisles, "floor": "ground"}
+    body_metadata = resp.json()["metadata"]
+    assert body_metadata == {
+        "transform": transform,
+        "aisles": aisles,
+        "floor": "ground",
+        "seatRotations": seat_rotations,
+    }
+    assert "rowLayout" not in body_metadata
 
 
 def test_tier_seats_metadata_is_null_when_unset(client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
