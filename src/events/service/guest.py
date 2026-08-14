@@ -350,14 +350,15 @@ def handle_guest_ticket_checkout(
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request, spanning as many tiers as the cart holds (#846).
 
-    Ordering is load-bearing (#846 review fix): the guest-access gate and eligibility
-    check must run BEFORE any guest ``RevelUser`` row is created and before the
-    discount code is validated — both of the latter need a real user, but running
-    them first would (a) create a guest account for an attacker-supplied email even
-    when the event requires login, and (b) turn "an account with this email already
-    exists" into an account-existence oracle answered *before* the login-required
-    400. This function alone owns that order — callers pass a raw discount code
-    string, never a pre-validated ``DiscountCode``.
+    Ordering is load-bearing (#846 review fix): the guest-access gate must run
+    BEFORE any guest ``RevelUser`` row is created and before the discount code is
+    validated — running either first would (a) create a guest account for an
+    attacker-supplied email even when the event requires login, and (b) turn "an
+    account with this email already exists" into an account-existence oracle
+    answered *before* the login-required 400. The eligibility check runs right
+    after user creation (``EventManager`` needs a real user) and before the
+    discount/PWYC validation. This function alone owns that order — callers pass
+    a raw discount code string, never a pre-validated ``DiscountCode``.
 
     Args:
         event: Event object.

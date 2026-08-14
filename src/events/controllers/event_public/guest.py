@@ -107,8 +107,8 @@ class EventPublicGuestController(EventPublicBaseController):
             accessible_required=payload.accessible_required,
         )
         # handle_guest_ticket_checkout owns the discount code string: it must run
-        # the guest-access gate and eligibility check before creating a guest user
-        # or validating the code (#846 review fix) — see its docstring.
+        # the guest-access gate before creating a guest user, and the eligibility
+        # check before validating the code (#846 review fix) — see its docstring.
         return guest_service.handle_guest_ticket_checkout(
             event,
             [group],
@@ -238,8 +238,8 @@ class EventPublicGuestController(EventPublicBaseController):
             for g in payload.items
         ]
         # handle_guest_ticket_checkout owns the discount code string: it must run
-        # the guest-access gate and eligibility check before creating a guest user
-        # or validating the code (#846 review fix) — see its docstring.
+        # the guest-access gate before creating a guest user, and the eligibility
+        # check before validating the code (#846 review fix) — see its docstring.
         return guest_service.handle_guest_ticket_checkout(
             event,
             groups,
