@@ -7,6 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-15 13:26+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1682,6 +1683,9 @@ msgstr ""
 
 msgid "Seat selection is required for this ticket tier."
 msgstr "Für diese Ticketkategorie ist eine Sitzplatzauswahl erforderlich."
+
+msgid "The same seat cannot be selected more than once."
+msgstr "Derselbe Sitzplatz kann nicht mehr als einmal ausgewählt werden."
 
 msgid "Unknown seat assignment mode."
 msgstr "Unbekannter Sitzplatzzuweisungsmodus."

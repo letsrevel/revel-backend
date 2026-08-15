@@ -372,3 +372,115 @@ class TestBestAvailablePlusNone:
         with patch("events.service.seating.best_available.pick_best_available", side_effect=other):
             with pytest.raises(OperationalError):
                 service.resolve_cart_seats([ba_group])
+
+
+class TestSharedPoolCrossGroupExclusion:
+    """Groups of ONE cart drawing from a shared pool must never get the same seat.
+
+    Within the cart's single transaction an earlier group's seats are not yet sold,
+    not held, and our own row locks don't conflict with themselves — so only the
+    ``cart_assigned`` exclusion keeps the groups apart (#893 review finding). Two
+    tiers sharing a sector is supported config (see ``PriceCategory``'s docstring),
+    so all three collision paths get a regression test.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _event_venue(self, cart_event: Event, venue: Venue) -> None:
+        """The BEST_AVAILABLE picker's candidate loader requires event.venue_id."""
+        cart_event.venue = venue
+        cart_event.save(update_fields=["venue"])
+
+    @pytest.fixture
+    def sector(self, venue: Venue) -> VenueSector:
+        return VenueSector.objects.create(venue=venue, name="Shared Pool Sector")
+
+    @pytest.fixture
+    def seats(self, sector: VenueSector) -> list[VenueSeat]:
+        return _make_seats(sector, 4)
+
+    def _ba_tier(self, event: Event, venue: Venue, sector: VenueSector, name: str) -> TicketTier:
+        """Flat-priced best-available tier — empty map, whole-sector pool, no zone."""
+        return TicketTier.objects.create(
+            event=event,
+            name=name,
+            price=Decimal("40.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.FREE,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            venue=venue,
+            sector=sector,
+        )
+
+    def test_two_ba_groups_same_pool_get_disjoint_blocks(
+        self,
+        cart_event: Event,
+        venue: Venue,
+        member_user: RevelUser,
+    ) -> None:
+        """Same sector, same (absent) zone: identical candidates would make both
+        groups pick the same seat without the exclusion. A 3-seat row is used so
+        the center seat wins *strictly* (centrality 0 vs 1.0 — outside the
+        near-equal band the tiebreak RNG shuffles), making the pre-fix collision
+        deterministic rather than a coin flip; one seat per group so contiguity
+        scoring can't 409 the second group legitimately.
+        """
+        ba_sector = VenueSector.objects.create(venue=venue, name="BA Pool Sector")
+        ba_seats = _make_seats(ba_sector, 3)
+        tier_a = self._ba_tier(cart_event, venue, ba_sector, "Student")
+        tier_b = self._ba_tier(cart_event, venue, ba_sector, "Regular")
+        group_a = CartGroup(tier=tier_a, items=[_item()])
+        group_b = CartGroup(tier=tier_b, items=[_item()])
+        service = BatchTicketService(cart_event, user=member_user, groups=[group_a, group_b])
+
+        resolved = service.resolve_cart_seats([group_a, group_b])
+
+        ids_a = {s.id for s in resolved[0] if s is not None}
+        ids_b = {s.id for s in resolved[1] if s is not None}
+        assert len(ids_a) == 1 and len(ids_b) == 1
+        assert ids_a.isdisjoint(ids_b)
+        assert (ids_a | ids_b) <= {s.id for s in ba_seats}
+
+    def test_same_seat_in_two_uc_groups_raises_400(
+        self,
+        cart_event: Event,
+        venue: Venue,
+        sector: VenueSector,
+        seats: list[VenueSeat],
+        member_user: RevelUser,
+    ) -> None:
+        """Per-group duplicate detection can't see across groups — the cart-wide check must."""
+        tier_a = _uc_tier(cart_event, venue, sector, "Tier A")
+        tier_b = _uc_tier(cart_event, venue, sector, "Tier B")
+        group_a = CartGroup(tier=tier_a, items=[_item(seats[0])])
+        group_b = CartGroup(tier=tier_b, items=[_item(seats[0])])
+        service = BatchTicketService(cart_event, user=member_user, groups=[group_a, group_b])
+
+        with pytest.raises(HttpError) as exc_info:
+            service.resolve_cart_seats([group_a, group_b])
+
+        assert exc_info.value.status_code == 400
+        assert "more than once" in str(exc_info.value.message)
+
+    def test_ba_group_excludes_later_uc_groups_seats(
+        self,
+        cart_event: Event,
+        venue: Venue,
+        sector: VenueSector,
+        seats: list[VenueSeat],
+        member_user: RevelUser,
+    ) -> None:
+        """USER_CHOICE seats are committed to their groups before any BA pick runs,
+        even when the BA group is processed first. The UC group names every seat but
+        the edge one, which central-preferring scoring would otherwise never leave
+        for a 1-seat pick.
+        """
+        ba_tier = self._ba_tier(cart_event, venue, sector, "BA First")
+        uc_tier = _uc_tier(cart_event, venue, sector, "UC Second")
+        ba_group = CartGroup(tier=ba_tier, items=[_item()])
+        uc_group = CartGroup(tier=uc_tier, items=[_item(seats[1]), _item(seats[2]), _item(seats[3])])
+        service = BatchTicketService(cart_event, user=member_user, groups=[ba_group, uc_group])
+
+        resolved = service.resolve_cart_seats([ba_group, uc_group])
+
+        assert [s.id for s in resolved[0] if s is not None] == [seats[0].id]
+        assert [s.id for s in resolved[1] if s is not None] == [s.id for s in seats[1:]]

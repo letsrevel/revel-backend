@@ -177,7 +177,9 @@ class SeatResolutionMixin(BatchTicketContext):
         id_order = {sid: i for i, sid in enumerate(picked_ids)}
         return sorted(seats, key=lambda s: id_order[s.id])
 
-    def _try_consume_held_block(self, count: int, zone_id: UUID | None, tier: TicketTier) -> list[VenueSeat] | None:
+    def _try_consume_held_block(
+        self, count: int, zone_id: UUID | None, tier: TicketTier, cart_assigned: set[UUID]
+    ) -> list[VenueSeat] | None:
         """Consume the buyer's own held seats directly instead of re-running the picker.
 
         A buyer who pre-held a block (e.g. via POST /seating/holds/best-available)
@@ -212,6 +214,9 @@ class SeatResolutionMixin(BatchTicketContext):
             count: Number of seats the cart needs.
             zone_id: The resolved request zone, or None for the whole sector.
             tier: The group's tier — the sector its held seat pool is drawn from.
+            cart_assigned: Seats already claimed by other groups of THIS cart —
+                never consumable here, whatever the buyer holds (see
+                ``_resolve_cart_seats``).
 
         Returns:
             The seats to assign, or None to fall through to the normal picker:
@@ -225,11 +230,13 @@ class SeatResolutionMixin(BatchTicketContext):
         qs = SeatHold.objects.active().filter(owner_q, event=self.event, seat__sector_id=tier.sector_id)
         if zone_id is not None:
             qs = qs.filter(seat__default_price_category_id=zone_id)
-        held_ids = list(
-            qs.order_by("seat__sector__display_order", "seat__row_order", "seat__adjacency_index").values_list(
-                "seat_id", flat=True
-            )
-        )
+        held_ids = [
+            sid
+            for sid in qs.order_by(
+                "seat__sector__display_order", "seat__row_order", "seat__adjacency_index"
+            ).values_list("seat_id", flat=True)
+            if sid not in cart_assigned
+        ]
         if len(held_ids) < count:
             return None
         try:
@@ -239,7 +246,7 @@ class SeatResolutionMixin(BatchTicketContext):
             return None
 
     def _resolve_seats_best_available(
-        self, count: int, zone_id: UUID | None, tier: TicketTier, accessible_required: bool
+        self, count: int, zone_id: UUID | None, tier: TicketTier, accessible_required: bool, cart_assigned: set[UUID]
     ) -> list[VenueSeat]:
         """Adjacency-aware assignment: optimistic pick, then lock + verify the chosen seats only.
 
@@ -266,6 +273,14 @@ class SeatResolutionMixin(BatchTicketContext):
             tier: The group's tier — sector and candidate pool.
             accessible_required: Whether the whole batch must draw from the
                 accessible seat pool (relaxed contiguity, #726).
+            cart_assigned: Seats already claimed by other groups of THIS cart.
+                Excluded from the candidate pool and from hold consumption: an
+                earlier group's seats are not yet sold or held, and this
+                transaction's own row locks don't conflict with themselves, so
+                without the exclusion two groups sharing a sector/zone would
+                deterministically pick the same block (same candidates, same
+                seeded tiebreak) and violate ``unique_ticket_event_seat`` at
+                ticket creation.
 
         Returns:
             List of assigned VenueSeat objects in picked (adjacent) order.
@@ -276,7 +291,7 @@ class SeatResolutionMixin(BatchTicketContext):
         from events.service.seating.best_available import pick_best_available
         from events.service.seating.pick import load_candidates
 
-        if (held := self._try_consume_held_block(count, zone_id, tier)) is not None:
+        if (held := self._try_consume_held_block(count, zone_id, tier, cart_assigned)) is not None:
             return held
 
         for _attempt in range(3):
@@ -285,7 +300,7 @@ class SeatResolutionMixin(BatchTicketContext):
             candidates = load_candidates(
                 self.event,
                 tier,
-                exclude=set(),
+                exclude=cart_assigned,
                 zone_id=zone_id,
                 hold_owner_user=None if self.guest_session else self.user,
                 hold_owner_guest_session=self.guest_session,
@@ -350,7 +365,8 @@ class SeatResolutionMixin(BatchTicketContext):
 
         Raises:
             HttpError: Seat resolution failure for any group — missing/invalid/taken
-                seats (USER_CHOICE) or no adjacent block available (BEST_AVAILABLE).
+                seats or a seat named by two groups of this cart (USER_CHOICE), or no
+                adjacent block available (BEST_AVAILABLE).
             InvalidZoneSelectionError: 400 if a group's requested zone is unusable on
                 its tier — validated for EVERY group/mode, so a zone silently ignored
                 by a non-best-available tier is impossible.
@@ -375,6 +391,12 @@ class SeatResolutionMixin(BatchTicketContext):
                     str(_("Seat selection is required for this ticket tier.")),
                 )
             all_seat_ids.extend(sid for sid in seat_ids if sid is not None)
+        # Cart-wide, not per-group: the per-group count-match check only catches a seat
+        # named twice within ONE group. The same seat in two different groups passes both
+        # groups' validation (not sold, not held, lockable) and only explodes at ticket
+        # creation on unique_ticket_event_seat.
+        if len(all_seat_ids) != len(set(all_seat_ids)):
+            raise HttpError(400, str(_("The same seat cannot be selected more than once.")))
         uc_sector_ids = {groups[i].tier.sector_id for i in uc_indices if groups[i].tier.sector_id is not None}
 
         # Single PK-ordered lock over every USER_CHOICE seat in the cart, matching
@@ -395,6 +417,14 @@ class SeatResolutionMixin(BatchTicketContext):
             .select_for_update()
         }
 
+        # Seats already claimed by THIS cart: every USER_CHOICE seat up front (they are
+        # committed to their groups regardless of processing order — a BA group resolved
+        # earlier must not pick a seat a later UC group named), plus each BA group's
+        # assignment as it lands. Within one transaction those seats are not yet sold,
+        # not held, and our own row locks don't conflict, so this set is the only thing
+        # keeping groups that share a pool off each other's seats.
+        cart_assigned: set[UUID] = set(all_seat_ids)
+
         results: list[list[VenueSeat | None]] = []
         for i, group in enumerate(groups):
             mode = group.tier.seat_assignment_mode
@@ -404,9 +434,10 @@ class SeatResolutionMixin(BatchTicketContext):
             elif mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
                 best: list[VenueSeat | None] = list(
                     self._resolve_seats_best_available(
-                        len(group.items), zone_ids[i], group.tier, group.accessible_required
+                        len(group.items), zone_ids[i], group.tier, group.accessible_required, cart_assigned
                     )
                 )
+                cart_assigned |= {seat.id for seat in best if seat is not None}
                 results.append(best)
             elif mode == TicketTier.SeatAssignmentMode.USER_CHOICE:
                 # Cast to satisfy mypy - USER_CHOICE returns list[VenueSeat], which is a subtype
