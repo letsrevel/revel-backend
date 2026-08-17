@@ -12,7 +12,7 @@ import pytest
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, Ticket, TicketTier, Venue, VenueSeat, VenueSector
+from events.models import Event, Payment, Ticket, TicketTier, Venue, VenueSeat, VenueSector
 from events.models.organization import Organization
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService, CartGroup
@@ -123,6 +123,51 @@ class TestCartShape:
         error = _run(batch_event, batch_user, groups)
 
         assert str(error.message) == "All tickets in one checkout must use the same payment method."
+
+
+class TestLockedCartUniformity:
+    """The uniformity rules are re-proven on the LOCKED rows, not just the stale read.
+
+    An organizer can commit a tier edit between the controller's read and
+    ``create_batch``'s ``select_for_update`` (the VIES round-trip deliberately sits in
+    that window). Simulated here by editing the row *after* the groups are built: the
+    in-memory tiers still agree, so ``_validate_cart`` passes and only the post-lock
+    re-assert can catch it.
+    """
+
+    def test_currency_flipped_after_the_pre_lock_read_is_rejected(
+        self, batch_event: Event, tier_a: TicketTier, tier_b: TicketTier, batch_user: RevelUser
+    ) -> None:
+        groups = [
+            CartGroup(tier=tier_a, items=[TicketPurchaseItem(guest_name="Ann")]),
+            CartGroup(tier=tier_b, items=[TicketPurchaseItem(guest_name="Bob")]),
+        ]
+        TicketTier.objects.filter(pk=tier_b.pk).update(currency="USD")
+
+        error = _run(batch_event, batch_user, groups)
+
+        assert str(error.message) == "All tickets in one checkout must use the same currency."
+        assert Ticket.objects.filter(event=batch_event).count() == 0
+        assert Payment.objects.filter(ticket__event=batch_event).count() == 0
+
+    def test_payment_method_flipped_after_the_pre_lock_read_is_rejected(
+        self, batch_event: Event, tier_a: TicketTier, tier_b: TicketTier, batch_user: RevelUser
+    ) -> None:
+        """The branch dispatch reads the anchor's method for the whole cart, so an
+        unnoticed flip settles the sibling through the wrong path — worst case a
+        now-ONLINE tier riding a free/offline checkout and losing its revenue.
+        """
+        groups = [
+            CartGroup(tier=tier_a, items=[TicketPurchaseItem(guest_name="Ann")]),
+            CartGroup(tier=tier_b, items=[TicketPurchaseItem(guest_name="Bob")]),
+        ]
+        TicketTier.objects.filter(pk=tier_b.pk).update(payment_method=TicketTier.PaymentMethod.ONLINE)
+
+        error = _run(batch_event, batch_user, groups)
+
+        assert str(error.message) == "All tickets in one checkout must use the same payment method."
+        assert Ticket.objects.filter(event=batch_event).count() == 0
+        assert Payment.objects.filter(ticket__event=batch_event).count() == 0
 
 
 class TestPWYCPerGroup:

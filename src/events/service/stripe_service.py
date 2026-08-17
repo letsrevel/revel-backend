@@ -452,9 +452,11 @@ def _create_payment_records(
     and 30.00, and a ticket a discount drove to zero still gets its 0.00 row so
     the 1:1 ticket↔Payment pairing (which the refund matcher relies on) holds.
 
-    ``anchor_tier`` is read only for ``currency`` — ``_validate_cart`` already
-    proved the whole cart settles in one currency, so any tier in it names the
-    right one; per-ticket money (price, VAT) comes from ``amounts`` instead.
+    ``anchor_tier`` is read only for ``currency`` — the whole cart settles in one
+    currency (``_validate_cart``, re-asserted on the LOCKED tier rows in
+    ``create_batch`` so an organizer write between the pre-lock read and the lock
+    cannot break it), so any tier in it names the right one; per-ticket money
+    (price, VAT) comes from ``amounts`` instead.
     """
     # Distribute gross and vat pro-rata by each ticket's price, so a row carries the
     # share of the fee its own revenue earned (#753). Splitting evenly would misbill
@@ -554,8 +556,9 @@ def reserve_batch_payments(
     Per-ticket, not per-tier: ``tickets`` may span several tiers (a multi-tier
     cart, #846) — each ticket prices and VATs off its OWN ``tier``, read from
     ``ticket.tier``. ``anchor_tier = tickets[0].tier`` is used only for the
-    reads ``_validate_cart`` already proved uniform across the cart: currency
-    and the fixed-fee conversion.
+    reads proved uniform across the cart — currency and the fixed-fee conversion
+    (``_validate_cart``, re-asserted on the LOCKED tier rows in ``create_batch``
+    so a concurrent organizer write cannot make the cart non-uniform).
 
     ``lines`` is the per-ticket price vector from ``seating.pricing`` — a mixed
     cart bills each ticket at its own price, and the platform fee is derived from
@@ -564,8 +567,9 @@ def reserve_batch_payments(
     """
     if not event.organization.is_stripe_connected:
         raise HttpError(400, str(_("This organization is not configured to accept payments.")))
-    # Uniform currency is a cart-shape invariant (_validate_cart), so any ticket's
-    # tier names the right one for cart-wide, currency-only reads.
+    # Uniform currency is a cart-shape invariant (_validate_cart, re-asserted on the
+    # LOCKED tier rows in create_batch), so any ticket's tier names the right one for
+    # cart-wide, currency-only reads.
     anchor_tier = tickets[0].tier
     prices = [line.unit_price for line in lines] if lines is not None else [tk.tier.price for tk in tickets]
     # A cart where nothing can be charged is a misconfigured tier; a *mixed* cart
@@ -653,8 +657,9 @@ def create_batch_session(*, reservation_id: UUID) -> str:
         # 404 (not 400) and the same message as "not found" avoids leaking reservation
         # existence/type to a client probing with someone else's reservation_id.
         raise HttpError(404, str(_("No pending reservation found.")))
-    # Uniform currency is a cart-shape invariant (_validate_cart), so any ticket's
-    # tier names the right one for the currency-only reads below (#846).
+    # Uniform currency is a cart-shape invariant (_validate_cart, re-asserted on the
+    # LOCKED tier rows in create_batch), so any ticket's tier names the right one for
+    # the currency-only reads below (#846).
     anchor_tier = tickets[0].tier
     event = tickets[0].event
     user = payments[0].user

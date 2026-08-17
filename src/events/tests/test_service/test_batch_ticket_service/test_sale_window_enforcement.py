@@ -10,6 +10,7 @@ service itself authoritative.
 """
 
 from datetime import timedelta
+from unittest.mock import Mock, patch
 
 import pytest
 from django.test.client import Client
@@ -40,6 +41,23 @@ def event(organization: Organization) -> Event:
         status=Event.EventStatus.OPEN,
         visibility=Event.Visibility.PUBLIC,
         require_ticket_names=False,
+    )
+
+
+@pytest.fixture
+def guest_event(organization: Organization) -> Event:
+    """Same as ``event``, but open to unauthenticated (guest) checkout."""
+    return Event.objects.create(
+        organization=organization,
+        name="Guest Sale Window Event",
+        slug="guest-sale-window-event",
+        event_type=Event.EventType.PUBLIC,
+        start=timezone.now() + timedelta(days=7),
+        status=Event.EventStatus.OPEN,
+        visibility=Event.Visibility.PUBLIC,
+        require_ticket_names=False,
+        can_attend_without_login=True,
+        max_attendees=100,
     )
 
 
@@ -102,3 +120,74 @@ class TestSaleWindowEnforcementEndpoint:
 
         assert response.status_code == 403, response.content
         assert "outside of the sale window" in response.json()["detail"]
+
+
+class TestGuestSaleWindowEnforcement:
+    """The guest cart's non-online branch defers create_batch — the sale window's
+    other gate — to the emailed confirmation click, so the window has to be answered
+    at the initial request or the buyer gets a 200 and a link that 403s.
+
+    ``transaction=True`` on both tests because the assertion is about the
+    confirmation email, whose dispatch is registered with ``transaction.on_commit``
+    and so never fires under pytest-django's wrapping transaction.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_closed_window_rejected_at_checkout_and_no_email(self, mock_send_email: Mock, guest_event: Event) -> None:
+        # A sibling tier still on sale, so the any-tier eligibility gate passes and
+        # only the per-tier window can reject the cart.
+        TicketTier.objects.create(
+            event=guest_event,
+            name="Open Sibling",
+            payment_method=TicketTier.PaymentMethod.FREE,
+        )
+        closed_tier = TicketTier.objects.create(
+            event=guest_event,
+            name="Closed Tier",
+            payment_method=TicketTier.PaymentMethod.FREE,
+            sales_end_at=timezone.now() - timedelta(days=1),
+        )
+        payload = {
+            "email": "closedwindow@example.com",
+            "first_name": "Guest",
+            "last_name": "Closed",
+            "items": [{"tier_id": str(closed_tier.id), "tickets": [{"guest_name": "Guest Closed"}]}],
+        }
+
+        response = Client().post(
+            reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event.pk}),
+            data=payload,
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403, response.content
+        assert "outside of the sale window" in response.json()["detail"]
+        mock_send_email.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_open_window_still_sends_confirmation(self, mock_send_email: Mock, guest_event: Event) -> None:
+        open_tier = TicketTier.objects.create(
+            event=guest_event,
+            name="Open Tier",
+            payment_method=TicketTier.PaymentMethod.FREE,
+            sales_start_at=timezone.now() - timedelta(days=1),
+            sales_end_at=timezone.now() + timedelta(days=1),
+        )
+        payload = {
+            "email": "openwindow@example.com",
+            "first_name": "Guest",
+            "last_name": "Open",
+            "items": [{"tier_id": str(open_tier.id), "tickets": [{"guest_name": "Guest Open"}]}],
+        }
+
+        response = Client().post(
+            reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event.pk}),
+            data=payload,
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["message"]
+        mock_send_email.assert_called_once()

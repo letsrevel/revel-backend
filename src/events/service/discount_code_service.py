@@ -378,18 +378,23 @@ def validate_cart_discount(
 ) -> tuple[DiscountCode, set[UUID]]:
     """Validate a discount code against every tier in a multi-tier cart (#846).
 
-    A cart code need not apply to every group: this runs :func:`validate_discount_code`
-    per group and simply drops the ones it rejects (wrong scope, a free/PWYC tier,
-    currency mismatch, etc.) rather than failing the whole cart. Only when NO group
-    qualifies is the cart itself rejected — and then the specific per-group reason is
-    surfaced whenever it is unambiguous (see :func:`_no_qualifying_group_error`)
-    instead of collapsing to one generic message.
+    A cart code need not apply to every group: the per-group pass runs
+    :func:`_validate_core` — **applicability only** (scope, a free/PWYC tier, currency
+    mismatch, plus the code-level active/window/global-limit checks, which fail
+    identically on every group) — and simply drops the groups it rejects rather than
+    failing the whole cart. Only when NO group qualifies is the cart itself rejected —
+    and then the specific per-group reason is surfaced whenever it is unambiguous
+    (see :func:`_no_qualifying_group_error`) instead of collapsing to one generic message.
 
-    The definitive validation call — the one whose returned :class:`DiscountCode` and
-    usage-limit check get threaded into
-    :class:`~events.service.batch_ticket_service.BatchTicketService` — reruns with the
-    SUMMED ticket count across every applicable group, so per-user/global usage limits
-    see the cart's true consumption instead of one group's slice of it.
+    The **per-user usage limit is deliberately not a per-group check**: it is a property
+    of the buyer and the whole cart, not of one tier's applicability. Running it per group
+    made a group larger than the buyer's remaining allowance drop out silently — a
+    3+1 cart under ``max_uses_per_user=2`` quietly discounted 1 ticket of 4, while the
+    same 2+2 cart (and the deprecated single-tier route) correctly 400'd. So it runs
+    exactly once, in the definitive validation call below: :func:`validate_discount_code`
+    reruns with the SUMMED ticket count across every applicable group, so the usage limits
+    see the cart's true consumption instead of one group's slice of it, and an over-limit
+    cart fails as a cart.
 
     Args:
         code: The discount code string.
@@ -405,7 +410,8 @@ def validate_cart_discount(
     Raises:
         HttpError: If the code applies to none of the cart's tiers — the single
             per-group rejection when every group failed for the same reason,
-            otherwise 400 with the generic cart message.
+            otherwise 400 with the generic cart message — or if the cart's summed
+            ticket count exceeds a usage limit.
     """
     valid_tier_ids: set[UUID] = set()
     applicable_count = 0
@@ -413,7 +419,7 @@ def validate_cart_discount(
     for group in items:
         tier = tiers[group.tier_id]
         try:
-            validate_discount_code(code, event.organization, tier, user, len(group.tickets))
+            _validate_core(code, event.organization, tier)
         except HttpError as exc:
             errors.append(exc)
             continue
@@ -423,8 +429,9 @@ def validate_cart_discount(
     if not valid_tier_ids:
         raise _no_qualifying_group_error(errors)
 
-    # Any already-qualified tier stands in for the final scope/currency re-check;
-    # what this call actually re-verifies is the usage limits, against the real total.
+    # Any already-qualified tier stands in for the (redundant) scope/currency re-check;
+    # what this call is here for is the per-user usage limit — checked once, against the
+    # cart's real total rather than any single group's slice of it.
     representative_tier = tiers[next(iter(valid_tier_ids))]
     dc = validate_discount_code(code, event.organization, representative_tier, user, applicable_count)
     return dc, valid_tier_ids

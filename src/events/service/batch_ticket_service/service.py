@@ -13,7 +13,7 @@ from events.models import Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.capacity import CapacityMixin
 from events.service.batch_ticket_service.checkout import CheckoutMixin
-from events.service.batch_ticket_service.context import CartGroup, validate_cart_shape
+from events.service.batch_ticket_service.context import CartGroup, assert_uniform_cart, validate_cart_shape
 from events.service.batch_ticket_service.eligibility import PurchaseEligibilityMixin
 from events.service.batch_ticket_service.seats import SeatResolutionMixin
 from events.service.discount_code_service import assert_min_purchase_amount
@@ -101,6 +101,32 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
                 missing/forbidden/out-of-bounds PWYC amount, or a seat requested twice.
         """
         validate_cart_shape(self.groups)
+
+    @staticmethod
+    def _assert_locked_cart_uniformity(locked_tiers: list[TicketTier]) -> None:
+        """Re-assert the cart's uniformity invariants on the LOCKED tier rows.
+
+        ``_validate_cart`` proves uniform currency and payment method on the
+        *pre-lock* instances the controller loaded, and an organizer write can
+        commit between that read and the ``select_for_update`` below (the VIES
+        round-trip deliberately sits in that window). Every money decision that
+        follows — the branch dispatch, the Payment rows' currency, the Stripe
+        line items — is a cart-level read off ONE tier, so it must be proven on
+        the locked rows: a sibling flipped from FREE to ONLINE would otherwise
+        ride the free path and have its revenue zeroed, and a flipped currency
+        would be charged and recorded in the wrong one. Same rules, same
+        messages as ``validate_cart_shape`` — this is that check, re-run on the
+        rows the writes are made against — delegates to
+        :func:`~events.service.batch_ticket_service.context.assert_uniform_cart`,
+        the same authority ``validate_cart_shape`` uses, so the two can never drift.
+
+        Args:
+            locked_tiers: Each group's locked tier, in cart order.
+
+        Raises:
+            HttpError: 400 if the locked rows disagree on currency or payment method.
+        """
+        assert_uniform_cart(locked_tiers)
 
     def _price_cart(
         self, locked_tiers: list[TicketTier], seats_per_group: list[list[VenueSeat | None]]
@@ -268,6 +294,10 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
             .order_by("pk")
         }
         locked_tiers = [locked[group.tier.pk] for group in self.groups]
+        # Organizer writes can land between the pre-lock read and the lock, so the
+        # uniformity _validate_cart proved on the stale instances is re-proven here:
+        # every money decision below is a cart-level read off ONE locked tier.
+        self._assert_locked_cart_uniformity(locked_tiers)
         # Dispatch off the LOCKED rows, as the single-tier engine always did — the
         # pre-lock read above only decides whether VIES is worth a round-trip.
         locked_payment_method = locked_tiers[0].payment_method

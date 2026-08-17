@@ -26,6 +26,26 @@ if t.TYPE_CHECKING:
     from events.service.batch_ticket_service.context import CartGroup
 
 
+def assert_sale_window(tier: TicketTier) -> None:
+    """Assert the tier's sale window is currently open.
+
+    Module-level so paths that gate a tier *before* they build a
+    ``BatchTicketService`` can share the exact rule — notably guest checkout,
+    whose non-online branch defers ``create_batch`` to the emailed confirmation
+    click and so must answer a closed window up front.
+
+    Args:
+        tier: The tier being purchased from.
+
+    Raises:
+        HttpError: 403 when the tier's sale window is not currently open. No staff
+            exemption — matches CanPurchaseTicket, which checked the window before
+            any exemption.
+    """
+    if not tier.can_purchase():
+        raise HttpError(403, str(_("You're outside of the sale window.")))
+
+
 class PurchaseEligibilityMixin(BatchTicketContext):
     """Tier access rules, the sale window, and the per-user ticket limit."""
 
@@ -114,22 +134,8 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         )
 
     def _assert_sale_window(self, tier: TicketTier) -> None:
-        """Sale-window gate — service-authoritative (#846).
-
-        CanPurchaseTicket.has_object_permission held this check but never ran on the
-        checkout endpoints (object permissions require get_object_or_exception), and
-        TicketSalesGate is any-tier. Every create_batch path enforces it here instead.
-
-        Args:
-            tier: The tier being purchased from.
-
-        Raises:
-            HttpError: 403 when the tier's sale window is not currently open. No staff
-                exemption — matches CanPurchaseTicket, which checked the window before
-                any exemption.
-        """
-        if not tier.can_purchase():
-            raise HttpError(403, str(_("You're outside of the sale window.")))
+        """Delegates to the module-level :func:`assert_sale_window`."""
+        assert_sale_window(tier)
 
     def get_user_ticket_count(self, tier: TicketTier | None = None) -> int:
         """Get count of user's existing non-cancelled tickets.

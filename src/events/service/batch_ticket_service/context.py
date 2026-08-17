@@ -51,6 +51,26 @@ def assert_pwyc_amount(group: CartGroup) -> None:
         raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
 
 
+def assert_uniform_cart(tiers: t.Sequence[TicketTier]) -> None:
+    """Assert every tier in the cart agrees on currency and payment method.
+
+    The two whole-cart uniformity rules, factored out so :func:`validate_cart_shape`
+    (pre-lock) and ``BatchTicketService._assert_locked_cart_uniformity`` (post-lock,
+    re-run on the LOCKED rows) share one authority and can never drift onto
+    different messages or thresholds.
+
+    Args:
+        tiers: Each group's tier, in cart order.
+
+    Raises:
+        HttpError: 400 if the tiers disagree on currency or payment method.
+    """
+    if len({tier.currency for tier in tiers}) > 1:
+        raise HttpError(400, str(_("All tickets in one checkout must use the same currency.")))
+    if len({tier.payment_method for tier in tiers}) > 1:
+        raise HttpError(400, str(_("All tickets in one checkout must use the same payment method.")))
+
+
 def validate_cart_shape(groups: list[CartGroup]) -> None:
     """Reject a malformed cart before anything is locked, priced or written.
 
@@ -93,11 +113,7 @@ def validate_cart_shape(groups: list[CartGroup]) -> None:
     if len(set(tier_ids)) != len(tier_ids):
         raise HttpError(400, str(_("Each tier may appear only once per checkout.")))
 
-    if len({group.tier.currency for group in groups}) > 1:
-        raise HttpError(400, str(_("All tickets in one checkout must use the same currency.")))
-
-    if len({group.tier.payment_method for group in groups}) > 1:
-        raise HttpError(400, str(_("All tickets in one checkout must use the same payment method.")))
+    assert_uniform_cart([group.tier for group in groups])
 
     for group in groups:
         assert_pwyc_amount(group)

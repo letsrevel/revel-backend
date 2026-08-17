@@ -99,7 +99,8 @@ def seated_event(event: Event, organization: Organization) -> tuple[Event, list[
     ]
     event.venue = venue
     # The Event default (1) would cap holds at a single seat; None means "unlimited
-    # tickets", so holds fall back to DEFAULT_MAX_HELD_SEATS.
+    # tickets", so holds fall back to the seated tiers' caps — or, as here where no
+    # capped seated tier exists, to DEFAULT_MAX_HELD_SEATS.
     event.max_tickets_per_user = None
     event.save(update_fields=["venue", "max_tickets_per_user"])
     return event, seats

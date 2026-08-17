@@ -15,6 +15,12 @@ Events with a cap but no tiers are left alone: there is no inheritance to preser
 their cap simply becomes the cross-tier total — the correct reading for an unconfigured
 event.
 
+``Event.max_tickets_per_user`` has a second consumer: the seat-hold ceiling in
+``events/service/seating/holds.py``. Clearing the event cap alone would have silently
+raised existing events' hold cap from the organizer's value to ``DEFAULT_MAX_HELD_SEATS``;
+``_hold_cap`` therefore falls back to the seated tiers' caps (which this migration
+materializes), so the hold guard keeps tracking the purchasable total.
+
 The reverse is a deliberate no-op: it cannot distinguish a materialized cap from one the
 organizer typed, so undoing it would be lossy. It is also unnecessary — this migration
 preserves behavior, and old code treats a materialized tier cap exactly like an inherited

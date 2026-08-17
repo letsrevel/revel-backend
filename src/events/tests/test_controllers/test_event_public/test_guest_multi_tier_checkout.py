@@ -97,6 +97,11 @@ class TestGuestFreeOfflineCart:
     def test_free_two_tier_cart_sends_confirmation_then_confirms_to_tickets(
         self, mock_send_email: Mock, guest_event: Event
     ) -> None:
+        """Uses ``transaction=True`` because the non-online checkout branch schedules
+        ``send_guest_ticket_confirmation`` via ``transaction.on_commit``. In default
+        pytest-django mode the wrapping transaction is rolled back and the callback
+        never fires, breaking the ``mock_send_email`` assertion.
+        """
         guest_event.max_tickets_per_user = None
         guest_event.save(update_fields=["max_tickets_per_user"])
         tier_a = _tier(guest_event, "Free A")
@@ -139,7 +144,14 @@ class TestGuestFreeOfflineCart:
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
     @pytest.mark.django_db(transaction=True)
     def test_require_ticket_names_400s_before_sending_email(self, mock_send_email: Mock, guest_event: Event) -> None:
-        """Multi-group cart: a missing name 400s up front, never reaching the email send."""
+        """Multi-group cart: a missing name 400s up front, never reaching the email send.
+
+        Uses ``transaction=True`` because the non-online checkout branch schedules
+        ``send_guest_ticket_confirmation`` via ``transaction.on_commit``. In default
+        pytest-django mode the wrapping transaction is rolled back and on_commit
+        callbacks never fire regardless, so ``mock_send_email.assert_not_called()``
+        would pass vacuously; the marker makes the assertion actually meaningful.
+        """
         guest_event.require_ticket_names = True
         guest_event.save(update_fields=["require_ticket_names"])
         tier_a = _tier(guest_event, "Free A")
@@ -260,6 +272,11 @@ class TestGuestDiscountConfirm:
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
     @pytest.mark.django_db(transaction=True)
     def test_multi_group_discount_applies_per_group_on_confirm(self, mock_send_email: Mock, guest_event: Event) -> None:
+        """Uses ``transaction=True`` because the non-online checkout branch schedules
+        ``send_guest_ticket_confirmation`` via ``transaction.on_commit``. In default
+        pytest-django mode the wrapping transaction is rolled back and the callback
+        never fires, breaking the ``mock_send_email`` assertion.
+        """
         guest_event.max_tickets_per_user = None
         guest_event.save(update_fields=["max_tickets_per_user"])
         tier_a = _tier(guest_event, "Tier A", method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("20.00"))
@@ -302,7 +319,6 @@ class TestGuestDiscountConfirm:
 class TestLegacyTokenCompat:
     """A flat-shape token minted before #846 (no ``groups``) must still confirm."""
 
-    @pytest.mark.django_db(transaction=True)
     def test_legacy_flat_token_confirms_to_single_tier_tickets(self, guest_event: Event) -> None:
         tier = _tier(guest_event, "Legacy Tier")
         guest_user = RevelUser.objects.create_user(

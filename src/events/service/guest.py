@@ -389,6 +389,7 @@ def handle_guest_ticket_checkout(
     from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
     from events.service.batch_ticket_service.context import validate_cart_shape
+    from events.service.batch_ticket_service.eligibility import assert_sale_window
     from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
 
@@ -404,8 +405,18 @@ def handle_guest_ticket_checkout(
     if event.require_ticket_names and any(item.guest_name is None for item in all_items):
         raise HttpError(400, str(_("This event requires a name on every ticket.")))
 
-    # Create or update guest user. Must come AFTER the two gates above (#846 review
-    # fix): both are answerable with no user at all, and creating a row / touching
+    # Enforce the per-tier sale window HERE, before the payment-method branch: the
+    # any-tier TicketSalesGate below passes as long as *some* tier is on sale, and the
+    # non-online branch defers create_batch — the only other place the window is
+    # checked — to the confirmation click, so a closed-window group would otherwise
+    # cost the buyer an email and a dead link instead of a 403.
+    # Residual: the window can still close between this check and the click (the token
+    # lives an hour), and create_batch will then reject the confirmation.
+    for group in groups:
+        assert_sale_window(group.tier)
+
+    # Create or update guest user. Must come AFTER the gates above (#846 review
+    # fix): all are answerable with no user at all, and creating a row / touching
     # the "does an account exist" check before them turns a login-required event
     # into an account-creation side channel / existence oracle.
     user = get_or_create_guest_user(email, first_name, last_name)
