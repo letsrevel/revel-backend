@@ -220,9 +220,10 @@ class EventPublicGuestController(EventPublicBaseController):
         event = self.get_one(event_id)
         tiers = {
             tier.id: tier
-            for tier in models.TicketTier.objects.for_visible_event(event, self.maybe_user()).filter(
-                pk__in=[g.tier_id for g in payload.items]
-            )
+            # sector joined up front: assert_sector_capacities walks tier.sector per group
+            for tier in models.TicketTier.objects.for_visible_event(event, self.maybe_user())
+            .select_related("sector")
+            .filter(pk__in=[g.tier_id for g in payload.items])
         }
         if len(tiers) != len({g.tier_id for g in payload.items}):
             raise HttpError(404, str(_("One or more ticket tiers were not found.")))

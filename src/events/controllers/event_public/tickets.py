@@ -337,24 +337,16 @@ class EventPublicTicketsController(EventPublicBaseController):
         user = self.user()
         tiers = {
             tier.id: tier
-            for tier in models.TicketTier.objects.for_visible_event(event, user).filter(
-                pk__in=[g.tier_id for g in payload.items]
-            )
+            # sector joined up front: assert_sector_capacities walks tier.sector per group
+            for tier in models.TicketTier.objects.for_visible_event(event, user)
+            .select_related("sector")
+            .filter(pk__in=[g.tier_id for g in payload.items])
         }
         if len(tiers) != len({g.tier_id for g in payload.items}):
             raise HttpError(404, str(_("One or more ticket tiers were not found.")))
 
         manager = EventManager(user, event)
         manager.check_eligibility(raise_on_false=True)
-
-        # Validate discount code per group; the applicable subset (never the full
-        # cart) is threaded into the service so a code scoped to one tier cannot
-        # leak a discount onto the rest of the cart (see BatchTicketContext._dc_for).
-        dc, valid_tier_ids = None, None
-        if payload.discount_code:
-            dc, valid_tier_ids = discount_code_service.validate_cart_discount(
-                payload.discount_code, event, tiers, payload.items, user
-            )
 
         groups = [
             CartGroup(
@@ -366,6 +358,15 @@ class EventPublicTicketsController(EventPublicBaseController):
             )
             for g in payload.items
         ]
+
+        # Validate discount code per group; the applicable subset (never the full
+        # cart) is threaded into the service so a code scoped to one tier cannot
+        # leak a discount onto the rest of the cart (see BatchTicketContext._dc_for).
+        dc, valid_tier_ids = None, None
+        if payload.discount_code:
+            dc, valid_tier_ids = discount_code_service.validate_cart_discount(
+                payload.discount_code, event, groups, user
+            )
         service = BatchTicketService(
             event, user=user, groups=groups, discount_code=dc, discount_valid_tier_ids=valid_tier_ids
         )

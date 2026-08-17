@@ -17,7 +17,6 @@ against the summed count of every applicable group.
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
-from uuid import UUID
 
 import pytest
 from django.utils import timezone
@@ -27,6 +26,7 @@ from accounts.models import RevelUser
 from events import schema
 from events.models import Event, Organization, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
+from events.service.batch_ticket_service import CartGroup
 from events.service.discount_code_service import validate_cart_discount
 
 pytestmark = pytest.mark.django_db
@@ -48,20 +48,16 @@ def _tier(event: Event, name: str) -> TicketTier:
     )
 
 
-def _group(tier: TicketTier, count: int) -> schema.CheckoutGroupSchema:
-    return schema.CheckoutGroupSchema(
-        tier_id=tier.id,
-        tickets=[schema.TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(count)],
+def _group(tier: TicketTier, count: int) -> CartGroup:
+    return CartGroup(
+        tier=tier,
+        items=[schema.TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(count)],
     )
 
 
-def _cart(
-    *groups: schema.CheckoutGroupSchema,
-) -> tuple[dict[UUID, TicketTier], list[schema.CheckoutGroupSchema]]:
-    """Build the ``(tiers, items)`` pair the caller normally assembles from the payload."""
-    tier_ids = [group.tier_id for group in groups]
-    tiers = {tier.id: tier for tier in TicketTier.objects.filter(id__in=tier_ids)}
-    return tiers, list(groups)
+def _cart(*groups: CartGroup) -> list[CartGroup]:
+    """Build the group list the caller normally assembles from the payload."""
+    return list(groups)
 
 
 @pytest.fixture
@@ -127,10 +123,10 @@ class TestPerUserLimitIsCartWide:
         silently, leaving a 1-ticket cart that passed the summed re-check.
         """
         _code(cart_event.organization, max_uses_per_user=2)
-        tiers, items = _cart(_group(tier_a, split[0]), _group(tier_b, split[1]))
+        items = _cart(_group(tier_a, split[0]), _group(tier_b, split[1]))
 
         with pytest.raises(HttpError) as exc_info:
-            validate_cart_discount("CART10", cart_event, tiers, items, batch_user)
+            validate_cart_discount("CART10", cart_event, items, batch_user)
 
         assert exc_info.value.status_code == 400
         assert str(exc_info.value.message) == MAX_USES_MESSAGE
@@ -140,9 +136,9 @@ class TestPerUserLimitIsCartWide:
     ) -> None:
         """Same 3+1 cart, allowance of 4: nothing is dropped, the code covers all four."""
         code = _code(cart_event.organization, max_uses_per_user=4)
-        tiers, items = _cart(_group(tier_a, 3), _group(tier_b, 1))
+        items = _cart(_group(tier_a, 3), _group(tier_b, 1))
 
-        dc, valid_tier_ids = validate_cart_discount("CART10", cart_event, tiers, items, batch_user)
+        dc, valid_tier_ids = validate_cart_discount("CART10", cart_event, items, batch_user)
 
         assert dc.id == code.id
         assert valid_tier_ids == {tier_a.id, tier_b.id}
@@ -160,10 +156,10 @@ class TestPerUserLimitIsCartWide:
                 status=Ticket.TicketStatus.ACTIVE,
                 discount_code=code,
             )
-        tiers, items = _cart(_group(tier_a, 3), _group(tier_b, 1))
+        items = _cart(_group(tier_a, 3), _group(tier_b, 1))
 
         with pytest.raises(HttpError) as exc_info:
-            validate_cart_discount("CART10", cart_event, tiers, items, batch_user)
+            validate_cart_discount("CART10", cart_event, items, batch_user)
 
         assert exc_info.value.status_code == 400
         assert str(exc_info.value.message) == MAX_USES_MESSAGE
@@ -178,9 +174,9 @@ class TestScopeNarrowingStillDropsSilently:
         """A code scoped to tier A leaves tier B alone instead of failing the cart."""
         code = _code(cart_event.organization, max_uses_per_user=10)
         code.tiers.add(tier_a)
-        tiers, items = _cart(_group(tier_a, 2), _group(tier_b, 2))
+        items = _cart(_group(tier_a, 2), _group(tier_b, 2))
 
-        dc, valid_tier_ids = validate_cart_discount("CART10", cart_event, tiers, items, batch_user)
+        dc, valid_tier_ids = validate_cart_discount("CART10", cart_event, items, batch_user)
 
         assert dc.id == code.id
         assert valid_tier_ids == {tier_a.id}
@@ -191,9 +187,9 @@ class TestScopeNarrowingStillDropsSilently:
         """Scoped to A: the 3 A-tickets are what the allowance of 3 must cover, not all 4."""
         code = _code(cart_event.organization, max_uses_per_user=3)
         code.tiers.add(tier_a)
-        tiers, items = _cart(_group(tier_a, 3), _group(tier_b, 1))
+        items = _cart(_group(tier_a, 3), _group(tier_b, 1))
 
-        dc, valid_tier_ids = validate_cart_discount("CART10", cart_event, tiers, items, batch_user)
+        dc, valid_tier_ids = validate_cart_discount("CART10", cart_event, items, batch_user)
 
         assert dc.id == code.id
         assert valid_tier_ids == {tier_a.id}
@@ -204,10 +200,10 @@ class TestScopeNarrowingStillDropsSilently:
         """Same cart, allowance of 2: the surviving 3 tickets are one too many."""
         code = _code(cart_event.organization, max_uses_per_user=2)
         code.tiers.add(tier_a)
-        tiers, items = _cart(_group(tier_a, 3), _group(tier_b, 1))
+        items = _cart(_group(tier_a, 3), _group(tier_b, 1))
 
         with pytest.raises(HttpError) as exc_info:
-            validate_cart_discount("CART10", cart_event, tiers, items, batch_user)
+            validate_cart_discount("CART10", cart_event, items, batch_user)
 
         assert exc_info.value.status_code == 400
         assert str(exc_info.value.message) == MAX_USES_MESSAGE
@@ -221,10 +217,10 @@ class TestGlobalLimit:
     ) -> None:
         """No group can qualify, and the shared reason is surfaced verbatim."""
         _code(cart_event.organization, max_uses_per_user=10, max_uses=5, times_used=5)
-        tiers, items = _cart(_group(tier_a, 3), _group(tier_b, 1))
+        items = _cart(_group(tier_a, 3), _group(tier_b, 1))
 
         with pytest.raises(HttpError) as exc_info:
-            validate_cart_discount("CART10", cart_event, tiers, items, batch_user)
+            validate_cart_discount("CART10", cart_event, items, batch_user)
 
         assert exc_info.value.status_code == 400
         assert str(exc_info.value.message) == GLOBAL_LIMIT_MESSAGE

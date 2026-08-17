@@ -22,6 +22,7 @@ if t.TYPE_CHECKING:
 
     from events import schema
     from events.schema.discount_code import DiscountCodeCreateSchema, DiscountCodeUpdateSchema
+    from events.service.batch_ticket_service.context import CartGroup
 
 logger = structlog.get_logger(__name__)
 
@@ -372,8 +373,7 @@ def _no_qualifying_group_error(errors: list[HttpError]) -> HttpError:
 def validate_cart_discount(
     code: str,
     event: Event,
-    tiers: dict[UUID, TicketTier],
-    items: "list[schema.CheckoutGroupSchema]",
+    groups: "t.Sequence[CartGroup]",
     user: RevelUser,
 ) -> tuple[DiscountCode, set[UUID]]:
     """Validate a discount code against every tier in a multi-tier cart (#846).
@@ -399,9 +399,10 @@ def validate_cart_discount(
     Args:
         code: The discount code string.
         event: The event being checked out.
-        tiers: Every tier referenced by ``items``, keyed by id (already scoped to the
-            event by the caller).
-        items: The cart's groups, as submitted by the buyer.
+        groups: The cart's groups (one per tier, tier objects attached). Domain
+            objects, not the wire schema: the deprecated guest routes accept carts
+            wider than ``CheckoutGroupSchema``'s buyer-input bounds, and this
+            helper only ever reads the tier and the ticket count.
         user: The purchasing user.
 
     Returns:
@@ -415,24 +416,25 @@ def validate_cart_discount(
     """
     valid_tier_ids: set[UUID] = set()
     applicable_count = 0
+    representative_tier: TicketTier | None = None
     errors: list[HttpError] = []
-    for group in items:
-        tier = tiers[group.tier_id]
+    for group in groups:
+        tier = group.tier
         try:
             _validate_core(code, event.organization, tier)
         except HttpError as exc:
             errors.append(exc)
             continue
-        valid_tier_ids.add(group.tier_id)
-        applicable_count += len(group.tickets)
+        valid_tier_ids.add(tier.id)
+        applicable_count += len(group.items)
+        representative_tier = representative_tier or tier
 
-    if not valid_tier_ids:
+    if representative_tier is None:
         raise _no_qualifying_group_error(errors)
 
     # Any already-qualified tier stands in for the (redundant) scope/currency re-check;
     # what this call is here for is the per-user usage limit — checked once, against the
     # cart's real total rather than any single group's slice of it.
-    representative_tier = tiers[next(iter(valid_tier_ids))]
     dc = validate_discount_code(code, event.organization, representative_tier, user, applicable_count)
     return dc, valid_tier_ids
 

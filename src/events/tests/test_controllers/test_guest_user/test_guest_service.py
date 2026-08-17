@@ -15,6 +15,7 @@ from ninja_jwt.token_blacklist.models import BlacklistedToken
 from accounts.models import RevelUser
 from events import schema
 from events.models import Event, EventRSVP, TicketTier
+from events.models.discount_code import DiscountCode
 from events.service import guest as guest_service
 from events.service.batch_ticket_service import CartGroup
 from events.service.event_manager import UserIsIneligibleError
@@ -374,6 +375,42 @@ class TestGuestServiceLayer:
         assert exc_info.value.status_code == 400
         assert "too large" in str(exc_info.value.message)
         mock_send_email.assert_not_called()
+
+    def test_handle_guest_ticket_checkout_large_cart_with_discount(
+        self, guest_event_with_tickets: Event, online_tier: TicketTier
+    ) -> None:
+        """A >50-ticket legacy cart with a discount code must not 500 (#893 review).
+
+        The deprecated single-tier guest payload has no upper bound on ``tickets``,
+        but the discount step used to re-validate the cart through the wire
+        schema's 50-item cap — turning such carts into an unhandled pydantic
+        ValidationError instead of a checkout.
+        """
+        guest_event_with_tickets.max_tickets_per_user = None
+        guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
+        DiscountCode.objects.create(
+            code="BIG10",
+            organization=guest_event_with_tickets.organization,
+            discount_type=DiscountCode.DiscountType.PERCENTAGE,
+            discount_value=Decimal("10.00"),
+            currency="EUR",
+            is_active=True,
+            max_uses_per_user=100,
+        )
+        items = [schema.TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(51)]
+        group = CartGroup(tier=online_tier, items=items)
+
+        result = guest_service.handle_guest_ticket_checkout(
+            guest_event_with_tickets,
+            [group],
+            "bigdiscount@test.com",
+            "Big",
+            "Discount",
+            discount_code="BIG10",
+        )
+
+        assert result.requires_payment is True
+        assert isinstance(result.reservation_id, UUID)
 
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
     def test_handle_guest_ticket_checkout_ordinary_cart_is_unaffected(

@@ -128,7 +128,9 @@ def create_guest_ticket_token(
 
     - **Single-tier form** (legacy): pass ``tier_id``/``tickets``. The minted token
       carries the v1 flat fields at the top level — exactly what every pre-#846
-      token looked like. Still used by the deprecated single-tier guest routes.
+      token looked like. No route mints it any more (the deprecated single-tier
+      guest routes now build one-group carts); kept so tests can mint the v1 shape
+      that ``confirm_guest_action`` must keep decoding for in-flight tokens.
     - **Cart form**: pass ``groups`` (one
       :class:`~events.service.batch_ticket_service.context.CartGroup` per tier).
       The token instead carries ``groups``; the flat fields stay at their defaults.
@@ -440,20 +442,7 @@ def handle_guest_ticket_checkout(
     # code need not apply to every group, only some.
     dc, valid_tier_ids = None, None
     if discount_code:
-        tiers = {group.tier.id: group.tier for group in groups}
-        checkout_items = [
-            schema.CheckoutGroupSchema(
-                tier_id=group.tier.id,
-                tickets=group.items,
-                pwyc_amount=group.pwyc_amount,
-                price_category_id=group.price_category_id,
-                accessible_required=group.accessible_required,
-            )
-            for group in groups
-        ]
-        dc, valid_tier_ids = discount_code_service.validate_cart_discount(
-            discount_code, event, tiers, checkout_items, user
-        )
+        dc, valid_tier_ids = discount_code_service.validate_cart_discount(discount_code, event, groups, user)
 
     # Validate the requested zone per group HERE, not only downstream: the
     # non-online branch below defers seat assignment to the confirmation click, so
@@ -628,26 +617,6 @@ def confirm_guest_action(
             for raw_group in raw_groups
         }
 
-        # Re-validate the discount code if one was stored in the token, exactly like
-        # the multi-tier checkout endpoint (#846): only the groups it actually
-        # applies to get it, so a code scoped to one tier cannot leak a discount
-        # onto the rest of a multi-tier cart.
-        dc, valid_tier_ids = None, None
-        if payload.discount_code:
-            checkout_items = [
-                schema.CheckoutGroupSchema(
-                    tier_id=raw_group.tier_id,
-                    tickets=items_by_tier[raw_group.tier_id],
-                    pwyc_amount=raw_group.pwyc_amount,
-                    price_category_id=raw_group.price_category_id,
-                    accessible_required=raw_group.accessible_required,
-                )
-                for raw_group in raw_groups
-            ]
-            dc, valid_tier_ids = discount_code_service.validate_cart_discount(
-                payload.discount_code, event, tiers, checkout_items, user
-            )
-
         groups = [
             CartGroup(
                 tier=tiers[raw_group.tier_id],
@@ -658,6 +627,16 @@ def confirm_guest_action(
             )
             for raw_group in raw_groups
         ]
+
+        # Re-validate the discount code if one was stored in the token, exactly like
+        # the multi-tier checkout endpoint (#846): only the groups it actually
+        # applies to get it, so a code scoped to one tier cannot leak a discount
+        # onto the rest of a multi-tier cart.
+        dc, valid_tier_ids = None, None
+        if payload.discount_code:
+            dc, valid_tier_ids = discount_code_service.validate_cart_discount(
+                payload.discount_code, event, groups, user
+            )
 
         # Use BatchTicketService for proper seat handling
         service = BatchTicketService(

@@ -6,6 +6,7 @@ in :mod:`.capacity`.
 """
 
 import typing as t
+from functools import cached_property
 from uuid import UUID
 
 from django.db.models import Count
@@ -49,6 +50,27 @@ def assert_sale_window(tier: TicketTier) -> None:
 class PurchaseEligibilityMixin(BatchTicketContext):
     """Tier access rules, the sale window, and the per-user ticket limit."""
 
+    # The three lookups below are properties of the buyer, not of any tier, yet the
+    # per-tier assertions run once per cart group — cached so a wide cart costs the
+    # same queries as a single-tier checkout. Instance-scoped, and the service is
+    # request-scoped, so there is no staleness to worry about.
+
+    @cached_property
+    def _buyer_is_owner_or_staff(self) -> bool:
+        return self.event.organization.is_owner_or_staff(self.user)
+
+    @cached_property
+    def _buyer_membership(self) -> OrganizationMember | None:
+        return (
+            OrganizationMember.objects.active_only()
+            .filter(organization=self.event.organization, user=self.user)
+            .first()
+        )
+
+    @cached_property
+    def _buyer_invitation(self) -> EventInvitation | None:
+        return EventInvitation.objects.filter(event=self.event, user=self.user).first()
+
     def _assert_purchasable_by(self, tier: TicketTier) -> None:
         """Assert the user is allowed to purchase from this tier.
 
@@ -65,12 +87,11 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         if tier.purchasable_by == PB.PUBLIC:
             return
 
-        org = self.event.organization
-        if org.is_owner_or_staff(self.user):
+        if self._buyer_is_owner_or_staff:
             return
 
-        is_member = OrganizationMember.objects.active_only().filter(organization=org, user=self.user).exists()
-        invitation = EventInvitation.objects.filter(event=self.event, user=self.user).first()
+        is_member = self._buyer_membership is not None
+        invitation = self._buyer_invitation
 
         def _invited_passes() -> bool:
             if invitation is None:
@@ -111,11 +132,10 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         if not required_tier_ids:
             return
 
-        org = self.event.organization
-        if org.is_owner_or_staff(self.user):
+        if self._buyer_is_owner_or_staff:
             return
 
-        membership = OrganizationMember.objects.active_only().filter(organization=org, user=self.user).first()
+        membership = self._buyer_membership
         if membership is not None and membership.tier_id in required_tier_ids:
             return
 
