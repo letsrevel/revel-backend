@@ -146,6 +146,12 @@ class PurchaseEligibilityMixin(BatchTicketContext):
 
         Returns:
             Number of PENDING + ACTIVE tickets the user has.
+
+        The event-cap count is provenance-blind: series-pass-materialized, box-office,
+        and waitlist-claimed tickets all consume the buyer's event-wide allowance —
+        the literal reading of "maximum tickets per user, across all tiers". A
+        series-pass holder on an event with an event cap therefore needs headroom
+        (or an uncapped event) to buy add-on tickets.
         """
         qs = Ticket.objects.filter(
             event=self.event,

@@ -34,8 +34,8 @@ class GuestBatchCheckoutPayload(GuestUserDataSchema):
     """Payload for batch checkout by guest (unauthenticated) users."""
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
-    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
-    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
+    discount_code: str | None = Field(default=None, max_length=64, description="Optional discount code")
+    billing_info: BuyerBillingInfoSchema | None = Field(default=None, description="Optional billing info for invoicing")
     accessible_required: bool = Field(
         default=False,
         description="Request accessible seating for the whole checkout (BEST_AVAILABLE assignment "
@@ -60,8 +60,8 @@ class GuestMultiTierCheckoutPayload(GuestUserDataSchema):
     """Cart payload for POST /events/{event_id}/checkout/public (#846)."""
 
     items: list[CheckoutGroupSchema] = Field(..., min_length=1, max_length=20)
-    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
-    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
+    discount_code: str | None = Field(default=None, max_length=64, description="Optional discount code")
+    billing_info: BuyerBillingInfoSchema | None = Field(default=None, description="Optional billing info for invoicing")
 
 
 class GuestActionResponseSchema(Schema):

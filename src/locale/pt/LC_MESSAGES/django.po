@@ -7,7 +7,6 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-15 13:26+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1575,12 +1574,6 @@ msgstr "Este tipo de bilhete requer um valor livre (paga o que puderes)."
 msgid "This tier does not accept a pay-what-you-can amount."
 msgstr "Este tipo de bilhete não aceita um valor livre (paga o que puderes)."
 
-msgid "Your cart is empty."
-msgstr "O teu carrinho está vazio."
-
-msgid "Each tier may appear only once per checkout."
-msgstr "Cada tipo de bilhete só pode aparecer uma vez por checkout."
-
 msgid "All tickets in one checkout must use the same currency."
 msgstr "Todos os bilhetes de um mesmo checkout têm de usar a mesma moeda."
 
@@ -1589,14 +1582,20 @@ msgstr ""
 "Todos os bilhetes de um mesmo checkout têm de usar o mesmo método de "
 "pagamento."
 
+msgid "Your cart is empty."
+msgstr "O teu carrinho está vazio."
+
+msgid "Each tier may appear only once per checkout."
+msgstr "Cada tipo de bilhete só pode aparecer uma vez por checkout."
+
 msgid "The same seat cannot be purchased twice."
 msgstr "O mesmo lugar não pode ser comprado duas vezes."
 
-msgid "You are not allowed to purchase from this tier."
-msgstr "Não tens autorização para comprar deste tipo de bilhete."
-
 msgid "You're outside of the sale window."
 msgstr "Estás fora da janela de venda."
+
+msgid "You are not allowed to purchase from this tier."
+msgstr "Não tens autorização para comprar deste tipo de bilhete."
 
 msgid "You have reached the maximum number of tickets for this event."
 msgstr "Atingiste o número máximo de bilhetes para este evento."
@@ -1634,9 +1633,6 @@ msgstr "Não foi possível garantir lugares contíguos — tenta novamente."
 
 msgid "Seat selection is required for this ticket tier."
 msgstr "É obrigatório selecionar lugar para este tipo de bilhete."
-
-msgid "The same seat cannot be selected more than once."
-msgstr "O mesmo lugar não pode ser selecionado mais de uma vez."
 
 msgid "Unknown seat assignment mode."
 msgstr "Modo de atribuição de lugares desconhecido."

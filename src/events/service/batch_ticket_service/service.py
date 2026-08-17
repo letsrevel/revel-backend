@@ -192,7 +192,12 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         on the paid path so each ticket keeps its 1:1 Payment row (the refund matcher
         relies on that pairing). A zero-priced ONLINE tier with no PWYC/discount input is
         still a misconfiguration, not a free tier — it keeps falling through to the 400
-        in ``reserve_batch_payments``.
+        in ``reserve_batch_payments``. The buyer-input test is cart-level, not per-group:
+        a discount scoped to one tier (or one group's PWYC amount) can vouch for a
+        DIFFERENT group's 0.00 ONLINE line, letting a misconfigured tier ride a reduced
+        cart onto the free path instead of that 400. Tolerated: it needs an organizer to
+        have created a 0.00 ONLINE tier (blocked by tier validation) AND every line of
+        the cart to be zero.
 
         Args:
             payment_method: The cart's (uniform, locked) payment method.

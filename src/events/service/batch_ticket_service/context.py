@@ -31,6 +31,11 @@ class CartGroup:
 def assert_pwyc_amount(group: CartGroup) -> None:
     """Assert this group's PWYC amount is present exactly when its tier is PWYC, and in range.
 
+    The bounds are read off the caller's tier instance, which ``create_batch`` loads
+    pre-lock: a concurrent ``pwyc_min``/``pwyc_max`` edit can slip past (same family
+    as the price race, but unlike price the bounds are not re-checked on the locked
+    row). Tolerated: the amount is buyer-chosen and the stale window is tiny.
+
     Args:
         group: The cart group to check.
 

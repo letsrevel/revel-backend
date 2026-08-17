@@ -394,9 +394,11 @@ class SeatResolutionMixin(BatchTicketContext):
         # Cart-wide, not per-group: the per-group count-match check only catches a seat
         # named twice within ONE group. The same seat in two different groups passes both
         # groups' validation (not sold, not held, lockable) and only explodes at ticket
-        # creation on unique_ticket_event_seat.
+        # creation on unique_ticket_event_seat. validate_cart_shape already rejects this
+        # cart-wide on every current path; kept as defense-in-depth (same message) for
+        # any future caller that reaches seat resolution without the cart-shape gate.
         if len(all_seat_ids) != len(set(all_seat_ids)):
-            raise HttpError(400, str(_("The same seat cannot be selected more than once.")))
+            raise HttpError(400, str(_("The same seat cannot be purchased twice.")))
         uc_sector_ids = {groups[i].tier.sector_id for i in uc_indices if groups[i].tier.sector_id is not None}
 
         # Single PK-ordered lock over every USER_CHOICE seat in the cart, matching

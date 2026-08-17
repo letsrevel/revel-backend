@@ -145,7 +145,12 @@ class CapacityMixin(BatchTicketContext):
         for group in groups:
             tier = group.tier
             if tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
-                continue  # Seated tiers are limited by available seats
+                # Seated tiers are limited by available seats and add nothing to
+                # `demand` — so a seated group sharing this sector is invisible to the
+                # GA check, and a mixed GA+seated cart can exceed `sector.capacity` by
+                # the seated group's size. Tolerated: materialized seats normally match
+                # the sector's capacity; revisit if a sector legitimately mixes both.
+                continue
             if not tier.sector_id or not tier.sector or not tier.sector.capacity:
                 continue  # No sector assigned, or no capacity limit set
             demand[tier.sector_id] = demand.get(tier.sector_id, 0) + len(group.items)

@@ -459,7 +459,7 @@ class TestSharedPoolCrossGroupExclusion:
             service.resolve_cart_seats([group_a, group_b])
 
         assert exc_info.value.status_code == 400
-        assert "more than once" in str(exc_info.value.message)
+        assert "purchased twice" in str(exc_info.value.message)
 
     def test_ba_group_excludes_later_uc_groups_seats(
         self,

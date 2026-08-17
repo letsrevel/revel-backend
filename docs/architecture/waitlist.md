@@ -284,7 +284,7 @@ enqueue_waitlist_processing(self.event.id)  # defensive nudge
 
 ### `BatchTicketService.claim_waitlist_offer_if_any()`
 
-Called inside `BatchTicketService._create_tickets()` after `bulk_create` (`src/events/service/batch_ticket_service.py:591-625`). Same shape as above. Fires on **PENDING-ticket creation** too (online checkout) because the PENDING ticket already counts toward capacity — without claiming the offer here, the user would consume two capacity slots.
+Called from `BatchTicketService.create_batch()` once per cart, after every group's tickets are written (`src/events/service/batch_ticket_service/service.py`), and explicitly from box-office door sales (`src/events/service/seating/box_office.py`). Same shape as above. Fires on **PENDING-ticket creation** too (online checkout) because the PENDING ticket already counts toward capacity — without claiming the offer here, the user would consume two capacity slots.
 
 ### Post-delete cleanup
 
@@ -427,9 +427,9 @@ Writers that follow this order:
 - `create_admin_offer` (`waitlist_service.py`)
 - `reactivate_admin_offer` (`waitlist_service.py`)
 - `EventManager._assert_capacity` (`event_manager/manager.py`)
-- `BatchTicketService._assert_event_capacity` (`batch_ticket_service.py`)
+- `BatchTicketService.assert_event_capacity` (`batch_ticket_service/capacity.py`)
 - `EventManager._claim_active_offer` (`event_manager/manager.py`)
-- `BatchTicketService.claim_waitlist_offer_if_any` (`batch_ticket_service.py`)
+- `BatchTicketService.claim_waitlist_offer_if_any` (`batch_ticket_service/tickets.py`)
 
 Because the Event row is the **single common ancestor** of all concurrent flows, locking it first means at most one writer can be inside the critical section per event at a time, and deadlocks between concurrent writers are impossible.
 
