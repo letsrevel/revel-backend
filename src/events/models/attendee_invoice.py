@@ -159,9 +159,9 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         """
         # ponytail: only the PDF template consults this flag. AttendeeInvoiceSchema and
         # the admin still present the scalar ``vat_rate`` unguarded, so an API/admin
-        # consumer can show a single rate a mixed cart never had. Upgrade path: expose
-        # this flag (or the per-rate line breakdown) on the schema before any frontend
-        # invoice view renders ``vat_rate``.
+        # consumer can show a single rate a mixed cart never had. Upgrade path (#897):
+        # expose this flag (or the per-rate line breakdown) on the schema before any
+        # frontend invoice view renders ``vat_rate``.
         items: list[InvoiceLineItemDict] = self.line_items
         return len({item["vat_rate"] for item in items}) > 1
 
