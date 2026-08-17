@@ -108,8 +108,10 @@ class TestLayeredLimits:
             CartGroup(tier=tier_b, items=[TicketPurchaseItem()] * 2),
         ]
         service = BatchTicketService(event, user=member_user, groups=groups)
-        with pytest.raises(HttpError):
+        with pytest.raises(HttpError) as exc:
             service.assert_per_user_limits(groups)  # direct call — engine still gated
+        assert exc.value.status_code == 400
+        assert "for this event" in str(exc.value.message)
 
     def test_tier_cap_still_binds(self, event: Event, tier_a: TicketTier, member_user: RevelUser) -> None:
         tier_a.max_tickets_per_user = 1
@@ -117,4 +119,5 @@ class TestLayeredLimits:
         service = BatchTicketService(event, tier_a, member_user)
         with pytest.raises(HttpError) as exc:
             service.create_batch([TicketPurchaseItem(), TicketPurchaseItem()])
+        assert exc.value.status_code == 400
         assert "for this tier" in str(exc.value.message)

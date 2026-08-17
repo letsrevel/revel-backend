@@ -12,14 +12,13 @@ from ninja.errors import HttpError
 from events.models import Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.capacity import CapacityMixin
-from events.service.batch_ticket_service.checkout import CheckoutMixin
+from events.service.batch_ticket_service.checkout import CheckoutMixin, ResolvedGroup
 from events.service.batch_ticket_service.context import CartGroup, assert_uniform_cart, validate_cart_shape
 from events.service.batch_ticket_service.eligibility import PurchaseEligibilityMixin
 from events.service.batch_ticket_service.seats import SeatResolutionMixin
 from events.service.discount_code_service import assert_min_purchase_amount
 from events.service.seating.pricing import (
     ZERO,
-    BatchPricing,
     build_batch_pricing,
     cart_is_certainly_free,
     should_stamp_price_paid,
@@ -130,7 +129,7 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
 
     def _price_cart(
         self, locked_tiers: list[TicketTier], seats_per_group: list[list[VenueSeat | None]]
-    ) -> tuple[list[BatchPricing], list[bool]]:
+    ) -> list[ResolvedGroup]:
         """Price every ticket in every group, and decide per group whether it stamps.
 
         Single source of truth for PWYC *and* discounts, and the only place that reads a
@@ -148,44 +147,47 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
             seats_per_group: Each group's resolved seats, in cart order.
 
         Returns:
-            Each group's price vector, and whether each group writes ``price_paid``.
+            One :class:`ResolvedGroup` per group, in cart order — the group with its
+            seats, locked tier, price vector and ``price_paid`` stamp flag.
 
         Raises:
             HttpError: 400 if the discountable total is below the code's minimum, or if
                 a seat is in a category the tier does not price.
         """
-        pricings: list[BatchPricing] = []
-        stamps: list[bool] = []
+        resolved: list[ResolvedGroup] = []
         for group, locked_tier, seats in zip(self.groups, locked_tiers, seats_per_group, strict=True):
             group_code = self._dc_for(locked_tier)
-            pricings.append(
-                build_batch_pricing(locked_tier, seats, pwyc_amount=group.pwyc_amount, discount_code=group_code)
-            )
-            # One authority for every writer (spec §5.5), per group. Computed ONCE and
-            # handed to every branch that stamps — a branch that recomputes, or silently
-            # drops it, is exactly how a category-priced tier ended up with NULL
-            # price_paid rows. The ONLINE branch is the sole exception and does not take
-            # it at all — a PERMANENT carve-out (#758): Payment.amount is authoritative
-            # there (and is *net* for a reverse-charge buyer). An ONLINE cart the buyer
-            # zeroed has no Payment row, so it reroutes to free and does stamp.
-            stamps.append(
-                should_stamp_price_paid(locked_tier, pwyc_amount=group.pwyc_amount, has_discount=group_code is not None)
+            # stamp: one authority for every writer (spec §5.5), per group. Computed ONCE
+            # and handed to every branch that stamps — a branch that recomputes, or
+            # silently drops it, is exactly how a category-priced tier ended up with NULL
+            # price_paid rows. The ONLINE branch is the sole exception and never reads
+            # it — a PERMANENT carve-out (#758): Payment.amount is authoritative there
+            # (and is *net* for a reverse-charge buyer). An ONLINE cart the buyer zeroed
+            # has no Payment row, so it reroutes to free and does stamp.
+            resolved.append(
+                ResolvedGroup(
+                    group=group,
+                    seats=seats,
+                    locked_tier=locked_tier,
+                    pricing=build_batch_pricing(
+                        locked_tier, seats, pwyc_amount=group.pwyc_amount, discount_code=group_code
+                    ),
+                    stamp=should_stamp_price_paid(
+                        locked_tier, pwyc_amount=group.pwyc_amount, has_discount=group_code is not None
+                    ),
+                )
             )
 
         if self.discount_code is not None:
             discountable_total = sum(
-                (
-                    pricing.gross_total
-                    for locked_tier, pricing in zip(locked_tiers, pricings, strict=True)
-                    if self._dc_for(locked_tier) is not None
-                ),
+                (rg.pricing.gross_total for rg in resolved if self._dc_for(rg.locked_tier) is not None),
                 ZERO,
             )
             assert_min_purchase_amount(self.discount_code, discountable_total)
 
-        return pricings, stamps
+        return resolved
 
-    def _reroutes_to_free(self, payment_method: str, pricings: list[BatchPricing]) -> bool:
+    def _reroutes_to_free(self, payment_method: str, resolved: list[ResolvedGroup]) -> bool:
         """Does the buyer's own input turn this ONLINE cart into a free one?
 
         All-or-nothing over the WHOLE cart: a cart mixing 0.00 and positive units stays
@@ -201,7 +203,7 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
 
         Args:
             payment_method: The cart's (uniform, locked) payment method.
-            pricings: Each group's price vector.
+            resolved: The cart's resolved groups.
 
         Returns:
             True when every line of every group is zero because the buyer moved the price.
@@ -211,7 +213,7 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         buyer_reduced_price = self.discount_code is not None or any(
             group.pwyc_amount is not None for group in self.groups
         )
-        all_lines = [line for pricing in pricings for line in pricing.lines]
+        all_lines = [line for rg in resolved for line in rg.pricing.lines]
         return buyer_reduced_price and bool(all_lines) and all(line.unit_price <= 0 for line in all_lines)
 
     @transaction.atomic
@@ -323,7 +325,7 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # lock over the cart's USER_CHOICE seats — see seats.py).
         seats_per_group = self.resolve_cart_seats(self.groups)
 
-        pricings, stamps = self._price_cart(locked_tiers, seats_per_group)
+        resolved = self._price_cart(locked_tiers, seats_per_group)
 
         # Log the batch purchase attempt for audit trail
         logger.info(
@@ -345,27 +347,27 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # misconfiguration, not a free tier — it keeps falling through to the 400 in
         # reserve_batch_payments.
         #
-        # ``stamps`` is carried into the reroute: there is no Payment row here to hold the
-        # amount instead, so a group the buyer DID move must record its 0.00 — dropping the
-        # flag left ``price_paid`` NULL, the positive claim that ``tier.price`` reconstructs
-        # the sale, on a ticket that cost 0.00 (spec §5.5). Threaded per group rather than
-        # forced True across the cart: the reroute is a cart-level decision, but the flag
-        # is a per-tier fact, and a group with no PWYC/discount input on a genuinely 0.00
-        # tier correctly keeps its NULL.
+        # ``ResolvedGroup.stamp`` is carried into the reroute: there is no Payment row here
+        # to hold the amount instead, so a group the buyer DID move must record its 0.00 —
+        # dropping the flag left ``price_paid`` NULL, the positive claim that ``tier.price``
+        # reconstructs the sale, on a ticket that cost 0.00 (spec §5.5). Threaded per group
+        # rather than forced True across the cart: the reroute is a cart-level decision, but
+        # the flag is a per-tier fact, and a group with no PWYC/discount input on a genuinely
+        # 0.00 tier correctly keeps its NULL.
         result: list[Ticket] | tuple[list[Ticket], UUID]
-        if self._reroutes_to_free(locked_payment_method, pricings):
-            result = self._free_checkout(self.groups, seats_per_group, locked_tiers, pricings, stamps)
+        if self._reroutes_to_free(locked_payment_method, resolved):
+            result = self._free_checkout(resolved)
         else:
             # Delegate to payment-specific method
             match locked_payment_method:
                 case TicketTier.PaymentMethod.ONLINE:
-                    result = self._online_checkout(self.groups, seats_per_group, locked_tiers, pricings, billing_info)
+                    result = self._online_checkout(resolved, billing_info)
                 case TicketTier.PaymentMethod.OFFLINE:
-                    result = self._offline_checkout(self.groups, seats_per_group, locked_tiers, pricings, stamps)
+                    result = self._offline_checkout(resolved)
                 case TicketTier.PaymentMethod.AT_THE_DOOR:
-                    result = self._at_the_door_checkout(self.groups, seats_per_group, locked_tiers, pricings, stamps)
+                    result = self._at_the_door_checkout(resolved)
                 case TicketTier.PaymentMethod.FREE:
-                    result = self._free_checkout(self.groups, seats_per_group, locked_tiers, pricings, stamps)
+                    result = self._free_checkout(resolved)
                 case _:
                     raise HttpError(400, str(_("Unknown payment method.")))
 

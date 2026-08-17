@@ -4,10 +4,9 @@ Each ``_*_checkout`` receives an already validated, seated and priced cart and
 decides only three things: the status the tickets get, whether Payment rows are
 created, and which side effects fire. ``create_batch`` picks the method.
 
-Every branch takes the cart as parallel per-group lists (groups, seats, locked
-tiers, pricings, and — except online — stamp flags), writes each group's tickets
-against its own locked tier, and moves each tier's ``quantity_sold`` by that
-group's count alone.
+Every branch takes the cart as one :class:`ResolvedGroup` per group, writes each
+group's tickets against its own locked tier, and moves each tier's
+``quantity_sold`` by that group's count alone.
 """
 
 import dataclasses
@@ -23,6 +22,24 @@ from events.service.seating.pricing import ZERO, BatchPricing, TicketPrice
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ResolvedGroup:
+    """One cart group after locking, seating and pricing — what checkout consumes.
+
+    ``_price_cart`` builds one per group, in cart order, so the per-group facts
+    travel together instead of as positionally-aligned parallel lists.
+    """
+
+    group: CartGroup
+    seats: list[VenueSeat | None]
+    locked_tier: TicketTier
+    pricing: BatchPricing
+    stamp: bool
+    """Whether this group's unit price is written to ``price_paid``. The ONLINE
+    branch never reads it — the PERMANENT #758 carve-out (Payment.amount is
+    authoritative there)."""
 
 
 class CheckoutMixin(TicketWriterMixin):
@@ -42,10 +59,7 @@ class CheckoutMixin(TicketWriterMixin):
 
     def _online_checkout(
         self,
-        groups: list[CartGroup],
-        seats_per_group: list[list[VenueSeat | None]],
-        locked_tiers: list[TicketTier],
-        pricings: list[BatchPricing],
+        resolved: list[ResolvedGroup],
         billing_info: "BuyerBillingInfoSchema | None" = None,
     ) -> tuple[list[Ticket], UUID]:
         """Reserve an online batch: PENDING tickets + PENDING Payment rows (#632).
@@ -57,10 +71,8 @@ class CheckoutMixin(TicketWriterMixin):
         already resolved before the lock in create_batch and is passed through.
 
         Args:
-            groups: The cart's per-tier groups, in cart order.
-            seats_per_group: Each group's resolved seats.
-            locked_tiers: Each group's locked tier.
-            pricings: Each group's price vector.
+            resolved: The cart's resolved groups, in cart order. The only branch
+                that ignores ``ResolvedGroup.stamp`` — see the field's docstring.
             billing_info: Optional buyer billing info for attendee invoicing.
 
         Returns:
@@ -75,22 +87,22 @@ class CheckoutMixin(TicketWriterMixin):
 
         tickets: list[Ticket] = []
         lines: list[TicketPrice] = []
-        for group, seats, locked_tier, pricing in zip(groups, seats_per_group, locked_tiers, pricings, strict=True):
+        for rg in resolved:
             # PENDING tickets; price_paid stays NULL online — PERMANENTLY (#758). Payment.amount is
             # authoritative (spec §5.5) and is net for a reverse-charge buyer, so stamping it would
             # make price_paid's meaning depend on the buyer's VAT status. Never pass stamp_price_paid.
             tickets.extend(
                 self.create_tickets(
-                    group.items,
-                    seats,
+                    rg.group.items,
+                    rg.seats,
                     Ticket.TicketStatus.PENDING,
-                    pricing.lines,
-                    tier=locked_tier,
-                    discount_code=self._dc_for(locked_tier),
+                    rg.pricing.lines,
+                    tier=rg.locked_tier,
+                    discount_code=self._dc_for(rg.locked_tier),
                 )
             )
-            lines.extend(pricing.lines)
-            self._bump_quantity_sold(locked_tier, len(group.items))
+            lines.extend(rg.pricing.lines)
+            self._bump_quantity_sold(rg.locked_tier, len(rg.group.items))
 
         # Create PENDING Payment rows for the reservation (no Stripe call). One
         # reservation covers the whole cart, so the tickets and lines go in flattened
@@ -109,103 +121,70 @@ class CheckoutMixin(TicketWriterMixin):
 
         return tickets, reservation_id
 
-    def _offline_checkout(
-        self,
-        groups: list[CartGroup],
-        seats_per_group: list[list[VenueSeat | None]],
-        locked_tiers: list[TicketTier],
-        pricings: list[BatchPricing],
-        stamps: list[bool],
-    ) -> list[Ticket]:
+    def _offline_checkout(self, resolved: list[ResolvedGroup]) -> list[Ticket]:
         """Handle offline checkout for batch tickets.
 
         Creates PENDING tickets that need manual confirmation.
 
         Args:
-            groups: The cart's per-tier groups, in cart order.
-            seats_per_group: Each group's resolved seats.
-            locked_tiers: Each group's locked tier.
-            pricings: Each group's price vector.
-            stamps: Whether each group's unit price is written to ``price_paid``.
+            resolved: The cart's resolved groups, in cart order.
 
         Returns:
             List of created PENDING tickets, in cart order.
         """
         tickets: list[Ticket] = []
-        for group, seats, locked_tier, pricing, stamp in zip(
-            groups, seats_per_group, locked_tiers, pricings, stamps, strict=True
-        ):
+        for rg in resolved:
             tickets.extend(
                 self.create_tickets(
-                    group.items,
-                    seats,
+                    rg.group.items,
+                    rg.seats,
                     Ticket.TicketStatus.PENDING,
-                    pricing.lines,
-                    tier=locked_tier,
-                    discount_code=self._dc_for(locked_tier),
-                    stamp_price_paid=stamp,
+                    rg.pricing.lines,
+                    tier=rg.locked_tier,
+                    discount_code=self._dc_for(rg.locked_tier),
+                    stamp_price_paid=rg.stamp,
                 )
             )
-            self._bump_quantity_sold(locked_tier, len(group.items))
+            self._bump_quantity_sold(rg.locked_tier, len(rg.group.items))
 
         # Trigger side effects that bulk_create doesn't handle — once for the whole cart
         self.trigger_bulk_create_side_effects(tickets)
 
         return tickets
 
-    def _at_the_door_checkout(
-        self,
-        groups: list[CartGroup],
-        seats_per_group: list[list[VenueSeat | None]],
-        locked_tiers: list[TicketTier],
-        pricings: list[BatchPricing],
-        stamps: list[bool],
-    ) -> list[Ticket]:
+    def _at_the_door_checkout(self, resolved: list[ResolvedGroup]) -> list[Ticket]:
         """Handle at-the-door checkout for batch tickets.
 
         Creates ACTIVE tickets immediately. AT_THE_DOOR represents a commitment
         to attend (pay at arrival), so tickets count toward attendee_count.
 
         Args:
-            groups: The cart's per-tier groups, in cart order.
-            seats_per_group: Each group's resolved seats.
-            locked_tiers: Each group's locked tier.
-            pricings: Each group's price vector.
-            stamps: Whether each group's unit price is written to ``price_paid``.
+            resolved: The cart's resolved groups, in cart order.
 
         Returns:
             List of created ACTIVE tickets, in cart order.
         """
         tickets: list[Ticket] = []
-        for group, seats, locked_tier, pricing, stamp in zip(
-            groups, seats_per_group, locked_tiers, pricings, stamps, strict=True
-        ):
+        for rg in resolved:
             tickets.extend(
                 self.create_tickets(
-                    group.items,
-                    seats,
+                    rg.group.items,
+                    rg.seats,
                     Ticket.TicketStatus.ACTIVE,
-                    pricing.lines,
-                    tier=locked_tier,
-                    discount_code=self._dc_for(locked_tier),
-                    stamp_price_paid=stamp,
+                    rg.pricing.lines,
+                    tier=rg.locked_tier,
+                    discount_code=self._dc_for(rg.locked_tier),
+                    stamp_price_paid=rg.stamp,
                 )
             )
-            self._bump_quantity_sold(locked_tier, len(group.items))
+            self._bump_quantity_sold(rg.locked_tier, len(rg.group.items))
 
         # Trigger side effects that bulk_create doesn't handle — once for the whole cart
         self.trigger_bulk_create_side_effects(tickets)
 
         return tickets
 
-    def _free_checkout(
-        self,
-        groups: list[CartGroup],
-        seats_per_group: list[list[VenueSeat | None]],
-        locked_tiers: list[TicketTier],
-        pricings: list[BatchPricing],
-        stamps: list[bool],
-    ) -> list[Ticket]:
+    def _free_checkout(self, resolved: list[ResolvedGroup]) -> list[Ticket]:
         """Handle free checkout for batch tickets.
 
         Creates ACTIVE tickets immediately.
@@ -224,32 +203,27 @@ class CheckoutMixin(TicketWriterMixin):
         the sale — records the 0.00 (spec §5.5).
 
         Args:
-            groups: The cart's per-tier groups, in cart order.
-            seats_per_group: Each group's resolved seats.
-            locked_tiers: Each group's locked tier.
-            pricings: Each group's price vector (all zero, or a zeroing discount).
-            stamps: Whether each group's ``price_paid`` is written at all.
+            resolved: The cart's resolved groups, in cart order (price vectors all
+                zero, or zeroed by a discount).
 
         Returns:
             List of created ACTIVE tickets, in cart order.
         """
         tickets: list[Ticket] = []
-        for group, seats, locked_tier, pricing, stamp in zip(
-            groups, seats_per_group, locked_tiers, pricings, stamps, strict=True
-        ):
-            lines = [dataclasses.replace(line, unit_price=ZERO) for line in pricing.lines]
+        for rg in resolved:
+            lines = [dataclasses.replace(line, unit_price=ZERO) for line in rg.pricing.lines]
             tickets.extend(
                 self.create_tickets(
-                    group.items,
-                    seats,
+                    rg.group.items,
+                    rg.seats,
                     Ticket.TicketStatus.ACTIVE,
                     lines,
-                    tier=locked_tier,
-                    discount_code=self._dc_for(locked_tier),
-                    stamp_price_paid=stamp,
+                    tier=rg.locked_tier,
+                    discount_code=self._dc_for(rg.locked_tier),
+                    stamp_price_paid=rg.stamp,
                 )
             )
-            self._bump_quantity_sold(locked_tier, len(group.items))
+            self._bump_quantity_sold(rg.locked_tier, len(rg.group.items))
 
         # Trigger side effects that bulk_create doesn't handle — once for the whole cart
         self.trigger_bulk_create_side_effects(tickets)
