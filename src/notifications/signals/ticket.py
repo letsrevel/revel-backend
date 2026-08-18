@@ -197,8 +197,17 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
     Fetches shared data (SiteSettings, staff) once instead of per-ticket.
 
     Args:
-        tickets: List of tickets created in the same batch (same event, tier, user)
+        tickets: List of tickets created in the same batch (same event and user; a
+            multi-tier cart (#846) means tiers MAY differ per ticket, so every
+            tier-derived value is read from ``ticket.tier`` inside the loop — only
+            the genuinely cart-wide data (SiteSettings, staff, event, and the
+            payment method, which ``validate_cart_shape`` keeps uniform) is hoisted)
     """
+    # Local import: ``events.service.batch_ticket_service.tickets`` imports this module
+    # at module level, so the events service layer is only reachable from inside the
+    # function body (same pattern as ``notifications.service.templates.ticket_templates``).
+    from events.service.seating.pricing import recorded_or_resolved_price
+
     if not tickets:
         return
 
@@ -224,10 +233,9 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
         "organization_id": str(event.organization_id),
         "organization_name": event.organization.name,
         "event_start": event.start.isoformat() if event.start else "",
-        "tier_name": first_ticket.tier.name,
-        "tier_price": str(first_ticket.tier.price),
+        # Uniform across the cart by construction (validate_cart_shape rejects a
+        # mixed-payment-method cart); every other tier-derived value is per-ticket.
         "payment_method": first_ticket.tier.payment_method,
-        "manual_payment_instructions": first_ticket.tier.manual_payment_instructions,
     }
 
     if event.location_maps_url:
@@ -238,13 +246,25 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
 
     # Send notifications for each ticket
     for ticket in tickets:
+        # What this ticket ACTUALLY cost, not the tier's list price: a PWYC amount,
+        # a discounted unit or a price-category seat all diverge from ``tier.price``,
+        # and the buyer's email must not quote a number they did not pay. Spec §5.5's
+        # read-side rule, via the same helper the refund ceiling and wallet passes use.
+        # Online carts never reach here (``action`` is None for them), so the
+        # ``Payment``-row carve-out that helper documents cannot apply.
+        ticket_price = recorded_or_resolved_price(ticket.tier, ticket.seat, ticket.price_paid)
         ticket_context = {
             **base_context,
             "ticket_id": str(ticket.id),
             "ticket_reference": str(ticket.id),
             "ticket_status": ticket.status,
             "quantity": 1,
-            "total_price": str(first_ticket.tier.price),
+            # Tier-derived: a multi-tier cart (#846) spans tiers, so each email
+            # must name ITS ticket's tier, price and payment instructions.
+            "tier_name": ticket.tier.name,
+            "tier_price": str(ticket_price),
+            "manual_payment_instructions": ticket.tier.manual_payment_instructions,
+            "total_price": str(ticket_price),
             "frontend_url": frontend_url,
         }
         if ticket.status == Ticket.TicketStatus.PENDING:

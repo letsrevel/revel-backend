@@ -277,7 +277,7 @@ def _resolve_preview_seats(tier: "TicketTier", item: "VATPreviewItemSchema") -> 
       is uniformly priced by construction (one zone per request), which is exactly why it
       is representable without seats. The instance is never saved and never read for
       anything but its price category. Any ``seat_ids`` on such a line are ignored, for
-      the same reason checkout's ``resolve_seats`` ignores them: the picker assigns the
+      the same reason checkout's ``resolve_cart_seats`` ignores them: the picker assigns the
       seats, not the buyer.
 
     Args:
@@ -305,7 +305,7 @@ def _resolve_preview_seats(tier: "TicketTier", item: "VATPreviewItemSchema") -> 
     if item.seat_ids and item.price_category_id is not None:
         raise HttpError(400, str(_("Provide either seat_ids or price_category_id, not both.")))
 
-    # Asked for EVERY mode, exactly as checkout's `resolve_seats` does. Asking it only when
+    # Asked for EVERY mode, exactly as checkout's `resolve_cart_seats` does. Asking it only when
     # `seat_ids` was empty let a best-available line smuggle itself past the zone rule by
     # sending seats: the preview priced those seats and quoted a total, while the same
     # intent at checkout (which has no seat_ids to send) was refused.

@@ -56,8 +56,7 @@ class TestResolveTicketAmountsVirtual:
     ) -> None:
         """Virtual + cross-border EU B2B with validated VAT ID -> net price, RC."""
         amounts, buyer_vat_validated = _resolve_ticket_amounts(
-            [Decimal("12.20")],
-            tier=paid_ticket_tier,
+            [(Decimal("12.20"), paid_ticket_tier)],
             org=stripe_connected_organization,
             buyer_vat_context=EU_B2B_CONTEXT,
             is_virtual=True,
@@ -76,8 +75,7 @@ class TestResolveTicketAmountsVirtual:
     ) -> None:
         """The identical buyer context on a physical event pays gross at 22% (#868)."""
         amounts, buyer_vat_validated = _resolve_ticket_amounts(
-            [Decimal("12.20")],
-            tier=paid_ticket_tier,
+            [(Decimal("12.20"), paid_ticket_tier)],
             org=stripe_connected_organization,
             buyer_vat_context=EU_B2B_CONTEXT,
             is_virtual=False,
@@ -95,8 +93,7 @@ class TestResolveTicketAmountsVirtual:
     ) -> None:
         """Virtual + non-EU buyer -> net price, no VAT, no reverse charge."""
         amounts, _ = _resolve_ticket_amounts(
-            [Decimal("12.20")],
-            tier=paid_ticket_tier,
+            [(Decimal("12.20"), paid_ticket_tier)],
             org=stripe_connected_organization,
             buyer_vat_context=BuyerVATContext(buyer_country="US", buyer_vat_validated=False),
             is_virtual=True,
@@ -111,8 +108,7 @@ class TestResolveTicketAmountsVirtual:
     ) -> None:
         """Virtual + cross-border EU B2C -> gross at the seller's rate (interim)."""
         amounts, _ = _resolve_ticket_amounts(
-            [Decimal("12.20")],
-            tier=paid_ticket_tier,
+            [(Decimal("12.20"), paid_ticket_tier)],
             org=stripe_connected_organization,
             buyer_vat_context=BuyerVATContext(buyer_country="DE", buyer_vat_validated=False),
             is_virtual=True,
@@ -134,7 +130,6 @@ class TestReserveBatchPaymentsVirtual:
         rid = uuid4()
         stripe_service.reserve_batch_payments(
             event=event,
-            tier=tier,
             user=user,
             tickets=[ticket],
             reservation_id=rid,

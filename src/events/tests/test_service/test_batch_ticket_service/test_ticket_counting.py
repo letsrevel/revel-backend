@@ -54,7 +54,7 @@ class TestGetUserTicketCount:
     ) -> None:
         """Should return 0 when user has no tickets."""
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_user_ticket_count() == 0
+        assert service.get_user_ticket_count(tier) == 0
 
     def test_counts_pending_tickets(
         self,
@@ -71,7 +71,7 @@ class TestGetUserTicketCount:
             guest_name="Guest 1",
         )
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_user_ticket_count() == 1
+        assert service.get_user_ticket_count(tier) == 1
 
     def test_counts_active_tickets(
         self,
@@ -88,7 +88,7 @@ class TestGetUserTicketCount:
             guest_name="Guest 1",
         )
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_user_ticket_count() == 1
+        assert service.get_user_ticket_count(tier) == 1
 
     def test_excludes_cancelled_tickets(
         self,
@@ -105,7 +105,7 @@ class TestGetUserTicketCount:
             guest_name="Guest 1",
         )
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_user_ticket_count() == 0
+        assert service.get_user_ticket_count(tier) == 0
 
     def test_counts_only_same_tier(
         self,
@@ -129,7 +129,7 @@ class TestGetUserTicketCount:
             guest_name="Guest 1",
         )
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_user_ticket_count() == 0
+        assert service.get_user_ticket_count(tier) == 0
 
 
 class TestGetRemainingTickets:
@@ -168,7 +168,7 @@ class TestGetRemainingTickets:
     ) -> None:
         """Should return full max when user has no tickets."""
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_remaining_tickets() == 3
+        assert service.get_remaining_tickets(tier) == 3
 
     def test_subtracts_existing_tickets(
         self,
@@ -185,7 +185,7 @@ class TestGetRemainingTickets:
             guest_name="Guest 1",
         )
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_remaining_tickets() == 2
+        assert service.get_remaining_tickets(tier) == 2
 
     def test_returns_none_when_unlimited(
         self,
@@ -197,19 +197,24 @@ class TestGetRemainingTickets:
         event.max_tickets_per_user = None
         event.save()
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_remaining_tickets() is None
+        assert service.get_remaining_tickets(tier) is None
 
-    def test_respects_tier_override(
+    def test_tier_cap_and_event_cap_are_independent_layers(
         self,
         event: Event,
         tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """Should use tier-level override when set."""
+        """A tier-level cap no longer overrides the event cap — both apply (#846 Decision 4).
+
+        Old semantics: a tier override REPLACED the event's per-user value, so a
+        tier cap of 10 against event max=3 returned 10. Layered semantics: the two
+        are independent ceilings, so the result is min(10, 3) = 3.
+        """
         tier.max_tickets_per_user = 10
         tier.save()
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_remaining_tickets() == 10
+        assert service.get_remaining_tickets(tier) == 3
 
     def test_returns_zero_not_negative(
         self,
@@ -228,7 +233,7 @@ class TestGetRemainingTickets:
                 guest_name=f"Guest {i}",
             )
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_remaining_tickets() == 0
+        assert service.get_remaining_tickets(tier) == 0
 
     def test_respects_event_capacity_parameter(
         self,
@@ -239,7 +244,7 @@ class TestGetRemainingTickets:
         """Should limit by event capacity when passed as parameter."""
         # Per-user limit is 3, but event only has 2 spots left
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_remaining_tickets(event_capacity_remaining=2) == 2
+        assert service.get_remaining_tickets(tier, event_capacity_remaining=2) == 2
 
     def test_returns_min_of_user_and_event_limits(
         self,
@@ -252,7 +257,7 @@ class TestGetRemainingTickets:
         # Event: 10 remaining (passed as parameter)
         service = BatchTicketService(event, tier, member_user)
         # min(3, 10) = 3
-        assert service.get_remaining_tickets(event_capacity_remaining=10) == 3
+        assert service.get_remaining_tickets(tier, event_capacity_remaining=10) == 3
 
     def test_event_capacity_as_most_restrictive(
         self,
@@ -264,7 +269,7 @@ class TestGetRemainingTickets:
         # Per-user: 3
         # Event: only 1 spot left
         service = BatchTicketService(event, tier, member_user)
-        assert service.get_remaining_tickets(event_capacity_remaining=1) == 1
+        assert service.get_remaining_tickets(tier, event_capacity_remaining=1) == 1
 
     def test_unlimited_when_all_limits_none(
         self,
@@ -280,7 +285,7 @@ class TestGetRemainingTickets:
 
         service = BatchTicketService(event, tier, member_user)
         # No event_capacity_remaining passed = unlimited
-        assert service.get_remaining_tickets() is None
+        assert service.get_remaining_tickets(tier) is None
 
     def test_does_not_include_tier_capacity(
         self,
@@ -301,4 +306,4 @@ class TestGetRemainingTickets:
         service = BatchTicketService(event, tier, member_user)
         # Per-user limit is 3, user has 0 tickets, so remaining = 3
         # Tier capacity is NOT factored in here
-        assert service.get_remaining_tickets() == 3
+        assert service.get_remaining_tickets(tier) == 3

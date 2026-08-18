@@ -185,6 +185,72 @@ def test_cap_counts_existing_holds_but_not_reacquired_seats(
     assert result.conflicts == [seats[2].id]
 
 
+def test_cap_falls_back_to_seated_tier_caps(seated_event: tuple[Event, list[VenueSeat]], revel_user: RevelUser) -> None:
+    # Event cap NULL (fixture): the hold cap is the sum of the seated tiers' caps.
+    event, seats = seated_event
+    sector = seats[0].sector
+    TicketTier.objects.create(
+        event=event,
+        name="UC",
+        sector=sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+        payment_method=TicketTier.PaymentMethod.FREE,
+        max_tickets_per_user=1,
+    )
+    TicketTier.objects.create(
+        event=event,
+        name="BA",
+        sector=sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        payment_method=TicketTier.PaymentMethod.FREE,
+        max_tickets_per_user=2,
+    )
+    result = holds_service.acquire_seats(event, [s.id for s in seats[:4]], user=revel_user, guest_session=None)
+    assert result.conflict_reason == "capacity"
+    result = holds_service.acquire_seats(event, [s.id for s in seats[:3]], user=revel_user, guest_session=None)
+    assert result.conflicts == []
+
+
+def test_cap_fallback_ignores_ga_tiers(seated_event: tuple[Event, list[VenueSeat]], revel_user: RevelUser) -> None:
+    # A GA tier's cap grants no seats: only seated tiers bound the hold cap.
+    event, seats = seated_event
+    TicketTier.objects.create(
+        event=event,
+        name="GA",
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.NONE,
+        payment_method=TicketTier.PaymentMethod.FREE,
+        max_tickets_per_user=5,
+    )
+    TicketTier.objects.create(
+        event=event,
+        name="UC",
+        sector=seats[0].sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+        payment_method=TicketTier.PaymentMethod.FREE,
+        max_tickets_per_user=2,
+    )
+    result = holds_service.acquire_seats(event, [s.id for s in seats[:3]], user=revel_user, guest_session=None)
+    assert result.conflict_reason == "capacity"
+
+
+def test_cap_fallback_uncapped_seated_tier_uses_default(
+    seated_event: tuple[Event, list[VenueSeat]], revel_user: RevelUser
+) -> None:
+    # Any uncapped seated tier means "unlimited" purchases: fall back to DEFAULT_MAX_HELD_SEATS.
+    event, seats = seated_event
+    TicketTier.objects.create(
+        event=event,
+        name="UC",
+        sector=seats[0].sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+        payment_method=TicketTier.PaymentMethod.FREE,
+        max_tickets_per_user=None,
+    )
+    result = holds_service.acquire_seats(event, [s.id for s in seats], user=revel_user, guest_session=None)
+    assert result.conflicts == []
+    assert SeatHold.objects.active().filter(event=event).count() == len(seats)
+
+
 def test_ticketed_seat_conflicts(
     seated_event: tuple[Event, list[VenueSeat]],
     revel_user: RevelUser,

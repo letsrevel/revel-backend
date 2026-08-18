@@ -43,9 +43,9 @@ stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined
 def _release_batch_tier_capacity(ticket_ids: list[UUID]) -> None:
     """Decrement ``quantity_sold`` per tier for the given tickets (grouped per tier_id).
 
-    A batch purchase puts every ticket on one tier, but a series-pass checkout spans
-    one tier per covered event — decrementing a single tier by the whole batch count
-    would over-release it (possibly below zero) and leak the others.
+    A batch purchase can span several tiers (a multi-tier cart), and a series-pass
+    checkout spans one tier per covered event — decrementing a single tier by the
+    whole batch count would over-release it (possibly below zero) and leak the others.
 
     The decrement is floored at zero (``Greatest``): if another route already
     released part of the batch, an unguarded decrement could cross zero and blow
@@ -64,7 +64,8 @@ def _release_batch_tier_capacity(ticket_ids: list[UUID]) -> None:
             "tier_id", flat=True
         )
     )
-    for tier_id, count in tickets_per_tier.items():
+    # Sorted for a deterministic tier lock order across concurrent releases.
+    for tier_id, count in sorted(tickets_per_tier.items()):
         TicketTier.objects.filter(pk=tier_id).update(quantity_sold=Greatest(F("quantity_sold") - count, Value(0)))
 
 

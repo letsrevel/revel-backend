@@ -15,7 +15,9 @@ from ninja_jwt.token_blacklist.models import BlacklistedToken
 from accounts.models import RevelUser
 from events import schema
 from events.models import Event, EventRSVP, TicketTier
+from events.models.discount_code import DiscountCode
 from events.service import guest as guest_service
+from events.service.batch_ticket_service import CartGroup
 from events.service.event_manager import UserIsIneligibleError
 
 pytestmark = pytest.mark.django_db
@@ -337,11 +339,12 @@ class TestGuestServiceLayer:
     def test_handle_guest_ticket_checkout_offline(
         self, mock_send_email: Mock, guest_event_with_tickets: Event, offline_tier: TicketTier
     ) -> None:
-        """Test handle_guest_ticket_checkout for offline payment."""
+        """Test handle_guest_ticket_checkout for offline payment (cart form, #846)."""
         # Act
         tickets = [schema.TicketPurchaseItem(guest_name="Offline Test")]
+        group = CartGroup(tier=offline_tier, items=tickets)
         result = guest_service.handle_guest_ticket_checkout(
-            guest_event_with_tickets, offline_tier, "offline@test.com", "Offline", "Test", tickets
+            guest_event_with_tickets, [group], "offline@test.com", "Offline", "Test"
         )
 
         # Assert
@@ -350,15 +353,90 @@ class TestGuestServiceLayer:
         assert result.checkout_url is None
         mock_send_email.assert_called_once()
 
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_handle_guest_ticket_checkout_rejects_oversized_cart(
+        self, mock_send_email: Mock, guest_event_with_tickets: Event, offline_tier: TicketTier
+    ) -> None:
+        """A cart whose confirmation JWT would blow past the URL budget is a 400, not an email.
+
+        The non-online branch serializes the WHOLE cart into the emailed link's
+        token; a wide cart of long holder names mints a token mail clients and
+        proxies truncate, so the buyer would get a 200 and a dead link. The guard
+        must fire BEFORE the confirmation task is queued.
+        """
+        items = [schema.TicketPurchaseItem(guest_name="N" * 255) for _ in range(50)]
+        group = CartGroup(tier=offline_tier, items=items)
+
+        with pytest.raises(HttpError) as exc_info:
+            guest_service.handle_guest_ticket_checkout(
+                guest_event_with_tickets, [group], "biggie@test.com", "Big", "Cart"
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "too large" in str(exc_info.value.message)
+        mock_send_email.assert_not_called()
+
+    def test_handle_guest_ticket_checkout_large_cart_with_discount(
+        self, guest_event_with_tickets: Event, online_tier: TicketTier
+    ) -> None:
+        """A >50-ticket legacy cart with a discount code must not 500 (#893 review).
+
+        The deprecated single-tier guest payload has no upper bound on ``tickets``,
+        but the discount step used to re-validate the cart through the wire
+        schema's 50-item cap — turning such carts into an unhandled pydantic
+        ValidationError instead of a checkout.
+        """
+        guest_event_with_tickets.max_tickets_per_user = None
+        guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
+        DiscountCode.objects.create(
+            code="BIG10",
+            organization=guest_event_with_tickets.organization,
+            discount_type=DiscountCode.DiscountType.PERCENTAGE,
+            discount_value=Decimal("10.00"),
+            currency="EUR",
+            is_active=True,
+            max_uses_per_user=100,
+        )
+        items = [schema.TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(51)]
+        group = CartGroup(tier=online_tier, items=items)
+
+        result = guest_service.handle_guest_ticket_checkout(
+            guest_event_with_tickets,
+            [group],
+            "bigdiscount@test.com",
+            "Big",
+            "Discount",
+            discount_code="BIG10",
+        )
+
+        assert result.requires_payment is True
+        assert isinstance(result.reservation_id, UUID)
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_handle_guest_ticket_checkout_ordinary_cart_is_unaffected(
+        self, mock_send_email: Mock, guest_event_with_tickets: Event, offline_tier: TicketTier
+    ) -> None:
+        """A realistic multi-ticket cart stays comfortably under the token ceiling."""
+        items = [schema.TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(6)]
+        group = CartGroup(tier=offline_tier, items=items)
+
+        result = guest_service.handle_guest_ticket_checkout(
+            guest_event_with_tickets, [group], "normal@test.com", "Normal", "Cart"
+        )
+
+        assert result.message is not None
+        mock_send_email.assert_called_once()
+
     def test_handle_guest_ticket_checkout_online(
         self, guest_event_with_tickets: Event, online_tier: TicketTier
     ) -> None:
         """Online guest checkout should reserve (reservation_id, no checkout_url) without calling Stripe (#632)."""
         # Act
         tickets = [schema.TicketPurchaseItem(guest_name="Stripe Test")]
+        group = CartGroup(tier=online_tier, items=tickets)
         with patch("stripe.checkout.Session.create") as mock_stripe:
             result = guest_service.handle_guest_ticket_checkout(
-                guest_event_with_tickets, online_tier, "stripe@test.com", "Stripe", "Test", tickets
+                guest_event_with_tickets, [group], "stripe@test.com", "Stripe", "Test"
             )
             mock_stripe.assert_not_called()
 
@@ -374,15 +452,14 @@ class TestGuestServiceLayer:
         """Test that PWYC amount validation works in service layer."""
         # Act & Assert
         tickets = [schema.TicketPurchaseItem(guest_name="Test User")]
+        group = CartGroup(tier=pwyc_tier, items=tickets, pwyc_amount=Decimal("1.00"))  # Below min of 5.00
         with pytest.raises(Exception) as exc_info:
             guest_service.handle_guest_ticket_checkout(
                 guest_event_with_tickets,
-                pwyc_tier,
+                [group],
                 "test@test.com",
                 "Test",
                 "User",
-                tickets,
-                pwyc_amount=Decimal("1.00"),  # Below min of 5.00
             )
         assert "at least" in str(exc_info.value).lower()
 
@@ -392,15 +469,14 @@ class TestGuestServiceLayer:
         """Test that PWYC max validation works in service layer."""
         # Act & Assert
         tickets = [schema.TicketPurchaseItem(guest_name="Test User")]
+        group = CartGroup(tier=pwyc_tier, items=tickets, pwyc_amount=Decimal("100.00"))  # Above max of 50.00
         with pytest.raises(Exception) as exc_info:
             guest_service.handle_guest_ticket_checkout(
                 guest_event_with_tickets,
-                pwyc_tier,
+                [group],
                 "test@test.com",
                 "Test",
                 "User",
-                tickets,
-                pwyc_amount=Decimal("100.00"),  # Above max of 50.00
             )
         assert "at most" in str(exc_info.value).lower()
 

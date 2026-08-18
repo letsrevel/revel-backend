@@ -250,9 +250,11 @@ how it survives guest checkout across devices — is covered in `buyer-experienc
 Seat assignment is layered on top of the ticket tier, not a replacement for it — every
 other tier feature organizers already rely on keeps working unchanged:
 
-- **Quantity caps** (`total_quantity`) and **per-user limits** (`max_tickets_per_user`,
-  overridable per tier) still gate how many tickets of a seated tier can be sold. The cap
-  is per *tier*, spanning all of its zones — see
+- **Quantity caps** (`total_quantity`) and **per-user limits** (`max_tickets_per_user`)
+  still gate how many tickets of a seated tier can be sold. The limits are layered, not
+  overriding: the event-level cap is a cross-tier total, and a tier-level cap is an
+  independent per-tier ceiling on top of it (null = no per-tier cap). Quantity caps are
+  per *tier*, spanning all of its zones — see
   [per-zone capacity](#per-zone-capacity-give-the-zone-its-own-tier) for the one-tier-per-
   capped-zone pattern.
 - **Sales windows** (`sales_start_at` / `sales_end_at`) still gate *when* a tier is

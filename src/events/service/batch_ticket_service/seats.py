@@ -7,15 +7,17 @@ inside a savepoint, and the buyer's own holds are consumed on success.
 
 from uuid import UUID
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events.models import EventSeatOverride, SeatHold, Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
-from events.service.batch_ticket_service.context import BatchTicketContext
+from events.service.batch_ticket_service.context import BatchTicketContext, CartGroup
 from events.service.seating import holds as holds_service
 from events.service.seating.pick import resolve_requested_zone
+
+_DEADLOCK_SQLSTATE = "40P01"
 
 
 class _SeatConflictError(Exception):
@@ -28,46 +30,62 @@ class _SeatConflictError(Exception):
 
 
 class SeatResolutionMixin(BatchTicketContext):
-    """Resolve the cart's seats according to the tier's ``seat_assignment_mode``."""
+    """Resolve the cart's seats, per group, according to each group's ``seat_assignment_mode``.
+
+    Entry point is ``resolve_cart_seats``, which locks every USER_CHOICE seat across
+    ALL groups in a single PK-ordered query before validating each group's picks —
+    two tiers sharing a sector, locked per-group instead, would lock-order-invert
+    against a concurrent cart naming the same two tiers in the opposite order.
+
+    A mixed USER_CHOICE + BEST_AVAILABLE cart still widens the documented BA deadlock
+    window (final-review I4): the UC lock is held for the rest of the transaction
+    while each BA group runs its own pick/lock rounds, so a concurrent cart taking
+    those same seats in the other order can still deadlock. Postgres picks a victim
+    and raises SQLSTATE ``40P01``; ``resolve_cart_seats`` maps that to a retryable
+    409 ("please try again") instead of letting it surface as a 500.
+    """
 
     def _resolve_seats_none(self, count: int) -> list[VenueSeat | None]:
         """No seat assignment (GA/standing)."""
         return [None] * count
 
-    def _resolve_seats_user_choice(self, items: list[TicketPurchaseItem]) -> list[VenueSeat]:
-        """Validate and resolve user-selected seats.
+    def _resolve_seats_user_choice(
+        self, items: list[TicketPurchaseItem], tier: TicketTier, locked: dict[UUID, VenueSeat]
+    ) -> list[VenueSeat]:
+        """Validate this group's selected seats against the cart-wide locked seat map.
+
+        The lock itself already happened — PK-ordered, across every USER_CHOICE seat
+        in the whole cart — in ``resolve_cart_seats`` (the cross-group deadlock fix,
+        see the class docstring); this only validates THIS group's ids against that
+        shared, already-locked map.
 
         Args:
-            items: List of ticket purchase items with seat_id.
+            items: This group's ticket purchase items with seat_id. The caller
+                (``resolve_cart_seats``) has already rejected a missing seat_id for
+                any USER_CHOICE group before building the shared lock, so ``None``
+                is not expected here in practice.
+            tier: This group's tier — the sector its seats must belong to.
+            locked: Every USER_CHOICE seat in the cart, keyed by id, already locked
+                by ``resolve_cart_seats``'s single cross-group query.
 
         Returns:
             List of VenueSeat objects in the same order as items.
 
         Raises:
-            HttpError: If any seat is invalid or unavailable.
+            HttpError: If any seat is invalid, in the wrong sector, or unavailable.
         """
         seat_ids = [item.seat_id for item in items]
 
-        # All seats must be specified for USER_CHOICE mode
-        if None in seat_ids:
-            raise HttpError(
-                400,
-                str(_("Seat selection is required for this ticket tier.")),
-            )
+        # Every requested id must be in the shared lock AND belong to this group's
+        # sector. Matched off the DISTINCT ids, so a duplicate id within one group
+        # still fails the count check below — exactly like the old id__in query,
+        # which returned one DB row per distinct id, not one per request.
+        distinct_ids = {sid for sid in seat_ids if sid is not None}
+        matched = {
+            sid: locked[sid] for sid in distinct_ids if sid in locked and locked[sid].sector_id == tier.sector_id
+        }
 
-        # Lock and fetch the requested seats, in PK order to match the global
-        # seat-lock protocol (holds/overrides), avoiding cross-path deadlocks.
-        seats = list(
-            VenueSeat.objects.filter(
-                id__in=seat_ids,
-                sector_id=self.tier.sector_id,
-                is_active=True,
-            )
-            .order_by("pk")
-            .select_for_update()
-        )
-
-        if len(seats) != len(seat_ids):
+        if len(matched) != len(seat_ids):
             raise HttpError(
                 400,
                 str(_("One or more selected seats are invalid or not in the correct sector.")),
@@ -91,13 +109,12 @@ class SeatResolutionMixin(BatchTicketContext):
 
         # Holds are advisory: reject seats live-held by ANOTHER identity, consume our own
         try:
-            self._verify_and_consume_holds([s.id for s in seats])
+            self._verify_and_consume_holds(list(matched.keys()))
         except holds_service.SeatHoldConflictError:
             raise HttpError(409, str(_("One or more selected seats are held by another buyer."))) from None
 
         # Return seats in the same order as requested
-        seat_map = {s.id: s for s in seats}
-        return [seat_map[sid] for sid in seat_ids if sid is not None]
+        return [matched[sid] for sid in seat_ids if sid is not None]
 
     def _verify_and_consume_holds(self, seat_ids: list[UUID]) -> None:
         """Reject seats live-held by another identity; delete the buyer's own holds.
@@ -160,7 +177,9 @@ class SeatResolutionMixin(BatchTicketContext):
         id_order = {sid: i for i, sid in enumerate(picked_ids)}
         return sorted(seats, key=lambda s: id_order[s.id])
 
-    def _try_consume_held_block(self, count: int, zone_id: UUID | None) -> list[VenueSeat] | None:
+    def _try_consume_held_block(
+        self, count: int, zone_id: UUID | None, tier: TicketTier, cart_assigned: set[UUID]
+    ) -> list[VenueSeat] | None:
         """Consume the buyer's own held seats directly instead of re-running the picker.
 
         A buyer who pre-held a block (e.g. via POST /seating/holds/best-available)
@@ -194,6 +213,10 @@ class SeatResolutionMixin(BatchTicketContext):
         Args:
             count: Number of seats the cart needs.
             zone_id: The resolved request zone, or None for the whole sector.
+            tier: The group's tier — the sector its held seat pool is drawn from.
+            cart_assigned: Seats already claimed by other groups of THIS cart —
+                never consumable here, whatever the buyer holds (see
+                ``_resolve_cart_seats``).
 
         Returns:
             The seats to assign, or None to fall through to the normal picker:
@@ -201,17 +224,19 @@ class SeatResolutionMixin(BatchTicketContext):
             seat conflicts post-lock (ticketed/overridden/deactivated/sniped) —
             the savepoint rollback releases the locks and restores the holds.
         """
-        if not self.tier.sector_id:
+        if not tier.sector_id:
             return None
         owner_q = SeatHold.owner_q(None if self.guest_session else self.user, self.guest_session)
-        qs = SeatHold.objects.active().filter(owner_q, event=self.event, seat__sector_id=self.tier.sector_id)
+        qs = SeatHold.objects.active().filter(owner_q, event=self.event, seat__sector_id=tier.sector_id)
         if zone_id is not None:
             qs = qs.filter(seat__default_price_category_id=zone_id)
-        held_ids = list(
-            qs.order_by("seat__sector__display_order", "seat__row_order", "seat__adjacency_index").values_list(
-                "seat_id", flat=True
-            )
-        )
+        held_ids = [
+            sid
+            for sid in qs.order_by(
+                "seat__sector__display_order", "seat__row_order", "seat__adjacency_index"
+            ).values_list("seat_id", flat=True)
+            if sid not in cart_assigned
+        ]
         if len(held_ids) < count:
             return None
         try:
@@ -220,7 +245,9 @@ class SeatResolutionMixin(BatchTicketContext):
         except _SeatConflictError:
             return None
 
-    def _resolve_seats_best_available(self, count: int, zone_id: UUID | None) -> list[VenueSeat]:
+    def _resolve_seats_best_available(
+        self, count: int, zone_id: UUID | None, tier: TicketTier, accessible_required: bool, cart_assigned: set[UUID]
+    ) -> list[VenueSeat]:
         """Adjacency-aware assignment: optimistic pick, then lock + verify the chosen seats only.
 
         When the buyer already holds enough seats in the requested zone, the exact
@@ -243,6 +270,17 @@ class SeatResolutionMixin(BatchTicketContext):
         Args:
             count: Number of seats to assign.
             zone_id: The resolved request zone, or None for the tier's whole sector.
+            tier: The group's tier — sector and candidate pool.
+            accessible_required: Whether the whole batch must draw from the
+                accessible seat pool (relaxed contiguity, #726).
+            cart_assigned: Seats already claimed by other groups of THIS cart.
+                Excluded from the candidate pool and from hold consumption: an
+                earlier group's seats are not yet sold or held, and this
+                transaction's own row locks don't conflict with themselves, so
+                without the exclusion two groups sharing a sector/zone would
+                deterministically pick the same block (same candidates, same
+                seeded tiebreak) and violate ``unique_ticket_event_seat`` at
+                ticket creation.
 
         Returns:
             List of assigned VenueSeat objects in picked (adjacent) order.
@@ -253,7 +291,7 @@ class SeatResolutionMixin(BatchTicketContext):
         from events.service.seating.best_available import pick_best_available
         from events.service.seating.pick import load_candidates
 
-        if (held := self._try_consume_held_block(count, zone_id)) is not None:
+        if (held := self._try_consume_held_block(count, zone_id, tier, cart_assigned)) is not None:
             return held
 
         for _attempt in range(3):
@@ -261,15 +299,15 @@ class SeatResolutionMixin(BatchTicketContext):
             # present, IS the hold identity — the buyer's own holds stay candidates.
             candidates = load_candidates(
                 self.event,
-                self.tier,
-                exclude=set(),
+                tier,
+                exclude=cart_assigned,
                 zone_id=zone_id,
                 hold_owner_user=None if self.guest_session else self.user,
                 hold_owner_guest_session=self.guest_session,
             )
-            picked_ids = pick_best_available(candidates, count, accessible_required=self.accessible_required)
+            picked_ids = pick_best_available(candidates, count, accessible_required=accessible_required)
             if not picked_ids:
-                if self.accessible_required:
+                if accessible_required:
                     raise HttpError(
                         409, str(_("Not enough accessible seats available — please contact the organizer."))
                     )
@@ -281,34 +319,135 @@ class SeatResolutionMixin(BatchTicketContext):
                 continue
         raise HttpError(409, str(_("Could not secure adjacent seats — please try again.")))
 
-    def resolve_seats(self, items: list[TicketPurchaseItem]) -> list[VenueSeat | None]:
-        """Resolve seats based on the tier's seat assignment mode.
+    def resolve_cart_seats(self, groups: list[CartGroup]) -> list[list[VenueSeat | None]]:
+        """Resolve the cart's seats, mapping a Postgres deadlock to a retryable 409.
+
+        Thin wrapper over :meth:`_resolve_cart_seats` (which does the actual work and
+        documents it): a mixed UC+BA cart can still deadlock against a concurrent cart
+        (class docstring), and the losing transaction's SQLSTATE ``40P01`` must reach
+        the buyer as the documented retryable 409, not a 500. Any other
+        ``OperationalError`` propagates untouched.
 
         Args:
-            items: List of ticket purchase items.
+            groups: The cart's per-tier groups, in cart order.
 
         Returns:
-            List of VenueSeat objects (or None for NONE mode).
+            Per-group seat lists, positionally aligned with ``groups[i].items``.
 
         Raises:
-            HttpError: If seat resolution fails.
-            InvalidZoneSelectionError: 400 if the requested zone is unusable on this
-                tier — validated for EVERY mode, so a zone silently ignored by a
-                non-best-available tier is impossible.
+            HttpError: 409 on deadlock; otherwise whatever ``_resolve_cart_seats`` raises.
         """
-        mode = self.tier.seat_assignment_mode
-        zone_id = resolve_requested_zone(self.tier, self.price_category_id)
+        try:
+            return self._resolve_cart_seats(groups)
+        except OperationalError as exc:
+            # psycopg3 exposes the SQLSTATE as ``sqlstate``; psycopg2 called it ``pgcode``.
+            cause = exc.__cause__
+            if _DEADLOCK_SQLSTATE not in {getattr(cause, "sqlstate", None), getattr(cause, "pgcode", None)}:
+                raise
+            raise HttpError(409, str(_("Could not secure adjacent seats — please try again."))) from exc
 
-        if mode == TicketTier.SeatAssignmentMode.NONE:
-            return self._resolve_seats_none(len(items))
+    def _resolve_cart_seats(self, groups: list[CartGroup]) -> list[list[VenueSeat | None]]:
+        """Resolve every group's seats in one cross-group pass — the cart entry point.
 
-        if mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
-            best: list[VenueSeat | None] = list(self._resolve_seats_best_available(len(items), zone_id))
-            return best
+        USER_CHOICE seats across every group are locked PK-ordered in a SINGLE query
+        (see the class docstring for why: two tiers sharing a sector, locked
+        per-group instead, would lock-order-invert against a concurrent cart naming
+        the same two tiers in the opposite order). BEST_AVAILABLE groups resolve
+        sequentially through the existing pick/lock/retry machinery. NONE groups
+        need no locking at all.
 
-        if mode == TicketTier.SeatAssignmentMode.USER_CHOICE:
-            # Cast to satisfy mypy - USER_CHOICE returns list[VenueSeat], which is a subtype
-            user_seats: list[VenueSeat | None] = list(self._resolve_seats_user_choice(items))
-            return user_seats
+        Args:
+            groups: The cart's per-tier groups, in cart order.
 
-        raise HttpError(400, str(_("Unknown seat assignment mode.")))
+        Returns:
+            Per-group seat lists (or None entries for NONE-mode groups), positionally
+            aligned with ``groups[i].items``.
+
+        Raises:
+            HttpError: Seat resolution failure for any group — missing/invalid/taken
+                seats or a seat named by two groups of this cart (USER_CHOICE), or no
+                adjacent block available (BEST_AVAILABLE).
+            InvalidZoneSelectionError: 400 if a group's requested zone is unusable on
+                its tier — validated for EVERY group/mode, so a zone silently ignored
+                by a non-best-available tier is impossible.
+        """
+        zone_ids = [resolve_requested_zone(group.tier, group.price_category_id) for group in groups]
+
+        # Collect every USER_CHOICE seat id across ALL groups before locking anything,
+        # so the lock below is the cart's only FOR UPDATE query for these seats —
+        # the deadlock fix (class docstring). A group missing a seat_id is rejected
+        # here, before any lock is taken, same as the old single-group order.
+        uc_indices = [
+            i
+            for i, group in enumerate(groups)
+            if group.tier.seat_assignment_mode == TicketTier.SeatAssignmentMode.USER_CHOICE
+        ]
+        all_seat_ids: list[UUID] = []
+        for i in uc_indices:
+            seat_ids = [item.seat_id for item in groups[i].items]
+            if None in seat_ids:
+                raise HttpError(
+                    400,
+                    str(_("Seat selection is required for this ticket tier.")),
+                )
+            all_seat_ids.extend(sid for sid in seat_ids if sid is not None)
+        # Cart-wide, not per-group: the per-group count-match check only catches a seat
+        # named twice within ONE group. The same seat in two different groups passes both
+        # groups' validation (not sold, not held, lockable) and only explodes at ticket
+        # creation on unique_ticket_event_seat. validate_cart_shape already rejects this
+        # cart-wide on every current path; kept as defense-in-depth (same message) for
+        # any future caller that reaches seat resolution without the cart-shape gate.
+        if len(all_seat_ids) != len(set(all_seat_ids)):
+            raise HttpError(400, str(_("The same seat cannot be purchased twice.")))
+        uc_sector_ids = {groups[i].tier.sector_id for i in uc_indices if groups[i].tier.sector_id is not None}
+
+        # Single PK-ordered lock over every USER_CHOICE seat in the cart, matching
+        # the global seat-lock protocol (holds/overrides). Scoped to the UNION of
+        # this cart's USER_CHOICE sectors (not any one group's sector alone) — a
+        # client-supplied seat_id from an unrelated event/venue must never be
+        # select_for_update()-locked at all, only rejected; without this filter a
+        # foreign id widens the lock surface into a cross-event contention
+        # (griefing) vector. Per-group sector validation still happens below,
+        # against this shared map — a seat from ANOTHER group's sector in this
+        # same cart passes this filter (it's in the union) but is correctly
+        # rejected there. An empty id__in/sector_id__in is a no-op query (no
+        # USER_CHOICE groups).
+        locked = {
+            seat.id: seat
+            for seat in VenueSeat.objects.filter(id__in=all_seat_ids, sector_id__in=uc_sector_ids, is_active=True)
+            .order_by("pk")
+            .select_for_update()
+        }
+
+        # Seats already claimed by THIS cart: every USER_CHOICE seat up front (they are
+        # committed to their groups regardless of processing order — a BA group resolved
+        # earlier must not pick a seat a later UC group named), plus each BA group's
+        # assignment as it lands. Within one transaction those seats are not yet sold,
+        # not held, and our own row locks don't conflict, so this set is the only thing
+        # keeping groups that share a pool off each other's seats.
+        cart_assigned: set[UUID] = set(all_seat_ids)
+
+        results: list[list[VenueSeat | None]] = []
+        for i, group in enumerate(groups):
+            mode = group.tier.seat_assignment_mode
+
+            if mode == TicketTier.SeatAssignmentMode.NONE:
+                results.append(self._resolve_seats_none(len(group.items)))
+            elif mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
+                best: list[VenueSeat | None] = list(
+                    self._resolve_seats_best_available(
+                        len(group.items), zone_ids[i], group.tier, group.accessible_required, cart_assigned
+                    )
+                )
+                cart_assigned |= {seat.id for seat in best if seat is not None}
+                results.append(best)
+            elif mode == TicketTier.SeatAssignmentMode.USER_CHOICE:
+                # Cast to satisfy mypy - USER_CHOICE returns list[VenueSeat], which is a subtype
+                user_seats: list[VenueSeat | None] = list(
+                    self._resolve_seats_user_choice(group.items, group.tier, locked)
+                )
+                results.append(user_seats)
+            else:
+                raise HttpError(400, str(_("Unknown seat assignment mode.")))
+
+        return results

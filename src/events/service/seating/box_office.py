@@ -156,10 +156,19 @@ def sell(
     # fixed-price reporting keeps falling back to tier.price.
     stamp_price_paid = should_stamp_price_paid(locked_tier, is_comp=is_comp)
     tickets = service.create_tickets(
-        [item], [seat], Ticket.TicketStatus.ACTIVE, lines, stamp_price_paid=stamp_price_paid
+        [item],
+        [seat],
+        Ticket.TicketStatus.ACTIVE,
+        lines,
+        tier=locked_tier,
+        discount_code=None,
+        stamp_price_paid=stamp_price_paid,
     )
     TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + 1)
     service.trigger_bulk_create_side_effects(tickets)
+    # Door sales bypass create_batch (no cart to hoist into), so claim the offer here —
+    # mirrors the cart-level call create_batch makes after every group is written.
+    service.claim_waitlist_offer_if_any()
     return tickets[0]
 
 

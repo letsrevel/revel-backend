@@ -373,7 +373,7 @@ class Event(
         default=1,
         null=True,
         blank=True,
-        help_text="Maximum tickets a user can purchase for this event. Null = unlimited.",
+        help_text="Maximum tickets a user can purchase for this event, across all tiers. Null = unlimited.",
     )
 
     venue = models.ForeignKey(

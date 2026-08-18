@@ -606,21 +606,29 @@ class TestCreateBatchPWYC:
         assert all(t.status == Ticket.TicketStatus.ACTIVE for t in result)
         assert all(t.price_paid == pwyc_amount for t in result)
 
-    def test_pwyc_offline_without_pwyc_amount_stores_none(
+    def test_pwyc_offline_without_pwyc_amount_is_refused(
         self,
         event: Event,
         pwyc_offline_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """PWYC offline checkout without a pwyc_amount should have price_paid=None."""
+        """A PWYC tier with no amount is a 400, not a ticket sold at NULL (#846).
+
+        Previously this sold the ticket with ``price_paid=None`` — the positive claim
+        that ``tier.price`` reconstructs the sale, which on a PWYC tier it never does
+        (spec §5.5). No caller could reach it: both PWYC endpoints require the amount
+        and both plain-checkout endpoints refuse PWYC tiers. ``create_batch`` now
+        enforces the same rule itself, per group.
+        """
         service = BatchTicketService(event, pwyc_offline_tier, member_user)
         items = [TicketPurchaseItem(guest_name="Guest 1")]
 
-        result = service.create_batch(items)  # No pwyc_amount
+        with pytest.raises(HttpError) as exc_info:
+            service.create_batch(items)  # No pwyc_amount
 
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0].price_paid is None
+        assert exc_info.value.status_code == 400
+        assert str(exc_info.value.message) == "This tier requires a pay-what-you-can amount."
+        assert Ticket.objects.filter(event=event).count() == 0
 
     def test_pwyc_online_does_not_store_price_paid(
         self,

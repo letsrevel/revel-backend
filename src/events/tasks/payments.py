@@ -140,7 +140,8 @@ def cleanup_expired_payments() -> int:
         # Atomically decrement the quantity_sold for each affected tier, floored at
         # zero as defense-in-depth (mirrors pending_checkout._release_batch_tier_capacity) —
         # the in-tx recompute above is what actually prevents the double-decrement.
-        for tier_id, count_to_release in tickets_to_release_by_tier.items():
+        # Sorted for a deterministic tier lock order across concurrent releases.
+        for tier_id, count_to_release in sorted(tickets_to_release_by_tier.items()):
             TicketTier.objects.select_for_update().filter(pk=tier_id).update(
                 quantity_sold=Greatest(F("quantity_sold") - count_to_release, Value(0))
             )

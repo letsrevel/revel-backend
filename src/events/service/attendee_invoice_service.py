@@ -207,7 +207,9 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     total_net = sum(p.net_amount or p.amount for p in payments)
     total_vat = sum(p.vat_amount or Decimal("0.00") for p in payments)
 
-    # Dominant VAT rate (from first payment)
+    # Dominant VAT rate (from first payment). A multi-tier cart (#846) can mix
+    # rates; the rendered totals label then drops the rate entirely
+    # (``AttendeeInvoice.has_mixed_vat_rates``) rather than claim this one.
     vat_rate = first_payment.vat_rate or Decimal("0.00")
 
     # Reverse charge: use the authoritative decision from checkout, not re-inferred

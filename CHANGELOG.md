@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-tier checkout**: buyers can now purchase any mix of ticket tiers — including seated and general-admission tiers together — in a single cart, paid through one Stripe session, instead of checking out each tier separately. `POST /events/{event_id}/checkout` (authenticated) and `POST /events/{event_id}/checkout/public` (guest) accept a cart of tier/quantity groups, with per-group pay-what-you-can amounts and a single cart-level discount code applied across every eligible tier
+
+### Fixed
+
+- **`max_tickets_per_user` on an event is now enforced across all of its tiers, not per tier**: on events with multiple ticket tiers, a per-tier limit used to override the event-wide limit, so a buyer could purchase up to the per-tier cap *again* on every tier and exceed the event's intended maximum. Both limits now apply independently (whichever is stricter wins). Because the event-level field defaults to `1`, applying this rule as-is would have shrunk existing events that relied on a per-tier override down to a single ticket; a data migration therefore preserves every existing event's effective allowances exactly — each event's cap is materialized onto the tiers that were inheriting it, and the event cap itself is reset to unlimited on events that have tiers. Only newly created events get the new default of one ticket per buyer in total
+- Ticket tier sale windows (`sales_start_at` / `sales_end_at`) are now enforced server-side on every purchase, closing a gap where a direct API call to the per-tier checkout endpoint could buy a ticket outside its sale window. Guest checkout enforces the window up front, at cart submission — a closed tier is rejected immediately instead of sending a confirmation email whose link can no longer succeed
+- The seat-hold ceiling follows the layered ticket caps: an event-level `max_tickets_per_user` bounds holds directly as before, and when it is unset the sum of the seated tiers' per-user caps applies, so buyers can hold exactly as many seats as they are allowed to buy (events with any uncapped seated tier keep the default ceiling of 10)
+- A cart that exceeds a discount code's per-user usage limit is rejected with an error rather than silently applying the discount to fewer tickets than requested, matching the single-tier behavior
+- Cart uniformity (single currency, single payment method) is re-verified on the row-locked tiers during checkout, so an organizer edit landing mid-checkout can no longer produce a cart priced under stale assumptions
+
+### Deprecated
+
+- The four per-tier checkout endpoints (`POST /events/{event_id}/tickets/{tier_id}/checkout`, `.../checkout/public`, `.../checkout/pwyc`, `.../checkout/pwyc/public`) are deprecated in favor of the new cart endpoints above; they remain functional for now
+
 ## [2.3.2] - 2026-08-12
 
 ### Fixed

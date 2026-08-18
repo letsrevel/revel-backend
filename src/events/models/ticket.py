@@ -341,7 +341,8 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     max_tickets_per_user = models.PositiveIntegerField(
         null=True,
         blank=True,
-        help_text="Override event's max_tickets_per_user for this tier. Null = inherit from event.",
+        help_text="Additional per-tier cap on tickets per user. Null = no per-tier cap "
+        "(the event-level cap still applies).",
     )
 
     vat_rate = models.DecimalField(
@@ -383,16 +384,6 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     )
 
     objects = TicketTierManager()
-
-    def get_max_tickets_per_user(self) -> int | None:
-        """Return tier limit or fall back to event limit.
-
-        Returns:
-            The maximum tickets per user for this tier, or None if unlimited.
-        """
-        if self.max_tickets_per_user is not None:
-            return self.max_tickets_per_user
-        return self.event.max_tickets_per_user
 
     def _validate_sales_window(self) -> None:
         """Validate sales window constraints."""

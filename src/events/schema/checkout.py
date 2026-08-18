@@ -97,6 +97,29 @@ class BatchCheckoutPWYCPayload(BatchCheckoutPayload):
     price_per_ticket: Decimal = Field(..., ge=1, description="Pay what you can amount per ticket (same for all)")
 
 
+# ---- Multi-Tier Cart Checkout Schemas (#846) ----
+
+
+class CheckoutGroupSchema(Schema):
+    """One tier's slice of a multi-tier checkout cart."""
+
+    tier_id: UUID
+    tickets: list[TicketPurchaseItem] = Field(..., min_length=1, max_length=50)
+    pwyc_amount: Decimal | None = Field(default=None, ge=0, description="Required iff the tier is pay-what-you-can")
+    price_category_id: UUID | None = Field(default=None, description="Zone the best-available picker draws from")
+    accessible_required: bool = Field(
+        default=False, description="Accessible pool for this group's BEST_AVAILABLE block"
+    )
+
+
+class MultiTierCheckoutPayload(Schema):
+    """Cart payload for POST /events/{event_id}/checkout."""
+
+    items: list[CheckoutGroupSchema] = Field(..., min_length=1, max_length=20)
+    discount_code: str | None = Field(default=None, max_length=64)
+    billing_info: BuyerBillingInfoSchema | None = Field(default=None)
+
+
 class BatchCheckoutResponse(Schema):
     """Response for batch checkout operations."""
 

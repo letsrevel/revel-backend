@@ -10,7 +10,7 @@ from pydantic import UUID4, EmailStr, Field
 from accounts.schema import BaseEmailJWTPayloadSchema
 from common.schema import StrippedString
 
-from .checkout import BuyerBillingInfoSchema, TicketPurchaseItem
+from .checkout import BuyerBillingInfoSchema, CheckoutGroupSchema, TicketPurchaseItem
 from .ticket_detail import UserTicketSchema
 
 # ---- Guest User Schemas ----
@@ -34,8 +34,8 @@ class GuestBatchCheckoutPayload(GuestUserDataSchema):
     """Payload for batch checkout by guest (unauthenticated) users."""
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
-    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
-    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
+    discount_code: str | None = Field(default=None, max_length=64, description="Optional discount code")
+    billing_info: BuyerBillingInfoSchema | None = Field(default=None, description="Optional billing info for invoicing")
     accessible_required: bool = Field(
         default=False,
         description="Request accessible seating for the whole checkout (BEST_AVAILABLE assignment "
@@ -54,6 +54,14 @@ class GuestBatchCheckoutPWYCPayload(GuestBatchCheckoutPayload):
     """Payload for batch PWYC checkout by guest users."""
 
     price_per_ticket: Decimal = Field(..., ge=1, description="Pay what you can amount per ticket (same for all)")
+
+
+class GuestMultiTierCheckoutPayload(GuestUserDataSchema):
+    """Cart payload for POST /events/{event_id}/checkout/public (#846)."""
+
+    items: list[CheckoutGroupSchema] = Field(..., min_length=1, max_length=20)
+    discount_code: str | None = Field(default=None, max_length=64, description="Optional discount code")
+    billing_info: BuyerBillingInfoSchema | None = Field(default=None, description="Optional billing info for invoicing")
 
 
 class GuestActionResponseSchema(Schema):
@@ -110,16 +118,45 @@ class GuestTicketItemPayload(Schema):
     seat_id: UUID4 | None = None
 
 
+class GuestCheckoutGroupPayload(Schema):
+    """One tier group inside the guest confirmation JWT (#846).
+
+    Mirrors :class:`~events.schema.checkout.CheckoutGroupSchema`, but every field except
+    ``tier_id`` is optional-with-defaults: it is decoded from a signed token, not validated
+    buyer input, and a group is only ever built server-side from an already-validated cart.
+    """
+
+    tier_id: UUID4
+    tickets: list[GuestTicketItemPayload] = Field(default_factory=list)
+    pwyc_amount: Decimal | None = None
+    price_category_id: UUID4 | None = None
+    accessible_required: bool = False
+
+
 class GuestTicketJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     """JWT payload for guest ticket purchase confirmation.
 
     Only used for non-online-payment tickets (free/offline/at-the-door).
     Online payment tickets go directly to Stripe without email confirmation.
+
+    Token-shape version history:
+    - **v1** (pre-#846): a single tier's purchase, flattened onto this schema —
+      ``tier_id``, ``tickets``, ``pwyc_amount``, ``accessible_required`` and
+      ``price_category_id`` at the top level, ``groups`` absent (defaults to ``[]``).
+    - **v2** (#846): a multi-tier cart, carried in ``groups`` (one
+      :class:`GuestCheckoutGroupPayload` per tier); the legacy flat fields are left at
+      their defaults and unused.
+
+    Every legacy flat field is optional-with-defaults so tokens of EITHER generation
+    validate — an in-flight v1 token minted just before a deploy must still confirm
+    after it. ``confirm_guest_action`` normalizes both shapes into one ``groups`` list
+    before doing anything else.
     """
 
     type: t.Literal["guest_ticket"] = "guest_ticket"
     event_id: UUID4
-    tier_id: UUID4
+    # Optional (v2 carries the cart in `groups` instead) — see the class docstring.
+    tier_id: UUID4 | None = None
     pwyc_amount: Decimal | None = None
     discount_code: str | None = None
     tickets: list[GuestTicketItemPayload] = Field(default_factory=list)
@@ -130,6 +167,8 @@ class GuestTicketJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     # Hold-owner session captured at checkout; legacy/no-hold tokens carry None
     # and the confirm-time request cookie is used as a fallback.
     guest_session: str | None = None
+    # v2 (#846): the cart's groups, one per tier. Empty on every v1 token.
+    groups: list[GuestCheckoutGroupPayload] = Field(default_factory=list)
 
 
 # Discriminated union for guest action payloads

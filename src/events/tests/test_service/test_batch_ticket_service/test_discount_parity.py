@@ -48,6 +48,7 @@ from accounts.models import RevelUser
 from events import schema
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
+from events.service.batch_ticket_service import CartGroup
 from events.service.guest import confirm_guest_action, handle_guest_ticket_checkout
 
 pytestmark = pytest.mark.django_db
@@ -86,6 +87,11 @@ def parity_event(parity_org: Organization) -> Event:
         max_attendees=100,
         requires_ticket=True,
         can_attend_without_login=True,
+        # Layered per-user caps (#846 Decision 4): the event cap is now an
+        # independent ceiling rather than a fallback a tier override replaces, so
+        # the model's default of 1 would otherwise cap every 2-ticket parity case
+        # below regardless of each tier's own max_tickets_per_user=5.
+        max_tickets_per_user=None,
     )
 
 
@@ -408,13 +414,13 @@ class TestGuestOnlineParity:
     ) -> None:
         """The guest online path must price identically to the authenticated one."""
         code = None if code_fixture is None else t.cast(DiscountCode, request.getfixturevalue(code_fixture)).code
+        group = CartGroup(tier=online_tier, items=_guest_items())
         response = handle_guest_ticket_checkout(
             parity_event,
-            online_tier,
+            [group],
             email="guest-online@example.com",
             first_name="Gina",
             last_name="Guest",
-            tickets=_guest_items(),
             discount_code=code,
         )
 
@@ -447,13 +453,13 @@ class TestGuestOnlineParity:
         no ``Payment`` row exists on this path, so the free checkout must record the
         amount itself. Previously NULL.
         """
+        group = CartGroup(tier=online_tier, items=_guest_items())
         response = handle_guest_ticket_checkout(
             parity_event,
-            online_tier,
+            [group],
             email="guest-free@example.com",
             first_name="Gina",
             last_name="Guest",
-            tickets=_guest_items(),
             discount_code=fix_full.code,
         )
 
@@ -484,14 +490,14 @@ class TestGuestOnlineParity:
         online_tier.price = Decimal("0.00")
         online_tier.save(update_fields=["price"])
 
+        group = CartGroup(tier=online_tier, items=_guest_items())
         with pytest.raises(HttpError) as exc:
             handle_guest_ticket_checkout(
                 parity_event,
-                online_tier,
+                [group],
                 email="guest-zero@example.com",
                 first_name="Gina",
                 last_name="Guest",
-                tickets=_guest_items(),
             )
 
         assert exc.value.status_code == 400
@@ -526,13 +532,13 @@ class TestGuestConfirmParity:
     ) -> None:
         """The second guest call site must price identically to the first."""
         code = None if code_fixture is None else t.cast(DiscountCode, request.getfixturevalue(code_fixture)).code
+        group = CartGroup(tier=offline_tier, items=_guest_items())
         checkout = handle_guest_ticket_checkout(
             parity_event,
-            offline_tier,
+            [group],
             email="guest-offline@example.com",
             first_name="Gino",
             last_name="Guest",
-            tickets=_guest_items(),
             discount_code=code,
         )
         assert checkout.message is not None

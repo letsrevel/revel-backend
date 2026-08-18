@@ -22,6 +22,7 @@ if t.TYPE_CHECKING:
 
     from events import schema
     from events.schema.discount_code import DiscountCodeCreateSchema, DiscountCodeUpdateSchema
+    from events.service.batch_ticket_service.context import CartGroup
 
 logger = structlog.get_logger(__name__)
 
@@ -340,6 +341,102 @@ def validate_discount_code_anonymous(
         HttpError: If the discount code is invalid or not applicable.
     """
     return _validate_core(code, organization, tier)
+
+
+def _no_qualifying_group_error(errors: list[HttpError]) -> HttpError:
+    """Pick the error to raise when a cart code qualified for no group at all (#846).
+
+    A single generic "does not apply to any tier" message hid the real reason
+    (expired, usage limit reached, wrong currency...) that the deprecated
+    single-tier routes used to surface verbatim. So:
+
+    * one group checked → re-raise ITS error (byte-identical to the legacy path);
+    * several groups, all rejected for the SAME reason (identical messages, e.g. an
+      expired code, which fails the same way everywhere) → re-raise that error, it
+      is both more specific and unambiguous;
+    * several groups rejected for DIFFERENT reasons → the generic cart message, since
+      no single per-group reason describes the cart.
+
+    Args:
+        errors: The per-group rejections, in cart order (never empty in practice:
+            a cart has at least one group and no group qualified).
+
+    Returns:
+        The ``HttpError`` the caller should raise.
+    """
+    messages = {str(exc) for exc in errors}
+    if errors and len(messages) == 1:
+        return errors[0]
+    return HttpError(400, str(_("This discount code does not apply to any tier in your cart.")))
+
+
+def validate_cart_discount(
+    code: str,
+    event: Event,
+    groups: "t.Sequence[CartGroup]",
+    user: RevelUser,
+) -> tuple[DiscountCode, set[UUID]]:
+    """Validate a discount code against every tier in a multi-tier cart (#846).
+
+    A cart code need not apply to every group: the per-group pass runs
+    :func:`_validate_core` — **applicability only** (scope, a free/PWYC tier, currency
+    mismatch, plus the code-level active/window/global-limit checks, which fail
+    identically on every group) — and simply drops the groups it rejects rather than
+    failing the whole cart. Only when NO group qualifies is the cart itself rejected —
+    and then the specific per-group reason is surfaced whenever it is unambiguous
+    (see :func:`_no_qualifying_group_error`) instead of collapsing to one generic message.
+
+    The **per-user usage limit is deliberately not a per-group check**: it is a property
+    of the buyer and the whole cart, not of one tier's applicability. Running it per group
+    made a group larger than the buyer's remaining allowance drop out silently — a
+    3+1 cart under ``max_uses_per_user=2`` quietly discounted 1 ticket of 4, while the
+    same 2+2 cart (and the deprecated single-tier route) correctly 400'd. So it runs
+    exactly once, in the definitive validation call below: :func:`validate_discount_code`
+    reruns with the SUMMED ticket count across every applicable group, so the usage limits
+    see the cart's true consumption instead of one group's slice of it, and an over-limit
+    cart fails as a cart.
+
+    Args:
+        code: The discount code string.
+        event: The event being checked out.
+        groups: The cart's groups (one per tier, tier objects attached). Domain
+            objects, not the wire schema: the deprecated guest routes accept carts
+            wider than ``CheckoutGroupSchema``'s buyer-input bounds, and this
+            helper only ever reads the tier and the ticket count.
+        user: The purchasing user.
+
+    Returns:
+        The validated ``DiscountCode`` and the set of tier ids it applies to.
+
+    Raises:
+        HttpError: If the code applies to none of the cart's tiers — the single
+            per-group rejection when every group failed for the same reason,
+            otherwise 400 with the generic cart message — or if the cart's summed
+            ticket count exceeds a usage limit.
+    """
+    valid_tier_ids: set[UUID] = set()
+    applicable_count = 0
+    representative_tier: TicketTier | None = None
+    errors: list[HttpError] = []
+    for group in groups:
+        tier = group.tier
+        try:
+            _validate_core(code, event.organization, tier)
+        except HttpError as exc:
+            errors.append(exc)
+            continue
+        valid_tier_ids.add(tier.id)
+        applicable_count += len(group.items)
+        representative_tier = representative_tier or tier
+
+    if representative_tier is None:
+        raise _no_qualifying_group_error(errors)
+
+    # Any already-qualified tier stands in for the (redundant) scope/currency re-check;
+    # what this call is here for is the per-user usage limit — checked once, against the
+    # cart's real total rather than any single group's slice of it.
+    dc = validate_discount_code(code, event.organization, representative_tier, user, applicable_count)
+    return dc, valid_tier_ids
 
 
 def preview_discount_code(

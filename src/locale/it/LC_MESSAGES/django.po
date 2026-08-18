@@ -979,6 +979,9 @@ msgstr "Usa l'endpoint /pwyc per i biglietti a offerta libera"
 msgid "This endpoint is only for pay-what-you-can tickets"
 msgstr "Questo endpoint è solo per biglietti a offerta libera"
 
+msgid "One or more ticket tiers were not found."
+msgstr "Uno o più livelli di biglietto non sono stati trovati."
+
 msgid "No pending reservation found."
 msgstr "Nessuna prenotazione in sospeso trovata."
 
@@ -1532,8 +1535,8 @@ msgid ""
 "This member holds multiple tickets for this event. Scan the specific ticket "
 "QR."
 msgstr ""
-"Questo membro ha più biglietti per questo evento. Scansiona il codice QR "
-"del biglietto specifico."
+"Questo membro ha più biglietti per questo evento. Scansiona il codice QR del "
+"biglietto specifico."
 
 msgid "This member has no ticket for this event."
 msgstr "Questo membro non ha un biglietto per questo evento."
@@ -1590,8 +1593,42 @@ msgstr "Questo settore è al completo."
 msgid "Only {available} spot(s) remaining in this sector."
 msgstr "Restano solo {available} posto/i in questo settore."
 
+msgid "This tier requires a pay-what-you-can amount."
+msgstr "Questo livello richiede un importo a offerta libera."
+
+msgid "This tier does not accept a pay-what-you-can amount."
+msgstr "Questo livello non accetta un importo a offerta libera."
+
+msgid "All tickets in one checkout must use the same currency."
+msgstr "Tutti i biglietti in un unico checkout devono usare la stessa valuta."
+
+msgid "All tickets in one checkout must use the same payment method."
+msgstr ""
+"Tutti i biglietti in un unico checkout devono usare lo stesso metodo di "
+"pagamento."
+
+msgid "Your cart is empty."
+msgstr "Il tuo carrello è vuoto."
+
+msgid "Each tier may appear only once per checkout."
+msgstr "Ogni livello può comparire una sola volta per checkout."
+
+msgid "The same seat cannot be purchased twice."
+msgstr "Lo stesso posto non può essere acquistato due volte."
+
+msgid "You're outside of the sale window."
+msgstr "Sei fuori dalla finestra di vendita."
+
 msgid "You are not allowed to purchase from this tier."
 msgstr "Non ti è consentito acquistare da questo livello."
+
+msgid "You have reached the maximum number of tickets for this event."
+msgstr "Hai raggiunto il numero massimo di biglietti per questo evento."
+
+#, python-brace-format
+msgid "You can only purchase {remaining} more ticket(s) for this event."
+msgstr ""
+"Puoi acquistare solo {remaining} altro/i biglietto/i per questo evento."
 
 msgid "You have reached the maximum number of tickets for this tier."
 msgstr "Hai raggiunto il numero massimo di biglietti per questo livello."
@@ -1603,9 +1640,6 @@ msgstr ""
 
 msgid "This event requires a name on every ticket."
 msgstr "Questo evento richiede un nome su ogni biglietto."
-
-msgid "Seat selection is required for this ticket tier."
-msgstr "La selezione del posto è obbligatoria per questo livello di biglietto."
 
 msgid "One or more selected seats are no longer available."
 msgstr "Uno o più posti selezionati non sono più disponibili."
@@ -1625,6 +1659,9 @@ msgstr ""
 
 msgid "Could not secure adjacent seats — please try again."
 msgstr "Impossibile assicurare posti adiacenti — riprova."
+
+msgid "Seat selection is required for this ticket tier."
+msgstr "La selezione del posto è obbligatoria per questo livello di biglietto."
 
 msgid "Unknown seat assignment mode."
 msgstr "Modalità di assegnazione posti sconosciuta."
@@ -1685,6 +1722,9 @@ msgstr ""
 
 msgid "You have already used this discount code the maximum number of times."
 msgstr "Hai già utilizzato questo codice sconto il numero massimo di volte."
+
+msgid "This discount code does not apply to any tier in your cart."
+msgstr "Questo codice sconto non si applica a nessun livello nel tuo carrello."
 
 msgid "Only members are allowed."
 msgstr "Solo i membri possono partecipare."
@@ -1849,6 +1889,13 @@ msgstr "Controlla la tua email per confermare la tua partecipazione"
 
 msgid "This event requires login to purchase tickets."
 msgstr "Questo evento richiede l'accesso per acquistare i biglietti."
+
+msgid ""
+"Your cart is too large for guest checkout. Please log in or split your "
+"purchase."
+msgstr ""
+"Il tuo carrello è troppo grande per il checkout come ospite. Accedi oppure "
+"dividi il tuo acquisto."
 
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Controlla la tua email per confermare l'acquisto del biglietto"
@@ -3552,8 +3599,8 @@ msgid ""
 "Your wallet card shows your tier, so it needs to be re-added to reflect the "
 "change."
 msgstr ""
-"La tua tessera wallet mostra il tuo livello, quindi deve essere aggiunta "
-"di nuovo per riflettere la modifica."
+"La tua tessera wallet mostra il tuo livello, quindi deve essere aggiunta di "
+"nuovo per riflettere la modifica."
 
 msgid "View Organization"
 msgstr "Visualizza organizzazione"

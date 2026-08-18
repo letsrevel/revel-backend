@@ -17,7 +17,7 @@ from django.db.models.functions import Least
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, EventSeatOverride, SeatHold, Ticket, VenueSeat, VenueSector
+from events.models import Event, EventSeatOverride, SeatHold, Ticket, TicketTier, VenueSeat, VenueSector
 from events.schema.seating import HoldConflictReason
 
 HOLD_TTL = timedelta(minutes=10)
@@ -116,6 +116,28 @@ def _current_result(
     return HoldResult(held=held, conflicts=conflicts, expires_at=expires, conflict_reason=conflict_reason)
 
 
+def _hold_cap(event: Event) -> int:
+    """Max seats one identity may hold concurrently for this event.
+
+    ``Event.max_tickets_per_user`` is the cross-tier purchase total, so when set it
+    bounds holds directly. When it is NULL the purchasable ceiling lives on the
+    seated tiers' per-tier caps (the layered-caps backfill materialized pre-existing
+    event caps onto tiers), so holds are bounded by their sum — the most seated
+    tickets any cart could buy. Any uncapped seated tier means "unlimited", falling
+    back to ``DEFAULT_MAX_HELD_SEATS`` as the anti-squatting guard.
+    """
+    if event.max_tickets_per_user:
+        return event.max_tickets_per_user
+    seated_caps = list(
+        event.ticket_tiers.exclude(seat_assignment_mode=TicketTier.SeatAssignmentMode.NONE).values_list(
+            "max_tickets_per_user", flat=True
+        )
+    )
+    if not seated_caps or None in seated_caps:
+        return DEFAULT_MAX_HELD_SEATS
+    return sum(cap for cap in seated_caps if cap is not None)
+
+
 def acquire_seats(
     event: Event,
     seat_ids: list[uuid.UUID],
@@ -128,7 +150,7 @@ def acquire_seats(
     owner_q = SeatHold.owner_q(user, guest_session)
     ordered = sorted(set(seat_ids))  # lock order: seat PK ascending
 
-    cap = event.max_tickets_per_user or DEFAULT_MAX_HELD_SEATS
+    cap = _hold_cap(event)
     already_held = set(SeatHold.objects.active().filter(owner_q, event=event).values_list("seat_id", flat=True))
     if len(already_held | set(ordered)) > cap:
         return _current_result(

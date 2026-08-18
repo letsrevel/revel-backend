@@ -289,7 +289,6 @@ class TestVATIsMemoisedPerPrice:
         ) as vat:
             stripe_service.reserve_batch_payments(
                 event=seated_event,
-                tier=online_tier,
                 user=member_user,
                 tickets=tickets,
                 reservation_id=seated_event.pk,

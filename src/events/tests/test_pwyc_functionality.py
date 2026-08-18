@@ -128,7 +128,6 @@ def test_stripe_service_uses_effective_price(public_user: RevelUser, public_even
     rid = uuid4()
     stripe_service.reserve_batch_payments(
         event=public_event,
-        tier=tier,
         user=public_user,
         tickets=[ticket],
         reservation_id=rid,

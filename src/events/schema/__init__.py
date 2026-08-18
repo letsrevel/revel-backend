@@ -39,6 +39,13 @@ from .blacklist import (
 )
 from .bookmark import EventBookmarkSchema
 
+# Checkout schemas (multi-tier cart, #846) — the single-tier checkout schemas
+# still resolve through .ticket, which re-exports .checkout for backward compat.
+from .checkout import (
+    CheckoutGroupSchema,
+    MultiTierCheckoutPayload,
+)
+
 # Dietary schemas
 from .dietary import (
     AggregatedDietaryPreferenceSchema,
@@ -353,7 +360,9 @@ from .ticket import (
     GuestActionResponseSchema,
     GuestBatchCheckoutPayload,
     GuestBatchCheckoutPWYCPayload,
+    GuestCheckoutGroupPayload,
     GuestCheckoutResponseSchema,
+    GuestMultiTierCheckoutPayload,
     GuestPWYCCheckoutSchema,
     GuestRSVPJWTPayloadSchema,
     GuestTicketItemPayload,
@@ -482,6 +491,7 @@ __all__ = [
     "ChartSectorSchema",
     "CheckInRequestSchema",
     "CheckInResponseSchema",
+    "CheckoutGroupSchema",
     "CheckoutSessionResponse",
     "CityEditMixin",
     "CombinedInvitationListSchema",
@@ -544,7 +554,9 @@ __all__ = [
     "GuestActionResponseSchema",
     "GuestBatchCheckoutPWYCPayload",
     "GuestBatchCheckoutPayload",
+    "GuestCheckoutGroupPayload",
     "GuestCheckoutResponseSchema",
+    "GuestMultiTierCheckoutPayload",
     "GuestPWYCCheckoutSchema",
     "GuestRSVPJWTPayloadSchema",
     "GuestRSVPRequestSchema",
@@ -590,6 +602,7 @@ __all__ = [
     "MinimalOrganizationMemberSchema",
     "MinimalOrganizationSchema",
     "MinimalSeatSchema",
+    "MultiTierCheckoutPayload",
     "MyEventInvitationSchema",
     "MyMembershipPaymentSchema",
     "MyMembershipSchema",
