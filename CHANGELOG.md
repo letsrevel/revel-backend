@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-08-18
+
 ### Added
 
 - **Multi-tier checkout**: buyers can now purchase any mix of ticket tiers — including seated and general-admission tiers together — in a single cart, paid through one Stripe session, instead of checking out each tier separately. `POST /events/{event_id}/checkout` (authenticated) and `POST /events/{event_id}/checkout/public` (guest) accept a cart of tier/quantity groups, with per-group pay-what-you-can amounts and a single cart-level discount code applied across every eligible tier
+- Public seating-chart metadata now includes per-seat rotation (`seatRotations`), so buyer-facing seat maps render rotated seats exactly as the organizer drew them
 
 ### Fixed
 
@@ -22,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 
 - The four per-tier checkout endpoints (`POST /events/{event_id}/tickets/{tier_id}/checkout`, `.../checkout/public`, `.../checkout/pwyc`, `.../checkout/pwyc/public`) are deprecated in favor of the new cart endpoints above; they remain functional for now
+
+### Security
+
+- Bumped the transitive dependency `sqlparse` to 0.6.0, resolving four published CVEs flagged by pip-audit (CVE-2026-71491, CVE-2026-59894, CVE-2026-59893, CVE-2026-54284)
 
 ## [2.3.2] - 2026-08-12
 
