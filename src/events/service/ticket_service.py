@@ -78,8 +78,10 @@ class UserEventStatus:
 
     ``event_remaining`` is the event-scoped per-user budget shared across every tier
     (``Event.max_tickets_per_user`` minus the user's PENDING + ACTIVE tickets across all
-    tiers; None when the event sets no cap). It is the same term each tier's layered
-    ``remaining`` folds in, exposed separately so callers can do cross-tier math (#901).
+    tiers; None when the event sets no cap). It floors at 0 rather than going negative,
+    which an organizer lowering the cap below what a buyer already holds would otherwise
+    produce. It is the same term each tier's layered ``remaining`` folds in, exposed
+    separately so callers can do cross-tier math (#901).
     """
 
     tickets: list[Ticket]
