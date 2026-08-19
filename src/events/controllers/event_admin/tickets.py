@@ -17,6 +17,7 @@ from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.schema.financials import EventFinancialsSchema
 from events.service import (
+    check_in_service,
     member_scan_service,
     refund_service,
     revenue_aggregation,
@@ -67,7 +68,7 @@ EFFECTIVE_PRICE_PAID = Coalesce("payment__amount", "price_paid", "tier__price")
 
 # Check-in codes are a bare canonical ticket UUID (36 chars), a series pass QR payload
 # ("series:" + UUID), or a membership card QR payload ("member:" + UUID) — both prefixes
-# are 7 chars, so max length stays 43. See ticket_service.resolve_check_in_ticket_id()
+# are 7 chars, so max length stays 43. See check_in_service.resolve_check_in_ticket_id()
 # and member_scan_service.scan_member_code(). Bounding length/shape here rejects garbage
 # before it reaches the resolver (422 instead of an unbounded str hitting the ORM/service).
 CHECK_IN_CODE_PATTERN = (
@@ -473,8 +474,8 @@ class EventAdminTicketsController(EventAdminBaseController):
             if result.checked_in is not None:
                 return result.checked_in
             return schema.MemberScanResponseSchema.from_result(result)
-        ticket_id = ticket_service.resolve_check_in_ticket_id(event, code)
-        return ticket_service.check_in_ticket(event, ticket_id, self.user(), price_paid=price_paid)
+        ticket_id = check_in_service.resolve_check_in_ticket_id(event, code)
+        return check_in_service.check_in_ticket(event, ticket_id, self.user(), price_paid=price_paid)
 
     @route.get(
         "/revenue",

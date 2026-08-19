@@ -69,6 +69,13 @@ class EventPublicAttendanceController(EventPublicBaseController):
         - `can_purchase_more`: Whether user can purchase additional tickets
         - `remaining_tickets`: Per-tier remaining ticket counts. Each item has `tier_id` and
           `remaining` (int or null for unlimited). Empty list for RSVP-only events.
+        - `event_remaining`: Event-level per-user budget shared across all tiers (null when the
+          event sets no cap). Present on **both** response shapes — a first-time buyer gets the
+          eligibility shape, which carries the full budget. Combine with per-tier `remaining`,
+          resolving null to unbounded on **either** side before subtracting (`null - qty` is a
+          number in JavaScript, so subtracting from a raw null would cap an uncapped event):
+          `addable(tier) = min((tier.remaining ?? Infinity) - qty_in_cart(tier),
+          (event_remaining ?? Infinity) - total_qty_in_cart)`.
         - `feedback_questionnaires`: Questionnaire IDs available for feedback (only after event ends)
 
         Use this to determine which action to show users (buy more tickets, view tickets,
@@ -90,6 +97,7 @@ class EventPublicAttendanceController(EventPublicBaseController):
                     schema.TierRemainingTicketsSchema(tier_id=r.tier_id, remaining=r.remaining, sold_out=r.sold_out)
                     for r in status.remaining_tickets
                 ],
+                event_remaining=status.event_remaining,
                 feedback_questionnaires=feedback_questionnaire_ids,
             )
 

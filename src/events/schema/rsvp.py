@@ -164,4 +164,12 @@ class EventUserStatusResponse(Schema):
     rsvp: EventRSVPSchema | None = None
     can_purchase_more: bool = True
     remaining_tickets: list[TierRemainingTicketsSchema] = Field(default_factory=list)
+    event_remaining: int | None = Field(
+        default=None,
+        description=(
+            "Event-level per-user budget shared across all tiers: the event's max tickets per user"
+            " minus the user's pending and active tickets across every tier."
+            " Null means the event sets no per-user cap."
+        ),
+    )
     feedback_questionnaires: list[UUID] = Field(default_factory=list)

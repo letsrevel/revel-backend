@@ -6,7 +6,7 @@ contract exactly (same write-then-swap persistence, same ``QuerySet.update()``
 trick to avoid invalidating the hash via ``auto_now``).
 
 QR/barcode payload is ``f"series:{held_pass.id}"`` — this is the check-in
-resolution contract (see ``events.service.ticket_service.resolve_check_in_ticket_id``),
+resolution contract (see ``events.service.check_in_service.resolve_check_in_ticket_id``),
 not just a naming convention.
 """
 

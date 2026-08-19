@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import typing as t
+from collections import Counter
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Count, F, Max, Q
-from django.http import Http404
-from django.shortcuts import get_object_or_404
-from django.utils import formats, timezone
+from django.db.models import F, Max, Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -26,7 +23,6 @@ from events.models import (
     Event,
     EventInvitation,
     EventRSVP,
-    HeldSeriesPass,
     MembershipTier,
     Organization,
     OrganizationMember,
@@ -78,12 +74,21 @@ class TierRemainingTickets:
 
 @dataclass
 class UserEventStatus:
-    """User's status for an event including tickets, RSVP, and purchase limits."""
+    """User's status for an event including tickets, RSVP, and purchase limits.
+
+    ``event_remaining`` is the event-scoped per-user budget shared across every tier
+    (``Event.max_tickets_per_user`` minus the user's PENDING + ACTIVE tickets across all
+    tiers; None when the event sets no cap). It floors at 0 rather than going negative,
+    which an organizer lowering the cap below what a buyer already holds would otherwise
+    produce. It is the same term each tier's layered ``remaining`` folds in, exposed
+    separately so callers can do cross-tier math (#901).
+    """
 
     tickets: list[Ticket]
     rsvp: EventRSVP | None = None
     can_purchase_more: bool = True
     remaining_tickets: list[TierRemainingTickets] = dataclass_field(default_factory=list)
+    event_remaining: int | None = None
 
 
 def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
@@ -266,13 +271,26 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
 
     has_active_tickets = any(t.status != Ticket.TicketStatus.CANCELLED for t in tickets)
 
+    # What the user already holds, per tier and cart-wide, both counted off the ticket list
+    # above: one snapshot rather than two independently-read counts, one query fewer, and
+    # available early enough that the eligibility/RSVP returns below can report the event
+    # budget too — the shape a first-time buyer gets otherwise carries no limits at all (#901).
+    # PENDING + ACTIVE only, matching the layered-cap contract in BatchTicketService.
+    user_ticket_counts: dict[UUID, int] = Counter(
+        tk.tier_id for tk in tickets if tk.status in (Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE)
+    )
+    user_event_count = sum(user_ticket_counts.values())  # cart-wide, invariant across tiers
+    event_cap = event.max_tickets_per_user
+    event_remaining = max(0, event_cap - user_event_count) if event_cap is not None else None
+
     if not has_active_tickets or not event.requires_ticket:
         # Check for RSVP (non-ticketed events)
         if rsvp := EventRSVP.objects.filter(event=event, user_id=user.id).first():
-            return UserEventStatus(tickets=[], rsvp=rsvp)
+            return UserEventStatus(tickets=[], rsvp=rsvp, event_remaining=event_remaining)
         # No active tickets or RSVP - run eligibility check
         eligibility = EventManager(user, event).check_eligibility()
         if not eligibility.allowed or not tickets:
+            eligibility.event_remaining = event_remaining
             return eligibility
         # User has only cancelled tickets but is eligible - fall through to show purchase capacity
 
@@ -283,22 +301,9 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
         total_sold = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).count()
         event_capacity_remaining = max(0, effective_cap - total_sold)
 
-    # Pre-compute user's ticket counts per tier in ONE query (avoids N+1)
-    user_ticket_counts: dict[UUID, int] = dict(
-        Ticket.objects.filter(
-            event=event,
-            user=user,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-        )
-        .values("tier_id")
-        .annotate(count=Count("id"))
-        .values_list("tier_id", "count")
-    )
-
     # Get eligible tiers (can purchase) and all visible tiers for this user
     eligible_tier_ids = {t.id for t in get_eligible_tiers(event, user)}
     visible_tiers = list(TicketTier.objects.for_visible_event(event, user))
-    user_event_count = sum(user_ticket_counts.values())  # cart-wide, invariant across tiers
 
     remaining_list: list[TierRemainingTickets] = []
 
@@ -330,6 +335,7 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
         tickets=tickets,
         can_purchase_more=can_purchase,
         remaining_tickets=remaining_list,
+        event_remaining=event_remaining,
     )
 
 
@@ -427,156 +433,6 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
 
     # Re-fetch with full() to include all related objects for serialization
     return Ticket.objects.full().get(pk=ticket.pk)
-
-
-def _format_in_event_tz(dt: datetime, event: Event) -> str:
-    """Format ``dt`` in the event's local timezone (via its city), falling back to Django's active timezone.
-
-    The tz abbreviation (``CET``, ``UTC``, …) is appended so the user can't misread an ambiguous local time.
-    """
-    tz: ZoneInfo | t.Any
-    if event.city and event.city.timezone:
-        try:
-            tz = ZoneInfo(event.city.timezone)
-        except KeyError:
-            tz = timezone.get_current_timezone()
-    else:
-        tz = timezone.get_current_timezone()
-    local = dt.astimezone(tz)
-    return f"{formats.date_format(local, 'DATETIME_FORMAT', use_l10n=True)} {local.tzname() or ''}".rstrip()
-
-
-def _check_in_closed_message(event: Event) -> str:
-    """Build a localized error message for a closed check-in window, surfacing the open/close time when known."""
-    if event.status != event.EventStatus.OPEN:
-        return str(_("Check-in is not currently open for this event."))
-    now = timezone.now()
-    starts_at = event.check_in_starts_at or event.start
-    ends_at = event.check_in_ends_at or event.end
-    if now < starts_at:
-        return str(_("Check-in is not open yet. It will open at {opens_at}.")).format(
-            opens_at=_format_in_event_tz(starts_at, event)
-        )
-    if now > ends_at:
-        return str(_("Check-in has closed for this event. It ended at {ended_at}.")).format(
-            ended_at=_format_in_event_tz(ends_at, event)
-        )
-    return str(_("Check-in is not currently open for this event."))
-
-
-def resolve_check_in_ticket_id(event: Event, code: str) -> UUID:
-    """Resolve a scanned code (ticket UUID or ``series:<held-pass-uuid>``) to a ticket id.
-
-    Malformed UUIDs 404 here so the ORM never raises on a bad lookup value.
-    """
-    if code.startswith(HeldSeriesPass.QR_PREFIX):
-        try:
-            held_pass_id = UUID(code[len(HeldSeriesPass.QR_PREFIX) :])
-        except ValueError:
-            raise Http404("Invalid pass code.") from None
-        ticket = get_object_or_404(
-            Ticket.objects.exclude(status=Ticket.TicketStatus.CANCELLED),
-            held_pass_id=held_pass_id,
-            event=event,
-        )
-        return ticket.id
-    try:
-        return UUID(code)
-    except ValueError:
-        raise Http404("Invalid ticket code.") from None
-
-
-def _pending_check_in_allowed(ticket: Ticket) -> bool:
-    """Whether a PENDING ticket may be checked in (payment collected at the door).
-
-    For series-pass tickets the PASS's payment method is authoritative, not the
-    mapped tier's — a pass paid online can be mapped to an offline tier and vice versa.
-    """
-    if ticket.held_pass is not None:
-        return ticket.held_pass.series_pass.payment_method == TicketTier.PaymentMethod.OFFLINE
-    return ticket.tier.payment_method == TicketTier.PaymentMethod.OFFLINE
-
-
-def check_in_ticket(
-    event: Event, ticket_id: UUID, checked_in_by: RevelUser, price_paid: Decimal | None = None
-) -> Ticket:
-    """Check in an attendee by scanning their ticket.
-
-    Args:
-        event: The event the ticket belongs to.
-        ticket_id: UUID of the ticket to check in.
-        checked_in_by: The user performing the check-in.
-        price_paid: Amount paid. Required for PWYC offline/at-the-door tickets
-            that don't have a price recorded yet. Optional as an override for
-            PWYC offline/at-the-door tickets that already have a price.
-            Forbidden for non-PWYC or online tickets.
-
-    Note:
-        price_paid is intentionally not validated against the tier's pwyc_min/pwyc_max
-        bounds. Admins are trusted to override these limits at check-in.
-    """
-    # tier__* + the M2M prefetch cover CheckInResponseSchema's nested TicketTierSchema;
-    # seat/sector feed the seat display. Trims ~4 queries per scan.
-    ticket_qs = Ticket.objects.select_related(
-        "user", "tier__event__organization", "tier__venue", "tier__sector", "held_pass__series_pass", "seat", "sector"
-    ).prefetch_related("tier__restricted_to_membership_tiers")
-    ticket = get_object_or_404(ticket_qs, pk=ticket_id, event=event)
-
-    # Check if ticket status is valid for check-in
-    # ACTIVE tickets can be checked in directly.
-    # PENDING tickets are only allowed when payment is collected at the door
-    # (see _pending_check_in_allowed for the series-pass vs tier distinction).
-    # AT_THE_DOOR tickets are now created as ACTIVE, so no special handling needed.
-    if ticket.status != Ticket.TicketStatus.ACTIVE:
-        if not (ticket.status == Ticket.TicketStatus.PENDING and _pending_check_in_allowed(ticket)):
-            # Determine appropriate error message based on ticket status
-            if ticket.status == Ticket.TicketStatus.CHECKED_IN:
-                error_message = str(_("This ticket has already been checked in."))
-            elif ticket.status == Ticket.TicketStatus.CANCELLED:
-                error_message = str(_("This ticket has been cancelled."))
-            elif ticket.status == Ticket.TicketStatus.PENDING:
-                error_message = str(_("This ticket is pending payment confirmation."))
-            else:
-                error_message = str(_("Invalid ticket status: {status}")).format(status=ticket.status)
-            raise HttpError(400, error_message)
-
-    # Check if check-in window is open
-    if not event.is_check_in_open():
-        raise HttpError(400, _check_in_closed_message(event))
-
-    # May door staff type a price onto this ticket? Same authority as confirm/unconfirm
-    # (spec §5.5), narrowed twice: pass tickets never carry a per-ticket price (the pass
-    # itself was paid), and online tickets are settled by Payment.amount. Narrowing is
-    # allowed; widening is not — a resolved price_paid must never be typed over here, and
-    # any future undo-check-in must clear only what this predicate owns.
-    is_pwyc_offsite = (
-        ticket.held_pass_id is None
-        and price_paid_is_admin_entered(ticket.tier)
-        and ticket.tier.payment_method
-        in (
-            TicketTier.PaymentMethod.OFFLINE,
-            TicketTier.PaymentMethod.AT_THE_DOOR,
-        )
-    )
-
-    if not is_pwyc_offsite and price_paid is not None:
-        raise HttpError(400, str(_("Price paid is not allowed for this ticket.")))
-
-    if is_pwyc_offsite and price_paid is None and ticket.price_paid is None:
-        raise HttpError(400, str(_("Price paid is required for Pay What You Can tickets without a recorded payment.")))
-
-    # Update ticket status
-    update_fields = ["status", "checked_in_at", "checked_in_by"]
-    if is_pwyc_offsite and price_paid is not None:
-        ticket.price_paid = price_paid
-        update_fields.append("price_paid")
-
-    ticket.status = Ticket.TicketStatus.CHECKED_IN
-    ticket.checked_in_at = timezone.now()
-    ticket.checked_in_by = checked_in_by
-    ticket.save(update_fields=update_fields)
-
-    return ticket
 
 
 @transaction.atomic

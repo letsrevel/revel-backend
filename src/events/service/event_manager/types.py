@@ -24,6 +24,10 @@ class EventUserEligibility(BaseModel):
     next_batch_at: AwareDatetime | None = None
     waitlist_position: int | None = None
     active_offer_expires_at: AwareDatetime | None = None
+    # Event-scoped per-user ticket budget, mirroring UserEventStatus.event_remaining so
+    # both shapes of GET /my-status carry it (#901). Only the my-status path populates it;
+    # everywhere else an eligibility result is returned it stays None.
+    event_remaining: int | None = None
 
 
 class UserIsIneligibleError(Exception):
