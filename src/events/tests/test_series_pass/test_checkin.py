@@ -17,7 +17,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import Event, EventSeries, HeldSeriesPass, SeriesPass, Ticket, TicketTier
-from events.service.ticket_service import check_in_ticket, resolve_check_in_ticket_id
+from events.service.check_in_service import check_in_ticket, resolve_check_in_ticket_id
 
 pytestmark = pytest.mark.django_db
 

@@ -1,4 +1,4 @@
-"""Member-card door-scan service, companion to ticket check-in (``ticket_service``)."""
+"""Member-card door-scan service, companion to ticket check-in (``check_in_service``)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404
 
 from accounts.models import RevelUser
 from events.models import Event, OrganizationMember, Ticket
-from events.service.ticket_service import check_in_ticket
+from events.service.check_in_service import check_in_ticket
 
 
 @dataclass

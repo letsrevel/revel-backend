@@ -286,7 +286,7 @@ def test_check_in_query_budget(
     """Pins the ``check_in_ticket`` select_related/prefetch trim (Task 11).
 
     Measured directly against this endpoint+fixture shape: 24 queries before the
-    ``ticket_service.check_in_ticket`` trim (bare ``select_related("user", "tier", ...)``,
+    ``check_in_service.check_in_ticket`` trim (bare ``select_related("user", "tier", ...)``,
     no ``tier__venue``/``tier__sector``/``tier__event__organization`` and no
     ``restricted_to_membership_tiers`` prefetch), 22 after — the difference is smaller
     than the "~4 queries" the trim targets because this ticket's tier has no venue/sector

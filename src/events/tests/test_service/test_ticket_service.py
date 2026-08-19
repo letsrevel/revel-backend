@@ -22,7 +22,8 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.service.ticket_service import check_in_ticket, get_eligible_tiers
+from events.service.check_in_service import check_in_ticket
+from events.service.ticket_service import get_eligible_tiers
 
 pytestmark = pytest.mark.django_db
 

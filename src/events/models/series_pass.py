@@ -170,7 +170,7 @@ class HeldSeriesPass(TimeStampedModel):
     def qr_payload(self) -> str:
         """QR/barcode payload for this held pass.
 
-        Check-in contract: ``ticket_service.resolve_check_in_ticket_id`` strips
+        Check-in contract: ``check_in_service.resolve_check_in_ticket_id`` strips
         ``QR_PREFIX`` back off a scanned code to resolve the held pass id, so this
         is the single source of truth every generator (PDF, Apple Wallet, Google Wallet) must use.
         """
