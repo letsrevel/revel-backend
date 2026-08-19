@@ -16,6 +16,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
 from events.models import Event, Organization, Ticket, TicketTier
+from events.service.event_manager import EventUserEligibility
 from events.service.ticket_service import UserEventStatus, get_user_event_status
 
 pytestmark = pytest.mark.django_db
@@ -206,6 +207,23 @@ class TestListingLayeredLimits:
 
         assert isinstance(status, UserEventStatus)
         assert status.event_remaining == 1
+
+    def test_eligibility_shape_carries_the_full_budget(
+        self,
+        event: Event,
+        tier_a: TicketTier,
+        user: RevelUser,
+    ) -> None:
+        """A user holding nothing gets the eligibility shape, which still reports the budget (#901).
+
+        `get_user_event_status` returns `EventUserEligibility` for anyone with no tickets,
+        and that shape carried no purchase limits at all — so the first stepper interaction
+        of a cart had nothing to cap against.
+        """
+        status = get_user_event_status(event, user)
+
+        assert isinstance(status, EventUserEligibility)
+        assert status.event_remaining == 3  # nothing held yet, so the whole cap is available
 
     def test_listing_does_not_issue_a_query_per_tier_for_event_count(
         self,

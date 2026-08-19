@@ -100,6 +100,27 @@ def test_get_my_event_status_is_eligible(nonmember_client: Client, public_event:
     assert data["event_id"] == str(public_event.pk)
 
 
+def test_get_my_event_status_eligibility_shape_carries_event_remaining(
+    nonmember_client: Client, public_event: Event
+) -> None:
+    """A first-time buyer gets the eligibility shape — it must still carry the budget (#901).
+
+    Nothing is held yet, so the budget is the full event cap. Without this the frontend
+    would have to special-case which of the two response shapes it received.
+    """
+    public_event.max_tickets_per_user = 3
+    public_event.save(update_fields=["max_tickets_per_user"])
+
+    url = reverse("api:get_my_event_status", kwargs={"event_id": public_event.pk})
+    response = nonmember_client.get(url)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["allowed"] is True  # eligibility shape, not the status shape
+    assert "remaining_tickets" not in data
+    assert data["event_remaining"] == 3
+
+
 def test_get_my_event_status_is_ineligible(nonmember_client: Client, public_event: Event) -> None:
     """Test status returns eligibility data if user is ineligible."""
     url = reverse("api:get_my_event_status", kwargs={"event_id": public_event.pk})

@@ -268,13 +268,21 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
 
     has_active_tickets = any(t.status != Ticket.TicketStatus.CANCELLED for t in tickets)
 
+    # Event-scoped per-user budget (#901), counted off the already-loaded ticket list so
+    # every return path below can carry it — including the eligibility shape a first-time
+    # buyer gets, which otherwise reports no purchase limits at all.
+    event_cap = event.max_tickets_per_user
+    held = sum(1 for tk in tickets if tk.status in (Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE))
+    event_remaining = max(0, event_cap - held) if event_cap is not None else None
+
     if not has_active_tickets or not event.requires_ticket:
         # Check for RSVP (non-ticketed events)
         if rsvp := EventRSVP.objects.filter(event=event, user_id=user.id).first():
-            return UserEventStatus(tickets=[], rsvp=rsvp)
+            return UserEventStatus(tickets=[], rsvp=rsvp, event_remaining=event_remaining)
         # No active tickets or RSVP - run eligibility check
         eligibility = EventManager(user, event).check_eligibility()
         if not eligibility.allowed or not tickets:
+            eligibility.event_remaining = event_remaining
             return eligibility
         # User has only cancelled tickets but is eligible - fall through to show purchase capacity
 
@@ -300,7 +308,7 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
     # Get eligible tiers (can purchase) and all visible tiers for this user
     eligible_tier_ids = {t.id for t in get_eligible_tiers(event, user)}
     visible_tiers = list(TicketTier.objects.for_visible_event(event, user))
-    user_event_count = sum(user_ticket_counts.values())  # cart-wide, invariant across tiers
+    user_event_count = held  # cart-wide, invariant across tiers; same rows as user_ticket_counts
 
     remaining_list: list[TierRemainingTickets] = []
 
@@ -328,12 +336,11 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
         r.can_purchase and (r.remaining is None or r.remaining > 0) and not r.sold_out for r in remaining_list
     )
 
-    event_cap = event.max_tickets_per_user
     return UserEventStatus(
         tickets=tickets,
         can_purchase_more=can_purchase,
         remaining_tickets=remaining_list,
-        event_remaining=max(0, event_cap - user_event_count) if event_cap is not None else None,
+        event_remaining=event_remaining,
     )
 
 
