@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import typing as t
+from collections import Counter
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from decimal import Decimal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F, Max, Q
+from django.db.models import F, Max, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -268,12 +269,17 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
 
     has_active_tickets = any(t.status != Ticket.TicketStatus.CANCELLED for t in tickets)
 
-    # Event-scoped per-user budget (#901), counted off the already-loaded ticket list so
-    # every return path below can carry it — including the eligibility shape a first-time
-    # buyer gets, which otherwise reports no purchase limits at all.
+    # What the user already holds, per tier and cart-wide, both counted off the ticket list
+    # above: one snapshot rather than two independently-read counts, one query fewer, and
+    # available early enough that the eligibility/RSVP returns below can report the event
+    # budget too — the shape a first-time buyer gets otherwise carries no limits at all (#901).
+    # PENDING + ACTIVE only, matching the layered-cap contract in BatchTicketService.
+    user_ticket_counts: dict[UUID, int] = Counter(
+        tk.tier_id for tk in tickets if tk.status in (Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE)
+    )
+    user_event_count = sum(user_ticket_counts.values())  # cart-wide, invariant across tiers
     event_cap = event.max_tickets_per_user
-    held = sum(1 for tk in tickets if tk.status in (Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE))
-    event_remaining = max(0, event_cap - held) if event_cap is not None else None
+    event_remaining = max(0, event_cap - user_event_count) if event_cap is not None else None
 
     if not has_active_tickets or not event.requires_ticket:
         # Check for RSVP (non-ticketed events)
@@ -293,22 +299,9 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
         total_sold = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).count()
         event_capacity_remaining = max(0, effective_cap - total_sold)
 
-    # Pre-compute user's ticket counts per tier in ONE query (avoids N+1)
-    user_ticket_counts: dict[UUID, int] = dict(
-        Ticket.objects.filter(
-            event=event,
-            user=user,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-        )
-        .values("tier_id")
-        .annotate(count=Count("id"))
-        .values_list("tier_id", "count")
-    )
-
     # Get eligible tiers (can purchase) and all visible tiers for this user
     eligible_tier_ids = {t.id for t in get_eligible_tiers(event, user)}
     visible_tiers = list(TicketTier.objects.for_visible_event(event, user))
-    user_event_count = held  # cart-wide, invariant across tiers; same rows as user_ticket_counts
 
     remaining_list: list[TierRemainingTickets] = []
 

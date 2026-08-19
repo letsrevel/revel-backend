@@ -238,6 +238,10 @@ class TestListingLayeredLimits:
         Without threading `user_event_count` through, `get_remaining_tickets`
         falls back to querying the database for every eligible tier that sets
         `event.max_tickets_per_user` — an N+1 that grows with tier count.
+
+        The bound came down from 13 to 12 in #901: the per-tier counts are now taken from
+        the ticket list the function already loads, so the grouped aggregate that used to
+        re-read the same rows is gone.
         """
         Ticket.objects.create(
             event=event,
@@ -247,5 +251,5 @@ class TestListingLayeredLimits:
             status=Ticket.TicketStatus.ACTIVE,
         )
 
-        with django_assert_max_num_queries(13):
+        with django_assert_max_num_queries(12):
             get_user_event_status(event, user)
