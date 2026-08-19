@@ -111,6 +111,102 @@ class TestListingLayeredLimits:
         assert remaining[tier_a.id].remaining == 2
         assert remaining[tier_b.id].remaining == 1
 
+    def test_event_remaining_exposes_the_shared_budget(
+        self,
+        event: Event,
+        tier_a: TicketTier,
+        tier_b: TicketTier,
+        user: RevelUser,
+    ) -> None:
+        """The event-scoped term is exposed on its own so the FE can do cross-tier math (#901).
+
+        Event cap 3, one ticket already held: the shared budget is 2, regardless
+        of which tier the FE is looking at.
+        """
+        Ticket.objects.create(
+            event=event,
+            tier=tier_a,
+            user=user,
+            guest_name=user.username,
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+
+        status = get_user_event_status(event, user)
+
+        assert isinstance(status, UserEventStatus)
+        assert status.event_remaining == 2
+
+    def test_event_remaining_is_none_without_an_event_cap(
+        self,
+        event: Event,
+        tier_a: TicketTier,
+        user: RevelUser,
+    ) -> None:
+        """No event-level cap means no shared budget to report."""
+        event.max_tickets_per_user = None
+        event.save(update_fields=["max_tickets_per_user"])
+        Ticket.objects.create(
+            event=event,
+            tier=tier_a,
+            user=user,
+            guest_name=user.username,
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+
+        status = get_user_event_status(event, user)
+
+        assert isinstance(status, UserEventStatus)
+        assert status.event_remaining is None
+
+    def test_event_remaining_floors_at_zero(
+        self,
+        event: Event,
+        tier_a: TicketTier,
+        user: RevelUser,
+    ) -> None:
+        """A cap lowered below what the user already holds reports 0, never a negative budget."""
+        for i in range(4):
+            Ticket.objects.create(
+                event=event,
+                tier=tier_a,
+                user=user,
+                guest_name=f"{user.username}-{i}",
+                status=Ticket.TicketStatus.ACTIVE,
+            )
+
+        status = get_user_event_status(event, user)
+
+        assert isinstance(status, UserEventStatus)
+        assert status.event_remaining == 0
+
+    def test_event_remaining_counts_pending_tickets(
+        self,
+        event: Event,
+        tier_a: TicketTier,
+        tier_b: TicketTier,
+        user: RevelUser,
+    ) -> None:
+        """PENDING tickets eat into the budget the same way ACTIVE ones do."""
+        Ticket.objects.create(
+            event=event,
+            tier=tier_a,
+            user=user,
+            guest_name=user.username,
+            status=Ticket.TicketStatus.PENDING,
+        )
+        Ticket.objects.create(
+            event=event,
+            tier=tier_b,
+            user=user,
+            guest_name=user.username,
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+
+        status = get_user_event_status(event, user)
+
+        assert isinstance(status, UserEventStatus)
+        assert status.event_remaining == 1
+
     def test_listing_does_not_issue_a_query_per_tier_for_event_count(
         self,
         event: Event,

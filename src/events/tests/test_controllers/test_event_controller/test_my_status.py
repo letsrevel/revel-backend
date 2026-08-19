@@ -40,6 +40,40 @@ def test_get_my_event_status_with_ticket(
     assert data["remaining_tickets"][0]["sold_out"] is False  # tier has unlimited inventory
 
 
+def test_get_my_event_status_exposes_event_remaining(
+    nonmember_client: Client, nonmember_user: RevelUser, public_event: Event
+) -> None:
+    """The event-level budget is served as its own field so steppers can do cross-tier math (#901)."""
+    public_event.max_tickets_per_user = 3
+    public_event.save(update_fields=["max_tickets_per_user"])
+    tier = public_event.ticket_tiers.first()
+    assert tier is not None
+    Ticket.objects.create(guest_name="Test Guest", event=public_event, user=nonmember_user, tier=tier)
+
+    url = reverse("api:get_my_event_status", kwargs={"event_id": public_event.pk})
+    response = nonmember_client.get(url)
+
+    assert response.status_code == 200
+    assert response.json()["event_remaining"] == 2  # cap 3, one ticket held
+
+
+def test_get_my_event_status_event_remaining_null_without_cap(
+    nonmember_client: Client, nonmember_user: RevelUser, public_event: Event
+) -> None:
+    """No event-level cap serializes as null (unlimited at event scope)."""
+    public_event.max_tickets_per_user = None
+    public_event.save(update_fields=["max_tickets_per_user"])
+    tier = public_event.ticket_tiers.first()
+    assert tier is not None
+    Ticket.objects.create(guest_name="Test Guest", event=public_event, user=nonmember_user, tier=tier)
+
+    url = reverse("api:get_my_event_status", kwargs={"event_id": public_event.pk})
+    response = nonmember_client.get(url)
+
+    assert response.status_code == 200
+    assert response.json()["event_remaining"] is None
+
+
 def test_get_my_event_status_with_rsvp(
     nonmember_client: Client, nonmember_user: RevelUser, rsvp_only_public_event: Event
 ) -> None:

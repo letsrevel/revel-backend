@@ -73,12 +73,19 @@ class TierRemainingTickets:
 
 @dataclass
 class UserEventStatus:
-    """User's status for an event including tickets, RSVP, and purchase limits."""
+    """User's status for an event including tickets, RSVP, and purchase limits.
+
+    ``event_remaining`` is the event-scoped per-user budget shared across every tier
+    (``Event.max_tickets_per_user`` minus the user's PENDING + ACTIVE tickets across all
+    tiers; None when the event sets no cap). It is the same term each tier's layered
+    ``remaining`` folds in, exposed separately so callers can do cross-tier math (#901).
+    """
 
     tickets: list[Ticket]
     rsvp: EventRSVP | None = None
     can_purchase_more: bool = True
     remaining_tickets: list[TierRemainingTickets] = dataclass_field(default_factory=list)
+    event_remaining: int | None = None
 
 
 def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
@@ -321,10 +328,12 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
         r.can_purchase and (r.remaining is None or r.remaining > 0) and not r.sold_out for r in remaining_list
     )
 
+    event_cap = event.max_tickets_per_user
     return UserEventStatus(
         tickets=tickets,
         can_purchase_more=can_purchase,
         remaining_tickets=remaining_list,
+        event_remaining=max(0, event_cap - user_event_count) if event_cap is not None else None,
     )
 
 
