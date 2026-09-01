@@ -371,6 +371,23 @@ EDITABLE_DRAFT_FIELDS = frozenset(
 DERIVED_TOTAL_FIELDS = ("total_gross", "total_net", "total_vat", "vat_rate", "discount_amount_total")
 
 
+class SubmittedLineItem(t.TypedDict, total=False):
+    """A line item as submitted for an edit, before normalization.
+
+    ``InvoiceLineItemSchema`` parses the amounts as ``Decimal``; the JSON column
+    stores strings. ``total=False`` because :func:`_normalize_line_items` defaults
+    every key -- completing a partial item is precisely its job -- so requiring
+    them here would misdescribe what it accepts.
+    """
+
+    description: str
+    unit_price_gross: Decimal
+    discount_amount: Decimal
+    net_amount: Decimal
+    vat_amount: Decimal
+    vat_rate: Decimal
+
+
 class DerivedTotals(t.TypedDict):
     """The header money columns as computed from an invoice's line items.
 
@@ -402,7 +419,7 @@ _BLANKABLE_STRING_FIELDS = frozenset(
 )
 
 
-def _normalize_line_items(line_items: list[dict[str, t.Any]]) -> list[InvoiceLineItemDict]:
+def _normalize_line_items(line_items: list[SubmittedLineItem]) -> list[InvoiceLineItemDict]:
     """Coerce submitted line items to the stored shape: every key present, every amount a string.
 
     ``InvoiceLineItemSchema`` parses the amounts as ``Decimal``; the JSON column
