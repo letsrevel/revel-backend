@@ -132,6 +132,29 @@ class TestVatBreakdown:
         assert invoice.vat_breakdown[0]["vat_rate"] == Decimal("22.00")
         assert invoice.has_mixed_vat_rates is False
 
+    def test_sub_cent_rates_are_not_rounded_together(self) -> None:
+        """22.003 and 22.004 are TWO rates and must not be merged by the 2dp padding.
+
+        The padding added in #908 rounds by default, which would collapse these into
+        a single bucket labelled 22.00 -- a rate neither line carries -- and report a
+        genuinely mixed invoice as ``has_mixed_vat_rates is False``. That is the exact
+        falsification the property exists to prevent, so the padding must never round.
+
+        Only reachable through a hand-edited draft: ``InvoiceLineItemSchema`` does not
+        bound the scale, while every production writer stamps the 2dp column value.
+        """
+        invoice = _invoice(
+            [
+                _line(net="40.98", vat="9.02", rate="22.003", gross="50.00"),
+                _line(net="81.97", vat="18.03", rate="22.004", gross="100.00"),
+            ]
+        )
+
+        breakdown = invoice.vat_breakdown
+
+        assert [str(b["vat_rate"]) for b in breakdown] == ["22.003", "22.004"]
+        assert invoice.has_mixed_vat_rates is True
+
     def test_bucket_rate_exponent_is_normalized_to_two_decimal_places(self) -> None:
         """The bucket key must normalize to 2dp regardless of which exponent is seen first.
 

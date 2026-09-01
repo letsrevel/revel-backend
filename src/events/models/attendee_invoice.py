@@ -187,10 +187,18 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         for item in items:
             # Group on the parsed Decimal, never the raw string: "22.0" and
             # "22.00" are one rate, and comparing strings reported such a cart
-            # as mixed. Quantize to 2dp (the column's decimal_places) so the
-            # bucket key -- and thus the serialized rate -- doesn't depend on
-            # which exponent happened to be seen first.
-            rate = Decimal(item["vat_rate"]).quantize(Decimal("0.01"))
+            # as mixed. Pad to 2dp (the column's decimal_places) so the bucket
+            # key -- and thus the serialized rate -- doesn't depend on which
+            # exponent happened to be seen first, but NEVER round: a rate with
+            # genuine sub-cent precision (reachable only through a hand-edited
+            # draft, since InvoiceLineItemSchema does not bound the scale) keeps
+            # its own bucket. Merging 22.003 with 22.004 would label the bucket
+            # 22.00 -- a rate neither line carries -- and report a genuinely
+            # mixed invoice as single-rate, the exact falsification this
+            # property exists to prevent.
+            raw_rate = Decimal(item["vat_rate"])
+            padded_rate = raw_rate.quantize(Decimal("0.01"))
+            rate = padded_rate if padded_rate == raw_rate else raw_rate
             bucket = buckets.setdefault(
                 rate,
                 InvoiceVatBucketDict(
