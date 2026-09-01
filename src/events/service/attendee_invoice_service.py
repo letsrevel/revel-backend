@@ -369,8 +369,10 @@ EDITABLE_DRAFT_FIELDS = frozenset(
 # Optional string columns (blank=True, default="") whose schema fields are nullable:
 # the FE sends `null` for a cleared optional field, so coerce None -> "" to respect
 # the NOT NULL DB constraint. Only fields that are genuinely blankable belong here —
-# required columns (e.g. buyer_name, currency) lack blank=True, so full_clean() rejects
-# an empty string and a null there is correctly a 400.
+# required columns (e.g. buyer_name, currency) lack blank=True, so an empty string is
+# not a valid value for them. This set doubles as the exemption list for the null guard
+# in update_draft_invoice (#908): a null on any field outside it is rejected with a 422
+# naming that field, before full_clean() is ever reached.
 _BLANKABLE_STRING_FIELDS = frozenset(
     {
         "buyer_vat_id",
@@ -397,7 +399,8 @@ def update_draft_invoice(
 
     Raises:
         HttpError 409: If the invoice is not a draft.
-        HttpError 422: If update_data contains disallowed fields.
+        HttpError 422: If update_data contains disallowed fields, or an explicit
+            null for a field that is not one of the blankable optional strings.
     """
     if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
         raise HttpError(409, str(_("Only draft invoices can be edited.")))
@@ -408,6 +411,10 @@ def update_draft_invoice(
     disallowed = set(update_data.keys()) - EDITABLE_DRAFT_FIELDS
     if disallowed:
         raise HttpError(422, str(_("Cannot edit fields: {fields}")).format(fields=", ".join(sorted(disallowed))))
+
+    nulled = {field for field, value in update_data.items() if value is None} - _BLANKABLE_STRING_FIELDS
+    if nulled:
+        raise HttpError(422, str(_("Fields cannot be null: {fields}")).format(fields=", ".join(sorted(nulled))))
 
     # Normalize line_items to ensure string values (schema sends Decimals)
     if "line_items" in update_data:

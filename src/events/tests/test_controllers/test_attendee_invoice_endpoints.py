@@ -490,6 +490,71 @@ class TestUpdateAttendeeInvoiceEndpoint:
         data = response.json()
         assert data["seller_name"] == "ACME SRL"  # unchanged
 
+    def test_explicit_null_line_items_is_422(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """An explicit `{"line_items": null}` must be rejected, not crash the normalizer (#908)."""
+        invoice = _create_draft_invoice(organization, event, member_user, suffix="edit_null_items")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps({"line_items": None}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
+
+    def test_explicit_null_total_gross_is_422(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """An explicit `{"total_gross": null}` must be rejected, not violate the NOT NULL column (#908)."""
+        invoice = _create_draft_invoice(organization, event, member_user, suffix="edit_null_gross")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps({"total_gross": None}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
+
+    def test_explicit_null_buyer_vat_id_still_blanks_to_empty_string(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """Blankable string fields keep coercing null -> "" -- the #908 guard must not regress this."""
+        invoice = _create_draft_invoice(organization, event, member_user, suffix="edit_null_vat_id")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps({"buyer_vat_id": None}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["buyer_vat_id"] == ""
+
 
 # ---------------------------------------------------------------------------
 # POST /organization-admin/{slug}/attendee-invoices/{id}/issue
@@ -706,3 +771,92 @@ class TestDashboardInvoiceDownloadEndpoint:
         response = client.get(url)
 
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Mixed-rate VAT breakdown on the invoice payloads (#897)
+# ---------------------------------------------------------------------------
+
+
+class TestInvoiceVatBreakdownPayload:
+    """The buyer-facing invoice payload must never imply a single rate it cannot support."""
+
+    def test_mixed_rate_invoice_exposes_flag_and_per_rate_buckets(
+        self,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A 22%/10% invoice reports has_mixed_vat_rates and both buckets on /dashboard/invoices.
+
+        This is the payload `/account/invoices` renders; before #897 it carried only
+        the scalar `vat_rate` (the first payment's), so the page printed one rate
+        for a cart that had two.
+        """
+        refresh = RefreshToken.for_user(member_user)
+        client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+
+        invoice = _create_issued_invoice(organization, event, member_user, suffix="mixed_vat")
+        invoice.line_items = [
+            {
+                "description": "Mixed Event — Standard — Ann",
+                "unit_price_gross": "50.00",
+                "discount_amount": "0.00",
+                "net_amount": "40.98",
+                "vat_amount": "9.02",
+                "vat_rate": "22.00",
+            },
+            {
+                "description": "Mixed Event — VIP — Bob",
+                "unit_price_gross": "120.00",
+                "discount_amount": "0.00",
+                "net_amount": "109.09",
+                "vat_amount": "10.91",
+                "vat_rate": "10.00",
+            },
+        ]
+        invoice.total_gross = Decimal("170.00")
+        invoice.total_net = Decimal("150.07")
+        invoice.total_vat = Decimal("19.93")
+        invoice.save()
+
+        response = client.get(reverse("api:dashboard_invoices"))
+
+        assert response.status_code == 200
+        payload = response.json()["results"][0]
+        assert payload["has_mixed_vat_rates"] is True
+        assert payload["vat_breakdown"] == [
+            {
+                "vat_rate": "10.00",
+                "net_amount": "109.09",
+                "vat_amount": "10.91",
+                "gross_amount": "120.00",
+            },
+            {
+                "vat_rate": "22.00",
+                "net_amount": "40.98",
+                "vat_amount": "9.02",
+                "gross_amount": "50.00",
+            },
+        ]
+
+    def test_single_rate_invoice_reports_not_mixed_with_one_bucket(
+        self,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """The ordinary single-rate invoice keeps a renderable scalar rate."""
+        refresh = RefreshToken.for_user(member_user)
+        client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+
+        _create_issued_invoice(organization, event, member_user, suffix="single_vat")
+
+        response = client.get(reverse("api:dashboard_invoices"))
+
+        assert response.status_code == 200
+        payload = response.json()["results"][0]
+        assert payload["has_mixed_vat_rates"] is False
+        assert len(payload["vat_breakdown"]) == 1
+        assert payload["vat_breakdown"][0]["vat_rate"] == "22.00"
+        assert payload["vat_rate"] == "22.00"

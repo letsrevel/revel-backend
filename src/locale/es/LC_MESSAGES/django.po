@@ -1546,6 +1546,10 @@ msgstr "Solo se pueden editar las facturas en borrador."
 msgid "Cannot edit fields: {fields}"
 msgstr "No se pueden editar los campos: {fields}"
 
+#, python-brace-format
+msgid "Fields cannot be null: {fields}"
+msgstr "Estos campos no pueden ser nulos: {fields}"
+
 msgid "Cancelled invoices cannot be issued."
 msgstr "Las facturas canceladas no se pueden emitir."
 
@@ -1676,6 +1680,40 @@ msgstr "Ya existe un registro con este correo electrónico."
 
 msgid "User not found."
 msgstr "Usuario no encontrado."
+
+msgid "Check-in is not currently open for this event."
+msgstr "El check-in no está abierto actualmente para este evento."
+
+#, python-brace-format
+msgid "Check-in is not open yet. It will open at {opens_at}."
+msgstr "El check-in aún no está abierto. Abrirá a las {opens_at}."
+
+#, python-brace-format
+msgid "Check-in has closed for this event. It ended at {ended_at}."
+msgstr "El check-in de este evento ha cerrado. Terminó a las {ended_at}."
+
+msgid "This ticket has already been checked in."
+msgstr "Esta entrada ya ha pasado el check-in."
+
+msgid "This ticket has been cancelled."
+msgstr "Esta entrada ha sido cancelada."
+
+msgid "This ticket is pending payment confirmation."
+msgstr "Esta entrada está pendiente de confirmación del pago."
+
+#, python-brace-format
+msgid "Invalid ticket status: {status}"
+msgstr "Estado de la entrada no válido: {status}"
+
+msgid "Price paid is not allowed for this ticket."
+msgstr "El precio pagado no está permitido para esta entrada."
+
+msgid ""
+"Price paid is required for Pay What You Can tickets without a recorded "
+"payment."
+msgstr ""
+"El precio pagado es obligatorio para las entradas de precio libre sin un "
+"pago registrado."
 
 msgid ""
 "One or more referenced objects are invalid or do not belong to this "
@@ -2525,40 +2563,6 @@ msgstr ""
 msgid "Price paid is required for Pay What You Can tiers."
 msgstr ""
 "El precio pagado es obligatorio en los tipos de entrada de precio libre."
-
-msgid "Check-in is not currently open for this event."
-msgstr "El check-in no está abierto actualmente para este evento."
-
-#, python-brace-format
-msgid "Check-in is not open yet. It will open at {opens_at}."
-msgstr "El check-in aún no está abierto. Abrirá a las {opens_at}."
-
-#, python-brace-format
-msgid "Check-in has closed for this event. It ended at {ended_at}."
-msgstr "El check-in de este evento ha cerrado. Terminó a las {ended_at}."
-
-msgid "This ticket has already been checked in."
-msgstr "Esta entrada ya ha pasado el check-in."
-
-msgid "This ticket has been cancelled."
-msgstr "Esta entrada ha sido cancelada."
-
-msgid "This ticket is pending payment confirmation."
-msgstr "Esta entrada está pendiente de confirmación del pago."
-
-#, python-brace-format
-msgid "Invalid ticket status: {status}"
-msgstr "Estado de la entrada no válido: {status}"
-
-msgid "Price paid is not allowed for this ticket."
-msgstr "El precio pagado no está permitido para esta entrada."
-
-msgid ""
-"Price paid is required for Pay What You Can tickets without a recorded "
-"payment."
-msgstr ""
-"El precio pagado es obligatorio para las entradas de precio libre sin un "
-"pago registrado."
 
 msgid "Tier IDs must match all tiers for this event exactly."
 msgstr ""

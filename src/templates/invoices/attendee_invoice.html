@@ -117,16 +117,17 @@
         <span>{{ invoice.total_vat|format_currency:invoice.currency }}</span>
       </div>
       {% endif %}
-      {% if invoice.discount_amount_total %}
-      <div class="totals-row subtotal">
-        <span>Discount</span>
-        <span>-{{ invoice.discount_amount_total|format_currency:invoice.currency }}</span>
-      </div>
-      {% endif %}
       <div class="totals-row total">
         <span>Total</span>
         <span>{{ invoice.total_gross|format_currency:invoice.currency }}</span>
       </div>
+      {% if invoice.discount_amount_total %}
+      {# total_gross is already net of the discount (#909) -- render it as an informational #}
+      {# note, not an arithmetic row, so the column above still foots. #}
+      <div class="totals-row" style="justify-content: flex-end;">
+        <small style="color: #888;">Includes discount of {{ invoice.discount_amount_total|format_currency:invoice.currency }}</small>
+      </div>
+      {% endif %}
     </div>
   </div>
 

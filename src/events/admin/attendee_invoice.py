@@ -115,6 +115,10 @@ class AttendeeInvoiceAdmin(ModelAdmin, EmailDeliveryAdminMixin, OrganizationLink
     def vat_display(self, obj: models.AttendeeInvoice) -> str:
         if obj.reverse_charge:
             return "RC"
+        # A mixed-rate cart (#846) has no single rate: `obj.vat_rate` is only the
+        # first payment's. Same guard as the PDF totals row (#897).
+        if obj.has_mixed_vat_rates:
+            return f"{obj.total_vat} (mixed)"
         return f"{obj.total_vat} ({obj.vat_rate}%)"
 
     @admin.display(description="Status")
