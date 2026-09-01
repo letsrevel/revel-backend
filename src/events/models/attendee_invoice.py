@@ -6,7 +6,7 @@ as an intermediary generating and delivering invoices.
 """
 
 import typing as t
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import models
@@ -197,7 +197,16 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
             # mixed invoice as single-rate, the exact falsification this
             # property exists to prevent.
             raw_rate = Decimal(item["vat_rate"])
-            padded_rate = raw_rate.quantize(Decimal("0.01"))
+            try:
+                padded_rate = raw_rate.quantize(Decimal("0.01"))
+            except InvalidOperation:
+                # A magnitude too large to express at 2dp in the default context
+                # (e.g. "1E+30"). Absurd, and only a hand-edited draft can store
+                # it -- but this property is on EVERY read path for the invoice
+                # (schema, admin, PDF), so raising here would leave the row
+                # permanently unreadable AND unrepairable: the PATCH that would
+                # fix it renders the same schema. Bucket it as-is instead.
+                padded_rate = raw_rate
             rate = padded_rate if padded_rate == raw_rate else raw_rate
             bucket = buckets.setdefault(
                 rate,

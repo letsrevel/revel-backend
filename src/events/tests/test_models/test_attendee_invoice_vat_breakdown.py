@@ -155,6 +155,26 @@ class TestVatBreakdown:
         assert [str(b["vat_rate"]) for b in breakdown] == ["22.003", "22.004"]
         assert invoice.has_mixed_vat_rates is True
 
+    def test_absurd_magnitude_rate_does_not_make_the_invoice_unreadable(self) -> None:
+        """A rate too large to pad at 2dp must bucket as-is, never raise.
+
+        ``Decimal("1E+30").quantize(Decimal("0.01"))`` raises ``InvalidOperation``.
+        This property is on every read path for an invoice (response schema, admin
+        changelist, PDF render), and ninja converts a raised error into a 500 from
+        *inside* the view -- so ``ATOMIC_REQUESTS`` sees a clean return and commits
+        the offending write. Raising would therefore leave the row permanently
+        unreadable and unrepairable, because the PATCH that would fix it renders
+        the same schema.
+        """
+        invoice = _invoice([_line(net="81.97", vat="18.03", rate="1E+30", gross="100.00")])
+
+        breakdown = invoice.vat_breakdown
+
+        assert len(breakdown) == 1
+        assert breakdown[0]["vat_rate"] == Decimal("1E+30")
+        assert breakdown[0]["gross_amount"] == Decimal("100.00")
+        assert invoice.has_mixed_vat_rates is False
+
     def test_bucket_rate_exponent_is_normalized_to_two_decimal_places(self) -> None:
         """The bucket key must normalize to 2dp regardless of which exponent is seen first.
 
