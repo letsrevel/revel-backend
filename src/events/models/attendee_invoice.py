@@ -43,7 +43,16 @@ class InvoiceVatBucketDict(t.TypedDict):
 
     Amounts are summed independently from the stored per-item values rather
     than derived from one another, so the buckets reconcile exactly to the
-    invoice's ``total_net`` / ``total_vat`` / ``total_gross`` header columns.
+    invoice's ``total_net`` / ``total_vat`` / ``total_gross`` header columns
+    for every invoice ``generate_attendee_invoice`` builds -- it constructs
+    both sides from the same ``Payment`` rows.
+
+    That is NOT a model invariant. ``update_draft_invoice`` lets an organizer
+    PATCH the header totals and ``line_items`` independently with no
+    cross-field check, so a DRAFT edited that way -- and it can still be
+    issued afterwards -- carries buckets that disagree with its header, with
+    both figures in the same API response. Tracked in #911; until that lands,
+    a consumer must not treat the two as guaranteed to agree.
     """
 
     vat_rate: Decimal

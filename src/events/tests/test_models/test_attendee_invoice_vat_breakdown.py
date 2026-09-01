@@ -61,7 +61,18 @@ class TestVatBreakdown:
         }
 
     def test_buckets_reconcile_to_the_header_totals(self) -> None:
-        """Bucket sums equal the invoice totals -- the breakdown never contradicts the header."""
+        """Bucket sums equal the header totals when the two are in sync.
+
+        The first line's gross (50.01) deliberately does NOT equal its net + vat
+        (50.00), so this also fails if the implementation recomputes a bucket's
+        gross as net + vat instead of summing the stored ``unit_price_gross``.
+
+        It does not pin "the breakdown never contradicts the header": the totals
+        below are the line-item sums by construction, and nothing in the model
+        stops the two diverging -- ``update_draft_invoice`` can PATCH them apart
+        (#911). Only a fixture that sets them apart would pin that, and there
+        deliberately isn't one, because the model does not yet promise it.
+        """
         invoice = _invoice(
             [
                 _line(net="40.98", vat="9.02", rate="22.00", gross="50.01"),
