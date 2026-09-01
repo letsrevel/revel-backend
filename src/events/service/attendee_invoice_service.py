@@ -354,17 +354,29 @@ EDITABLE_DRAFT_FIELDS = frozenset(
         "buyer_vat_country",
         "buyer_address",
         "buyer_email",
-        "total_gross",
-        "total_net",
-        "total_vat",
-        "vat_rate",
         "currency",
         "reverse_charge",
         "discount_code_text",
-        "discount_amount_total",
         "line_items",
     }
 )
+
+# Money columns derived from ``line_items``, never independently writable (#911).
+# They used to sit in EDITABLE_DRAFT_FIELDS, so a PATCH of ``total_gross`` alone
+# left a header claiming EUR 1000 above line items still summing to EUR 111 -- a
+# contradiction that shipped in one response once ``vat_breakdown`` was exposed
+# (#910), and that ``issue_draft_invoice`` then turned into a delivered PDF.
+# ``update_draft_invoice`` recomputes them whenever the lines change instead, so
+# the header cannot disagree with the rows it summarizes.
+DERIVED_TOTAL_FIELDS = ("total_gross", "total_net", "total_vat", "vat_rate", "discount_amount_total")
+
+# The subset ``AttendeeInvoice.vat_breakdown`` promises to reconcile with, and the
+# only figures a buyer is legally billed on -- what the issuance guard checks.
+# ``vat_rate`` is excluded on purpose: it is a documented lossy scalar (the first
+# line's rate, meaningless on a mixed-rate cart, which is what ``has_mixed_vat_rates``
+# is for), and refusing to issue a correct invoice over a label would be
+# disproportionate. ``discount_amount_total`` is likewise informational.
+_RECONCILED_TOTAL_FIELDS = ("total_gross", "total_net", "total_vat")
 
 # Optional string columns (blank=True, default="") whose schema fields are nullable:
 # the FE sends `null` for a cleared optional field, so coerce None -> "" to respect
@@ -384,11 +396,93 @@ _BLANKABLE_STRING_FIELDS = frozenset(
 )
 
 
+def _normalize_line_items(line_items: list[dict[str, t.Any]]) -> list[InvoiceLineItemDict]:
+    """Coerce submitted line items to the stored shape: every key present, every amount a string.
+
+    ``InvoiceLineItemSchema`` parses the amounts as ``Decimal``; the JSON column
+    stores them as strings, and :func:`_derive_totals` and
+    :attr:`AttendeeInvoice.vat_breakdown` both read them back that way.
+    """
+    return [
+        InvoiceLineItemDict(
+            description=item.get("description", ""),
+            unit_price_gross=str(item.get("unit_price_gross", "0.00")),
+            discount_amount=str(item.get("discount_amount", "0.00")),
+            net_amount=str(item.get("net_amount", "0.00")),
+            vat_amount=str(item.get("vat_amount", "0.00")),
+            vat_rate=str(item.get("vat_rate", "0.00")),
+        )
+        for item in line_items
+    ]
+
+
+def _derive_totals(line_items: list[InvoiceLineItemDict]) -> dict[str, Decimal]:
+    """Compute an invoice's header money columns from its line items.
+
+    Mirrors :func:`generate_attendee_invoice` exactly: that function sums the very
+    per-payment amounts :func:`_build_line_items` writes into each line, so a
+    recomputed header is identical to a freshly generated one -- no rounding, no
+    tolerance, both sides are plain sums of the same stored decimals.
+
+    ``vat_rate`` follows generation's "first payment's rate" convention and is
+    therefore just as lossy on a mixed-rate cart; consult
+    :attr:`AttendeeInvoice.has_mixed_vat_rates` before rendering it.
+
+    Reads the line-item keys directly, like :attr:`AttendeeInvoice.vat_breakdown`
+    does -- a row malformed enough to break one already breaks the other.
+    """
+    zero = Decimal("0.00")
+    return {
+        "total_gross": sum((Decimal(item["unit_price_gross"]) for item in line_items), zero),
+        "total_net": sum((Decimal(item["net_amount"]) for item in line_items), zero),
+        "total_vat": sum((Decimal(item["vat_amount"]) for item in line_items), zero),
+        "discount_amount_total": sum((Decimal(item["discount_amount"]) for item in line_items), zero),
+        "vat_rate": Decimal(line_items[0]["vat_rate"]) if line_items else zero,
+    }
+
+
+def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
+    """Refuse to issue an invoice whose header totals disagree with its line items.
+
+    :func:`update_draft_invoice` derives the header from the lines, so a draft
+    edited through the API always reconciles. This guards the other doors (#911):
+    a row that drifted before that landed, or one written straight through the
+    Django admin, must not become a legal document and a delivered PDF on the
+    strength of a header its own ``vat_breakdown`` contradicts.
+
+    Recovery for such a row is a PATCH of ``line_items``, which recomputes the
+    header from whatever the organizer states the lines to be.
+
+    Raises:
+        HttpError 422: If any reconciled total differs from its line-item sum.
+    """
+    derived = _derive_totals(invoice.line_items)
+    mismatched = [
+        # Symbolic, not prose: the message around it is translated, this is not.
+        f"{field} ({getattr(invoice, field)} != {derived[field]})"
+        for field in _RECONCILED_TOTAL_FIELDS
+        if getattr(invoice, field) != derived[field]
+    ]
+    if mismatched:
+        raise HttpError(
+            422,
+            str(_("Invoice totals do not reconcile with its line items: {details}")).format(
+                details="; ".join(mismatched)
+            ),
+        )
+
+
 def update_draft_invoice(
     invoice: AttendeeInvoice,
     update_data: dict[str, t.Any],
 ) -> AttendeeInvoice:
     """Update a DRAFT invoice. Only drafts are editable.
+
+    Editing ``line_items`` recomputes every column in :data:`DERIVED_TOTAL_FIELDS`
+    from the new lines (#911). Those columns are not in
+    :data:`EDITABLE_DRAFT_FIELDS`, so an organizer who wants a different total
+    states it as line items -- which is what an invoice is -- and the header can
+    never contradict the ``vat_breakdown`` summed from the same rows.
 
     Args:
         invoice: The invoice to update.
@@ -399,8 +493,9 @@ def update_draft_invoice(
 
     Raises:
         HttpError 409: If the invoice is not a draft.
-        HttpError 422: If update_data contains disallowed fields, or an explicit
-            null for a field that is not one of the blankable optional strings.
+        HttpError 422: If update_data contains disallowed fields (including a
+            derived total), or an explicit null for a field that is not one of
+            the blankable optional strings.
     """
     if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
         raise HttpError(409, str(_("Only draft invoices can be edited.")))
@@ -416,19 +511,13 @@ def update_draft_invoice(
     if nulled:
         raise HttpError(422, str(_("Fields cannot be null: {fields}")).format(fields=", ".join(sorted(nulled))))
 
-    # Normalize line_items to ensure string values (schema sends Decimals)
     if "line_items" in update_data:
-        update_data["line_items"] = [
-            InvoiceLineItemDict(
-                description=item.get("description", ""),
-                unit_price_gross=str(item.get("unit_price_gross", "0.00")),
-                discount_amount=str(item.get("discount_amount", "0.00")),
-                net_amount=str(item.get("net_amount", "0.00")),
-                vat_amount=str(item.get("vat_amount", "0.00")),
-                vat_rate=str(item.get("vat_rate", "0.00")),
-            )
-            for item in update_data["line_items"]
-        ]
+        update_data["line_items"] = _normalize_line_items(update_data["line_items"])
+        # The header follows the lines it summarizes and is never stated alongside
+        # them (#911). Recomputed only on an edit that touches the lines: doing it
+        # unconditionally would zero the totals of any row whose line_items happen
+        # to be empty.
+        update_data.update(_derive_totals(update_data["line_items"]))
 
     # Coerce None -> "" for blankable string columns (FE sends null for cleared fields).
     for field in _BLANKABLE_STRING_FIELDS:
@@ -462,11 +551,17 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
 
     Raises:
         HttpError 409: If the invoice is CANCELLED.
+        HttpError 422: If a DRAFT's header totals do not reconcile with its line
+            items -- such an invoice must not become a legal document (#911).
     """
     if invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED:
         raise HttpError(409, str(_("Cancelled invoices cannot be issued.")))
 
     if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
+        # Only on the DRAFT -> ISSUED transition: re-issuing an already-ISSUED
+        # invoice exists to recover a failed PDF generation, and that recovery
+        # must stay available even for a row that drifted before #911 landed.
+        _assert_totals_reconcile(invoice)
         invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
         invoice.issued_at = timezone.now()
         invoice.save(update_fields=["status", "issued_at", "updated_at"])

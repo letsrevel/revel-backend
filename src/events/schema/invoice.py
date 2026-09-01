@@ -6,7 +6,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime
+from pydantic import AwareDatetime, ConfigDict
 
 from events.models.attendee_invoice import AttendeeInvoiceStatus
 from events.models.invoice import PlatformFeeInvoice
@@ -134,22 +134,27 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
 class UpdateAttendeeInvoiceSchema(Schema):
     """Schema for editing a DRAFT attendee invoice.
 
-    All fields except seller (org) info are editable.
+    Buyer identity, currency, the discount label, and the line items are editable.
+    The money columns those lines imply are not: ``total_gross``, ``total_net``,
+    ``total_vat``, ``vat_rate`` and ``discount_amount_total`` are recomputed from
+    ``line_items`` on every edit (#911). Accepting them here would let a caller
+    state a header that contradicts ``AttendeeInvoice.vat_breakdown`` -- summed
+    from the same rows and returned in the same response.
+
+    ``extra="forbid"`` so a client still sending a derived total (or a seller
+    field, or a typo) is told, rather than having the value silently dropped.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     buyer_name: str | None = None
     buyer_vat_id: str | None = None
     buyer_vat_country: str | None = None
     buyer_address: str | None = None
     buyer_email: str | None = None
-    total_gross: Decimal | None = None
-    total_net: Decimal | None = None
-    total_vat: Decimal | None = None
-    vat_rate: Decimal | None = None
     currency: str | None = None
     reverse_charge: bool | None = None
     discount_code_text: str | None = None
-    discount_amount_total: Decimal | None = None
     line_items: list[InvoiceLineItemSchema] | None = None
 
 

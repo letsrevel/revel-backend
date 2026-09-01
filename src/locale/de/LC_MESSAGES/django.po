@@ -1558,6 +1558,10 @@ msgstr ""
 msgid "This member has no ticket for this event."
 msgstr "Dieses Mitglied hat kein Ticket für dieses Event."
 
+#, python-brace-format
+msgid "Invoice totals do not reconcile with its line items: {details}"
+msgstr "Die Rechnungssummen stimmen nicht mit den Rechnungspositionen überein: {details}"
+
 msgid "Only draft invoices can be edited."
 msgstr "Nur Rechnungsentwürfe können bearbeitet werden."
 

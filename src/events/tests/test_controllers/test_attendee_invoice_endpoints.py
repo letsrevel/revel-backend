@@ -466,14 +466,18 @@ class TestUpdateAttendeeInvoiceEndpoint:
 
         assert response.status_code == 409
 
-    def test_unknown_fields_are_ignored_by_schema(
+    def test_unknown_fields_are_rejected_by_schema(
         self,
         organization_owner_client: Client,
         organization: Organization,
         event: Event,
         member_user: RevelUser,
     ) -> None:
-        """Unknown fields (e.g. seller_name) are stripped by the schema, resulting in a no-op update."""
+        """Unknown fields (e.g. seller_name) are refused, not silently dropped (#911).
+
+        The schema was permissive, so a caller editing a non-editable field got a
+        200 and no change. ``extra="forbid"`` tells them instead.
+        """
         invoice = _create_draft_invoice(organization, event, member_user, suffix="edit3")
         url = reverse(
             "api:update_attendee_invoice",
@@ -485,10 +489,74 @@ class TestUpdateAttendeeInvoiceEndpoint:
             content_type="application/json",
         )
 
-        # Schema strips unknown fields → empty update → 200 with unchanged data
+        assert response.status_code == 422
+        invoice.refresh_from_db()
+        assert invoice.seller_name == "ACME SRL"  # unchanged
+
+    @pytest.mark.parametrize("field", ["total_gross", "total_net", "total_vat", "vat_rate", "discount_amount_total"])
+    def test_derived_totals_are_not_writable(
+        self,
+        field: str,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """Regression (#911): PATCHing a header total alone used to return 200 and drift the invoice."""
+        invoice = _create_draft_invoice(organization, event, member_user, suffix=f"edit_derived_{field}")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps({field: "999.00"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
+        invoice.refresh_from_db()
+        assert invoice.total_gross == Decimal("100.00")
+
+    def test_editing_line_items_recomputes_totals_in_the_response(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """The header and the vat_breakdown in one response agree, by construction (#911)."""
+        invoice = _create_draft_invoice(organization, event, member_user, suffix="edit_items")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps(
+                {
+                    "line_items": [
+                        {
+                            "description": "Reduced rate ticket",
+                            "unit_price_gross": "22.00",
+                            "discount_amount": "0.00",
+                            "net_amount": "20.00",
+                            "vat_amount": "2.00",
+                            "vat_rate": "10.00",
+                        }
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+
         assert response.status_code == 200
         data = response.json()
-        assert data["seller_name"] == "ACME SRL"  # unchanged
+        assert Decimal(data["total_gross"]) == Decimal("22.00")
+        assert Decimal(data["total_net"]) == Decimal("20.00")
+        assert Decimal(data["total_vat"]) == Decimal("2.00")
+        assert Decimal(data["vat_rate"]) == Decimal("10.00")
+        assert [Decimal(b["gross_amount"]) for b in data["vat_breakdown"]] == [Decimal("22.00")]
 
     def test_explicit_null_line_items_is_422(
         self,
@@ -518,7 +586,11 @@ class TestUpdateAttendeeInvoiceEndpoint:
         event: Event,
         member_user: RevelUser,
     ) -> None:
-        """An explicit `{"total_gross": null}` must be rejected, not violate the NOT NULL column (#908)."""
+        """An explicit `{"total_gross": null}` must be rejected, not violate the NOT NULL column (#908).
+
+        Since #911 the rejection comes one layer earlier -- ``total_gross`` is no
+        longer part of the write schema at all -- but the contract is the same 422.
+        """
         invoice = _create_draft_invoice(organization, event, member_user, suffix="edit_null_gross")
         url = reverse(
             "api:update_attendee_invoice",
@@ -587,6 +659,35 @@ class TestIssueAttendeeInvoiceEndpoint:
         data = response.json()
         assert data["status"] == "issued"
         assert data["issued_at"] is not None
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_issuing_a_drifted_draft_is_422(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """Regression (#911): issuance is its own gate and used to return 200.
+
+        A drifted DRAFT became a legal document with a PDF delivered to the
+        buyer whose header contradicted its own line items.
+        """
+        invoice = _create_draft_invoice(organization, event, member_user, suffix="issue_drift")
+        AttendeeInvoice.objects.filter(pk=invoice.pk).update(total_gross=Decimal("999.00"))
+        url = reverse(
+            "api:issue_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.post(url, content_type="application/json")
+
+        assert response.status_code == 422
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT
+        mock_pdf.assert_not_called()
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     @patch(MOCK_SEND_EMAIL)

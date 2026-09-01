@@ -25,6 +25,7 @@ from events.models import Event, Organization, Ticket, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
 from events.models.ticket import Payment
 from events.service.attendee_invoice_service import (
+    DERIVED_TOTAL_FIELDS,
     _is_export,
     delete_draft_invoice,
     generate_attendee_invoice,
@@ -120,7 +121,19 @@ def _create_draft(org: Organization, event: Event, user: RevelUser) -> AttendeeI
         total_vat=Decimal("18.03"),
         vat_rate=Decimal("22.00"),
         currency="EUR",
-        line_items=[],
+        # Reconciles with the totals above: since #911 an invoice whose header
+        # disagrees with its lines cannot be issued, and a fixture that drifts
+        # is not a shape production can produce.
+        line_items=[
+            {
+                "description": "Event — Tier — Guest",
+                "unit_price_gross": "100.00",
+                "discount_amount": "0.00",
+                "net_amount": "81.97",
+                "vat_amount": "18.03",
+                "vat_rate": "22.00",
+            }
+        ],
         seller_name="ACME SRL",
         seller_email="billing@acme.it",
         buyer_name="Original Buyer",
@@ -573,11 +586,92 @@ class TestUpdateDraftInvoice:
         inv = _create_draft(organization, event, member_user)
         assert update_draft_invoice(inv, {"buyer_name": "New Name"}).buyer_name == "New Name"
 
-    def test_can_edit_totals(self, organization: Organization, event: Event, member_user: RevelUser) -> None:
-        """Editing financial totals on a draft should succeed."""
+    @pytest.mark.parametrize("field", DERIVED_TOTAL_FIELDS)
+    def test_cannot_edit_derived_total(
+        self, field: str, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """Regression (#911): a header total cannot be stated independently of the lines.
+
+        Setting ``total_gross`` alone used to succeed, leaving a header claiming
+        one amount above line items summing to another -- a contradiction the
+        API returns in a single response now that ``vat_breakdown`` is exposed
+        (#910), and that issuance then turned into a delivered PDF.
+        """
         inv = _create_draft(organization, event, member_user)
-        updated = update_draft_invoice(inv, {"total_gross": Decimal("200.00"), "total_net": Decimal("163.93")})
-        assert updated.total_gross == Decimal("200.00")
+        with pytest.raises(HttpError) as exc_info:
+            update_draft_invoice(inv, {field: Decimal("200.00")})
+        assert exc_info.value.status_code == 422
+        assert field in str(exc_info.value)
+
+    def test_editing_line_items_recomputes_totals(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """Rewriting the lines rewrites the header they summarize (#911)."""
+        inv = _create_draft(organization, event, member_user)
+        updated = update_draft_invoice(
+            inv,
+            {
+                "line_items": [
+                    {
+                        "description": "Ticket A",
+                        "unit_price_gross": Decimal("50.00"),
+                        "discount_amount": Decimal("5.00"),
+                        "net_amount": Decimal("40.98"),
+                        "vat_amount": Decimal("9.02"),
+                        "vat_rate": Decimal("22.00"),
+                    },
+                    {
+                        "description": "Ticket B",
+                        "unit_price_gross": Decimal("30.00"),
+                        "discount_amount": Decimal("0.00"),
+                        "net_amount": Decimal("27.27"),
+                        "vat_amount": Decimal("2.73"),
+                        "vat_rate": Decimal("10.00"),
+                    },
+                ]
+            },
+        )
+        updated.refresh_from_db()
+        assert updated.total_gross == Decimal("80.00")
+        assert updated.total_net == Decimal("68.25")
+        assert updated.total_vat == Decimal("11.75")
+        assert updated.discount_amount_total == Decimal("5.00")
+        # The scalar header rate follows generation's convention: the first line's.
+        assert updated.vat_rate == Decimal("22.00")
+
+    def test_recomputed_totals_reconcile_with_vat_breakdown(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """The invariant ``InvoiceVatBucketDict`` promises holds after an edit (#911)."""
+        inv = _create_draft(organization, event, member_user)
+        updated = update_draft_invoice(
+            inv,
+            {
+                "line_items": [
+                    {
+                        "description": "Standard",
+                        "unit_price_gross": Decimal("111.00"),
+                        "discount_amount": Decimal("0.00"),
+                        "net_amount": Decimal("91.74"),
+                        "vat_amount": Decimal("19.26"),
+                        "vat_rate": Decimal("21.00"),
+                    },
+                    {
+                        "description": "Reduced",
+                        "unit_price_gross": Decimal("22.00"),
+                        "discount_amount": Decimal("0.00"),
+                        "net_amount": Decimal("20.00"),
+                        "vat_amount": Decimal("2.00"),
+                        "vat_rate": Decimal("10.00"),
+                    },
+                ]
+            },
+        )
+        buckets = updated.vat_breakdown
+        assert updated.has_mixed_vat_rates
+        assert sum(b["gross_amount"] for b in buckets) == updated.total_gross
+        assert sum(b["net_amount"] for b in buckets) == updated.total_net
+        assert sum(b["vat_amount"] for b in buckets) == updated.total_vat
 
     def test_empty_update_returns_unchanged(
         self, organization: Organization, event: Event, member_user: RevelUser
@@ -640,14 +734,9 @@ class TestUpdateDraftInvoice:
             "buyer_vat_country": "DE",
             "buyer_address": "Berlin",
             "buyer_email": "test@example.de",
-            "total_gross": Decimal("99.99"),
-            "total_net": Decimal("81.96"),
-            "total_vat": Decimal("18.03"),
-            "vat_rate": Decimal("22.00"),
             "currency": "USD",
             "reverse_charge": True,
             "discount_code_text": "SALE10",
-            "discount_amount_total": Decimal("5.00"),
             "line_items": [{"description": "Test"}],
         }
         update_draft_invoice(inv, data)  # Should not raise
@@ -730,6 +819,74 @@ class TestIssueDraftInvoice:
         with pytest.raises(HttpError) as exc_info:
             issue_draft_invoice(inv)
         assert exc_info.value.status_code == 409
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_cannot_issue_draft_whose_totals_drifted(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """Regression (#911): a drifted DRAFT must not become a legal document.
+
+        The API can no longer produce one, but a row written straight through
+        the Django admin -- or one that drifted before #911 -- still can, and
+        issuance is its own gate: it used to return 200 and deliver a PDF whose
+        header contradicted its own line items.
+        """
+        inv = _create_draft(organization, event, member_user)
+        AttendeeInvoice.objects.filter(pk=inv.pk).update(total_gross=Decimal("999.00"))
+        inv.refresh_from_db()
+
+        with pytest.raises(HttpError) as exc_info:
+            issue_draft_invoice(inv)
+
+        assert exc_info.value.status_code == 422
+        assert "total_gross" in str(exc_info.value)
+        assert "999.00" in str(exc_info.value)
+        inv.refresh_from_db()
+        assert inv.status == AttendeeInvoice.InvoiceStatus.DRAFT
+        mock_pdf.assert_not_called()
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_patching_line_items_repairs_a_drifted_draft(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """The documented recovery path: restate the lines, the header follows (#911)."""
+        inv = _create_draft(organization, event, member_user)
+        AttendeeInvoice.objects.filter(pk=inv.pk).update(total_gross=Decimal("999.00"))
+        inv.refresh_from_db()
+
+        update_draft_invoice(inv, {"line_items": list(inv.line_items)})
+
+        assert inv.total_gross == Decimal("100.00")
+        assert issue_draft_invoice(inv).status == AttendeeInvoice.InvoiceStatus.ISSUED
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_reissue_of_drifted_issued_invoice_still_regenerates_pdf(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """The guard covers only DRAFT -> ISSUED (#911).
+
+        Re-issuing exists to recover a failed PDF generation on an already-issued
+        document; refusing it would strand a row that drifted before the guard
+        landed with no PDF at all.
+        """
+        inv = _create_issued(organization, event, member_user)
+        AttendeeInvoice.objects.filter(pk=inv.pk).update(total_gross=Decimal("999.00"))
+        inv.refresh_from_db()
+
+        assert issue_draft_invoice(inv).status == AttendeeInvoice.InvoiceStatus.ISSUED
+        mock_pdf.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
