@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-09-01
+
+### Added
+
+- **Per-rate VAT breakdown on attendee invoices**: every attendee-invoice response now carries `has_mixed_vat_rates` and `vat_breakdown` — one net/VAT/gross bucket per VAT rate, summed from the invoice's line items. Since multi-tier carts can mix rates, the invoice's scalar `vat_rate` only ever named the first line's; the invoice PDF and the Django admin no longer present it as the whole document's rate, showing the per-rate buckets instead when the rates differ
+- `event_remaining` on `GET /events/{event_id}/my-status`: the event-wide per-user ticket budget shared across all tiers (null when the event sets no cap), present on both response shapes so a first-time buyer gets it too. Multi-tier cart steppers can now cap themselves against the event budget instead of assembling a cart that is rejected at submit
+
+### Changed
+
+- Attendee-invoice totals are now derived rather than stated: `PATCH /organizations/{slug}/attendee-invoices/{invoice_id}` no longer accepts `total_gross`, `total_net`, `total_vat`, `vat_rate` or `discount_amount_total`, recomputing them from `line_items` on every edit that touches the lines. The request schema also rejects unknown fields with a 422 instead of dropping them, so a client still sending a derived total is told rather than getting a 200 that silently ignored it
+- Editing a draft invoice with an explicit `null` on a column that cannot be null now returns a 422 naming that field, instead of a generic validation error
+
+### Fixed
+
+- A draft attendee invoice can no longer be issued with header totals that contradict its own line items. `{"total_gross": "1000.00"}` alone used to leave an invoice claiming EUR 1000 over line items summing to EUR 111 — a contradiction visible in a single response now that `vat_breakdown` is exposed — and issuing it turned that into a delivered PDF. Totals are now derived from the lines, and the DRAFT → ISSUED transition is refused for any row whose totals drifted (e.g. one written by a raw database update), so it cannot become a legal document
+- Invoice PDFs no longer subtract the discount twice: `total_gross` is already net of the discount, so the discount is now rendered as an informational note beneath the total rather than as an arithmetic row that left the totals column not footing
+
+### Security
+
+- Bumped the transitive dependency `pip` to 26.2.1, resolving PYSEC-2026-3721 / CVE-2026-13346 (mishandled doubly-encoded package URLs from an index allowing writes outside the target directory). It reaches the project via `pip-audit` → `pip-api`
+
 ## [2.4.0] - 2026-08-18
 
 ### Added
