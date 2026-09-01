@@ -38,6 +38,31 @@ class InvoiceLineItemDict(t.TypedDict):
     vat_rate: str
 
 
+class SubmittedLineItem(t.TypedDict, total=False):
+    """A line item as submitted for an edit, before normalization.
+
+    ``total=False``: :func:`_normalize_line_items` defaults every key, so
+    completing a partial item is its job rather than its precondition.
+    """
+
+    description: str
+    unit_price_gross: Decimal
+    discount_amount: Decimal
+    net_amount: Decimal
+    vat_amount: Decimal
+    vat_rate: Decimal
+
+
+class DerivedTotals(t.TypedDict):
+    """The header money columns computed from line items. Mirrors :data:`DERIVED_TOTAL_FIELDS`."""
+
+    total_gross: Decimal
+    total_net: Decimal
+    total_vat: Decimal
+    discount_amount_total: Decimal
+    vat_rate: Decimal
+
+
 class InvoiceVatBucketDict(t.TypedDict):
     """One VAT-rate bucket derived from an invoice's line items (#897).
 

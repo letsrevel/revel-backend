@@ -206,7 +206,7 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         self, slug: str, invoice_id: UUID, payload: schema.UpdateAttendeeInvoiceSchema
     ) -> models.AttendeeInvoice:
         """Edit a draft attendee invoice. Only DRAFT invoices can be edited."""
-        from events.service.attendee_invoice_service import update_draft_invoice
+        from events.service.attendee_invoice_draft_service import update_draft_invoice
 
         organization = self.get_one(slug)
         invoice = get_object_or_404(models.AttendeeInvoice, id=invoice_id, organization=organization)
@@ -221,7 +221,7 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     )
     def issue_attendee_invoice(self, slug: str, invoice_id: UUID) -> models.AttendeeInvoice:
         """Issue a draft attendee invoice and send it to the buyer."""
-        from events.service.attendee_invoice_service import issue_and_deliver
+        from events.service.attendee_invoice_draft_service import issue_and_deliver
 
         organization = self.get_one(slug)
         invoice = get_object_or_404(models.AttendeeInvoice, id=invoice_id, organization=organization)
@@ -235,7 +235,7 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     )
     def delete_attendee_invoice(self, slug: str, invoice_id: UUID) -> tuple[int, None]:
         """Delete a draft attendee invoice."""
-        from events.service.attendee_invoice_service import delete_draft_invoice
+        from events.service.attendee_invoice_draft_service import delete_draft_invoice
 
         organization = self.get_one(slug)
         invoice = get_object_or_404(models.AttendeeInvoice, id=invoice_id, organization=organization)
