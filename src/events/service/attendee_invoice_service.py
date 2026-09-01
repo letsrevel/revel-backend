@@ -512,6 +512,40 @@ def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
         )
 
 
+def _apply_draft_update(invoice: AttendeeInvoice, update_data: dict[str, t.Any]) -> AttendeeInvoice:
+    """Write an already-validated payload onto the invoice, under a row lock.
+
+    Re-reads the row with ``select_for_update`` and re-checks DRAFT before writing.
+    The caller's instance was fetched by the controller before any validation ran,
+    so its status is a snapshot: a concurrent issue landing in that window would
+    leave an unlocked write editing an already-issued legal document (#911 review).
+
+    Split out from :func:`update_draft_invoice` so the lock covers the write and
+    nothing else -- rejecting a malformed payload should not take a row lock.
+
+    Returns:
+        The locked, updated invoice -- a different instance from the one passed in.
+
+    Raises:
+        HttpError 409: If the locked row is no longer a draft.
+    """
+    with transaction.atomic():
+        invoice = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
+        if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
+            raise HttpError(409, str(_("Only draft invoices can be edited.")))
+
+        for field, value in update_data.items():
+            setattr(invoice, field, value)
+
+        # Invalidate stale PDF so it gets regenerated on next download
+        if invoice.pdf_file:
+            invoice.pdf_file.delete(save=False)
+            update_data["pdf_file"] = ""
+
+        invoice.save(update_fields=[*update_data.keys(), "updated_at"])
+        return invoice
+
+
 def update_draft_invoice(
     invoice: AttendeeInvoice,
     update_data: dict[str, t.Any],
@@ -528,11 +562,17 @@ def update_draft_invoice(
         invoice: The invoice to update.
         update_data: Dict of fields to update (from exclude_unset).
 
+    The write itself happens in :func:`_apply_draft_update`, on a row-locked
+    re-read, so the returned instance is not the one passed in. The status is
+    checked twice on purpose: once here to fail fast on the caller's instance,
+    once under the lock because only that row is current.
+
     Returns:
-        The updated invoice.
+        The updated invoice, re-read under the lock.
 
     Raises:
-        HttpError 409: If the invoice is not a draft.
+        HttpError 409: If the invoice is not a draft, either as fetched or by the
+            time the row lock is acquired.
         HttpError 422: If update_data contains disallowed fields (including a
             derived total), or an explicit null for a field that is not one of
             the blankable optional strings.
@@ -564,17 +604,7 @@ def update_draft_invoice(
         if field in update_data and update_data[field] is None:
             update_data[field] = ""
 
-    for field, value in update_data.items():
-        setattr(invoice, field, value)
-
-    # Invalidate stale PDF so it gets regenerated on next download
-    if invoice.pdf_file:
-        invoice.pdf_file.delete(save=False)
-        update_data["pdf_file"] = ""
-
-    invoice.save(update_fields=[*update_data.keys(), "updated_at"])
-
-    return invoice
+    return _apply_draft_update(invoice, update_data)
 
 
 def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
@@ -586,27 +616,40 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
     Args:
         invoice: The draft or already-issued invoice.
 
+    Both the status check and the reconciliation run on a row-locked re-read, so
+    the returned instance is not the one passed in.
+
     Returns:
-        The issued invoice.
+        The issued invoice, re-read under the lock.
 
     Raises:
         HttpError 409: If the invoice is CANCELLED.
         HttpError 422: If a DRAFT's header totals do not reconcile with its line
             items -- such an invoice must not become a legal document (#911).
     """
-    if invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED:
-        raise HttpError(409, str(_("Cancelled invoices cannot be issued.")))
+    with transaction.atomic():
+        # Lock and re-read: the reconciliation below decides whether this row may
+        # become a legal document, so it must judge the committed row, not the
+        # snapshot the controller fetched. Unlocked, a concurrent PATCH landing
+        # after that fetch would be validated in absentia and then rendered into
+        # a PDF that contradicts what the database actually holds.
+        invoice = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
 
-    if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
-        # Only on the DRAFT -> ISSUED transition: re-issuing an already-ISSUED
-        # invoice exists to recover a failed PDF generation, and that recovery
-        # must stay available even for a row that drifted before #911 landed.
-        _assert_totals_reconcile(invoice)
-        invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
-        invoice.issued_at = timezone.now()
-        invoice.save(update_fields=["status", "issued_at", "updated_at"])
+        if invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED:
+            raise HttpError(409, str(_("Cancelled invoices cannot be issued.")))
 
-    # (Re-)generate PDF without DRAFT watermark
+        if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
+            # Only on the DRAFT -> ISSUED transition: re-issuing an already-ISSUED
+            # invoice exists to recover a failed PDF generation, and that recovery
+            # must stay available even for a row that drifted before #911 landed.
+            _assert_totals_reconcile(invoice)
+            invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
+            invoice.issued_at = timezone.now()
+            invoice.save(update_fields=["status", "issued_at", "updated_at"])
+
+    # (Re-)generate PDF without DRAFT watermark. Outside the lock: WeasyPrint is
+    # slow, and once the status is committed no edit can land -- update_draft_invoice
+    # refuses a non-DRAFT row under that same lock.
     _generate_and_save_pdf(invoice)
 
     return invoice

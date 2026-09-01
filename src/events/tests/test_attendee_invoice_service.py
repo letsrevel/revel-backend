@@ -741,6 +741,52 @@ class TestUpdateDraftInvoice:
         }
         update_draft_invoice(inv, data)  # Should not raise
 
+    def test_edit_rejects_an_invoice_issued_since_it_was_fetched(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """The DRAFT check must judge the locked row, not the caller's snapshot (#911 review).
+
+        The controller fetches the invoice, then hands it here. Unlocked, a
+        concurrent issue landing in that window left this function checking a
+        stale DRAFT and editing an already-issued legal document.
+        """
+        inv = _create_draft(organization, event, member_user)
+        stale = AttendeeInvoice.objects.get(pk=inv.pk)  # what the controller handed us
+        AttendeeInvoice.objects.filter(pk=inv.pk).update(status=AttendeeInvoice.InvoiceStatus.ISSUED)
+
+        with pytest.raises(HttpError) as exc_info:
+            update_draft_invoice(stale, {"buyer_name": "Too late"})
+
+        assert exc_info.value.status_code == 409
+        inv.refresh_from_db()
+        assert inv.buyer_name == "Original Buyer"
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_issue_reconciles_the_locked_row_not_the_callers_snapshot(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """Reconciliation must judge the committed row (#911 review).
+
+        Unlocked, a PATCH landing after the controller's fetch was validated in
+        absentia: the guard passed on the stale copy and the PDF rendered from it,
+        so the buyer received a document contradicting the stored invoice.
+        """
+        inv = _create_draft(organization, event, member_user)
+        stale = AttendeeInvoice.objects.get(pk=inv.pk)
+        AttendeeInvoice.objects.filter(pk=inv.pk).update(total_gross=Decimal("999.00"))
+
+        with pytest.raises(HttpError) as exc_info:
+            issue_draft_invoice(stale)
+
+        assert exc_info.value.status_code == 422
+        inv.refresh_from_db()
+        assert inv.status == AttendeeInvoice.InvoiceStatus.DRAFT
+        mock_pdf.assert_not_called()
+
     @pytest.mark.parametrize(
         "field",
         ["buyer_vat_id", "buyer_vat_country", "buyer_address", "buyer_email", "discount_code_text"],
@@ -894,10 +940,10 @@ class TestIssueDraftInvoice:
         AttendeeInvoice.objects.filter(pk=inv.pk).update(total_gross=Decimal("999.00"))
         inv.refresh_from_db()
 
-        update_draft_invoice(inv, {"line_items": list(inv.line_items)})
+        repaired = update_draft_invoice(inv, {"line_items": list(inv.line_items)})
 
-        assert inv.total_gross == Decimal("100.00")
-        assert issue_draft_invoice(inv).status == AttendeeInvoice.InvoiceStatus.ISSUED
+        assert repaired.total_gross == Decimal("100.00")
+        assert issue_draft_invoice(repaired).status == AttendeeInvoice.InvoiceStatus.ISSUED
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_reissue_of_drifted_issued_invoice_still_regenerates_pdf(
