@@ -43,13 +43,20 @@ class InvoiceVatBucketDict(t.TypedDict):
 
     Amounts are summed independently from the stored per-item values rather
     than derived from one another, and they reconcile exactly to the invoice's
-    ``total_net`` / ``total_vat`` / ``total_gross`` header columns. Both sides
-    come from the same numbers by construction: ``generate_attendee_invoice``
-    builds them from one set of ``Payment`` rows, and the only way to change
-    them afterwards -- editing a DRAFT's ``line_items`` -- recomputes the
-    header from the new lines rather than letting a caller state it (#911).
-    The header columns are not independently writable, so there is no edit
-    that can make the two disagree.
+    ``total_net`` / ``total_vat`` / ``total_gross`` header columns for every
+    invoice written through the application: ``generate_attendee_invoice``
+    builds both sides from one set of ``Payment`` rows, and the only edit that
+    can change them afterwards -- rewriting a DRAFT's ``line_items`` --
+    recomputes the header from the new lines rather than letting a caller
+    state it (#911).
+
+    That is an application-layer invariant, not a database constraint. These
+    are plain ``DecimalField``s, so a raw ``QuerySet.update()`` or a shell
+    write can still desync them, and no read path re-checks: a DRAFT desynced
+    that way serves a header and a breakdown that disagree in one response.
+    Issuance is guarded (``_assert_totals_reconcile``), so such a row cannot
+    become a legal document -- but do not treat a DRAFT's two figures as
+    reconciled by construction when the row's provenance is unknown.
 
     The scalar ``vat_rate`` header column is the exception and always was: it
     names the first line's rate only. Read ``has_mixed_vat_rates`` before
@@ -85,9 +92,9 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     before being manually issued. In AUTO mode, invoices are created as ISSUED
     and sent immediately.
 
-    While in DRAFT, the buyer snapshot, currency, discount label and line items
-    are editable; the seller (org) snapshot and the money columns derived from
-    the line items are not (see ``EDITABLE_DRAFT_FIELDS`` /
+    While in DRAFT, the buyer snapshot, currency, reverse-charge flag, discount
+    label and line items are editable; the seller (org) snapshot and the money
+    columns derived from the line items are not (see ``EDITABLE_DRAFT_FIELDS`` /
     ``DERIVED_TOTAL_FIELDS`` in ``attendee_invoice_service``). Once ISSUED, the
     invoice is immutable (can only be cancelled via credit note).
     """
@@ -122,9 +129,10 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         default=InvoiceStatus.DRAFT,
     )
 
-    # Totals. Derived, never directly settable: computed from the Payment rows at
-    # generation and recomputed from ``line_items`` whenever a DRAFT's lines are
-    # edited, so they cannot drift from ``vat_breakdown`` (#911).
+    # Totals. Derived, not settable on their own through the API: computed from the
+    # Payment rows at generation and recomputed from ``line_items`` whenever a
+    # DRAFT's lines are edited, so no edit can drift them from ``vat_breakdown``
+    # (#911). A raw ``.update()`` still can -- see ``InvoiceVatBucketDict``.
     total_gross = models.DecimalField(max_digits=10, decimal_places=2)
     total_net = models.DecimalField(max_digits=10, decimal_places=2)
     total_vat = models.DecimalField(max_digits=10, decimal_places=2)

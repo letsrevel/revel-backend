@@ -850,6 +850,38 @@ class TestIssueDraftInvoice:
         mock_pdf.assert_not_called()
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_issue_guard_tolerates_a_line_item_without_discount_amount(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """The guard must judge a row, not crash on it (#911 review).
+
+        ``discount_amount`` is the one key ``vat_breakdown`` never reads, so a
+        row lacking it renders fine everywhere else. The guard runs on rows
+        nobody normalized, where a bare ``item["discount_amount"]`` would have
+        been a 500 on exactly the malformed document it exists to catch.
+        """
+        inv = _create_draft(organization, event, member_user)
+        AttendeeInvoice.objects.filter(pk=inv.pk).update(
+            line_items=[
+                {
+                    "description": "legacy row",
+                    "unit_price_gross": "100.00",
+                    "net_amount": "81.97",
+                    "vat_amount": "18.03",
+                    "vat_rate": "22.00",
+                }
+            ]
+        )
+        inv.refresh_from_db()
+
+        assert inv.vat_breakdown  # readable, as it always was
+        assert issue_draft_invoice(inv).status == AttendeeInvoice.InvoiceStatus.ISSUED
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_patching_line_items_repairs_a_drifted_draft(
         self,
         mock_pdf: t.Any,

@@ -134,7 +134,8 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
 class UpdateAttendeeInvoiceSchema(Schema):
     """Schema for editing a DRAFT attendee invoice.
 
-    Buyer identity, currency, the discount label, and the line items are editable.
+    Buyer identity, currency, the reverse-charge flag, the discount label, and the
+    line items are editable.
     The money columns those lines imply are not: ``total_gross``, ``total_net``,
     ``total_vat``, ``vat_rate`` and ``discount_amount_total`` are recomputed from
     ``line_items`` on every edit (#911). Accepting them here would let a caller

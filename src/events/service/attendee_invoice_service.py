@@ -370,13 +370,19 @@ EDITABLE_DRAFT_FIELDS = frozenset(
 # the header cannot disagree with the rows it summarizes.
 DERIVED_TOTAL_FIELDS = ("total_gross", "total_net", "total_vat", "vat_rate", "discount_amount_total")
 
-# The subset ``AttendeeInvoice.vat_breakdown`` promises to reconcile with, and the
-# only figures a buyer is legally billed on -- what the issuance guard checks.
-# ``vat_rate`` is excluded on purpose: it is a documented lossy scalar (the first
-# line's rate, meaningless on a mixed-rate cart, which is what ``has_mixed_vat_rates``
-# is for), and refusing to issue a correct invoice over a label would be
-# disproportionate. ``discount_amount_total`` is likewise informational.
-_RECONCILED_TOTAL_FIELDS = ("total_gross", "total_net", "total_vat")
+
+class DerivedTotals(t.TypedDict):
+    """The header money columns as computed from an invoice's line items.
+
+    Keys mirror :data:`DERIVED_TOTAL_FIELDS` one-for-one; keep the two in sync.
+    """
+
+    total_gross: Decimal
+    total_net: Decimal
+    total_vat: Decimal
+    discount_amount_total: Decimal
+    vat_rate: Decimal
+
 
 # Optional string columns (blank=True, default="") whose schema fields are nullable:
 # the FE sends `null` for a cleared optional field, so coerce None -> "" to respect
@@ -416,7 +422,7 @@ def _normalize_line_items(line_items: list[dict[str, t.Any]]) -> list[InvoiceLin
     ]
 
 
-def _derive_totals(line_items: list[InvoiceLineItemDict]) -> dict[str, Decimal]:
+def _derive_totals(line_items: list[InvoiceLineItemDict]) -> DerivedTotals:
     """Compute an invoice's header money columns from its line items.
 
     Mirrors :func:`generate_attendee_invoice` exactly: that function sums the very
@@ -428,30 +434,43 @@ def _derive_totals(line_items: list[InvoiceLineItemDict]) -> dict[str, Decimal]:
     therefore just as lossy on a mixed-rate cart; consult
     :attr:`AttendeeInvoice.has_mixed_vat_rates` before rendering it.
 
-    Reads the line-item keys directly, like :attr:`AttendeeInvoice.vat_breakdown`
-    does -- a row malformed enough to break one already breaks the other.
+    Reads the four keys :attr:`AttendeeInvoice.vat_breakdown` reads directly, so
+    a row malformed enough to break one already breaks the other. ``discount_amount``
+    is the exception and is read defensively: it is the one key the breakdown never
+    touches, and this function runs inside the issuance guard on rows nobody
+    normalized, where a missing key would be a 500 on a document the guard exists
+    to judge. Absent means no discount, which is what every writer stores anyway.
     """
     zero = Decimal("0.00")
-    return {
-        "total_gross": sum((Decimal(item["unit_price_gross"]) for item in line_items), zero),
-        "total_net": sum((Decimal(item["net_amount"]) for item in line_items), zero),
-        "total_vat": sum((Decimal(item["vat_amount"]) for item in line_items), zero),
-        "discount_amount_total": sum((Decimal(item["discount_amount"]) for item in line_items), zero),
-        "vat_rate": Decimal(line_items[0]["vat_rate"]) if line_items else zero,
-    }
+    return DerivedTotals(
+        total_gross=sum((Decimal(item["unit_price_gross"]) for item in line_items), zero),
+        total_net=sum((Decimal(item["net_amount"]) for item in line_items), zero),
+        total_vat=sum((Decimal(item["vat_amount"]) for item in line_items), zero),
+        discount_amount_total=sum((Decimal(item.get("discount_amount", "0.00")) for item in line_items), zero),
+        vat_rate=Decimal(line_items[0]["vat_rate"]) if line_items else zero,
+    )
 
 
 def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
     """Refuse to issue an invoice whose header totals disagree with its line items.
 
     :func:`update_draft_invoice` derives the header from the lines, so a draft
-    edited through the API always reconciles. This guards the other doors (#911):
-    a row that drifted before that landed, or one written straight through the
-    Django admin, must not become a legal document and a delivered PDF on the
-    strength of a header its own ``vat_breakdown`` contradicts.
+    edited through the API always reconciles. This guards the other door (#911):
+    a row that drifted before that landed, or one desynced by a raw
+    ``QuerySet.update()`` or a shell write that bypasses the service layer, must
+    not become a legal document and a delivered PDF on the strength of a header
+    its own ``vat_breakdown`` contradicts. The Django admin is *not* such a door
+    -- ``AttendeeInvoiceAdmin`` lists every money column and ``line_items`` as
+    read-only -- so do not relax that admin without revisiting this.
 
     Recovery for such a row is a PATCH of ``line_items``, which recomputes the
     header from whatever the organizer states the lines to be.
+
+    Only the three figures a buyer is legally billed on are checked. ``vat_rate``
+    is excluded on purpose: it is a documented lossy scalar (the first line's
+    rate, meaningless on a mixed-rate cart, which is what ``has_mixed_vat_rates``
+    is for), and refusing to issue a correct invoice over a label would be
+    disproportionate. ``discount_amount_total`` is likewise informational.
 
     Raises:
         HttpError 422: If any reconciled total differs from its line-item sum.
@@ -459,9 +478,13 @@ def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
     derived = _derive_totals(invoice.line_items)
     mismatched = [
         # Symbolic, not prose: the message around it is translated, this is not.
-        f"{field} ({getattr(invoice, field)} != {derived[field]})"
-        for field in _RECONCILED_TOTAL_FIELDS
-        if getattr(invoice, field) != derived[field]
+        f"{name} ({actual} != {expected})"
+        for name, actual, expected in (
+            ("total_gross", invoice.total_gross, derived["total_gross"]),
+            ("total_net", invoice.total_net, derived["total_net"]),
+            ("total_vat", invoice.total_vat, derived["total_vat"]),
+        )
+        if actual != expected
     ]
     if mismatched:
         raise HttpError(
