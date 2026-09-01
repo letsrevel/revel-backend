@@ -132,6 +132,23 @@ class TestVatBreakdown:
         assert invoice.vat_breakdown[0]["vat_rate"] == Decimal("22.00")
         assert invoice.has_mixed_vat_rates is False
 
+    def test_bucket_rate_exponent_is_normalized_to_two_decimal_places(self) -> None:
+        """The bucket key must normalize to 2dp regardless of which exponent is seen first.
+
+        ``Decimal("22.0") == Decimal("22.00")`` is True, so a bare ``==`` would not
+        catch a bucket that kept the first-seen (1dp) exponent (#908). Pin it with
+        ``str()`` instead, and see the "22.0"-first line first to catch the bug.
+        """
+        invoice = _invoice(
+            [
+                _line(net="40.98", vat="9.02", rate="22.0", gross="50.00"),
+                _line(net="81.97", vat="18.03", rate="22.00", gross="100.00"),
+            ]
+        )
+
+        assert len(invoice.vat_breakdown) == 1
+        assert str(invoice.vat_breakdown[0]["vat_rate"]) == "22.00"
+
 
 class TestHasMixedVatRates:
     """``has_mixed_vat_rates`` is derived from the breakdown, so the two agree by construction."""

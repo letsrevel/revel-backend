@@ -490,6 +490,71 @@ class TestUpdateAttendeeInvoiceEndpoint:
         data = response.json()
         assert data["seller_name"] == "ACME SRL"  # unchanged
 
+    def test_explicit_null_line_items_is_422(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """An explicit `{"line_items": null}` must be rejected, not crash the normalizer (#908)."""
+        invoice = _create_draft_invoice(organization, event, member_user, suffix="edit_null_items")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps({"line_items": None}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
+
+    def test_explicit_null_total_gross_is_422(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """An explicit `{"total_gross": null}` must be rejected, not violate the NOT NULL column (#908)."""
+        invoice = _create_draft_invoice(organization, event, member_user, suffix="edit_null_gross")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps({"total_gross": None}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
+
+    def test_explicit_null_buyer_vat_id_still_blanks_to_empty_string(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """Blankable string fields keep coercing null -> "" -- the #908 guard must not regress this."""
+        invoice = _create_draft_invoice(organization, event, member_user, suffix="edit_null_vat_id")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps({"buyer_vat_id": None}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["buyer_vat_id"] == ""
+
 
 # ---------------------------------------------------------------------------
 # POST /organization-admin/{slug}/attendee-invoices/{id}/issue

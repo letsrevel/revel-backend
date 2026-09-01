@@ -409,6 +409,10 @@ def update_draft_invoice(
     if disallowed:
         raise HttpError(422, str(_("Cannot edit fields: {fields}")).format(fields=", ".join(sorted(disallowed))))
 
+    nulled = {field for field, value in update_data.items() if value is None} - _BLANKABLE_STRING_FIELDS
+    if nulled:
+        raise HttpError(422, str(_("Fields cannot be null: {fields}")).format(fields=", ".join(sorted(nulled))))
+
     # Normalize line_items to ensure string values (schema sends Decimals)
     if "line_items" in update_data:
         update_data["line_items"] = [
