@@ -6,6 +6,7 @@ as an intermediary generating and delivering invoices.
 """
 
 import typing as t
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -35,6 +36,20 @@ class InvoiceLineItemDict(t.TypedDict):
     net_amount: str
     vat_amount: str
     vat_rate: str
+
+
+class InvoiceVatBucketDict(t.TypedDict):
+    """One VAT-rate bucket derived from an invoice's line items (#897).
+
+    Amounts are summed independently from the stored per-item values rather
+    than derived from one another, so the buckets reconcile exactly to the
+    invoice's ``total_net`` / ``total_vat`` / ``total_gross`` header columns.
+    """
+
+    vat_rate: Decimal
+    net_amount: Decimal
+    vat_amount: Decimal
+    gross_amount: Decimal
 
 
 class AttendeeInvoiceStatus(models.TextChoices):
@@ -98,6 +113,10 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     total_gross = models.DecimalField(max_digits=10, decimal_places=2)
     total_net = models.DecimalField(max_digits=10, decimal_places=2)
     total_vat = models.DecimalField(max_digits=10, decimal_places=2)
+    # A snapshot of the FIRST payment's rate, not an invoice-wide fact: a
+    # multi-tier cart (#846) mixes rates and this column names only one of them.
+    # Consult ``has_mixed_vat_rates`` before rendering it; ``vat_breakdown`` has
+    # the per-rate truth (#897).
     vat_rate = models.DecimalField(max_digits=5, decimal_places=2)
     currency = models.CharField(max_length=3)
     reverse_charge = models.BooleanField(default=False)
@@ -149,21 +168,49 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         ]
 
     @property
+    def vat_breakdown(self) -> list[InvoiceVatBucketDict]:
+        """Line items grouped by VAT rate, ascending by rate.
+
+        The stored ``vat_rate`` header column is a scalar taken from the first
+        payment, so a multi-tier cart (#846) can mix rates and the header cannot
+        describe the document. This breakdown can: it is what an API consumer,
+        the admin, and any rendered totals block should read instead.
+
+        Derived on every access rather than stored: ``UpdateAttendeeInvoiceSchema``
+        lets an organizer rewrite ``line_items`` on a DRAFT invoice, and a stored
+        breakdown would go stale on exactly those rows.
+        """
+        items: list[InvoiceLineItemDict] = self.line_items
+        buckets: dict[Decimal, InvoiceVatBucketDict] = {}
+        for item in items:
+            # Group on the parsed Decimal, never the raw string: "22.0" and
+            # "22.00" are one rate, and comparing strings reported such a cart
+            # as mixed.
+            rate = Decimal(item["vat_rate"])
+            bucket = buckets.setdefault(
+                rate,
+                InvoiceVatBucketDict(
+                    vat_rate=rate,
+                    net_amount=Decimal("0.00"),
+                    vat_amount=Decimal("0.00"),
+                    gross_amount=Decimal("0.00"),
+                ),
+            )
+            bucket["net_amount"] += Decimal(item["net_amount"])
+            bucket["vat_amount"] += Decimal(item["vat_amount"])
+            bucket["gross_amount"] += Decimal(item["unit_price_gross"])
+        return [buckets[rate] for rate in sorted(buckets)]
+
+    @property
     def has_mixed_vat_rates(self) -> bool:
         """Whether the line items carry more than one VAT rate (a mixed-rate cart, #846).
 
-        The stored ``vat_rate`` header column is a scalar taken from the first
-        payment; a multi-tier cart can mix rates (e.g. a 22% standard tier and a
-        10% reduced one), and the rendered totals label must then not claim any
-        single rate — the per-rate breakdown lives in the line items.
+        Derived from :attr:`vat_breakdown` so the flag and the buckets cannot
+        contradict each other. Consumers that render a rate must consult this
+        first: on a mixed invoice no single rate applies to the totals, and the
+        per-rate detail is in the breakdown.
         """
-        # ponytail: only the PDF template consults this flag. AttendeeInvoiceSchema and
-        # the admin still present the scalar ``vat_rate`` unguarded, so an API/admin
-        # consumer can show a single rate a mixed cart never had. Upgrade path (#897):
-        # expose this flag (or the per-rate line breakdown) on the schema before any
-        # frontend invoice view renders ``vat_rate``.
-        items: list[InvoiceLineItemDict] = self.line_items
-        return len({item["vat_rate"] for item in items}) > 1
+        return len(self.vat_breakdown) > 1
 
     def __str__(self) -> str:
         return f"{self.invoice_number} ({self.seller_name})"
