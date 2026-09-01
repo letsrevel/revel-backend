@@ -129,12 +129,14 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     # Structure per item:
     # {
     #     "description": "Event Name — Tier Name — Guest Name",
-    #     "unit_price_gross": "121.00",
+    #     "unit_price_gross": "111.00",
     #     "discount_amount": "10.00",
     #     "net_amount": "91.74",
     #     "vat_amount": "19.26",
     #     "vat_rate": "21.00",
     # }
+    # unit_price_gross is the amount actually charged, post-discount (net + vat);
+    # discount_amount is informational only.
     line_items = models.JSONField(default=list, blank=True)
 
     # Seller snapshot (org at time of purchase — NOT editable)

@@ -64,19 +64,30 @@ class TestVatBreakdown:
         """Bucket sums equal the invoice totals -- the breakdown never contradicts the header."""
         invoice = _invoice(
             [
-                _line(net="40.98", vat="9.02", rate="22.00", gross="50.00"),
+                _line(net="40.98", vat="9.02", rate="22.00", gross="50.01"),
                 _line(net="109.09", vat="10.91", rate="10.00", gross="120.00"),
             ]
         )
         invoice.total_net = Decimal("150.07")
         invoice.total_vat = Decimal("19.93")
-        invoice.total_gross = Decimal("170.00")
+        invoice.total_gross = Decimal("170.01")
 
         breakdown = invoice.vat_breakdown
 
         assert sum(b["net_amount"] for b in breakdown) == invoice.total_net
         assert sum(b["vat_amount"] for b in breakdown) == invoice.total_vat
         assert sum(b["gross_amount"] for b in breakdown) == invoice.total_gross
+
+    def test_gross_comes_from_the_stored_gross_not_net_plus_vat(self) -> None:
+        """An organizer-edited line whose parts don't foot must not have its gross recomputed.
+
+        Every production writer makes ``net + vat == unit_price_gross`` exact, so this
+        is the only fixture that can tell the two implementations apart -- and the
+        DRAFT edit path is exactly where a line's parts can stop footing.
+        """
+        invoice = _invoice([_line(net="80.00", vat="18.03", rate="22.00", gross="100.00")])
+
+        assert invoice.vat_breakdown[0]["gross_amount"] == Decimal("100.00")
 
     def test_single_rate_cart_yields_one_bucket(self) -> None:
         """The common path is unchanged: one rate, one bucket, not mixed."""
