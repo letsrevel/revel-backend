@@ -706,3 +706,92 @@ class TestDashboardInvoiceDownloadEndpoint:
         response = client.get(url)
 
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Mixed-rate VAT breakdown on the invoice payloads (#897)
+# ---------------------------------------------------------------------------
+
+
+class TestInvoiceVatBreakdownPayload:
+    """The buyer-facing invoice payload must never imply a single rate it cannot support."""
+
+    def test_mixed_rate_invoice_exposes_flag_and_per_rate_buckets(
+        self,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A 22%/10% invoice reports has_mixed_vat_rates and both buckets on /dashboard/invoices.
+
+        This is the payload `/account/invoices` renders; before #897 it carried only
+        the scalar `vat_rate` (the first payment's), so the page printed one rate
+        for a cart that had two.
+        """
+        refresh = RefreshToken.for_user(member_user)
+        client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+
+        invoice = _create_issued_invoice(organization, event, member_user, suffix="mixed_vat")
+        invoice.line_items = [
+            {
+                "description": "Mixed Event — Standard — Ann",
+                "unit_price_gross": "50.00",
+                "discount_amount": "0.00",
+                "net_amount": "40.98",
+                "vat_amount": "9.02",
+                "vat_rate": "22.00",
+            },
+            {
+                "description": "Mixed Event — VIP — Bob",
+                "unit_price_gross": "120.00",
+                "discount_amount": "0.00",
+                "net_amount": "109.09",
+                "vat_amount": "10.91",
+                "vat_rate": "10.00",
+            },
+        ]
+        invoice.total_gross = Decimal("170.00")
+        invoice.total_net = Decimal("150.07")
+        invoice.total_vat = Decimal("19.93")
+        invoice.save()
+
+        response = client.get(reverse("api:dashboard_invoices"))
+
+        assert response.status_code == 200
+        payload = response.json()["results"][0]
+        assert payload["has_mixed_vat_rates"] is True
+        assert payload["vat_breakdown"] == [
+            {
+                "vat_rate": "10.00",
+                "net_amount": "109.09",
+                "vat_amount": "10.91",
+                "gross_amount": "120.00",
+            },
+            {
+                "vat_rate": "22.00",
+                "net_amount": "40.98",
+                "vat_amount": "9.02",
+                "gross_amount": "50.00",
+            },
+        ]
+
+    def test_single_rate_invoice_reports_not_mixed_with_one_bucket(
+        self,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """The ordinary single-rate invoice keeps a renderable scalar rate."""
+        refresh = RefreshToken.for_user(member_user)
+        client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+
+        _create_issued_invoice(organization, event, member_user, suffix="single_vat")
+
+        response = client.get(reverse("api:dashboard_invoices"))
+
+        assert response.status_code == 200
+        payload = response.json()["results"][0]
+        assert payload["has_mixed_vat_rates"] is False
+        assert len(payload["vat_breakdown"]) == 1
+        assert payload["vat_breakdown"][0]["vat_rate"] == "22.00"
+        assert payload["vat_rate"] == "22.00"

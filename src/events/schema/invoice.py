@@ -81,6 +81,20 @@ class InvoiceLineItemSchema(Schema):
     vat_rate: Decimal
 
 
+class InvoiceVatBucketSchema(Schema):
+    """One VAT-rate bucket of an attendee invoice (#897).
+
+    A multi-tier cart can mix VAT rates, and the invoice's scalar ``vat_rate`` is
+    only the first payment's. Render these buckets — never that scalar — whenever
+    ``has_mixed_vat_rates`` is true.
+    """
+
+    vat_rate: Decimal
+    net_amount: Decimal
+    vat_amount: Decimal
+    gross_amount: Decimal
+
+
 class AttendeeInvoiceSchema(Schema):
     """Schema for attendee invoice list/detail responses."""
 
@@ -91,6 +105,8 @@ class AttendeeInvoiceSchema(Schema):
     total_net: Decimal
     total_vat: Decimal
     vat_rate: Decimal
+    has_mixed_vat_rates: bool
+    vat_breakdown: list[InvoiceVatBucketSchema]
     currency: str
     reverse_charge: bool
     seller_name: str
