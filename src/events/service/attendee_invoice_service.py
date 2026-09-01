@@ -11,7 +11,6 @@ import structlog
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
-from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
@@ -343,180 +342,6 @@ def ensure_pdf_exists(invoice: AttendeeInvoice) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5: Editing, issuing, deletion
-# ---------------------------------------------------------------------------
-
-
-EDITABLE_DRAFT_FIELDS = frozenset(
-    {
-        "buyer_name",
-        "buyer_vat_id",
-        "buyer_vat_country",
-        "buyer_address",
-        "buyer_email",
-        "total_gross",
-        "total_net",
-        "total_vat",
-        "vat_rate",
-        "currency",
-        "reverse_charge",
-        "discount_code_text",
-        "discount_amount_total",
-        "line_items",
-    }
-)
-
-# Optional string columns (blank=True, default="") whose schema fields are nullable:
-# the FE sends `null` for a cleared optional field, so coerce None -> "" to respect
-# the NOT NULL DB constraint. Only fields that are genuinely blankable belong here —
-# required columns (e.g. buyer_name, currency) lack blank=True, so an empty string is
-# not a valid value for them. This set doubles as the exemption list for the null guard
-# in update_draft_invoice (#908): a null on any field outside it is rejected with a 422
-# naming that field, before full_clean() is ever reached.
-_BLANKABLE_STRING_FIELDS = frozenset(
-    {
-        "buyer_vat_id",
-        "buyer_vat_country",
-        "buyer_address",
-        "buyer_email",
-        "discount_code_text",
-    }
-)
-
-
-def update_draft_invoice(
-    invoice: AttendeeInvoice,
-    update_data: dict[str, t.Any],
-) -> AttendeeInvoice:
-    """Update a DRAFT invoice. Only drafts are editable.
-
-    Args:
-        invoice: The invoice to update.
-        update_data: Dict of fields to update (from exclude_unset).
-
-    Returns:
-        The updated invoice.
-
-    Raises:
-        HttpError 409: If the invoice is not a draft.
-        HttpError 422: If update_data contains disallowed fields, or an explicit
-            null for a field that is not one of the blankable optional strings.
-    """
-    if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
-        raise HttpError(409, str(_("Only draft invoices can be edited.")))
-
-    if not update_data:
-        return invoice
-
-    disallowed = set(update_data.keys()) - EDITABLE_DRAFT_FIELDS
-    if disallowed:
-        raise HttpError(422, str(_("Cannot edit fields: {fields}")).format(fields=", ".join(sorted(disallowed))))
-
-    nulled = {field for field, value in update_data.items() if value is None} - _BLANKABLE_STRING_FIELDS
-    if nulled:
-        raise HttpError(422, str(_("Fields cannot be null: {fields}")).format(fields=", ".join(sorted(nulled))))
-
-    # Normalize line_items to ensure string values (schema sends Decimals)
-    if "line_items" in update_data:
-        update_data["line_items"] = [
-            InvoiceLineItemDict(
-                description=item.get("description", ""),
-                unit_price_gross=str(item.get("unit_price_gross", "0.00")),
-                discount_amount=str(item.get("discount_amount", "0.00")),
-                net_amount=str(item.get("net_amount", "0.00")),
-                vat_amount=str(item.get("vat_amount", "0.00")),
-                vat_rate=str(item.get("vat_rate", "0.00")),
-            )
-            for item in update_data["line_items"]
-        ]
-
-    # Coerce None -> "" for blankable string columns (FE sends null for cleared fields).
-    for field in _BLANKABLE_STRING_FIELDS:
-        if field in update_data and update_data[field] is None:
-            update_data[field] = ""
-
-    for field, value in update_data.items():
-        setattr(invoice, field, value)
-
-    # Invalidate stale PDF so it gets regenerated on next download
-    if invoice.pdf_file:
-        invoice.pdf_file.delete(save=False)
-        update_data["pdf_file"] = ""
-
-    invoice.save(update_fields=[*update_data.keys(), "updated_at"])
-
-    return invoice
-
-
-def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
-    """Issue a DRAFT invoice: finalize, set issued_at, regenerate PDF.
-
-    Idempotent: if the invoice is already ISSUED (e.g., PDF generation failed
-    on a previous attempt), re-generates the PDF and re-delivers.
-
-    Args:
-        invoice: The draft or already-issued invoice.
-
-    Returns:
-        The issued invoice.
-
-    Raises:
-        HttpError 409: If the invoice is CANCELLED.
-    """
-    if invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED:
-        raise HttpError(409, str(_("Cancelled invoices cannot be issued.")))
-
-    if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
-        invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
-        invoice.issued_at = timezone.now()
-        invoice.save(update_fields=["status", "issued_at", "updated_at"])
-
-    # (Re-)generate PDF without DRAFT watermark
-    _generate_and_save_pdf(invoice)
-
-    return invoice
-
-
-def issue_and_deliver(invoice: AttendeeInvoice) -> AttendeeInvoice:
-    """Issue a DRAFT invoice and enqueue background delivery to the buyer.
-
-    Thin orchestration helper for the organization admin "issue" endpoint:
-    finalizes the invoice via :func:`issue_draft_invoice` and then schedules
-    the delivery task. Keeps celery dispatch out of the controller layer.
-
-    Args:
-        invoice: The draft or already-issued invoice.
-
-    Returns:
-        The issued invoice.
-    """
-    from events.tasks import deliver_attendee_invoice_task
-
-    invoice = issue_draft_invoice(invoice)
-    # Defer delivery until the issuance write commits so the worker reads
-    # the issued invoice. With ATOMIC_REQUESTS=True an immediate .delay()
-    # would race the request commit.
-    transaction.on_commit(lambda: deliver_attendee_invoice_task.delay(str(invoice.id)))
-    return invoice
-
-
-def delete_draft_invoice(invoice: AttendeeInvoice) -> None:
-    """Delete a DRAFT invoice.
-
-    Raises:
-        HttpError 409: If the invoice is not a draft.
-    """
-    if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
-        raise HttpError(409, str(_("Only draft invoices can be deleted.")))
-
-    # Delete PDF file if it exists
-    if invoice.pdf_file:
-        invoice.pdf_file.delete(save=False)
-
-    invoice.delete()
-
-
-# ---------------------------------------------------------------------------
 # Phase 5: Email delivery
 # ---------------------------------------------------------------------------
 
@@ -734,6 +559,11 @@ def generate_attendee_credit_note(
 
     # If invoice is still a draft, just delete it instead of creating a credit note
     if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
+        # Imported here, not at module scope: the draft module imports
+        # _generate_and_save_pdf from this one, so a top-level import would close
+        # the cycle. Same pattern as issue_and_deliver's task import.
+        from events.service.attendee_invoice_draft_service import delete_draft_invoice
+
         delete_draft_invoice(invoice)
         return None
 
