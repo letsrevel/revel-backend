@@ -17,7 +17,6 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
-from django.core.exceptions import ValidationError
 from django.utils import timezone
 from ninja.errors import HttpError
 
@@ -671,10 +670,17 @@ class TestUpdateDraftInvoice:
     def test_null_required_field_rejected(
         self, field: str, organization: Organization, event: Event, member_user: RevelUser
     ) -> None:
-        """Required columns lack blank=True, so a null is not coerced and full_clean rejects it."""
+        """Required columns lack blank=True, so an explicit null is rejected up front (#908).
+
+        Previously this reached ``full_clean()`` and surfaced as a Django
+        ``ValidationError`` (a 400); the null guard now rejects it as a 422
+        naming the offending field, before anything is written.
+        """
         inv = _create_draft(organization, event, member_user)
-        with pytest.raises(ValidationError):
+        with pytest.raises(HttpError) as exc_info:
             update_draft_invoice(inv, {field: None})
+        assert exc_info.value.status_code == 422
+        assert field in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

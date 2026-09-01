@@ -397,7 +397,8 @@ def update_draft_invoice(
 
     Raises:
         HttpError 409: If the invoice is not a draft.
-        HttpError 422: If update_data contains disallowed fields.
+        HttpError 422: If update_data contains disallowed fields, or an explicit
+            null for a field that is not one of the blankable optional strings.
     """
     if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
         raise HttpError(409, str(_("Only draft invoices can be edited.")))
