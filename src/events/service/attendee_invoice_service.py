@@ -369,8 +369,10 @@ EDITABLE_DRAFT_FIELDS = frozenset(
 # Optional string columns (blank=True, default="") whose schema fields are nullable:
 # the FE sends `null` for a cleared optional field, so coerce None -> "" to respect
 # the NOT NULL DB constraint. Only fields that are genuinely blankable belong here —
-# required columns (e.g. buyer_name, currency) lack blank=True, so full_clean() rejects
-# an empty string and a null there is correctly a 400.
+# required columns (e.g. buyer_name, currency) lack blank=True, so an empty string is
+# not a valid value for them. This set doubles as the exemption list for the null guard
+# in update_draft_invoice (#908): a null on any field outside it is rejected with a 422
+# naming that field, before full_clean() is ever reached.
 _BLANKABLE_STRING_FIELDS = frozenset(
     {
         "buyer_vat_id",
