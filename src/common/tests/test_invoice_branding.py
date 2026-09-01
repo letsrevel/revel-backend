@@ -6,6 +6,7 @@ the let's revel. wordmark, and that the brand logo asset is present on disk.
 """
 
 import typing as t
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -208,6 +209,53 @@ def test_invoice_template_branding(tpl: str, ctx: dict[str, t.Any]) -> None:
 # ---------------------------------------------------------------------------
 # render_pdf smoke test — produces non-empty PDF bytes
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Discount totals box (#909): the column must foot, discount is informational
+# ---------------------------------------------------------------------------
+
+
+def _invoice_ctx_with_discount(discount_amount_total: Decimal | None) -> dict[str, t.Any]:
+    """A copy of `_INVOICE_CTX` with `discount_amount_total` overridden.
+
+    Uses a real ``Decimal`` (or ``None``), never a string: template truthiness for
+    ``Decimal("0.00")`` is ``False`` (matching the production model field), while
+    the string ``"0.00"`` is truthy and would give this test a false positive.
+    """
+    invoice = _INVOICE_CTX["invoice"]
+    attrs = {k: v for k, v in vars(type(invoice)).items() if not k.startswith("__")}
+    invoice_with_discount = type("_Invoice", (), {**attrs, "discount_amount_total": discount_amount_total})()
+    return {**_INVOICE_CTX, "invoice": invoice_with_discount}
+
+
+def test_discounted_invoice_totals_column_foots_and_shows_informational_discount_line() -> None:
+    """The totals column must not double-subtract the discount (#909).
+
+    total_gross is total_net + total_vat (the amount actually charged, already
+    net of the discount) -- so a totals-row that subtracts the discount again
+    breaks footing. The discount must render only as an informational note
+    below the Total row, not as an arithmetic row between VAT and Total.
+    """
+    ctx = _invoice_ctx_with_discount(Decimal("10.00"))
+
+    html = render_to_string("invoices/attendee_invoice.html", ctx)
+
+    # No totals-row discount row between VAT and Total.
+    assert "<span>Discount</span>" not in html
+
+    # An informational discount line is present, distinct from the per-line note.
+    assert "Includes discount of" in html
+    assert "10.00" in html.split("Includes discount of", 1)[1][:50]
+
+
+def test_zero_discount_invoice_renders_no_informational_discount_line() -> None:
+    """An invoice with no discount must not render the informational note."""
+    ctx = _invoice_ctx_with_discount(Decimal("0.00"))
+
+    html = render_to_string("invoices/attendee_invoice.html", ctx)
+
+    assert "Includes discount of" not in html
 
 
 @pytest.mark.django_db
