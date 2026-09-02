@@ -331,6 +331,21 @@ def test_reset_password_success(user: RevelUser) -> None:
     assert reset_user.check_password(new_valid_password)
 
 
+@patch("accounts.tasks.send_account_email.delay")
+def test_reset_password_for_identity_only_user_sets_usable_password(
+    mock_send_email: MagicMock, google_user: RevelUser
+) -> None:
+    """An account created through an IdP can gain a password via the normal reset flow (spec §2 coexist)."""
+    assert not google_user.has_usable_password()
+    token = account_service.request_password_reset(google_user.email)
+    assert token
+    account_service.reset_password(token, "a-New-strong-password-456!")
+    google_user.refresh_from_db()
+    assert google_user.has_usable_password()
+    assert google_user.check_password("a-New-strong-password-456!")
+    assert google_user.external_identities.exists()
+
+
 # transaction=True: request_account_deletion dispatches send_account_email via transaction.on_commit.
 # Default pytest-django mode rolls back the wrapping transaction so the callback never fires.
 @pytest.mark.django_db(transaction=True)
