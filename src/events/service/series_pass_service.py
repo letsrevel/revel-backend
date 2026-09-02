@@ -181,9 +181,12 @@ def validate_events_coverable(series: EventSeries, events: t.Sequence[Event]) ->
             raise SeriesPassCoverageError(str(_("Event '%s' is not open.") % event.name))
         if not event.requires_ticket:
             raise SeriesPassCoverageError(str(_("Event '%s' does not require a ticket.") % event.name))
-        if event.visibility == Event.Visibility.PRIVATE:
+        if event.event_type != Event.EventType.PUBLIC:
             raise SeriesPassCoverageError(
-                str(_("Event '%s' is invitation-only and cannot be covered by a series pass.") % event.name)
+                str(
+                    _("Event '%s' is invitation-only or members-only and cannot be covered by a series pass.")
+                    % event.name
+                )
             )
     gated = OrganizationQuestionnaire.objects.filter(
         questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,

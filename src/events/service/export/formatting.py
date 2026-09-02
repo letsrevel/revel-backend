@@ -54,6 +54,17 @@ MIN_WIDTH = 10
 MAX_WIDTH = 60
 
 
+def sanitize_cell(value: t.Any) -> t.Any:
+    """Neutralise spreadsheet/CSV formula injection (CWE-1236).
+
+    Prefixes any string a spreadsheet app would interpret as a formula with a
+    literal apostrophe so it is rendered as inert text.
+    """
+    if isinstance(value, str) and value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def style_header_row(ws: Worksheet) -> None:
     """Apply bold white-on-blue styling to the first row."""
     for cell in ws[1]:

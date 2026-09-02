@@ -1,7 +1,7 @@
 ---
 name: tech-debt-assessor
 description: "Use this agent to assess technical debt and code quality in a bounded region of the Revel codebase. It is the region-scoped **hunter** worker dispatched in parallel by the `/tech-debt` command, and can also be used standalone for an ad-hoc tech-debt review of a specific app, service, or module. For a full-repo assessment, prefer the `/tech-debt` slash command (which fans out many hunters + specialists + a verification pass and scores the whole repo) over invoking this agent directly.\\n\\nExamples:\\n\\n<example>\\nContext: The user wants a full repo health assessment.\\nuser: \"Let's do a tech debt review\"\\nassistant: \"I'll run the /tech-debt command, which fans out region + specialist hunters and produces a scored report.\"\\n<commentary>Full-repo sweep — prefer the /tech-debt command over invoking this agent directly.</commentary>\\n</example>\\n\\n<example>\\nContext: The user just finished a feature and wants a quick debt read on one app.\\nuser: \"Can you assess the tech debt in the questionnaires app I just reworked?\"\\nassistant: \"I'll launch the tech-debt-assessor scoped to questionnaires to produce a focused health report.\"\\n<commentary>Single-area review. Use the Task tool to launch tech-debt-assessor (Mode B).</commentary>\\n</example>"
-model: opus
+model: fable
 color: pink
 memory: project
 ---

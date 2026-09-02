@@ -43,7 +43,6 @@ class EventEditSchema(CityEditMixin):
     name: OneToOneFiftyString | None = None
     description: StrippedString | None = None
     event_type: Event.EventType | None = None
-    status: Event.EventStatus = Event.EventStatus.DRAFT
     visibility: Event.Visibility | None = None
     invitation_message: StrippedString | None = Field(None, description="Invitation message")
     max_attendees: int = 0
@@ -92,6 +91,11 @@ class EventCreateSchema(EventEditSchema):
     name: OneToOneFiftyString
     start: AwareDatetime
     requires_ticket: bool = False
+    # Status is settable only at create time; the generic edit PUT must not
+    # change status — transitions go through the ``manage_event``-gated
+    # ``update_event_status`` endpoint, which also runs the refund/waitlist
+    # safety logic. Mirrors ``TemplateEditSchema`` excluding status.
+    status: Event.EventStatus = Event.EventStatus.DRAFT
 
 
 # Re-export the pydantic session model as the API schema (single source of truth),

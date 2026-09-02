@@ -11,9 +11,15 @@ from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError
 from django.core.files.images import get_image_dimensions
 from django.core.files.uploadedfile import UploadedFile
+from PIL import Image
 
 from common.sanitizers import render_markdown, sanitize_html, sanitize_markdown
 from common.signing import PROTECTED_PATH_PREFIX
+
+# Backstop against decompression-bomb DoS: Pillow itself refuses to decode any
+# image with more pixels than this (a hard ceiling above the validation budget
+# below, so genuine over-budget images error in Pillow too, not just here).
+Image.MAX_IMAGE_PIXELS = 64_000_000
 
 # Sanitizers live in common/sanitizers.py; re-exported here for backward-compatible imports.
 __all__ = [
@@ -33,23 +39,34 @@ __all__ = [
 
 ALLOWED_IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif"]
 MAX_IMAGE_SIZE_BYTES: int = 10 * 1024 * 1024  # 10MB
+MAX_IMAGE_PIXELS: int = 50_000_000  # 50 megapixels — bound on decoded raster size (memory-DoS guard)
 
 
 def validate_image_file(file: UploadedFile) -> None:
-    """Validate an uploaded image file size and format.
+    """Validate an uploaded image file size, dimensions, and format.
 
     Args:
         file: The uploaded file to validate.
 
     Raises:
-        ValidationError: If the file exceeds the maximum size or is not a valid image.
+        ValidationError: If the file exceeds the maximum size, exceeds the
+            maximum pixel budget, or is not a valid image.
     """
     if file.size > MAX_IMAGE_SIZE_BYTES:  # type: ignore[operator]
         raise ValidationError(f"Image must be under {MAX_IMAGE_SIZE_BYTES // (1024 * 1024)}MB.")
     try:
-        get_image_dimensions(file)
+        dimensions = get_image_dimensions(file)
     except Exception:
         raise ValidationError("File is not a valid image.")
+    # A tiny-on-disk image can still decode to a huge raster (e.g. 8000x8000),
+    # exhausting worker memory downstream (EXIF strip, thumbnails). Bound the
+    # pixel count read from the header, without decoding pixels. When the
+    # dimensions can't be read (get_image_dimensions returns None) we leave the
+    # value as-is — that path is unchanged from the original validator, and a
+    # header we can't parse is not a decompression bomb.
+    width, height = dimensions if dimensions else (None, None)
+    if width is not None and height is not None and width * height > MAX_IMAGE_PIXELS:
+        raise ValidationError(f"Image must be under {MAX_IMAGE_PIXELS // 1_000_000} megapixels.")
 
 
 # ---- Protected File Fields ----

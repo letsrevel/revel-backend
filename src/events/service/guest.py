@@ -46,10 +46,19 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
         Guest user instance
 
     Raises:
-        HttpError: If a non-guest user with this email already exists
+        HttpError: If a non-guest user with this email already exists, or the email
+            is globally banned.
     """
+    from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
+
     # Normalize email to lowercase for case-insensitive matching
     email = email.lower()
+
+    # Reject globally-banned emails before minting a guest row — otherwise a ban could
+    # be bypassed by creating a guest account (and later converting it via password reset).
+    if is_email_globally_banned(email):
+        logger.warning("guest_user_creation_blocked_banned_email", email=email)
+        raise HttpError(403, str(BAN_ERROR_MESSAGE))
 
     # Check if user exists (case-insensitive)
     existing_user = RevelUser.objects.filter(email__iexact=email).first()
@@ -265,6 +274,7 @@ def validate_and_decode_guest_token(token: str) -> schema.GuestActionPayload:
     return payload
 
 
+@transaction.atomic
 def handle_guest_rsvp(
     event: models.Event,
     answer: models.EventRSVP.RsvpStatus,

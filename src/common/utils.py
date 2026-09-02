@@ -1,7 +1,6 @@
 import functools
 import hashlib
 import mimetypes
-import sys
 import typing as t
 from io import BytesIO
 
@@ -24,12 +23,13 @@ from .models import FileUploadAudit
 def strip_exif(image_file: File) -> InMemoryUploadedFile:  # type: ignore[type-arg]
     """Strip EXIF data from a Django File or InMemoryUploadedFile."""
     image = Image.open(image_file)
-    # Create a new image from raw pixel data to strip EXIF metadata
-    image_no_exif = Image.frombytes(image.mode, image.size, image.tobytes())
+    _format = image.format or "JPEG"
 
     output = BytesIO()
-    _format = image.format or "JPEG"
-    image_no_exif.save(output, format=_format)
+    # Re-saving without an ``exif=`` argument discards metadata without
+    # materializing the decoded raster an extra ~3x (Image.frombytes on
+    # tobytes()) — a memory-DoS guard for large images.
+    image.save(output, format=_format)
     output.seek(0)
 
     # Try to infer some optional fields
@@ -42,7 +42,7 @@ def strip_exif(image_file: File) -> InMemoryUploadedFile:  # type: ignore[type-a
         field_name=field_name,
         name=name,
         content_type=content_type,
-        size=sys.getsizeof(output),
+        size=output.getbuffer().nbytes,
         charset=None,
     )
 

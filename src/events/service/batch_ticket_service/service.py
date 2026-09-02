@@ -266,8 +266,6 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
             self._assert_purchasable_by(group.tier)
             self._assert_membership_tier_allowed(group.tier)
             self._assert_sale_window(group.tier)
-        # Per-user ticket caps, layered across the whole cart (#846 Decision 4).
-        self.assert_per_user_limits(self.groups)
 
         # Names are enforced here — not in the schema — because only the event knows
         # whether it requires them (#845).
@@ -305,6 +303,13 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # uniformity _validate_cart proved on the stale instances is re-proven here:
         # every money decision below is a cart-level read off ONE locked tier.
         self._assert_locked_cart_uniformity(locked_tiers)
+
+        # Per-user ticket caps, layered across the whole cart (#846 Decision 4). Runs
+        # HERE, under the tier locks (and taking the Event row lock for the event-wide
+        # cap), so two concurrent carts by the same buyer are serialized and cannot both
+        # read a stale pre-write count and slip past max_tickets_per_user (TOCTOU).
+        self.assert_per_user_limits(self.groups)
+
         # Dispatch off the LOCKED rows, as the single-tier engine always did — the
         # pre-lock read above only decides whether VIES is worth a round-trip.
         locked_payment_method = locked_tiers[0].payment_method
