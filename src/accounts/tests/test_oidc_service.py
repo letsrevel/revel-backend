@@ -243,3 +243,50 @@ def test_verify_id_token_missing_email_is_none(
     claims = oidc._verify_id_token(GOOGLE, make_id_token(email=None), "nonce")
     assert claims.email is None
     assert claims.email_verified is True
+
+
+def test_verify_id_token_malformed_email_claim(
+    providers: None, mock_http: list[httpx.Request], signing_key: None
+) -> None:
+    with pytest.raises(OIDCLoginError) as exc:
+        oidc._verify_id_token(GOOGLE, make_id_token(email="not-an-email"), "nonce")
+    assert exc.value.code == "provider"
+
+
+def test_signing_key_client_rebuilt_when_jwks_uri_changes(providers: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen_uris: list[str] = []
+
+    class FakeSigningKey:
+        key = "fake-key"
+
+    class FakePyJWKClient:
+        def __init__(self, uri: str, **kwargs: t.Any) -> None:
+            seen_uris.append(uri)
+
+        def get_signing_key_from_jwt(self, id_token: str) -> t.Any:
+            return FakeSigningKey()
+
+    monkeypatch.setattr(oidc.jwt, "PyJWKClient", FakePyJWKClient)
+    oidc._jwk_clients.clear()
+
+    current_jwks_uri = {"value": DISCOVERY_DOC["jwks_uri"]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("openid-configuration"):
+            return httpx.Response(200, json={**DISCOVERY_DOC, "jwks_uri": current_jwks_uri["value"]})
+        return httpx.Response(404)
+
+    monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+
+    try:
+        oidc._signing_key(GOOGLE, "irrelevant.token.value")
+        cache.delete(oidc._discovery_key(GOOGLE))
+        current_jwks_uri["value"] = "https://www.googleapis.com/oauth2/v3/certs-new"
+        oidc._signing_key(GOOGLE, "irrelevant.token.value")
+    finally:
+        oidc._jwk_clients.clear()
+
+    assert seen_uris == [
+        DISCOVERY_DOC["jwks_uri"],
+        "https://www.googleapis.com/oauth2/v3/certs-new",
+    ]

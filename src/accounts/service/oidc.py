@@ -18,7 +18,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import Http404
 from django.utils.http import url_has_allowed_host_and_scheme
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ValidationError
 
 from accounts.exceptions import OIDCLoginError
 from revel.oidc_config import OIDCProviderConfig
@@ -145,18 +145,22 @@ class OIDCClaims(BaseModel):
     picture: str | None = None
 
 
-_jwk_clients: dict[str, jwt.PyJWKClient] = {}
+_jwk_clients: dict[tuple[str, str], jwt.PyJWKClient] = {}
 
 
 def _signing_key(provider: OIDCProviderConfig, id_token: str) -> t.Any:
     """Resolve the ID token's signing key from the provider's JWKS (cached per process).
 
-    Monkeypatched in tests to return a local public key.
+    Cached by ``(provider.key, jwks_uri)`` so a JWKS URI change (once ``discovery()``'s cache
+    expires and re-fetches a new one) rebuilds the client instead of pinning the old endpoint
+    forever. Monkeypatched in tests to return a local public key.
     """
-    client = _jwk_clients.get(provider.key)
+    jwks_uri = discovery(provider)["jwks_uri"]
+    cache_key = (provider.key, jwks_uri)
+    client = _jwk_clients.get(cache_key)
     if client is None:
-        client = jwt.PyJWKClient(discovery(provider)["jwks_uri"], cache_keys=True, lifespan=3600)
-        _jwk_clients[provider.key] = client
+        client = jwt.PyJWKClient(jwks_uri, cache_keys=True, lifespan=3600)
+        _jwk_clients[cache_key] = client
     return client.get_signing_key_from_jwt(id_token).key
 
 
@@ -216,4 +220,8 @@ def _verify_id_token(provider: OIDCProviderConfig, id_token: str, nonce: str) ->
     if "azp" in payload and payload["azp"] != provider.client_id:
         logger.warning("oidc_azp_mismatch", provider=provider.key)
         raise OIDCLoginError("provider")
-    return OIDCClaims.model_validate(payload)
+    try:
+        return OIDCClaims.model_validate(payload)
+    except ValidationError as e:
+        logger.warning("oidc_id_token_claims_invalid", provider=provider.key)
+        raise OIDCLoginError("provider") from e
