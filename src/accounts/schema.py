@@ -118,15 +118,6 @@ class ExternalIdentitySchema(Schema):
     created_at: AwareDatetime
 
 
-class GoogleIDInfo(Schema):
-    email: str = ""
-    given_name: str = ""
-    family_name: str = ""
-    sub: str = ""
-    picture: str = ""
-    locale: str = ""
-
-
 class WebAuthnRegisterOptionsSchema(Schema):
     options: dict[str, t.Any]
 

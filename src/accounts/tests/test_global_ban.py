@@ -14,7 +14,6 @@ from accounts import schema
 from accounts.jwt import blacklist_user_tokens
 from accounts.models import GlobalBan, RevelUser
 from accounts.service import account as account_service
-from accounts.service import auth as auth_service
 from accounts.service.global_ban_service import (
     deactivate_user_for_ban,
     is_email_globally_banned,
@@ -725,60 +724,6 @@ class TestVerifyEmailBanGuard:
         token = account_service.create_verification_token(user)
         verified_user = account_service.verify_email(token)
         assert verified_user.email_verified is True
-
-
-class TestGoogleLoginBanGuard:
-    """Tests for ban check in google_login."""
-
-    @patch("accounts.service.auth._verify_oauth2_token")
-    def test_google_login_blocked_for_banned_email(
-        self, mock_verify: MagicMock, admin_user: RevelUser, settings: t.Any
-    ) -> None:
-        settings.GOOGLE_SSO_STAFF_LIST = []
-        settings.GOOGLE_SSO_SUPERUSER_LIST = []
-        settings.GOOGLE_SSO_ALWAYS_UPDATE_USER_DATA = False
-
-        GlobalBan.objects.create(
-            ban_type=GlobalBan.BanType.EMAIL,
-            value="banned@gmail.com",
-            created_by=admin_user,
-        )
-
-        mock_verify.return_value = schema.GoogleIDInfo(
-            sub="123",
-            email="banned@gmail.com",
-            given_name="Bad",
-            family_name="User",
-        )
-
-        with pytest.raises(HttpError) as exc_info:
-            auth_service.google_login("fake-id-token")
-        assert exc_info.value.status_code == 403
-
-    @patch("accounts.service.auth._verify_oauth2_token")
-    def test_google_login_blocked_for_banned_domain(
-        self, mock_verify: MagicMock, admin_user: RevelUser, settings: t.Any
-    ) -> None:
-        settings.GOOGLE_SSO_STAFF_LIST = []
-        settings.GOOGLE_SSO_SUPERUSER_LIST = []
-        settings.GOOGLE_SSO_ALWAYS_UPDATE_USER_DATA = False
-
-        GlobalBan.objects.create(
-            ban_type=GlobalBan.BanType.DOMAIN,
-            value="evil.com",
-            created_by=admin_user,
-        )
-
-        mock_verify.return_value = schema.GoogleIDInfo(
-            sub="456",
-            email="anyone@evil.com",
-            given_name="Evil",
-            family_name="Person",
-        )
-
-        with pytest.raises(HttpError) as exc_info:
-            auth_service.google_login("fake-id-token")
-        assert exc_info.value.status_code == 403
 
 
 class TestTelegramConnectBanGuard:

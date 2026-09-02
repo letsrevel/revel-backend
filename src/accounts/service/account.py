@@ -9,7 +9,6 @@ from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from django_google_sso.models import GoogleSSOUser
 from ninja import Schema
 from ninja.errors import HttpError
 
@@ -293,9 +292,6 @@ def request_password_reset(email: str) -> str | None:
     if is_email_globally_banned(user.email):
         logger.info("password_reset_blocked_banned_user", user_id=str(user.id), email=email)
         return None
-    if GoogleSSOUser.objects.filter(user=user).exists():
-        logger.info("password_reset_blocked_google_sso", user_id=str(user.id), email=email)
-        return None
     token = create_password_reset_token(user)
     transaction.on_commit(
         lambda: tasks.send_account_email.delay(tasks.AccountEmail.PASSWORD_RESET, user.email, token=token)
@@ -346,9 +342,6 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 @transaction.atomic
 def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> RevelUser:
     """Set the new password and consume the token (the atomic half of ``reset_password``)."""
-    if GoogleSSOUser.objects.filter(user=user).exists():
-        logger.warning("password_reset_blocked_google_sso_user", user_id=str(user.id), email=user.email)
-        raise HttpError(400, str(_("Cannot reset password for Google SSO users.")))
     validate_password(new_password, user=user)
     user.set_password(new_password)
 
@@ -416,12 +409,6 @@ def request_email_change(user: RevelUser, new_email: str, password: str) -> str:
     from accounts.service.global_ban_service import is_email_globally_banned
 
     logger.info("email_change_requested", user_id=str(user.id), new_email=new_email)
-
-    # SSO check must run before the password check — SSO accounts have a sentinel
-    # password and would otherwise be rejected with a misleading "Incorrect password".
-    if GoogleSSOUser.objects.filter(user=user).exists():
-        logger.info("email_change_blocked_google_sso", user_id=str(user.id))
-        raise HttpError(400, str(_("Google SSO users cannot change their email here.")))
 
     if not user.check_password(password):
         logger.warning("email_change_bad_password", user_id=str(user.id))

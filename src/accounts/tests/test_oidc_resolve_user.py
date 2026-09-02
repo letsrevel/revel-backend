@@ -1,12 +1,17 @@
 """Tests for linking/creating a Revel user from verified OIDC claims."""
 
 import typing as t
+from unittest.mock import patch
 
+import orjson
 import pytest
 from django.db.models import Q
+from django.test.client import Client
+from django.urls import reverse
 
 from accounts.exceptions import OIDCLoginError
 from accounts.models import ExternalIdentity, GlobalBan, RevelUser
+from accounts.service import account as account_service
 from accounts.service import oidc
 from accounts.service.oidc import OIDCClaims
 from common.utils import get_or_create_with_race_protection
@@ -142,3 +147,29 @@ def test_identity_create_race_converges(user: RevelUser) -> None:
     assert (first_created, second_created) == (True, False)
     assert first == second
     assert ExternalIdentity.objects.filter(provider="google", subject="sub-1").count() == 1
+
+
+def test_password_login_works_with_linked_identity(client: Client, user: RevelUser) -> None:
+    ExternalIdentity.objects.create(user=user, provider="google", subject="1")
+    response = client.post(
+        reverse("api:token_obtain_pair"),
+        data=orjson.dumps({"username": user.username, "password": "strong-password-123!"}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert "access" in response.json()
+
+
+@patch("accounts.tasks.send_account_email.delay")
+def test_password_reset_request_allowed_with_linked_identity(mock_send: t.Any, user: RevelUser) -> None:
+    ExternalIdentity.objects.create(user=user, provider="google", subject="1")
+    assert account_service.request_password_reset(user.email) is not None
+
+
+@patch("accounts.tasks.send_account_email.delay")
+def test_email_change_allowed_with_linked_identity(mock_send: t.Any, user: RevelUser) -> None:
+    ExternalIdentity.objects.create(user=user, provider="google", subject="1")
+    token = account_service.request_email_change(
+        user=user, new_email="new@example.com", password="strong-password-123!"
+    )
+    assert isinstance(token, str) and token

@@ -3,7 +3,6 @@ import typing as t
 
 import pytest
 from django.test.client import Client
-from django_google_sso.models import GoogleSSOUser
 from ninja_jwt.tokens import RefreshToken
 
 from accounts import schema
@@ -48,14 +47,17 @@ def totp_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
 
 @pytest.fixture
 def google_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
-    """A user who signed up via Google SSO."""
+    """A user who signed up through the Google OIDC provider (no usable password)."""
+    from accounts.models import ExternalIdentity
+
     user = django_user_model.objects.create_user(
         username="googleuser@example.com",
         email="googleuser@example.com",
-        password="<GOOGLE_SSO_USER>",
         email_verified=True,
     )
-    GoogleSSOUser.objects.create(user=user, google_id="123456789")
+    user.set_unusable_password()
+    user.save(update_fields=["password"])
+    ExternalIdentity.objects.create(user=user, provider="google", subject="123456789", email=user.email)
     return user
 
 

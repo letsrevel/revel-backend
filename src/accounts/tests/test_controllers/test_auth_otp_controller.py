@@ -70,38 +70,6 @@ def test_obtain_token_with_otp_success(
     mock_verify.assert_called_once_with("temp.jwt.token", "123456")
 
 
-@patch("accounts.service.auth.google_login")
-def test_google_login_success(mock_google_login: MagicMock, client: Client, settings: MagicMock) -> None:
-    """Test that the google_login endpoint calls the service and returns a token."""
-    settings.FEATURE_GOOGLE_SSO = True
-    mock_google_login.return_value = {
-        "access": "google_access_token",
-        "refresh": "google_refresh_token",
-        "username": "username",
-    }
-    url = reverse("api:google_sso_login")
-    payload = {"id_token": "google.id.token"}
-    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
-
-    assert response.status_code == 200
-    assert response.json()["access"] == "google_access_token"
-    mock_google_login.assert_called_once_with("google.id.token")
-
-
-@patch("accounts.service.auth.google_login")
-def test_google_login_returns_403_when_feature_disabled(
-    mock_google_login: MagicMock, client: Client, settings: MagicMock
-) -> None:
-    """Test that google_login returns 403 when FEATURE_GOOGLE_SSO is disabled."""
-    settings.FEATURE_GOOGLE_SSO = False
-    url = reverse("api:google_sso_login")
-    payload = {"id_token": "google.id.token"}
-    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
-
-    assert response.status_code == 403
-    mock_google_login.assert_not_called()
-
-
 # --- OtpController Tests ---
 
 
