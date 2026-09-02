@@ -219,12 +219,19 @@ class SubmissionEvaluator:
         if self.missing_mandatory:
             return
 
+        # Award each question's positive_weight AT MOST ONCE, even when the question
+        # allows multiple answers and several correct options were selected. Scoring per
+        # answer row would let a multi-correct question contribute N× its weight against a
+        # denominator that counts it once, inflating the score above 100% (see max_mc_points).
+        awarded_positive: set[UUID] = set()
         for answer in self.submission.multiplechoiceanswer_answers.all().select_related("option", "question"):
             # Only score applicable questions
             if answer.question_id not in self._applicable_mcq_ids:
                 continue
             if answer.option.is_correct:
-                self.mc_points_scored += answer.question.positive_weight
+                if answer.question_id not in awarded_positive:
+                    self.mc_points_scored += answer.question.positive_weight
+                    awarded_positive.add(answer.question_id)
             else:
                 self.mc_points_scored -= answer.question.negative_weight
                 self._fatalize(answer.question)
@@ -313,6 +320,8 @@ class SubmissionEvaluator:
                 if total_max_points > 0
                 else Decimal("100.0")
             )
+            # Defense-in-depth: a score can never exceed 100%.
+            score_percent = min(score_percent, Decimal("100.0"))
 
         passed = score_percent >= self.questionnaire.min_score
         proposed_status = (

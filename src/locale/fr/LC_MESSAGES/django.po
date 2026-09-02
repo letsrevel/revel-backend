@@ -2351,10 +2351,12 @@ msgid "Event '%s' does not require a ticket."
 msgstr "L'événement '%s' ne nécessite pas de billet."
 
 #, python-format
-msgid "Event '%s' is invitation-only and cannot be covered by a series pass."
+msgid ""
+"Event '%s' is invitation-only or members-only and cannot be covered by a "
+"series pass."
 msgstr ""
-"L'événement '%s' est sur invitation uniquement et ne peut pas être couvert "
-"par un pass de série."
+"L'événement '%s' est sur invitation uniquement ou réservé aux membres et ne "
+"peut pas être couvert par un pass de série."
 
 msgid ""
 "Events gated by an admission questionnaire cannot be covered by a series "

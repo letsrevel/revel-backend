@@ -92,8 +92,9 @@ class SeriesPassAdminController(UserAwareController):
         """Create a series pass and its initial coverage (admin only).
 
         Every event named in ``tier_links`` must pass the enable-time coverage gate
-        (open, ticketed, non-invitation-only event on a non-recurring series, not gated
-        by an admission questionnaire) — 400 otherwise. Requires 'edit_event_series'
+        (open, ticketed, PUBLIC — neither invitation-only nor members-only — event on a
+        non-recurring series, not gated by an admission questionnaire) — 400 otherwise.
+        Requires 'edit_event_series'
         permission.
         """
         series = self.get_one(series_id)

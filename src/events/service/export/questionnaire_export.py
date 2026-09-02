@@ -21,7 +21,13 @@ from questionnaires.models import (
     QuestionnaireSubmission,
 )
 
-from .formatting import auto_fit_columns, compute_pronoun_distribution, style_header_row, style_summary_sheet
+from .formatting import (
+    auto_fit_columns,
+    compute_pronoun_distribution,
+    sanitize_cell,
+    style_header_row,
+    style_summary_sheet,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -251,22 +257,22 @@ def _write_submissions_sheet(
 
         source_event = sub.source_event
         row: list[t.Any] = [
-            sub.user.email if sub.user else "",
-            sub.user.get_full_name() if sub.user else "",
+            sanitize_cell(sub.user.email) if sub.user else "",
+            sanitize_cell(sub.user.get_full_name()) if sub.user else "",
             sub.submitted_at.isoformat() if sub.submitted_at else "",
             eval_status,
             float(eval_obj.score) if eval_obj and eval_obj.score is not None else "",
-            eval_obj.comments if eval_obj and eval_obj.comments else "",
-            source_event["event_name"] if source_event else "",
+            sanitize_cell(eval_obj.comments) if eval_obj and eval_obj.comments else "",
+            sanitize_cell(source_event["event_name"]) if source_event else "",
         ]
 
         for q in all_questions:
             if q.question_type == "mc":
-                row.append("; ".join(mc_answers.get(q.question_id, [])))
+                row.append(sanitize_cell("; ".join(mc_answers.get(q.question_id, []))))
             elif q.question_type == "ft":
-                row.append(ft_answers.get(q.question_id, ""))
+                row.append(sanitize_cell(ft_answers.get(q.question_id, "")))
             else:
-                row.append("; ".join(fu_answers.get(q.question_id, [])))
+                row.append(sanitize_cell("; ".join(fu_answers.get(q.question_id, []))))
 
         ws.append(row)
 

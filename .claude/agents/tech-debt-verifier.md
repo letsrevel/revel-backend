@@ -1,7 +1,7 @@
 ---
 name: tech-debt-verifier
 description: "Adjudicates a single candidate tech-debt finding produced by the tech-debt-assessor hunter. Independently re-reads the cited code, confirms the debt is real and present-day (and for dead-code candidates, proves no references exist anywhere), and returns a verdict with a 0-100 confidence score. Dispatched in parallel (one per candidate) by the `/tech-debt` command's verification phase. Not intended for standalone use — it expects a single candidate finding as input."
-model: sonnet
+model: opus
 color: pink
 ---
 

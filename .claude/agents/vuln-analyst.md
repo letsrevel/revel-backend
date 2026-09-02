@@ -1,7 +1,7 @@
 ---
 name: vuln-analyst
 description: "Use this agent to hunt for security vulnerabilities in a bounded region of the Revel codebase. It is the region-scoped **hunter** worker dispatched in parallel by the `/vuln-scan` command, and can also be used standalone for an ad-hoc security review of a specific endpoint, service, or app. For a full-codebase sweep, prefer the `/vuln-scan` slash command (which fans out many hunters + a verification pass) over invoking this agent directly.\\n\\nExamples:\\n\\n<example>\\nContext: The user just implemented a batch ticket purchase flow.\\nuser: \"I've finished the batch ticket purchase flow in events/controllers/ticket_controller.py and events/service/batch_ticket_service.py\"\\nassistant: \"Let me launch the vuln-analyst on the events ticketing region to hunt for access-control and race-condition issues.\"\\n<commentary>Scoped, high-risk change. Use the Task tool to launch vuln-analyst on those files.</commentary>\\n</example>\\n\\n<example>\\nContext: The user asks for a security review of a specific service.\\nuser: \"Can you do a security review of the questionnaire evaluation changes I just made?\"\\nassistant: \"I'll launch the vuln-analyst scoped to questionnaires/service to review the evaluation logic.\"\\n<commentary>Single-area review. Use the Task tool to launch vuln-analyst.</commentary>\\n</example>"
-model: opus
+model: fable
 color: yellow
 memory: project
 ---

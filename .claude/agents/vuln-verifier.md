@@ -1,7 +1,7 @@
 ---
 name: vuln-verifier
 description: "Adjudicates a single candidate security finding produced by the vuln-analyst hunter. Independently re-reads the cited code, attempts to confirm the exploit is real and present-day, and returns a verdict with a 0-100 confidence score. Dispatched in parallel (one per candidate) by the `/vuln-scan` command's verification phase. Not intended for standalone use — it expects a single candidate finding as input."
-model: sonnet
+model: opus
 color: orange
 ---
 

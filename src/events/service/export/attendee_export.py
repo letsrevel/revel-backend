@@ -11,7 +11,13 @@ from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
 from events.models import Event, EventRSVP, Ticket
 
-from .formatting import auto_fit_columns, compute_pronoun_distribution, style_header_row, style_summary_sheet
+from .formatting import (
+    auto_fit_columns,
+    compute_pronoun_distribution,
+    sanitize_cell,
+    style_header_row,
+    style_summary_sheet,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -86,10 +92,10 @@ def _write_summary_sheet(
     total_without_pronouns = pronoun_stats.total_without
 
     summary_rows: list[tuple[str, t.Any]] = [
-        ("Event", event.name),
+        ("Event", sanitize_cell(event.name)),
         ("Date", event.start.isoformat() if event.start else "N/A"),
-        ("Venue", event.venue.name if event.venue else "N/A"),
-        ("Organization", event.organization.name),
+        ("Venue", sanitize_cell(event.venue.name) if event.venue else "N/A"),
+        ("Organization", sanitize_cell(event.organization.name)),
         ("Total attendees", len(tickets) + len(rsvps)),
         ("Tickets", len(tickets)),
         ("RSVPs", len(rsvps)),
@@ -142,20 +148,20 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
 
     for ticket in tickets:
         payment = getattr(ticket, "payment", None)
-        seat_label = ticket.seat.label if ticket.seat else ""
+        seat_label = sanitize_cell(ticket.seat.label) if ticket.seat else ""
         is_checked_in = ticket.status == Ticket.TicketStatus.CHECKED_IN
         ws.append(
             [
-                ticket.user.get_full_name() if ticket.user else "",
-                ticket.user.email if ticket.user else "",
-                ticket.user.pronouns if ticket.user else "",
+                sanitize_cell(ticket.user.get_full_name()) if ticket.user else "",
+                sanitize_cell(ticket.user.email) if ticket.user else "",
+                sanitize_cell(ticket.user.pronouns) if ticket.user else "",
                 "Ticket",
                 "",
-                ticket.tier.name if ticket.tier else "",
+                sanitize_cell(ticket.tier.name) if ticket.tier else "",
                 _STATUS_DISPLAY.get(ticket.status, ticket.status),
                 "Yes" if is_checked_in else "No",
                 ticket.checked_in_at.isoformat() if ticket.checked_in_at else "",
-                ticket.guest_name or "",
+                sanitize_cell(ticket.guest_name or ""),
                 seat_label,
                 payment.status if payment else (ticket.tier.payment_method if ticket.tier else ""),
             ]
@@ -164,9 +170,9 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
     for rsvp in rsvps:
         ws.append(
             [
-                rsvp.user.get_full_name() if rsvp.user else "",
-                rsvp.user.email if rsvp.user else "",
-                rsvp.user.pronouns if rsvp.user else "",
+                sanitize_cell(rsvp.user.get_full_name()) if rsvp.user else "",
+                sanitize_cell(rsvp.user.email) if rsvp.user else "",
+                sanitize_cell(rsvp.user.pronouns) if rsvp.user else "",
                 "RSVP",
                 _RSVP_STATUS_DISPLAY.get(rsvp.status, rsvp.status) if rsvp.status else "",
                 "",

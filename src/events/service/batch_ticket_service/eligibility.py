@@ -13,7 +13,7 @@ from django.db.models import Count
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
-from events.models import EventInvitation, OrganizationMember, Ticket, TicketTier
+from events.models import Event, EventInvitation, OrganizationMember, Ticket, TicketTier
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.context import BatchTicketContext
 from events.service.event_manager import (
@@ -247,12 +247,28 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         width (#846 review fix). ``get_user_ticket_count`` keeps its single-tier form
         for the other callers.
 
+        **Runs under the cart's row locks** (``create_batch`` calls it after the tier
+        ``select_for_update``): the tier-cap counts are serialized by the tier lock two
+        same-tier carts share, and the event-cap count takes the Event row lock below so
+        two carts by the same buyer serialize even when they share no tier. Without those
+        locks the count is a pre-write read under READ COMMITTED — both carts read the
+        old count, both pass, both write past the cap (TOCTOU). Mirrors
+        ``discount_code_service.apply_discount``, which re-checks per-user usage under a
+        row lock.
+
         Args:
             groups: The cart's groups (one per tier).
 
         Raises:
             HttpError: 400 when the event cap or a tier cap is exceeded.
         """
+        # Lock the Event row BEFORE reading the cap off it: the pre-lock instance can be
+        # stale (an organizer enabling or tightening max_tickets_per_user meanwhile), and a
+        # stale None would skip the check entirely. The tier lock only serializes same-tier
+        # carts; the event cap spans tiers a concurrent cart need not share, so this anchor
+        # (the same one assert_event_capacity takes) is what serializes two carts by the
+        # same buyer against the cap.
+        self.event = Event.objects.select_for_update().get(pk=self.event.pk)
         event_cap = self.event.max_tickets_per_user
         if event_cap is not None:
             existing = self.get_user_ticket_count()

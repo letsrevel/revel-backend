@@ -121,3 +121,28 @@ class TestLayeredLimits:
             service.create_batch([TicketPurchaseItem(), TicketPurchaseItem()])
         assert exc.value.status_code == 400
         assert "for this tier" in str(exc.value.message)
+
+    def test_event_cap_is_read_from_the_locked_row(
+        self, event: Event, tier_a: TicketTier, member_user: RevelUser
+    ) -> None:
+        """A cap enabled after the service loaded its Event still binds: the cap is read off the
+        locked row, not the stale pre-lock instance (which would say None and skip the check)."""
+        service = BatchTicketService(event, tier_a, member_user)  # event.max_tickets_per_user is None here
+        make_active_ticket(event, tier_a, member_user)
+        Event.objects.filter(pk=event.pk).update(max_tickets_per_user=1)  # organizer write, behind our back
+        with pytest.raises(HttpError) as exc:
+            service.create_batch([TicketPurchaseItem()])
+        assert exc.value.status_code == 400
+        assert "for this event" in str(exc.value.message)
+
+    def test_tier_cap_is_read_from_the_locked_row(
+        self, event: Event, tier_a: TicketTier, member_user: RevelUser
+    ) -> None:
+        """Same for the tier cap: the groups handed to assert_per_user_limits carry the LOCKED tiers."""
+        service = BatchTicketService(event, tier_a, member_user)  # tier_a.max_tickets_per_user is None here
+        make_active_ticket(event, tier_a, member_user)
+        TicketTier.objects.filter(pk=tier_a.pk).update(max_tickets_per_user=1)
+        with pytest.raises(HttpError) as exc:
+            service.create_batch([TicketPurchaseItem()])
+        assert exc.value.status_code == 400
+        assert "for this tier" in str(exc.value.message)

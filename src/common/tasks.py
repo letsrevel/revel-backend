@@ -253,20 +253,42 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
     file_bytes = file_field.read()
     findings = cd.scan_stream(file_bytes)
     file_hash = hashlib.sha256(file_bytes).hexdigest()
-    audit_qs = FileUploadAudit.objects.filter(app=app, model=model, field=field, file_hash=file_hash)
+    # Scope to this upload's audit rows: never quarantine another instance's file that happens
+    # to share the same bytes, and never re-match an already-quarantined audit on re-upload.
+    audit_qs = FileUploadAudit.objects.filter(app=app, model=model, field=field, file_hash=file_hash, instance_pk=pk)
     if not findings:
-        audit_qs.update(status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now())
+        audit_qs.filter(status=FileUploadAudit.FileUploadAuditStatus.PENDING).update(
+            status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now()
+        )
         return None
     quarantined = []
     filename = getattr(file_field, "name", file_hash)
     name = Path(filename).name
-    for audit in audit_qs:
+    # Only audits with no QuarantinedFile yet: a re-upload of identical bytes to the same
+    # instance re-matches earlier audits whose quarantine row already exists, and bulk_create
+    # writes each ContentFile to storage *before* the INSERT — including them would leave an
+    # orphan blob per conflict. The status update is scoped to these same rows so an audit
+    # inserted meanwhile is never marked MALICIOUS without a quarantine row to notify from.
+    pending = list(audit_qs.filter(quarantinedfile__isnull=True))
+    for audit in pending:
         quarantined.append(QuarantinedFile(audit=audit, file=ContentFile(file_bytes, name), findings=findings))
     with transaction.atomic():
-        setattr(instance, field, None)
-        audit_qs.update(status=FileUploadAudit.FileUploadAuditStatus.MALICIOUS, updated_at=timezone.now())
-        QuarantinedFile.objects.bulk_create(quarantined)
-        instance.save()
+        audit_qs.filter(pk__in=[audit.pk for audit in pending]).update(
+            status=FileUploadAudit.FileUploadAuditStatus.MALICIOUS, updated_at=timezone.now()
+        )
+        # ignore_conflicts: two concurrent scans of the same instance can still race on the
+        # OneToOne; without this the IntegrityError would roll back the detachment below and
+        # leave the malicious file live.
+        QuarantinedFile.objects.bulk_create(quarantined, ignore_conflicts=True)
+        if instance._meta.get_field(field).null:
+            # Nullable field: blank the reference so the live file is dropped.
+            setattr(instance, field, None)
+            instance.save()
+        else:
+            # Non-nullable field: full_clean() would reject a blank value and roll back the
+            # quarantine, so remove the file and the row outright instead.
+            getattr(instance, field).delete(save=False)
+            instance.delete()
     # Notify users about malware detection
     notify_malware_detected.delay(app=app, model=model, pk=pk, field=field, file_hash=file_hash, findings=findings)
     return t.cast(dict[str, t.Any], findings)
@@ -310,11 +332,17 @@ def notify_malware_detected(
     - Organization owner (if applicable)
     - File uploader
     """
-    # Get the file upload audit record
-    audits = FileUploadAudit.objects.filter(file_hash=file_hash, notified=False)
+    # Get the file upload audit record. Scope by app/model/field/instance (not just hash) so
+    # neither a cross-model hash collision nor another instance's identical upload can pull in
+    # an audit whose uploader/quarantine record don't belong to this ``pk``.
+    audits = FileUploadAudit.objects.filter(
+        app=app, model=model, field=field, file_hash=file_hash, instance_pk=pk, notified=False
+    )
 
     for audit in audits:
-        quarantined_file = QuarantinedFile.objects.get(audit=audit)
+        quarantined_file = QuarantinedFile.objects.filter(audit=audit).first()
+        if quarantined_file is None:
+            continue
         quarantined_file_url = reverse("admin:common_quarantinedfile_change", args=[quarantined_file.id])
 
         uploader = RevelUser.objects.filter(username=audit.uploader).first()

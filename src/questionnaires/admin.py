@@ -7,7 +7,7 @@ from django.contrib import admin
 from django.db.models import Count, QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
@@ -251,7 +251,7 @@ class QuestionnaireEvaluationInline(StackedInline):  # type: ignore[misc]
         if not obj.raw_evaluation_data:
             return "—"
         pretty_json = json.dumps(obj.raw_evaluation_data, indent=2)
-        return mark_safe(f"<pre>{pretty_json}</pre>")
+        return format_html("<pre>{}</pre>", pretty_json)
 
     raw_evaluation_data_display.short_description = "Raw Evaluation Data"  # type: ignore[attr-defined]
 
@@ -365,7 +365,7 @@ class QuestionnaireSubmissionAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[m
         if not obj.metadata:
             return "—"
         pretty_json = json.dumps(obj.metadata, indent=2)
-        return mark_safe(f"<pre style='background: #f8f9fa; padding: 10px; border-radius: 4px;'>{pretty_json}</pre>")
+        return format_html("<pre style='background: #f8f9fa; padding: 10px; border-radius: 4px;'>{}</pre>", pretty_json)
 
     metadata_display.short_description = "Metadata"  # type: ignore[attr-defined]
 
@@ -504,22 +504,23 @@ class QuestionnaireEvaluationAdmin(ModelAdmin):  # type: ignore[misc]
     submission_link.short_description = "Submission"  # type: ignore[attr-defined]
 
     def evaluation_workflow_display(self, obj: models.QuestionnaireEvaluation) -> str:
-        html = "<h4>Evaluation Workflow:</h4><ul>"
-
-        html += f"<li><strong>Questionnaire:</strong> {obj.submission.questionnaire.name}</li>"
-        html += (
-            f"<li><strong>Evaluation Mode:</strong> {obj.submission.questionnaire.get_evaluation_mode_display()}</li>"
-        )
-        html += f"<li><strong>Min Score Required:</strong> {obj.submission.questionnaire.min_score}</li>"
-
+        questionnaire = obj.submission.questionnaire
+        rows: list[tuple[str, t.Any]] = [
+            ("Questionnaire", questionnaire.name),
+            ("Evaluation Mode", questionnaire.get_evaluation_mode_display()),
+            ("Min Score Required", questionnaire.min_score),
+        ]
         if obj.automatically_evaluated:
-            html += f"<li><strong>LLM Backend:</strong> {obj.submission.questionnaire.get_llm_backend_display()}</li>"
+            rows.append(("LLM Backend", questionnaire.get_llm_backend_display()))
+        rows += [
+            ("Created", obj.created_at),
+            ("Last Updated", obj.updated_at),
+        ]
 
-        html += f"<li><strong>Created:</strong> {obj.created_at}</li>"
-        html += f"<li><strong>Last Updated:</strong> {obj.updated_at}</li>"
-
-        html += "</ul>"
-        return mark_safe(html)
+        # format_html_join escapes every interpolated value, so attacker-controlled data
+        # (e.g. the questionnaire name) can't inject markup.
+        items = format_html_join("", "<li><strong>{}:</strong> {}</li>", rows)
+        return format_html("<h4>Evaluation Workflow:</h4><ul>{}</ul>", items)
 
     evaluation_workflow_display.short_description = "Workflow Info"  # type: ignore[attr-defined]
 
@@ -527,7 +528,7 @@ class QuestionnaireEvaluationAdmin(ModelAdmin):  # type: ignore[misc]
         if not obj.raw_evaluation_data:
             return "—"
         pretty_json = json.dumps(obj.raw_evaluation_data, indent=2)
-        return mark_safe(f"<pre style='background: #f8f9fa; padding: 10px; border-radius: 4px;'>{pretty_json}</pre>")
+        return format_html("<pre style='background: #f8f9fa; padding: 10px; border-radius: 4px;'>{}</pre>", pretty_json)
 
     raw_evaluation_data_display.short_description = "Raw Evaluation Data"  # type: ignore[attr-defined]
 

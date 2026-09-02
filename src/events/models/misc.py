@@ -13,7 +13,7 @@ from .event import Event
 from .event_series import EventSeries
 from .invitation import EventInvitation
 from .mixins import ResourceVisibility, VisibilityMixin
-from .organization import Organization
+from .organization import Organization, OrganizationMember
 from .rsvp import EventRSVP
 from .ticket import Ticket
 
@@ -66,12 +66,19 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
         #    (for non-private resources).
         is_owner = Q(organization__owner=user)
         is_staff_member = Q(organization__staff_members=user)
-        is_org_member = Q(organization__members=user)
+        # Route membership through ``for_visibility()`` so CANCELLED/BANNED
+        # members don't match — mirroring every sibling queryset. The raw
+        # ``members`` M2M has no status filter and would leak MEMBERS_ONLY
+        # resources to lapsed/banned members.
+        valid_member_org_ids = (
+            OrganizationMember.objects.for_visibility().filter(user=user).values_list("organization_id", flat=True)
+        )
+        is_org_member = Q(organization_id__in=valid_member_org_ids)
 
         # Staff and owners see everything up to 'staff-only'.
         role_based_q = is_owner | is_staff_member
         # Regular members see 'members-only' and 'public' resources.
-        role_based_q |= is_org_member & Q(visibility=ResourceVisibility.MEMBERS_ONLY)
+        role_based_q |= is_org_member & Q(visibility=ResourceVisibility.MEMBERS_ONLY) & org_visible
         # Any authenticated user with access to the org can see public and unlisted resources.
         role_based_q |= Q(visibility__in=ResourceVisibility.publicly_accessible()) & org_visible
 

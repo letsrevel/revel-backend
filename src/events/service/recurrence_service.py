@@ -14,6 +14,7 @@ from django.utils import timezone
 from pydantic import BaseModel
 
 from events.models import Event, EventSeries, Organization, RecurrenceRule
+from events.models.event_series import MAX_GENERATION_WINDOW_WEEKS
 from events.service.duplication import duplicate_event
 from events.suppression import suppress_event_notifications
 from events.utils.visibility_settings import build_visibility_settings_update
@@ -225,7 +226,15 @@ def _materialize_due_occurrences(
     rule_model = locked_series.recurrence_rule
     assert rule_model is not None  # guaranteed by caller's guard
     rule = rule_model.to_rrule()
-    horizon = until_override or (timezone.now() + timedelta(weeks=locked_series.generation_window_weeks))
+    # Clamp any client-supplied override to the same ceiling that bounds
+    # generation_window_weeks, so an override cannot materialize occurrences
+    # past the 52-week cap in one locked transaction.
+    cap = timezone.now() + timedelta(weeks=MAX_GENERATION_WINDOW_WEEKS)
+    horizon = (
+        min(until_override, cap)
+        if until_override
+        else (timezone.now() + timedelta(weeks=locked_series.generation_window_weeks))
+    )
     # Offset start_from by 1 second so dtstart itself is included in between().
     start_from = locked_series.last_generated_until or (rule_model.dtstart - timedelta(seconds=1))
     # Defense against horizon decreases (e.g. user lowers generation_window_weeks):
