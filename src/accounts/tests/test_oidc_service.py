@@ -231,7 +231,7 @@ def test_verify_id_token_rejections(
 
 
 def test_verify_id_token_rejects_hs256(providers: None, mock_http: list[httpx.Request], signing_key: None) -> None:
-    hs_token = make_id_token(alg="HS256", key="shared-secret")
+    hs_token = make_id_token(alg="HS256", key="s" * 32)
     with pytest.raises(OIDCLoginError) as exc:
         oidc._verify_id_token(GOOGLE, hs_token, "nonce")
     assert exc.value.code == "provider"
