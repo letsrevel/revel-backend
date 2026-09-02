@@ -13,6 +13,7 @@ from accounts.schema import (
     RevelUserSchema,
 )
 from accounts.service import account as account_service
+from accounts.service import oidc as oidc_service
 from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
@@ -54,6 +55,34 @@ class AccountController(UserAwareController):
         # referral_code is a OneToOneField; a single lazy load is fine here.
         # select_related would require re-querying the user we already have from auth.
         return self.user()
+
+    @route.get("/identities", response=list[schema.ExternalIdentitySchema], url_name="identities_list")
+    def list_identities(self) -> list[schema.ExternalIdentitySchema]:
+        """List the OpenID Connect identities linked to the authenticated account."""
+        return [
+            schema.ExternalIdentitySchema(
+                provider=identity.provider,
+                provider_name=oidc_service.provider_display_name(identity.provider),
+                email=identity.email,
+                created_at=identity.created_at,
+            )
+            for identity in oidc_service.list_identities(self.user())
+        ]
+
+    @route.delete(
+        "/identities/{provider}",
+        response={204: None, 400: ResponseMessage, 404: ResponseMessage},
+        url_name="identities_unlink",
+        throttle=WriteThrottle(),
+    )
+    def unlink_identity(self, provider: str) -> tuple[int, None]:
+        """Unlink an OpenID Connect identity.
+
+        Refused (400) if the account has no usable password and no other linked identity,
+        since that would leave no way to sign in.
+        """
+        oidc_service.unlink_identity(self.user(), provider)
+        return 204, None
 
     @route.put(
         "/me",

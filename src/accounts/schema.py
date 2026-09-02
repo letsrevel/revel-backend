@@ -111,6 +111,13 @@ class OIDCExchangeResponseSchema(Schema):
     return_url: str = Field(..., description="Relative path to send the user to after setting cookies.")
 
 
+class ExternalIdentitySchema(Schema):
+    provider: str
+    provider_name: str
+    email: str
+    created_at: AwareDatetime
+
+
 class GoogleIDInfo(Schema):
     email: str = ""
     given_name: str = ""
