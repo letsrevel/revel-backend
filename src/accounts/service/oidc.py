@@ -12,11 +12,13 @@ import typing as t
 from urllib.parse import urlencode
 
 import httpx
+import jwt
 import structlog
 from django.conf import settings
 from django.core.cache import cache
 from django.http import Http404
 from django.utils.http import url_has_allowed_host_and_scheme
+from pydantic import BaseModel, EmailStr
 
 from accounts.exceptions import OIDCLoginError
 from revel.oidc_config import OIDCProviderConfig
@@ -129,3 +131,89 @@ def begin_login(provider: OIDCProviderConfig, return_url: str | None) -> str:
     }
     logger.info("oidc_login_started", provider=provider.key)
     return f"{discovery(provider)['authorization_endpoint']}?{urlencode(params)}"
+
+
+class OIDCClaims(BaseModel):
+    """The subset of ID-token claims Revel uses."""
+
+    sub: str
+    email: EmailStr | None = None
+    email_verified: bool = False
+    given_name: str = ""
+    family_name: str = ""
+    locale: str | None = None
+    picture: str | None = None
+
+
+_jwk_clients: dict[str, jwt.PyJWKClient] = {}
+
+
+def _signing_key(provider: OIDCProviderConfig, id_token: str) -> t.Any:
+    """Resolve the ID token's signing key from the provider's JWKS (cached per process).
+
+    Monkeypatched in tests to return a local public key.
+    """
+    client = _jwk_clients.get(provider.key)
+    if client is None:
+        client = jwt.PyJWKClient(discovery(provider)["jwks_uri"], cache_keys=True, lifespan=3600)
+        _jwk_clients[provider.key] = client
+    return client.get_signing_key_from_jwt(id_token).key
+
+
+def _pop_state(provider: OIDCProviderConfig, state: str) -> dict[str, t.Any]:
+    """Consume the state entry created by :func:`begin_login`. Single use."""
+    key = _state_key(state)
+    entry = cache.get(key)
+    cache.delete(key)
+    if not entry or entry.get("provider") != provider.key:
+        logger.warning("oidc_state_invalid", provider=provider.key)
+        raise OIDCLoginError("state")
+    return t.cast(dict[str, t.Any], entry)
+
+
+def _exchange_code(provider: OIDCProviderConfig, code: str, verifier: str) -> str:
+    """Redeem the authorization code at the token endpoint and return the raw ``id_token``."""
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": _redirect_uri(provider),
+        "client_id": provider.client_id,
+        "client_secret": provider.client_secret,
+        "code_verifier": verifier,
+    }
+    try:
+        with _http_client() as client:
+            response = client.post(discovery(provider)["token_endpoint"], data=data)
+            response.raise_for_status()
+            body = t.cast(dict[str, t.Any], response.json())
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
+        logger.warning("oidc_token_exchange_failed", provider=provider.key, error=str(e))
+        raise OIDCLoginError("provider") from e
+    id_token = body.get("id_token")
+    if not isinstance(id_token, str) or not id_token:
+        logger.warning("oidc_token_response_missing_id_token", provider=provider.key)
+        raise OIDCLoginError("provider")
+    return id_token
+
+
+def _verify_id_token(provider: OIDCProviderConfig, id_token: str, nonce: str) -> OIDCClaims:
+    """Verify signature, issuer, audience, expiry and nonce; return the parsed claims."""
+    try:
+        payload = jwt.decode(
+            id_token,
+            key=_signing_key(provider, id_token),
+            algorithms=ALLOWED_ID_TOKEN_ALGS,
+            audience=provider.client_id,
+            issuer=discovery(provider)["issuer"],
+            options={"require": ["exp", "iat", "sub"]},
+        )
+    except jwt.PyJWTError as e:
+        logger.warning("oidc_id_token_invalid", provider=provider.key, error=str(e))
+        raise OIDCLoginError("provider") from e
+    if payload.get("nonce") != nonce:
+        logger.warning("oidc_nonce_mismatch", provider=provider.key)
+        raise OIDCLoginError("state")
+    if "azp" in payload and payload["azp"] != provider.client_id:
+        logger.warning("oidc_azp_mismatch", provider=provider.key)
+        raise OIDCLoginError("provider")
+    return OIDCClaims.model_validate(payload)
