@@ -410,6 +410,11 @@ def request_email_change(user: RevelUser, new_email: str, password: str) -> str:
 
     logger.info("email_change_requested", user_id=str(user.id), new_email=new_email)
 
+    # Identity-only accounts (OIDC-created, or legacy SSO users with password == "") have no
+    # password to check; tell them to set one instead of a misleading "Incorrect password".
+    if not (user.password and user.has_usable_password()):
+        logger.info("email_change_no_password", user_id=str(user.id))
+        raise HttpError(400, str(_("Set a password before changing your email.")))
     if not user.check_password(password):
         logger.warning("email_change_bad_password", user_id=str(user.id))
         raise HttpError(400, str(_("Incorrect password.")))

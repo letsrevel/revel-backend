@@ -211,6 +211,10 @@ msgstr "Token di verifica non valido."
 msgid "A user with this email no longer exists."
 msgstr "Non esiste più un utente con questa email."
 
+msgid "Set a password before changing your email."
+msgstr "Imposta una password prima di cambiare la tua email."
+"Imposta una password prima di scollegare il tuo unico metodo di accesso."
+
 msgid "Incorrect password."
 msgstr "Password errata."
 
@@ -257,7 +261,8 @@ msgid "Cannot impersonate inactive users."
 msgstr "Non puoi impersonare utenti inattivi."
 
 msgid "Set a password before unlinking your only sign-in method."
-msgstr "Imposta una password prima di scollegare il tuo unico metodo di accesso."
+msgstr ""
+"Imposta una password prima di scollegare il tuo unico metodo di accesso."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"

@@ -2,6 +2,7 @@
 
 import time
 import typing as t
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -11,10 +12,11 @@ from django.core.cache import cache
 from django.http import Http404
 from ninja.errors import HttpError
 from ninja_extra.exceptions import AuthenticationFailed
+from ninja_jwt.token_blacklist.models import BlacklistedToken
 
 from accounts.exceptions import OIDCLoginError
-from accounts.jwt import validate_oidc_login_token
-from accounts.models import ExternalIdentity, RevelUser
+from accounts.jwt import create_oidc_login_token, validate_oidc_login_token
+from accounts.models import ExternalIdentity, GlobalBan, RevelUser
 from accounts.service import oidc
 from accounts.tests.oidc_helpers import PUBLIC_KEY, make_id_token
 from revel.oidc_config import OIDCProviderConfig
@@ -85,10 +87,68 @@ def test_safe_return_url(raw: str | None, expected: str) -> None:
 
 
 def test_discovery_is_cached(mock_http: list[httpx.Request]) -> None:
-    assert oidc.discovery(GOOGLE)["token_endpoint"] == DISCOVERY_DOC["token_endpoint"]
-    assert oidc.discovery(GOOGLE)["token_endpoint"] == DISCOVERY_DOC["token_endpoint"]
+    assert oidc.discovery(GOOGLE).token_endpoint == DISCOVERY_DOC["token_endpoint"]
+    assert oidc.discovery(GOOGLE).token_endpoint == DISCOVERY_DOC["token_endpoint"]
     assert len(mock_http) == 1
     assert str(mock_http[0].url) == "https://accounts.google.com/.well-known/openid-configuration"
+
+
+def test_discovery_cache_is_keyed_on_issuer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Changing ``OIDC_<KEY>_ISSUER`` for the same key must not keep serving the old issuer's endpoints."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        issuer = f"{request.url.scheme}://{request.url.host}"
+        return httpx.Response(200, json={**DISCOVERY_DOC, "issuer": issuer})
+
+    monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    moved = OIDCProviderConfig(
+        key="google", name="Google", issuer="https://idp2.example.test", client_id="cid", client_secret="sec"
+    )
+
+    oidc.discovery(GOOGLE)
+    assert oidc.discovery(moved).issuer == "https://idp2.example.test"
+    assert [r.url.host for r in seen] == ["accounts.google.com", "idp2.example.test"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [{"issuer": []}, {"issuer": None}, {"token_endpoint": ""}, {"jwks_uri": 5}, {"authorization_endpoint": None}],
+)
+def test_discovery_malformed_document_rejected(monkeypatch: pytest.MonkeyPatch, bad: dict[str, t.Any]) -> None:
+    """Wrong-typed fields must be an OIDCLoginError (login-page redirect), never an AttributeError 500."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**DISCOVERY_DOC, **bad})
+
+    monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(OIDCLoginError) as exc:
+        oidc.discovery(GOOGLE)
+    assert exc.value.code == "provider"
+
+
+@pytest.mark.parametrize("field", ["authorization_endpoint", "token_endpoint", "jwks_uri"])
+def test_discovery_insecure_endpoint_rejected_outside_debug(
+    monkeypatch: pytest.MonkeyPatch, settings: t.Any, field: str
+) -> None:
+    """The client secret and PKCE verifier go to ``token_endpoint``; an ``http://`` one is refused unless DEBUG."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**DISCOVERY_DOC, field: "http://accounts.google.com/insecure"})
+
+    monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    settings.DEBUG = False
+    with pytest.raises(OIDCLoginError) as exc:
+        oidc.discovery(GOOGLE)
+    assert exc.value.code == "provider"
+    settings.DEBUG = True
+    assert getattr(oidc.discovery(GOOGLE), field) == "http://accounts.google.com/insecure"
+
+
+def test_redirect_uri_tolerates_trailing_slash_in_base_url(settings: t.Any) -> None:
+    settings.BASE_URL = "https://api.example.test/"
+    assert oidc._redirect_uri(GOOGLE) == "https://api.example.test/api/auth/oidc/google/callback"
 
 
 def test_discovery_issuer_mismatch_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -150,10 +210,21 @@ def test_begin_login_sanitises_return_url(providers: None, mock_http: list[httpx
     assert cache.get(oidc._state_key(start.state))["return_url"] == "/"
 
 
+def test_begin_login_discovery_failure_writes_no_state(providers: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    with patch.object(oidc.cache, "set") as cache_set, pytest.raises(OIDCLoginError):
+        oidc.begin_login(GOOGLE, "/")
+    cache_set.assert_not_called()
+
+
 def test_state_matches_cookie() -> None:
     assert oidc.state_matches_cookie("s", "s") is True
     assert oidc.state_matches_cookie("s", "other") is False
     assert oidc.state_matches_cookie(None, "s") is False
+    assert oidc.state_matches_cookie("s", "é") is False  # compare_digest would raise TypeError on this
 
 
 def _fake_signing_key(provider: OIDCProviderConfig, id_token: str) -> t.Any:
@@ -180,6 +251,14 @@ def test_pop_state_is_single_use(providers: None) -> None:
 def test_pop_state_provider_mismatch(providers: None) -> None:
     _seed_state(provider="keycloak")
     with pytest.raises(OIDCLoginError) as exc:
+        oidc._pop_state(GOOGLE, "st")
+    assert exc.value.code == "state"
+
+
+def test_pop_state_loser_of_concurrent_delete_is_refused(providers: None) -> None:
+    """Two callbacks racing on one state: the one whose ``cache.delete`` finds nothing must not proceed."""
+    _seed_state()
+    with patch.object(oidc.cache, "delete", return_value=False), pytest.raises(OIDCLoginError) as exc:
         oidc._pop_state(GOOGLE, "st")
     assert exc.value.code == "state"
 
@@ -355,8 +434,6 @@ def test_complete_login_bad_state(providers: None, token_endpoint: None, signing
 
 @pytest.mark.django_db
 def test_redeem_login_token_once(providers: None, user: RevelUser) -> None:
-    from accounts.jwt import create_oidc_login_token
-
     token = create_oidc_login_token(user_id=str(user.id), return_url="/x", jti="jti-1")
     pair, return_url = oidc.redeem_login_token(token)
     assert pair.username == user.username  # type: ignore[attr-defined]
@@ -368,12 +445,22 @@ def test_redeem_login_token_once(providers: None, user: RevelUser) -> None:
 
 
 @pytest.mark.django_db
-def test_redeem_login_token_inactive_user(inactive_user: RevelUser) -> None:
-    from accounts.jwt import create_oidc_login_token
-
+def test_redeem_login_token_inactive_user_consumes_token(inactive_user: RevelUser) -> None:
+    """The failure path must still burn the token — a rolled-back blacklist row would leave it redeemable."""
     token = create_oidc_login_token(user_id=str(inactive_user.id), return_url="/", jti="jti-2")
     with pytest.raises(AuthenticationFailed):
         oidc.redeem_login_token(token)
+    assert BlacklistedToken.objects.filter(token__jti="jti-2").exists()
+
+
+@pytest.mark.django_db
+def test_redeem_login_token_rechecks_global_ban(user: RevelUser, superuser: RevelUser) -> None:
+    """A ban landing between the callback and the exchange must block the login (mirrors reset_password)."""
+    token = create_oidc_login_token(user_id=str(user.id), return_url="/", jti="jti-4")
+    GlobalBan.objects.create(ban_type=GlobalBan.BanType.EMAIL, value=user.email, created_by=superuser)
+    with pytest.raises(AuthenticationFailed):
+        oidc.redeem_login_token(token)
+    assert BlacklistedToken.objects.filter(token__jti="jti-4").exists()
 
 
 @pytest.mark.django_db
@@ -428,6 +515,16 @@ def test_unlink_allowed_with_second_identity(user: RevelUser) -> None:
 def test_unlink_unknown_provider_404(user: RevelUser) -> None:
     with pytest.raises(Http404):
         oidc.unlink_identity(user, "google")
+
+
+@pytest.mark.django_db
+def test_unlink_removes_every_identity_for_provider(user: RevelUser) -> None:
+    """A rotated ``sub`` at the IdP leaves two rows for one provider; both go, and the other provider stays."""
+    ExternalIdentity.objects.create(user=user, provider="google", subject="old-sub")
+    ExternalIdentity.objects.create(user=user, provider="google", subject="new-sub")
+    ExternalIdentity.objects.create(user=user, provider="keycloak", subject="k")
+    oidc.unlink_identity(user, "google")
+    assert [i.provider for i in user.external_identities.all()] == ["keycloak"]
 
 
 def test_provider_display_name(providers: None) -> None:

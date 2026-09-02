@@ -12,6 +12,7 @@ from accounts.exceptions import OIDCLoginError
 from accounts.jwt import create_oidc_login_token
 from accounts.models import RevelUser
 from accounts.service.oidc import OIDCLoginStart
+from common.models import SiteSettings
 from revel.oidc_config import OIDCProviderConfig
 
 pytestmark = pytest.mark.django_db
@@ -22,9 +23,13 @@ GOOGLE = OIDCProviderConfig(
 
 
 @pytest.fixture(autouse=True)
-def _settings(settings: t.Any) -> None:
+def _settings(settings: t.Any, db: None) -> None:
     settings.OIDC_PROVIDERS = (GOOGLE,)
-    settings.FRONTEND_BASE_URL = "https://app.example.test"
+    # The redirects must follow the runtime SiteSettings value, not the env default.
+    settings.FRONTEND_BASE_URL = "https://stale-env.example.test"
+    site = SiteSettings.get_solo()
+    site.frontend_base_url = "https://app.example.test"
+    site.save(update_fields=["frontend_base_url"])
 
 
 def _seed_state_cookie(client: Client, state: str = "s") -> None:
@@ -56,6 +61,20 @@ def test_start_redirects_to_idp(client: Client) -> None:
 def test_start_unknown_provider_404(client: Client) -> None:
     response = client.get(reverse("api:oidc_start", kwargs={"provider": "nope"}))
     assert response.status_code == 404
+
+
+def test_start_provider_key_is_bounded(client: Client) -> None:
+    """Keys are validated against the same pattern as ``OIDC_PROVIDERS`` (no unbounded str params)."""
+    assert client.get(reverse("api:oidc_start", kwargs={"provider": "Google"})).status_code == 422
+    assert client.get(reverse("api:oidc_start", kwargs={"provider": "a" * 65})).status_code == 422
+
+
+def test_start_provider_failure_redirects_to_login(client: Client) -> None:
+    """A discovery failure on /start is a browser navigation too — it must not answer with JSON."""
+    with patch("accounts.service.oidc.begin_login", side_effect=OIDCLoginError("provider")):
+        response = client.get(reverse("api:oidc_start", kwargs={"provider": "google"}))
+    assert response.status_code == 302
+    assert response["Location"] == "https://app.example.test/login?error=oidc_provider"
 
 
 def test_callback_success_redirects_to_frontend(client: Client) -> None:
@@ -102,6 +121,23 @@ def test_callback_with_mismatched_state_cookie_is_state_error(client: Client) ->
     complete.assert_not_called()
 
 
+def test_callback_non_ascii_state_is_state_error(client: Client) -> None:
+    """``secrets.compare_digest`` raises on non-ASCII input; that must not surface as a 500."""
+    _seed_state_cookie(client, state="s")
+    with patch("accounts.service.oidc.complete_login") as complete:
+        response = client.get(reverse("api:oidc_callback", kwargs={"provider": "google"}), {"code": "c", "state": "é"})
+    assert response.status_code == 302
+    assert response["Location"] == "https://app.example.test/login?error=oidc_state"
+    complete.assert_not_called()
+
+
+def test_callback_oversized_state_rejected(client: Client) -> None:
+    response = client.get(
+        reverse("api:oidc_callback", kwargs={"provider": "google"}), {"code": "c", "state": "s" * 257}
+    )
+    assert response.status_code == 422
+
+
 @pytest.mark.parametrize("code", ["state", "provider", "unverified_email", "no_email", "banned", "inactive"])
 def test_callback_login_error_codes(client: Client, code: str) -> None:
     _seed_state_cookie(client, state="s")
@@ -109,6 +145,7 @@ def test_callback_login_error_codes(client: Client, code: str) -> None:
         response = client.get(reverse("api:oidc_callback", kwargs={"provider": "google"}), {"code": "c", "state": "s"})
     assert response.status_code == 302
     assert response["Location"] == f"https://app.example.test/login?error=oidc_{code}"
+    assert response.cookies["oidc_state"]["max-age"] == 0
 
 
 def test_callback_unknown_provider_404(client: Client) -> None:

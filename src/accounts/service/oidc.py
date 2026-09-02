@@ -21,18 +21,18 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404
-from django.shortcuts import get_object_or_404
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from ninja_extra.exceptions import AuthenticationFailed
 from ninja_jwt.schema import TokenObtainPairOutputSchema
-from pydantic import BaseModel, EmailStr, ValidationError
+from pydantic import BaseModel, EmailStr, Field, ValidationError
 
 from accounts.exceptions import OIDCLoginError
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, create_oidc_login_token, validate_oidc_login_token
 from accounts.models import ExternalIdentity, RevelUser
+from common.models import SiteSettings
 from common.utils import get_or_create_with_race_protection
 from revel.oidc_config import OIDCProviderConfig
 
@@ -42,6 +42,14 @@ STATE_TTL_SECONDS = 600
 DISCOVERY_TTL_SECONDS = 24 * 3600
 HTTP_TIMEOUT_SECONDS = 10.0
 ALLOWED_ID_TOKEN_ALGS = ["RS256", "ES256"]
+#: Binds the ``state`` to the browser between ``/start`` and ``/callback`` (login-CSRF guard).
+OIDC_STATE_COOKIE = "oidc_state"
+OIDC_STATE_COOKIE_PATH = "/api/auth/oidc"
+
+
+def frontend_base_url() -> str:
+    """The frontend origin from the runtime ``SiteSettings`` (the same source every other frontend link uses)."""
+    return str(SiteSettings.get_solo().frontend_base_url).rstrip("/")
 
 
 def get_provider(key: str) -> OIDCProviderConfig:
@@ -81,43 +89,53 @@ def _state_key(state: str) -> str:
 
 
 def _discovery_key(provider: OIDCProviderConfig) -> str:
-    return f"oidc:discovery:{provider.key}"
+    # Keyed on the issuer too, so changing ``OIDC_<KEY>_ISSUER`` for an existing key does not
+    # keep serving the old issuer's endpoints (and posting the client secret there) for a day.
+    return f"oidc:discovery:{provider.key}:{provider.issuer}"
 
 
-def discovery(provider: OIDCProviderConfig) -> dict[str, t.Any]:
+class DiscoveryDocument(BaseModel):
+    """The subset of the OpenID configuration document Revel uses."""
+
+    issuer: str = Field(min_length=1)
+    authorization_endpoint: str = Field(min_length=1)
+    token_endpoint: str = Field(min_length=1)
+    jwks_uri: str = Field(min_length=1)
+
+
+def discovery(provider: OIDCProviderConfig) -> DiscoveryDocument:
     """Fetch (and cache for a day) the provider's OpenID configuration document.
 
     Raises:
-        OIDCLoginError("provider"): On transport failure, non-2xx, or issuer mismatch.
+        OIDCLoginError("provider"): On transport failure, non-2xx, a malformed document,
+            an issuer mismatch, or a non-https endpoint outside ``DEBUG``.
     """
     cached = cache.get(_discovery_key(provider))
     if cached is not None:
-        return t.cast(dict[str, t.Any], cached)
+        return DiscoveryDocument.model_validate(cached)
     url = f"{provider.issuer}/.well-known/openid-configuration"
     try:
         with _http_client() as client:
             response = client.get(url)
             response.raise_for_status()
-            doc = response.json()
-    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
+            doc = DiscoveryDocument.model_validate(response.json())
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:  # pydantic's ValidationError is a ValueError
         logger.warning("oidc_discovery_failed", provider=provider.key, error=str(e))
         raise OIDCLoginError("provider") from e
-    if not isinstance(doc, dict):
-        logger.warning("oidc_discovery_not_an_object", provider=provider.key)
+    if doc.issuer.rstrip("/") != provider.issuer:
+        logger.warning("oidc_discovery_issuer_mismatch", provider=provider.key, issuer=doc.issuer)
         raise OIDCLoginError("provider")
-    if doc.get("issuer", "").rstrip("/") != provider.issuer:
-        logger.warning("oidc_discovery_issuer_mismatch", provider=provider.key, issuer=doc.get("issuer"))
-        raise OIDCLoginError("provider")
-    for field in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
-        if not doc.get(field):
-            logger.warning("oidc_discovery_missing_field", provider=provider.key, field=field)
+    for endpoint in (doc.authorization_endpoint, doc.token_endpoint, doc.jwks_uri):
+        # The client secret, code and PKCE verifier are posted to token_endpoint; never in cleartext.
+        if not endpoint.startswith("https://") and not settings.DEBUG:
+            logger.warning("oidc_discovery_insecure_endpoint", provider=provider.key, endpoint=endpoint)
             raise OIDCLoginError("provider")
-    cache.set(_discovery_key(provider), doc, DISCOVERY_TTL_SECONDS)
+    cache.set(_discovery_key(provider), doc.model_dump(), DISCOVERY_TTL_SECONDS)
     return doc
 
 
 def _redirect_uri(provider: OIDCProviderConfig) -> str:
-    return f"{settings.BASE_URL}/api/auth/oidc/{provider.key}/callback"
+    return f"{settings.BASE_URL.rstrip('/')}/api/auth/oidc/{provider.key}/callback"
 
 
 @dataclass(frozen=True)
@@ -128,17 +146,30 @@ class OIDCLoginStart:
     state: str
 
 
+class _StateEntry(t.TypedDict):
+    """What ``begin_login`` stores in the cache under the ``state``, for ``complete_login`` to consume."""
+
+    provider: str
+    nonce: str
+    verifier: str
+    return_url: str
+
+
 def begin_login(provider: OIDCProviderConfig, return_url: str | None) -> OIDCLoginStart:
     """Start a login: store state/nonce/PKCE in the cache and return the IdP authorization URL."""
+    # Resolve discovery before writing any state, so a provider failure leaves nothing behind.
+    authorization_endpoint = discovery(provider).authorization_endpoint
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    cache.set(
-        _state_key(state),
-        {"provider": provider.key, "nonce": nonce, "verifier": verifier, "return_url": safe_return_url(return_url)},
-        STATE_TTL_SECONDS,
-    )
+    entry: _StateEntry = {
+        "provider": provider.key,
+        "nonce": nonce,
+        "verifier": verifier,
+        "return_url": safe_return_url(return_url),
+    }
+    cache.set(_state_key(state), entry, STATE_TTL_SECONDS)
     params = {
         "response_type": "code",
         "client_id": provider.client_id,
@@ -150,8 +181,7 @@ def begin_login(provider: OIDCProviderConfig, return_url: str | None) -> OIDCLog
         "code_challenge_method": "S256",
     }
     logger.info("oidc_login_started", provider=provider.key)
-    url = f"{discovery(provider)['authorization_endpoint']}?{urlencode(params)}"
-    return OIDCLoginStart(url=url, state=state)
+    return OIDCLoginStart(url=f"{authorization_endpoint}?{urlencode(params)}", state=state)
 
 
 def state_matches_cookie(cookie_value: str | None, state: str) -> bool:
@@ -161,7 +191,8 @@ def state_matches_cookie(cookie_value: str | None, state: str) -> bool:
     login and trick a victim's browser into loading the resulting callback URL, logging
     the victim into the attacker's account.
     """
-    return cookie_value is not None and secrets.compare_digest(cookie_value, state)
+    # compare_digest raises TypeError on non-ASCII str; ``state`` is untrusted query input.
+    return cookie_value is not None and state.isascii() and secrets.compare_digest(cookie_value, state)
 
 
 class OIDCClaims(BaseModel):
@@ -186,7 +217,7 @@ def _signing_key(provider: OIDCProviderConfig, id_token: str) -> t.Any:
     expires and re-fetches a new one) rebuilds the client instead of pinning the old endpoint
     forever. Monkeypatched in tests to return a local public key.
     """
-    jwks_uri = discovery(provider)["jwks_uri"]
+    jwks_uri = discovery(provider).jwks_uri
     cache_key = (provider.key, jwks_uri)
     client = _jwk_clients.get(cache_key)
     if client is None:
@@ -195,15 +226,19 @@ def _signing_key(provider: OIDCProviderConfig, id_token: str) -> t.Any:
     return client.get_signing_key_from_jwt(id_token).key
 
 
-def _pop_state(provider: OIDCProviderConfig, state: str) -> dict[str, t.Any]:
-    """Consume the state entry created by :func:`begin_login`. Single use."""
+def _pop_state(provider: OIDCProviderConfig, state: str) -> _StateEntry:
+    """Consume the state entry created by :func:`begin_login`. Single use.
+
+    ``cache.delete`` reports whether the key existed, so of two concurrent callbacks with the
+    same ``state`` only the one whose delete wins gets the entry.
+    """
     key = _state_key(state)
     entry = cache.get(key)
-    cache.delete(key)
-    if not entry or entry.get("provider") != provider.key:
+    consumed = cache.delete(key)
+    if not entry or not consumed or entry.get("provider") != provider.key:
         logger.warning("oidc_state_invalid", provider=provider.key)
         raise OIDCLoginError("state")
-    return t.cast(dict[str, t.Any], entry)
+    return t.cast(_StateEntry, entry)
 
 
 def _exchange_code(provider: OIDCProviderConfig, code: str, verifier: str) -> str:
@@ -218,7 +253,7 @@ def _exchange_code(provider: OIDCProviderConfig, code: str, verifier: str) -> st
     }
     try:
         with _http_client() as client:
-            response = client.post(discovery(provider)["token_endpoint"], data=data)
+            response = client.post(discovery(provider).token_endpoint, data=data)
             response.raise_for_status()
             body = response.json()
     except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
@@ -242,7 +277,7 @@ def _verify_id_token(provider: OIDCProviderConfig, id_token: str, nonce: str) ->
             key=_signing_key(provider, id_token),
             algorithms=ALLOWED_ID_TOKEN_ALGS,
             audience=provider.client_id,
-            issuer=discovery(provider)["issuer"],
+            issuer=discovery(provider).issuer,
             options={"require": ["exp", "iat", "sub"]},
             leeway=30,  # Google intermittently issues tokens with `iat` a few seconds ahead of our clock.
         )
@@ -274,9 +309,10 @@ def _language_from_locale(locale: str | None) -> str:
 def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser:  # noqa: C901
     """Find the user for verified claims, linking or creating as needed.
 
-    Order: existing identity → existing account by email (link, only if the IdP
-    asserts ``email_verified``) → new account. ``is_staff``/``is_superuser`` are never
-    derived from claims.
+    Order: existing identity → existing account by email (link) → new account. The last two
+    both require the IdP to assert ``email_verified``: an unverified address must neither
+    take over an existing account nor mint a new one Revel would treat as verified.
+    ``is_staff``/``is_superuser`` are never derived from claims.
     """
     from accounts.service.global_ban_service import is_email_globally_banned
 
@@ -294,27 +330,16 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
 
     if not claims.email:
         raise OIDCLoginError("no_email")
+    if not claims.email_verified:
+        logger.warning("oidc_login_refused_unverified_email", provider=provider.key)
+        raise OIDCLoginError("unverified_email")
     email = str(claims.email).lower()
     if is_email_globally_banned(email):
         raise OIDCLoginError("banned")
 
     user = RevelUser.objects.select_for_update().filter(username__iexact=email).first()
     created = False
-    if user is not None:
-        if not claims.email_verified:
-            logger.warning("oidc_link_refused_unverified_email", provider=provider.key, user_id=str(user.id))
-            raise OIDCLoginError("unverified_email")
-        if not user.is_active and not user.guest:
-            raise OIDCLoginError("inactive")
-        if user.guest:
-            user.guest = False
-            user.email_verified = True
-            user.is_active = True
-            user.save(update_fields=["guest", "email_verified", "is_active"])
-        elif not user.email_verified:
-            user.email_verified = True
-            user.save(update_fields=["email_verified"])
-    else:
+    if user is None:
         user, created = get_or_create_with_race_protection(
             RevelUser,
             Q(username__iexact=email),
@@ -332,6 +357,19 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
         if created:
             user.set_unusable_password()
             user.save(update_fields=["password"])
+    if not created:
+        # Existing account — also reached when a concurrent request won the create race above,
+        # so that user still goes through the same checks and upgrades.
+        if not user.is_active and not user.guest:
+            raise OIDCLoginError("inactive")
+        if user.guest:
+            user.guest = False
+            user.email_verified = True
+            user.is_active = True
+            user.save(update_fields=["guest", "email_verified", "is_active"])
+        elif not user.email_verified:
+            user.email_verified = True
+            user.save(update_fields=["email_verified"])
 
     identity, _identity_created = get_or_create_with_race_protection(
         ExternalIdentity,
@@ -358,18 +396,26 @@ def complete_login(provider: OIDCProviderConfig, code: str, state: str) -> str:
     return create_oidc_login_token(user_id=str(user.id), return_url=entry["return_url"], jti=uuid4().hex)
 
 
-@transaction.atomic
 def redeem_login_token(token: str) -> tuple[TokenObtainPairOutputSchema, str]:
-    """Exchange a one-time login token for the normal access/refresh pair. Single use."""
+    """Exchange a one-time login token for the normal access/refresh pair. Single use.
+
+    The failure path consumes the token *outside* the atomic block on purpose: raising inside
+    it would roll the blacklist row back and leave the token redeemable (mirrors
+    ``account.reset_password``).
+    """
     from accounts.service.auth import get_token_pair_for_user
+    from accounts.service.global_ban_service import is_email_globally_banned
 
     payload = validate_oidc_login_token(token)
     check_blacklist(payload.jti)
-    blacklist_token(token)
     user = RevelUser.objects.filter(id=payload.user_id, is_active=True).first()
-    if user is None:
+    # Re-check the global ban at redemption time — a ban added after the callback must block the login.
+    if user is None or is_email_globally_banned(user.email):
+        blacklist_token(token)
         raise AuthenticationFailed("Invalid login token.")
-    return get_token_pair_for_user(user), payload.return_url
+    with transaction.atomic():
+        blacklist_token(token)
+        return get_token_pair_for_user(user), payload.return_url
 
 
 def provider_display_name(key: str) -> str:
@@ -385,13 +431,22 @@ def list_identities(user: RevelUser) -> QuerySet[ExternalIdentity]:
     return user.external_identities.order_by("created_at")
 
 
+@transaction.atomic
 def unlink_identity(user: RevelUser, provider: str) -> None:
-    """Remove a linked identity unless it is the account's only way in."""
-    identity = get_object_or_404(ExternalIdentity, user=user, provider=provider)
-    has_other = user.external_identities.exclude(pk=identity.pk).exists()
+    """Remove the identities linked for ``provider`` unless they are the account's only way in.
+
+    Serialised per user (row lock) so two concurrent unlinks cannot both see "another
+    identity remains" and strand the account. Removes every identity for the provider: an
+    IdP that rotates ``sub`` for the same verified email leaves the user with more than one.
+    """
+    RevelUser.objects.select_for_update().get(pk=user.pk)
+    identities = user.external_identities.filter(provider=provider)
+    if not identities.exists():
+        raise Http404("Unknown identity.")
+    has_other = user.external_identities.exclude(provider=provider).exists()
     # has_usable_password() is True for password == "" (legacy IdP-created users never set
     # one), so also require a non-empty password field before treating it as usable.
     if not (user.password and user.has_usable_password()) and not has_other:
         raise HttpError(400, str(_("Set a password before unlinking your only sign-in method.")))
-    identity.delete()
+    identities.delete()
     logger.info("oidc_identity_unlinked", user_id=str(user.id), provider=provider)

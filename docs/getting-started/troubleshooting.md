@@ -206,7 +206,8 @@ Most external services have safe defaults for local development. Here's what act
 | Stripe | `STRIPE_SECRET_KEY` | Test key (`sk_test_...`) | Paid ticket checkout |
 | Telegram | `TELEGRAM_BOT_TOKEN` | `0000000000:AABBCCDD` | Telegram bot |
 | LLM Provider | `LLM_API_KEY`, `LLM_DEFAULT_MODEL` | Ollama local | Questionnaire AI evaluation (requires `FEATURE_LLM_EVALUATION=True`) |
-| Google SSO | `GOOGLE_SSO_CLIENT_ID` | `fake-id` | Google login (requires `FEATURE_GOOGLE_SSO=True`) |
+| Django admin Google login | `GOOGLE_SSO_CLIENT_ID` | `fake-id` | Google login on the Django admin page only |
+| OpenID Connect login | `OIDC_PROVIDERS`, `OIDC_<KEY>_ISSUER` / `_CLIENT_ID` / `_CLIENT_SECRET` | unset (off) | Sign in with Google, Keycloak, Authentik, … (see [self-hosting tiers](../self-hosting/tiers.md#feature-flags)) |
 | IP2Location | `IP2LOCATION_TOKEN` | `None` | IP geolocation |
 | HuggingFace | `HUGGING_FACE_HUB_TOKEN` | **None** | Sentinel model download |
 
@@ -215,7 +216,6 @@ Most external services have safe defaults for local development. Here's what act
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `FEATURE_LLM_EVALUATION` | `True` | Enable LLM-powered evaluation for questionnaires with free-text questions |
-| `FEATURE_GOOGLE_SSO` | `False` | Enable Google SSO login endpoint (opt-in; needs OAuth creds) |
 | `FEATURE_MALWARE_SCAN` | `True` | Scan uploads with ClamAV; when `False`, uploads are marked clean (ClamAV optional) |
 | `FEATURE_TELEGRAM` | `True` | Enable Telegram delivery and linking endpoints |
 | `FEATURE_ORGANIZATION_CREATION` | `True` | Allow regular users to create organizations |

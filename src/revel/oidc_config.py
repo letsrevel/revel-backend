@@ -14,7 +14,10 @@ from dataclasses import dataclass
 
 from django.core.exceptions import ImproperlyConfigured
 
-_KEY_RE = re.compile(r"^[a-z0-9_-]+$")
+#: Provider keys are URL path segments and are persisted in ``ExternalIdentity.provider``
+#: (``max_length=64``), so the bound is enforced at settings load and on the routes.
+KEY_PATTERN = r"^[a-z0-9_-]{1,64}$"
+_KEY_RE = re.compile(KEY_PATTERN)
 DEFAULT_SCOPES = "openid email profile"
 
 

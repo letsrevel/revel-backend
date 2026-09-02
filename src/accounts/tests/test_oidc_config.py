@@ -108,7 +108,7 @@ def test_issuer_trailing_slash_is_stripped() -> None:
     assert providers[0].issuer == "https://accounts.google.com"
 
 
-@pytest.mark.parametrize("bad_key", ["Google", "my provider", "a/b"])
+@pytest.mark.parametrize("bad_key", ["Google", "my provider", "a/b", "a" * 65])  # 65: exceeds the 64-char column
 def test_invalid_key_rejected(bad_key: str) -> None:
     with pytest.raises(ImproperlyConfigured, match="key"):
         load_oidc_providers(_env({"OIDC_PROVIDERS": bad_key}), debug=False)

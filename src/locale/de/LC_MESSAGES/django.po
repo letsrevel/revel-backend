@@ -213,6 +213,10 @@ msgstr "Ungültiger Bestätigungstoken."
 msgid "A user with this email no longer exists."
 msgstr "Ein:e Anwender:in mit dieser E-Mail existiert nicht mehr."
 
+msgid "Set a password before changing your email."
+msgstr "Lege ein Passwort fest, bevor du deine E-Mail-Adresse änderst."
+"Legen Sie ein Passwort fest, bevor Sie Ihre einzige Anmeldemethode trennen."
+
 msgid "Incorrect password."
 msgstr "Falsches Passwort."
 
@@ -259,7 +263,8 @@ msgid "Cannot impersonate inactive users."
 msgstr "Du kannst dich nicht als inaktive:r Anwender:in anmelden."
 
 msgid "Set a password before unlinking your only sign-in method."
-msgstr "Legen Sie ein Passwort fest, bevor Sie Ihre einzige Anmeldemethode trennen."
+msgstr "Lege ein Passwort fest, bevor du deine einzige Anmeldemethode trennst."
+"Legen Sie ein Passwort fest, bevor Sie Ihre einzige Anmeldemethode trennen."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"

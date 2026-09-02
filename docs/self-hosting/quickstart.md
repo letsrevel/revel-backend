@@ -80,8 +80,8 @@ With DNS pointed at the box and certificates issued, your instance is reachable 
 - **Grafana** (Full tier only) — `https://grafana.<your-domain>`
 
 A quick sanity check on your configuration: `GET https://<API_DOMAIN>/version` returns the
-active feature flags (`organization_creation`, `telegram`, `google_sso`, `llm_evaluation`), so you
-can confirm the deployment picked up the flags you set.
+active feature flags (`organization_creation`, `telegram`, `llm_evaluation`) and the configured
+`sso_providers`, so you can confirm the deployment picked up the settings you set.
 
 If the site does not come up, the most common cause is TLS issuance failing behind Cloudflare's
 proxy — see the [DNS & Cloudflare](dns-cloudflare.md) caveat and the

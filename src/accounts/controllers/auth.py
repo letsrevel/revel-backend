@@ -6,7 +6,7 @@ import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
-from ninja import Query
+from ninja import Path, Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_jwt.controller import TokenObtainPairController
@@ -18,13 +18,13 @@ from accounts.service import auth as auth_service
 from accounts.service import impersonation as impersonation_service
 from accounts.service import oidc as oidc_service
 from common.throttling import AuthThrottle
+from revel.oidc_config import KEY_PATTERN
 
 from ..models import RevelUser
 
 logger = structlog.get_logger(__name__)
 
-_OIDC_STATE_COOKIE = "oidc_state"
-_OIDC_STATE_COOKIE_PATH = "/api/auth/oidc"
+ProviderKey = t.Annotated[str, Path(..., pattern=KEY_PATTERN)]
 
 
 @api_controller("/auth", tags=["Auth"], throttle=AuthThrottle())
@@ -58,22 +58,26 @@ class AuthController(TokenObtainPairController):
         return auth_service.get_token_pair_for_user(user)
 
     @route.get("/oidc/{provider}/start", include_in_schema=False, url_name="oidc_start", response=None)
-    def oidc_start(self, provider: str, return_url: t.Annotated[str | None, Query()] = None) -> HttpResponseRedirect:
+    def oidc_start(
+        self, provider: ProviderKey, return_url: t.Annotated[str | None, Query(max_length=2048)] = None
+    ) -> HttpResponseRedirect:
         """Begin an OpenID Connect login: redirect the browser to the provider.
 
-        Not part of the OpenAPI schema — the frontend links here, it does not call it.
+        Not part of the OpenAPI schema — the frontend links here, it does not call it. A
+        provider failure raises ``OIDCLoginError``, which the accounts exception handler turns
+        into a login-page redirect (the browser is mid-navigation, so JSON would be a dead end).
         """
         config = oidc_service.get_provider(provider)
         start = oidc_service.begin_login(config, return_url)
         response = HttpResponseRedirect(start.url)
         response.set_cookie(
-            _OIDC_STATE_COOKIE,
+            oidc_service.OIDC_STATE_COOKIE,
             start.state,
             max_age=oidc_service.STATE_TTL_SECONDS,
             httponly=True,
             secure=not settings.DEBUG,
             samesite="Lax",
-            path=_OIDC_STATE_COOKIE_PATH,
+            path=oidc_service.OIDC_STATE_COOKIE_PATH,
         )
         return response
 
@@ -81,39 +85,28 @@ class AuthController(TokenObtainPairController):
     def oidc_callback(
         self,
         request: HttpRequest,
-        provider: str,
-        code: t.Annotated[str | None, Query()] = None,
-        state: t.Annotated[str | None, Query()] = None,
-        error: t.Annotated[str | None, Query()] = None,
+        provider: ProviderKey,
+        code: t.Annotated[str | None, Query(max_length=2048)] = None,
+        state: t.Annotated[str | None, Query(max_length=256)] = None,
+        error: t.Annotated[str | None, Query(max_length=128)] = None,
     ) -> HttpResponseRedirect:
-        """Provider redirect target. Always answers with a redirect to the frontend.
+        """Provider redirect target. Answers with a redirect to the frontend.
 
-        The try/except is a deliberate exception to the no-try/except-in-views rule: the
-        browser is mid-redirect, so failures must land on the login page, not as JSON.
+        Every failure raises ``OIDCLoginError``; see ``oidc_start`` for why that becomes a
+        redirect rather than JSON.
         """
         config = oidc_service.get_provider(provider)
-        login_url = f"{settings.FRONTEND_BASE_URL}/login?error=oidc_"
-
-        def redirect(suffix: str) -> HttpResponseRedirect:
-            response = HttpResponseRedirect(login_url + suffix)
-            response.delete_cookie(_OIDC_STATE_COOKIE, path=_OIDC_STATE_COOKIE_PATH)
-            return response
-
         if error:
             logger.info("oidc_login_denied", provider=provider, error=error)
-            return redirect("denied")
+            raise OIDCLoginError("denied")
         if not code or not state:
-            return redirect("state")
-        if not oidc_service.state_matches_cookie(request.COOKIES.get(_OIDC_STATE_COOKIE), state):
+            raise OIDCLoginError("state")
+        if not oidc_service.state_matches_cookie(request.COOKIES.get(oidc_service.OIDC_STATE_COOKIE), state):
             logger.warning("oidc_state_cookie_mismatch", provider=provider)
-            return redirect("state")
-        try:
-            token = oidc_service.complete_login(config, code, state)
-        except OIDCLoginError as exc:
-            logger.warning("oidc_login_failed", provider=provider, code=exc.code)
-            return redirect(exc.code)
-        response = HttpResponseRedirect(f"{settings.FRONTEND_BASE_URL}/auth/callback?token={token}")
-        response.delete_cookie(_OIDC_STATE_COOKIE, path=_OIDC_STATE_COOKIE_PATH)
+            raise OIDCLoginError("state")
+        token = oidc_service.complete_login(config, code, state)
+        response = HttpResponseRedirect(f"{oidc_service.frontend_base_url()}/auth/callback?token={token}")
+        response.delete_cookie(oidc_service.OIDC_STATE_COOKIE, path=oidc_service.OIDC_STATE_COOKIE_PATH)
         return response
 
     @route.post("/oidc/exchange", response=schema.OIDCExchangeResponseSchema, url_name="oidc_exchange")

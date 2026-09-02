@@ -37,10 +37,10 @@ OIDCErrorCode = t.Literal["state", "provider", "denied", "unverified_email", "no
 
 
 class OIDCLoginError(Exception):
-    """Raised inside the OIDC callback flow. Carries a short machine code, never PII.
+    """Raised inside the OIDC start/callback flow. Carries a short machine code, never PII.
 
-    The callback controller turns it into a redirect to the frontend login page
-    (``?error=oidc_<code>``); the handler mapping below is a safety net only.
+    Both routes are browser navigations, so the accounts exception handler turns it into a
+    redirect to the frontend login page (``?error=oidc_<code>``) rather than a JSON body.
     """
 
     def __init__(self, code: OIDCErrorCode) -> None:

@@ -13,12 +13,16 @@ app-specific handlers take precedence over the generic global handlers defined i
 
 import typing as t
 
-from django.http import HttpRequest
+import structlog
+from django.http import HttpRequest, HttpResponseRedirect
 from django.utils.translation import gettext as _
 from ninja.responses import Response
 
 from accounts.exceptions import OIDCLoginError, ReferralForfeitureConfirmationRequiredError
-from common.exception_handlers import ExceptionHandler, make_simple_handler, register_handlers
+from accounts.service import oidc as oidc_service
+from common.exception_handlers import ExceptionHandler, register_handlers
+
+logger = structlog.get_logger(__name__)
 
 #: Machine-readable discriminator the frontend keys its consequence screen off.
 REFERRAL_FORFEITURE_CODE = "referral_forfeiture_confirmation_required"
@@ -58,10 +62,23 @@ def handle_referral_forfeiture_confirmation_required(
     )
 
 
+def handle_oidc_login_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> HttpResponseRedirect:
+    """Send the browser to the frontend login page with ``?error=oidc_<code>``.
+
+    The OIDC start/callback routes are browser navigations, so a failure must land on the
+    login page rather than as a JSON body. Also clears the state cookie set by ``/start``.
+    """
+    code = t.cast(OIDCLoginError, exc).code
+    logger.warning("oidc_login_failed", path=request.path, code=code)
+    response = HttpResponseRedirect(f"{oidc_service.frontend_base_url()}/login?error=oidc_{code}")
+    response.delete_cookie(oidc_service.OIDC_STATE_COOKIE, path=oidc_service.OIDC_STATE_COOKIE_PATH)
+    return response
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     ReferralForfeitureConfirmationRequiredError: handle_referral_forfeiture_confirmation_required,
-    OIDCLoginError: make_simple_handler(400),
+    OIDCLoginError: handle_oidc_login_error,
 }
 
 

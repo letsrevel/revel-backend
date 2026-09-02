@@ -1,7 +1,9 @@
 """This module contains the controllers for the authentication app."""
 
+import typing as t
+
 from django.utils.translation import gettext_lazy as _
-from ninja import File
+from ninja import File, Path
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route, status
 
@@ -21,6 +23,7 @@ from common.schema import EmailSchema, ErrorDetail, ResponseMessage
 from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
+from revel.oidc_config import KEY_PATTERN
 
 
 @api_controller("/account", tags=["Account"], auth=I18nJWTAuth(), throttle=AuthThrottle())
@@ -75,7 +78,7 @@ class AccountController(UserAwareController):
         url_name="identities_unlink",
         throttle=WriteThrottle(),
     )
-    def unlink_identity(self, provider: str) -> tuple[int, None]:
+    def unlink_identity(self, provider: t.Annotated[str, Path(..., pattern=KEY_PATTERN)]) -> tuple[int, None]:
         """Unlink an OpenID Connect identity.
 
         Refused (400) if the account has no usable password and no other linked identity,

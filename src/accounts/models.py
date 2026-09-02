@@ -401,7 +401,7 @@ class ExternalIdentity(TimeStampedModel):
     """
 
     user = models.ForeignKey(RevelUser, on_delete=models.CASCADE, related_name="external_identities")
-    provider = models.CharField(max_length=64, db_index=True)
+    provider = models.CharField(max_length=64)  # provider-only lookups use the composite unique index below
     subject = models.CharField(max_length=255)
     email = models.EmailField(blank=True, help_text="Email claim at link time (informational).")
 

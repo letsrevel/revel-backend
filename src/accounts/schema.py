@@ -101,7 +101,7 @@ class TempTokenWithTOTP(Schema):
 
 
 class OIDCExchangeRequestSchema(Schema):
-    token: str = Field(..., description="One-time login token from the OIDC callback redirect.")
+    token: str = Field(..., max_length=2048, description="One-time login token from the OIDC callback redirect.")
 
 
 class OIDCExchangeResponseSchema(Schema):

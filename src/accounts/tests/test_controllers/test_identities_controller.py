@@ -53,7 +53,22 @@ def test_unlink_stranded_400(auth_client: Client, user: RevelUser) -> None:
 
 
 def test_unlink_unknown_404(auth_client: Client) -> None:
-    assert auth_client.delete(reverse("api:identities_unlink", kwargs={"provider": "google"})).status_code == 404
+    response = auth_client.delete(reverse("api:identities_unlink", kwargs={"provider": "google"}))
+    assert response.status_code == 404
+    assert set(response.json()) == {"detail"}
+
+
+def test_unlink_provider_key_is_bounded(auth_client: Client) -> None:
+    assert auth_client.delete(reverse("api:identities_unlink", kwargs={"provider": "Google"})).status_code == 422
+
+
+def test_unlink_removes_every_identity_for_provider(auth_client: Client, user: RevelUser) -> None:
+    """An IdP that rotated ``sub`` for the same email leaves two rows; unlink must not 500 on them."""
+    ExternalIdentity.objects.create(user=user, provider="google", subject="old-sub")
+    ExternalIdentity.objects.create(user=user, provider="google", subject="new-sub")
+    response = auth_client.delete(reverse("api:identities_unlink", kwargs={"provider": "google"}))
+    assert response.status_code == 204
+    assert not user.external_identities.exists()
 
 
 def test_cannot_unlink_other_users_identity(auth_client: Client, revel_user_factory: t.Any) -> None:

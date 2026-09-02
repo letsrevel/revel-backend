@@ -1605,7 +1605,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ### Feature Flags
 Configured via environment variables. The anonymous `GET /version` returns a `features` object so clients can hide gated UI instead of letting users hit a 403/404.
 - `FEATURE_LLM_EVALUATION`: Gates LLM-based questionnaire evaluation (when disabled, LLM evaluation is skipped)
-- `FEATURE_GOOGLE_SSO`: Gates Google SSO login (when disabled, endpoint returns 403)
+- `OIDC_PROVIDERS` (not a `FEATURE_*` flag, but the same opt-in idea): lists the OpenID Connect providers users can sign in with; exposed on `GET /version` as `sso_providers`. Replaced `FEATURE_GOOGLE_SSO`.
 - `FEATURE_MALWARE_SCAN` (default on): when off, uploads skip the ClamAV scan and are marked clean
 - `FEATURE_TELEGRAM` (default on): when off, Telegram delivery is dropped and the linking endpoints 404
 - `FEATURE_ORGANIZATION_CREATION` (default on): when off, `POST /organizations/` returns 403 for non-staff (single-org instances); staff/superusers bypass

@@ -101,6 +101,26 @@ def test_new_user_created() -> None:
     assert user.external_identities.get().subject == "sub-1"
 
 
+def test_new_user_unverified_claim_refused() -> None:
+    """An unverified IdP address must not mint an account Revel then treats as email-verified."""
+    with pytest.raises(OIDCLoginError) as exc:
+        oidc._resolve_user(GOOGLE, claims(email_verified=False))
+    assert exc.value.code == "unverified_email"
+    assert not RevelUser.objects.filter(username="alice@example.com").exists()
+    assert not ExternalIdentity.objects.exists()
+
+
+def test_lost_create_race_still_applies_existing_user_checks(inactive_user: RevelUser) -> None:
+    """If another request creates the account between lookup and insert, the race helper hands back
+    that row with ``created=False``; it must go through the same checks as a pre-existing account."""
+    with (
+        patch("accounts.service.oidc.get_or_create_with_race_protection", side_effect=[(inactive_user, False)]),
+        pytest.raises(OIDCLoginError) as exc,
+    ):
+        oidc._resolve_user(GOOGLE, claims())
+    assert exc.value.code == "inactive"
+
+
 def test_new_user_email_is_lowercased() -> None:
     user = oidc._resolve_user(GOOGLE, claims(email="John.Doe@Example.com"))
     assert user.username == user.email == "john.doe@example.com"

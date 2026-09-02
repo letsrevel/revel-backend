@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Login supported password (+ TOTP) and a Google-only endpoint that verified a posted
+Login previously supported password-based authentication (+ TOTP) and a Google-only endpoint that verified a posted
 Google ID token via `django-google-sso`/`google-auth`. Self-hosters asked for their own
 identity providers (Keycloak, Authentik, institutional IdPs), and the Google path was
 never wired into the frontend.

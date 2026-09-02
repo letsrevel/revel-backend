@@ -53,10 +53,10 @@ sequenceDiagram
 
 === "Google SSO"
 
-    Users can authenticate via Google Single Sign-On. The flow exchanges a Google OAuth token for Revel JWT tokens.
+    Users can authenticate through any configured OpenID Connect provider (Google on the hosted instance; Keycloak, Authentik, or an institutional IdP on self-hosted ones). The browser is sent to `GET /api/auth/oidc/{provider}/start`, comes back on the provider's callback, and the frontend exchanges the resulting one-time token for Revel JWT tokens via `POST /api/auth/oidc/exchange`.
 
-    !!! note "Feature flag"
-        Google SSO is gated behind the `FEATURE_GOOGLE_SSO` environment variable. When disabled, the endpoint returns `403`.
+    !!! note "Configuration"
+        Providers are listed in `OIDC_PROVIDERS`; `GET /version` exposes them as `sso_providers` so the frontend only shows buttons for what is configured. With no providers configured the routes return `404`.
 
 ### Profile & Password Management
 
