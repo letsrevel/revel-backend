@@ -10,6 +10,7 @@ import hashlib
 import secrets
 import typing as t
 from urllib.parse import urlencode
+from uuid import uuid4
 
 import httpx
 import jwt
@@ -17,12 +18,19 @@ import structlog
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.http import Http404
+from django.shortcuts import get_object_or_404
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
+from ninja_extra.exceptions import AuthenticationFailed
+from ninja_jwt.schema import TokenObtainPairOutputSchema
 from pydantic import BaseModel, EmailStr, ValidationError
 
 from accounts.exceptions import OIDCLoginError
+from accounts.jwt import blacklist as blacklist_token
+from accounts.jwt import check_blacklist, create_oidc_login_token, validate_oidc_login_token
 from accounts.models import ExternalIdentity, RevelUser
 from common.utils import get_or_create_with_race_protection
 from revel.oidc_config import OIDCProviderConfig
@@ -309,3 +317,56 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
     )
     logger.info("oidc_login_completed", provider=provider.key, user_id=str(user.id), created=created, linked=True)
     return user
+
+
+def complete_login(provider: OIDCProviderConfig, code: str, state: str) -> str:
+    """Finish the callback: consume state, exchange the code, verify claims, resolve the user.
+
+    Returns:
+        The one-time login token to hand to the frontend.
+
+    Raises:
+        OIDCLoginError: For every expected failure (mapped to a login-page redirect).
+    """
+    entry = _pop_state(provider, state)
+    id_token = _exchange_code(provider, code, entry["verifier"])
+    claims = _verify_id_token(provider, id_token, entry["nonce"])
+    user = _resolve_user(provider, claims)
+    return create_oidc_login_token(user_id=str(user.id), return_url=entry["return_url"], jti=uuid4().hex)
+
+
+@transaction.atomic
+def redeem_login_token(token: str) -> tuple[TokenObtainPairOutputSchema, str]:
+    """Exchange a one-time login token for the normal access/refresh pair. Single use."""
+    from accounts.service.auth import get_token_pair_for_user
+
+    payload = validate_oidc_login_token(token)
+    check_blacklist(payload.jti)
+    blacklist_token(token)
+    user = RevelUser.objects.filter(id=payload.user_id, is_active=True).first()
+    if user is None:
+        raise AuthenticationFailed("Invalid login token.")
+    return get_token_pair_for_user(user), payload.return_url
+
+
+def provider_display_name(key: str) -> str:
+    """Display name for a provider key; falls back to the title-cased key if it was removed from config."""
+    for provider in settings.OIDC_PROVIDERS:
+        if provider.key == key:
+            return str(provider.name)
+    return key.title()
+
+
+def list_identities(user: RevelUser) -> QuerySet[ExternalIdentity]:
+    """The user's linked identities, oldest first."""
+    return user.external_identities.order_by("created_at")
+
+
+def unlink_identity(user: RevelUser, provider: str) -> None:
+    """Remove a linked identity unless it is the account's only way in."""
+    identity = get_object_or_404(ExternalIdentity, user=user, provider=provider)
+    has_other = user.external_identities.exclude(pk=identity.pk).exists()
+    if not user.has_usable_password() and not has_other:
+        raise HttpError(400, str(_("Set a password before unlinking your only sign-in method.")))
+    identity.delete()
+    logger.info("oidc_identity_unlinked", user_id=str(user.id), provider=provider)

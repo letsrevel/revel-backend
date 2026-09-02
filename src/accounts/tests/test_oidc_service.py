@@ -7,8 +7,12 @@ import httpx
 import pytest
 from django.core.cache import cache
 from django.http import Http404
+from ninja.errors import HttpError
+from ninja_extra.exceptions import AuthenticationFailed
 
 from accounts.exceptions import OIDCLoginError
+from accounts.jwt import validate_oidc_login_token
+from accounts.models import ExternalIdentity, RevelUser
 from accounts.service import oidc
 from accounts.tests.oidc_helpers import PUBLIC_KEY, make_id_token
 from revel.oidc_config import OIDCProviderConfig
@@ -290,3 +294,101 @@ def test_signing_key_client_rebuilt_when_jwks_uri_changes(providers: None, monke
         DISCOVERY_DOC["jwks_uri"],
         "https://www.googleapis.com/oauth2/v3/certs-new",
     ]
+
+
+@pytest.fixture
+def token_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Discovery + token endpoint returning a freshly signed ID token for nonce 'nonce'."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("openid-configuration"):
+            return httpx.Response(200, json=DISCOVERY_DOC)
+        return httpx.Response(200, json={"id_token": make_id_token()})
+
+    monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+@pytest.mark.django_db
+def test_complete_login_returns_hand_off_token(providers: None, token_endpoint: None, signing_key: None) -> None:
+    _seed_state()
+    token = oidc.complete_login(GOOGLE, "code", "st")
+    payload = validate_oidc_login_token(token)
+    user = RevelUser.objects.get(id=payload.user_id)
+    assert user.email == "alice@example.com"
+    assert payload.return_url == "/x"
+
+
+@pytest.mark.django_db
+def test_complete_login_bad_state(providers: None, token_endpoint: None, signing_key: None) -> None:
+    with pytest.raises(OIDCLoginError) as exc:
+        oidc.complete_login(GOOGLE, "code", "unknown")
+    assert exc.value.code == "state"
+
+
+@pytest.mark.django_db
+def test_redeem_login_token_once(providers: None, user: RevelUser) -> None:
+    from accounts.jwt import create_oidc_login_token
+
+    token = create_oidc_login_token(user_id=str(user.id), return_url="/x", jti="jti-1")
+    pair, return_url = oidc.redeem_login_token(token)
+    assert pair.username == user.username  # type: ignore[attr-defined]
+    assert pair.access and pair.refresh
+    assert return_url == "/x"
+    with pytest.raises(HttpError) as exc:
+        oidc.redeem_login_token(token)
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.django_db
+def test_redeem_login_token_inactive_user(inactive_user: RevelUser) -> None:
+    from accounts.jwt import create_oidc_login_token
+
+    token = create_oidc_login_token(user_id=str(inactive_user.id), return_url="/", jti="jti-2")
+    with pytest.raises(AuthenticationFailed):
+        oidc.redeem_login_token(token)
+
+
+@pytest.mark.django_db
+def test_redeem_login_token_invalid() -> None:
+    with pytest.raises(AuthenticationFailed):
+        oidc.redeem_login_token("garbage")
+
+
+@pytest.mark.django_db
+def test_list_and_unlink(providers: None, user: RevelUser) -> None:
+    ExternalIdentity.objects.create(user=user, provider="google", subject="1", email=user.email)
+    assert [i.provider for i in oidc.list_identities(user)] == ["google"]
+    oidc.unlink_identity(user, "google")
+    assert not user.external_identities.exists()
+
+
+@pytest.mark.django_db
+def test_unlink_refused_when_stranded(user: RevelUser) -> None:
+    user.set_unusable_password()
+    user.save(update_fields=["password"])
+    ExternalIdentity.objects.create(user=user, provider="google", subject="1")
+    with pytest.raises(HttpError) as exc:
+        oidc.unlink_identity(user, "google")
+    assert exc.value.status_code == 400
+    assert user.external_identities.exists()
+
+
+@pytest.mark.django_db
+def test_unlink_allowed_with_second_identity(user: RevelUser) -> None:
+    user.set_unusable_password()
+    user.save(update_fields=["password"])
+    ExternalIdentity.objects.create(user=user, provider="google", subject="1")
+    ExternalIdentity.objects.create(user=user, provider="keycloak", subject="1")
+    oidc.unlink_identity(user, "google")
+    assert [i.provider for i in user.external_identities.all()] == ["keycloak"]
+
+
+@pytest.mark.django_db
+def test_unlink_unknown_provider_404(user: RevelUser) -> None:
+    with pytest.raises(Http404):
+        oidc.unlink_identity(user, "google")
+
+
+def test_provider_display_name(providers: None) -> None:
+    assert oidc.provider_display_name("google") == "Google"
+    assert oidc.provider_display_name("gone") == "Gone"
