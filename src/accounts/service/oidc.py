@@ -16,6 +16,7 @@ import structlog
 from django.conf import settings
 from django.core.cache import cache
 from django.http import Http404
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from accounts.exceptions import OIDCLoginError
 from revel.oidc_config import OIDCProviderConfig
@@ -42,8 +43,19 @@ def list_providers() -> list[OIDCProviderConfig]:
 
 
 def safe_return_url(url: str | None) -> str:
-    """Accept only a relative path (``/...``), never a scheme or host. Defaults to ``/``."""
-    if not url or not url.startswith("/") or url.startswith("//") or url.startswith("/\\"):
+    """Accept only a relative path (``/...``), never a scheme or host. Defaults to ``/``.
+
+    Host/scheme rejection (including control-character smuggling via a tab, CR, or LF right
+    after the leading slash, which ``urlsplit`` would otherwise resolve to an external host)
+    is delegated to Django's own :func:`~django.utils.http.url_has_allowed_host_and_scheme`.
+    """
+    if (
+        not url
+        or not url.startswith("/")
+        or url.startswith("//")
+        or url.startswith("/\\")
+        or not url_has_allowed_host_and_scheme(url, allowed_hosts=None)
+    ):
         return "/"
     return url
 
@@ -76,7 +88,7 @@ def discovery(provider: OIDCProviderConfig) -> dict[str, t.Any]:
             response = client.get(url)
             response.raise_for_status()
             doc = t.cast(dict[str, t.Any], response.json())
-    except (httpx.HTTPError, ValueError) as e:
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
         logger.warning("oidc_discovery_failed", provider=provider.key, error=str(e))
         raise OIDCLoginError("provider") from e
     if doc.get("issuer", "").rstrip("/") != provider.issuer:

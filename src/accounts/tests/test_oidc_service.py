@@ -67,6 +67,10 @@ def test_get_provider(providers: None) -> None:
         ("https://evil.test", "/"),
         ("javascript:alert(1)", "/"),
         ("events/x", "/"),
+        ("/\t/evil.test", "/"),
+        ("/\n/evil.test", "/"),
+        ("/\r/evil.test", "/"),
+        ("/events/x#frag", "/events/x#frag"),
     ],
 )
 def test_safe_return_url(raw: str | None, expected: str) -> None:
