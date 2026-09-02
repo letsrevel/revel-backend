@@ -17,7 +17,7 @@ from accounts.service import oidc as oidc_service
 from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
-from common.schema import EmailSchema, ResponseMessage
+from common.schema import EmailSchema, ErrorDetail, ResponseMessage
 from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
@@ -71,7 +71,7 @@ class AccountController(UserAwareController):
 
     @route.delete(
         "/identities/{provider}",
-        response={204: None, 400: ResponseMessage, 404: ResponseMessage},
+        response={204: None, 400: ErrorDetail, 404: ErrorDetail},
         url_name="identities_unlink",
         throttle=WriteThrottle(),
     )
