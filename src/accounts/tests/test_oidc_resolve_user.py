@@ -3,11 +3,13 @@
 import typing as t
 
 import pytest
+from django.db.models import Q
 
 from accounts.exceptions import OIDCLoginError
 from accounts.models import ExternalIdentity, GlobalBan, RevelUser
 from accounts.service import oidc
 from accounts.service.oidc import OIDCClaims
+from common.utils import get_or_create_with_race_protection
 from revel.oidc_config import OIDCProviderConfig
 
 pytestmark = pytest.mark.django_db
@@ -119,3 +121,24 @@ def test_banned_email_refused_even_with_identity(user: RevelUser, superuser: Rev
     with pytest.raises(OIDCLoginError) as exc:
         oidc._resolve_user(GOOGLE, claims())
     assert exc.value.code == "banned"
+
+
+def test_identity_create_race_converges(user: RevelUser) -> None:
+    """Two concurrent first-time links for the same (provider, subject) must converge on one row.
+
+    ``_resolve_user`` links via ``get_or_create_with_race_protection(ExternalIdentity, ...)`` for
+    exactly this reason: a plain ``ExternalIdentity.objects.create(...)`` would let the losing
+    request of a concurrent pair hit the ``uniq_external_identity_provider_subject`` constraint
+    as an unhandled ``IntegrityError`` instead of converging on the winner's row. This directly
+    exercises the helper with the same lookup/defaults ``_resolve_user`` uses, simulating the
+    "loser" call finding the row the "winner" already committed.
+    """
+    lookup = Q(provider="google", subject="sub-1")
+    defaults = {"user": user, "provider": "google", "subject": "sub-1", "email": user.email}
+
+    first, first_created = get_or_create_with_race_protection(ExternalIdentity, lookup, defaults)
+    second, second_created = get_or_create_with_race_protection(ExternalIdentity, lookup, defaults)
+
+    assert (first_created, second_created) == (True, False)
+    assert first == second
+    assert ExternalIdentity.objects.filter(provider="google", subject="sub-1").count() == 1

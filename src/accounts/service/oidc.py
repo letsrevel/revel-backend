@@ -302,6 +302,10 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
             user.set_unusable_password()
             user.save(update_fields=["password"])
 
-    ExternalIdentity.objects.create(user=user, provider=provider.key, subject=claims.sub, email=email)
+    identity, _ = get_or_create_with_race_protection(
+        ExternalIdentity,
+        Q(provider=provider.key, subject=claims.sub),
+        {"user": user, "provider": provider.key, "subject": claims.sub, "email": email},
+    )
     logger.info("oidc_login_completed", provider=provider.key, user_id=str(user.id), created=created, linked=True)
     return user
