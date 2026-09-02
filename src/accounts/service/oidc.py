@@ -47,7 +47,7 @@ def get_provider(key: str) -> OIDCProviderConfig:
     """Return the configured provider for ``key`` or raise 404."""
     for provider in settings.OIDC_PROVIDERS:
         if provider.key == key:
-            return t.cast(OIDCProviderConfig, provider)
+            return provider
     raise Http404("Unknown OIDC provider.")
 
 

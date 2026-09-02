@@ -54,7 +54,7 @@ just wastes RAM.
 ### Feature flags
 
 Most default to `True` (production behaviour); set them to `False` to drop the corresponding
-dependency. `FEATURE_GOOGLE_SSO` is the exception — it is opt-in and defaults to `False`
+dependency. `OIDC_PROVIDERS` is the exception — it is opt-in and empty by default
 (see [ADR-0008](../adr/0008-environment-feature-flags.md)).
 
 - `FEATURE_MALWARE_SCAN` — when `False`, uploads skip the ClamAV scan and are marked clean
@@ -65,8 +65,14 @@ dependency. `FEATURE_GOOGLE_SSO` is the exception — it is opt-in and defaults 
   evaluation still works. Lets you run without an OpenAI key.
 - `FEATURE_ORGANIZATION_CREATION` — when `False`, regular users cannot create organizations; staff
   and superusers still can. See below.
-- `FEATURE_GOOGLE_SSO` — opt-in (defaults to `False`). Leave it off for password-only auth (the
-  login button stays hidden); set `True` and provide OAuth credentials to enable Google login.
+- `OIDC_PROVIDERS` — opt-in, empty by default. A comma-separated list of provider keys; for each
+  key set `OIDC_<KEY>_ISSUER`, `OIDC_<KEY>_CLIENT_ID`, `OIDC_<KEY>_CLIENT_SECRET` and optionally
+  `OIDC_<KEY>_NAME` (button label) and `OIDC_<KEY>_SCOPES` (default `openid email profile`).
+  Register `https://<your-api-host>/api/auth/oidc/<key>/callback` as the redirect URI at the
+  provider. Any OpenID Connect issuer works — Google (`https://accounts.google.com`), Keycloak
+  (`https://kc.example.org/realms/<realm>`), Authentik, Zitadel. Google needs no verification for
+  the default scopes; publish the OAuth consent screen to "In production" to lift the 100-user
+  testing cap.
 - `FEATURE_OBSERVABILITY` — master toggle for the metrics/traces/logs exporters and the async log
   queue. Set `False` (and drop the `observability` profile) on Slim. Legacy alias:
   `ENABLE_OBSERVABILITY` (deprecated). See [Observability](observability.md).

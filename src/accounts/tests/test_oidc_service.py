@@ -4,6 +4,7 @@ import typing as t
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+import jwt
 import pytest
 from django.core.cache import cache
 from django.http import Http404
@@ -270,7 +271,7 @@ def test_signing_key_client_rebuilt_when_jwks_uri_changes(providers: None, monke
         def get_signing_key_from_jwt(self, id_token: str) -> t.Any:
             return FakeSigningKey()
 
-    monkeypatch.setattr(oidc.jwt, "PyJWKClient", FakePyJWKClient)
+    monkeypatch.setattr(jwt, "PyJWKClient", FakePyJWKClient)
     oidc._jwk_clients.clear()
 
     current_jwks_uri = {"value": DISCOVERY_DOC["jwks_uri"]}

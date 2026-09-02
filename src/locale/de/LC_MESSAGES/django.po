@@ -133,14 +133,8 @@ msgstr "Passwort erfolgreich zurückgesetzt."
 msgid "A confirmation link has been sent to the new email address."
 msgstr "Ein Bestätigungslink wurde an die neue E-Mail-Adresse gesendet."
 
-msgid "Login via SSO."
-msgstr "Anmeldung über SSO."
-
 msgid "Invalid OTP."
 msgstr "Ungültiges OTP."
-
-msgid "Google SSO is not available."
-msgstr "Google SSO ist nicht verfügbar."
 
 msgid "You already have a restriction for this food item."
 msgstr "Du hast bereits eine Einschränkung für dieses Lebensmittel."
@@ -219,13 +213,6 @@ msgstr "Ungültiger Bestätigungstoken."
 msgid "A user with this email no longer exists."
 msgstr "Ein:e Anwender:in mit dieser E-Mail existiert nicht mehr."
 
-msgid "Cannot reset password for Google SSO users."
-msgstr ""
-"Das Passwort kann für Google-SSO-Anwender:innen nicht zurückgesetzt werden."
-
-msgid "Google SSO users cannot change their email here."
-msgstr "Google-SSO-Anwender:innen können ihre E-Mail hier nicht ändern."
-
 msgid "Incorrect password."
 msgstr "Falsches Passwort."
 
@@ -253,9 +240,6 @@ msgstr "Ungültiger Token: {error}"
 msgid "Invalid token type."
 msgstr "Ungültiger Token-Typ."
 
-msgid "Invalid Google ID Token."
-msgstr "Ungültiger Google-ID-Token."
-
 msgid "Registration is not available."
 msgstr "Die Registrierung ist nicht verfügbar."
 
@@ -273,6 +257,9 @@ msgstr "Du kannst dich nicht als Staff-Mitglied anmelden."
 
 msgid "Cannot impersonate inactive users."
 msgstr "Du kannst dich nicht als inaktive:r Anwender:in anmelden."
+
+msgid "Set a password before unlinking your only sign-in method."
+msgstr "Legen Sie ein Passwort fest, bevor Sie Ihre einzige Anmeldemethode trennen."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"

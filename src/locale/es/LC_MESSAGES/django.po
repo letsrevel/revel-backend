@@ -133,14 +133,8 @@ msgstr ""
 "Se ha enviado un enlace de confirmación a la nueva dirección de correo "
 "electrónico."
 
-msgid "Login via SSO."
-msgstr "Inicio de sesión mediante SSO."
-
 msgid "Invalid OTP."
 msgstr "OTP no válido."
-
-msgid "Google SSO is not available."
-msgstr "El SSO de Google no está disponible."
 
 msgid "You already have a restriction for this food item."
 msgstr "Ya tienes una restricción para este alimento."
@@ -218,14 +212,6 @@ msgstr "Token de verificación no válido."
 msgid "A user with this email no longer exists."
 msgstr "Ya no existe ningún usuario con este correo electrónico."
 
-msgid "Cannot reset password for Google SSO users."
-msgstr ""
-"No se puede restablecer la contraseña de los usuarios con SSO de Google."
-
-msgid "Google SSO users cannot change their email here."
-msgstr ""
-"Los usuarios con SSO de Google no pueden cambiar aquí su correo electrónico."
-
 msgid "Incorrect password."
 msgstr "Contraseña incorrecta."
 
@@ -253,9 +239,6 @@ msgstr "Token no válido: {error}"
 msgid "Invalid token type."
 msgstr "Tipo de token no válido."
 
-msgid "Invalid Google ID Token."
-msgstr "Token de ID de Google no válido."
-
 msgid "Registration is not available."
 msgstr "El registro no está disponible."
 
@@ -273,6 +256,9 @@ msgstr "No puedes suplantar a miembros del staff."
 
 msgid "Cannot impersonate inactive users."
 msgstr "No puedes suplantar a usuarios inactivos."
+
+msgid "Set a password before unlinking your only sign-in method."
+msgstr "Establece una contraseña antes de desvincular tu único método de inicio de sesión."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
