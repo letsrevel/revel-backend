@@ -44,7 +44,6 @@ class TestVersionEndpointFeatures:
         """Test that the features block mirrors the FEATURE_* settings."""
         settings.FEATURE_ORGANIZATION_CREATION = True
         settings.FEATURE_TELEGRAM = False
-        settings.FEATURE_GOOGLE_SSO = True
         settings.FEATURE_LLM_EVALUATION = False
 
         data = client.get(VERSION_URL).json()
@@ -52,7 +51,6 @@ class TestVersionEndpointFeatures:
         assert data["features"] == {
             "organization_creation": True,
             "telegram": False,
-            "google_sso": True,
             "llm_evaluation": False,
         }
 
@@ -60,7 +58,23 @@ class TestVersionEndpointFeatures:
         """Test that operational flags (malware scan, observability) are not leaked to clients."""
         data = client.get(VERSION_URL).json()
 
-        assert set(data["features"]) == {"organization_creation", "telegram", "google_sso", "llm_evaluation"}
+        assert set(data["features"]) == {"organization_creation", "telegram", "llm_evaluation"}
+
+    def test_sso_providers_listed(self, client: Client, settings: t.Any) -> None:
+        """Configured OIDC providers are exposed as key + display name, secrets excluded."""
+        from revel.oidc_config import OIDCProviderConfig
+
+        settings.OIDC_PROVIDERS = (
+            OIDCProviderConfig(
+                key="google", name="Google", issuer="https://accounts.google.com", client_id="c", client_secret="s"
+            ),
+        )
+        data = client.get(VERSION_URL).json()
+        assert data["sso_providers"] == [{"key": "google", "name": "Google"}]
+
+    def test_sso_providers_empty_when_unset(self, client: Client, settings: t.Any) -> None:
+        settings.OIDC_PROVIDERS = ()
+        assert client.get(VERSION_URL).json()["sso_providers"] == []
 
 
 class TestVersionEndpointWithBanner:
