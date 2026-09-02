@@ -19,6 +19,11 @@ from django.core.exceptions import ImproperlyConfigured
 KEY_PATTERN = r"^[a-z0-9_-]{1,64}$"
 _KEY_RE = re.compile(KEY_PATTERN)
 DEFAULT_SCOPES = "openid email profile"
+#: How the client authenticates at the token endpoint (RFC 6749 §2.3.1). ``client_secret_post``
+#: is what Google, Keycloak, Authentik and Zitadel accept by default; ``client_secret_basic`` is
+#: the spec default and what a strictly registered client may require.
+TokenAuth = t.Literal["client_secret_post", "client_secret_basic"]
+TOKEN_AUTH_METHODS: tuple[TokenAuth, ...] = t.get_args(TokenAuth)
 
 
 @dataclass(frozen=True)
@@ -31,6 +36,7 @@ class OIDCProviderConfig:
     client_id: str
     client_secret: str
     scopes: str = DEFAULT_SCOPES
+    token_auth: TokenAuth = "client_secret_post"
 
 
 def load_oidc_providers(get: t.Callable[..., t.Any], *, debug: bool) -> tuple[OIDCProviderConfig, ...]:
@@ -63,6 +69,9 @@ def load_oidc_providers(get: t.Callable[..., t.Any], *, debug: bool) -> tuple[OI
         issuer = required["ISSUER"].rstrip("/")
         if not issuer.startswith("https://") and not debug:
             raise ImproperlyConfigured(f"{prefix}ISSUER must use https (got {issuer!r})")
+        token_auth = str(get(prefix + "TOKEN_AUTH", default="") or "client_secret_post")
+        if token_auth not in TOKEN_AUTH_METHODS:
+            raise ImproperlyConfigured(f"{prefix}TOKEN_AUTH must be one of {TOKEN_AUTH_METHODS} (got {token_auth!r})")
         providers.append(
             OIDCProviderConfig(
                 key=key,
@@ -71,6 +80,7 @@ def load_oidc_providers(get: t.Callable[..., t.Any], *, debug: bool) -> tuple[OI
                 client_id=required["CLIENT_ID"],
                 client_secret=required["CLIENT_SECRET"],
                 scopes=str(get(prefix + "SCOPES", default=DEFAULT_SCOPES) or DEFAULT_SCOPES),
+                token_auth=t.cast(TokenAuth, token_auth),
             )
         )
     return tuple(providers)

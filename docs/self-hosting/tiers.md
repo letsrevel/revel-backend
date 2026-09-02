@@ -69,7 +69,9 @@ needs credentials from an identity provider to do anything (the opt-in rule is e
   and superusers still can. See below.
 - `OIDC_PROVIDERS` — opt-in, empty by default. A comma-separated list of provider keys; for each
   key set `OIDC_<KEY>_ISSUER`, `OIDC_<KEY>_CLIENT_ID`, `OIDC_<KEY>_CLIENT_SECRET` and optionally
-  `OIDC_<KEY>_NAME` (button label) and `OIDC_<KEY>_SCOPES` (default `openid email profile`).
+  `OIDC_<KEY>_NAME` (button label), `OIDC_<KEY>_SCOPES` (default `openid email profile`) and
+  `OIDC_<KEY>_TOKEN_AUTH` (`client_secret_post`, the default, or `client_secret_basic` when the
+  client is registered for HTTP Basic authentication at the token endpoint).
   Register `https://<your-api-host>/api/auth/oidc/<key>/callback` as the redirect URI at the
   provider. Any OpenID Connect issuer works — Google (`https://accounts.google.com`), Keycloak
   (`https://kc.example.org/realms/<realm>`), Authentik, Zitadel. With the default scopes Google

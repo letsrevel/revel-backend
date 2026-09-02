@@ -10,7 +10,7 @@ import hashlib
 import secrets
 import typing as t
 from dataclasses import dataclass
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from uuid import uuid4
 
 import httpx
@@ -30,7 +30,7 @@ from pydantic import BaseModel, EmailStr, Field, ValidationError
 
 from accounts.exceptions import OIDCLoginError
 from accounts.jwt import blacklist as blacklist_token
-from accounts.jwt import check_blacklist, create_oidc_login_token, validate_oidc_login_token
+from accounts.jwt import check_blacklist, consume_one_shot_token, create_oidc_login_token, validate_oidc_login_token
 from accounts.models import ExternalIdentity, RevelUser
 from common.models import SiteSettings
 from common.utils import get_or_create_with_race_protection
@@ -53,11 +53,18 @@ def frontend_base_url() -> str:
 
 
 def get_provider(key: str) -> OIDCProviderConfig:
-    """Return the configured provider for ``key`` or raise 404."""
+    """Return the configured provider for ``key``.
+
+    Raises:
+        OIDCLoginError("provider"): Unknown key (a stale link, or a provider the operator
+            removed). Not a 404: the caller is a browser navigation, so it must land on the
+            login page.
+    """
     for provider in settings.OIDC_PROVIDERS:
         if provider.key == key:
             return provider
-    raise Http404("Unknown OIDC provider.")
+    logger.warning("oidc_unknown_provider", provider=key)
+    raise OIDCLoginError("provider")
 
 
 def safe_return_url(url: str | None) -> str:
@@ -251,9 +258,15 @@ def _exchange_code(provider: OIDCProviderConfig, code: str, verifier: str) -> st
         "client_secret": provider.client_secret,
         "code_verifier": verifier,
     }
+    headers: dict[str, str] = {}
+    if provider.token_auth == "client_secret_basic":
+        # RFC 6749 §2.3.1: form-urlencode id and secret before Basic-encoding; never send both forms.
+        credentials = f"{quote(provider.client_id, safe='')}:{quote(provider.client_secret, safe='')}"
+        headers["Authorization"] = "Basic " + base64.b64encode(credentials.encode()).decode()
+        del data["client_secret"]
     try:
         with _http_client() as client:
-            response = client.post(discovery(provider).token_endpoint, data=data)
+            response = client.post(discovery(provider).token_endpoint, data=data, headers=headers)
             response.raise_for_status()
             body = response.json()
     except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
@@ -371,6 +384,12 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
             user.email_verified = True
             user.save(update_fields=["email_verified"])
 
+    # An IdP that re-issued ``sub`` for this verified email (account recreated there) replaces
+    # the stale row instead of accumulating one identity per sub. Safe under the user row lock
+    # taken above; the (user, provider) constraint makes the invariant explicit.
+    rotated, _ = user.external_identities.filter(provider=provider.key).exclude(subject=claims.sub).delete()
+    if rotated:
+        logger.info("oidc_identity_subject_rotated", provider=provider.key, user_id=str(user.id))
     identity, _identity_created = get_or_create_with_race_protection(
         ExternalIdentity,
         Q(provider=provider.key, subject=claims.sub),
@@ -414,7 +433,7 @@ def redeem_login_token(token: str) -> tuple[TokenObtainPairOutputSchema, str]:
         blacklist_token(token)
         raise AuthenticationFailed("Invalid login token.")
     with transaction.atomic():
-        blacklist_token(token)
+        consume_one_shot_token(token)  # refuses the loser of two concurrent redemptions
         return get_token_pair_for_user(user), payload.return_url
 
 
@@ -433,20 +452,19 @@ def list_identities(user: RevelUser) -> QuerySet[ExternalIdentity]:
 
 @transaction.atomic
 def unlink_identity(user: RevelUser, provider: str) -> None:
-    """Remove the identities linked for ``provider`` unless they are the account's only way in.
+    """Remove the identity linked for ``provider`` unless it is the account's only way in.
 
     Serialised per user (row lock) so two concurrent unlinks cannot both see "another
-    identity remains" and strand the account. Removes every identity for the provider: an
-    IdP that rotates ``sub`` for the same verified email leaves the user with more than one.
+    identity remains" and strand the account.
     """
     RevelUser.objects.select_for_update().get(pk=user.pk)
-    identities = user.external_identities.filter(provider=provider)
-    if not identities.exists():
+    identity = user.external_identities.filter(provider=provider).first()
+    if identity is None:
         raise Http404("Unknown identity.")
-    has_other = user.external_identities.exclude(provider=provider).exists()
+    has_other = user.external_identities.exclude(pk=identity.pk).exists()
     # has_usable_password() is True for password == "" (legacy IdP-created users never set
     # one), so also require a non-empty password field before treating it as usable.
     if not (user.password and user.has_usable_password()) and not has_other:
         raise HttpError(400, str(_("Set a password before unlinking your only sign-in method.")))
-    identities.delete()
+    identity.delete()
     logger.info("oidc_identity_unlinked", user_id=str(user.id), provider=provider)

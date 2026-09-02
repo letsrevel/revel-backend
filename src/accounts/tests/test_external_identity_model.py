@@ -24,6 +24,13 @@ def test_provider_subject_unique(user: RevelUser, revel_user_factory: t.Any) -> 
         ExternalIdentity.objects.create(user=other, provider="google", subject="123")
 
 
+def test_user_provider_unique(user: RevelUser) -> None:
+    """One identity per provider per account (a rotated ``sub`` replaces the row in the service layer)."""
+    ExternalIdentity.objects.create(user=user, provider="google", subject="123")
+    with pytest.raises(ValidationError):
+        ExternalIdentity.objects.create(user=user, provider="google", subject="456")
+
+
 def test_same_subject_different_provider_allowed(user: RevelUser) -> None:
     ExternalIdentity.objects.create(user=user, provider="google", subject="123")
     ExternalIdentity.objects.create(user=user, provider="keycloak", subject="123")

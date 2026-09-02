@@ -408,6 +408,8 @@ class ExternalIdentity(TimeStampedModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["provider", "subject"], name="uniq_external_identity_provider_subject"),
+            # One identity per provider per account; a rotated ``sub`` replaces the row (see oidc._resolve_user).
+            models.UniqueConstraint(fields=["user", "provider"], name="uniq_external_identity_user_provider"),
         ]
 
     def __str__(self) -> str:

@@ -146,6 +146,25 @@ def test_banned_email_refused(superuser: RevelUser) -> None:
     assert not RevelUser.objects.filter(email="alice@example.com").exists()
 
 
+def test_banned_domain_refused(superuser: RevelUser) -> None:
+    GlobalBan.objects.create(ban_type=GlobalBan.BanType.DOMAIN, value="example.com", created_by=superuser)
+    with pytest.raises(OIDCLoginError) as exc:
+        oidc._resolve_user(GOOGLE, claims())
+    assert exc.value.code == "banned"
+    assert not RevelUser.objects.filter(email="alice@example.com").exists()
+
+
+def test_rotated_subject_replaces_stale_identity(user: RevelUser) -> None:
+    """The IdP re-issued ``sub`` for the same verified email (account recreated there): one row, new sub."""
+    ExternalIdentity.objects.create(user=user, provider="google", subject="old-sub", email=user.email)
+    ExternalIdentity.objects.create(user=user, provider="keycloak", subject="k")
+    assert oidc._resolve_user(GOOGLE, claims(sub="new-sub", email=user.email)) == user
+    assert sorted((i.provider, i.subject) for i in user.external_identities.all()) == [
+        ("google", "new-sub"),
+        ("keycloak", "k"),
+    ]
+
+
 def test_banned_email_refused_even_with_identity(user: RevelUser, superuser: RevelUser) -> None:
     ExternalIdentity.objects.create(user=user, provider="google", subject="sub-1")
     GlobalBan.objects.create(ban_type=GlobalBan.BanType.EMAIL, value=user.email, created_by=superuser)

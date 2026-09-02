@@ -58,9 +58,11 @@ def test_start_redirects_to_idp(client: Client) -> None:
     assert cookie["path"] == "/api/auth/oidc"
 
 
-def test_start_unknown_provider_404(client: Client) -> None:
+def test_start_unknown_provider_redirects_to_login(client: Client) -> None:
+    """A stale or removed provider key is a browser navigation too: login page, not a JSON 404."""
     response = client.get(reverse("api:oidc_start", kwargs={"provider": "nope"}))
-    assert response.status_code == 404
+    assert response.status_code == 302
+    assert response["Location"] == "https://app.example.test/login?error=oidc_provider"
 
 
 def test_start_provider_key_is_bounded(client: Client) -> None:
@@ -148,9 +150,12 @@ def test_callback_login_error_codes(client: Client, code: str) -> None:
     assert response.cookies["oidc_state"]["max-age"] == 0
 
 
-def test_callback_unknown_provider_404(client: Client) -> None:
+def test_callback_unknown_provider_redirects_to_login(client: Client) -> None:
+    _seed_state_cookie(client, state="s")
     response = client.get(reverse("api:oidc_callback", kwargs={"provider": "nope"}), {"code": "c", "state": "s"})
-    assert response.status_code == 404
+    assert response.status_code == 302
+    assert response["Location"] == "https://app.example.test/login?error=oidc_provider"
+    assert response.cookies["oidc_state"]["max-age"] == 0
 
 
 def test_exchange_returns_pair(client: Client, user: RevelUser) -> None:

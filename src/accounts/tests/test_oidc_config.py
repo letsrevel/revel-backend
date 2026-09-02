@@ -66,6 +66,20 @@ def test_parses_multiple_providers_with_overrides() -> None:
     assert [p.key for p in providers] == ["google", "keycloak"]
     assert providers[1].name == "Uni Login"
     assert providers[1].scopes == "openid email"
+    assert providers[1].token_auth == "client_secret_post"
+
+
+def test_token_auth_parsed_and_validated() -> None:
+    values = {
+        "OIDC_PROVIDERS": "kc",
+        "OIDC_KC_ISSUER": "https://kc.example.org/realms/uni",
+        "OIDC_KC_CLIENT_ID": "revel",
+        "OIDC_KC_CLIENT_SECRET": "s",
+        "OIDC_KC_TOKEN_AUTH": "client_secret_basic",
+    }
+    assert load_oidc_providers(_env(values), debug=False)[0].token_auth == "client_secret_basic"
+    with pytest.raises(ImproperlyConfigured, match="TOKEN_AUTH"):
+        load_oidc_providers(_env({**values, "OIDC_KC_TOKEN_AUTH": "private_key_jwt"}), debug=False)
 
 
 @pytest.mark.parametrize("missing", ["OIDC_GOOGLE_ISSUER", "OIDC_GOOGLE_CLIENT_ID", "OIDC_GOOGLE_CLIENT_SECRET"])

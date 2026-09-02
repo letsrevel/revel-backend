@@ -174,6 +174,35 @@ def blacklist(
     algorithms: list[str] | None = None,
 ) -> BlacklistedToken:
     """Ensures this token is included in the outstanding token list and adds it to the blacklist."""
+    return _blacklist(token, key, audience, algorithms)[0]
+
+
+def consume_one_shot_token(token: str) -> None:
+    """Blacklist a single-use token, refusing unless this call is the one that blacklisted it.
+
+    ``check_blacklist`` followed by ``blacklist`` is a read-then-write: two concurrent
+    redemptions of the same token both pass the check and both "succeed". The ``created``
+    flag of the blacklist row is authoritative instead — the loser's INSERT waits on the
+    unique index until the winner commits, then finds the row — so exactly one caller gets
+    through. Shared by the impersonation and OIDC hand-off redemptions.
+
+    Raises:
+        HttpError: 401 if another call already consumed the token.
+    """
+    _, created = _blacklist(token)
+    if not created:
+        logger.warning("one_shot_token_already_consumed")
+        raise HttpError(401, "Token is blacklisted.")
+
+
+@transaction.atomic
+def _blacklist(
+    token: str,
+    key: str | None = None,
+    audience: str | None = None,
+    algorithms: list[str] | None = None,
+) -> tuple[BlacklistedToken, bool]:
+    """The blacklist write; also reports whether this call created the blacklist row."""
     key = key or settings.SECRET_KEY
     audience = audience or settings.JWT_AUDIENCE
     algorithms = algorithms or [settings.JWT_ALGORITHM]
@@ -190,7 +219,7 @@ def blacklist(
         },
     )
 
-    return BlacklistedToken.objects.get_or_create(token=token_db)[0]
+    return BlacklistedToken.objects.get_or_create(token=token_db)
 
 
 def create_impersonation_request_token(

@@ -15,7 +15,7 @@ from ninja_extra.exceptions import AuthenticationFailed
 from ninja_jwt.token_blacklist.models import BlacklistedToken
 
 from accounts.exceptions import OIDCLoginError
-from accounts.jwt import create_oidc_login_token, validate_oidc_login_token
+from accounts.jwt import consume_one_shot_token, create_oidc_login_token, validate_oidc_login_token
 from accounts.models import ExternalIdentity, GlobalBan, RevelUser
 from accounts.service import oidc
 from accounts.tests.oidc_helpers import PUBLIC_KEY, make_id_token
@@ -60,8 +60,9 @@ def mock_http(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
 
 def test_get_provider(providers: None) -> None:
     assert oidc.get_provider("google") == GOOGLE
-    with pytest.raises(Http404):
+    with pytest.raises(OIDCLoginError) as exc:  # a login error, so the browser is redirected, not 404'd
         oidc.get_provider("nope")
+    assert exc.value.code == "provider"
 
 
 @pytest.mark.parametrize(
@@ -283,6 +284,34 @@ def test_exchange_code_posts_pkce_and_secret(providers: None, monkeypatch: pytes
     assert body["client_id"] == ["cid"]
     assert body["client_secret"] == ["sec"]
     assert body["redirect_uri"] == ["https://api.example.test/api/auth/oidc/google/callback"]
+
+
+def test_exchange_code_client_secret_basic(providers: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``client_secret_basic``: credentials go in an RFC 6749 Basic header, and never also in the body."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("openid-configuration"):
+            return httpx.Response(200, json=DISCOVERY_DOC)
+        return httpx.Response(200, json={"id_token": "raw.id.token"})
+
+    monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    basic = OIDCProviderConfig(
+        key="google",
+        name="Google",
+        issuer="https://accounts.google.com",
+        client_id="c id",
+        client_secret="s/e:c",
+        token_auth="client_secret_basic",
+    )
+    assert oidc._exchange_code(basic, "the-code", "the-verifier") == "raw.id.token"
+    token_request = seen[-1]
+    # base64("c%20id:s%2Fe%3Ac") — form-urlencoded before Basic-encoding, per RFC 6749 §2.3.1
+    assert token_request.headers["Authorization"] == "Basic YyUyMGlkOnMlMkZlJTNBYw=="
+    body = parse_qs(token_request.content.decode())
+    assert "client_secret" not in body
+    assert body["client_id"] == ["c id"]
 
 
 @pytest.mark.parametrize(
@@ -518,13 +547,13 @@ def test_unlink_unknown_provider_404(user: RevelUser) -> None:
 
 
 @pytest.mark.django_db
-def test_unlink_removes_every_identity_for_provider(user: RevelUser) -> None:
-    """A rotated ``sub`` at the IdP leaves two rows for one provider; both go, and the other provider stays."""
-    ExternalIdentity.objects.create(user=user, provider="google", subject="old-sub")
-    ExternalIdentity.objects.create(user=user, provider="google", subject="new-sub")
-    ExternalIdentity.objects.create(user=user, provider="keycloak", subject="k")
-    oidc.unlink_identity(user, "google")
-    assert [i.provider for i in user.external_identities.all()] == ["keycloak"]
+def test_consume_one_shot_token_refuses_second_consumer(user: RevelUser) -> None:
+    """The blacklist row's ``created`` flag, not a prior read, decides who redeemed the token."""
+    token = create_oidc_login_token(user_id=str(user.id), return_url="/", jti="jti-5")
+    consume_one_shot_token(token)
+    with pytest.raises(HttpError) as exc:
+        consume_one_shot_token(token)
+    assert exc.value.status_code == 401
 
 
 def test_provider_display_name(providers: None) -> None:
