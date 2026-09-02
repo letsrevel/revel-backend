@@ -319,7 +319,6 @@ def request_account_deletion(user: RevelUser) -> str:
     return token
 
 
-@transaction.atomic
 def reset_password(token: str, new_password: str) -> RevelUser:
     """Reset a user's password.
 
@@ -334,11 +333,19 @@ def reset_password(token: str, new_password: str) -> RevelUser:
     user = get_object_or_404(RevelUser, id=payload.user_id)
     # Re-check the global ban at reset time — a ban added after the token was issued
     # must block the reset (and the guest-to-full-user conversion below), mirroring
-    # verify_email. Blacklist the token so it cannot be retried.
+    # verify_email. Blacklist the token so it cannot be retried. This runs OUTSIDE the
+    # atomic block below on purpose: raising inside it would roll the blacklist row back
+    # along with the savepoint, leaving the token redeemable once the ban is lifted.
     if is_email_globally_banned(user.email):
         blacklist_token(token)
         logger.warning("password_reset_blocked_banned_user", user_id=str(user.id), email=user.email)
         raise HttpError(403, str(BAN_ERROR_MESSAGE))
+    return _apply_password_reset(user, token, new_password)
+
+
+@transaction.atomic
+def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> RevelUser:
+    """Set the new password and consume the token (the atomic half of ``reset_password``)."""
     if GoogleSSOUser.objects.filter(user=user).exists():
         logger.warning("password_reset_blocked_google_sso_user", user_id=str(user.id), email=user.email)
         raise HttpError(400, str(_("Cannot reset password for Google SSO users.")))

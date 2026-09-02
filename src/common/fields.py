@@ -16,9 +16,10 @@ from PIL import Image
 from common.sanitizers import render_markdown, sanitize_html, sanitize_markdown
 from common.signing import PROTECTED_PATH_PREFIX
 
-# Backstop against decompression-bomb DoS: Pillow itself refuses to decode any
-# image with more pixels than this (a hard ceiling above the validation budget
-# below, so genuine over-budget images error in Pillow too, not just here).
+# Backstop against decompression-bomb DoS. Pillow only *warns* (DecompressionBombWarning)
+# above this pixel count and refuses to decode (DecompressionBombError) above twice it.
+# The real bound is the MAX_IMAGE_PIXELS budget below, enforced from the header — before
+# any pixel is decoded — on every image path (validate_image_file and strip_exif).
 Image.MAX_IMAGE_PIXELS = 64_000_000
 
 # Sanitizers live in common/sanitizers.py; re-exported here for backward-compatible imports.

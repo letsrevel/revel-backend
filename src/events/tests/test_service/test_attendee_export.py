@@ -25,8 +25,11 @@ from events.models import (
     Ticket,
     TicketTier,
     Venue,
+    VenueSeat,
+    VenueSector,
 )
 from events.service.export.attendee_export import generate_attendee_export
+from events.service.export.formatting import sanitize_cell
 
 pytestmark = pytest.mark.django_db
 
@@ -481,3 +484,36 @@ class TestAttendeeExportNoVenue:
         ws_summary = wb["Summary"]
         summary = {row[0]: row[1] for row in ws_summary.iter_rows(values_only=True) if row[0]}
         assert summary["Venue"] == "N/A"
+
+
+# --- Formula-injection hardening ---
+
+
+class TestAttendeeExportCellSanitisation:
+    """Attacker/organizer-controlled strings must land as inert text, never live formulas."""
+
+    @pytest.mark.parametrize("prefix", ["=", "+", "-", "@", "\t", "\r", "\n"])
+    def test_sanitize_cell_neutralises_formula_prefixes(self, prefix: str) -> None:
+        assert sanitize_cell(prefix + "cmd") == "'" + prefix + "cmd"
+
+    def test_sanitize_cell_leaves_plain_values_alone(self) -> None:
+        assert sanitize_cell("Alice") == "Alice"
+        assert sanitize_cell("") == ""
+        assert sanitize_cell(3) == 3
+        assert sanitize_cell(None) is None
+
+    def test_seat_label_is_sanitised(
+        self, export_user: RevelUser, att_event: Event, venue: Venue, active_ticket: Ticket
+    ) -> None:
+        sector = VenueSector.objects.create(venue=venue, name="Floor")
+        seat = VenueSeat.objects.create(sector=sector, label="=CMD()")
+        Ticket.objects.filter(pk=active_ticket.pk).update(seat=seat, sector=sector)
+        export = _create_attendee_export(export_user, att_event)
+
+        generate_attendee_export(export.id)
+
+        ws_att = _load_workbook_from_export(export)["Attendees"]
+        row = next(ws_att.iter_rows(min_row=2, max_row=2))
+        seat_cell = row[10]  # "Seat" column, right after "Guest Name"
+        assert seat_cell.value == "'=CMD()"
+        assert seat_cell.data_type != "f"

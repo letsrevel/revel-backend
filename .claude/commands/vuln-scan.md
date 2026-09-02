@@ -78,7 +78,7 @@ If there are **zero** candidates after dedup, skip to Phase 5 and report a clean
 
 ## Phase 3 — Fan out VERIFIERS (parallel)
 
-For each surviving candidate, dispatch a `vuln-verifier` agent via the **Agent tool** with `subagent_type: "vuln-verifier"` (default model sonnet; you may use opus for CRITICAL-severity candidates). One verifier per candidate; if there are many trivial/low candidates you may batch up to 3 closely-related ones into a single verifier call, but ask it to emit one `### VERDICT` block per `id`. Cap concurrency at ~6 per wave.
+For each surviving candidate, dispatch a `vuln-verifier` agent via the **Agent tool** with `subagent_type: "vuln-verifier"` (default model opus, set in the agent's frontmatter; you may pass sonnet for trivial/LOW candidates to save cost). One verifier per candidate; if there are many trivial/low candidates you may batch up to 3 closely-related ones into a single verifier call, but ask it to emit one `### VERDICT` block per `id`. Cap concurrency at ~6 per wave.
 
 Pass each verifier the **complete candidate block verbatim** (all fields). It will independently re-read the code and return a `### VERDICT` with `verdict`, `confidence`, `severity`, and `reasoning`.
 

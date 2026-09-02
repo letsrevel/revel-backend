@@ -60,7 +60,7 @@ def sanitize_cell(value: t.Any) -> t.Any:
     Prefixes any string a spreadsheet app would interpret as a formula with a
     literal apostrophe so it is rendered as inert text.
     """
-    if isinstance(value, str) and value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+    if isinstance(value, str) and value and value[0] in ("=", "+", "-", "@", "\t", "\r", "\n"):
         return "'" + value
     return value
 

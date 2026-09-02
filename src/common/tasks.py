@@ -264,12 +264,21 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
     quarantined = []
     filename = getattr(file_field, "name", file_hash)
     name = Path(filename).name
-    for audit in audit_qs:
+    # Only audits with no QuarantinedFile yet: a re-upload of identical bytes to the same
+    # instance re-matches earlier audits whose quarantine row already exists, and bulk_create
+    # writes each ContentFile to storage *before* the INSERT — including them would leave an
+    # orphan blob per conflict. The status update is scoped to these same rows so an audit
+    # inserted meanwhile is never marked MALICIOUS without a quarantine row to notify from.
+    pending = list(audit_qs.filter(quarantinedfile__isnull=True))
+    for audit in pending:
         quarantined.append(QuarantinedFile(audit=audit, file=ContentFile(file_bytes, name), findings=findings))
     with transaction.atomic():
-        audit_qs.update(status=FileUploadAudit.FileUploadAuditStatus.MALICIOUS, updated_at=timezone.now())
-        # ignore_conflicts: a re-upload of identical bytes re-matches an audit whose OneToOne
-        # QuarantinedFile already exists; without this the IntegrityError would roll everything back.
+        audit_qs.filter(pk__in=[audit.pk for audit in pending]).update(
+            status=FileUploadAudit.FileUploadAuditStatus.MALICIOUS, updated_at=timezone.now()
+        )
+        # ignore_conflicts: two concurrent scans of the same instance can still race on the
+        # OneToOne; without this the IntegrityError would roll back the detachment below and
+        # leave the malicious file live.
         QuarantinedFile.objects.bulk_create(quarantined, ignore_conflicts=True)
         if instance._meta.get_field(field).null:
             # Nullable field: blank the reference so the live file is dropped.
@@ -323,9 +332,12 @@ def notify_malware_detected(
     - Organization owner (if applicable)
     - File uploader
     """
-    # Get the file upload audit record. Scope by app/model/field (not just hash) so a cross-model
-    # hash collision can't pull in an audit that has no QuarantinedFile.
-    audits = FileUploadAudit.objects.filter(app=app, model=model, field=field, file_hash=file_hash, notified=False)
+    # Get the file upload audit record. Scope by app/model/field/instance (not just hash) so
+    # neither a cross-model hash collision nor another instance's identical upload can pull in
+    # an audit whose uploader/quarantine record don't belong to this ``pk``.
+    audits = FileUploadAudit.objects.filter(
+        app=app, model=model, field=field, file_hash=file_hash, instance_pk=pk, notified=False
+    )
 
     for audit in audits:
         quarantined_file = QuarantinedFile.objects.filter(audit=audit).first()

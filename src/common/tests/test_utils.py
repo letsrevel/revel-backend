@@ -269,3 +269,54 @@ class TestUpdateOrCreateWithRaceProtection:
         ):
             with pytest.raises(ValidationError):
                 update_or_create_with_race_protection(Tag, {"name": "uoc-tag-e"}, {"description": "x"})
+
+
+@pytest.fixture
+def heif_with_exif() -> InMemoryUploadedFile:
+    """A HEIF image (the iPhone default) carrying EXIF, including a GPS IFD."""
+    exif_bytes = piexif.dump(
+        {
+            "0th": {piexif.ImageIFD.ImageDescription: b"Hello world"},
+            "Exif": {},
+            "GPS": {piexif.GPSIFD.GPSLatitude: ((48, 1), (12, 1), (0, 1))},
+            "1st": {},
+            "thumbnail": None,
+        }
+    )
+    buffer = BytesIO()
+    Image.new("RGB", (10, 10), color="red").save(buffer, format="HEIF", exif=exif_bytes)
+    buffer.seek(0)
+    return InMemoryUploadedFile(
+        file=buffer,
+        field_name="test",
+        name="photo.heic",
+        content_type="image/heic",
+        size=buffer.getbuffer().nbytes,
+        charset=None,
+    )
+
+
+def test_strip_exif_removes_data_from_heif(heif_with_exif: InMemoryUploadedFile) -> None:
+    """pillow-heif's encoder copies ``Image.info`` (EXIF/XMP) into the output — unlike Pillow's
+    built-in encoders — so leaving ``exif=`` out of ``save()`` alone would leak GPS for HEIC."""
+    source = Image.open(heif_with_exif)
+    assert dict(source.getexif().get_ifd(0x8825)), "fixture should carry a GPS IFD"
+    heif_with_exif.seek(0)
+
+    stripped = strip_exif(heif_with_exif)
+    stripped.seek(0)
+
+    image_stripped = Image.open(stripped)
+    assert image_stripped.format == "HEIF"
+    assert not dict(image_stripped.getexif()), "EXIF should be stripped from HEIF output"
+
+
+def test_strip_exif_rejects_image_over_pixel_budget() -> None:
+    """The pixel budget is enforced from the header, before decoding, for every strip_exif caller."""
+    buffer = BytesIO()
+    Image.new("L", (20, 20), color=255).save(buffer, format="PNG")
+    buffer.seek(0)
+
+    with mock.patch("common.utils.MAX_IMAGE_PIXELS", 100):
+        with pytest.raises(ValidationError, match="megapixels"):
+            strip_exif(buffer)  # type: ignore[arg-type]

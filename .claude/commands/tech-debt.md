@@ -96,7 +96,7 @@ If there are **zero** candidates after dedup, skip to Phase 5 and report a clean
 
 ## Phase 3 — Fan out VERIFIERS (parallel)
 
-For each surviving candidate, dispatch a `tech-debt-verifier` agent via the **Agent tool** with `subagent_type: "tech-debt-verifier"` (default model sonnet; you may use opus for CRITICAL-severity or repo-wide-impact candidates). One verifier per candidate; you may batch up to 3 closely-related candidates into a single verifier call, but ask it to emit one `### VERDICT` block per `id`. Cap concurrency at ~6 per wave.
+For each surviving candidate, dispatch a `tech-debt-verifier` agent via the **Agent tool** with `subagent_type: "tech-debt-verifier"` (default model opus, set in the agent's frontmatter; you may pass sonnet for trivial/LOW candidates to save cost). One verifier per candidate; you may batch up to 3 closely-related candidates into a single verifier call, but ask it to emit one `### VERDICT` block per `id`. Cap concurrency at ~6 per wave.
 
 Pass each verifier the **complete candidate block verbatim** (all fields). It independently re-reads the code and returns a `### VERDICT` with `verdict`, `confidence`, `severity`, `category`, and `reasoning`. **Dead-code candidates get special rigor** — the verifier must prove no references exist anywhere (including dynamic `getattr`, signal receivers, URL patterns, template/`__init__` re-exports) before confirming.
 

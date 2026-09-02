@@ -148,7 +148,7 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
 
     for ticket in tickets:
         payment = getattr(ticket, "payment", None)
-        seat_label = ticket.seat.label if ticket.seat else ""
+        seat_label = sanitize_cell(ticket.seat.label) if ticket.seat else ""
         is_checked_in = ticket.status == Ticket.TicketStatus.CHECKED_IN
         ws.append(
             [

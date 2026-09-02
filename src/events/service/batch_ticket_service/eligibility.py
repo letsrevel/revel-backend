@@ -262,13 +262,15 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         Raises:
             HttpError: 400 when the event cap or a tier cap is exceeded.
         """
+        # Lock the Event row BEFORE reading the cap off it: the pre-lock instance can be
+        # stale (an organizer enabling or tightening max_tickets_per_user meanwhile), and a
+        # stale None would skip the check entirely. The tier lock only serializes same-tier
+        # carts; the event cap spans tiers a concurrent cart need not share, so this anchor
+        # (the same one assert_event_capacity takes) is what serializes two carts by the
+        # same buyer against the cap.
+        self.event = Event.objects.select_for_update().get(pk=self.event.pk)
         event_cap = self.event.max_tickets_per_user
         if event_cap is not None:
-            # Lock the Event row before the event-wide count. The tier lock only
-            # serializes same-tier carts; the event cap spans tiers a concurrent cart
-            # need not share, so this anchor (the same one assert_event_capacity takes)
-            # is what serializes two carts by the same buyer against the cap.
-            self.event = Event.objects.select_for_update().get(pk=self.event.pk)
             existing = self.get_user_ticket_count()
             remaining = max(0, event_cap - existing)
             requested = sum(len(g.items) for g in groups)

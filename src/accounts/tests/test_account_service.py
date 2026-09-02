@@ -534,3 +534,30 @@ class TestRegisterWithReferralCode:
             account_service.register_user(payload)
 
         assert RevelUser.objects.filter(email="referred@example.com").count() == 0
+
+
+def test_reset_password_for_banned_user_is_blocked_and_token_stays_consumed(user: RevelUser) -> None:
+    """A ban added after the token was issued blocks the reset with a 403, and the token is
+    blacklisted *durably* — the raise must not roll the blacklist row back with the reset's
+    savepoint, or the token would become redeemable again once the ban is lifted."""
+    from ninja_jwt.token_blacklist.models import BlacklistedToken
+
+    from accounts.models import GlobalBan
+
+    payload = schema.PasswordResetJWTPayloadSchema(
+        user_id=user.id, email=user.email, exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME
+    )
+    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    ban = GlobalBan.objects.create(
+        ban_type=GlobalBan.BanType.EMAIL, value=user.email, normalized_value=user.email, reason="spam"
+    )
+
+    with pytest.raises(HttpError) as exc:
+        account_service.reset_password(token, "a-new-valid-Password-123!")
+    assert exc.value.status_code == 403
+    assert BlacklistedToken.objects.filter(token__jti=payload.jti).exists()
+
+    ban.delete()
+    with pytest.raises(HttpError) as exc:
+        account_service.reset_password(token, "a-new-valid-Password-123!")
+    assert exc.value.status_code == 401  # blacklisted, not redeemable

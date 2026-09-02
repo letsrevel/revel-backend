@@ -16,19 +16,41 @@ from PIL import Image
 from pydantic import BaseModel
 
 from common import tasks
+from common.fields import MAX_IMAGE_PIXELS
 
 from .models import FileUploadAudit
 
+# ``Image.info`` keys that carry metadata (EXIF incl. GPS, XMP, JPEG comments). Pillow's
+# built-in encoders only write what is passed to ``save()``, but plugins such as
+# pillow-heif copy ``info`` wholesale into the output, so the keys must be dropped from
+# the source image itself rather than merely left out of the ``save()`` call.
+_METADATA_INFO_KEYS = ("exif", "xmp", "XML:com.adobe.xmp", "Raw profile type exif", "comment")
+
 
 def strip_exif(image_file: File) -> InMemoryUploadedFile:  # type: ignore[type-arg]
-    """Strip EXIF data from a Django File or InMemoryUploadedFile."""
-    image = Image.open(image_file)
+    """Strip EXIF data from a Django File or InMemoryUploadedFile.
+
+    Raises:
+        ValidationError: If the image exceeds ``MAX_IMAGE_PIXELS``. Checked from the
+            header before any pixel is decoded, so every image path is bounded here —
+            including ones (questionnaire uploads) that skip ``validate_image_file``.
+    """
+    try:
+        image = Image.open(image_file)
+    except Image.DecompressionBombError:
+        raise ValidationError(f"Image must be under {MAX_IMAGE_PIXELS // 1_000_000} megapixels.")
+    # Image.open is lazy: width/height come from the header, so this bounds the raster
+    # before the save below decodes it (memory-DoS guard).
+    if image.width * image.height > MAX_IMAGE_PIXELS:
+        raise ValidationError(f"Image must be under {MAX_IMAGE_PIXELS // 1_000_000} megapixels.")
     _format = image.format or "JPEG"
 
     output = BytesIO()
-    # Re-saving without an ``exif=`` argument discards metadata without
-    # materializing the decoded raster an extra ~3x (Image.frombytes on
-    # tobytes()) — a memory-DoS guard for large images.
+    # Drop the metadata from ``info`` and re-save the same image object. This strips
+    # EXIF for every registered encoder without materializing the decoded raster an
+    # extra ~3x (Image.frombytes on tobytes()) — a memory-DoS guard for large images.
+    for key in _METADATA_INFO_KEYS:
+        image.info.pop(key, None)
     image.save(output, format=_format)
     output.seek(0)
 

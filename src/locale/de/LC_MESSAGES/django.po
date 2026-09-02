@@ -1560,7 +1560,9 @@ msgstr "Dieses Mitglied hat kein Ticket für dieses Event."
 
 #, python-brace-format
 msgid "Invoice totals do not reconcile with its line items: {details}"
-msgstr "Die Rechnungssummen stimmen nicht mit den Rechnungspositionen überein: {details}"
+msgstr ""
+"Die Rechnungssummen stimmen nicht mit den Rechnungspositionen überein: "
+"{details}"
 
 msgid "Only draft invoices can be edited."
 msgstr "Nur Rechnungsentwürfe können bearbeitet werden."
@@ -2340,10 +2342,12 @@ msgid "Event '%s' does not require a ticket."
 msgstr "Event '%s' erfordert kein Ticket."
 
 #, python-format
-msgid "Event '%s' is invitation-only and cannot be covered by a series pass."
+msgid ""
+"Event '%s' is invitation-only or members-only and cannot be covered by a "
+"series pass."
 msgstr ""
-"Event '%s' ist nur auf Einladung zugänglich und kann nicht durch einen "
-"Serienpass abgedeckt werden."
+"Event '%s' ist nur auf Einladung oder nur für Mitglieder zugänglich und kann "
+"nicht durch einen Serienpass abgedeckt werden."
 
 msgid ""
 "Events gated by an admission questionnaire cannot be covered by a series "

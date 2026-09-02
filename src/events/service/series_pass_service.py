@@ -161,8 +161,8 @@ def validate_events_coverable(series: EventSeries, events: t.Sequence[Event]) ->
 
     Every event covered by a series pass must be "simple": it must belong to
     the given series (which must itself be non-recurring), be OPEN, require a
-    ticket, not be invitation-only, and not be gated by an admission
-    questionnaire targeting either the event or the series.
+    ticket, be PUBLIC (neither invitation-only nor members-only), and not be
+    gated by an admission questionnaire targeting either the event or the series.
 
     Args:
         series: The EventSeries the pass belongs to.

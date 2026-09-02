@@ -1,5 +1,6 @@
 """Service for batch ticket purchases with seat selection support."""
 
+import dataclasses
 import typing as t
 from decimal import Decimal
 from uuid import UUID
@@ -307,8 +308,14 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # Per-user ticket caps, layered across the whole cart (#846 Decision 4). Runs
         # HERE, under the tier locks (and taking the Event row lock for the event-wide
         # cap), so two concurrent carts by the same buyer are serialized and cannot both
-        # read a stale pre-write count and slip past max_tickets_per_user (TOCTOU).
-        self.assert_per_user_limits(self.groups)
+        # read a stale pre-write count and slip past max_tickets_per_user (TOCTOU). The
+        # groups are rebound to the LOCKED tier rows so the tier caps are read fresh too —
+        # a pre-lock instance could still say None for a cap the organizer just enabled.
+        locked_groups = [
+            dataclasses.replace(group, tier=locked_tier)
+            for group, locked_tier in zip(self.groups, locked_tiers, strict=True)
+        ]
+        self.assert_per_user_limits(locked_groups)
 
         # Dispatch off the LOCKED rows, as the single-tier engine always did — the
         # pre-lock read above only decides whether VIES is worth a round-trip.
