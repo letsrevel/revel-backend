@@ -17,8 +17,8 @@ from django.http import HttpRequest
 from django.utils.translation import gettext as _
 from ninja.responses import Response
 
-from accounts.exceptions import ReferralForfeitureConfirmationRequiredError
-from common.exception_handlers import ExceptionHandler, register_handlers
+from accounts.exceptions import OIDCLoginError, ReferralForfeitureConfirmationRequiredError
+from common.exception_handlers import ExceptionHandler, make_simple_handler, register_handlers
 
 #: Machine-readable discriminator the frontend keys its consequence screen off.
 REFERRAL_FORFEITURE_CODE = "referral_forfeiture_confirmation_required"
@@ -61,6 +61,7 @@ def handle_referral_forfeiture_confirmation_required(
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     ReferralForfeitureConfirmationRequiredError: handle_referral_forfeiture_confirmation_required,
+    OIDCLoginError: make_simple_handler(400),
 }
 
 
