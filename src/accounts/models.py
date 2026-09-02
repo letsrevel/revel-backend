@@ -393,6 +393,27 @@ class ImpersonationLog(models.Model):
         return self.redeemed_at is not None
 
 
+class ExternalIdentity(TimeStampedModel):
+    """A linked OpenID Connect identity (issuer + subject) for a user.
+
+    ``provider`` is the operator-configured key from ``settings.OIDC_PROVIDERS``;
+    ``subject`` is the ID token ``sub`` claim, which is stable per issuer+client.
+    """
+
+    user = models.ForeignKey(RevelUser, on_delete=models.CASCADE, related_name="external_identities")
+    provider = models.CharField(max_length=64, db_index=True)
+    subject = models.CharField(max_length=255)
+    email = models.EmailField(blank=True, help_text="Email claim at link time (informational).")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["provider", "subject"], name="uniq_external_identity_provider_subject"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.provider}:{self.subject} → {self.user.email}"
+
+
 class ReferralCode(TimeStampedModel):
     """Tracks a unique referral code assigned 1:1 to a user.
 

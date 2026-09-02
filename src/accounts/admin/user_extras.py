@@ -11,7 +11,7 @@ from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import TabularInline
 
-from accounts.models import GlobalBan, ReferralCode, RevelUser
+from accounts.models import ExternalIdentity, GlobalBan, ReferralCode, RevelUser
 
 
 class ReferralCodeInline(TabularInline):  # type: ignore[misc]
@@ -39,6 +39,19 @@ class GlobalBanInline(TabularInline):  # type: ignore[misc]
     verbose_name_plural = "Global bans"
 
     def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        return False
+
+
+class ExternalIdentityInline(TabularInline):  # type: ignore[misc]
+    """Linked OpenID Connect identities. Read-only; delete to unlink."""
+
+    model = ExternalIdentity
+    extra = 0
+    fields = ("provider", "subject", "email", "created_at")
+    readonly_fields = ("provider", "subject", "email", "created_at")
+    can_delete = True
+
+    def has_add_permission(self, request: t.Any, obj: t.Any = None) -> bool:  # noqa: D102
         return False
 
 
