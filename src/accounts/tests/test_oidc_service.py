@@ -1,5 +1,6 @@
 """Tests for discovery, state handling and the authorization URL (accounts.service.oidc)."""
 
+import time
 import typing as t
 from urllib.parse import parse_qs, urlparse
 
@@ -59,7 +60,6 @@ def test_get_provider(providers: None) -> None:
     assert oidc.get_provider("google") == GOOGLE
     with pytest.raises(Http404):
         oidc.get_provider("nope")
-    assert oidc.list_providers() == [GOOGLE]
 
 
 @pytest.mark.parametrize(
@@ -77,6 +77,7 @@ def test_get_provider(providers: None) -> None:
         ("/\n/evil.test", "/"),
         ("/\r/evil.test", "/"),
         ("/events/x#frag", "/events/x#frag"),
+        ("/" + "x" * 2048, "/"),
     ],
 )
 def test_safe_return_url(raw: str | None, expected: str) -> None:
@@ -110,9 +111,19 @@ def test_discovery_transport_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc.value.code == "provider"
 
 
+def test_discovery_non_object_body_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(OIDCLoginError) as exc:
+        oidc.discovery(GOOGLE)
+    assert exc.value.code == "provider"
+
+
 def test_begin_login_builds_url_and_stores_state(providers: None, mock_http: list[httpx.Request]) -> None:
-    url = oidc.begin_login(GOOGLE, "/events/x")
-    parsed = urlparse(url)
+    start = oidc.begin_login(GOOGLE, "/events/x")
+    parsed = urlparse(start.url)
     q = {k: v[0] for k, v in parse_qs(parsed.query).items()}
 
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == DISCOVERY_DOC["authorization_endpoint"]
@@ -122,6 +133,7 @@ def test_begin_login_builds_url_and_stores_state(providers: None, mock_http: lis
     assert q["scope"] == "openid email profile"
     assert q["code_challenge_method"] == "S256"
     assert len(q["state"]) >= 32 and len(q["nonce"]) >= 32
+    assert q["state"] == start.state
 
     entry = cache.get(oidc._state_key(q["state"]))
     assert entry == {
@@ -134,9 +146,14 @@ def test_begin_login_builds_url_and_stores_state(providers: None, mock_http: lis
 
 
 def test_begin_login_sanitises_return_url(providers: None, mock_http: list[httpx.Request]) -> None:
-    url = oidc.begin_login(GOOGLE, "https://evil.test")
-    state = parse_qs(urlparse(url).query)["state"][0]
-    assert cache.get(oidc._state_key(state))["return_url"] == "/"
+    start = oidc.begin_login(GOOGLE, "https://evil.test")
+    assert cache.get(oidc._state_key(start.state))["return_url"] == "/"
+
+
+def test_state_matches_cookie() -> None:
+    assert oidc.state_matches_cookie("s", "s") is True
+    assert oidc.state_matches_cookie("s", "other") is False
+    assert oidc.state_matches_cookie(None, "s") is False
 
 
 def _fake_signing_key(provider: OIDCProviderConfig, id_token: str) -> t.Any:
@@ -190,7 +207,8 @@ def test_exchange_code_posts_pkce_and_secret(providers: None, monkeypatch: pytes
 
 
 @pytest.mark.parametrize(
-    "response", [httpx.Response(400, json={"error": "invalid_grant"}), httpx.Response(200, json={})]
+    "response",
+    [httpx.Response(400, json={"error": "invalid_grant"}), httpx.Response(200, json={}), httpx.Response(200, json=[])],
 )
 def test_exchange_code_failures(providers: None, monkeypatch: pytest.MonkeyPatch, response: httpx.Response) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
@@ -211,6 +229,15 @@ def test_verify_id_token_happy_path(providers: None, mock_http: list[httpx.Reque
     assert claims.email_verified is True
     assert claims.given_name == "Alice"
     assert claims.locale == "de-AT"
+
+
+def test_verify_id_token_tolerates_clock_skew(
+    providers: None, mock_http: list[httpx.Request], signing_key: None
+) -> None:
+    """A token issued a few seconds ahead of our clock (observed from Google) must still verify."""
+    token = make_id_token(iat=int(time.time()) + 10)
+    claims = oidc._verify_id_token(GOOGLE, token, "nonce")
+    assert claims.sub == "sub-1"
 
 
 @pytest.mark.parametrize(
@@ -366,6 +393,19 @@ def test_list_and_unlink(providers: None, user: RevelUser) -> None:
 @pytest.mark.django_db
 def test_unlink_refused_when_stranded(user: RevelUser) -> None:
     user.set_unusable_password()
+    user.save(update_fields=["password"])
+    ExternalIdentity.objects.create(user=user, provider="google", subject="1")
+    with pytest.raises(HttpError) as exc:
+        oidc.unlink_identity(user, "google")
+    assert exc.value.status_code == 400
+    assert user.external_identities.exists()
+
+
+@pytest.mark.django_db
+def test_unlink_refused_when_password_blank(user: RevelUser) -> None:
+    """Legacy IdP-created users have ``password == ""``, for which Django's own
+    ``has_usable_password()`` returns True; the unlink guard must not be fooled by that."""
+    user.password = ""
     user.save(update_fields=["password"])
     ExternalIdentity.objects.create(user=user, provider="google", subject="1")
     with pytest.raises(HttpError) as exc:

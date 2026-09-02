@@ -101,6 +101,12 @@ def test_new_user_created() -> None:
     assert user.external_identities.get().subject == "sub-1"
 
 
+def test_new_user_email_is_lowercased() -> None:
+    user = oidc._resolve_user(GOOGLE, claims(email="John.Doe@Example.com"))
+    assert user.username == user.email == "john.doe@example.com"
+    assert user.external_identities.get().email == "john.doe@example.com"
+
+
 @pytest.mark.parametrize(("locale", "expected"), [(None, "en"), ("xx-YY", "en"), ("it", "it"), ("fr-CH", "fr")])
 def test_language_from_locale(locale: str | None, expected: str) -> None:
     assert oidc._language_from_locale(locale) == expected

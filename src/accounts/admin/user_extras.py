@@ -51,7 +51,8 @@ class ExternalIdentityInline(TabularInline):  # type: ignore[misc]
     readonly_fields = ("provider", "subject", "email", "created_at")
     can_delete = True
 
-    def has_add_permission(self, request: t.Any, obj: t.Any = None) -> bool:  # noqa: D102
+    def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        """Disallow adding identities from the admin; they are created by the OIDC login flow."""
         return False
 
 

@@ -11,6 +11,7 @@ from django.urls import reverse
 from accounts.exceptions import OIDCLoginError
 from accounts.jwt import create_oidc_login_token
 from accounts.models import RevelUser
+from accounts.service.oidc import OIDCLoginStart
 from revel.oidc_config import OIDCProviderConfig
 
 pytestmark = pytest.mark.django_db
@@ -26,12 +27,30 @@ def _settings(settings: t.Any) -> None:
     settings.FRONTEND_BASE_URL = "https://app.example.test"
 
 
+def _seed_state_cookie(client: Client, state: str = "s") -> None:
+    """Visit the start route (with ``begin_login`` patched) so the state cookie lands on the client.
+
+    The Django test client persists cookies across requests, mirroring how a real browser
+    carries the ``oidc_state`` cookie from ``/start`` to ``/callback``.
+    """
+    with patch(
+        "accounts.service.oidc.begin_login", return_value=OIDCLoginStart(url="https://idp.test/auth", state=state)
+    ):
+        client.get(reverse("api:oidc_start", kwargs={"provider": "google"}))
+
+
 def test_start_redirects_to_idp(client: Client) -> None:
-    with patch("accounts.service.oidc.begin_login", return_value="https://idp.test/auth?x=1") as begin:
+    start = OIDCLoginStart(url="https://idp.test/auth?x=1", state="s")
+    with patch("accounts.service.oidc.begin_login", return_value=start) as begin:
         response = client.get(reverse("api:oidc_start", kwargs={"provider": "google"}), {"return_url": "/events/1"})
     assert response.status_code == 302
     assert response["Location"] == "https://idp.test/auth?x=1"
     begin.assert_called_once_with(GOOGLE, "/events/1")
+    cookie = response.cookies["oidc_state"]
+    assert cookie.value == "s"
+    assert cookie["httponly"] is True
+    assert cookie["samesite"] == "Lax"
+    assert cookie["path"] == "/api/auth/oidc"
 
 
 def test_start_unknown_provider_404(client: Client) -> None:
@@ -40,11 +59,13 @@ def test_start_unknown_provider_404(client: Client) -> None:
 
 
 def test_callback_success_redirects_to_frontend(client: Client) -> None:
+    _seed_state_cookie(client, state="s")
     with patch("accounts.service.oidc.complete_login", return_value="one.time.token") as complete:
         response = client.get(reverse("api:oidc_callback", kwargs={"provider": "google"}), {"code": "c", "state": "s"})
     assert response.status_code == 302
     assert response["Location"] == "https://app.example.test/auth/callback?token=one.time.token"
     complete.assert_called_once_with(GOOGLE, "c", "s")
+    assert response.cookies["oidc_state"]["max-age"] == 0
 
 
 def test_callback_idp_error_redirects_denied(client: Client) -> None:
@@ -62,8 +83,28 @@ def test_callback_missing_code_is_state_error(client: Client) -> None:
     assert response["Location"] == "https://app.example.test/login?error=oidc_state"
 
 
+def test_callback_without_state_cookie_is_state_error(client: Client) -> None:
+    with patch("accounts.service.oidc.complete_login") as complete:
+        response = client.get(reverse("api:oidc_callback", kwargs={"provider": "google"}), {"code": "c", "state": "s"})
+    assert response.status_code == 302
+    assert response["Location"] == "https://app.example.test/login?error=oidc_state"
+    complete.assert_not_called()
+
+
+def test_callback_with_mismatched_state_cookie_is_state_error(client: Client) -> None:
+    _seed_state_cookie(client, state="cookie-state")
+    with patch("accounts.service.oidc.complete_login") as complete:
+        response = client.get(
+            reverse("api:oidc_callback", kwargs={"provider": "google"}), {"code": "c", "state": "different-state"}
+        )
+    assert response.status_code == 302
+    assert response["Location"] == "https://app.example.test/login?error=oidc_state"
+    complete.assert_not_called()
+
+
 @pytest.mark.parametrize("code", ["state", "provider", "unverified_email", "no_email", "banned", "inactive"])
 def test_callback_login_error_codes(client: Client, code: str) -> None:
+    _seed_state_cookie(client, state="s")
     with patch("accounts.service.oidc.complete_login", side_effect=OIDCLoginError(code)):  # type: ignore[arg-type]
         response = client.get(reverse("api:oidc_callback", kwargs={"provider": "google"}), {"code": "c", "state": "s"})
     assert response.status_code == 302

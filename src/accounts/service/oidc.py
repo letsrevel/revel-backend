@@ -9,6 +9,7 @@ import base64
 import hashlib
 import secrets
 import typing as t
+from dataclasses import dataclass
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -51,11 +52,6 @@ def get_provider(key: str) -> OIDCProviderConfig:
     raise Http404("Unknown OIDC provider.")
 
 
-def list_providers() -> list[OIDCProviderConfig]:
-    """All configured providers, in configuration order."""
-    return list(settings.OIDC_PROVIDERS)
-
-
 def safe_return_url(url: str | None) -> str:
     """Accept only a relative path (``/...``), never a scheme or host. Defaults to ``/``.
 
@@ -65,6 +61,7 @@ def safe_return_url(url: str | None) -> str:
     """
     if (
         not url
+        or len(url) > 2048
         or not url.startswith("/")
         or url.startswith("//")
         or url.startswith("/\\")
@@ -101,10 +98,13 @@ def discovery(provider: OIDCProviderConfig) -> dict[str, t.Any]:
         with _http_client() as client:
             response = client.get(url)
             response.raise_for_status()
-            doc = t.cast(dict[str, t.Any], response.json())
+            doc = response.json()
     except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
         logger.warning("oidc_discovery_failed", provider=provider.key, error=str(e))
         raise OIDCLoginError("provider") from e
+    if not isinstance(doc, dict):
+        logger.warning("oidc_discovery_not_an_object", provider=provider.key)
+        raise OIDCLoginError("provider")
     if doc.get("issuer", "").rstrip("/") != provider.issuer:
         logger.warning("oidc_discovery_issuer_mismatch", provider=provider.key, issuer=doc.get("issuer"))
         raise OIDCLoginError("provider")
@@ -120,7 +120,15 @@ def _redirect_uri(provider: OIDCProviderConfig) -> str:
     return f"{settings.BASE_URL}/api/auth/oidc/{provider.key}/callback"
 
 
-def begin_login(provider: OIDCProviderConfig, return_url: str | None) -> str:
+@dataclass(frozen=True)
+class OIDCLoginStart:
+    """The IdP authorization URL, and the state the controller binds to the browser via a cookie."""
+
+    url: str
+    state: str
+
+
+def begin_login(provider: OIDCProviderConfig, return_url: str | None) -> OIDCLoginStart:
     """Start a login: store state/nonce/PKCE in the cache and return the IdP authorization URL."""
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -142,7 +150,18 @@ def begin_login(provider: OIDCProviderConfig, return_url: str | None) -> str:
         "code_challenge_method": "S256",
     }
     logger.info("oidc_login_started", provider=provider.key)
-    return f"{discovery(provider)['authorization_endpoint']}?{urlencode(params)}"
+    url = f"{discovery(provider)['authorization_endpoint']}?{urlencode(params)}"
+    return OIDCLoginStart(url=url, state=state)
+
+
+def state_matches_cookie(cookie_value: str | None, state: str) -> bool:
+    """Whether the ``state`` returned by the IdP matches the value bound to the browser via cookie.
+
+    Guards against login CSRF: without this, an attacker could complete their own IdP
+    login and trick a victim's browser into loading the resulting callback URL, logging
+    the victim into the attacker's account.
+    """
+    return cookie_value is not None and secrets.compare_digest(cookie_value, state)
 
 
 class OIDCClaims(BaseModel):
@@ -201,10 +220,13 @@ def _exchange_code(provider: OIDCProviderConfig, code: str, verifier: str) -> st
         with _http_client() as client:
             response = client.post(discovery(provider)["token_endpoint"], data=data)
             response.raise_for_status()
-            body = t.cast(dict[str, t.Any], response.json())
+            body = response.json()
     except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
         logger.warning("oidc_token_exchange_failed", provider=provider.key, error=str(e))
         raise OIDCLoginError("provider") from e
+    if not isinstance(body, dict):
+        logger.warning("oidc_token_response_not_an_object", provider=provider.key)
+        raise OIDCLoginError("provider")
     id_token = body.get("id_token")
     if not isinstance(id_token, str) or not id_token:
         logger.warning("oidc_token_response_missing_id_token", provider=provider.key)
@@ -222,6 +244,7 @@ def _verify_id_token(provider: OIDCProviderConfig, id_token: str, nonce: str) ->
             audience=provider.client_id,
             issuer=discovery(provider)["issuer"],
             options={"require": ["exp", "iat", "sub"]},
+            leeway=30,  # Google intermittently issues tokens with `iat` a few seconds ahead of our clock.
         )
     except jwt.PyJWTError as e:
         logger.warning("oidc_id_token_invalid", provider=provider.key, error=str(e))
@@ -271,7 +294,7 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
 
     if not claims.email:
         raise OIDCLoginError("no_email")
-    email = str(claims.email)
+    email = str(claims.email).lower()
     if is_email_globally_banned(email):
         raise OIDCLoginError("banned")
 
@@ -310,7 +333,7 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
             user.set_unusable_password()
             user.save(update_fields=["password"])
 
-    identity, _ = get_or_create_with_race_protection(
+    identity, _identity_created = get_or_create_with_race_protection(
         ExternalIdentity,
         Q(provider=provider.key, subject=claims.sub),
         {"user": user, "provider": provider.key, "subject": claims.sub, "email": email},
@@ -366,7 +389,9 @@ def unlink_identity(user: RevelUser, provider: str) -> None:
     """Remove a linked identity unless it is the account's only way in."""
     identity = get_object_or_404(ExternalIdentity, user=user, provider=provider)
     has_other = user.external_identities.exclude(pk=identity.pk).exists()
-    if not user.has_usable_password() and not has_other:
+    # has_usable_password() is True for password == "" (legacy IdP-created users never set
+    # one), so also require a non-empty password field before treating it as usable.
+    if not (user.password and user.has_usable_password()) and not has_other:
         raise HttpError(400, str(_("Set a password before unlinking your only sign-in method.")))
     identity.delete()
     logger.info("oidc_identity_unlinked", user_id=str(user.id), provider=provider)

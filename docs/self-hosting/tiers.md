@@ -72,7 +72,10 @@ dependency. `OIDC_PROVIDERS` is the exception — it is opt-in and empty by defa
   provider. Any OpenID Connect issuer works — Google (`https://accounts.google.com`), Keycloak
   (`https://kc.example.org/realms/<realm>`), Authentik, Zitadel. Google needs no verification for
   the default scopes; publish the OAuth consent screen to "In production" to lift the 100-user
-  testing cap.
+  testing cap. Auto-linking to an existing account trusts the `email_verified` claim from every
+  configured issuer, so only list identity providers whose email verification you trust.
+  `OIDC_LOGIN_TOKEN_LIFETIME_SECONDS` (default `60`) controls how long the one-time hand-off
+  token from the callback to the frontend stays valid.
 - `FEATURE_OBSERVABILITY` — master toggle for the metrics/traces/logs exporters and the async log
   queue. Set `False` (and drop the `observability` profile) on Slim. Legacy alias:
   `ENABLE_OBSERVABILITY` (deprecated). See [Observability](observability.md).

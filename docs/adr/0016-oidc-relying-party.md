@@ -39,6 +39,8 @@ Policies:
 - TOTP is skipped for IdP logins (the IdP's MFA is trusted).
 - `is_staff`/`is_superuser` are never derived from claims.
 - `django-google-sso` remains only for the Django admin login page.
+- `state` is also bound to the browser via an HttpOnly, `SameSite=Lax` cookie on the API
+  origin.
 
 ## Consequences
 
