@@ -16,11 +16,15 @@ import jwt
 import structlog
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
+from django.db.models import Q
 from django.http import Http404
 from django.utils.http import url_has_allowed_host_and_scheme
 from pydantic import BaseModel, EmailStr, ValidationError
 
 from accounts.exceptions import OIDCLoginError
+from accounts.models import ExternalIdentity, RevelUser
+from common.utils import get_or_create_with_race_protection
 from revel.oidc_config import OIDCProviderConfig
 
 logger = structlog.get_logger(__name__)
@@ -225,3 +229,79 @@ def _verify_id_token(provider: OIDCProviderConfig, id_token: str, nonce: str) ->
     except ValidationError as e:
         logger.warning("oidc_id_token_claims_invalid", provider=provider.key)
         raise OIDCLoginError("provider") from e
+
+
+def _language_from_locale(locale: str | None) -> str:
+    """Map an IdP locale like ``de-AT`` to a supported language code, else the site default."""
+    if not locale:
+        return str(settings.LANGUAGE_CODE)
+    lang = locale.split("-")[0].lower()
+    return lang if lang in {code for code, _ in settings.LANGUAGES} else str(settings.LANGUAGE_CODE)
+
+
+@transaction.atomic
+def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser:  # noqa: C901
+    """Find the user for verified claims, linking or creating as needed.
+
+    Order: existing identity → existing account by email (link, only if the IdP
+    asserts ``email_verified``) → new account. ``is_staff``/``is_superuser`` are never
+    derived from claims.
+    """
+    from accounts.service.global_ban_service import is_email_globally_banned
+
+    identity = ExternalIdentity.objects.select_related("user").filter(provider=provider.key, subject=claims.sub).first()
+    if identity is not None:
+        identity_user = identity.user
+        if is_email_globally_banned(identity_user.email):
+            raise OIDCLoginError("banned")
+        if not identity_user.is_active:
+            raise OIDCLoginError("inactive")
+        logger.info(
+            "oidc_login_completed", provider=provider.key, user_id=str(identity_user.id), created=False, linked=False
+        )
+        return identity_user
+
+    if not claims.email:
+        raise OIDCLoginError("no_email")
+    email = str(claims.email)
+    if is_email_globally_banned(email):
+        raise OIDCLoginError("banned")
+
+    user = RevelUser.objects.select_for_update().filter(username__iexact=email).first()
+    created = False
+    if user is not None:
+        if not claims.email_verified:
+            logger.warning("oidc_link_refused_unverified_email", provider=provider.key, user_id=str(user.id))
+            raise OIDCLoginError("unverified_email")
+        if not user.is_active and not user.guest:
+            raise OIDCLoginError("inactive")
+        if user.guest:
+            user.guest = False
+            user.email_verified = True
+            user.is_active = True
+            user.save(update_fields=["guest", "email_verified", "is_active"])
+        elif not user.email_verified:
+            user.email_verified = True
+            user.save(update_fields=["email_verified"])
+    else:
+        user, created = get_or_create_with_race_protection(
+            RevelUser,
+            Q(username__iexact=email),
+            {
+                "username": email,
+                "email": email,
+                "first_name": claims.given_name,
+                "last_name": claims.family_name,
+                "email_verified": True,
+                "guest": False,
+                "is_active": True,
+                "language": _language_from_locale(claims.locale),
+            },
+        )
+        if created:
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+
+    ExternalIdentity.objects.create(user=user, provider=provider.key, subject=claims.sub, email=email)
+    logger.info("oidc_login_completed", provider=provider.key, user_id=str(user.id), created=created, linked=True)
+    return user
