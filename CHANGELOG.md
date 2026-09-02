@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-09-02
+
+### Security
+
+- A globally banned email or domain could regain a full, active account by RSVPing to a public event as a guest and then running the password reset flow. Guest-user creation and the password-reset request/redeem paths now enforce the ban, and a rejected guest RSVP no longer leaves a lingering user row behind
+- Attacker-controlled questionnaire and event names were rendered unescaped in the questionnaire evaluation/submission admin pages (stored XSS reachable by any organizer against an operator viewing the record); those fields are now escaped
+- A file already flagged by the malware scanner could be re-uploaded and kept live, because the second scan collided on the quarantine record and rolled the whole quarantine back. Re-uploads of known-malicious content are now quarantined reliably
+- An infected questionnaire-file upload stayed live with its audit stuck at `pending` and no alert, because the quarantine step failed on the file field. Malicious questionnaire uploads are now removed and the operator alert fires
+- A public series pass could grant tickets to invitation-only or members-only events, because the coverage gate checked event discoverability (`visibility`) instead of admission type (`event_type`). It now gates on `event_type`
+- Cancelled and banned organization members kept read access to `MEMBERS_ONLY` resources; membership is now filtered by status so lapsed and banned members lose access
+- Concurrent checkouts by a single buyer could exceed `max_tickets_per_user`; the per-user cap is now counted under the row lock so it holds under concurrency
+- Attendee and questionnaire Excel exports embedded attendee-supplied text (guest names, free-text answers) as live spreadsheet formulas (CSV/formula injection); such cells are now neutralized before writing
+- A multiple-choice question with several correct options could inflate an automatically-scored questionnaire past its true score and auto-approve admission; each question now contributes at most its own weight and the total is capped at 100%
+- Staff holding only `edit_event` could cancel or reopen an event through the edit endpoint, bypassing the `manage_event` gate and its refund/waitlist safeguards. Event status transitions now go exclusively through the `manage_event`-gated endpoint
+- A sub-megabyte image with huge pixel dimensions could exhaust worker memory during EXIF stripping; image dimensions are now bounded and the EXIF strip no longer buffers the raster multiple times
+- The manual recurring-events generation endpoint honored a client-supplied `until` far past the 52-week generation ceiling; the override is now clamped to that ceiling
+
 ## [2.5.0] - 2026-09-01
 
 ### Added
