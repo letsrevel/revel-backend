@@ -1,6 +1,6 @@
 # Revel Backend
 
-**An open-source, community-focused event management platform.**
+**An open-source event management, ticketing and membership platform for communities, clubs and independent venues.**
 
 <!-- Status -->
 [![Status](https://img.shields.io/badge/status-Live-green?style=for-the-badge)](https://letsrevel.io)
@@ -35,7 +35,7 @@ This repository contains the **backend API and business logic** for Revel. The c
 
 ---
 
-Revel is an event management and ticketing platform designed with community at its heart. Initially created to serve the specific needs of queer, LGBTQ+, and sex-positive communities, it is built to be event-agnostic, scalable, and a powerful tool for any group that values privacy, control, and transparency.
+Revel is an event management and ticketing platform designed with community at its heart. Initially created to serve the specific needs of queer, LGBTQ+, and sex-positive communities, it is built to be event-agnostic, scalable, and a powerful tool for any group that values privacy, control, and transparency. It works just as well for a gym, a yoga studio, a dance school or a choir: sell monthly or annual memberships, run members-only classes with a plain RSVP, sell a pass for a whole series, and put the membership card in your members' wallets.
 
 Unlike monolithic, corporate platforms that treat events as transactions, Revel treats them as part of a larger community ecosystem.
 
@@ -75,6 +75,11 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 *   **Organizations:** Create and manage your community's central hub. Customize its visibility (Public, Unlisted, Members-Only, Private).
 *   **Roles & Permissions:** Assign roles like Owner, Staff, and Member, with a granular permission system to control who can create events, manage members, and more.
 *   **Membership System:** Manage a roster of members, enabling members-only events and fostering a sense of belonging.
+*   **Membership Tiers & Approval:** Define membership tiers, each with its own approval questionnaire — auto-approved, manually reviewed, or hybrid.
+*   **Subscription Plans:** Sell monthly or annual memberships through Stripe, or record cash and wire payments manually from the dashboard.
+*   **Members-Only Events:** Restrict any event to your members — a weekly class for ten people is a members-only event with a plain RSVP, no tickets needed.
+*   **Series Passes:** Sell one pass covering a whole event series — a class pack, a course or a season — optionally restricted to members.
+*   **Digital Membership Cards:** Members add their card to Apple Wallet or Google Wallet, or download it as a PDF.
 
 #### Trust, Safety & Privacy
 *   **Advanced Attendee Screening:** Gate event eligibility with custom questionnaires. Automatically review submissions or use a manual/hybrid approach to ensure attendees align with your community's values.
