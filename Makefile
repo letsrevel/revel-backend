@@ -170,7 +170,12 @@ run-e2e:
 # safety) — e2e-setup in revel-frontend calls this before run-e2e-daemon.
 .PHONY: e2e-seed
 e2e-seed:
-	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer keycloak
+	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer
+	# Keycloak keeps its realm in an embedded H2 DB inside the container and
+	# `--import-realm` skips a realm that already exists, so a reused container
+	# carries admin-API users and stale realm JSON across runs. Recreating it (no
+	# volume) is the Keycloak equivalent of reset_events below.
+	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait --force-recreate keycloak
 	uv run python src/manage.py reset_events --no-input
 	$(MAKE) seed
 	$(MAKE) bootstrap-tests

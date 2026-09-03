@@ -1,9 +1,14 @@
 # Keycloak realm for the e2e stack
 
 `revel-realm.json` is imported by the `keycloak` service in `docker-compose-e2e.yml`
-(`start-dev --import-realm`) every time the container starts. It exists only for the
-local end-to-end suite (`make e2e-*`, driven from `revel-frontend`); `make run` and
-`make test` never start Keycloak. The client secret and passwords are deliberately trivial.
+(`start-dev --import-realm`) when the container is **created**. Keycloak keeps the realm in
+an embedded H2 database inside the container and skips the import for a realm that already
+exists, so a reused container carries users created through the admin API and ignores edits
+to the JSON. `make e2e-seed` (run by the frontend's `make e2e-setup`) force-recreates the
+container, which is the reset; a plain `docker compose up` reuses whatever state is there.
+It exists only for the local end-to-end suite (`make e2e-*`, driven from `revel-frontend`);
+`make run` and `make test` never start Keycloak. The client secret and passwords are
+deliberately trivial.
 
 | What | Value |
 |---|---|

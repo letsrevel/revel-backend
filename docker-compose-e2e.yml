@@ -11,9 +11,10 @@
 # client explicitly connects to 6432 with DB_USE_PGBOUNCER=True.
 #
 # `keycloak` is the OpenID Connect provider the e2e suite logs in through (generic OIDC
-# login, ADR-0016). Dev mode + `--import-realm` loads e2e/keycloak/revel-realm.json on every
-# start; the e2e Make targets point the backend at it via OIDC_KEYCLOAK_* env. It exists
-# ONLY in this overlay — `make run` / `make test` never start it.
+# login, ADR-0016). Dev mode + `--import-realm` loads e2e/keycloak/revel-realm.json when the
+# container is CREATED; a reused container keeps its embedded H2 state and skips the import,
+# so `make e2e-seed` force-recreates it. The e2e Make targets point the backend at it via
+# OIDC_KEYCLOAK_* env. It exists ONLY in this overlay — `make run` / `make test` never start it.
 
 services:
   pgbouncer:
