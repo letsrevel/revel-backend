@@ -137,7 +137,15 @@ run:
 # which SIGKILLs the workers. The var disables that guard; it's a no-op on Linux/CI.
 # Shared gunicorn invocation for run-e2e / run-e2e-daemon — see the comment on
 # run-e2e for why gthread+PgBouncer and the ObjC fork-safety var.
-E2E_GUNICORN = DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uv run gunicorn revel.wsgi:application \
+# OIDC_KEYCLOAK_*: the e2e stack's Keycloak (docker-compose-e2e.yml, realm in
+# e2e/keycloak/). Inline like the PgBouncer vars so only the e2e server sees a provider;
+# http issuer is accepted because the dev .env has DEBUG=True.
+E2E_OIDC_ENV = OIDC_PROVIDERS=keycloak \
+	OIDC_KEYCLOAK_NAME="Keycloak (e2e)" \
+	OIDC_KEYCLOAK_ISSUER=http://localhost:8080/realms/revel \
+	OIDC_KEYCLOAK_CLIENT_ID=revel-backend \
+	OIDC_KEYCLOAK_CLIENT_SECRET=e2e-secret
+E2E_GUNICORN = DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES $(E2E_OIDC_ENV) uv run gunicorn revel.wsgi:application \
 	--worker-class gthread \
 	--workers $${GUNICORN_WORKERS:-4} \
 	--threads $${GUNICORN_THREADS:-4} \
@@ -149,7 +157,7 @@ E2E_GUNICORN = DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_S
 
 .PHONY: run-e2e
 run-e2e:
-	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer && \
+	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer keycloak && \
 	uv run python src/manage.py generate_test_jwts && \
 	cd src && $(E2E_GUNICORN)
 
@@ -163,6 +171,11 @@ run-e2e:
 .PHONY: e2e-seed
 e2e-seed:
 	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer
+	# Keycloak keeps its realm in an embedded H2 DB inside the container and
+	# `--import-realm` skips a realm that already exists, so a reused container
+	# carries admin-API users and stale realm JSON across runs. Recreating it (no
+	# volume) is the Keycloak equivalent of reset_events below.
+	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait --force-recreate keycloak
 	uv run python src/manage.py reset_events --no-input
 	$(MAKE) seed
 	$(MAKE) bootstrap-tests
@@ -210,7 +223,7 @@ stop-e2e:
 # returns 0 once GET /api/version actually answers.
 .PHONY: run-e2e-daemon
 run-e2e-daemon: stop-e2e
-	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer
+	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer keycloak
 	uv run python src/manage.py generate_test_jwts
 	cd src && $(E2E_GUNICORN) \
 		--daemon \
