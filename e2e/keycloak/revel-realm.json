@@ -1,0 +1,66 @@
+{
+  "realm": "revel",
+  "displayName": "Revel (e2e)",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 300,
+  "clients": [
+    {
+      "clientId": "revel-backend",
+      "name": "Revel backend (e2e)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "e2e-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:8000/api/auth/oidc/keycloak/callback"],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "defaultClientScopes": ["openid", "profile", "email"],
+      "optionalClientScopes": []
+    }
+  ],
+  "users": [
+    {
+      "username": "charlie.member@example.com",
+      "email": "charlie.member@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Charlie",
+      "lastName": "Member",
+      "credentials": [{"type": "password", "value": "password123", "temporary": false}]
+    },
+    {
+      "username": "sso.only@example.com",
+      "email": "sso.only@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sso",
+      "lastName": "Only",
+      "credentials": [{"type": "password", "value": "password123", "temporary": false}]
+    },
+    {
+      "username": "unverified.sso@example.com",
+      "email": "unverified.sso@example.com",
+      "emailVerified": false,
+      "enabled": true,
+      "firstName": "Unverified",
+      "lastName": "Sso",
+      "credentials": [{"type": "password", "value": "password123", "temporary": false}]
+    }
+  ]
+}

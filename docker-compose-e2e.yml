@@ -9,6 +9,11 @@
 #
 # Postgres stays directly reachable on 5432; nothing routes through pgbouncer unless a
 # client explicitly connects to 6432 with DB_USE_PGBOUNCER=True.
+#
+# `keycloak` is the OpenID Connect provider the e2e suite logs in through (generic OIDC
+# login, ADR-0016). Dev mode + `--import-realm` loads e2e/keycloak/revel-realm.json on every
+# start; the e2e Make targets point the backend at it via OIDC_KEYCLOAK_* env. It exists
+# ONLY in this overlay — `make run` / `make test` never start it.
 
 services:
   pgbouncer:
@@ -38,3 +43,34 @@ services:
       retries: 5
     mem_limit: 256m
     cpus: 0.5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.3
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      # Pin the issuer so the backend (host process) and the browser see the same value
+      # in the discovery document: http://localhost:8080/realms/revel
+      KC_HOSTNAME: http://localhost:8080
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./e2e/keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      # The image has no curl; probe the management port with bash's /dev/tcp.
+      test:
+        - CMD-SHELL
+        - >
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    mem_limit: 768m
+    cpus: 1
