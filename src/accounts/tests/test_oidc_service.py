@@ -216,7 +216,7 @@ def test_begin_login_discovery_failure_writes_no_state(providers: None, monkeypa
         raise httpx.ConnectError("boom")
 
     monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
-    with patch.object(oidc.cache, "set") as cache_set, pytest.raises(OIDCLoginError):
+    with patch.object(cache, "set") as cache_set, pytest.raises(OIDCLoginError):
         oidc.begin_login(GOOGLE, "/")
     cache_set.assert_not_called()
 
@@ -259,7 +259,7 @@ def test_pop_state_provider_mismatch(providers: None) -> None:
 def test_pop_state_loser_of_concurrent_delete_is_refused(providers: None) -> None:
     """Two callbacks racing on one state: the one whose ``cache.delete`` finds nothing must not proceed."""
     _seed_state()
-    with patch.object(oidc.cache, "delete", return_value=False), pytest.raises(OIDCLoginError) as exc:
+    with patch.object(cache, "delete", return_value=False), pytest.raises(OIDCLoginError) as exc:
         oidc._pop_state(GOOGLE, "st")
     assert exc.value.code == "state"
 
