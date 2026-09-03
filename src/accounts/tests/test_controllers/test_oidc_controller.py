@@ -170,6 +170,18 @@ def test_exchange_returns_pair(client: Client, user: RevelUser) -> None:
     assert data["return_url"] == "/events/1"
 
 
+def test_exchange_accepts_token_carrying_longest_allowed_return_url(client: Client, user: RevelUser) -> None:
+    """A 2048-char return_url passes safe_return_url; the JWT carrying it must still fit the token bound."""
+    return_url = "/" + "x" * 2047
+    token = create_oidc_login_token(user_id=str(user.id), return_url=return_url, jti="j-long")
+    assert len(token) > 2048  # the old 2048 token cap would have rejected this at the schema
+    response = client.post(
+        reverse("api:oidc_exchange"), data=orjson.dumps({"token": token}), content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert response.json()["return_url"] == return_url
+
+
 def test_exchange_is_single_use(client: Client, user: RevelUser) -> None:
     token = create_oidc_login_token(user_id=str(user.id), return_url="/", jti="j2")
     body = orjson.dumps({"token": token})

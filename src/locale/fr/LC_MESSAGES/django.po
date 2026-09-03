@@ -219,8 +219,6 @@ msgstr "Un·e utilisateur·rice avec cette adresse e-mail n'existe plus."
 
 msgid "Set a password before changing your email."
 msgstr "Définis un mot de passe avant de changer ton adresse e-mail."
-"Définissez un mot de passe avant de dissocier votre seule méthode de "
-"connexion."
 
 msgid "Incorrect password."
 msgstr "Mot de passe incorrect."
@@ -271,8 +269,6 @@ msgstr "Impossible d'emprunter l'identité d'utilisateur·rice·s inactif·ve·s
 
 msgid "Set a password before unlinking your only sign-in method."
 msgstr "Définis un mot de passe avant de dissocier ta seule méthode de connexion."
-"Définissez un mot de passe avant de dissocier votre seule méthode de "
-"connexion."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"

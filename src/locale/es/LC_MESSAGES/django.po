@@ -214,8 +214,6 @@ msgstr "Ya no existe ningún usuario con este correo electrónico."
 
 msgid "Set a password before changing your email."
 msgstr "Establece una contraseña antes de cambiar tu correo electrónico."
-"Establece una contraseña antes de desvincular tu único método de inicio de "
-"sesión."
 
 msgid "Incorrect password."
 msgstr "Contraseña incorrecta."

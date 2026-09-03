@@ -213,7 +213,6 @@ msgstr "Non esiste più un utente con questa email."
 
 msgid "Set a password before changing your email."
 msgstr "Imposta una password prima di cambiare la tua email."
-"Imposta una password prima di scollegare il tuo unico metodo di accesso."
 
 msgid "Incorrect password."
 msgstr "Password errata."
