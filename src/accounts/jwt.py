@@ -64,6 +64,24 @@ class ImpersonationRequestPayload(BaseModel):
     target_user_id: UUID4
 
 
+class OIDCLoginPayload(BaseModel):
+    """One-time hand-off token minted after a successful OIDC callback.
+
+    The frontend exchanges it for a normal access/refresh pair within seconds.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
+
+    iss: t.Literal["https://api.letsrevel.io/"] = "https://api.letsrevel.io/"
+    aud: str
+    jti: str
+    exp: datetime
+    iat: datetime
+    type: t.Literal["oidc-login"] = "oidc-login"
+    user_id: UUID4
+    return_url: str
+
+
 def validate_otp_jwt(
     token: str,
     key: str | None = None,
@@ -156,6 +174,35 @@ def blacklist(
     algorithms: list[str] | None = None,
 ) -> BlacklistedToken:
     """Ensures this token is included in the outstanding token list and adds it to the blacklist."""
+    return _blacklist(token, key, audience, algorithms)[0]
+
+
+def consume_one_shot_token(token: str) -> None:
+    """Blacklist a single-use token, refusing unless this call is the one that blacklisted it.
+
+    ``check_blacklist`` followed by ``blacklist`` is a read-then-write: two concurrent
+    redemptions of the same token both pass the check and both "succeed". The ``created``
+    flag of the blacklist row is authoritative instead — the loser's INSERT waits on the
+    unique index until the winner commits, then finds the row — so exactly one caller gets
+    through. Shared by the impersonation and OIDC hand-off redemptions.
+
+    Raises:
+        HttpError: 401 if another call already consumed the token.
+    """
+    _, created = _blacklist(token)
+    if not created:
+        logger.warning("one_shot_token_already_consumed")
+        raise HttpError(401, "Token is blacklisted.")
+
+
+@transaction.atomic
+def _blacklist(
+    token: str,
+    key: str | None = None,
+    audience: str | None = None,
+    algorithms: list[str] | None = None,
+) -> tuple[BlacklistedToken, bool]:
+    """The blacklist write; also reports whether this call created the blacklist row."""
     key = key or settings.SECRET_KEY
     audience = audience or settings.JWT_AUDIENCE
     algorithms = algorithms or [settings.JWT_ALGORITHM]
@@ -172,7 +219,7 @@ def blacklist(
         },
     )
 
-    return BlacklistedToken.objects.get_or_create(token=token_db)[0]
+    return BlacklistedToken.objects.get_or_create(token=token_db)
 
 
 def create_impersonation_request_token(
@@ -252,6 +299,59 @@ def validate_impersonation_request_token(
     except Exception as e:
         logger.debug("impersonation_auth_failed", exc_info=str(e))
         raise AuthenticationFailed("Impersonation authentication failed.") from e
+
+
+def create_oidc_login_token(*, user_id: str, return_url: str, jti: str) -> str:
+    """Create the short-lived, single-use token handed to the frontend after an OIDC login.
+
+    Args:
+        user_id: UUID of the user who just authenticated at the IdP.
+        return_url: Relative path to send the user to after the exchange.
+        jti: Unique token id, blacklisted on redemption.
+
+    Returns:
+        Signed JWT string.
+    """
+    from django.utils import timezone
+
+    now = timezone.now()
+    payload = {
+        "iss": "https://api.letsrevel.io/",
+        "aud": settings.JWT_AUDIENCE,
+        "jti": jti,
+        "exp": int((now + settings.OIDC_LOGIN_TOKEN_LIFETIME).timestamp()),
+        "iat": int(now.timestamp()),
+        "type": "oidc-login",
+        "user_id": user_id,
+        "return_url": return_url,
+    }
+    return create_token(payload, settings.SECRET_KEY, settings.JWT_ALGORITHM)
+
+
+def validate_oidc_login_token(token: str) -> OIDCLoginPayload:
+    """Validate and parse a one-time OIDC login token.
+
+    Raises:
+        AuthenticationFailed: If the token is expired, malformed, or of the wrong type.
+    """
+    try:
+        decoded = jwt.decode(
+            token, key=settings.SECRET_KEY, audience=settings.JWT_AUDIENCE, algorithms=[settings.JWT_ALGORITHM]
+        )
+        if decoded.get("type") != "oidc-login":
+            raise AuthenticationFailed("Invalid token type.")
+        return TypeAdapter(OIDCLoginPayload).validate_python(decoded)
+    except AuthenticationFailed:
+        raise
+    except ExpiredSignatureError as e:
+        logger.debug("oidc_login_token_expired")
+        raise AuthenticationFailed("Login token has expired.") from e
+    except InvalidTokenError as e:
+        logger.debug("invalid_oidc_login_token")
+        raise AuthenticationFailed("Invalid login token.") from e
+    except Exception as e:
+        logger.debug("oidc_login_token_failed", exc_info=str(e))
+        raise AuthenticationFailed("Login token validation failed.") from e
 
 
 def create_impersonation_access_token(

@@ -100,17 +100,22 @@ class TempTokenWithTOTP(Schema):
     otp: str = Field(..., description="The one-time password to verify.", max_length=6)
 
 
-class GoogleIDTokenSchema(Schema):
-    id_token: str = Field(..., description="The Google ID token to verify.")
+class OIDCExchangeRequestSchema(Schema):
+    token: str = Field(..., max_length=4096, description="One-time login token from the OIDC callback redirect.")
 
 
-class GoogleIDInfo(Schema):
-    email: str = ""
-    given_name: str = ""
-    family_name: str = ""
-    sub: str = ""
-    picture: str = ""
-    locale: str = ""
+class OIDCExchangeResponseSchema(Schema):
+    username: str
+    access: str
+    refresh: str
+    return_url: str = Field(..., description="Relative path to send the user to after setting cookies.")
+
+
+class ExternalIdentitySchema(Schema):
+    provider: str
+    provider_name: str
+    email: str
+    created_at: AwareDatetime
 
 
 class WebAuthnRegisterOptionsSchema(Schema):

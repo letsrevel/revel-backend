@@ -30,6 +30,7 @@ Check 1 requires the ``gettext`` toolchain (``xgettext``/``msgmerge``) on PATH.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -214,11 +215,47 @@ def check_keys_translated() -> bool:
     return ok
 
 
+_MSGSTR_LINE = re.compile(r'^msgstr(?:\[\d+\])? "(.*)"$')
+
+
+def check_no_glued_translations() -> bool:
+    """Fail on a non-empty ``msgstr "…"`` line that is followed by a continuation line.
+
+    ``makemessages`` only ever emits continuation lines under an *empty* ``msgstr ""`` opener.
+    A complete translation on the ``msgstr`` line with more quoted lines below it is a hand
+    edit that left an old wording behind, and gettext concatenates them into one garbled
+    string while the catalog still parses and the key still counts as translated. Caught on
+    PR #919, where six entries shipped two sentences glued together.
+    """
+    ok = True
+    for po in _po_files():
+        lang = po.parent.parent.name
+        lines = po.read_text(encoding="utf-8").split("\n")
+        glued: list[str] = []
+        msgid = ""
+        for i, line in enumerate(lines[:-1]):
+            if line.startswith("msgid "):
+                msgid = _unquote(line[len("msgid ") :])
+            match = _MSGSTR_LINE.match(line)
+            if match and match.group(1) and lines[i + 1].startswith('"'):
+                glued.append(f"line {i + 1}: {msgid!r}")
+        if glued:
+            ok = False
+            print(f"❌ [{lang}] {len(glued)} translation(s) continue after a complete msgstr line (glued text):")
+            for item in glued:
+                print(f"   (glued) {item}")
+            print("   Delete the stray continuation line(s) under the msgstr.")
+    if ok:
+        print("✅ No translation continues after a complete msgstr line (no glued text).")
+    return ok
+
+
 def main() -> int:
-    """Run both checks and return a process exit code (0 = pass)."""
+    """Run all checks and return a process exit code (0 = pass)."""
     extracted = check_keys_extracted()
     translated = check_keys_translated()
-    return 0 if extracted and translated else 1
+    not_glued = check_no_glued_translations()
+    return 0 if extracted and translated and not_glued else 1
 
 
 if __name__ == "__main__":

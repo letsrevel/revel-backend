@@ -137,14 +137,8 @@ msgstr "Mot de passe réinitialisé avec succès."
 msgid "A confirmation link has been sent to the new email address."
 msgstr "Un lien de confirmation a été envoyé à la nouvelle adresse e-mail."
 
-msgid "Login via SSO."
-msgstr "Connexion via SSO."
-
 msgid "Invalid OTP."
 msgstr "OTP invalide."
-
-msgid "Google SSO is not available."
-msgstr "Le SSO Google n'est pas disponible."
 
 msgid "You already have a restriction for this food item."
 msgstr "Tu as déjà une restriction pour cet aliment."
@@ -223,15 +217,8 @@ msgstr "Jeton de vérification invalide."
 msgid "A user with this email no longer exists."
 msgstr "Un·e utilisateur·rice avec cette adresse e-mail n'existe plus."
 
-msgid "Cannot reset password for Google SSO users."
-msgstr ""
-"Impossible de réinitialiser le mot de passe pour les utilisateur·rice·s SSO "
-"Google."
-
-msgid "Google SSO users cannot change their email here."
-msgstr ""
-"Les utilisateur·rice·s SSO Google ne peuvent pas modifier leur adresse e-"
-"mail ici."
+msgid "Set a password before changing your email."
+msgstr "Définis un mot de passe avant de changer ton adresse e-mail."
 
 msgid "Incorrect password."
 msgstr "Mot de passe incorrect."
@@ -260,9 +247,6 @@ msgstr "Jeton invalide : {error}"
 msgid "Invalid token type."
 msgstr "Type de jeton invalide."
 
-msgid "Invalid Google ID Token."
-msgstr "Jeton d'ID Google invalide."
-
 msgid "Registration is not available."
 msgstr "L'inscription n'est pas disponible."
 
@@ -282,6 +266,9 @@ msgstr "Impossible d'emprunter l'identité de membres du staff."
 
 msgid "Cannot impersonate inactive users."
 msgstr "Impossible d'emprunter l'identité d'utilisateur·rice·s inactif·ve·s."
+
+msgid "Set a password before unlinking your only sign-in method."
+msgstr "Définis un mot de passe avant de dissocier ta seule méthode de connexion."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
@@ -2172,8 +2159,7 @@ msgstr ""
 msgid "Tier IDs must match all tiers for this organization exactly."
 msgstr ""
 "Les identifiants doivent correspondre exactement à tous les niveaux "
-"d'adhésion de cette organisation.Les identifiants de catégories doivent "
-"correspondre exactement à toutes les catégories de cet événement."
+"d'adhésion de cette organisation."
 
 msgid "User is already a staff member of this organization."
 msgstr "L'utilisateur·rice est déjà membre du staff de cette organisation."

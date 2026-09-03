@@ -143,8 +143,14 @@ class FeaturesSchema(Schema):
 
     organization_creation: bool
     telegram: bool
-    google_sso: bool
     llm_evaluation: bool
+
+
+class SSOProviderSchema(Schema):
+    """A configured OpenID Connect login provider (key for URLs, name for the button)."""
+
+    key: str
+    name: str
 
 
 class VersionResponse(Schema):
@@ -152,6 +158,7 @@ class VersionResponse(Schema):
     demo: bool = False
     banner: BannerSchema | None = None
     features: FeaturesSchema
+    sso_providers: list[SSOProviderSchema]
 
 
 class ResponseOk(Schema):

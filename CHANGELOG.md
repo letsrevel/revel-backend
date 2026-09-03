@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Sign in with any OpenID Connect provider (Google, Keycloak, Authentik, …) configured via `OIDC_PROVIDERS`; linked identities can be listed and unlinked from account settings
+
+### Changed
+
+- **Breaking (`.env`):** `FEATURE_GOOGLE_SSO` is removed; configure `OIDC_PROVIDERS=google` with `OIDC_GOOGLE_*` instead. The `/version` payload replaces `features.google_sso` with `sso_providers`
+- Accounts created through an identity provider can now also set a password, reset it, and change their email
+
+### Removed
+
+- `POST /api/auth/google/login` (superseded by the generic OIDC flow)
+
 ## [2.5.1] - 2026-09-02
 
 ### Security

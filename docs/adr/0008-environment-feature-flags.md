@@ -31,7 +31,7 @@ in `src/revel/settings/features.py`:
 from decouple import config
 
 FEATURE_LLM_EVALUATION: bool = config("FEATURE_LLM_EVALUATION", default=True, cast=bool)
-FEATURE_GOOGLE_SSO: bool = config("FEATURE_GOOGLE_SSO", default=False, cast=bool)  # opt-in
+FEATURE_MALWARE_SCAN: bool = config("FEATURE_MALWARE_SCAN", default=True, cast=bool)
 ```
 
 Convention:
@@ -43,15 +43,18 @@ Convention:
 - Flags are checked via `django.conf.settings.FEATURE_*` in service and controller layers
 - Tests override flags with `@override_settings(FEATURE_X=True/False)`
 
-**Opt-in exception — `FEATURE_GOOGLE_SSO` defaults to `False`.** Google SSO is inert without
-OAuth client credentials, so enabling it by default would surface a login button that 403s on
-any instance (self-hosted or otherwise) that hasn't set up Google OAuth. Operators opt in with
-`FEATURE_GOOGLE_SSO=True` once credentials are configured. All other current flags default
-`True`.
+**Opt-in exception — identity-provider login is off until configured.** Originally
+`FEATURE_GOOGLE_SSO` (default `False`): Google SSO is inert without OAuth client credentials,
+so enabling it by default would surface a login button that 403s on any instance that hasn't
+set up Google OAuth. [ADR-0016](0016-oidc-relying-party.md) replaced that flag with
+`OIDC_PROVIDERS` (a list of provider keys, empty by default), which carries the same opt-in
+semantics without a separate boolean: the feature is on exactly when a provider is configured.
+All current `FEATURE_*` flags default `True`.
 
-Current `FEATURE_*` flags: `FEATURE_LLM_EVALUATION`, `FEATURE_GOOGLE_SSO`,
-`FEATURE_MALWARE_SCAN`, `FEATURE_TELEGRAM`, `FEATURE_ORGANIZATION_CREATION`,
-`FEATURE_OBSERVABILITY`.
+Current `FEATURE_*` flags: `FEATURE_LLM_EVALUATION`, `FEATURE_MALWARE_SCAN`,
+`FEATURE_TELEGRAM`, `FEATURE_ORGANIZATION_CREATION`, `FEATURE_OBSERVABILITY`. The
+client-visible subset is exposed on `GET /version` as `features`, alongside the configured
+`sso_providers`.
 
 ## Taxonomy: which mechanism for which toggle
 

@@ -54,8 +54,10 @@ just wastes RAM.
 ### Feature flags
 
 Most default to `True` (production behaviour); set them to `False` to drop the corresponding
-dependency. `FEATURE_GOOGLE_SSO` is the exception — it is opt-in and defaults to `False`
-(see [ADR-0008](../adr/0008-environment-feature-flags.md)).
+dependency. `OIDC_PROVIDERS` is the exception — it is opt-in and empty by default, since it
+needs credentials from an identity provider to do anything (the opt-in rule is explained in
+[ADR-0008](../adr/0008-environment-feature-flags.md); the login flow itself in
+[ADR-0016](../adr/0016-oidc-relying-party.md)).
 
 - `FEATURE_MALWARE_SCAN` — when `False`, uploads skip the ClamAV scan and are marked clean
   immediately. Lets you run without the `antivirus` profile.
@@ -65,8 +67,22 @@ dependency. `FEATURE_GOOGLE_SSO` is the exception — it is opt-in and defaults 
   evaluation still works. Lets you run without an OpenAI key.
 - `FEATURE_ORGANIZATION_CREATION` — when `False`, regular users cannot create organizations; staff
   and superusers still can. See below.
-- `FEATURE_GOOGLE_SSO` — opt-in (defaults to `False`). Leave it off for password-only auth (the
-  login button stays hidden); set `True` and provide OAuth credentials to enable Google login.
+- `OIDC_PROVIDERS` — opt-in, empty by default. A comma-separated list of provider keys; for each
+  key set `OIDC_<KEY>_ISSUER`, `OIDC_<KEY>_CLIENT_ID`, `OIDC_<KEY>_CLIENT_SECRET` and optionally
+  `OIDC_<KEY>_NAME` (button label), `OIDC_<KEY>_SCOPES` (default `openid email profile`) and
+  `OIDC_<KEY>_TOKEN_AUTH` (`client_secret_post`, the default, or `client_secret_basic` when the
+  client is registered for HTTP Basic authentication at the token endpoint).
+  Register `https://<your-api-host>/api/auth/oidc/<key>/callback` as the redirect URI at the
+  provider. Any OpenID Connect issuer works — Google (`https://accounts.google.com`), Keycloak
+  (`https://kc.example.org/realms/<realm>`), Authentik, Zitadel. With the default scopes Google
+  needs no app verification and does not apply its 100-user testing allowlist; publish the OAuth
+  consent screen to "In production" to drop the "app in testing" warning. Custom
+  `OIDC_<KEY>_SCOPES` that include sensitive or restricted Google scopes require Google's
+  verification regardless of publishing status. Sign-in (both linking to an existing account and
+  creating a new one) trusts the `email_verified` claim from every configured issuer, so only list
+  identity providers whose email verification you trust.
+  `OIDC_LOGIN_TOKEN_LIFETIME_SECONDS` (default `60`) controls how long the one-time hand-off
+  token from the callback to the frontend stays valid.
 - `FEATURE_OBSERVABILITY` — master toggle for the metrics/traces/logs exporters and the async log
   queue. Set `False` (and drop the `observability` profile) on Slim. Legacy alias:
   `ENABLE_OBSERVABILITY` (deprecated). See [Observability](observability.md).

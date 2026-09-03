@@ -289,14 +289,6 @@ def test_request_password_reset_nonexistent_user(mock_send_email: MagicMock) -> 
     mock_send_email.assert_not_called()
 
 
-@patch("accounts.tasks.send_account_email.delay")
-def test_request_password_reset_for_google_user(mock_send_email: MagicMock, google_user: RevelUser) -> None:
-    """Test that password reset is disabled for Google SSO users."""
-    token = account_service.request_password_reset(google_user.email)
-    assert token is None
-    mock_send_email.assert_not_called()
-
-
 # transaction=True: request_password_reset dispatches send_account_email via transaction.on_commit.
 # Default pytest-django mode rolls back the wrapping transaction so the callback never fires.
 @pytest.mark.django_db(transaction=True)
@@ -339,17 +331,19 @@ def test_reset_password_success(user: RevelUser) -> None:
     assert reset_user.check_password(new_valid_password)
 
 
-def test_reset_password_for_google_user_fails(google_user: RevelUser) -> None:
-    """Test that attempting to reset a password for a Google SSO user fails."""
-    payload = schema.PasswordResetJWTPayloadSchema(
-        user_id=google_user.id,
-        email=google_user.email,
-        exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
-    )
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
-
-    with pytest.raises(HttpError, match="Cannot reset password for Google SSO users."):
-        account_service.reset_password(token, "any-password")
+@patch("accounts.tasks.send_account_email.delay")
+def test_reset_password_for_identity_only_user_sets_usable_password(
+    mock_send_email: MagicMock, google_user: RevelUser
+) -> None:
+    """An account created through an IdP can gain a password via the normal reset flow (spec §2 coexist)."""
+    assert not google_user.has_usable_password()
+    token = account_service.request_password_reset(google_user.email)
+    assert token
+    account_service.reset_password(token, "a-New-strong-password-456!")
+    google_user.refresh_from_db()
+    assert google_user.has_usable_password()
+    assert google_user.check_password("a-New-strong-password-456!")
+    assert google_user.external_identities.exists()
 
 
 # transaction=True: request_account_deletion dispatches send_account_email via transaction.on_commit.

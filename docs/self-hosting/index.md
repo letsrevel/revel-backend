@@ -53,7 +53,7 @@ each dependency does, whether you can omit it, and the lever you use to do so:
 | LLM / OpenAI | Yes | Manual questionnaire eval still works | `FEATURE_LLM_EVALUATION=False` |
 | Geo / IP2Location | Yes | Lookups return `None` | BIN optional; mini cities fallback |
 | Telegram | Yes | Per-user delivery skipped | `FEATURE_TELEGRAM=False`; profile off |
-| Google SSO | Yes (opt-in) | Login button hidden; password auth only | `FEATURE_GOOGLE_SSO=True` + OAuth creds |
+| OIDC login (Google, Keycloak, …) | Yes (opt-in) | Login buttons hidden; password auth only | `OIDC_PROVIDERS=google` + per-provider vars |
 | Apple Wallet | Yes | `/wallet/apple` → 503; PDF tickets fine | leave certs unset |
 | Google Wallet | Yes | `/wallet/google` → 503; PDF tickets fine | leave issuer ID / key unset |
 | Email / SMTP | Required* | Needed for verification | real SMTP or `EMAIL_DRY_RUN=True` |

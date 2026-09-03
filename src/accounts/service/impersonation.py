@@ -15,10 +15,8 @@ from ninja.errors import HttpError
 from ninja_extra.exceptions import AuthenticationFailed
 
 from accounts.jwt import (
-    blacklist as blacklist_token,
-)
-from accounts.jwt import (
     check_blacklist,
+    consume_one_shot_token,
     create_impersonation_access_token,
     create_impersonation_request_token,
     validate_impersonation_request_token,
@@ -183,8 +181,8 @@ def redeem_impersonation_token(token: str) -> ImpersonationResult:
         )
         raise HttpError(403, error or "Impersonation no longer allowed.")
 
-    # Blacklist the request token (single-use)
-    blacklist_token(token)
+    # Consume the request token: refuses the loser of two concurrent redemptions.
+    consume_one_shot_token(token)
 
     # Mark as redeemed
     log.redeemed_at = timezone.now()

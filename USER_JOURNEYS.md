@@ -130,7 +130,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
   - Org staff with `edit_organization` also receive an in-platform `ORG_CONTACT_MESSAGE_RECEIVED` notification
 
 ### 1.9 Feature-Flag-Aware UI
-- `GET /version` (anonymous) returns a `features` object: `organization_creation`, `telegram`, `google_sso`, `llm_evaluation`
+- `GET /version` (anonymous) returns a `features` object: `organization_creation`, `telegram`, `llm_evaluation`
 - Frontend hides gated UI (e.g. Google SSO button, "Create organization" CTA, Telegram linking) instead of letting users hit a 403/404
 
 ---
@@ -1605,12 +1605,12 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ### Feature Flags
 Configured via environment variables. The anonymous `GET /version` returns a `features` object so clients can hide gated UI instead of letting users hit a 403/404.
 - `FEATURE_LLM_EVALUATION`: Gates LLM-based questionnaire evaluation (when disabled, LLM evaluation is skipped)
-- `FEATURE_GOOGLE_SSO`: Gates Google SSO login (when disabled, endpoint returns 403)
+- `OIDC_PROVIDERS` (not a `FEATURE_*` flag, but the same opt-in idea): lists the OpenID Connect providers users can sign in with; exposed on `GET /version` as `sso_providers`. Replaced `FEATURE_GOOGLE_SSO`.
 - `FEATURE_MALWARE_SCAN` (default on): when off, uploads skip the ClamAV scan and are marked clean
 - `FEATURE_TELEGRAM` (default on): when off, Telegram delivery is dropped and the linking endpoints 404
 - `FEATURE_ORGANIZATION_CREATION` (default on): when off, `POST /organizations/` returns 403 for non-staff (single-org instances); staff/superusers bypass
 - `FEATURE_OBSERVABILITY` (renamed from `ENABLE_OBSERVABILITY`, which still works as a deprecated alias for one release)
-- `/version` exposes a subset to clients: `organization_creation`, `telegram`, `google_sso`, `llm_evaluation`
+- `/version` exposes a subset to clients: `organization_creation`, `telegram`, `llm_evaluation`
 
 ### Self-Hosting
 - The backend boots and runs on a self-hosted box **without** ClamAV, Telegram, or the full geo dataset, tailored via the feature flags above

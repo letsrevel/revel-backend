@@ -133,14 +133,8 @@ msgstr "Passwort erfolgreich zurückgesetzt."
 msgid "A confirmation link has been sent to the new email address."
 msgstr "Ein Bestätigungslink wurde an die neue E-Mail-Adresse gesendet."
 
-msgid "Login via SSO."
-msgstr "Anmeldung über SSO."
-
 msgid "Invalid OTP."
 msgstr "Ungültiges OTP."
-
-msgid "Google SSO is not available."
-msgstr "Google SSO ist nicht verfügbar."
 
 msgid "You already have a restriction for this food item."
 msgstr "Du hast bereits eine Einschränkung für dieses Lebensmittel."
@@ -219,12 +213,8 @@ msgstr "Ungültiger Bestätigungstoken."
 msgid "A user with this email no longer exists."
 msgstr "Ein:e Anwender:in mit dieser E-Mail existiert nicht mehr."
 
-msgid "Cannot reset password for Google SSO users."
-msgstr ""
-"Das Passwort kann für Google-SSO-Anwender:innen nicht zurückgesetzt werden."
-
-msgid "Google SSO users cannot change their email here."
-msgstr "Google-SSO-Anwender:innen können ihre E-Mail hier nicht ändern."
+msgid "Set a password before changing your email."
+msgstr "Lege ein Passwort fest, bevor du deine E-Mail-Adresse änderst."
 
 msgid "Incorrect password."
 msgstr "Falsches Passwort."
@@ -253,9 +243,6 @@ msgstr "Ungültiger Token: {error}"
 msgid "Invalid token type."
 msgstr "Ungültiger Token-Typ."
 
-msgid "Invalid Google ID Token."
-msgstr "Ungültiger Google-ID-Token."
-
 msgid "Registration is not available."
 msgstr "Die Registrierung ist nicht verfügbar."
 
@@ -273,6 +260,9 @@ msgstr "Du kannst dich nicht als Staff-Mitglied anmelden."
 
 msgid "Cannot impersonate inactive users."
 msgstr "Du kannst dich nicht als inaktive:r Anwender:in anmelden."
+
+msgid "Set a password before unlinking your only sign-in method."
+msgstr "Lege ein Passwort fest, bevor du deine einzige Anmeldemethode trennst."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
@@ -2165,8 +2155,7 @@ msgstr ""
 msgid "Tier IDs must match all tiers for this organization exactly."
 msgstr ""
 "Die IDs müssen exakt allen Mitgliedschaftsstufen dieser Organisation "
-"entsprechen.Die Stufen-IDs müssen genau mit allen Stufen für dieses Event "
-"übereinstimmen."
+"entsprechen."
 
 msgid "User is already a staff member of this organization."
 msgstr "Anwender:in ist bereits Staff-Mitglied dieser Organisation."
@@ -2666,10 +2655,9 @@ msgid ""
 "Seat '{}' is referenced by tickets or an active hold and cannot be deleted. "
 "Decommission it instead (set inactive)."
 msgstr ""
-"Der Sitzplatz '{}' kann nicht gelöscht werden, da er aktive oder ausstehende "
-"Tickets für zukünftige Events hat.Der Sitzplatz '{}' wird von Tickets oder "
-"einer aktiven Reservierung referenziert und kann nicht gelöscht werden. "
-"Deaktivieren Sie ihn stattdessen (auf inaktiv setzen)."
+"Der Sitzplatz '{}' wird von Tickets oder einer aktiven Reservierung "
+"referenziert und kann nicht gelöscht werden. Deaktiviere ihn stattdessen (auf "
+"inaktiv setzen)."
 
 msgid "Seats not found in this sector: {}"
 msgstr "Sitzplätze in diesem Sektor nicht gefunden: {}"

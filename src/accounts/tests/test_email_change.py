@@ -89,6 +89,24 @@ class TestRequestEmailChange:
         assert exc.value.status_code == 400
         mock_send.assert_not_called()
 
+    @pytest.mark.parametrize("password_field", ["unusable", ""])
+    @patch("accounts.tasks.send_account_email.delay")
+    def test_identity_only_account_told_to_set_password(
+        self, mock_send: MagicMock, user: RevelUser, password_field: str
+    ) -> None:
+        """OIDC-created (unusable password) and legacy SSO (``password == ""``) accounts have nothing to
+        check; they get a "set a password first" hint rather than a misleading "Incorrect password"."""
+        if password_field == "unusable":
+            user.set_unusable_password()
+        else:
+            user.password = ""
+        user.save(update_fields=["password"])
+        with pytest.raises(HttpError) as exc:
+            account_service.request_email_change(user=user, new_email="new@example.com", password="anything")
+        assert exc.value.status_code == 400
+        assert "Set a password" in str(exc.value.message)
+        mock_send.assert_not_called()
+
     @patch("accounts.tasks.send_account_email.delay")
     def test_same_email(self, mock_send: MagicMock, user: RevelUser) -> None:
         with pytest.raises(HttpError) as exc:
@@ -116,17 +134,6 @@ class TestRequestEmailChange:
             account_service.request_email_change(
                 user=user, new_email="TAKEN@Example.com", password="strong-password-123!"
             )
-        mock_send.assert_not_called()
-
-    @patch("accounts.tasks.send_account_email.delay")
-    def test_google_sso_user_rejected(self, mock_send: MagicMock, google_user: RevelUser) -> None:
-        # Real SSO accounts have only the sentinel password — do not override it. The
-        # SSO branch must fire before the password check, otherwise these users get the
-        # misleading "Incorrect password" error.
-        with pytest.raises(HttpError) as exc:
-            account_service.request_email_change(user=google_user, new_email="new@example.com", password="any-password")
-        assert exc.value.status_code == 400
-        assert "SSO" in str(exc.value.message)
         mock_send.assert_not_called()
 
     @patch("accounts.tasks.send_account_email.delay")

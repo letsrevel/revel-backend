@@ -398,6 +398,7 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "referrals_made": ExportRule(include=True, serializer=_serialize_referrals_made),
     "referral_code": ExportRule(include=True),
     "billing_profile": ExportRule(include=True),
+    "external_identities": ExportRule(include=True),
     "data_export": ExportRule(include=False, reason="export bookkeeping (self-referential)"),
     # --- django / third-party apps ---
     "logentry_set": ExportRule(include=False, reason="admin audit log about arbitrary records"),

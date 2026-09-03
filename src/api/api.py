@@ -18,7 +18,7 @@ from accounts.controllers.referral_stripe import ReferralStripeController
 from common.controllers import MediaValidationController, TagController
 from common.exception_handlers import ExceptionHandler, make_static_handler, register_handlers
 from common.models import Legal, SiteSettings
-from common.schema import BannerSchema, FeaturesSchema, LegalSchema, ResponseOk, VersionResponse
+from common.schema import BannerSchema, FeaturesSchema, LegalSchema, ResponseOk, SSOProviderSchema, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
 from events.controllers.dashboard import DashboardController
 from events.controllers.event_admin import EVENT_ADMIN_CONTROLLERS
@@ -106,7 +106,11 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
     """
     banner = _get_active_banner()
     return 200, VersionResponse(
-        version=settings.VERSION, demo=settings.DEMO_MODE, banner=banner, features=_get_features()
+        version=settings.VERSION,
+        demo=settings.DEMO_MODE,
+        banner=banner,
+        features=_get_features(),
+        sso_providers=[SSOProviderSchema(key=p.key, name=p.name) for p in settings.OIDC_PROVIDERS],
     )
 
 
@@ -115,7 +119,6 @@ def _get_features() -> FeaturesSchema:
     return FeaturesSchema(
         organization_creation=settings.FEATURE_ORGANIZATION_CREATION,
         telegram=settings.FEATURE_TELEGRAM,
-        google_sso=settings.FEATURE_GOOGLE_SSO,
         llm_evaluation=settings.FEATURE_LLM_EVALUATION,
     )
 

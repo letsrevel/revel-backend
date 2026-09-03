@@ -31,3 +31,19 @@ class ReferralForfeitureConfirmationRequiredError(Exception):
         """Store the assessed forfeiture summary for the exception handler."""
         self.summary = summary
         super().__init__("Referral forfeiture confirmation required")
+
+
+OIDCErrorCode = t.Literal["state", "provider", "denied", "unverified_email", "no_email", "banned", "inactive"]
+
+
+class OIDCLoginError(Exception):
+    """Raised inside the OIDC start/callback flow. Carries a short machine code, never PII.
+
+    Both routes are browser navigations, so the accounts exception handler turns it into a
+    redirect to the frontend login page (``?error=oidc_<code>``) rather than a JSON body.
+    """
+
+    def __init__(self, code: OIDCErrorCode) -> None:
+        """Store the machine-readable error code."""
+        super().__init__(code)
+        self.code: OIDCErrorCode = code

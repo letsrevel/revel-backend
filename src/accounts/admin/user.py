@@ -22,7 +22,12 @@ from django_google_sso.admin import GoogleSSOInlineAdmin, get_current_user_and_a
 from unfold.admin import ModelAdmin, TabularInline
 
 from accounts.admin import formatters
-from accounts.admin.user_extras import GlobalBanInline, IsOrganizationOwnerFilter, ReferralCodeInline
+from accounts.admin.user_extras import (
+    ExternalIdentityInline,
+    GlobalBanInline,
+    IsOrganizationOwnerFilter,
+    ReferralCodeInline,
+)
 from accounts.models import (
     DietaryPreference,
     DietaryRestriction,
@@ -247,6 +252,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         UserBillingProfileInline,
         ReferralCodeInline,
         GlobalBanInline,
+        ExternalIdentityInline,
         DietaryRestrictionInline,
         UserDietaryPreferenceInline,
         UserDataExportInline,

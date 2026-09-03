@@ -24,11 +24,11 @@ it is safe to import from an ``AppConfig.ready`` hook.
 import typing as t
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.utils.functional import Promise
 from ninja.responses import Response
 
-ExceptionHandler = t.Callable[[HttpRequest, Exception | t.Type[Exception]], Response]
+ExceptionHandler = t.Callable[[HttpRequest, Exception | t.Type[Exception]], HttpResponse]
 
 
 class SupportsExceptionHandlerRegistration(t.Protocol):
