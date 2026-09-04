@@ -1827,6 +1827,9 @@ msgstr "El plazo para confirmar la asistencia ha vencido."
 msgid "Tickets are not currently on sale."
 msgstr "Las entradas no están a la venta en este momento."
 
+msgid "Ticket sales are paused."
+msgstr "La venta de entradas está pausada."
+
 msgid "This ticket tier requires a specific membership tier."
 msgstr "Este tipo de entrada requiere un nivel de membresía específico."
 
@@ -2792,6 +2795,39 @@ msgid "These price categories do not belong to the tier's venue: {categories}."
 msgstr ""
 "Estas categorías de precio no pertenecen al espacio del tipo de entrada: "
 "{categories}."
+
+msgid "Unknown or disabled provider."
+msgstr "Proveedor desconocido o deshabilitado."
+
+msgid "This platform is not connected."
+msgstr "Esta plataforma no está conectada."
+
+msgid "This platform is already connected."
+msgstr "Esta plataforma ya está conectada."
+
+msgid "Live updates could not be enabled; counts will refresh periodically."
+msgstr "No se pudieron activar las actualizaciones en directo; los recuentos se actualizarán periódicamente."
+
+msgid "The connection request is invalid or has expired. Please try again."
+msgstr "La solicitud de conexión no es válida o ha caducado. Inténtalo de nuevo."
+
+msgid "The platform rejected the connection."
+msgstr "La plataforma rechazó la conexión."
+
+msgid "No account selection is pending."
+msgstr "No hay ninguna selección de cuenta pendiente."
+
+msgid "The platform rejected the request."
+msgstr "La plataforma rechazó la solicitud."
+
+msgid "That account is not available to this connection."
+msgstr "Esa cuenta no está disponible para esta conexión."
+
+msgid "The platform connection is no longer valid. Please reconnect."
+msgstr "La conexión con la plataforma ya no es válida. Vuelve a conectarla."
+
+msgid "Malformed webhook delivery."
+msgstr "Entrega de webhook malformada."
 
 msgid "This name is not allowed."
 msgstr "Este nombre no está permitido."

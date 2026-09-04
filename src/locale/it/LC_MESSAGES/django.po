@@ -1830,6 +1830,9 @@ msgstr "Il termine per confermare la partecipazione è scaduto."
 msgid "Tickets are not currently on sale."
 msgstr "I biglietti non sono attualmente in vendita."
 
+msgid "Ticket sales are paused."
+msgstr "La vendita dei biglietti è sospesa."
+
 msgid "This ticket tier requires a specific membership tier."
 msgstr "Questo tipo di biglietto richiede un livello di iscrizione specifico."
 
@@ -2136,11 +2139,12 @@ msgstr "L'utente è già un membro dello staff di questa organizzazione."
 
 msgid "Only the organization owner can manage staff-granting tokens."
 msgstr ""
-"Solo il proprietario dell'organizzazione può gestire i token che concedono lo "
-"status di staff."
+"Solo il proprietario dell'organizzazione può gestire i token che concedono "
+"lo status di staff."
 
 msgid "At least one of grants_membership or grants_staff_status must be True."
-msgstr "Almeno uno tra grants_membership o grants_staff_status deve essere True."
+msgstr ""
+"Almeno uno tra grants_membership o grants_staff_status deve essere True."
 
 msgid "membership_tier_id is required when grants_membership is True."
 msgstr "membership_tier_id è obbligatorio quando grants_membership è True."
@@ -2794,6 +2798,39 @@ msgid "These price categories do not belong to the tier's venue: {categories}."
 msgstr ""
 "Queste categorie di prezzo non appartengono alla sede del livello di "
 "biglietto: {categories}."
+
+msgid "Unknown or disabled provider."
+msgstr "Provider sconosciuto o disabilitato."
+
+msgid "This platform is not connected."
+msgstr "Questa piattaforma non è connessa."
+
+msgid "This platform is already connected."
+msgstr "Questa piattaforma è già connessa."
+
+msgid "Live updates could not be enabled; counts will refresh periodically."
+msgstr "Impossibile abilitare gli aggiornamenti in tempo reale; i conteggi verranno aggiornati periodicamente."
+
+msgid "The connection request is invalid or has expired. Please try again."
+msgstr "La richiesta di connessione non è valida o è scaduta. Riprova."
+
+msgid "The platform rejected the connection."
+msgstr "La piattaforma ha rifiutato la connessione."
+
+msgid "No account selection is pending."
+msgstr "Nessuna selezione dell'account è in sospeso."
+
+msgid "The platform rejected the request."
+msgstr "La piattaforma ha rifiutato la richiesta."
+
+msgid "That account is not available to this connection."
+msgstr "Quell'account non è disponibile per questa connessione."
+
+msgid "The platform connection is no longer valid. Please reconnect."
+msgstr "La connessione con la piattaforma non è più valida. Riconnettiti."
+
+msgid "Malformed webhook delivery."
+msgstr "Consegna webhook malformata."
 
 msgid "This name is not allowed."
 msgstr "Questo nome non è consentito."

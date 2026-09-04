@@ -87,6 +87,20 @@ needs credentials from an identity provider to do anything (the opt-in rule is e
   queue. Set `False` (and drop the `observability` profile) on Slim. Legacy alias:
   `ENABLE_OBSERVABILITY` (deprecated). See [Observability](observability.md).
 
+### External listing platforms (Eventbrite)
+
+| Variable | Purpose |
+|---|---|
+| `INTEGRATIONS_EVENTBRITE_CLIENT_ID` | Eventbrite "API Key" from https://www.eventbrite.com/account-settings/apps |
+| `INTEGRATIONS_EVENTBRITE_CLIENT_SECRET` | Eventbrite "Client secret" |
+
+Both empty → the provider is not offered. Register the app's OAuth redirect URI as
+`{BASE_URL}/api/integrations/eventbrite/callback` and set the application URL to `{BASE_URL}`.
+Eventbrite rejects `localhost` / `127.0.0.1` redirect URIs at its CDN, so local testing needs a
+hosts-file alias (e.g. `api.revel.test`) and `BASE_URL` pointing at it. Rate limit: 2000
+requests/hour per organization token **and** per app key (shared by every organization on this
+instance).
+
 ### Email
 
 - `EMAIL_DRY_RUN` — when `True`, outbound email is logged instead of sent. Useful for test

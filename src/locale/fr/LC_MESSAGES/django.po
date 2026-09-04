@@ -268,7 +268,8 @@ msgid "Cannot impersonate inactive users."
 msgstr "Impossible d'emprunter l'identité d'utilisateur·rice·s inactif·ve·s."
 
 msgid "Set a password before unlinking your only sign-in method."
-msgstr "Définis un mot de passe avant de dissocier ta seule méthode de connexion."
+msgstr ""
+"Définis un mot de passe avant de dissocier ta seule méthode de connexion."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
@@ -1855,6 +1856,9 @@ msgstr "La date limite pour répondre à l'invitation est dépassée."
 msgid "Tickets are not currently on sale."
 msgstr "Les tickets ne sont pas en vente actuellement."
 
+msgid "Ticket sales are paused."
+msgstr "La vente des billets est suspendue."
+
 msgid "This ticket tier requires a specific membership tier."
 msgstr "Cette catégorie de ticket nécessite un niveau d'adhésion spécifique."
 
@@ -2832,6 +2836,39 @@ msgid "These price categories do not belong to the tier's venue: {categories}."
 msgstr ""
 "Ces catégories tarifaires n'appartiennent pas au lieu de la catégorie de "
 "tickets : {categories}."
+
+msgid "Unknown or disabled provider."
+msgstr "Fournisseur inconnu ou désactivé."
+
+msgid "This platform is not connected."
+msgstr "Cette plateforme n'est pas connectée."
+
+msgid "This platform is already connected."
+msgstr "Cette plateforme est déjà connectée."
+
+msgid "Live updates could not be enabled; counts will refresh periodically."
+msgstr "Impossible d'activer les mises à jour en direct ; les compteurs seront actualisés périodiquement."
+
+msgid "The connection request is invalid or has expired. Please try again."
+msgstr "La demande de connexion est invalide ou a expiré. Réessaie."
+
+msgid "The platform rejected the connection."
+msgstr "La plateforme a refusé la connexion."
+
+msgid "No account selection is pending."
+msgstr "Aucune sélection de compte n'est en attente."
+
+msgid "The platform rejected the request."
+msgstr "La plateforme a refusé la demande."
+
+msgid "That account is not available to this connection."
+msgstr "Ce compte n'est pas disponible pour cette connexion."
+
+msgid "The platform connection is no longer valid. Please reconnect."
+msgstr "La connexion à la plateforme n'est plus valide. Reconnecte-toi."
+
+msgid "Malformed webhook delivery."
+msgstr "Livraison de webhook malformée."
 
 msgid "This name is not allowed."
 msgstr "Ce nom n'est pas autorisé."

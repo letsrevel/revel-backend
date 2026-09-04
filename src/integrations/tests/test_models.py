@@ -85,7 +85,9 @@ def test_event_link_effective_auto_sync_inherits(connection: PlatformConnection,
     connection.save(update_fields=["auto_sync"])
     link.refresh_from_db()
     assert link.effective_auto_sync is True
-    link.auto_sync = False
+    # mypy narrows the `effective_auto_sync` property to Literal[True] from the assert above and
+    # doesn't know this assignment to the underlying field changes its computed value.
+    link.auto_sync = False  # type: ignore[unreachable]
     assert link.effective_auto_sync is False
 
 
