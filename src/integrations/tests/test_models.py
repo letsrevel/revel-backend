@@ -1,11 +1,13 @@
 """Model invariants: uniqueness, effective auto-sync, error recording."""
 
+import typing as t
+
 import pytest
 from django.db import IntegrityError
 
 from events.models import Event, Organization, TicketTier
 from integrations.models import EventLink, PlatformConnection, TierLink
-from integrations.schema import IntegrationErrorCode
+from integrations.schema import ConnectionStatus, IntegrationErrorCode
 
 pytestmark = pytest.mark.django_db
 
@@ -102,3 +104,8 @@ def test_tier_link_unique_per_event_link(connection: PlatformConnection, event: 
     # DB UniqueConstraint directly and raises IntegrityError (not ValidationError).
     with pytest.raises(IntegrityError):
         TierLink.objects.bulk_create([TierLink(tier=ticket_tier, event_link=link, remote_id="tc-2")])
+
+
+def test_connection_status_literal_matches_model() -> None:
+    """Verify that the ConnectionStatus schema literal mirrors the model enum values."""
+    assert set(t.get_args(ConnectionStatus)) == set(PlatformConnection.Status.values)

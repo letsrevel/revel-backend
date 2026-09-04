@@ -1,6 +1,10 @@
 """Integrations API schemas and the stable error-code contract."""
 
+import typing as t
 from enum import StrEnum
+
+from ninja import Schema
+from pydantic import AwareDatetime
 
 
 class IntegrationErrorCode(StrEnum):
@@ -33,3 +37,58 @@ class IntegrationErrorCode(StrEnum):
     UNPUBLISH_REFUSED = "unpublish_refused"
     IMAGE_MISSING = "image_missing"
     PAUSE_FAILED = "pause_failed"
+
+
+class IntegrationErrorSchema(Schema):
+    """Error response body carrying the stable code and optional provider context."""
+
+    detail: str
+    code: IntegrationErrorCode
+    provider_message: str | None = None
+
+
+class ProviderSchema(Schema):
+    """Provider descriptor for the provider list endpoint."""
+
+    key: str
+    display_name: str
+
+
+ConnectionStatus = t.Literal["pending", "active", "revoked", "error"]
+
+
+class ConnectionSchema(Schema):
+    """A platform connection and its authorization state."""
+
+    provider: str
+    display_name: str
+    status: ConnectionStatus | None = None  # None = not connected
+    remote_account_name: str = ""
+    auto_sync: bool = False
+    last_error: IntegrationErrorSchema | None = None
+    connected_at: AwareDatetime | None = None
+
+
+class ConnectStartSchema(Schema):
+    """OAuth authorization URL for initiating a platform connection."""
+
+    authorize_url: str
+
+
+class RemoteAccountSchema(Schema):
+    """A remote account discovered during OAuth authorization."""
+
+    remote_id: str
+    name: str
+
+
+class SelectAccountSchema(Schema):
+    """Request body to confirm a remote account selection and persist the connection."""
+
+    remote_id: str
+
+
+class ConnectionUpdateSchema(Schema):
+    """Update request body for connection settings like auto-sync preference."""
+
+    auto_sync: bool
