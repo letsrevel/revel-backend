@@ -19,6 +19,12 @@ class PlatformConnection(TimeStampedModel):
     """An organization's OAuth grant on one external platform (spec §5)."""
 
     class Provider(models.TextChoices):
+        """Known provider keys, for reference and admin display.
+
+        The column is deliberately unconstrained because ``registry.get_provider()`` validates
+        keys at every entry point and tests register throwaway providers.
+        """
+
         EVENTBRITE = "eventbrite", "Eventbrite"
 
     class Status(models.TextChoices):
@@ -30,7 +36,7 @@ class PlatformConnection(TimeStampedModel):
     organization = models.ForeignKey(
         "events.Organization", on_delete=models.CASCADE, related_name="platform_connections"
     )
-    provider = models.CharField(max_length=32, choices=Provider.choices)
+    provider = models.CharField(max_length=32)
     access_token = EncryptedTextField()
     refresh_token = EncryptedTextField(null=True, blank=True)
     token_expires_at = models.DateTimeField(null=True, blank=True)
