@@ -1,0 +1,9 @@
+{
+  "api_url": "https://www.eventbriteapi.com/v3/events/1999760883635/",
+  "config": {
+    "webhook_id": "15933194",
+    "user_id": "3012894655993",
+    "action": "event.published",
+    "endpoint_url": "https://webhook.site/eaccb8b8-af8f-427e-b9af-05056b8b2766"
+  }
+}
