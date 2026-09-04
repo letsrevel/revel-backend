@@ -36,6 +36,7 @@ class ReasonCode(StrEnum):
     RSVP_DEADLINE_PASSED = "rsvp_deadline_passed"
     APPLICATION_DEADLINE_PASSED = "application_deadline_passed"
     NO_TICKETS_ON_SALE = "no_tickets_on_sale"
+    SALES_PAUSED = "sales_paused"
     MEMBERSHIP_TIER_REQUIRED = "membership_tier_required"
     BLACKLISTED = "blacklisted"
     VERIFICATION_REQUIRED = "verification_required"
@@ -95,6 +96,7 @@ class Reasons(StrEnum):
     RSVP_DEADLINE_PASSED = gettext_noop("The RSVP deadline has passed.")
     APPLICATION_DEADLINE_PASSED = gettext_noop("The application deadline has passed.")
     NO_TICKETS_ON_SALE = gettext_noop("Tickets are not currently on sale.")
+    SALES_PAUSED = gettext_noop("Ticket sales are paused.")
     MEMBERSHIP_TIER_REQUIRED = gettext_noop("This ticket tier requires a specific membership tier.")
     BLACKLISTED = gettext_noop("You are not allowed to participate in this organization's events.")
     VERIFICATION_REQUIRED = gettext_noop("Additional verification required.")

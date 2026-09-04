@@ -141,6 +141,7 @@ class TicketTierSchema(ModelSchema):
             "currency",
             "sales_start_at",
             "sales_end_at",
+            "sales_paused",
             "purchasable_by",
             "payment_method",
             "manual_payment_instructions",
@@ -280,6 +281,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     currency: Currencies = Field(default="EUR", max_length=3)
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
+    sales_paused: bool = False
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
     manual_payment_instructions: StrippedString | None = None
@@ -341,6 +343,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     currency: Currencies | None = None
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
+    sales_paused: bool | None = None
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
     manual_payment_instructions: StrippedString | None = None
@@ -420,6 +423,7 @@ class TicketTierDetailSchema(ModelSchema):
             "currency",
             "sales_start_at",
             "sales_end_at",
+            "sales_paused",
             "created_at",
             "updated_at",
             "total_quantity",
