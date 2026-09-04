@@ -244,6 +244,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         response={
             200: schema.EventRSVPSchema | schema.BatchCheckoutResponse,
             400: EventUserEligibility | ErrorDetail,
+            403: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -255,6 +256,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         Validates the token, executes the action (creates RSVP or ticket), and blacklists the token
         to prevent reuse. Returns the created RSVP or BatchCheckoutResponse with tickets on success.
         Returns 400 if token is invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
+        Returns 403 if the tier's purchase rule or sale window rejects the buyer at confirmation time.
         """
         from events.service.guest_hold_session import GUEST_HOLD_COOKIE, resolve_guest_session
 

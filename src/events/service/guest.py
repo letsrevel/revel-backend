@@ -401,7 +401,7 @@ def handle_guest_ticket_checkout(
     from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
     from events.service.batch_ticket_service.context import validate_cart_shape
-    from events.service.batch_ticket_service.eligibility import assert_sale_window
+    from events.service.batch_ticket_service.eligibility import assert_cart_purchasable_by, assert_sale_window
     from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
 
@@ -436,6 +436,14 @@ def handle_guest_ticket_checkout(
     # Check eligibility (before validating PWYC/discount to prevent information leakage)
     manager = EventManager(user, event)
     manager.check_eligibility(raise_on_false=True)
+
+    # Enforce each tier's purchasable_by rule HERE, before the payment-method branch,
+    # for the same reason as the sale window above: the non-online branch defers
+    # create_batch — the only other place the rule runs — to the confirmation click,
+    # so an uninvited guest on an invited-only tier would otherwise get a 200, an
+    # email, and a link that 403s. Must run AFTER get_or_create_guest_user: a pending
+    # email invitation becomes this user's EventInvitation on row creation.
+    assert_cart_purchasable_by(event, user, (group.tier for group in groups))
 
     # Cart-shape validation (duplicate tier, uniform currency/payment method, PWYC
     # required-iff-PWYC and in bounds, no seat twice) — the single authority shared
