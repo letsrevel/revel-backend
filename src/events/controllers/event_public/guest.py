@@ -45,11 +45,21 @@ class EventPublicGuestController(EventPublicBaseController):
         the provided email. Accepts an optional plain-text ``note`` (max 500 chars) when the event
         has ``accept_rsvp_notes`` enabled; the note is applied when the RSVP is confirmed via the
         email link.
+
+        Send an invitation link's token as ``X-Event-Token`` (or ``?et=``) and it is claimed for
+        the guest first, exactly as the join page does for a logged-in user — this is how a guest
+        passes a private event's invitation gate.
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
         return guest_service.handle_guest_rsvp(
-            event, answer, payload.email, payload.first_name, payload.last_name, note=payload.note
+            event,
+            answer,
+            payload.email,
+            payload.first_name,
+            payload.last_name,
+            note=payload.note,
+            event_token=self.get_event_token(),
         )
 
     @route.post(
@@ -118,6 +128,7 @@ class EventPublicGuestController(EventPublicBaseController):
             discount_code=payload.discount_code,
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
+            event_token=self.get_event_token(),
         )
 
     @route.post(
@@ -185,6 +196,7 @@ class EventPublicGuestController(EventPublicBaseController):
             payload.last_name,
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
+            event_token=self.get_event_token(),
         )
 
     @route.post(
@@ -215,6 +227,11 @@ class EventPublicGuestController(EventPublicBaseController):
         `POST /events/reservations/{reservation_id}/checkout-session/public` next to
         obtain the Stripe `checkout_url`. Free / offline / at-the-door tiers complete
         here (`requires_payment=false`, email confirmation sent).
+
+        **Invitation links:** send the link's token as ``X-Event-Token`` (or ``?et=``) and
+        it is claimed for the guest first, exactly as the join page does for a logged-in
+        user — this is how a guest buys from an invited-only tier. Returns 403 if a tier's
+        `purchasable_by` rule or sale window rejects the buyer.
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
@@ -250,6 +267,7 @@ class EventPublicGuestController(EventPublicBaseController):
             discount_code=payload.discount_code,
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
+            event_token=self.get_event_token(),
         )
 
     @route.post(
