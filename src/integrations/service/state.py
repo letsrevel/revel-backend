@@ -66,4 +66,9 @@ def validate_state(state: str) -> ConnectStatePayload:
 
 def state_matches_cookie(cookie_value: str | None, state: str) -> bool:
     """Constant-time comparison of the callback ``state`` with the browser-bound cookie."""
-    return cookie_value is not None and state.isascii() and secrets.compare_digest(cookie_value, state)
+    return (
+        cookie_value is not None
+        and cookie_value.isascii()
+        and state.isascii()
+        and secrets.compare_digest(cookie_value, state)
+    )

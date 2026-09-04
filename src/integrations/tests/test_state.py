@@ -48,3 +48,4 @@ def test_cookie_match_is_constant_time_and_ascii_safe() -> None:
     assert state_service.state_matches_cookie("abc", "abd") is False
     assert state_service.state_matches_cookie(None, "abc") is False
     assert state_service.state_matches_cookie("abc", "abç") is False
+    assert state_service.state_matches_cookie("abç", "abc") is False
