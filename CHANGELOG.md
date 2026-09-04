@@ -7,14 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-09-04
+
 ### Added
 
 - Sign in with any OpenID Connect provider (Google, Keycloak, Authentik, …) configured via `OIDC_PROVIDERS`; linked identities can be listed and unlinked from account settings
+- Guest checkout and RSVP can claim an event invitation link directly (via `X-Event-Token` or `?et=`), so link holders no longer need an account to buy from the tiers the link unlocks
+- `GET /events/{id}/tickets/tiers` for an anonymous viewer holding a granting invitation link now lists the private tiers it unlocks and reports `can_purchase` accordingly
 
 ### Changed
 
 - **Breaking (`.env`):** `FEATURE_GOOGLE_SSO` is removed; configure `OIDC_PROVIDERS=google` with `OIDC_GOOGLE_*` instead. The `/version` payload replaces `features.google_sso` with `sso_providers`
 - Accounts created through an identity provider can now also set a password, reset it, and change their email
+
+### Fixed
+
+- Guest checkout on a tier restricted by `purchasable_by` (or a membership tier) is now rejected up front with a 403 instead of sending a confirmation email whose link then failed with 403
+- A guest invitation link to a private tier no longer 404s at checkout; the four guest endpoints now declare their 403 response
 
 ### Removed
 
