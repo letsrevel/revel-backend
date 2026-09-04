@@ -178,6 +178,14 @@ def test_parse_webhook_rejects_non_default_port() -> None:
     assert exc.value.code == IntegrationErrorCode.PROVIDER_REJECTED
 
 
+def test_parse_webhook_rejects_malformed_port() -> None:
+    body = {"api_url": "https://www.eventbriteapi.com:abc/v3/events/1/", "config": {"action": "order.placed"}}
+    request = RequestFactory().post("/x", data=json.dumps(body), content_type="application/json")
+    with pytest.raises(ProviderError) as exc:
+        _provider(Recorder({})).parse_webhook(request)
+    assert exc.value.code == IntegrationErrorCode.PROVIDER_REJECTED
+
+
 def test_parse_webhook_rejects_malformed() -> None:
     request = RequestFactory().post("/x", data="not json", content_type="application/json")
     with pytest.raises(ProviderError):
