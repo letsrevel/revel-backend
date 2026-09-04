@@ -95,6 +95,11 @@ class EventbriteProvider:
         except (orjson.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "malformed webhook body") from e
         parts = urlsplit(api_url)
-        if parts.scheme != "https" or parts.hostname != API_HOST or not parts.path.startswith("/v3/"):
+        if (
+            parts.scheme != "https"
+            or parts.hostname != API_HOST
+            or parts.port not in (None, 443)
+            or not parts.path.startswith("/v3/")
+        ):
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected resource host")
         return WebhookNotification(action=action, resource_path=parts.path.removeprefix("/v3"), raw=raw)

@@ -4,6 +4,6 @@
     "webhook_id": "15933194",
     "user_id": "3012894655993",
     "action": "event.published",
-    "endpoint_url": "https://webhook.site/eaccb8b8-af8f-427e-b9af-05056b8b2766"
+    "endpoint_url": "https://example.invalid/api/integrations/eventbrite/webhook/s3cret"
   }
 }

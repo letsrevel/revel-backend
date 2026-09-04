@@ -106,6 +106,18 @@ def test_429_is_retryable_rate_limit() -> None:
     assert exc.value.retryable is True
 
 
+def test_non_json_error_body_maps_without_message() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, text="Bad Gateway")
+
+    provider = EventbriteProvider(client_id="APPKEY", client_secret="SECRET", transport=httpx.MockTransport(handler))
+    with pytest.raises(ProviderError) as exc:
+        provider.list_accounts(TokenSet(access_token="TOK"))
+    assert exc.value.code == IntegrationErrorCode.PROVIDER_REJECTED
+    assert exc.value.provider_message is None
+    assert exc.value.retryable is True
+
+
 def test_register_webhook_posts_actions_and_returns_id() -> None:
     rec = Recorder({("POST", "/v3/organizations/3012894655993/webhooks/"): (200, _fixture("webhook_create"))})
     wid = _provider(rec).register_webhook(
@@ -152,6 +164,14 @@ def test_parse_webhook_strips_host_and_reads_action_from_body() -> None:
 
 def test_parse_webhook_rejects_foreign_host() -> None:
     body = {"api_url": "https://evil.example/v3/events/1/", "config": {"action": "order.placed"}}
+    request = RequestFactory().post("/x", data=json.dumps(body), content_type="application/json")
+    with pytest.raises(ProviderError) as exc:
+        _provider(Recorder({})).parse_webhook(request)
+    assert exc.value.code == IntegrationErrorCode.PROVIDER_REJECTED
+
+
+def test_parse_webhook_rejects_non_default_port() -> None:
+    body = {"api_url": "https://www.eventbriteapi.com:9999/v3/events/1/", "config": {"action": "order.placed"}}
     request = RequestFactory().post("/x", data=json.dumps(body), content_type="application/json")
     with pytest.raises(ProviderError) as exc:
         _provider(Recorder({})).parse_webhook(request)

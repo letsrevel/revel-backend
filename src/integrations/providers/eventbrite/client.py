@@ -7,12 +7,9 @@ Phase 1 only surfaces 429 as retryable; the budget-aware reconcile arrives with 
 import typing as t
 
 import httpx
-import structlog
 
 from integrations.exceptions import ProviderError
 from integrations.schema import IntegrationErrorCode
-
-logger = structlog.get_logger(__name__)
 
 API_BASE = "https://www.eventbriteapi.com/v3"
 API_HOST = "www.eventbriteapi.com"
@@ -42,12 +39,20 @@ def _raise_for(response: httpx.Response) -> None:
 
 
 class EventbriteClient:
-    """One client per call site; cheap to build, holds no state beyond the token."""
+    """Opens a fresh httpx client per call, by design in phase 1.
+
+    One API call per operation; the client is opened and closed around each request rather
+    than pooled across the object's lifetime. Pooling can come with the phase-3 reconcile if
+    call volume justifies it.
+    """
 
     def __init__(self, access_token: str | None = None, *, transport: httpx.BaseTransport | None = None) -> None:
-        """Build an httpx client scoped to ``access_token``; ``transport`` swaps in a fake for tests."""
-        headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
-        self._http = httpx.Client(headers=headers, timeout=TIMEOUT_SECONDS, transport=transport)
+        """Store the credentials for opening a client on each call; ``transport`` swaps in a fake for tests."""
+        self._headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+        self._transport = transport
+
+    def _open(self) -> httpx.Client:
+        return httpx.Client(headers=self._headers, timeout=TIMEOUT_SECONDS, transport=self._transport)
 
     def request(
         self,
@@ -59,7 +64,8 @@ class EventbriteClient:
     ) -> dict[str, t.Any]:
         """Call ``API_BASE + path`` and return the JSON body, mapping HTTP failures to ``ProviderError``."""
         try:
-            response = self._http.request(method, f"{API_BASE}{path}", json=json, params=params)
+            with self._open() as http:
+                response = http.request(method, f"{API_BASE}{path}", json=json, params=params)
         except httpx.HTTPError as e:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, str(e), retryable=True) from e
         _raise_for(response)
@@ -75,7 +81,8 @@ class EventbriteClient:
             "redirect_uri": redirect_uri,
         }
         try:
-            response = self._http.post(OAUTH_TOKEN, data=data)
+            with self._open() as http:
+                response = http.post(OAUTH_TOKEN, data=data)
         except httpx.HTTPError as e:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, str(e), retryable=True) from e
         _raise_for(response)
