@@ -87,6 +87,31 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
     return existing_user
 
 
+def claim_invitation_link(user: RevelUser, event: models.Event, event_token: models.EventToken | None) -> None:
+    """Claim an invitation link carried by a guest request, if it is for this event.
+
+    The guest counterpart of the join page's ``POST /events/claim-invitation/{token}``,
+    which requires a login: a guest sends the same token as ``X-Event-Token`` and gets
+    the same ``EventInvitation``. All token rules are ``tokens.claim_invitation``'s —
+    read-only tokens, expiry and ``max_uses`` are enforced there, and it is idempotent
+    for a returning guest. A token for another event is ignored. Must run AFTER the
+    guest user row exists and BEFORE any eligibility or tier-access check, which is
+    where the resulting invitation is consulted.
+
+    Args:
+        user: The guest user.
+        event: The event being RSVP'd to or purchased for.
+        event_token: The token resolved from the request, if any.
+    """
+    from events.service.tokens import claim_invitation
+
+    if event_token is None or event_token.event_id != event.id:
+        return
+    # claim_invitation locks the token row (select_for_update) — needs a transaction.
+    with transaction.atomic():
+        claim_invitation(user, event_token.pk)
+
+
 def create_guest_rsvp_token(
     user: RevelUser, event_id: UUID, answer: t.Literal["yes", "no", "maybe"], note: str = ""
 ) -> str:
@@ -282,6 +307,7 @@ def handle_guest_rsvp(
     first_name: str,
     last_name: str,
     note: str = "",
+    event_token: models.EventToken | None = None,
 ) -> schema.GuestActionResponseSchema:
     """Handle guest RSVP request (business logic extracted from controller).
 
@@ -292,6 +318,8 @@ def handle_guest_rsvp(
         first_name: Guest first name
         last_name: Guest last name
         note: Optional RSVP note (rejected if the event doesn't accept notes)
+        event_token: Invitation link carried by the request, claimed for the guest
+            before eligibility is checked (see :func:`claim_invitation_link`)
 
     Returns:
         Response with confirmation message
@@ -311,6 +339,7 @@ def handle_guest_rsvp(
 
     # Create or update guest user
     user = get_or_create_guest_user(email, first_name, last_name)
+    claim_invitation_link(user, event, event_token)
 
     # Check eligibility (without creating RSVP yet)
     manager = EventManager(user, event)
@@ -359,6 +388,7 @@ def handle_guest_ticket_checkout(
     discount_code: str | None = None,
     billing_info: "schema.BuyerBillingInfoSchema | None" = None,
     guest_session: str | None = None,
+    event_token: models.EventToken | None = None,
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request, spanning as many tiers as the cart holds (#846).
 
@@ -385,6 +415,8 @@ def handle_guest_ticket_checkout(
             the authenticated multi-tier endpoint uses), after eligibility.
         billing_info: Optional buyer billing info for attendee invoicing.
         guest_session: Resolved guest-hold session id (seat holds are owned by it).
+        event_token: Invitation link carried by the request, claimed for the guest
+            before eligibility and tier access are checked (see :func:`claim_invitation_link`).
 
     Returns:
         GuestCheckoutResponseSchema. Non-online carts: `message` (email confirmation
@@ -401,7 +433,7 @@ def handle_guest_ticket_checkout(
     from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
     from events.service.batch_ticket_service.context import validate_cart_shape
-    from events.service.batch_ticket_service.eligibility import assert_sale_window
+    from events.service.batch_ticket_service.eligibility import assert_cart_purchasable_by, assert_sale_window
     from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
 
@@ -427,15 +459,36 @@ def handle_guest_ticket_checkout(
     for group in groups:
         assert_sale_window(group.tier)
 
+    # Run the VIES round-trip HERE, before any row lock is taken: claim_invitation_link
+    # below locks the EventToken row for the rest of the request (ATOMIC_REQUESTS — the
+    # inner atomic() only releases a savepoint), and create_batch takes the tier locks.
+    # Neither may be held across a network call (#632). Answerable with no user at all,
+    # so it sits with the other user-independent gates. Only the paid-online path needs
+    # it; create_batch resolves it itself when handed None.
+    from events.service import stripe_service
+
+    buyer_vat_context = None
+    if billing_info and any(group.tier.payment_method == models.TicketTier.PaymentMethod.ONLINE for group in groups):
+        buyer_vat_context = stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)
+
     # Create or update guest user. Must come AFTER the gates above (#846 review
     # fix): all are answerable with no user at all, and creating a row / touching
     # the "does an account exist" check before them turns a login-required event
     # into an account-creation side channel / existence oracle.
     user = get_or_create_guest_user(email, first_name, last_name)
+    claim_invitation_link(user, event, event_token)
 
     # Check eligibility (before validating PWYC/discount to prevent information leakage)
     manager = EventManager(user, event)
     manager.check_eligibility(raise_on_false=True)
+
+    # Enforce each tier's purchasable_by rule HERE, before the payment-method branch,
+    # for the same reason as the sale window above: the non-online branch defers
+    # create_batch — the only other place the rule runs — to the confirmation click,
+    # so an uninvited guest on an invited-only tier would otherwise get a 200, an
+    # email, and a link that 403s. Must run AFTER get_or_create_guest_user: a pending
+    # email invitation becomes this user's EventInvitation on row creation.
+    assert_cart_purchasable_by(event, user, (group.tier for group in groups))
 
     # Cart-shape validation (duplicate tier, uniform currency/payment method, PWYC
     # required-iff-PWYC and in bounds, no seat twice) — the single authority shared
@@ -474,7 +527,7 @@ def handle_guest_ticket_checkout(
             discount_valid_tier_ids=valid_tier_ids,
             guest_session=guest_session,
         )
-        result = service.create_batch(billing_info=billing_info)
+        result = service.create_batch(billing_info=billing_info, buyer_vat_context=buyer_vat_context)
 
         # Branch on the returned SHAPE, never on the tier's payment method (#740):
         # a PWYC/discount input that zeroes every unit reroutes an ONLINE cart to

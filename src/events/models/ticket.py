@@ -24,6 +24,7 @@ from .venue import Venue, VenueSeat, VenueSector
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
     from events.models.event import Event
+    from events.models.invitation import EventToken
 
 DEFAULT_TICKET_TIER_NAME = "General Admission"
 
@@ -134,7 +135,9 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 
         return qs.filter(final_q).distinct()
 
-    def for_visible_event(self, event: "Event", user: "RevelUser | AnonymousUser") -> t.Self:
+    def for_visible_event(
+        self, event: "Event", user: "RevelUser | AnonymousUser", event_token: "EventToken | None" = None
+    ) -> t.Self:
         """Return ticket tiers for an already visibility-checked event.
 
         Use this when you already have an event that passed visibility checks via Event.for_user().
@@ -143,6 +146,9 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         Args:
             event: An event that already passed visibility checks for this user.
             user: The user to check tier visibility for.
+            event_token: An invitation link the request carries. For an anonymous user it
+                grants the private-tier visibility the invitation it would create grants,
+                so a guest can reach an invitation-gated tier before the claim exists.
 
         Returns:
             QuerySet of tiers the user can see for this specific event.
@@ -155,9 +161,28 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         if not user.is_anonymous and (user.is_superuser or user.is_staff):
             return qs
 
-        # Anonymous users: only publicly accessible tiers (PUBLIC + UNLISTED)
+        # Anonymous users: only publicly accessible tiers (PUBLIC + UNLISTED), plus the
+        # private tiers a granting invitation link for this event would unlock — the same
+        # rule as the invitation branch below, keyed on the token's tier links instead.
         if user.is_anonymous:
-            return qs.filter(visibility__in=TicketTier.Visibility.publicly_accessible())
+            is_public_tier = Q(visibility__in=TicketTier.Visibility.publicly_accessible())
+            if event_token is None or not event_token.grants_invitation or event_token.event_id != event.id:
+                return qs.filter(is_public_tier)
+            token_tier_ids = {tier.id for tier in event_token.ticket_tiers.all()}
+            unrestricted_private = Q(
+                visibility=TicketTier.Visibility.PRIVATE,
+                restrict_visibility_to_linked_invitations=False,
+            )
+            restricted_private = (
+                Q(
+                    visibility=TicketTier.Visibility.PRIVATE,
+                    restrict_visibility_to_linked_invitations=True,
+                    pk__in=token_tier_ids,
+                )
+                if token_tier_ids
+                else Q(pk__isnull=True)
+            )
+            return qs.filter(is_public_tier | unrestricted_private | restricted_private)
 
         # Check if user is org owner or staff - they see all tiers
         if event.organization.is_owner_or_staff(user):
@@ -211,9 +236,11 @@ class TicketTierManager(models.Manager["TicketTier"]):
         """Return ticket tiers visible to a given user, combining event and tier-level access."""
         return self.get_queryset().for_user(user)
 
-    def for_visible_event(self, event: "Event", user: "RevelUser | AnonymousUser") -> TicketTierQuerySet:
+    def for_visible_event(
+        self, event: "Event", user: "RevelUser | AnonymousUser", event_token: "EventToken | None" = None
+    ) -> TicketTierQuerySet:
         """Return ticket tiers for an already visibility-checked event."""
-        return self.get_queryset().for_visible_event(event, user)
+        return self.get_queryset().for_visible_event(event, user, event_token=event_token)
 
 
 class TicketTier(TimeStampedModel, VisibilityMixin):

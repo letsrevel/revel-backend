@@ -23,6 +23,7 @@ from events.models import (
     Event,
     EventInvitation,
     EventRSVP,
+    EventToken,
     MembershipTier,
     Organization,
     OrganizationMember,
@@ -205,6 +206,35 @@ def _check_tier_visibility(
 
     # STAFF_ONLY - only staff/owner (already checked above)
     return False
+
+
+def anonymous_can_purchase(tier: TicketTier, event: Event, event_token: EventToken | None) -> bool:
+    """Whether an anonymous viewer may buy from this tier.
+
+    Public tiers always. Otherwise only what a granting invitation link for this
+    event would unlock once guest checkout claims it — the same rule as
+    :func:`_check_purchasable_by` for an invited non-member, keyed on the token's
+    tier links instead of an invitation's. Keeps the listing's ``can_purchase``
+    honest for link holders, so the frontend need not second-guess it.
+
+    Args:
+        tier: The tier being listed.
+        event: The event the tier belongs to.
+        event_token: The invitation link the request carries, if any.
+
+    Returns:
+        True if an anonymous viewer carrying ``event_token`` can purchase from the tier.
+    """
+    # A membership-tier restriction can never be met without an account (mirrors
+    # get_eligible_tiers step 4). ``.all()`` reads the manager's prefetch.
+    if tier.restricted_to_membership_tiers.all():
+        return False
+    if tier.purchasable_by == TicketTier.PurchasableBy.PUBLIC:
+        return True
+    if event_token is None or not event_token.grants_invitation or event_token.event_id != event.id:
+        return False
+    token_tier_ids = {linked.id for linked in event_token.ticket_tiers.all()}
+    return _check_purchasable_by(tier, is_member=False, is_invited=True, invitation_tier_ids=token_tier_ids)
 
 
 def _check_purchasable_by(
