@@ -40,7 +40,7 @@ class PlatformConnection(TimeStampedModel):
         default=False, help_text="Org-wide default; EventLink.auto_sync overrides per event."
     )
     webhook_remote_id = models.CharField(max_length=255, blank=True, default="")
-    webhook_secret = models.CharField(max_length=64, unique=True, db_index=True, default=new_webhook_secret)
+    webhook_secret = models.CharField(max_length=64, unique=True, default=new_webhook_secret)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True)
     last_error = models.JSONField(null=True, blank=True)
 

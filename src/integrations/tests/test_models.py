@@ -63,6 +63,19 @@ def test_record_error_sets_status_and_payload(connection: PlatformConnection) ->
     assert connection.last_error == {"code": "connection_revoked", "detail": "Reconnect", "provider_message": "401"}
 
 
+def test_record_error_without_status_keeps_status(connection: PlatformConnection) -> None:
+    """Test that calling record_error without status parameter leaves status unchanged."""
+    assert connection.status == PlatformConnection.Status.ACTIVE
+    connection.record_error(IntegrationErrorCode.WEBHOOK_REGISTRATION_FAILED, "Live updates unavailable")
+    connection.refresh_from_db()
+    assert connection.status == PlatformConnection.Status.ACTIVE
+    assert connection.last_error == {
+        "code": "webhook_registration_failed",
+        "detail": "Live updates unavailable",
+        "provider_message": None,
+    }
+
+
 def test_event_link_effective_auto_sync_inherits(connection: PlatformConnection, event: Event) -> None:
     link = EventLink.objects.create(event=event, connection=connection, remote_id="ev-1")
     assert link.effective_auto_sync is False
