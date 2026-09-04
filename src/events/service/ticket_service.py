@@ -225,6 +225,10 @@ def anonymous_can_purchase(tier: TicketTier, event: Event, event_token: EventTok
     Returns:
         True if an anonymous viewer carrying ``event_token`` can purchase from the tier.
     """
+    # A membership-tier restriction can never be met without an account (mirrors
+    # get_eligible_tiers step 4). ``.all()`` reads the manager's prefetch.
+    if tier.restricted_to_membership_tiers.all():
+        return False
     if tier.purchasable_by == TicketTier.PurchasableBy.PUBLIC:
         return True
     if event_token is None or not event_token.grants_invitation or event_token.event_id != event.id:

@@ -6,7 +6,7 @@ import pytest
 from django.test.client import Client
 from django.urls import reverse
 
-from events.models import Event, EventToken, TicketTier
+from events.models import Event, EventToken, MembershipTier, TicketTier
 
 pytestmark = pytest.mark.django_db
 
@@ -71,6 +71,13 @@ def test_list_tiers_defaults_when_cancellation_disabled(
     assert no_cancel["refund_policy"] is None
 
 
+class _TierRow(t.TypedDict):
+    """The slice of ``TicketTierSchema`` the listing tests read."""
+
+    name: str
+    can_purchase: bool
+
+
 class TestAnonymousListingWithInvitationLink:
     """An anonymous viewer carrying a granting invitation link sees what the claimed
     invitation would unlock, and ``can_purchase`` says so — guest checkout claims the
@@ -97,11 +104,12 @@ class TestAnonymousListingWithInvitationLink:
         )
 
     @staticmethod
-    def _list(client: Client, event: Event, link: EventToken | None = None) -> dict[str, dict[str, t.Any]]:
+    def _list(client: Client, event: Event, link: EventToken | None = None) -> dict[str, _TierRow]:
         headers = {"X-Event-Token": link.pk} if link else None
         response = client.get(reverse("api:tier_list", kwargs={"event_id": event.pk}), headers=headers)
         assert response.status_code == 200, response.content
-        return {tier["name"]: tier for tier in response.json()}
+        rows = t.cast(list[_TierRow], response.json())
+        return {row["name"]: row for row in rows}
 
     def test_without_link_invited_tier_is_not_purchasable_and_private_tier_hidden(
         self, client: Client, public_event: Event, invited_tier: TicketTier, private_tier: TicketTier
@@ -140,3 +148,23 @@ class TestAnonymousListingWithInvitationLink:
 
         link.ticket_tiers.set([invited_tier])
         assert self._list(client, public_event, link)["Invited Only"]["can_purchase"] is True
+
+    def test_membership_tier_restriction_is_never_met_anonymously(
+        self,
+        client: Client,
+        public_event: Event,
+        invited_tier: TicketTier,
+        link: EventToken,
+        tier_factory: t.Callable[..., TicketTier],
+    ) -> None:
+        general = MembershipTier.objects.get(organization=public_event.organization, name="General membership")
+        invited_tier.restricted_to_membership_tiers.set([general])
+        public_tier = tier_factory(
+            event=public_event, name="Public Gated", purchasable_by=TicketTier.PurchasableBy.PUBLIC
+        )
+        public_tier.restricted_to_membership_tiers.set([general])
+
+        tiers = self._list(client, public_event, link)
+
+        assert tiers["Invited Only"]["can_purchase"] is False
+        assert tiers["Public Gated"]["can_purchase"] is False

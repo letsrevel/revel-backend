@@ -468,7 +468,7 @@ def handle_guest_ticket_checkout(
     from events.service import stripe_service
 
     buyer_vat_context = None
-    if groups[0].tier.payment_method == models.TicketTier.PaymentMethod.ONLINE and billing_info:
+    if billing_info and any(group.tier.payment_method == models.TicketTier.PaymentMethod.ONLINE for group in groups):
         buyer_vat_context = stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)
 
     # Create or update guest user. Must come AFTER the gates above (#846 review

@@ -24,6 +24,7 @@ from events.models import (
     EventToken,
     MembershipTier,
     Organization,
+    OrganizationMember,
     PendingEventInvitation,
     TicketTier,
 )
@@ -394,6 +395,28 @@ class TestGuestMembershipTierEnforcement:
         assert response.status_code == 400, response.content
         assert response.json()["reason_code"] == "membership_tier_required"
         mock_send_email.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_member_of_the_required_tier_gets_confirmation(
+        self, mock_send_email: Mock, guest_event: Event, organization: Organization
+    ) -> None:
+        # A guest row can hold a membership (the organizer added the address as a member
+        # before it ever checked out as a guest); the required tier must let it through.
+        general = MembershipTier.objects.get(organization=organization, name="General membership")
+        gated_tier = TicketTier.objects.create(
+            event=guest_event, name="Members Only", payment_method=TicketTier.PaymentMethod.OFFLINE
+        )
+        gated_tier.restricted_to_membership_tiers.set([general])
+        member = guest_service.get_or_create_guest_user("member@example.com", "Guest", "Member")
+        OrganizationMember.objects.create(
+            organization=organization, user=member, status=OrganizationMember.MembershipStatus.ACTIVE, tier=general
+        )
+
+        response = _checkout(guest_event, gated_tier, "member@example.com")
+
+        assert response.status_code == 200, response.content
+        mock_send_email.assert_called_once()
 
 
 class TestGuestClaimNeverHoldsTokenLockAcrossVies:
