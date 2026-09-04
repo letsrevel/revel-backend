@@ -1,6 +1,7 @@
 """OAuth callback (redirects, never JSON) and the webhook receiver (records only in phase 1)."""
 
 import typing as t
+from urllib.parse import parse_qs, urlparse
 
 import orjson
 import pytest
@@ -68,6 +69,27 @@ def test_callback_garbage_state_redirects_generic_error(fake_provider: FakeProvi
     response = _callback(Client(), "nope", code="c", state="s")
     assert response.status_code == 302
     assert response["Location"] == f"{settings.FRONTEND_BASE_URL}/org?error=state_invalid"
+
+
+def test_callback_provider_mismatch_redirects_error_no_connection(
+    organization: Organization, fake_provider: FakeProvider
+) -> None:
+    """The URL ``provider`` must match the one bound into the state, or the callback is rejected."""
+    start = connection_service.begin_connect(organization, organization.owner, "fake")
+    client = Client()
+    client.cookies[CONNECT_STATE_COOKIE] = start.state
+    response = _callback(client, "other", code="c1", state=start.state)
+    assert response.status_code == 302
+    assert response["Location"] == f"{settings.FRONTEND_BASE_URL}/org?error=state_invalid"
+    assert not PlatformConnection.objects.exists()
+
+
+def test_callback_error_redirect_encodes_crafted_provider(fake_provider: FakeProvider) -> None:
+    """A provider segment carrying query-string metacharacters must never leak into the query unencoded."""
+    response = _callback(Client(), "x&foo=bar", code="c", state="s")
+    assert response.status_code == 302
+    query = urlparse(response["Location"]).query
+    assert parse_qs(query) == {"error": ["state_invalid"]}
 
 
 def _connected(organization: Organization) -> PlatformConnection:

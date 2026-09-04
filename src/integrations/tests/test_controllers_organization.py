@@ -2,9 +2,12 @@
 
 import orjson
 import pytest
+from django.conf import settings
 from django.test.client import Client
 from django.urls import reverse
+from ninja_jwt.tokens import RefreshToken
 
+from accounts.models import RevelUser
 from events.models import Organization
 from integrations.models import PlatformConnection
 from integrations.providers.base import RemoteAccount
@@ -41,6 +44,23 @@ def test_list_shows_enabled_provider_unconnected(
     ]
 
 
+def test_stranger_cannot_list(
+    organization: Organization, fake_provider: FakeProvider, django_user_model: type[RevelUser]
+) -> None:
+    """A user with no relationship to the organization gets 404, not 403.
+
+    Unlike staff (who are members and so surface via ``Organization.for_user`` and then get
+    rejected by ``IsOrganizationOwner`` with 403), a stranger to a non-public organization
+    never sees it in their visible queryset at all, so ``get_object_or_exception`` 404s before
+    the owner-permission check ever runs.
+    """
+    stranger = django_user_model.objects.create_user(username="int_stranger", email="stranger@example.com")
+    refresh = RefreshToken.for_user(stranger)
+    client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+    url = reverse("api:list_integrations", kwargs={"slug": organization.slug})
+    assert client.get(url).status_code == 404
+
+
 def test_staff_cannot_list_or_connect(
     organization_staff_client: Client, organization: Organization, fake_provider: FakeProvider
 ) -> None:
@@ -61,6 +81,11 @@ def test_connect_returns_url_and_sets_state_cookie(
     cookie = response.cookies[CONNECT_STATE_COOKIE]
     assert cookie.value and cookie.value in response.json()["authorize_url"]
     assert cookie["httponly"] and cookie["path"] == "/api/integrations"
+    assert cookie["samesite"] == "Lax"
+    # pytest-django's test environment forces settings.DEBUG = False regardless of .env, so the
+    # controller's secure=not DEBUG is truthy here (unlike a DEBUG=True dev server).
+    assert not settings.DEBUG
+    assert cookie["secure"]
 
 
 def test_connect_unknown_provider_404(

@@ -1,5 +1,7 @@
 """Provider registry: enablement follows settings; unknown keys 404."""
 
+import typing as t
+
 import pytest
 
 from integrations import registry
@@ -7,6 +9,15 @@ from integrations.exceptions import IntegrationError
 from integrations.providers.base import ListingProvider
 from integrations.schema import IntegrationErrorCode
 from integrations.tests.fake_provider import FakeProvider
+
+
+@pytest.fixture(autouse=True)
+def _restore_providers() -> t.Iterator[None]:
+    """``registry.populate()`` mutates the global ``PROVIDERS`` in place; restore it after each test."""
+    snapshot = dict(registry.PROVIDERS)
+    yield
+    registry.PROVIDERS.clear()
+    registry.PROVIDERS.update(snapshot)
 
 
 def test_fake_provider_satisfies_protocol() -> None:

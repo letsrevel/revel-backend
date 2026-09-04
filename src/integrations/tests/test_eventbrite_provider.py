@@ -118,6 +118,39 @@ def test_non_json_error_body_maps_without_message() -> None:
     assert exc.value.retryable is True
 
 
+def test_non_json_success_body_never_escapes_as_value_error() -> None:
+    """A 2xx with a non-JSON body must raise ``ProviderError``, not a bare ``ValueError``."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="not json")
+
+    provider = EventbriteProvider(client_id="APPKEY", client_secret="SECRET", transport=httpx.MockTransport(handler))
+    with pytest.raises(ProviderError) as exc:
+        provider.list_accounts(TokenSet(access_token="TOK"))
+    assert exc.value.code == IntegrationErrorCode.PROVIDER_REJECTED
+
+
+def test_success_body_missing_access_token_never_escapes_as_key_error() -> None:
+    """A 2xx dict missing ``access_token`` must raise ``ProviderError``, not a bare ``KeyError``."""
+    rec = Recorder({("POST", "/oauth/token"): (200, {})})
+    with pytest.raises(ProviderError) as exc:
+        _provider(rec).exchange_code("c0de", "https://api.example/cb")
+    assert exc.value.code == IntegrationErrorCode.PROVIDER_REJECTED
+
+
+def test_error_body_as_json_list_never_escapes_as_attribute_error() -> None:
+    """An error body that is a JSON list must raise ``ProviderError``, not a bare ``AttributeError``."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=["unexpected"])
+
+    provider = EventbriteProvider(client_id="APPKEY", client_secret="SECRET", transport=httpx.MockTransport(handler))
+    with pytest.raises(ProviderError) as exc:
+        provider.list_accounts(TokenSet(access_token="TOK"))
+    assert exc.value.code == IntegrationErrorCode.PROVIDER_REJECTED
+    assert exc.value.provider_message is None
+
+
 def test_register_webhook_posts_actions_and_returns_id() -> None:
     rec = Recorder({("POST", "/v3/organizations/3012894655993/webhooks/"): (200, _fixture("webhook_create"))})
     wid = _provider(rec).register_webhook(

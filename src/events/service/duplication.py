@@ -204,6 +204,8 @@ def _duplicate_ticket_tiers(
         copy_kwargs["quantity_sold"] = 0
         copy_kwargs["sales_start_at"] = shift_date(tier.sales_start_at)
         copy_kwargs["sales_end_at"] = shift_date(tier.sales_end_at)
+        # A pause answers the source event's sales situation; the copy starts fresh, like quantity_sold.
+        copy_kwargs["sales_paused"] = False
 
         new_tier = TicketTier.objects.create(**copy_kwargs)
         new_tier.restricted_to_membership_tiers.set(tier.restricted_to_membership_tiers.all())

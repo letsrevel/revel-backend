@@ -142,7 +142,8 @@ def complete_connect(state: str, code: str) -> PlatformConnection:
             "webhook_remote_id": "",
         },
     )
-    # Webhook registration is a network call: keep it outside any transaction (engineering-notes).
+    # Runs inside the request transaction under ATOMIC_REQUESTS by accepted trade-off (see the
+    # callback docstring in controllers/public.py); a failure rolls the connection row back.
     if len(accounts) == 1:
         return _bind_account(conn, provider, accounts[0])
     return conn

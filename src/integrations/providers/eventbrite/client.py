@@ -23,12 +23,25 @@ def _error_message(body: dict[str, t.Any]) -> str | None:
     return str(msg) if msg else None
 
 
+def _json_dict(response: httpx.Response) -> dict[str, t.Any]:
+    """Parse a 2xx body as a JSON object, or raise ``ProviderError`` — never a bare ``ValueError``."""
+    try:
+        body = response.json()
+    except ValueError as e:
+        raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response body") from e
+    if not isinstance(body, dict):
+        raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response body")
+    return t.cast(dict[str, t.Any], body)
+
+
 def _raise_for(response: httpx.Response) -> None:
     if response.status_code < 400:
         return
     try:
-        body = t.cast(dict[str, t.Any], response.json())
+        body = response.json()
     except ValueError:
+        body = {}
+    if not isinstance(body, dict):
         body = {}
     message = _error_message(body)
     if response.status_code == 401:
@@ -69,7 +82,7 @@ class EventbriteClient:
         except httpx.HTTPError as e:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, str(e), retryable=True) from e
         _raise_for(response)
-        return t.cast(dict[str, t.Any], response.json())
+        return _json_dict(response)
 
     def exchange_code(self, client_id: str, client_secret: str, code: str, redirect_uri: str) -> dict[str, t.Any]:
         """Form-encoded authorization-code exchange (spec §14: bare ``{access_token, token_type}``)."""
@@ -86,4 +99,4 @@ class EventbriteClient:
         except httpx.HTTPError as e:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, str(e), retryable=True) from e
         _raise_for(response)
-        return t.cast(dict[str, t.Any], response.json())
+        return _json_dict(response)

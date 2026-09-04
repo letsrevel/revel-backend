@@ -47,13 +47,6 @@ class IntegrationErrorSchema(Schema):
     provider_message: str | None = None
 
 
-class ProviderSchema(Schema):
-    """Provider descriptor for the provider list endpoint."""
-
-    key: str
-    display_name: str
-
-
 ConnectionStatus = t.Literal["pending", "active", "revoked", "error"]
 
 

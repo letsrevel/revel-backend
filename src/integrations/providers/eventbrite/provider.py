@@ -56,7 +56,10 @@ class EventbriteProvider:
     def exchange_code(self, code: str, redirect_uri: str) -> TokenSet:
         """Exchange an authorization code for a token set."""
         body = self._client().exchange_code(self.client_id, self.client_secret, code, redirect_uri)
-        return TokenSet(access_token=str(body["access_token"]))
+        try:
+            return TokenSet(access_token=str(body["access_token"]))
+        except (KeyError, TypeError) as e:
+            raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response shape") from e
 
     def revoke(self, token: TokenSet) -> None:
         """Eventbrite has no revocation endpoint; the owner removes the app in their account settings."""
@@ -64,10 +67,13 @@ class EventbriteProvider:
     def list_accounts(self, token: TokenSet) -> list[RemoteAccount]:
         """List remote accounts accessible with the given token."""
         body = self._client(token).request("GET", "/users/me/organizations/")
-        return [
-            RemoteAccount(remote_id=str(o["id"]), name=str(o.get("name") or o["id"]))
-            for o in body.get("organizations", [])
-        ]
+        try:
+            return [
+                RemoteAccount(remote_id=str(o["id"]), name=str(o.get("name") or o["id"]))
+                for o in body.get("organizations", [])
+            ]
+        except (KeyError, TypeError) as e:
+            raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response shape") from e
 
     # -- webhooks ---------------------------------------------------------------------
     def register_webhook(self, token: TokenSet, account_id: str, url: str) -> str:
@@ -77,7 +83,10 @@ class EventbriteProvider:
             f"/organizations/{account_id}/webhooks/",
             json={"endpoint_url": url, "actions": ",".join(WEBHOOK_ACTIONS)},
         )
-        return str(body["id"])
+        try:
+            return str(body["id"])
+        except (KeyError, TypeError) as e:
+            raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response shape") from e
 
     def unregister_webhook(self, token: TokenSet, remote_webhook_id: str) -> None:
         """Unregister a webhook by its remote ID."""

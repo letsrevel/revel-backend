@@ -1,6 +1,7 @@
 """Unauthenticated endpoints the *provider* calls: OAuth callback and webhook receiver."""
 
 import typing as t
+from urllib.parse import urlencode
 
 import structlog
 from django.conf import settings
@@ -9,6 +10,7 @@ from ninja import Query
 from ninja_extra import ControllerBase, api_controller, route
 
 from common.throttling import AnonDefaultThrottle
+from events.models import Organization
 from integrations.exceptions import IntegrationError
 from integrations.schema import IntegrationErrorCode
 from integrations.service import connection_service, webhook_service
@@ -23,13 +25,12 @@ logger = structlog.get_logger(__name__)
 
 
 def _settings_url(slug: str | None, **params: str) -> str:
-    query = "&".join(f"{k}={v}" for k, v in params.items())
     base = (
         f"{settings.FRONTEND_BASE_URL}/org/{slug}/settings/integrations"
         if slug
         else f"{settings.FRONTEND_BASE_URL}/org"
     )
-    return f"{base}?{query}"
+    return f"{base}?{urlencode(params)}"
 
 
 @api_controller("/integrations", auth=None, tags=["Integrations"], throttle=AnonDefaultThrottle())
@@ -67,8 +68,8 @@ class IntegrationsPublicController(ControllerBase):
             if not state:
                 raise IntegrationError(IntegrationErrorCode.STATE_INVALID, "missing state")
             payload = validate_state(state)
-            from events.models import Organization
-
+            if provider != payload.provider:
+                raise IntegrationError(IntegrationErrorCode.STATE_INVALID, "provider mismatch")
             slug = Organization.objects.filter(id=payload.organization_id).values_list("slug", flat=True).first()
             if error:
                 logger.info("integration_connect_denied", provider=provider, error=error)

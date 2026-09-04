@@ -136,6 +136,29 @@ def test_disconnect_unregisters_webhook_and_revokes(
     assert not PlatformConnection.objects.exists()
 
 
+def test_list_pending_accounts_revoked_token_maps_to_connection_revoked(
+    organization: Organization, organization_owner_user: RevelUser, fake_provider: FakeProvider
+) -> None:
+    """A pending connection whose stored token the provider has since revoked surfaces ``CONNECTION_REVOKED``.
+
+    ``FakeProvider.list_accounts`` is deterministic on the token value, so the ``tok-revoked``
+    sentinel can't be reached via ``complete_connect`` itself (it calls ``list_accounts`` with
+    the freshly exchanged token to decide single- vs multi-account binding, and would fail
+    there first). Simulate the token going bad *after* the connection is left pending, by
+    overwriting the stored token directly, then exercise the picker's ``list_pending_accounts``.
+    """
+    fake_provider.accounts = [RemoteAccount(remote_id="a", name="A"), RemoteAccount(remote_id="b", name="B")]
+    start = connection_service.begin_connect(organization, organization_owner_user, "fake")
+    conn = connection_service.complete_connect(start.state, code="c1")
+    assert conn.status == PlatformConnection.Status.PENDING
+    conn.access_token = "tok-revoked"
+    conn.save(update_fields=["access_token"])
+    with pytest.raises(IntegrationError) as exc:
+        connection_service.list_pending_accounts(organization, "fake")
+    assert exc.value.code == IntegrationErrorCode.CONNECTION_REVOKED
+    assert exc.value.status == 400
+
+
 def test_list_connections_one_row_per_enabled_provider(
     organization: Organization, organization_owner_user: RevelUser, fake_provider: FakeProvider
 ) -> None:
