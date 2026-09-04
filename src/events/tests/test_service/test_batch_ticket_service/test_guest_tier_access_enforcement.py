@@ -9,16 +9,36 @@ every guest got a 200 and a confirmation email, and every click on the link then
 
 import typing as t
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 import pytest
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from events.models import Event, EventInvitation, EventToken, Organization, PendingEventInvitation, TicketTier
+from events.models import (
+    Event,
+    EventInvitation,
+    EventToken,
+    MembershipTier,
+    Organization,
+    PendingEventInvitation,
+    TicketTier,
+)
+from events.schema import TicketPurchaseItem
+from events.schema.checkout import BuyerBillingInfoSchema
+from events.service import event_service
+from events.service import guest as guest_service
+from events.service.batch_ticket_service import CartGroup
 
 pytestmark = pytest.mark.django_db
+
+
+def _token_headers(event_token: str | None) -> dict[str, str] | None:
+    """Request headers carrying an invitation link, if any."""
+    return {"X-Event-Token": event_token} if event_token else None
 
 
 @pytest.fixture
@@ -50,7 +70,7 @@ def invited_tier(guest_event: Event) -> TicketTier:
 
 
 def _checkout(event: Event, tier: TicketTier, email: str, *, event_token: str | None = None) -> t.Any:
-    headers = {"X-Event-Token": event_token} if event_token else None
+    headers = _token_headers(event_token)
     return Client().post(
         reverse("api:guest_multi_tier_checkout", kwargs={"event_id": event.pk}),
         data={
@@ -231,7 +251,7 @@ class TestGuestInvitationLinkRsvp:
 
     @staticmethod
     def _rsvp(event: Event, email: str, *, event_token: str | None = None) -> t.Any:
-        headers = {"X-Event-Token": event_token} if event_token else None
+        headers = _token_headers(event_token)
         return Client().post(
             reverse("api:guest_rsvp", kwargs={"event_id": event.pk, "answer": "yes"}),
             data={"email": email, "first_name": "Guest", "last_name": "Rsvp"},
@@ -260,3 +280,172 @@ class TestGuestInvitationLinkRsvp:
         assert response.status_code == 200, response.content
         assert EventInvitation.objects.filter(event=private_rsvp_event, user__email="rsvplink@example.com").exists()
         mock_send_email.assert_called_once()
+
+
+@pytest.fixture
+def private_invited_tier(guest_event: Event) -> TicketTier:
+    """Invitation-gated tier that is also hidden (PRIVATE visibility): only a link can reach it."""
+    return TicketTier.objects.create(
+        event=guest_event,
+        name="Private Invited",
+        payment_method=TicketTier.PaymentMethod.OFFLINE,
+        visibility=TicketTier.Visibility.PRIVATE,
+        purchasable_by=TicketTier.PurchasableBy.INVITED,
+    )
+
+
+class TestGuestInvitationLinkPrivateTier:
+    """PRIVATE tiers are invisible to anonymous users, and the guest routes resolve
+    the tier BEFORE the claim can run — so a link to a private tier used to 404. The
+    tier lookup now grants the visibility the claimed invitation would grant.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_without_link_private_tier_is_not_found(
+        self, mock_send_email: Mock, guest_event: Event, private_invited_tier: TicketTier
+    ) -> None:
+        response = _checkout(guest_event, private_invited_tier, "nolink@example.com")
+
+        assert response.status_code == 404, response.content
+        mock_send_email.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_link_unlocks_private_tier(
+        self, mock_send_email: Mock, guest_event: Event, private_invited_tier: TicketTier, invitation_link: EventToken
+    ) -> None:
+        response = _checkout(guest_event, private_invited_tier, "private@example.com", event_token=invitation_link.pk)
+
+        assert response.status_code == 200, response.content
+        mock_send_email.assert_called_once()
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_link_unlocks_private_tier_on_deprecated_single_tier_route(
+        self, mock_send_email: Mock, guest_event: Event, private_invited_tier: TicketTier, invitation_link: EventToken
+    ) -> None:
+        response = Client().post(
+            reverse(
+                "api:guest_ticket_checkout", kwargs={"event_id": guest_event.pk, "tier_id": private_invited_tier.pk}
+            ),
+            data={
+                "email": "legacy@example.com",
+                "first_name": "Guest",
+                "last_name": "Legacy",
+                "tickets": [{"guest_name": "Guest Legacy"}],
+            },
+            content_type="application/json",
+            headers=_token_headers(invitation_link.pk),
+        )
+
+        assert response.status_code == 200, response.content
+        mock_send_email.assert_called_once()
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_visibility_linked_restriction_needs_a_linked_link(
+        self, mock_send_email: Mock, guest_event: Event, private_invited_tier: TicketTier, invitation_link: EventToken
+    ) -> None:
+        private_invited_tier.restrict_visibility_to_linked_invitations = True
+        private_invited_tier.save(update_fields=["restrict_visibility_to_linked_invitations"])
+
+        unlinked = _checkout(guest_event, private_invited_tier, "unlinked@example.com", event_token=invitation_link.pk)
+        assert unlinked.status_code == 404, unlinked.content
+
+        invitation_link.ticket_tiers.set([private_invited_tier])
+        linked = _checkout(guest_event, private_invited_tier, "linked@example.com", event_token=invitation_link.pk)
+        assert linked.status_code == 200, linked.content
+        mock_send_email.assert_called_once()
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_read_only_link_does_not_unlock_private_tier(
+        self, mock_send_email: Mock, guest_event: Event, private_invited_tier: TicketTier, invitation_link: EventToken
+    ) -> None:
+        invitation_link.grants_invitation = False
+        invitation_link.save(update_fields=["grants_invitation"])
+
+        response = _checkout(guest_event, private_invited_tier, "readonly@example.com", event_token=invitation_link.pk)
+
+        assert response.status_code == 404, response.content
+        mock_send_email.assert_not_called()
+
+
+class TestGuestMembershipTierEnforcement:
+    """The membership-tier restriction is the sibling of ``purchasable_by`` and was
+    equally deferred to the confirmation click on the non-online guest path.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_membership_gated_tier_rejected_at_checkout_and_no_email(
+        self, mock_send_email: Mock, guest_event: Event, organization: Organization
+    ) -> None:
+        gated_tier = TicketTier.objects.create(
+            event=guest_event, name="Members Only", payment_method=TicketTier.PaymentMethod.OFFLINE
+        )
+        gated_tier.restricted_to_membership_tiers.set(
+            [MembershipTier.objects.get(organization=organization, name="General membership")]
+        )
+
+        response = _checkout(guest_event, gated_tier, "nonmember@example.com")
+
+        assert response.status_code == 400, response.content
+        assert response.json()["reason_code"] == "membership_tier_required"
+        mock_send_email.assert_not_called()
+
+
+class TestGuestClaimNeverHoldsTokenLockAcrossVies:
+    """Claiming the link locks the EventToken row for the rest of the request, so the
+    VIES round-trip must already be done by then (#632 discipline) and handed to
+    create_batch rather than resolved again under the lock.
+    """
+
+    def test_vies_resolves_before_the_claim_and_is_reused(
+        self, guest_event: Event, invitation_link: EventToken
+    ) -> None:
+        online_tier = TicketTier.objects.create(
+            event=guest_event, name="Online", payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("10.00")
+        )
+        billing_info = BuyerBillingInfoSchema(billing_name="ACME", vat_id="ATU12345678", vat_country_code="AT")
+        order = Mock()
+        with (
+            patch("events.service.stripe_service.resolve_attendee_vat_for_reserve", return_value="vat-ctx") as vies,
+            patch("events.service.tokens.claim_invitation") as claim,
+            patch(
+                "events.service.batch_ticket_service.service.BatchTicketService.create_batch",
+                return_value=([], uuid4()),
+            ) as create_batch,
+        ):
+            order.attach_mock(vies, "vies")
+            order.attach_mock(claim, "claim")
+            guest_service.handle_guest_ticket_checkout(
+                guest_event,
+                [CartGroup(tier=online_tier, items=[TicketPurchaseItem(guest_name="Guest Vies")])],
+                "vies@example.com",
+                "Guest",
+                "Vies",
+                billing_info=billing_info,
+                event_token=invitation_link,
+            )
+
+        call_names = [name for name, _args, _kwargs in order.mock_calls]
+        assert call_names.index("vies") < call_names.index("claim")
+        create_batch.assert_called_once()
+        assert create_batch.call_args.kwargs["buyer_vat_context"] == "vat-ctx"
+
+
+class TestEventTokenResolvedOnce:
+    """``get_one`` already resolves the token for event visibility; the claim must reuse it."""
+
+    def test_guest_checkout_looks_the_token_up_once(
+        self, guest_event: Event, invited_tier: TicketTier, invitation_link: EventToken
+    ) -> None:
+        with patch(
+            "events.controllers.event_public.base.event_service.get_event_token", wraps=event_service.get_event_token
+        ) as lookup:
+            response = _checkout(guest_event, invited_tier, "once@example.com", event_token=invitation_link.pk)
+
+        assert response.status_code == 200, response.content
+        lookup.assert_called_once_with(invitation_link.pk)

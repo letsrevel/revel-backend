@@ -31,7 +31,7 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/rsvp/{answer}/public",
         url_name="guest_rsvp",
-        response={200: schema.GuestActionResponseSchema, 400: EventUserEligibility | ErrorDetail},
+        response={200: schema.GuestActionResponseSchema, 400: EventUserEligibility | ErrorDetail, 403: ErrorDetail},
         throttle=WriteThrottle(),
     )
     def guest_rsvp(
@@ -65,7 +65,7 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout/public",
         url_name="guest_ticket_checkout",
-        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail},
+        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail, 403: ErrorDetail},
         throttle=WriteThrottle(),
         deprecated=True,
     )
@@ -104,9 +104,8 @@ class EventPublicGuestController(EventPublicBaseController):
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
         tier = get_object_or_404(
-            models.TicketTier.objects.for_user(self.maybe_user()),
+            models.TicketTier.objects.for_visible_event(event, self.maybe_user(), event_token=self.get_event_token()),
             pk=tier_id,
-            event=event,
         )
         if tier.price_type == models.TicketTier.PriceType.PWYC:
             raise HttpError(400, str(_("Use /pwyc endpoint for pay-what-you-can tickets")))
@@ -134,7 +133,7 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout/pwyc/public",
         url_name="guest_ticket_pwyc_checkout",
-        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail},
+        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail, 403: ErrorDetail},
         throttle=WriteThrottle(),
         deprecated=True,
     )
@@ -175,9 +174,8 @@ class EventPublicGuestController(EventPublicBaseController):
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
         tier = get_object_or_404(
-            models.TicketTier.objects.for_user(self.maybe_user()),
+            models.TicketTier.objects.for_visible_event(event, self.maybe_user(), event_token=self.get_event_token()),
             pk=tier_id,
-            event=event,
         )
         if tier.price_type != models.TicketTier.PriceType.PWYC:
             raise HttpError(400, str(_("This endpoint is only for pay-what-you-can tickets")))
@@ -202,7 +200,12 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/checkout/public",
         url_name="guest_multi_tier_checkout",
-        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail, 404: ErrorDetail},
+        response={
+            200: schema.GuestCheckoutResponseSchema,
+            400: EventUserEligibility | ErrorDetail,
+            403: ErrorDetail,
+            404: ErrorDetail,
+        },
         throttle=WriteThrottle(),
     )
     def guest_multi_tier_checkout(
@@ -238,7 +241,9 @@ class EventPublicGuestController(EventPublicBaseController):
         tiers = {
             tier.id: tier
             # sector joined up front: assert_sector_capacities walks tier.sector per group
-            for tier in models.TicketTier.objects.for_visible_event(event, self.maybe_user())
+            for tier in models.TicketTier.objects.for_visible_event(
+                event, self.maybe_user(), event_token=self.get_event_token()
+            )
             .select_related("sector")
             .filter(pk__in=[g.tier_id for g in payload.items])
         }

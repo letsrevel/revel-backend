@@ -459,6 +459,18 @@ def handle_guest_ticket_checkout(
     for group in groups:
         assert_sale_window(group.tier)
 
+    # Run the VIES round-trip HERE, before any row lock is taken: claim_invitation_link
+    # below locks the EventToken row for the rest of the request (ATOMIC_REQUESTS — the
+    # inner atomic() only releases a savepoint), and create_batch takes the tier locks.
+    # Neither may be held across a network call (#632). Answerable with no user at all,
+    # so it sits with the other user-independent gates. Only the paid-online path needs
+    # it; create_batch resolves it itself when handed None.
+    from events.service import stripe_service
+
+    buyer_vat_context = None
+    if groups[0].tier.payment_method == models.TicketTier.PaymentMethod.ONLINE and billing_info:
+        buyer_vat_context = stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)
+
     # Create or update guest user. Must come AFTER the gates above (#846 review
     # fix): all are answerable with no user at all, and creating a row / touching
     # the "does an account exist" check before them turns a login-required event
@@ -515,7 +527,7 @@ def handle_guest_ticket_checkout(
             discount_valid_tier_ids=valid_tier_ids,
             guest_session=guest_session,
         )
-        result = service.create_batch(billing_info=billing_info)
+        result = service.create_batch(billing_info=billing_info, buyer_vat_context=buyer_vat_context)
 
         # Branch on the returned SHAPE, never on the tier's payment method (#740):
         # a PWYC/discount input that zeroes every unit reroutes an ONLINE cart to
