@@ -99,6 +99,26 @@ def test_one_link_per_connection_per_event(connection: PlatformConnection, event
         EventLink.objects.bulk_create([EventLink(event=event, connection=connection, remote_id="ev-2")])
 
 
+def test_one_remote_id_per_connection(connection: PlatformConnection, event: Event) -> None:
+    """Two different events cannot both claim the same remote_id on one connection."""
+    other_event = Event.objects.create(organization=event.organization, name="Other", start=event.start, end=event.end)
+    EventLink.objects.create(event=event, connection=connection, remote_id="ev-1")
+    # bulk_create skips TimeStampedModel.save/full_clean, so the duplicate hits the
+    # DB UniqueConstraint directly and raises IntegrityError (not ValidationError).
+    with pytest.raises(IntegrityError):
+        EventLink.objects.bulk_create([EventLink(event=other_event, connection=connection, remote_id="ev-1")])
+
+
+def test_blank_remote_id_exempt_from_unique_remote_id_per_connection(
+    connection: PlatformConnection, event: Event
+) -> None:
+    """Multiple pending (unpushed) links with remote_id="" are allowed on the same connection."""
+    other_event = Event.objects.create(organization=event.organization, name="Other", start=event.start, end=event.end)
+    EventLink.objects.create(event=event, connection=connection, remote_id="")
+    EventLink.objects.bulk_create([EventLink(event=other_event, connection=connection, remote_id="")])
+    assert EventLink.objects.filter(connection=connection, remote_id="").count() == 2
+
+
 def test_tier_link_unique_per_event_link(connection: PlatformConnection, event: Event, ticket_tier: TicketTier) -> None:
     link = EventLink.objects.create(event=event, connection=connection, remote_id="ev-1")
     TierLink.objects.create(tier=ticket_tier, event_link=link, remote_id="tc-1")

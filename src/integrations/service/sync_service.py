@@ -6,11 +6,13 @@ from functools import partial
 import structlog
 from django.conf import settings
 from django.contrib.gis.geos import Point
-from django.db import transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from markdownify import markdownify
 
+from common.sanitizers import sanitize_html
 from events.models import Event, Organization, TicketTier
 from integrations import registry
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
@@ -111,12 +113,17 @@ def request_import(organization: Organization, provider_key: str, remote_ids: li
 
 
 def _tier_from_remote(event: Event, tc: RemoteTicketClass) -> TicketTier:
-    """Create one draft ``TicketTier`` mirroring a remote ticket class."""
+    """Create one draft ``TicketTier`` mirroring a remote ticket class.
+
+    Raises:
+        ValidationError: if the remote class maps to an invalid tier (e.g. a sales window that
+            starts after the event) — the caller skips that class and reports it instead.
+    """
     return TicketTier.objects.create(
         event=event,
         name=tc.name[:255],
         price=tc.price,
-        currency=tc.currency or str(settings.DEFAULT_CURRENCY),
+        currency=(tc.currency or str(settings.DEFAULT_CURRENCY))[:3],
         total_quantity=tc.quantity_total or None,
         sales_start_at=tc.sales_start,
         sales_end_at=tc.sales_end,
@@ -126,9 +133,14 @@ def _tier_from_remote(event: Event, tc: RemoteTicketClass) -> TicketTier:
     )
 
 
-@transaction.atomic
 def import_remote_event(connection: PlatformConnection, remote_id: str) -> EventLink:
-    """Create a Revel draft from a remote event (spec §7.6). The link is written last on purpose."""
+    """Create a Revel draft from a remote event (spec §7.6). The link is written last on purpose.
+
+    Invalid ticket classes are skipped individually (and noted in the link's ``sync_report``)
+    rather than failing the whole import. A race between two callers importing the same
+    ``remote_id`` is resolved by the connection+remote_id uniqueness constraint: the loser's
+    draft is rolled back and it returns the winner's link.
+    """
     existing = EventLink.objects.filter(connection=connection, remote_id=remote_id).first()
     if existing is not None:
         return existing
@@ -141,40 +153,74 @@ def import_remote_event(connection: PlatformConnection, remote_id: str) -> Event
     if remote.venue and remote.venue.latitude is not None and remote.venue.longitude is not None:
         location = Point(remote.venue.longitude, remote.venue.latitude, srid=4326)
         city = mapper.nearest_city(remote.venue.latitude, remote.venue.longitude)
-    event = Event.objects.create(
-        organization=connection.organization,
-        name=remote.name[:255],
-        description=markdownify(remote.description_html).strip() or None,
-        status=Event.EventStatus.DRAFT,
-        event_type=Event.EventType.PUBLIC,
-        requires_ticket=True,
-        start=remote.start,
-        end=remote.end,
-        is_virtual=remote.is_virtual,
-        address=(remote.venue.address if remote.venue else "") or None,
-        city=city,
-        location=location,
-    )
-    event.ticket_tiers.all().delete()  # drop the signal-created default tier; remote classes are the truth
-    tiers = [(_tier_from_remote(event, tc), tc) for tc in remote.ticket_classes]
-    link = EventLink.objects.create(
-        event=event,
-        connection=connection,
-        remote_id=remote_id,
-        remote_url=remote.url,
-        remote_status=remote.status,
-        sync_state=EventLink.SyncState.IN_SYNC,
-        origin=EventLink.Origin.IMPORTED,
-        last_pulled_at=timezone.now(),
-    )
-    TierLink.objects.bulk_create(
-        [
-            TierLink(
-                tier=tier, event_link=link, remote_id=t.cast(str, tc.remote_id), remote_quantity_sold=tc.quantity_sold
+    address = (remote.venue.address if remote.venue else "")[:255] or None
+    try:
+        with transaction.atomic():
+            event = Event.objects.create(
+                organization=connection.organization,
+                name=remote.name[:255],
+                description=markdownify(sanitize_html(remote.description_html)).strip() or None,
+                status=Event.EventStatus.DRAFT,
+                event_type=Event.EventType.PUBLIC,
+                requires_ticket=True,
+                start=remote.start,
+                end=remote.end,
+                is_virtual=remote.is_virtual,
+                address=address,
+                city=city,
+                location=location,
             )
-            for tier, tc in tiers
-        ]
-    )
+            event.ticket_tiers.all().delete()  # drop the signal-created default tier; remote classes are the truth
+            tiers: list[tuple[TicketTier, RemoteTicketClass]] = []
+            report: list[SyncReportEntry] = []
+            for tc in remote.ticket_classes:
+                try:
+                    tiers.append((_tier_from_remote(event, tc), tc))
+                except ValidationError as e:
+                    logger.warning("integration_import_tier_skipped", remote_id=tc.remote_id, error=str(e))
+                    report.append(
+                        SyncReportEntry(
+                            scope="tier",
+                            tier_id=None,
+                            tier_name=tc.name,
+                            code=IntegrationErrorCode.PROVIDER_REJECTED,
+                            detail=str(_("Ticket class %(name)s could not be imported.") % {"name": tc.name}),
+                            provider_message=str(e),
+                        )
+                    )
+            link = EventLink.objects.create(
+                event=event,
+                connection=connection,
+                remote_id=remote_id,
+                remote_url=remote.url,
+                remote_status=remote.status,
+                sync_state=EventLink.SyncState.IN_SYNC,
+                origin=EventLink.Origin.IMPORTED,
+                last_pulled_at=timezone.now(),
+                sync_report=[entry.model_dump(mode="json") for entry in report],
+            )
+            TierLink.objects.bulk_create(
+                [
+                    TierLink(
+                        tier=tier,
+                        event_link=link,
+                        remote_id=t.cast(str, tc.remote_id),
+                        remote_quantity_sold=tc.quantity_sold,
+                    )
+                    for tier, tc in tiers
+                ]
+            )
+    except IntegrityError, ValidationError:
+        # A concurrent importer won the race on (connection, remote_id). Depending on timing
+        # this surfaces as IntegrityError (raw INSERT conflict) or ValidationError
+        # (TimeStampedModel.save's full_clean -> validate_constraints, when the winner's row
+        # was already committed and visible before our own insert) — mirrors
+        # common.utils.get_or_create_with_race_protection. Re-fetch the winner; if this wasn't
+        # actually that race (no winner row appears), the failure is genuine — re-raise it.
+        winner = EventLink.objects.filter(connection=connection, remote_id=remote_id).first()
+        if winner is None:
+            raise
+        return winner
     logger.info("integration_imported", link_id=str(link.id), provider=connection.provider, remote_id=remote_id)
     return link
 

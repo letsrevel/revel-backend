@@ -1,9 +1,13 @@
 """Import: remote → Revel draft with tiers; link created last so auto-sync stays quiet; idempotent."""
 
+import typing as t
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
+from django.db.models import Manager
 
 from events.models import Event, TicketTier
 from integrations.models import EventLink, PlatformConnection, TierLink
@@ -13,6 +17,28 @@ from integrations.tests.fake_provider import FakeProvider
 
 pytestmark = pytest.mark.django_db
 START = datetime(2026, 12, 1, 18, 0, tzinfo=UTC)
+
+
+@contextmanager
+def _force_first_lookup_miss(manager: Manager[t.Any]) -> t.Iterator[None]:
+    """Make ``manager.filter(...)`` miss on its first call, then behave normally.
+
+    Mirrors ``common/tests/test_utils.py::force_first_lookup_miss``. Simulates a concurrent
+    importer's link already being committed by the time our own create attempt lands, while
+    our own pre-check ran too early to see it.
+    """
+    call_count = 0
+    real_filter = manager.filter
+
+    def fake_filter(*args: t.Any, **kwargs: t.Any) -> t.Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return manager.none()
+        return real_filter(*args, **kwargs)
+
+    with patch.object(manager, "filter", side_effect=fake_filter):
+        yield
 
 
 @pytest.fixture
@@ -128,3 +154,96 @@ def test_request_import_queues_and_skips_linked(  # type: ignore[no-untyped-def]
     assert EventLink.objects.filter(connection=connected, remote_id=remote).exists()
     result = sync_service.request_import(organization, "fake", [remote])
     assert result.queued == [] and result.skipped == [remote]
+
+
+def test_import_skips_invalid_tier_and_reports_it(connected: PlatformConnection, fake_provider: FakeProvider) -> None:
+    """A ticket class that fails tier validation is skipped and reported; valid ones still import."""
+    ev = RemoteEvent(name="Partly Valid", start=START, end=START + timedelta(hours=2), timezone="UTC", currency="EUR")
+    ref = fake_provider.create_event(connected.token(), "acc-1", ev)
+    fake_provider.upsert_ticket_class(
+        connected.token(),
+        ref.remote_id,
+        RemoteTicketClass(
+            name="Bad Window",
+            price=Decimal("10"),
+            currency="EUR",
+            is_free=False,
+            quantity_total=5,
+            sales_start=START + timedelta(hours=1),  # after the event start → fails _validate_sales_window
+        ),
+    )
+    fake_provider.upsert_ticket_class(
+        connected.token(),
+        ref.remote_id,
+        RemoteTicketClass(name="Good", price=Decimal("5"), currency="EUR", is_free=False, quantity_total=5),
+    )
+
+    link = sync_service.import_remote_event(connected, ref.remote_id)
+
+    tiers = list(link.event.ticket_tiers.all())
+    assert [tier.name for tier in tiers] == ["Good"]
+    assert TierLink.objects.filter(event_link=link).count() == 1
+    assert len(link.sync_report) == 1
+    assert link.sync_report[0]["scope"] == "tier"
+    assert link.sync_report[0]["tier_name"] == "Bad Window"
+    assert link.sync_report[0]["tier_id"] is None
+
+
+def test_import_race_returns_winner_link_and_rolls_back_loser_draft(connected: PlatformConnection, remote: str) -> None:
+    """Two callers import the same remote_id; the DB constraint picks a winner and the loser's draft rolls back."""
+    winner_event = Event.objects.create(
+        organization=connected.organization, name="Winner Draft", start=START, end=START + timedelta(hours=1)
+    )
+    winner = EventLink.objects.create(
+        event=winner_event,
+        connection=connected,
+        remote_id=remote,
+        remote_status=EventLink.RemoteStatus.LIVE,
+        sync_state=EventLink.SyncState.IN_SYNC,
+        origin=EventLink.Origin.IMPORTED,
+    )
+
+    with _force_first_lookup_miss(EventLink.objects):
+        link = sync_service.import_remote_event(connected, remote)
+
+    assert link.id == winner.id
+    # Only the winner's event remains; the loser's draft (Event + TicketTiers) was rolled back.
+    assert Event.objects.filter(organization=connected.organization).count() == 1
+
+
+def test_import_truncates_long_address(connected: PlatformConnection, fake_provider: FakeProvider) -> None:
+    """A remote address over 255 chars is truncated rather than failing full_clean."""
+    ev = RemoteEvent(
+        name="Long Address",
+        start=START,
+        end=START + timedelta(hours=1),
+        timezone="UTC",
+        currency="EUR",
+        venue=RemoteVenue(name="Hall", address="A" * 400, latitude=48.2, longitude=16.3),
+    )
+    ref = fake_provider.create_event(connected.token(), "acc-1", ev)
+
+    link = sync_service.import_remote_event(connected, ref.remote_id)
+
+    assert link.event.address is not None
+    assert len(link.event.address) == 255
+
+
+def test_import_sanitizes_description_html_before_markdown(
+    connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    """A javascript: href is stripped before the HTML is converted to markdown."""
+    ev = RemoteEvent(
+        name="XSS Attempt",
+        start=START,
+        end=START + timedelta(hours=1),
+        timezone="UTC",
+        currency="EUR",
+        description_html='<p>Hi <a href="javascript:alert(1)">x</a></p>',
+    )
+    ref = fake_provider.create_event(connected.token(), "acc-1", ev)
+
+    link = sync_service.import_remote_event(connected, ref.remote_id)
+
+    assert link.event.description is not None
+    assert "javascript:" not in link.event.description

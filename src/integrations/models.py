@@ -112,7 +112,14 @@ class EventLink(TimeStampedModel):
     sync_report = models.JSONField(default=list, blank=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["event", "connection"], name="unique_link_per_connection")]
+        constraints = [
+            models.UniqueConstraint(fields=["event", "connection"], name="unique_link_per_connection"),
+            models.UniqueConstraint(
+                fields=["connection", "remote_id"],
+                condition=~models.Q(remote_id=""),
+                name="unique_remote_id_per_connection",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.event_id} ↔ {self.connection_id}:{self.remote_id}"
