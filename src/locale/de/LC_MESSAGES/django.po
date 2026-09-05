@@ -2895,7 +2895,7 @@ msgid "Membership-restricted tiers cannot be listed externally."
 msgstr "Kategorien mit Mitgliedschaftsbeschränkung können nicht extern gelistet werden."
 
 msgid "Seated tiers cannot be listed externally."
-msgstr "Kategorien mit Sitzplatzvergabe können nicht extern gelistet werden."
+msgstr "Kategorien mit Sitzplatzzuweisung können nicht extern gelistet werden."
 
 msgid "Tiers paid offline or at the door cannot be listed externally."
 msgstr "Kategorien mit Offline- oder Vor-Ort-Zahlung können nicht extern gelistet werden."

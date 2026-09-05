@@ -2844,7 +2844,7 @@ msgid "Pay-what-you-can tiers cannot be listed externally."
 msgstr "I livelli di biglietto a offerta libera non possono essere pubblicati esternamente."
 
 msgid "Membership-restricted tiers cannot be listed externally."
-msgstr "I livelli di biglietto riservati agli iscritti non possono essere pubblicati esternamente."
+msgstr "I livelli di biglietto riservati ai membri non possono essere pubblicati esternamente."
 
 msgid "Seated tiers cannot be listed externally."
 msgstr "I livelli di biglietto con posti assegnati non possono essere pubblicati esternamente."

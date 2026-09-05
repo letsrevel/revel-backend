@@ -2807,7 +2807,7 @@ msgid "Membership-restricted tiers cannot be listed externally."
 msgstr "Os tipos de bilhete reservados a membros não podem ser publicados externamente."
 
 msgid "Seated tiers cannot be listed externally."
-msgstr "Os tipos de bilhete com lugares atribuídos não podem ser publicados externamente."
+msgstr "Os tipos de bilhete com lugares marcados não podem ser publicados externamente."
 
 msgid "Tiers paid offline or at the door cannot be listed externally."
 msgstr "Os tipos de bilhete pagos offline ou no local não podem ser publicados externamente."

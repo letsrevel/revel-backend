@@ -2873,22 +2873,22 @@ msgid "Only public events can be listed on external platforms."
 msgstr "Seuls les événements publics peuvent être publiés sur des plateformes externes."
 
 msgid "The event needs an end time to be listed externally."
-msgstr "L'événement doit avoir une heure de fin pour pouvoir être publié à l'extérieur."
+msgstr "L'événement doit avoir une heure de fin pour pouvoir être publié en externe."
 
 msgid "Only ticketed events can be listed externally."
-msgstr "Seuls les événements avec billets peuvent être publiés à l'extérieur."
+msgstr "Seuls les événements avec billets peuvent être publiés en externe."
 
 msgid "Pay-what-you-can tiers cannot be listed externally."
-msgstr "Les catégories de tickets à tarif libre ne peuvent pas être publiées à l'extérieur."
+msgstr "Les catégories de tickets à tarif libre ne peuvent pas être publiées en externe."
 
 msgid "Membership-restricted tiers cannot be listed externally."
-msgstr "Les catégories de tickets réservées aux adhérents ne peuvent pas être publiées à l'extérieur."
+msgstr "Les catégories de tickets réservées aux membres ne peuvent pas être publiées en externe."
 
 msgid "Seated tiers cannot be listed externally."
-msgstr "Les catégories de tickets avec sièges assignés ne peuvent pas être publiées à l'extérieur."
+msgstr "Les catégories de tickets avec sièges assignés ne peuvent pas être publiées en externe."
 
 msgid "Tiers paid offline or at the door cannot be listed externally."
-msgstr "Les catégories de tickets payées hors ligne ou sur place ne peuvent pas être publiées à l'extérieur."
+msgstr "Les catégories de tickets payées hors ligne ou sur place ne peuvent pas être publiées en externe."
 
 msgid "Set a quantity on the tier or a maximum attendance on the event."
 msgstr "Définis une quantité pour la catégorie de tickets ou un nombre maximum de participants pour l'événement."
