@@ -7,10 +7,11 @@ and ADR-0016.
 
 import base64
 import hashlib
+import re
 import secrets
 import typing as t
 from dataclasses import dataclass
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from uuid import uuid4
 
 import httpx
@@ -18,6 +19,8 @@ import jwt
 import structlog
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404
@@ -33,7 +36,7 @@ from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, consume_one_shot_token, create_oidc_login_token, validate_oidc_login_token
 from accounts.models import ExternalIdentity, RevelUser
 from common.models import SiteSettings
-from common.utils import get_or_create_with_race_protection
+from common.utils import get_or_create_with_race_protection, safe_save_uploaded_file
 from revel.oidc_config import OIDCProviderConfig
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +48,9 @@ ALLOWED_ID_TOKEN_ALGS = ["RS256", "ES256"]
 #: Binds the ``state`` to the browser between ``/start`` and ``/callback`` (login-CSRF guard).
 OIDC_STATE_COOKIE = "oidc_state"
 OIDC_STATE_COOKIE_PATH = "/api/auth/oidc"
+PICTURE_MAX_BYTES = 5 * 1024 * 1024
+_PICTURE_EXTENSIONS = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+_GOOGLE_PICTURE_SIZE_RE = re.compile(r"=s\d+-c$")
 
 
 def frontend_base_url() -> str:
@@ -370,6 +376,11 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
         if created:
             user.set_unusable_password()
             user.save(update_fields=["password"])
+            if claims.picture:
+                from accounts.tasks.profile_picture import fetch_oidc_profile_picture
+
+                user_id, picture_url = str(user.id), claims.picture
+                transaction.on_commit(lambda: fetch_oidc_profile_picture.delay(user_id=user_id, url=picture_url))
     if not created:
         # Existing account — also reached when a concurrent request won the create race above,
         # so that user still goes through the same checks and upgrades.
@@ -435,6 +446,52 @@ def redeem_login_token(token: str) -> tuple[TokenObtainPairOutputSchema, str]:
     with transaction.atomic():
         consume_one_shot_token(token)  # refuses the loser of two concurrent redemptions
         return get_token_pair_for_user(user), payload.return_url
+
+
+def _picture_fetch_url(url: str) -> str:
+    """Google's ``picture`` claim is a 96px square (``=s96-c``); ask for the 400px preview size instead."""
+    host = urlsplit(url).hostname or ""
+    if host == "googleusercontent.com" or host.endswith(".googleusercontent.com"):
+        return _GOOGLE_PICTURE_SIZE_RE.sub("=s400-c", url)
+    return url
+
+
+def fetch_profile_picture(user: RevelUser, url: str) -> None:
+    """Download the IdP ``picture`` claim into ``user.profile_picture``. Best effort: any problem is logged and dropped.
+
+    Runs from a Celery task after account creation, so it must never fail the login. The bytes go
+    through ``safe_save_uploaded_file`` and get the same validators, EXIF strip, malware scan and
+    thumbnails as a user upload. Never overwrites a picture the user set in the meantime.
+    """
+    if not url.startswith("https://"):
+        logger.warning("oidc_picture_insecure_url", user_id=str(user.id))
+        return
+    if user.profile_picture:
+        return
+    try:
+        with _http_client() as client, client.stream("GET", _picture_fetch_url(url)) as response:
+            response.raise_for_status()
+            content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            extension = _PICTURE_EXTENSIONS.get(content_type)
+            if extension is None:
+                logger.warning("oidc_picture_not_an_image", user_id=str(user.id), content_type=content_type)
+                return
+            body = b""
+            for chunk in response.iter_bytes():
+                body += chunk
+                if len(body) > PICTURE_MAX_BYTES:
+                    logger.warning("oidc_picture_too_large", user_id=str(user.id))
+                    return
+    except (httpx.HTTPError, httpx.InvalidURL) as e:
+        logger.warning("oidc_picture_fetch_failed", user_id=str(user.id), error=str(e))
+        return
+    file = SimpleUploadedFile(f"oidc.{extension}", body, content_type=content_type)
+    try:
+        safe_save_uploaded_file(instance=user, field="profile_picture", file=file, uploader=user)
+    except DjangoValidationError as e:
+        logger.warning("oidc_picture_invalid", user_id=str(user.id), error=str(e))
+        return
+    logger.info("oidc_picture_saved", user_id=str(user.id))
 
 
 def provider_display_name(key: str) -> str:
