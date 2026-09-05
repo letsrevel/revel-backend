@@ -34,7 +34,7 @@ def push_event_link(link_id: str) -> None:
 def import_remote_event(connection_id: str, remote_id: str) -> None:
     """Create a Revel draft from a remote event (spec §7.6)."""
     from integrations.models import PlatformConnection
-    from integrations.service import sync_service
+    from integrations.service import import_service
 
     conn = (
         PlatformConnection.objects.select_related("organization")
@@ -44,4 +44,4 @@ def import_remote_event(connection_id: str, remote_id: str) -> None:
     if conn is None:
         logger.info("integration_import_skipped_inactive_connection", connection_id=connection_id)
         return
-    sync_service.import_remote_event(conn, remote_id)
+    import_service.import_remote_event(conn, remote_id)

@@ -12,7 +12,7 @@ from django.db.models import Manager
 from events.models import Event, TicketTier
 from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.providers.base import RemoteEvent, RemoteTicketClass, RemoteVenue
-from integrations.service import connection_service, sync_service
+from integrations.service import connection_service, import_service
 from integrations.tests.fake_provider import FakeProvider
 
 pytestmark = pytest.mark.django_db
@@ -88,10 +88,10 @@ def remote(fake_provider: FakeProvider, connected: PlatformConnection) -> str:
 
 
 def test_list_remote_events_marks_linked(connected: PlatformConnection, remote: str, organization) -> None:  # type: ignore[no-untyped-def]
-    rows = sync_service.list_remote_events(organization, "fake")
+    rows = import_service.list_remote_events(organization, "fake")
     assert [(r.remote_id, r.already_linked, r.status) for r in rows] == [(remote, False, "live")]
-    sync_service.import_remote_event(connected, remote)
-    rows = sync_service.list_remote_events(organization, "fake")
+    import_service.import_remote_event(connected, remote)
+    rows = import_service.list_remote_events(organization, "fake")
     assert rows[0].already_linked is True
 
 
@@ -99,7 +99,7 @@ def test_import_creates_draft_event_tiers_and_link(  # type: ignore[no-untyped-d
     connected: PlatformConnection, remote: str, django_capture_on_commit_callbacks
 ) -> None:
     with django_capture_on_commit_callbacks(execute=False) as callbacks:
-        link = sync_service.import_remote_event(connected, remote)
+        link = import_service.import_remote_event(connected, remote)
     assert callbacks == []  # link created last → no auto-sync push scheduled
     event = link.event
     assert (event.status, event.event_type, event.requires_ticket, event.is_virtual) == ("draft", "public", True, False)
@@ -123,8 +123,8 @@ def test_import_creates_draft_event_tiers_and_link(  # type: ignore[no-untyped-d
 
 
 def test_import_is_idempotent(connected: PlatformConnection, remote: str) -> None:
-    first = sync_service.import_remote_event(connected, remote)
-    second = sync_service.import_remote_event(connected, remote)
+    first = import_service.import_remote_event(connected, remote)
+    second = import_service.import_remote_event(connected, remote)
     assert first.id == second.id and Event.objects.filter(organization=connected.organization).count() == 1
 
 
@@ -141,7 +141,7 @@ def test_import_resolves_nearest_city(connected: PlatformConnection, remote: str
         location=Point(16.3734547, 48.2084609, srid=4326),
         timezone="Europe/Vienna",
     )
-    link = sync_service.import_remote_event(connected, remote)
+    link = import_service.import_remote_event(connected, remote)
     assert link.event.city is not None and link.event.city.name == "Wien"
 
 
@@ -149,10 +149,10 @@ def test_request_import_queues_and_skips_linked(  # type: ignore[no-untyped-def]
     connected: PlatformConnection, remote: str, organization, django_capture_on_commit_callbacks
 ) -> None:
     with django_capture_on_commit_callbacks(execute=True):
-        result = sync_service.request_import(organization, "fake", [remote])
+        result = import_service.request_import(organization, "fake", [remote])
     assert result.queued == [remote] and result.skipped == []
     assert EventLink.objects.filter(connection=connected, remote_id=remote).exists()
-    result = sync_service.request_import(organization, "fake", [remote])
+    result = import_service.request_import(organization, "fake", [remote])
     assert result.queued == [] and result.skipped == [remote]
 
 
@@ -178,7 +178,7 @@ def test_import_skips_invalid_tier_and_reports_it(connected: PlatformConnection,
         RemoteTicketClass(name="Good", price=Decimal("5"), currency="EUR", is_free=False, quantity_total=5),
     )
 
-    link = sync_service.import_remote_event(connected, ref.remote_id)
+    link = import_service.import_remote_event(connected, ref.remote_id)
 
     tiers = list(link.event.ticket_tiers.all())
     assert [tier.name for tier in tiers] == ["Good"]
@@ -204,7 +204,7 @@ def test_import_race_returns_winner_link_and_rolls_back_loser_draft(connected: P
     )
 
     with _force_first_lookup_miss(EventLink.objects):
-        link = sync_service.import_remote_event(connected, remote)
+        link = import_service.import_remote_event(connected, remote)
 
     assert link.id == winner.id
     # Only the winner's event remains; the loser's draft (Event + TicketTiers) was rolled back.
@@ -223,7 +223,7 @@ def test_import_truncates_long_address(connected: PlatformConnection, fake_provi
     )
     ref = fake_provider.create_event(connected.token(), "acc-1", ev)
 
-    link = sync_service.import_remote_event(connected, ref.remote_id)
+    link = import_service.import_remote_event(connected, ref.remote_id)
 
     assert link.event.address is not None
     assert len(link.event.address) == 255
@@ -243,7 +243,7 @@ def test_import_sanitizes_description_html_before_markdown(
     )
     ref = fake_provider.create_event(connected.token(), "acc-1", ev)
 
-    link = sync_service.import_remote_event(connected, ref.remote_id)
+    link = import_service.import_remote_event(connected, ref.remote_id)
 
     assert link.event.description is not None
     assert "javascript:" not in link.event.description
