@@ -15,16 +15,19 @@ from integrations.providers.base import (
     RemoteEventRef,
     RemoteEventSummary,
     RemoteTicketClass,
+    RemoteVenue,
     TokenSet,
     WebhookNotification,
 )
-from integrations.providers.eventbrite import translate
+from integrations.providers.eventbrite import translate as tr
 from integrations.providers.eventbrite.client import API_HOST, OAUTH_AUTHORIZE, EventbriteClient
 from integrations.schema import IntegrationErrorCode
 
 # ponytail: 20-page cap on list_events pagination — an org with >1000 draft/live/started events
 # (at page_size 50) would need a real "sync in batches" design; not worth building speculatively.
 MAX_LIST_PAGES = 20
+
+T = t.TypeVar("T")
 
 WEBHOOK_ACTIONS = (
     "order.placed",
@@ -132,7 +135,7 @@ class EventbriteProvider:
         for _ in range(MAX_LIST_PAGES):
             body = client.request("GET", f"/organizations/{account_id}/events/", params=params)
             try:
-                summaries.extend(translate.from_eventbrite_summary(e) for e in body.get("events", []))
+                summaries.extend(tr.from_eventbrite_summary(e) for e in body.get("events", []))
                 pagination = body.get("pagination") or {}
                 if not pagination.get("has_more_items"):
                     break
@@ -145,39 +148,94 @@ class EventbriteProvider:
         """Fetch a remote event including ticket classes and venue."""
         body = self._client(token).request("GET", f"/events/{remote_id}/", params={"expand": "venue,ticket_classes"})
         try:
-            return translate.from_eventbrite_event(body)
+            return tr.from_eventbrite_event(body)
         except (KeyError, TypeError, ValueError) as e:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response shape") from e
 
     # -- write ----------------------------------------------------------------
+    def _shape(self, fn: t.Callable[[], T]) -> T:
+        try:
+            return fn()
+        except (KeyError, TypeError, ValueError) as e:
+            raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response shape") from e
+
+    def _create_venue(self, token: TokenSet, account_id: str, venue: RemoteVenue) -> str:
+        body = self._client(token).request(
+            "POST", f"/organizations/{account_id}/venues/", json=tr.to_eventbrite_venue(venue)
+        )
+        return self._shape(lambda: str(body["id"]))
+
+    def _ref(self, body: dict[str, t.Any]) -> RemoteEventRef:
+        return self._shape(
+            lambda: RemoteEventRef(
+                remote_id=str(body["id"]),
+                url=str(body.get("url") or ""),
+                status=tr.status_from_eventbrite(str(body.get("status") or "draft")),
+            )
+        )
+
     def create_event(self, token: TokenSet, account_id: str, event: RemoteEvent) -> RemoteEventRef:
-        """Create a remote event."""
-        raise NotImplementedError("phase 2 task 5/6")
+        """Create a remote event, creating its venue first when one is set."""
+        venue_id = self._create_venue(token, account_id, event.venue) if event.venue else None
+        body = self._client(token).request(
+            "POST", f"/organizations/{account_id}/events/", json=tr.to_eventbrite_event(event, venue_id=venue_id)
+        )
+        return self._ref(body)
 
     def update_event(self, token: TokenSet, remote_id: str, event: RemoteEvent) -> RemoteEventRef:
-        """Update a remote event."""
-        raise NotImplementedError("phase 2 task 5/6")
+        """Update a remote event.
+
+        ponytail: a venue is re-created on every update when present; Eventbrite venues are
+        cheap rows, so de-duping by storing the venue id on ``EventLink.sync_report`` metadata
+        is phase-3 polish, not required now.
+        """
+        venue_id = None
+        if event.venue:
+            current = self._client(token).request("GET", f"/events/{remote_id}/")
+            org = self._shape(lambda: str(current["organization_id"]))
+            venue_id = self._create_venue(token, org, event.venue)
+        body = self._client(token).request(
+            "POST", f"/events/{remote_id}/", json=tr.to_eventbrite_event(event, venue_id=venue_id)
+        )
+        return self._ref(body)
 
     def set_description(self, token: TokenSet, remote_id: str, html: str) -> None:
-        """Set long-form description (structured content on some platforms)."""
-        raise NotImplementedError("phase 2 task 5/6")
+        """Set long-form description via the structured-content endpoint."""
+        version = "1"
+        try:
+            current = self._client(token).request("GET", f"/events/{remote_id}/structured_content/")
+            version = str(current.get("page_version_number") or "1")
+        except ProviderError as e:
+            if e.code != IntegrationErrorCode.REMOTE_EVENT_MISSING:  # 404 = no content yet; anything else is real
+                raise
+        self._client(token).request(
+            "POST", f"/events/{remote_id}/structured_content/{version}/", json=tr.to_eventbrite_structured_content(html)
+        )
 
     def publish_event(self, token: TokenSet, remote_id: str) -> None:
         """Publish a remote event."""
-        raise NotImplementedError("phase 2 task 5/6")
+        self._client(token).request("POST", f"/events/{remote_id}/publish/")
 
     def cancel_event(self, token: TokenSet, remote_id: str) -> None:
         """Cancel a remote event."""
-        raise NotImplementedError("phase 2 task 5/6")
+        self._client(token).request("POST", f"/events/{remote_id}/cancel/")
 
     def upsert_ticket_class(self, token: TokenSet, remote_event_id: str, tc: RemoteTicketClass) -> str:
         """Create or update a ticket class, returning its remote ID."""
-        raise NotImplementedError("phase 2 task 5/6")
+        path = f"/events/{remote_event_id}/ticket_classes/" + (f"{tc.remote_id}/" if tc.remote_id else "")
+        body = self._client(token).request("POST", path, json=tr.to_eventbrite_ticket_class(tc))
+        return self._shape(lambda: str(body["id"]))
 
     def delete_ticket_class(self, token: TokenSet, remote_event_id: str, remote_id: str) -> None:
-        """Delete a ticket class."""
-        raise NotImplementedError("phase 2 task 5/6")
+        """Delete a ticket class. A 404 (already gone) counts as success."""
+        try:
+            self._client(token).request("DELETE", f"/events/{remote_event_id}/ticket_classes/{remote_id}/")
+        except ProviderError as e:
+            if e.code != IntegrationErrorCode.REMOTE_EVENT_MISSING:
+                raise
 
     def set_ticket_class_paused(self, token: TokenSet, remote_event_id: str, remote_id: str, paused: bool) -> None:
         """Pause (hide) or unpause a ticket class."""
-        raise NotImplementedError("phase 2 task 5/6")
+        self._client(token).request(
+            "POST", f"/events/{remote_event_id}/ticket_classes/{remote_id}/", json={"ticket_class": {"hidden": paused}}
+        )
