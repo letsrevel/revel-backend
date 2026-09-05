@@ -6,7 +6,8 @@ class IntegrationsConfig(AppConfig):
     name = "integrations"
 
     def ready(self) -> None:
-        """Populate the provider registry and install the per-app exception handlers."""
+        """Populate the provider registry, install the per-app exception handlers, and wire up signals."""
+        from integrations import signals  # noqa: F401
         from integrations.exception_handlers import register as register_exception_handlers
         from integrations.registry import populate
 
