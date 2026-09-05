@@ -101,7 +101,7 @@ class EventLink(TimeStampedModel):
 
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="platform_links")
     connection = models.ForeignKey(PlatformConnection, on_delete=models.CASCADE, related_name="event_links")
-    remote_id = models.CharField(max_length=255)
+    remote_id = models.CharField(max_length=255, blank=True, default="")
     remote_url = models.URLField(blank=True, default="")
     auto_sync = models.BooleanField(null=True, blank=True, help_text="Null = inherit the connection default.")
     remote_status = models.CharField(max_length=16, choices=RemoteStatus.choices, default=RemoteStatus.DRAFT)

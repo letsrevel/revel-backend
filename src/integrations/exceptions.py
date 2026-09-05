@@ -20,6 +20,10 @@ class ProviderError(Exception):
         self.retryable = retryable
 
 
+class RetryableProviderError(ProviderError):
+    """A transient provider failure (429/5xx/transport). Celery tasks retry on this class only."""
+
+
 class IntegrationError(Exception):
     """A request-level failure with a stable code; rendered by ``integrations.exception_handlers``."""
 
