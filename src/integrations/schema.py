@@ -97,3 +97,38 @@ class ConnectionUpdateSchema(Schema):
     """Update request body for connection settings like auto-sync preference."""
 
     auto_sync: bool
+
+
+class TierLinkSchema(Schema):
+    """One ticket tier mirrored as a remote ticket class."""
+
+    tier_id: UUID
+    tier_name: str
+    remote_id: str
+    remote_quantity_sold: int
+    counts_updated_at: AwareDatetime | None = None
+    remote_paused: bool
+
+
+class EventLinkSchema(Schema):
+    """An event's link to one platform: sync state, report, and its tier links."""
+
+    provider: str
+    display_name: str
+    remote_id: str
+    remote_url: str
+    remote_status: t.Literal["draft", "live", "cancelled"]
+    sync_state: t.Literal["in_sync", "pending", "failed", "broken"]
+    origin: t.Literal["pushed", "imported"]
+    auto_sync: bool | None
+    effective_auto_sync: bool
+    last_pushed_at: AwareDatetime | None = None
+    last_pulled_at: AwareDatetime | None = None
+    sync_report: list[SyncReportEntry]
+    tiers: list[TierLinkSchema]
+
+
+class EventLinkUpdateSchema(Schema):
+    """Per-event auto-sync override (null = inherit the connection default)."""
+
+    auto_sync: bool | None = None

@@ -1,5 +1,7 @@
 """Push/publish orchestration (spec §7.3–7.4). Function-based; the Celery tasks in ``integrations.tasks`` call in."""
 
+import typing as t
+
 import structlog
 from django.db import transaction
 from django.utils import timezone
@@ -10,7 +12,7 @@ from integrations import registry
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.providers.base import ListingProvider, RemoteEventRef
-from integrations.schema import IntegrationErrorCode, SyncReportEntry
+from integrations.schema import EventLinkSchema, IntegrationErrorCode, SyncReportEntry, TierLinkSchema
 from integrations.service import connection_service, mapper
 from integrations.service.mapper import EventNotEligible
 
@@ -189,3 +191,96 @@ def push_link(link: EventLink) -> EventLink:
     link.save(update_fields=["last_pushed_at", "remote_status", "updated_at"])
     logger.info("integration_pushed", link_id=str(link.id), provider=conn.provider, remote_id=link.remote_id)
     return _write_report(link, report, EventLink.SyncState.IN_SYNC)
+
+
+def to_link_schema(link: EventLink) -> EventLinkSchema:
+    """Serialize a link with its tiers and report."""
+    provider = registry.get_provider(link.connection.provider)
+    tiers = (
+        TierLink.objects.filter(event_link=link).select_related("tier").order_by("tier__display_order", "tier__name")
+    )
+    return EventLinkSchema(
+        provider=provider.key,
+        display_name=provider.display_name,
+        remote_id=link.remote_id,
+        remote_url=link.remote_url,
+        remote_status=t.cast(t.Any, link.remote_status),
+        sync_state=t.cast(t.Any, link.sync_state),
+        origin=t.cast(t.Any, link.origin),
+        auto_sync=link.auto_sync,
+        effective_auto_sync=link.effective_auto_sync,
+        last_pushed_at=link.last_pushed_at,
+        last_pulled_at=link.last_pulled_at,
+        sync_report=[SyncReportEntry.model_validate(e) for e in link.sync_report],
+        tiers=[
+            TierLinkSchema(
+                tier_id=tl.tier_id,
+                tier_name=tl.tier.name,
+                remote_id=tl.remote_id,
+                remote_quantity_sold=tl.remote_quantity_sold,
+                counts_updated_at=tl.counts_updated_at,
+                remote_paused=tl.remote_paused,
+            )
+            for tl in tiers
+        ],
+    )
+
+
+def list_links(event: Event) -> list[EventLinkSchema]:
+    """Every link this event has, across providers."""
+    return [
+        to_link_schema(link)
+        for link in EventLink.objects.filter(event=event).select_related("connection").order_by("created_at")
+    ]
+
+
+def _require_pushed_link(event: Event, provider_key: str) -> EventLink:
+    link = get_link(event, provider_key)
+    if link is None or not link.remote_id:
+        raise IntegrationError(
+            IntegrationErrorCode.PROVIDER_NOT_CONNECTED, str(_("Push the event to the platform first.")), status=404
+        )
+    if link.sync_state == EventLink.SyncState.BROKEN:
+        raise IntegrationError(
+            IntegrationErrorCode.REMOTE_EVENT_MISSING,
+            str(_("The listing no longer exists on the platform. Push again to recreate it.")),
+            status=409,
+        )
+    return link
+
+
+def publish_link(event: Event, provider_key: str) -> EventLink:
+    """Explicit publish (spec §7.4). Synchronous so the organizer sees the platform's answer."""
+    link = _require_pushed_link(event, provider_key)
+    if link.remote_status == EventLink.RemoteStatus.LIVE:
+        return link
+    provider = registry.get_provider(provider_key)
+    try:
+        provider.publish_event(link.connection.token(), link.remote_id)
+    except ProviderError as e:
+        if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
+            connection_service.mark_revoked(link.connection)
+        status = (
+            502
+            if e.code in (IntegrationErrorCode.PROVIDER_REJECTED, IntegrationErrorCode.PROVIDER_RATE_LIMITED)
+            else 400
+        )
+        raise IntegrationError(
+            e.code, str(_("The platform refused to publish the listing.")), e.provider_message, status=status
+        ) from e
+    link.remote_status = EventLink.RemoteStatus.LIVE
+    link.save(update_fields=["remote_status", "updated_at"])
+    logger.info("integration_published", link_id=str(link.id), provider=provider_key)
+    return link
+
+
+def set_link_auto_sync(event: Event, provider_key: str, auto_sync: bool | None) -> EventLink:
+    """Per-event override of the connection's auto-sync default (null = inherit)."""
+    link = get_link(event, provider_key)
+    if link is None:
+        raise IntegrationError(
+            IntegrationErrorCode.PROVIDER_NOT_CONNECTED, str(_("Push the event to the platform first.")), status=404
+        )
+    link.auto_sync = auto_sync
+    link.save(update_fields=["auto_sync", "updated_at"])
+    return link
