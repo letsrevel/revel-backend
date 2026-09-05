@@ -8,12 +8,13 @@ replaced by the downloader.
 
 import threading
 import typing as t
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from pytest import MonkeyPatch
 
-from geo.ip2 import get_ip2location
+from geo.ip2 import get_ip2location, resolve_ip_to_point
 
 
 @pytest.fixture(autouse=True)
@@ -102,3 +103,26 @@ def test_get_ip2location_reloads_on_mtime_change(monkeypatch: MonkeyPatch) -> No
     th.join()
 
     assert not errors, errors
+
+
+def test_get_ip2location_returns_none_when_db_missing(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """An absent .BIN degrades to None instead of raising FileNotFoundError (issue #931)."""
+    monkeypatch.setattr("geo.ip2.conf.IP2LOCATION_DB_PATH", tmp_path / "IP2LOCATION-LITE-DB5.BIN")
+
+    assert get_ip2location() is None
+
+
+def test_get_ip2location_returns_none_when_db_path_is_a_directory(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """A bind mount for a missing file leaves a directory; that must degrade too (issue #931)."""
+    db_dir = tmp_path / "IP2LOCATION-LITE-DB5.BIN"
+    db_dir.mkdir()
+    monkeypatch.setattr("geo.ip2.conf.IP2LOCATION_DB_PATH", db_dir)
+
+    assert get_ip2location() is None
+
+
+def test_resolve_ip_to_point_returns_none_when_db_missing(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """The regression: a missing .BIN 500'd public discovery instead of dropping geo data (issue #931)."""
+    monkeypatch.setattr("geo.ip2.conf.IP2LOCATION_DB_PATH", tmp_path / "IP2LOCATION-LITE-DB5.BIN")
+
+    assert resolve_ip_to_point("8.8.8.8") is None
