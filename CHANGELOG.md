@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-09-06
+
+### Added
+
+- **`bootstrap_demo_video` seed command** (`make demo-video`): pre-seeds the five scenarios the product demo videos are recorded against — a questionnaire-gated workshop with pending applications, members-only vs. at-the-door ticket tiers, an open potluck board, a questionnaire-insights event with ten submissions, and an event exercising the members-only / questionnaire / invitation eligibility gates. Idempotent and strictly additive (it never touches the `bootstrap_events` fixtures), it computes event dates relative to now and prints the presenter's cheat sheet of org slugs, event paths and credentials
+
 ## [2.7.0] - 2026-09-05
 
 ### Added
