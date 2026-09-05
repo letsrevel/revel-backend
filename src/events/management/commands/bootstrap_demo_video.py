@@ -10,7 +10,8 @@ them, or on its own against an empty-but-migrated database.
 import typing as t
 
 import structlog
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from .demo_video_helpers import DEMO_PASSWORD, SCENARIOS, ScenarioSummary
@@ -27,7 +28,20 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args: t.Any, **options: t.Any) -> None:
-        """Seed every scenario, then print the org, event, and credential summary."""
+        """Seed every scenario, then print the org, event, and credential summary.
+
+        Raises:
+            CommandError: If DEMO_MODE is not enabled.
+        """
+        # The seed publishes PUBLIC organizations owned by accounts whose password is
+        # printed on screen, so it is gated the same way reset_events is. DEMO_MODE
+        # defaults to DEBUG, and .env.example turns it on, so local runs are unaffected.
+        if not settings.DEMO_MODE:
+            raise CommandError(
+                "This command can only be run when DEMO_MODE=True. "
+                "Set DEMO_MODE=True in your environment to seed the demo-video scenarios."
+            )
+
         logger.info("Seeding demo-video scenarios", count=len(SCENARIOS))
         summaries = [scenario() for scenario in SCENARIOS]
         self._print_summary(summaries)

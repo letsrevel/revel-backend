@@ -4,9 +4,12 @@ from io import StringIO
 
 import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import override_settings
 
 from accounts.models import RevelUser
-from events.management.commands.demo_video_helpers import DEMO_EMAIL_DOMAIN
+from events.management.commands import bootstrap_demo_video
+from events.management.commands.demo_video_helpers import DEMO_EMAIL_DOMAIN, SCENARIOS, ScenarioSummary
 from events.models import (
     Event,
     EventInvitation,
@@ -55,6 +58,7 @@ def _demo_counts() -> dict[str, int]:
 class TestBootstrapDemoVideo:
     """Coverage for the demo-video scenario seed."""
 
+    @override_settings(DEMO_MODE=True)
     def test_seeds_the_five_scenarios(self) -> None:
         output = _run()
 
@@ -102,6 +106,7 @@ class TestBootstrapDemoVideo:
         assert invitation.waives_membership_required is True
         assert Event.objects.get(slug="monthly-reading-circle").event_type == Event.EventType.MEMBERS_ONLY
 
+    @override_settings(DEMO_MODE=True)
     def test_is_idempotent(self) -> None:
         """A second run must refresh the same rows, never duplicate them."""
         _run()
@@ -111,9 +116,32 @@ class TestBootstrapDemoVideo:
 
         assert _demo_counts() == first
 
+    @override_settings(DEMO_MODE=True)
     def test_every_demo_account_signs_in_with_the_shared_password(self) -> None:
         _run()
 
         users = RevelUser.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}")
         assert users.count() == 29
         assert all(user.check_password("password123") and user.email_verified for user in users)
+
+    @override_settings(DEMO_MODE=True)
+    def test_a_failing_scenario_rolls_the_whole_seed_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One broken scenario must not leave a half-seeded demo world behind."""
+
+        def boom() -> ScenarioSummary:
+            raise RuntimeError("scenario exploded")
+
+        monkeypatch.setattr(bootstrap_demo_video, "SCENARIOS", [SCENARIOS[0], boom])
+
+        with pytest.raises(RuntimeError, match="scenario exploded"):
+            _run()
+
+        assert all(count == 0 for count in _demo_counts().values())
+
+    @override_settings(DEMO_MODE=False)
+    def test_refuses_to_run_outside_demo_mode(self) -> None:
+        """The seed publishes public orgs whose password is printed, so production is off-limits."""
+        with pytest.raises(CommandError, match="DEMO_MODE"):
+            _run()
+
+        assert not Organization.objects.filter(slug__in=DEMO_ORG_SLUGS).exists()

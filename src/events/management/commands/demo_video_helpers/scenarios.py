@@ -8,11 +8,13 @@ the E2E suite depends on.
 """
 
 import datetime as dt
+from dataclasses import dataclass
 from decimal import Decimal
 
 import structlog
 
 from events import models as events_models
+from questionnaires import models as questionnaires_models
 
 from .base import (
     EvaluationStatus,
@@ -41,6 +43,34 @@ ItemTypes = events_models.PotluckItem.ItemTypes
 TierVisibility = events_models.TicketTier.Visibility
 PaymentMethod = events_models.TicketTier.PaymentMethod
 PurchasableBy = events_models.TicketTier.PurchasableBy
+
+
+@dataclass(frozen=True)
+class WalkOutcome:
+    """How the organizer answered a photo-walk application, and how we describe it."""
+
+    status: str
+    label: str
+    score: Decimal | None
+
+
+APPROVED = WalkOutcome(EvaluationStatus.APPROVED, "approved", Decimal("85.00"))
+REJECTED = WalkOutcome(EvaluationStatus.REJECTED, "rejected", Decimal("30.00"))
+PENDING = WalkOutcome(EvaluationStatus.PENDING_REVIEW, "pending review", None)
+
+
+@dataclass(frozen=True)
+class WalkApplicant:
+    """One seeded application to the photo walk."""
+
+    first_name: str
+    last_name: str
+    pronouns: str
+    gear: str
+    referral: questionnaires_models.MultipleChoiceOption
+    submitted_days_ago: int
+    outcome: WalkOutcome
+    comments: str = ""
 
 
 def seed_shibari_circle() -> ScenarioSummary:
@@ -513,124 +543,103 @@ your ear off about it.
     )
     friend, instagram, on_revel = referral_options
 
-    approved, rejected, pending = (
-        EvaluationStatus.APPROVED,
-        EvaluationStatus.REJECTED,
-        EvaluationStatus.PENDING_REVIEW,
-    )
     applicants = [
-        (
-            "Hanna",
-            "Persson",
-            "she/her",
-            "A Pentax K1000 my dad taught me on, usually loaded with HP5. I develop black and "
+        WalkApplicant(
+            first_name="Hanna",
+            last_name="Persson",
+            pronouns="she/her",
+            gear="A Pentax K1000 my dad taught me on, usually loaded with HP5. I develop black and "
             "white at home in the kitchen sink.",
-            friend,
-            2,
-            approved,
-            Decimal("85.00"),
-            "",
+            referral=friend,
+            submitted_days_ago=2,
+            outcome=APPROVED,
         ),
-        (
-            "Milan",
-            "Kovac",
-            "he/him",
-            "An Olympus mju-II in my coat pocket at all times. Portra 400 when I can afford it, "
-            "Gold 200 when I cannot.",
-            instagram,
-            3,
-            approved,
-            Decimal("85.00"),
-            "",
+        WalkApplicant(
+            first_name="Milan",
+            last_name="Kovac",
+            pronouns="he/him",
+            gear="An Olympus mju-II in my coat pocket at all times. Portra 400 when I can afford "
+            "it, Gold 200 when I cannot.",
+            referral=instagram,
+            submitted_days_ago=3,
+            outcome=APPROVED,
         ),
-        (
-            "Aisha",
-            "Rahman",
-            "she/her",
-            "A Mamiya RB67. It is absurdly heavy and I love it. Mostly portraits, so a slow walk suits me perfectly.",
-            on_revel,
-            4,
-            approved,
-            Decimal("85.00"),
-            "",
+        WalkApplicant(
+            first_name="Aisha",
+            last_name="Rahman",
+            pronouns="she/her",
+            gear="A Mamiya RB67. It is absurdly heavy and I love it. Mostly portraits, so a slow "
+            "walk suits me perfectly.",
+            referral=on_revel,
+            submitted_days_ago=4,
+            outcome=APPROVED,
         ),
-        (
-            "Lukas",
-            "Berger",
-            "he/him",
-            "Nothing yet — I have just been given my grandmother's Werra and I would like to shoot "
-            "my first roll with people who know what they are doing.",
-            friend,
-            5,
-            approved,
-            Decimal("85.00"),
-            "Total beginner, borrowed a light meter from Hanna. Lovely.",
+        WalkApplicant(
+            first_name="Lukas",
+            last_name="Berger",
+            pronouns="he/him",
+            gear="Nothing yet — I have just been given my grandmother's Werra and I would like to "
+            "shoot my first roll with people who know what they are doing.",
+            referral=friend,
+            submitted_days_ago=5,
+            outcome=APPROVED,
+            comments="Total beginner, borrowed a light meter from Hanna. Lovely.",
         ),
-        (
-            "Zoe",
-            "Martins",
-            "they/them",
-            "A Canon AE-1 and a 50mm, and that is the whole kit. Cinestill 800T for anything after dark.",
-            instagram,
-            6,
-            approved,
-            Decimal("85.00"),
-            "",
+        WalkApplicant(
+            first_name="Zoe",
+            last_name="Martins",
+            pronouns="they/them",
+            gear="A Canon AE-1 and a 50mm, and that is the whole kit. Cinestill 800T for anything after dark.",
+            referral=instagram,
+            submitted_days_ago=6,
+            outcome=APPROVED,
         ),
-        (
-            "Bruno",
-            "Salgado",
-            "he/him",
-            "I shoot digital, is that a problem? I have a very nice Sony.",
-            instagram,
-            7,
-            rejected,
-            Decimal("30.00"),
-            "Film-only walk. Sent a friendly note pointing at the city photo club instead.",
+        WalkApplicant(
+            first_name="Bruno",
+            last_name="Salgado",
+            pronouns="he/him",
+            gear="I shoot digital, is that a problem? I have a very nice Sony.",
+            referral=instagram,
+            submitted_days_ago=7,
+            outcome=REJECTED,
+            comments="Film-only walk. Sent a friendly note pointing at the city photo club instead.",
         ),
-        (
-            "Timo",
-            "Rask",
-            "he/him",
-            "not sure yet, mostly just want to know if there will be models",
-            instagram,
-            8,
-            rejected,
-            Decimal("30.00"),
-            "Asked about models rather than photography. Not a fit for this group.",
+        WalkApplicant(
+            first_name="Timo",
+            last_name="Rask",
+            pronouns="he/him",
+            gear="not sure yet, mostly just want to know if there will be models",
+            referral=instagram,
+            submitted_days_ago=8,
+            outcome=REJECTED,
+            comments="Asked about models rather than photography. Not a fit for this group.",
         ),
-        (
-            "Elif",
-            "Demir",
-            "she/her",
-            "A Yashica Mat 124G, twin lens. I have been shooting expired Ektar and getting beautiful mistakes.",
-            on_revel,
-            1,
-            pending,
-            None,
-            "",
+        WalkApplicant(
+            first_name="Elif",
+            last_name="Demir",
+            pronouns="she/her",
+            gear="A Yashica Mat 124G, twin lens. I have been shooting expired Ektar and getting beautiful mistakes.",
+            referral=on_revel,
+            submitted_days_ago=1,
+            outcome=PENDING,
         ),
-        (
-            "Pawel",
-            "Zielinski",
-            "he/him",
-            "A Nikon FM2 with a 28mm. Coming back to film after ten years away, and quite rusty.",
-            friend,
-            1,
-            pending,
-            None,
-            "",
+        WalkApplicant(
+            first_name="Pawel",
+            last_name="Zielinski",
+            pronouns="he/him",
+            gear="A Nikon FM2 with a 28mm. Coming back to film after ten years away, and quite rusty.",
+            referral=friend,
+            submitted_days_ago=1,
+            outcome=PENDING,
         ),
-        (
-            "Nora",
-            "Lindgren",
-            "she/her",
-            "A Lomo LC-A and a lot of enthusiasm. I would like to learn to actually meter instead of guessing.",
-            on_revel,
-            2,
-            pending,
-            None,
-            "",
+        WalkApplicant(
+            first_name="Nora",
+            last_name="Lindgren",
+            pronouns="she/her",
+            gear="A Lomo LC-A and a lot of enthusiasm. I would like to learn to actually meter instead of guessing.",
+            referral=on_revel,
+            submitted_days_ago=2,
+            outcome=PENDING,
         ),
     ]
 
@@ -641,21 +650,20 @@ your ear off about it.
     )
     summary.add(owner, "owner — open the questionnaire insights here")
 
-    outcomes = {approved: "approved", rejected: "rejected", pending: "pending review"}
-    for first_name, last_name, pronouns, gear, referral, days_ago, status, score, comments in applicants:
-        walker = upsert_user(first_name, last_name, "walker", pronouns=pronouns)
+    for applicant in applicants:
+        walker = upsert_user(applicant.first_name, applicant.last_name, "walker", pronouns=applicant.pronouns)
         upsert_submission(
             user=walker,
             event=event,
             questionnaire=questionnaire,
-            free_text={gear_question: gear},
-            choices={referral_question: referral},
-            submitted_days_ago=days_ago,
-            status=status,
-            score=score,
-            comments=comments,
+            free_text={gear_question: applicant.gear},
+            choices={referral_question: applicant.referral},
+            submitted_days_ago=applicant.submitted_days_ago,
+            status=applicant.outcome.status,
+            score=applicant.outcome.score,
+            comments=applicant.comments,
         )
-        summary.add(walker, f"applied — {outcomes[status]}")
+        summary.add(walker, f"applied — {applicant.outcome.label}")
 
     summary.notes = [
         "10 submissions: 5 approved (85), 2 rejected (30), 3 still pending review.",
