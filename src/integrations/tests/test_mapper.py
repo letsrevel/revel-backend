@@ -52,13 +52,13 @@ def test_eligibility_rejects_private_open_ended_and_no_tickets(clean_event: Even
     ("md", "expected"),
     [
         (None, ""),
-        # The first text-bearing block wins in document order — a leading heading with no
-        # blank-line-separated content following it (see the list cases below) is itself
-        # the first block, so it becomes the summary.
-        ("# Title\n\nFirst sentence here. Second one.", "Title"),
+        # Non-heading blocks (p/li/blockquote) win over headings — a title is a worse
+        # public summary than the first real sentence that follows it.
+        ("# Title\n\nFirst sentence here. Second one.", "First sentence here."),
         ("**Bold** start! Then more", "Bold start!"),
         ("x" * 200, "x" * 139 + "…"),
-        ("## Heading\n- item one\n- item two", "Heading"),
+        ("## Heading\n- item one\n- item two", "item one"),
+        ("## Only a heading", "Only a heading"),
         ("- item one. More\n- item two", "item one."),
         ("plain text\nwith newline", "plain text with newline"),
     ],

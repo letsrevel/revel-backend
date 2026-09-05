@@ -22,7 +22,8 @@ from integrations.schema import IntegrationErrorCode, SyncReportEntry
 
 SUMMARY_MAX_CHARS = 140
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s")
-_BLOCK_ELEMENT = re.compile(r"<(p|li|h[1-6]|blockquote)[^>]*>(.*?)</\1>", re.DOTALL)
+_NON_HEADING_BLOCK = re.compile(r"<(p|li|blockquote)[^>]*>(.*?)</\1>", re.DOTALL)
+_HEADING_BLOCK = re.compile(r"<(h[1-6])[^>]*>(.*?)</\1>", re.DOTALL)
 
 
 class EventNotEligible(Exception):
@@ -81,24 +82,27 @@ def _collapse_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _first_block_text(pattern: re.Pattern[str], rendered: str) -> str:
+    """First non-empty, whitespace-collapsed text among a compiled block-tag pattern's matches."""
+    for _tag, block in pattern.findall(rendered):
+        candidate = _collapse_whitespace(html.unescape(strip_tags(block)))
+        if candidate:
+            return candidate
+    return ""
+
+
 def summary_from_markdown(md: str | None) -> str:
     """Plain-text first sentence of the description, truncated to the provider cap.
 
-    Uses the text of the first text-bearing block element (``p``, ``li``, ``h1``-``h6``,
-    ``blockquote``) in document order as the summary source — this handles heading- or
-    list-only descriptions (no ``<p>`` at all) correctly, rather than falling back to the
-    whole multi-line rendered text. Falls back to the full rendered text only when no such
-    block matches (e.g. inline-only content with no block wrapper).
+    A heading is a worse public summary than real body text, so non-heading blocks
+    (``p``, ``li``, ``blockquote``) are tried first, in document order; only when none of
+    those carries text does the first heading (``h1``-``h6``) serve as the fallback; only
+    when that is empty too does the whole rendered text (whitespace-collapsed) get used.
     """
     if not md:
         return ""
     rendered = render_markdown(md)
-    fragment = ""
-    for _tag, block in _BLOCK_ELEMENT.findall(rendered):
-        candidate = _collapse_whitespace(html.unescape(strip_tags(block)))
-        if candidate:
-            fragment = candidate
-            break
+    fragment = _first_block_text(_NON_HEADING_BLOCK, rendered) or _first_block_text(_HEADING_BLOCK, rendered)
     text = fragment or _collapse_whitespace(html.unescape(strip_tags(rendered)))
     if not text:
         return ""
