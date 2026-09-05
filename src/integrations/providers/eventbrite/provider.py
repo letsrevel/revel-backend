@@ -8,7 +8,16 @@ import orjson
 from django.http import HttpRequest
 
 from integrations.exceptions import ProviderError
-from integrations.providers.base import Capabilities, RemoteAccount, TokenSet, WebhookNotification
+from integrations.providers.base import (
+    Capabilities,
+    RemoteAccount,
+    RemoteEvent,
+    RemoteEventRef,
+    RemoteEventSummary,
+    RemoteTicketClass,
+    TokenSet,
+    WebhookNotification,
+)
 from integrations.providers.eventbrite.client import API_HOST, OAUTH_AUTHORIZE, EventbriteClient
 from integrations.schema import IntegrationErrorCode
 
@@ -108,3 +117,45 @@ class EventbriteProvider:
         if parts.scheme != "https" or parts.hostname != API_HOST or not port_ok or not parts.path.startswith("/v3/"):
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected resource host")
         return WebhookNotification(action=action, resource_path=parts.path.removeprefix("/v3"), raw=raw)
+
+    # -- read -----------------------------------------------------------------
+    def list_events(self, token: TokenSet, account_id: str) -> list[RemoteEventSummary]:
+        """List remote events in an account."""
+        raise NotImplementedError("phase 2 task 5/6")
+
+    def get_event(self, token: TokenSet, remote_id: str) -> RemoteEvent:
+        """Fetch a remote event including ticket classes and venue."""
+        raise NotImplementedError("phase 2 task 5/6")
+
+    # -- write ----------------------------------------------------------------
+    def create_event(self, token: TokenSet, account_id: str, event: RemoteEvent) -> RemoteEventRef:
+        """Create a remote event."""
+        raise NotImplementedError("phase 2 task 5/6")
+
+    def update_event(self, token: TokenSet, remote_id: str, event: RemoteEvent) -> RemoteEventRef:
+        """Update a remote event."""
+        raise NotImplementedError("phase 2 task 5/6")
+
+    def set_description(self, token: TokenSet, remote_id: str, html: str) -> None:
+        """Set long-form description (structured content on some platforms)."""
+        raise NotImplementedError("phase 2 task 5/6")
+
+    def publish_event(self, token: TokenSet, remote_id: str) -> None:
+        """Publish a remote event."""
+        raise NotImplementedError("phase 2 task 5/6")
+
+    def cancel_event(self, token: TokenSet, remote_id: str) -> None:
+        """Cancel a remote event."""
+        raise NotImplementedError("phase 2 task 5/6")
+
+    def upsert_ticket_class(self, token: TokenSet, remote_event_id: str, tc: RemoteTicketClass) -> str:
+        """Create or update a ticket class, returning its remote ID."""
+        raise NotImplementedError("phase 2 task 5/6")
+
+    def delete_ticket_class(self, token: TokenSet, remote_event_id: str, remote_id: str) -> None:
+        """Delete a ticket class."""
+        raise NotImplementedError("phase 2 task 5/6")
+
+    def set_ticket_class_paused(self, token: TokenSet, remote_event_id: str, remote_id: str, paused: bool) -> None:
+        """Pause (hide) or unpause a ticket class."""
+        raise NotImplementedError("phase 2 task 5/6")
