@@ -2,6 +2,7 @@
 
 import typing as t
 from enum import StrEnum
+from uuid import UUID
 
 from ninja import Schema
 from pydantic import AwareDatetime
@@ -44,6 +45,17 @@ class IntegrationErrorSchema(Schema):
 
     detail: str
     code: IntegrationErrorCode
+    provider_message: str | None = None
+
+
+class SyncReportEntry(Schema):
+    """One problem or note from a sync run (spec §9). Stored as JSON on ``EventLink.sync_report``."""
+
+    scope: t.Literal["event", "tier"]
+    tier_id: UUID | None = None
+    tier_name: str | None = None
+    code: IntegrationErrorCode
+    detail: str
     provider_message: str | None = None
 
 
