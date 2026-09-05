@@ -60,8 +60,9 @@ class EventPublicTicketsController(EventPublicBaseController):
         """
         event = self.get_one(event_id)
         user = self.maybe_user()
+        event_token = self.get_event_token()
         visible_tiers = list(
-            models.TicketTier.objects.for_visible_event(event, user)
+            models.TicketTier.objects.for_visible_event(event, user, event_token=event_token)
             .select_related("event__organization")
             .with_venue_and_sector()
             .distinct()
@@ -70,9 +71,11 @@ class EventPublicTicketsController(EventPublicBaseController):
         if user and not user.is_anonymous:
             eligible_ids = {tier.id for tier in ticket_service.get_eligible_tiers(event, user)}
         else:
-            # Anonymous users can only purchase PUBLIC tiers
+            # Anonymous users can only purchase PUBLIC tiers — plus what a granting
+            # invitation link for this event unlocks: guest checkout claims it
+            # (EventPublicGuestController), so the listing must say so up front.
             eligible_ids = {
-                tier.id for tier in visible_tiers if tier.purchasable_by == models.TicketTier.PurchasableBy.PUBLIC
+                tier.id for tier in visible_tiers if ticket_service.anonymous_can_purchase(tier, event, event_token)
             }
         for tier in visible_tiers:
             tier._can_purchase = tier.id in eligible_ids  # type: ignore[attr-defined]

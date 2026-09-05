@@ -27,6 +27,7 @@ class EventPublicBaseController(UserAwareController):
     """
 
     _token_rejection: TokenRejection | None = None
+    _event_token: models.EventToken | None
 
     def get_queryset(self, include_past: bool = False, full: bool = True) -> models.event.EventQuerySet:
         """Get the queryset based on the user."""
@@ -99,16 +100,20 @@ class EventPublicBaseController(UserAwareController):
         Side effect: if the token exists but is expired/used up, stores
         the rejection reason in ``self._token_rejection`` so that downstream
         helpers can raise 410 instead of 404.
+
+        Resolved once per request: ``get_queryset`` already calls this to widen
+        event visibility, and the guest endpoints ask again to claim the token.
         """
+        if "_event_token" in self.__dict__:
+            return self._event_token
         token = (
             self.context.request.META.get("HTTP_X_EVENT_TOKEN")  # type: ignore[union-attr]
             or self.context.request.GET.get("et")  # type: ignore[union-attr]
         )
-        if not token:
-            return None
-        event_token = event_service.get_event_token(token)
-        if event_token is None:
+        event_token = event_service.get_event_token(token) if token else None
+        if token and event_token is None:
             self._token_rejection = event_service.get_token_rejection_reason(token)
+        self._event_token = event_token
         return event_token
 
     def get_questionnaire_service(self, questionnaire_id: UUID) -> SubmissionService:

@@ -27,6 +27,7 @@ from events.service.seating.pricing import (
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
+    from events.service.attendee_vat_service import BuyerVATContext
 
 logger = structlog.get_logger(__name__)
 
@@ -223,6 +224,7 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         items: list[TicketPurchaseItem] | None = None,
         pwyc_amount: Decimal | None = None,
         billing_info: "BuyerBillingInfoSchema | None" = None,
+        buyer_vat_context: "BuyerVATContext | None" = None,
     ) -> list[Ticket] | tuple[list[Ticket], UUID]:
         """Create a batch of tickets, spanning as many tiers as the cart holds.
 
@@ -240,6 +242,10 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
                 pass the validated code as ``discount_code`` to the constructor and
                 the pricing service applies it per ticket. Single-tier form only.
             billing_info: Optional buyer billing info for attendee invoicing.
+            buyer_vat_context: The buyer's VAT context, when the caller already ran the
+                VIES round-trip. Guest checkout pre-resolves it before claiming an
+                invitation link, so the token row lock is never held across VIES
+                (the same discipline as the tier lock, #632). Resolved here otherwise.
 
         Returns:
             Either a `(tickets, reservation_id)` tuple for the ONLINE payment
@@ -282,8 +288,12 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # (#632). Price-independent: the arithmetic runs post-lock against each
         # locked tier's fresh price. Only the paid-online path creates Stripe
         # Payment rows; other methods skip it.
-        buyer_vat = None
-        if payment_method == TicketTier.PaymentMethod.ONLINE and not self._cart_is_certainly_free():
+        buyer_vat = buyer_vat_context
+        if (
+            buyer_vat is None
+            and payment_method == TicketTier.PaymentMethod.ONLINE
+            and not self._cart_is_certainly_free()
+        ):
             from events.service import stripe_service
 
             buyer_vat = stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)

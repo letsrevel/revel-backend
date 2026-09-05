@@ -24,6 +24,7 @@ from events.service.event_manager import (
 )
 
 if t.TYPE_CHECKING:
+    from accounts.models import RevelUser
     from events.service.batch_ticket_service.context import CartGroup
 
 
@@ -45,6 +46,118 @@ def assert_sale_window(tier: TicketTier) -> None:
     """
     if not tier.can_purchase():
         raise HttpError(403, str(_("You're outside of the sale window.")))
+
+
+def assert_purchasable_by(
+    tier: TicketTier, *, is_owner_or_staff: bool, is_member: bool, invitation: EventInvitation | None
+) -> None:
+    """Assert a buyer with these standings may purchase from this tier.
+
+    The pure ``purchasable_by`` rule, module-level for the same reason as
+    :func:`assert_sale_window`: guest checkout's non-online branch defers
+    ``create_batch`` to the emailed confirmation click and must answer this up
+    front, or an uninvited guest gets a 200, an email, and a link that 403s.
+
+    Args:
+        tier: The tier being purchased from.
+        is_owner_or_staff: Whether the buyer owns or staffs the organization —
+            exempt from every restriction (consistent with CanPurchaseTicket).
+        is_member: Whether the buyer holds an active organization membership.
+        invitation: The buyer's invitation to the event, if any. When the tier
+            restricts purchase to linked invitations, it must link this tier.
+
+    Raises:
+        HttpError: 403 when the buyer does not satisfy the tier's rule.
+    """
+    PB = TicketTier.PurchasableBy
+    if tier.purchasable_by == PB.PUBLIC or is_owner_or_staff:
+        return
+
+    def _invited_passes() -> bool:
+        if invitation is None:
+            return False
+        if tier.restrict_purchase_to_linked_invitations:
+            return invitation.tiers.filter(pk=tier.pk).exists()
+        return True
+
+    if tier.purchasable_by == PB.MEMBERS and is_member:
+        return
+    if tier.purchasable_by == PB.INVITED and _invited_passes():
+        return
+    if tier.purchasable_by == PB.INVITED_AND_MEMBERS and (is_member or _invited_passes()):
+        return
+
+    raise HttpError(403, str(_("You are not allowed to purchase from this tier.")))
+
+
+def assert_membership_tier_allowed(
+    tier: TicketTier, event: Event, *, is_owner_or_staff: bool, membership: OrganizationMember | None
+) -> None:
+    """Assert the buyer holds one of the membership tiers this tier is restricted to.
+
+    Same guard as the membership-tier check in ``ticket_service.get_eligible_tiers``,
+    applied to the purchase path (#807): the tier listing hid the tier, but nothing
+    stopped a direct checkout call. Semantics are copied verbatim — an empty
+    restriction is unrestricted, only an ACTIVE membership counts, and the member's
+    tier must be one of the required ones (a member with no tier does not qualify).
+    Module-level for the same reason as :func:`assert_purchasable_by`.
+
+    Args:
+        tier: The tier being purchased from.
+        event: The event the tier belongs to (for the eligibility payload).
+        is_owner_or_staff: Whether the buyer owns or staffs the organization — exempt.
+        membership: The buyer's active membership, if any.
+
+    Raises:
+        UserIsIneligibleError: If the buyer does not hold a required membership tier.
+            Rendered as 400 + the eligibility payload, so the frontend gets the
+            ``membership_tier_required`` reason code instead of an opaque 403.
+    """
+    required_tier_ids = set(tier.restricted_to_membership_tiers.values_list("id", flat=True))
+    if not required_tier_ids:
+        return
+
+    if is_owner_or_staff:
+        return
+
+    if membership is not None and membership.tier_id in required_tier_ids:
+        return
+
+    # UPGRADE_MEMBERSHIP for members and non-members alike: the only way through is
+    # to hold one of the named tiers. BECOME_MEMBER would be a dead end — a plain
+    # membership request grants no tier, so it would not unblock the purchase.
+    raise UserIsIneligibleError(
+        message="Membership tier required.",
+        eligibility=EventUserEligibility(
+            allowed=False,
+            event_id=event.id,
+            reason=str(_(Reasons.MEMBERSHIP_TIER_REQUIRED)),
+            reason_code=Reasons.MEMBERSHIP_TIER_REQUIRED.code,
+            next_step=NextStep.UPGRADE_MEMBERSHIP,
+        ),
+    )
+
+
+def assert_cart_purchasable_by(event: Event, user: "RevelUser", tiers: t.Iterable[TicketTier]) -> None:
+    """Run the per-tier access rules over a cart, resolving the buyer's standings once.
+
+    The same two rules, in the same order, as ``BatchTicketService.create_batch``:
+    :func:`assert_purchasable_by` first (so its coarser 403 answers first), then
+    :func:`assert_membership_tier_allowed`.
+
+    Args:
+        event: The event the cart belongs to.
+        user: The buyer.
+        tiers: Every tier in the cart.
+    """
+    is_owner_or_staff = event.organization.is_owner_or_staff(user)
+    membership = OrganizationMember.objects.active_only().filter(organization=event.organization, user=user).first()
+    invitation = EventInvitation.objects.filter(event=event, user=user).first()
+    for tier in tiers:
+        assert_purchasable_by(
+            tier, is_owner_or_staff=is_owner_or_staff, is_member=membership is not None, invitation=invitation
+        )
+        assert_membership_tier_allowed(tier, event, is_owner_or_staff=is_owner_or_staff, membership=membership)
 
 
 class PurchaseEligibilityMixin(BatchTicketContext):
@@ -83,31 +196,12 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         Args:
             tier: The tier being purchased from.
         """
-        PB = TicketTier.PurchasableBy
-        if tier.purchasable_by == PB.PUBLIC:
-            return
-
-        if self._buyer_is_owner_or_staff:
-            return
-
-        is_member = self._buyer_membership is not None
-        invitation = self._buyer_invitation
-
-        def _invited_passes() -> bool:
-            if invitation is None:
-                return False
-            if tier.restrict_purchase_to_linked_invitations:
-                return invitation.tiers.filter(pk=tier.pk).exists()
-            return True
-
-        if tier.purchasable_by == PB.MEMBERS and is_member:
-            return
-        if tier.purchasable_by == PB.INVITED and _invited_passes():
-            return
-        if tier.purchasable_by == PB.INVITED_AND_MEMBERS and (is_member or _invited_passes()):
-            return
-
-        raise HttpError(403, str(_("You are not allowed to purchase from this tier.")))
+        assert_purchasable_by(
+            tier,
+            is_owner_or_staff=self._buyer_is_owner_or_staff,
+            is_member=self._buyer_membership is not None,
+            invitation=self._buyer_invitation,
+        )
 
     def _assert_membership_tier_allowed(self, tier: TicketTier) -> None:
         """Assert the buyer holds one of the membership tiers this tier is restricted to.
@@ -128,29 +222,8 @@ class PurchaseEligibilityMixin(BatchTicketContext):
                 Rendered as 400 + the eligibility payload, so the frontend gets the
                 ``membership_tier_required`` reason code instead of an opaque 403.
         """
-        required_tier_ids = set(tier.restricted_to_membership_tiers.values_list("id", flat=True))
-        if not required_tier_ids:
-            return
-
-        if self._buyer_is_owner_or_staff:
-            return
-
-        membership = self._buyer_membership
-        if membership is not None and membership.tier_id in required_tier_ids:
-            return
-
-        # UPGRADE_MEMBERSHIP for members and non-members alike: the only way through is
-        # to hold one of the named tiers. BECOME_MEMBER would be a dead end — a plain
-        # membership request grants no tier, so it would not unblock the purchase.
-        raise UserIsIneligibleError(
-            message="Membership tier required.",
-            eligibility=EventUserEligibility(
-                allowed=False,
-                event_id=self.event.id,
-                reason=str(_(Reasons.MEMBERSHIP_TIER_REQUIRED)),
-                reason_code=Reasons.MEMBERSHIP_TIER_REQUIRED.code,
-                next_step=NextStep.UPGRADE_MEMBERSHIP,
-            ),
+        assert_membership_tier_allowed(
+            tier, self.event, is_owner_or_staff=self._buyer_is_owner_or_staff, membership=self._buyer_membership
         )
 
     def _assert_sale_window(self, tier: TicketTier) -> None:
