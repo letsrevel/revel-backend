@@ -1,0 +1,70 @@
+{
+  "actual_cost": null,
+  "actual_fee": {
+    "display": "\u20ac2.18",
+    "currency": "EUR",
+    "value": 218,
+    "major_value": "2.18"
+  },
+  "cost": {
+    "display": "\u20ac15.00",
+    "currency": "EUR",
+    "value": 1500,
+    "major_value": "15.00"
+  },
+  "fee": {
+    "display": "\u20ac2.18",
+    "currency": "EUR",
+    "value": 218,
+    "major_value": "2.18"
+  },
+  "tax": {
+    "display": "\u20ac0.00",
+    "currency": "EUR",
+    "value": 0,
+    "major_value": "0.00"
+  },
+  "resource_uri": "https://www.eventbriteapi.com/v3/events/1999760883635/ticket_classes/3451654576/",
+  "display_name": "Regular",
+  "name": "Regular",
+  "description": null,
+  "sorting": 2,
+  "donation": false,
+  "free": false,
+  "minimum_quantity": 1,
+  "maximum_quantity": null,
+  "maximum_quantity_per_order": 10,
+  "on_sale_status": "NOT_YET_ON_SALE",
+  "has_pdf_ticket": true,
+  "order_confirmation_message": null,
+  "delivery_methods": [
+    "electronic"
+  ],
+  "category": "admission",
+  "sales_channels": [
+    "online",
+    "atd"
+  ],
+  "secondary_assignment_enabled": false,
+  "event_id": "1999760883635",
+  "image_id": null,
+  "id": "3451654576",
+  "capacity": 100,
+  "quantity_total": 100,
+  "quantity_sold": 0,
+  "sales_start": "2026-09-05T11:04:25Z",
+  "sales_end": "2026-10-04T10:04:17Z",
+  "sales_end_relative": null,
+  "hidden": false,
+  "hidden_currently": false,
+  "include_fee": false,
+  "split_fee": false,
+  "hide_description": true,
+  "hide_sale_dates": false,
+  "early_access_purchase_windows": false,
+  "ticket_parent_id": null,
+  "auto_hide": false,
+  "payment_constraints": [],
+  "sold_out_alert_enabled": false,
+  "sold_out_alert_recipients": []
+}

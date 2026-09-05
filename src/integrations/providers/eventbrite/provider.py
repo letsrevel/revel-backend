@@ -18,8 +18,13 @@ from integrations.providers.base import (
     TokenSet,
     WebhookNotification,
 )
+from integrations.providers.eventbrite import translate
 from integrations.providers.eventbrite.client import API_HOST, OAUTH_AUTHORIZE, EventbriteClient
 from integrations.schema import IntegrationErrorCode
+
+# ponytail: 20-page cap on list_events pagination — an org with >1000 draft/live/started events
+# (at page_size 50) would need a real "sync in batches" design; not worth building speculatively.
+MAX_LIST_PAGES = 20
 
 WEBHOOK_ACTIONS = (
     "order.placed",
@@ -120,12 +125,29 @@ class EventbriteProvider:
 
     # -- read -----------------------------------------------------------------
     def list_events(self, token: TokenSet, account_id: str) -> list[RemoteEventSummary]:
-        """List remote events in an account."""
-        raise NotImplementedError("phase 2 task 5/6")
+        """List remote events in an account, following ``pagination.continuation``."""
+        client = self._client(token)
+        params: dict[str, t.Any] = {"status": "draft,live,started", "order_by": "start_asc"}
+        summaries: list[RemoteEventSummary] = []
+        for _ in range(MAX_LIST_PAGES):
+            body = client.request("GET", f"/organizations/{account_id}/events/", params=params)
+            try:
+                summaries.extend(translate.from_eventbrite_summary(e) for e in body.get("events", []))
+                pagination = body.get("pagination") or {}
+                if not pagination.get("has_more_items"):
+                    break
+                params["continuation"] = pagination["continuation"]
+            except (KeyError, TypeError, ValueError) as e:
+                raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response shape") from e
+        return summaries
 
     def get_event(self, token: TokenSet, remote_id: str) -> RemoteEvent:
         """Fetch a remote event including ticket classes and venue."""
-        raise NotImplementedError("phase 2 task 5/6")
+        body = self._client(token).request("GET", f"/events/{remote_id}/", params={"expand": "venue,ticket_classes"})
+        try:
+            return translate.from_eventbrite_event(body)
+        except (KeyError, TypeError, ValueError) as e:
+            raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response shape") from e
 
     # -- write ----------------------------------------------------------------
     def create_event(self, token: TokenSet, account_id: str, event: RemoteEvent) -> RemoteEventRef:

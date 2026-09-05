@@ -48,6 +48,8 @@ def _raise_for(response: httpx.Response) -> None:
         raise ProviderError(IntegrationErrorCode.CONNECTION_REVOKED, message)
     if response.status_code == 429:
         raise ProviderError(IntegrationErrorCode.PROVIDER_RATE_LIMITED, message, retryable=True)
+    if response.status_code == 404:
+        raise ProviderError(IntegrationErrorCode.REMOTE_EVENT_MISSING, message)
     raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, message, retryable=response.status_code >= 500)
 
 

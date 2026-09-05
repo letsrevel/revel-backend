@@ -12,29 +12,13 @@ from integrations.exceptions import ProviderError
 from integrations.providers.base import ListingProvider, TokenSet
 from integrations.providers.eventbrite.provider import EventbriteProvider
 from integrations.schema import IntegrationErrorCode
+from integrations.tests.recorder import Recorder
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eventbrite"
 
 
 def _fixture(name: str) -> dict[str, t.Any]:
     return t.cast(dict[str, t.Any], json.loads((FIXTURES / f"{name}.json").read_text()))
-
-
-class Recorder:
-    """httpx transport that answers from a route table and records every request."""
-
-    def __init__(self, routes: dict[tuple[str, str], tuple[int, dict[str, t.Any]]]) -> None:
-        self.routes = routes
-        self.requests: list[httpx.Request] = []
-
-    def handler(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        key = (request.method, request.url.path)
-        status, body = self.routes.get(key, (404, {"error": "NOT_FOUND", "error_description": "no route"}))
-        return httpx.Response(status, json=body)
-
-    def transport(self) -> httpx.MockTransport:
-        return httpx.MockTransport(self.handler)
 
 
 def _provider(recorder: Recorder) -> EventbriteProvider:
@@ -104,6 +88,13 @@ def test_429_is_retryable_rate_limit() -> None:
         _provider(rec).list_accounts(TokenSet(access_token="TOK"))
     assert exc.value.code == IntegrationErrorCode.PROVIDER_RATE_LIMITED
     assert exc.value.retryable is True
+
+
+def test_404_maps_to_remote_event_missing() -> None:
+    rec = Recorder({("GET", "/v3/events/1/"): (404, {"error": "NOT_FOUND", "error_description": "Event not found"})})
+    with pytest.raises(ProviderError) as exc:
+        _provider(rec).get_event(TokenSet(access_token="TOK"), "1")
+    assert exc.value.code == IntegrationErrorCode.REMOTE_EVENT_MISSING
 
 
 def test_non_json_error_body_maps_without_message() -> None:
