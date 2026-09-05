@@ -101,6 +101,14 @@ hosts-file alias (e.g. `api.revel.test`) and `BASE_URL` pointing at it. Rate lim
 requests/hour per organization token **and** per app key (shared by every organization on this
 instance).
 
+Syncing an event mirrors its name, summary, description, dates, venue, and public fixed-price
+tiers (online or free) as ticket classes on the connected platform; pay-what-you-can, members-only,
+seated, and offline/at-the-door tiers are skipped (they stay Revel-only), and a missing cover image
+is flagged but doesn't block the sync. The first push always creates a draft on the platform —
+making it live is a separate, explicit "publish" action. After that, auto-sync is opt-in: enable it
+per connection (every pushed event) or override it per event, and it only ever keeps already-pushed
+listings up to date — it never pushes a new event on its own.
+
 ### Email
 
 - `EMAIL_DRY_RUN` — when `True`, outbound email is logged instead of sent. Useful for test
