@@ -14,6 +14,7 @@ from accounts.models import ExternalIdentity, GlobalBan, RevelUser
 from accounts.service import account as account_service
 from accounts.service import oidc
 from accounts.service.oidc import OIDCClaims
+from common.models import SiteSettings
 from common.utils import get_or_create_with_race_protection
 from revel.oidc_config import OIDCProviderConfig
 
@@ -218,3 +219,30 @@ def test_email_change_allowed_with_linked_identity(mock_send: t.Any, user: Revel
         user=user, new_email="new@example.com", password="strong-password-123!"
     )
     assert isinstance(token, str) and token
+
+
+def test_new_account_dispatches_admin_new_user_notification(django_capture_on_commit_callbacks: t.Any) -> None:
+    """An OIDC signup must reach the same post_save notification path as a password signup."""
+    site_settings = SiteSettings.get_solo()
+    site_settings.notify_user_joined = True
+    site_settings.save()
+    with (
+        patch("accounts.signals.notify_admin_new_user_joined.delay") as pushover,
+        patch("accounts.signals.notify_admin_new_user_joined_discord.delay") as discord,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        user = oidc._resolve_user(GOOGLE, claims())
+    pushover.assert_called_once_with(user_id=str(user.id), user_email=user.email, is_guest=False)
+    discord.assert_called_once_with(is_guest=False)
+
+
+def test_linking_existing_account_does_not_notify(user: RevelUser, django_capture_on_commit_callbacks: t.Any) -> None:
+    site_settings = SiteSettings.get_solo()
+    site_settings.notify_user_joined = True
+    site_settings.save()
+    with (
+        patch("accounts.signals.notify_admin_new_user_joined.delay") as pushover,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        oidc._resolve_user(GOOGLE, claims(email=user.email))
+    pushover.assert_not_called()
