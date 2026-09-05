@@ -134,3 +134,24 @@ def test_scheduled_task_pushes(  # type: ignore[no-untyped-def]
     assert fake_provider.get_event(connected.token(), pushed.remote_id).name == "Renamed"
     pushed.refresh_from_db()
     assert pushed.sync_state == EventLink.SyncState.IN_SYNC
+
+
+def test_cache_failure_does_not_break_save(  # type: ignore[no-untyped-def]
+    pushed: EventLink,
+    connected: PlatformConnection,
+    django_capture_on_commit_callbacks,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connected.auto_sync = True
+    connected.save(update_fields=["auto_sync"])
+
+    def _raise(*args: object, **kwargs: object) -> bool:
+        raise ConnectionError("boom")
+
+    monkeypatch.setattr(cache, "add", _raise)
+    with django_capture_on_commit_callbacks(execute=False) as callbacks, suppress_event_notifications():
+        pushed.event.name = "Renamed"
+        pushed.event.save()
+    assert callbacks == []
+    pushed.refresh_from_db()
+    assert pushed.sync_state == EventLink.SyncState.IN_SYNC

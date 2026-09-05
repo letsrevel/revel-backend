@@ -33,7 +33,7 @@ def schedule_auto_push(event_id: UUID) -> int:
         push_event_link.apply_async(args=(link_id,), countdown=DEBOUNCE_SECONDS)
 
     links = (
-        EventLink.objects.select_related("connection", "event", "event__city")
+        EventLink.objects.select_related("connection", "event")
         .filter(event_id=event_id, connection__status=PlatformConnection.Status.ACTIVE)
         .exclude(remote_id="")
         .exclude(sync_state=EventLink.SyncState.BROKEN)
@@ -46,7 +46,15 @@ def schedule_auto_push(event_id: UUID) -> int:
             mapper.check_eligible(link.event)
         except EventNotEligible:
             continue
-        if not cache.add(debounce_key(link.id), 1, DEBOUNCE_SECONDS):
+        try:
+            added = cache.add(debounce_key(link.id), 1, DEBOUNCE_SECONDS)
+        except Exception as e:
+            # Fail open: the cache backend raises on connection failures (see the CACHES
+            # comment in revel/settings/base.py). A save must never break because of it —
+            # skip scheduling this time; the organizer can push manually and the next save retries.
+            logger.warning("integration_auto_sync_cache_unavailable", link_id=str(link.id), error=str(e))
+            continue
+        if not added:
             continue
         EventLink.objects.filter(pk=link.pk).update(sync_state=EventLink.SyncState.PENDING)
         transaction.on_commit(partial(_apply_push_async, str(link.id)))
