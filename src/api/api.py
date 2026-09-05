@@ -40,6 +40,7 @@ from events.controllers.series_pass_admin import SeriesPassAdminController
 from events.controllers.stripe_webhook import StripeWebhookController
 from events.controllers.user_preferences import UserPreferencesController
 from geo.controllers.cities import CityController
+from integrations.controllers import INTEGRATION_CONTROLLERS
 from notifications.controllers.notification_controller import NotificationController
 from notifications.controllers.preference_controller import NotificationPreferenceController
 from polls.controllers import POLL_CONTROLLERS
@@ -202,6 +203,8 @@ api.register_controllers(
     TicketWalletController,
     MembershipWalletController,
     MembershipWalletSignedController,
+    # Integration controllers
+    *INTEGRATION_CONTROLLERS,
 )
 
 # Only truly global handlers live here. App-specific exceptions self-register

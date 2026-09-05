@@ -524,6 +524,25 @@ class TestDuplicateEvent:
         assert early_bird_tier.sales_start_at == original_tier.sales_start_at + timedelta(days=30)  # type: ignore[operator]
         assert early_bird_tier.sales_end_at == original_tier.sales_end_at + timedelta(days=30)  # type: ignore[operator]
 
+    def test_duplicate_event_resets_sales_paused(self, public_event: Event) -> None:
+        """A paused source tier must not carry its pause into the duplicated copy."""
+        TicketTier.objects.create(
+            event=public_event,
+            name="Early Bird",
+            price=25.00,
+            total_quantity=50,
+            sales_paused=True,
+        )
+
+        new_event = event_service.duplicate_event(
+            template_event=public_event,
+            new_name="Duplicated Event",
+            new_start=public_event.start + timedelta(days=30),
+        )
+
+        early_bird_tier = next(tier for tier in new_event.ticket_tiers.all() if tier.name == "Early Bird")
+        assert early_bird_tier.sales_paused is False
+
     def test_duplicate_event_copies_all_potluck_items_without_assignments(
         self, organization: Organization, public_user: RevelUser
     ) -> None:

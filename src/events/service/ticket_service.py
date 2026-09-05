@@ -147,7 +147,9 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
         if not _check_tier_visibility(tier, is_staff_or_owner, is_member, is_invited, invitation_tier_ids):
             continue
 
-        # 2. Check sales window
+        # 2. Check sales window / pause
+        if tier.sales_paused:
+            continue
         if tier.sales_start_at and now < tier.sales_start_at:
             continue
         if tier.sales_end_at and now > tier.sales_end_at:

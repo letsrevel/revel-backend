@@ -1827,6 +1827,9 @@ msgstr "El plazo para confirmar la asistencia ha vencido."
 msgid "Tickets are not currently on sale."
 msgstr "Las entradas no están a la venta en este momento."
 
+msgid "Ticket sales are paused."
+msgstr "La venta de entradas está pausada."
+
 msgid "This ticket tier requires a specific membership tier."
 msgstr "Este tipo de entrada requiere un nivel de membresía específico."
 
@@ -2792,6 +2795,128 @@ msgid "These price categories do not belong to the tier's venue: {categories}."
 msgstr ""
 "Estas categorías de precio no pertenecen al espacio del tipo de entrada: "
 "{categories}."
+
+msgid "Unknown or disabled provider."
+msgstr "Proveedor desconocido o deshabilitado."
+
+msgid "This platform is not connected."
+msgstr "Esta plataforma no está conectada."
+
+msgid "This platform is already connected."
+msgstr "Esta plataforma ya está conectada."
+
+msgid "Live updates could not be enabled; counts will refresh periodically."
+msgstr ""
+"No se pudieron activar las actualizaciones en directo; los recuentos se "
+"actualizarán periódicamente."
+
+msgid "The connection request is invalid or has expired. Please try again."
+msgstr ""
+"La solicitud de conexión no es válida o ha caducado. Inténtalo de nuevo."
+
+msgid "The platform rejected the connection."
+msgstr "La plataforma rechazó la conexión."
+
+msgid "No account selection is pending."
+msgstr "No hay ninguna selección de cuenta pendiente."
+
+msgid "The platform rejected the request."
+msgstr "La plataforma rechazó la solicitud."
+
+msgid "That account is not available to this connection."
+msgstr "Esa cuenta no está disponible para esta conexión."
+
+msgid "The platform connection is no longer valid. Please reconnect."
+msgstr "La conexión con la plataforma ya no es válida. Vuelve a conectarla."
+
+msgid "The platform could not list its events."
+msgstr "La plataforma no pudo listar sus eventos."
+
+#, python-format
+msgid "Ticket class %(name)s could not be imported."
+msgstr "La clase de entrada %(name)s no se pudo importar."
+
+msgid "Only public events can be listed on external platforms."
+msgstr "Solo los eventos públicos pueden publicarse en plataformas externas."
+
+msgid "The event needs an end time to be listed externally."
+msgstr ""
+"El evento necesita una hora de finalización para poder publicarse "
+"externamente."
+
+msgid "Only ticketed events can be listed externally."
+msgstr "Solo los eventos con entradas pueden publicarse externamente."
+
+msgid "Pay-what-you-can tiers cannot be listed externally."
+msgstr ""
+"Los tipos de entrada \"Paga lo que puedas\" no pueden publicarse "
+"externamente."
+
+msgid "Membership-restricted tiers cannot be listed externally."
+msgstr ""
+"Los tipos de entrada restringidos a una membresía no pueden publicarse "
+"externamente."
+
+msgid "Seated tiers cannot be listed externally."
+msgstr ""
+"Los tipos de entrada con asientos asignados no pueden publicarse "
+"externamente."
+
+msgid "Tiers paid offline or at the door cannot be listed externally."
+msgstr ""
+"Los tipos de entrada con pago offline o en puerta no pueden publicarse "
+"externamente."
+
+msgid "Set a quantity on the tier or a maximum attendance on the event."
+msgstr ""
+"Define una cantidad para el tipo de entrada o un aforo máximo para el evento."
+
+msgid "The platform allows one currency per event; this tier uses another."
+msgstr ""
+"La plataforma permite una sola moneda por evento; este tipo de entrada usa "
+"otra."
+
+msgid "The listing has no cover image yet."
+msgstr "El anuncio todavía no tiene imagen de portada."
+
+msgid "The platform connection needs to be re-established."
+msgstr "La conexión con la plataforma debe restablecerse."
+
+msgid "This ticket class exists only on the platform and is left untouched."
+msgstr "Esta clase de entrada solo existe en la plataforma y se deja intacta."
+
+msgid ""
+"The listing is live and cannot be unpublished from here; cancel it or edit "
+"it on the platform."
+msgstr ""
+"El anuncio está publicado y no se puede despublicar desde aquí; cancélalo o "
+"edítalo en la plataforma."
+
+msgid ""
+"The listing no longer exists on the platform. Push again to recreate it."
+msgstr ""
+"El anuncio ya no existe en la plataforma. Vuelve a enviarlo para recrearlo."
+
+msgid "The platform rejected the update."
+msgstr "La plataforma rechazó la actualización."
+
+msgid "The platform kept refusing the push; try again later."
+msgstr "La plataforma siguió rechazando el envío; inténtalo de nuevo más tarde."
+
+msgid "The platform is busy; the push will be retried shortly."
+msgstr "La plataforma está saturada; el envío se reintentará en breve."
+
+msgid "The push failed unexpectedly."
+msgstr "El envío falló de forma inesperada."
+
+msgid "Push the event to the platform first."
+msgstr "Primero envía el evento a la plataforma."
+
+msgid "The platform refused to publish the listing."
+msgstr "La plataforma se negó a publicar el anuncio."
+
+msgid "Malformed webhook delivery."
+msgstr "Entrega de webhook malformada."
 
 msgid "This name is not allowed."
 msgstr "Este nombre no está permitido."

@@ -1,0 +1,22 @@
+{
+  "organizations": [
+    {
+      "vertical": "default",
+      "created": "2026-09-04T03:58:27",
+      "image_id": null,
+      "id": "3012894655993",
+      "parent_id": null,
+      "_type": "organization",
+      "name": "Spike Organization",
+      "locale": null
+    }
+  ],
+  "pagination": {
+    "continuation": "AGWl1yEywP75hHKJLBsabQFqy1331clFJXWTjN0ZRizzoZp8-GvKXa_bas8Pl2H36LOyLSxeDnln",
+    "page_size": 50,
+    "object_count": 1,
+    "page_count": 1,
+    "has_more_items": false,
+    "page_number": 1
+  }
+}
