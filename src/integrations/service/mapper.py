@@ -22,7 +22,7 @@ from integrations.schema import IntegrationErrorCode, SyncReportEntry
 
 SUMMARY_MAX_CHARS = 140
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s")
-_FIRST_PARAGRAPH = re.compile(r"<p[^>]*>(.*?)</p>", re.DOTALL)
+_BLOCK_ELEMENT = re.compile(r"<(p|li|h[1-6]|blockquote)[^>]*>(.*?)</\1>", re.DOTALL)
 
 
 class EventNotEligible(Exception):
@@ -76,19 +76,30 @@ def event_timezone(event: Event) -> str:
     return str(settings.TIME_ZONE)
 
 
+def _collapse_whitespace(text: str) -> str:
+    """Collapse runs of whitespace (including embedded newlines) to single spaces."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def summary_from_markdown(md: str | None) -> str:
     """Plain-text first sentence of the description, truncated to the provider cap.
 
-    Headings render as their own block before the first paragraph, so the first
-    ``<p>`` is used as the summary source when one is present (falling back to the
-    full rendered text otherwise) — this keeps a leading "# Title" out of the summary.
+    Uses the text of the first text-bearing block element (``p``, ``li``, ``h1``-``h6``,
+    ``blockquote``) in document order as the summary source — this handles heading- or
+    list-only descriptions (no ``<p>`` at all) correctly, rather than falling back to the
+    whole multi-line rendered text. Falls back to the full rendered text only when no such
+    block matches (e.g. inline-only content with no block wrapper).
     """
     if not md:
         return ""
     rendered = render_markdown(md)
-    match = _FIRST_PARAGRAPH.search(rendered)
-    fragment = match.group(1) if match else rendered
-    text = html.unescape(strip_tags(fragment)).strip()
+    fragment = ""
+    for _tag, block in _BLOCK_ELEMENT.findall(rendered):
+        candidate = _collapse_whitespace(html.unescape(strip_tags(block)))
+        if candidate:
+            fragment = candidate
+            break
+    text = fragment or _collapse_whitespace(html.unescape(strip_tags(rendered)))
     if not text:
         return ""
     first = _SENTENCE_END.split(text, maxsplit=1)[0].strip()
@@ -105,7 +116,7 @@ def _venue(event: Event) -> RemoteVenue | None:
         name=event.name,
         address=event.address or "",
         city=event.city.name if event.city else "",
-        country=event.city.country if event.city else "",
+        country=event.city.iso2.upper() if event.city else "",
         latitude=point.y if point else None,
         longitude=point.x if point else None,
     )
@@ -114,6 +125,9 @@ def _venue(event: Event) -> RemoteVenue | None:
 def _tier_skip(tier: TicketTier, event: Event, currency: str) -> tuple[IntegrationErrorCode, str] | None:
     if tier.price_type != TicketTier.PriceType.FIXED:
         return IntegrationErrorCode.TIER_VARIABLE_PRICE, _("Pay-what-you-can tiers cannot be listed externally.")
+    # `restricted_to_membership_tiers` is prefetched by map_event()'s queryset, so `.exists()`
+    # here reuses that prefetch cache (0 queries per tier) — chaining a `.filter()` on it
+    # instead would bypass the cache and reintroduce an N+1 across tiers.
     if tier.restricted_to_membership_tiers.exists():
         return IntegrationErrorCode.TIER_MEMBERS_ONLY, _("Membership-restricted tiers cannot be listed externally.")
     if tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:

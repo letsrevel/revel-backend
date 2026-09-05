@@ -52,9 +52,15 @@ def test_eligibility_rejects_private_open_ended_and_no_tickets(clean_event: Even
     ("md", "expected"),
     [
         (None, ""),
-        ("# Title\n\nFirst sentence here. Second one.", "First sentence here."),
+        # The first text-bearing block wins in document order — a leading heading with no
+        # blank-line-separated content following it (see the list cases below) is itself
+        # the first block, so it becomes the summary.
+        ("# Title\n\nFirst sentence here. Second one.", "Title"),
         ("**Bold** start! Then more", "Bold start!"),
         ("x" * 200, "x" * 139 + "…"),
+        ("## Heading\n- item one\n- item two", "Heading"),
+        ("- item one. More\n- item two", "item one."),
+        ("plain text\nwith newline", "plain text with newline"),
     ],
 )
 def test_summary_from_markdown(md: str | None, expected: str) -> None:
@@ -82,8 +88,21 @@ def test_timezone_prefers_city_then_settings(clean_event: Event) -> None:
 
 
 def test_map_event_basic_fields_and_venue(clean_event: Event) -> None:
+    from django.contrib.gis.geos import Point
+
+    from geo.models import City
+
+    city = City.objects.create(
+        name="Wien",
+        ascii_name="Wien",
+        country="Austria",
+        iso2="at",
+        city_id=2,
+        location=Point(16.37, 48.21, srid=4326),
+    )
     clean_event.description = "Great **night**. Bring friends."
     clean_event.address = "Stephansplatz 1, 1010 Wien"
+    clean_event.city = city
     clean_event.save()
     clean_event.ticket_tiers.all().delete()  # save() with no tiers re-triggers the default-tier signal
     _tier(clean_event, "GA")
@@ -94,6 +113,7 @@ def test_map_event_basic_fields_and_venue(clean_event: Event) -> None:
     assert "<strong>night</strong>" in r.description_html
     assert r.currency == "EUR" and r.status == "draft" and r.is_virtual is False
     assert r.venue is not None and r.venue.address == "Stephansplatz 1, 1010 Wien" and r.venue.name == clean_event.name
+    assert r.venue.country == "AT"
     assert r.ticket_classes == []
     assert [m.remote.name for m in mapped.tiers] == ["GA"]
     assert [e.code for e in mapped.report] == [IntegrationErrorCode.IMAGE_MISSING]
