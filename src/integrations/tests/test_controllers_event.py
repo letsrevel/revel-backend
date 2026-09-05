@@ -7,7 +7,7 @@ import pytest
 from django.test.client import Client
 from django.urls import reverse
 
-from events.models import Event, TicketTier
+from events.models import Event, OrganizationStaff, TicketTier
 from integrations.models import EventLink, PlatformConnection
 from integrations.service import connection_service, sync_service
 from integrations.tests.fake_provider import FakeProvider
@@ -61,6 +61,37 @@ def test_staff_with_manage_event_can_push(
         _url("event_integration_push", clean_event, "fake"), content_type="application/json"
     )
     assert response.status_code == 202, response.content
+
+
+def test_staff_without_manage_event_is_forbidden(
+    organization_staff_client: Client,
+    staff_member: OrganizationStaff,
+    clean_event: Event,
+    connected: PlatformConnection,
+) -> None:
+    staff_member.permissions = {"default": {"manage_event": False}, "event_overrides": {}}
+    staff_member.save(update_fields=["permissions"])
+    assert organization_staff_client.get(_url("list_event_integrations", clean_event)).status_code == 403
+    assert (
+        organization_staff_client.post(
+            _url("event_integration_push", clean_event, "fake"), content_type="application/json"
+        ).status_code
+        == 403
+    )
+    assert (
+        organization_staff_client.post(
+            _url("event_integration_publish", clean_event, "fake"), content_type="application/json"
+        ).status_code
+        == 403
+    )
+    assert (
+        organization_staff_client.patch(
+            _url("event_integration_update", clean_event, "fake"),
+            data=orjson.dumps({"auto_sync": True}),
+            content_type="application/json",
+        ).status_code
+        == 403
+    )
 
 
 def test_stranger_cannot_see(clean_event: Event, connected: PlatformConnection, django_user_model) -> None:  # type: ignore[no-untyped-def]

@@ -183,17 +183,16 @@ class EventbriteProvider:
         return self._ref(body)
 
     def update_event(self, token: TokenSet, remote_id: str, event: RemoteEvent) -> RemoteEventRef:
-        """Update a remote event.
-
-        ponytail: a venue is re-created on every update when present; Eventbrite venues are
-        cheap rows, so de-duping by storing the venue id on ``EventLink.sync_report`` metadata
-        is phase-3 polish, not required now.
-        """
+        """Update a remote event, updating the venue it already has in place instead of adding one."""
         venue_id = None
         if event.venue:
             current = self._client(token).request("GET", f"/events/{remote_id}/")
-            org = self._shape(lambda: str(current["organization_id"]))
-            venue_id = self._create_venue(token, org, event.venue)
+            venue_id = str(current.get("venue_id") or "") or None
+            if venue_id:
+                self._client(token).request("POST", f"/venues/{venue_id}/", json=tr.to_eventbrite_venue(event.venue))
+            else:
+                org = self._shape(lambda: str(current["organization_id"]))
+                venue_id = self._create_venue(token, org, event.venue)
         body = self._client(token).request(
             "POST", f"/events/{remote_id}/", json=tr.to_eventbrite_event(event, venue_id=venue_id)
         )

@@ -158,6 +158,8 @@ class FakeProvider:
             stored = tc.model_copy(update={"remote_id": f"tc-{self._tc_counter}"})
             event.ticket_classes.append(stored)
         else:
+            if tc.remote_id not in {c.remote_id for c in event.ticket_classes}:
+                raise ProviderError(IntegrationErrorCode.REMOTE_EVENT_MISSING, "ticket class not found")
             stored = tc.model_copy(deep=True)
             event.ticket_classes = [stored if c.remote_id == tc.remote_id else c for c in event.ticket_classes]
         return t.cast(str, stored.remote_id)

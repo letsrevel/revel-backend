@@ -119,6 +119,19 @@ def test_map_event_basic_fields_and_venue(clean_event: Event) -> None:
     assert [e.code for e in mapped.report] == [IntegrationErrorCode.IMAGE_MISSING]
 
 
+@pytest.mark.parametrize(
+    ("visibility", "listed"),
+    [(Event.Visibility.PUBLIC, True), (Event.Visibility.UNLISTED, False), (Event.Visibility.PRIVATE, False)],
+)
+def test_listed_follows_revel_visibility(clean_event: Event, visibility: str, listed: bool) -> None:
+    clean_event.visibility = visibility
+    clean_event.save()
+    clean_event.ticket_tiers.all().delete()  # save() with no tiers re-triggers the default-tier signal
+    _tier(clean_event, "GA")
+    mapped = mapper.map_event(clean_event, remote_paused={}, remote_tier_ids={})
+    assert mapped.remote.listed is listed
+
+
 def test_virtual_event_has_no_venue(clean_event: Event) -> None:
     clean_event.is_virtual = True
     clean_event.save()

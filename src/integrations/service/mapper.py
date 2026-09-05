@@ -207,6 +207,7 @@ def map_event(event: Event, *, remote_paused: dict[UUID, bool], remote_tier_ids:
         end=event.end,
         timezone=event_timezone(event),
         is_virtual=event.is_virtual,
+        listed=event.visibility == Event.Visibility.PUBLIC,
         venue=_venue(event),
         currency=currency,
     )

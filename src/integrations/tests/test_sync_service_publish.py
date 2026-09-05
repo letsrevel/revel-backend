@@ -5,8 +5,9 @@ from decimal import Decimal
 import pytest
 
 from events.models import Event, TicketTier
+from integrations import registry
 from integrations.exceptions import IntegrationError, ProviderError
-from integrations.models import EventLink, PlatformConnection
+from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.schema import IntegrationErrorCode
 from integrations.service import connection_service, sync_service
 from integrations.tests.fake_provider import FakeProvider
@@ -59,6 +60,22 @@ def test_publish_provider_rejection_502(pushed: EventLink, fake_provider: FakePr
     assert exc.value.status == 502 and exc.value.provider_message == "Venue required"
     pushed.refresh_from_db()
     assert pushed.remote_status == EventLink.RemoteStatus.DRAFT
+
+
+def test_publish_remote_missing_breaks_the_link(pushed: EventLink, fake_provider: FakeProvider) -> None:
+    fake_provider.fail["publish_event"] = ProviderError(IntegrationErrorCode.REMOTE_EVENT_MISSING, "gone")
+    with pytest.raises(IntegrationError) as exc:
+        sync_service.publish_link(pushed.event, "fake")
+    assert exc.value.status == 409 and exc.value.code == IntegrationErrorCode.REMOTE_EVENT_MISSING
+    pushed.refresh_from_db()
+    assert pushed.sync_state == EventLink.SyncState.BROKEN and pushed.remote_id == ""
+    assert TierLink.objects.filter(event_link=pushed).count() == 0
+
+
+def test_list_links_skips_a_disabled_provider(pushed: EventLink, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert len(sync_service.list_links(pushed.event)) == 1
+    monkeypatch.setattr(registry, "PROVIDERS", {})
+    assert sync_service.list_links(pushed.event) == []
 
 
 def test_set_link_auto_sync_and_schema(pushed: EventLink) -> None:

@@ -141,10 +141,25 @@ def test_update_event_missing_maps_to_remote_event_missing() -> None:
     assert exc.value.code == IntegrationErrorCode.REMOTE_EVENT_MISSING
 
 
-def test_update_event_with_venue_recreates_it_first() -> None:
+def test_update_event_reuses_the_venue_the_event_already_has() -> None:
     rec = Recorder(
         {
-            ("GET", "/v3/events/EV/"): (200, _fixture("event_create")),
+            ("GET", "/v3/events/EV/"): (200, _fixture("event_create")),  # the fixture carries venue_id 299287124
+            ("POST", "/v3/venues/299287124/"): (200, _fixture("venue_create")),
+            ("POST", "/v3/events/EV/"): (200, _fixture("event_create")),
+        }
+    )
+    ref = rec.provider().update_event(TOKEN, "EV", _remote_event(with_venue=True))
+    assert ref.remote_id == "1999760883635"
+    assert [r.url.path for r in rec.requests] == ["/v3/events/EV/", "/v3/venues/299287124/", "/v3/events/EV/"]
+    assert json.loads(rec.requests[1].content)["venue"]["name"] == "Hall"
+    assert json.loads(rec.requests[2].content)["event"]["venue_id"] == "299287124"
+
+
+def test_update_event_creates_a_venue_when_the_remote_has_none() -> None:
+    rec = Recorder(
+        {
+            ("GET", "/v3/events/EV/"): (200, {**_fixture("event_create"), "venue_id": None}),
             ("POST", "/v3/organizations/3012894655993/venues/"): (200, _fixture("venue_create")),
             ("POST", "/v3/events/EV/"): (200, _fixture("event_create")),
         }

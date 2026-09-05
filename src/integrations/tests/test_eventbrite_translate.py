@@ -20,7 +20,8 @@ def _load(name: str) -> dict[str, object]:
 START = datetime(2026, 10, 4, 11, 4, 17, tzinfo=UTC)
 
 
-def test_event_payload_shape_and_no_description() -> None:
+@pytest.mark.parametrize("listed", [True, False])
+def test_event_payload_shape_and_no_description(listed: bool) -> None:
     ev = RemoteEvent(
         name="Spike",
         summary="Short.",
@@ -29,6 +30,7 @@ def test_event_payload_shape_and_no_description() -> None:
         end=START + timedelta(hours=3),
         timezone="Europe/Vienna",
         currency="EUR",
+        listed=listed,
     )
     body = tr.to_eventbrite_event(ev, venue_id="299287124")["event"]
     assert body["name"] == {"html": "Spike"} and body["summary"] == "Short."
@@ -36,7 +38,7 @@ def test_event_payload_shape_and_no_description() -> None:
     assert body["end"]["utc"] == "2026-10-04T14:04:17Z"
     assert (
         body["currency"] == "EUR"
-        and body["listed"] is False
+        and body["listed"] is listed
         and body["online_event"] is False
         and body["venue_id"] == "299287124"
     )
@@ -106,6 +108,12 @@ def test_structured_content_payload() -> None:
         "modules": [{"type": "text", "data": {"body": {"text": "<p>x</p>", "alignment": "left"}}}],
         "publish": True,
     }
+
+
+def test_from_event_reads_listed() -> None:
+    data = _load("event_get_expanded")
+    assert tr.from_eventbrite_event({**data, "listed": False}).listed is False
+    assert tr.from_eventbrite_event({**data, "listed": True}).listed is True
 
 
 def test_from_event_expanded_fixture() -> None:

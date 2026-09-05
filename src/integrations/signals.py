@@ -11,6 +11,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from events.models import Event, TicketTier
+from integrations import registry
 from integrations.models import EventLink, PlatformConnection
 from integrations.service import mapper
 from integrations.service.mapper import EventNotEligible
@@ -18,6 +19,9 @@ from integrations.service.mapper import EventNotEligible
 logger = structlog.get_logger(__name__)
 
 DEBOUNCE_SECONDS = 30
+# Slightly shorter than the countdown so the key expires before the queued push runs: a save
+# landing just after that push must schedule the next one, not be swallowed by a stale key.
+DEBOUNCE_TTL_SECONDS = 25
 
 
 def debounce_key(link_id: UUID) -> str:
@@ -40,14 +44,14 @@ def schedule_auto_push(event_id: UUID) -> int:
     )
     scheduled = 0
     for link in links:
-        if not link.effective_auto_sync:
+        if not link.effective_auto_sync or link.connection.provider not in registry.PROVIDERS:
             continue
         try:
             mapper.check_eligible(link.event)
         except EventNotEligible:
             continue
         try:
-            added = cache.add(debounce_key(link.id), 1, DEBOUNCE_SECONDS)
+            added = cache.add(debounce_key(link.id), 1, DEBOUNCE_TTL_SECONDS)
         except Exception as e:
             # Fail open: the cache backend raises on connection failures (see the CACHES
             # comment in revel/settings/base.py). A save must never break because of it —

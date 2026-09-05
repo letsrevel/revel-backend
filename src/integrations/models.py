@@ -133,7 +133,11 @@ class EventLink(TimeStampedModel):
 class TierLink(TimeStampedModel):
     """A Revel ticket tier mirrored as one remote ticket class (spec §5)."""
 
-    tier = models.ForeignKey("events.TicketTier", on_delete=models.CASCADE, related_name="platform_links")
+    # SET_NULL, not CASCADE: a deleted Revel tier must leave its ``remote_id`` behind so the next
+    # push can delete (or hide) the class it created remotely instead of orphaning it.
+    tier = models.ForeignKey(
+        "events.TicketTier", on_delete=models.SET_NULL, null=True, blank=True, related_name="platform_links"
+    )
     event_link = models.ForeignKey(EventLink, on_delete=models.CASCADE, related_name="tier_links")
     remote_id = models.CharField(max_length=255)
     remote_quantity_sold = models.PositiveIntegerField(default=0)

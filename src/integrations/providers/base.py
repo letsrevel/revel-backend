@@ -85,6 +85,7 @@ class RemoteEvent(BaseModel):
     end: AwareDatetime
     timezone: str
     is_virtual: bool = False
+    listed: bool = True  # discoverable in the platform's own search/listings
     venue: RemoteVenue | None = None
     currency: str
     status: RemoteStatus = "draft"

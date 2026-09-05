@@ -35,6 +35,7 @@ class IntegrationErrorCode(StrEnum):
     TIER_NO_CAPACITY = "tier_no_capacity"
     TIER_CURRENCY_MISMATCH = "tier_currency_mismatch"
     REMOTE_EVENT_MISSING = "remote_event_missing"
+    REMOTE_ONLY_TIER = "remote_only_tier"
     UNPUBLISH_REFUSED = "unpublish_refused"
     IMAGE_MISSING = "image_missing"
     PAUSE_FAILED = "pause_failed"

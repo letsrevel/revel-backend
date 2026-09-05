@@ -39,7 +39,7 @@ def to_eventbrite_event(event: RemoteEvent, *, venue_id: str | None) -> dict[str
         "start": {"timezone": event.timezone, "utc": iso_z(event.start)},
         "end": {"timezone": event.timezone, "utc": iso_z(event.end)},
         "currency": event.currency,
-        "listed": False,
+        "listed": event.listed,
         "online_event": event.is_virtual,
     }
     if event.summary:
@@ -135,6 +135,7 @@ def from_eventbrite_event(data: dict[str, t.Any]) -> RemoteEvent:
         end=_parse_z(end["utc"]),
         timezone=str(start.get("timezone") or "UTC"),
         is_virtual=bool(data.get("online_event")),
+        listed=bool(data.get("listed", True)),
         venue=_venue_from(data.get("venue")),
         currency=str(data.get("currency") or ""),
         status=status_from_eventbrite(str(data.get("status") or "draft")),

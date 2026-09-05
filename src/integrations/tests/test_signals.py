@@ -7,6 +7,7 @@ from django.core.cache import cache
 
 from events.models import Event, TicketTier
 from events.suppression import suppress_event_notifications
+from integrations import registry
 from integrations.models import EventLink, PlatformConnection
 from integrations.service import connection_service, sync_service
 from integrations.tests.fake_provider import FakeProvider
@@ -112,6 +113,21 @@ def test_unpushed_broken_or_ineligible_links_are_skipped(  # type: ignore[no-unt
     event.event_type = Event.EventType.PRIVATE
     with django_capture_on_commit_callbacks(execute=False) as callbacks:
         event.save()
+    assert callbacks == []
+
+
+def test_disabled_provider_is_not_scheduled(  # type: ignore[no-untyped-def]
+    pushed: EventLink,
+    connected: PlatformConnection,
+    django_capture_on_commit_callbacks,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connected.auto_sync = True
+    connected.save(update_fields=["auto_sync"])
+    monkeypatch.setattr(registry, "PROVIDERS", {})
+    with django_capture_on_commit_callbacks(execute=False) as callbacks, suppress_event_notifications():
+        pushed.event.name = "Renamed"
+        pushed.event.save()
     assert callbacks == []
 
 

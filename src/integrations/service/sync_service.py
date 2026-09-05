@@ -86,20 +86,32 @@ def _write_report(link: EventLink, entries: list[SyncReportEntry], state: str) -
 
 
 def _reconcile_tiers(
-    link: EventLink, provider: ListingProvider, mapped: mapper.MappedEvent, *, existed_before: bool
+    link: EventLink,
+    provider: ListingProvider,
+    mapped: mapper.MappedEvent,
+    report: list[SyncReportEntry],
+    *,
+    existed_before: bool,
 ) -> None:
-    """Upsert every mappable tier; remove or hide remote classes Revel no longer maps (spec §7.3 step 3)."""
+    """Upsert every mappable tier; remove or hide the remote classes *Revel created* (spec §7.3 step 3).
+
+    Only classes carrying a ``TierLink`` are ever deleted or hidden: a class the organizer added
+    on the platform itself is left alone and reported as ``remote_only_tier``.
+    """
     token = link.connection.token()
-    links_by_tier = {tl.tier_id: tl for tl in TierLink.objects.filter(event_link=link)}
+    links_by_tier = {tl.tier_id: tl for tl in TierLink.objects.filter(event_link=link) if tl.tier_id is not None}
     # Remote classes present before this push (update path only); `quantity_sold` is the platform's own count.
     remote_before = (
         {c.remote_id: c for c in provider.get_event(token, link.remote_id).ticket_classes} if existed_before else {}
     )
     upserted: set[str] = set()
     for m in mapped.tiers:
-        remote_id = provider.upsert_ticket_class(token, link.remote_id, m.remote)
-        upserted.add(remote_id)
         tl = links_by_tier.get(m.tier.id)
+        remote = m.remote
+        if existed_before and tl is not None and tl.remote_id not in remote_before:
+            remote = remote.model_copy(update={"remote_id": None})  # deleted on the platform → recreate it
+        remote_id = provider.upsert_ticket_class(token, link.remote_id, remote)
+        upserted.add(remote_id)
         if tl is None:
             TierLink.objects.create(tier=m.tier, event_link=link, remote_id=remote_id)
         elif tl.remote_id != remote_id:
@@ -109,18 +121,26 @@ def _reconcile_tiers(
     for stale_id, remote_class in remote_before.items():
         if stale_id is None or stale_id in upserted:
             continue
-        # The tier was deleted in Revel (its TierLink cascaded) or became unmappable this push.
         tl = links_by_remote.get(stale_id)
-        sold = max(remote_class.quantity_sold, tl.remote_quantity_sold if tl else 0)
-        if sold == 0:
+        if tl is None:
+            # Never Revel's: the organizer created this class on the platform. Hands off.
+            report.append(
+                SyncReportEntry(
+                    scope="tier",
+                    tier_id=None,
+                    tier_name=remote_class.name,
+                    code=IntegrationErrorCode.REMOTE_ONLY_TIER,
+                    detail=str(_("This ticket class exists only on the platform and is left untouched.")),
+                )
+            )
+            continue
+        # The tier was deleted in Revel (its TierLink survives with tier=None) or became unmappable.
+        if max(remote_class.quantity_sold, tl.remote_quantity_sold) == 0:
             provider.delete_ticket_class(token, link.remote_id, stale_id)
-            if tl is not None:
-                tl.delete()
-        else:
+            tl.delete()
+        elif not remote_class.hidden:
+            # `remote_paused` stays untouched: it means "the organizer pressed pause", not this.
             provider.set_ticket_class_paused(token, link.remote_id, stale_id, True)
-            if tl is not None:
-                tl.remote_paused = True
-                tl.save(update_fields=["remote_paused", "updated_at"])
 
 
 def _apply_status(link: EventLink, provider: ListingProvider, event: Event, report: list[SyncReportEntry]) -> None:
@@ -147,7 +167,14 @@ def push_link(link: EventLink) -> EventLink:
     conn = link.connection
     provider = registry.get_provider(conn.provider)
     token = conn.token()
-    existing_links = {tl.tier_id: tl for tl in TierLink.objects.filter(event_link=link)}
+    try:
+        mapper.check_eligible(event)
+    except EventNotEligible as e:
+        logger.info("integration_push_ineligible", link_id=str(link.id), code=e.code.value)
+        return _write_report(link, [report_entry(e.code, e.detail)], EventLink.SyncState.FAILED)
+    if link.remote_status == EventLink.RemoteStatus.CANCELLED:
+        return _write_report(link, [], EventLink.SyncState.IN_SYNC)  # a cancelled listing is terminal
+    existing_links = {tl.tier_id: tl for tl in TierLink.objects.filter(event_link=link) if tl.tier_id is not None}
     mapped = mapper.map_event(
         event,
         remote_paused={tid: tl.remote_paused for tid, tl in existing_links.items()},
@@ -178,9 +205,9 @@ def push_link(link: EventLink) -> EventLink:
             link.remote_id, link.remote_url = ref.remote_id, ref.url
             link.remote_status = EventLink.RemoteStatus.DRAFT
             link.save(update_fields=["remote_id", "remote_url", "remote_status", "updated_at"])
-        if mapped.remote.description_html:
-            provider.set_description(token, link.remote_id, mapped.remote.description_html)
-        _reconcile_tiers(link, provider, mapped, existed_before=existed_before)
+        # Sent even when empty: clearing the description in Revel must clear it remotely too.
+        provider.set_description(token, link.remote_id, mapped.remote.description_html)
+        _reconcile_tiers(link, provider, mapped, report, existed_before=existed_before)
         _apply_status(link, provider, event, report)
     except ProviderError as e:
         if e.retryable:
@@ -194,6 +221,26 @@ def push_link(link: EventLink) -> EventLink:
     link.save(update_fields=["last_pushed_at", "remote_status", "updated_at"])
     logger.info("integration_pushed", link_id=str(link.id), provider=conn.provider, remote_id=link.remote_id)
     return _write_report(link, report, EventLink.SyncState.IN_SYNC)
+
+
+def note_retry(link: EventLink, error: ProviderError, *, exhausted: bool = False) -> EventLink:
+    """Record a transient provider failure: ``pending`` while retries remain, ``failed`` once spent."""
+    detail = (
+        _("The platform kept refusing the push; try again later.")
+        if exhausted
+        else _("The platform is busy; the push will be retried shortly.")
+    )
+    state = EventLink.SyncState.FAILED if exhausted else EventLink.SyncState.PENDING
+    entry = report_entry(IntegrationErrorCode.PROVIDER_RATE_LIMITED, str(detail), error.provider_message)
+    return _write_report(link, [entry], state)
+
+
+def note_failure(link: EventLink, error: Exception) -> EventLink:
+    """Record an unexpected failure so the row never claims to be ``pending`` after the task died."""
+    entry = report_entry(
+        IntegrationErrorCode.PROVIDER_REJECTED, str(_("The push failed unexpectedly.")), str(error) or None
+    )
+    return _write_report(link, [entry], EventLink.SyncState.FAILED)
 
 
 def to_link_schema(link: EventLink) -> EventLinkSchema:
@@ -217,7 +264,7 @@ def to_link_schema(link: EventLink) -> EventLinkSchema:
         sync_report=[SyncReportEntry.model_validate(e) for e in link.sync_report],
         tiers=[
             TierLinkSchema(
-                tier_id=tl.tier_id,
+                tier_id=tl.tier.id,
                 tier_name=tl.tier.name,
                 remote_id=tl.remote_id,
                 remote_quantity_sold=tl.remote_quantity_sold,
@@ -225,15 +272,17 @@ def to_link_schema(link: EventLink) -> EventLinkSchema:
                 remote_paused=tl.remote_paused,
             )
             for tl in tiers
+            if tl.tier is not None  # orphan links keep a deleted tier's remote_id for reconcile only
         ],
     )
 
 
 def list_links(event: Event) -> list[EventLinkSchema]:
-    """Every link this event has, across providers."""
+    """Every link this event has, across providers. Links of a disabled provider are skipped."""
     return [
         to_link_schema(link)
         for link in EventLink.objects.filter(event=event).select_related("connection").order_by("created_at")
+        if link.connection.provider in registry.PROVIDERS
     ]
 
 
@@ -261,6 +310,16 @@ def publish_link(event: Event, provider_key: str) -> EventLink:
     try:
         provider.publish_event(link.connection.token(), link.remote_id)
     except ProviderError as e:
+        if e.code == IntegrationErrorCode.REMOTE_EVENT_MISSING:
+            link.sync_state, link.remote_id = EventLink.SyncState.BROKEN, ""
+            TierLink.objects.filter(event_link=link).delete()
+            link.save(update_fields=["sync_state", "remote_id", "updated_at"])
+            raise IntegrationError(
+                e.code,
+                str(_("The listing no longer exists on the platform. Push again to recreate it.")),
+                e.provider_message,
+                status=409,
+            ) from e
         if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
             connection_service.mark_revoked(link.connection)
         status = (

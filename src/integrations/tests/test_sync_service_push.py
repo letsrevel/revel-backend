@@ -7,6 +7,7 @@ import pytest
 from events.models import Event, TicketTier
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
+from integrations.providers.base import RemoteTicketClass
 from integrations.schema import IntegrationErrorCode
 from integrations.service import connection_service, sync_service
 from integrations.tests.fake_provider import FakeProvider
@@ -62,7 +63,7 @@ def test_first_push_creates_draft_with_tiers_and_report(
     remote = fake_provider.get_event(connected.token(), "ev-1")
     assert [c.name for c in remote.ticket_classes] == ["GA"]
     tl = TierLink.objects.get(event_link=link)
-    assert tl.remote_id == "tc-1" and tl.tier.name == "GA"
+    assert tl.remote_id == "tc-1" and tl.tier is not None and tl.tier.name == "GA"
     assert [e["code"] for e in link.sync_report] == ["image_missing"]
     assert "publish_event" not in [c[0] for c in fake_provider.calls]
 
@@ -106,7 +107,7 @@ def test_removed_tier_deleted_when_unsold_hidden_when_sold(
     for c in fake_provider.events["ev-1"].ticket_classes:
         if c.remote_id == vip_remote_id:
             c.quantity_sold = 3
-    vip.delete()  # TierLink cascades away with the tier
+    vip.delete()  # the TierLink survives with tier=None, carrying the remote id
     ga.delete()
     TicketTier.objects.create(
         event=clean_event,
@@ -120,7 +121,105 @@ def test_removed_tier_deleted_when_unsold_hidden_when_sold(
     assert set(names) == {"VIP", "Late"} and names["VIP"].hidden is True
     assert ("delete_ticket_class", "ev-1", ga_remote_id) in fake_provider.calls
     assert ("set_ticket_class_paused", "ev-1", vip_remote_id) in fake_provider.calls
-    assert TierLink.objects.filter(event_link=link).count() == 1  # only "Late"
+    # GA's link went with its class; VIP's is kept (tier=None) so the hidden class stays accounted for.
+    assert {(tl.tier_id is None, tl.remote_id) for tl in TierLink.objects.filter(event_link=link)} == {
+        (True, vip_remote_id),
+        (False, TierLink.objects.get(event_link=link, tier__name="Late").remote_id),
+    }
+    assert [tl.tier_name for tl in sync_service.to_link_schema(link).tiers] == ["Late"]  # orphans stay out
+
+
+def test_remote_only_class_is_left_alone_and_reported(
+    clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    link = sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+    # The organizer adds a ticket class directly on the platform; Revel has never seen it.
+    fake_provider.upsert_ticket_class(
+        connected.token(),
+        "ev-1",
+        RemoteTicketClass(name="Door", price=Decimal("5"), currency="EUR", is_free=False, quantity_total=5),
+    )
+    link = sync_service.push_link(link)
+    remote = fake_provider.get_event(connected.token(), "ev-1")
+    assert sorted(c.name for c in remote.ticket_classes) == ["Door", "GA"]
+    assert not [c for c in fake_provider.calls if c[0] in ("delete_ticket_class", "set_ticket_class_paused")]
+    entry = next(e for e in link.sync_report if e["code"] == IntegrationErrorCode.REMOTE_ONLY_TIER.value)
+    assert entry["scope"] == "tier" and entry["tier_id"] is None and entry["tier_name"] == "Door"
+
+
+def test_unmappable_tier_is_hidden_then_unhidden_without_touching_remote_paused(
+    clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    link = sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+    ga = clean_event.ticket_tiers.get(name="GA")
+    remote_id = TierLink.objects.get(event_link=link, tier=ga).remote_id
+    for c in fake_provider.events["ev-1"].ticket_classes:  # sold, so it is hidden rather than deleted
+        c.quantity_sold = 2
+    ga.price_type = TicketTier.PriceType.PWYC
+    ga.pwyc_min = Decimal("1")
+    ga.save()
+
+    link = sync_service.push_link(link)
+
+    assert fake_provider.get_event(connected.token(), "ev-1").ticket_classes[0].hidden is True
+    tl = TierLink.objects.get(event_link=link, tier=ga)
+    assert tl.remote_paused is False  # that flag means "the organizer pressed pause", not this
+    pauses = fake_provider.calls.count(("set_ticket_class_paused", "ev-1", remote_id))
+    sync_service.push_link(link)
+    assert fake_provider.calls.count(("set_ticket_class_paused", "ev-1", remote_id)) == pauses  # already hidden
+
+    ga.price_type = TicketTier.PriceType.FIXED
+    ga.save()
+    sync_service.push_link(link)
+    assert fake_provider.get_event(connected.token(), "ev-1").ticket_classes[0].hidden is False
+
+
+def test_class_deleted_on_the_platform_is_recreated(
+    clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    link = sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+    tl = TierLink.objects.get(event_link=link)
+    fake_provider.delete_ticket_class(connected.token(), "ev-1", tl.remote_id)  # gone on the platform
+
+    link = sync_service.push_link(link)
+
+    assert link.sync_state == EventLink.SyncState.IN_SYNC
+    remote = fake_provider.get_event(connected.token(), "ev-1")
+    assert [c.name for c in remote.ticket_classes] == ["GA"]
+    tl.refresh_from_db()
+    assert tl.remote_id == remote.ticket_classes[0].remote_id
+
+
+def test_ineligible_event_fails_the_push_without_calling_the_platform(
+    clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    clean_event.event_type = Event.EventType.PRIVATE
+    clean_event.save()
+    link = sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+    assert link.sync_state == EventLink.SyncState.FAILED
+    assert [e["code"] for e in link.sync_report] == [IntegrationErrorCode.EVENT_PRIVATE.value]
+    assert fake_provider.calls == []
+
+
+def test_cancelled_listing_short_circuits(
+    clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    link = sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+    link.remote_status = EventLink.RemoteStatus.CANCELLED
+    link.save(update_fields=["remote_status"])
+    fake_provider.calls.clear()
+    link = sync_service.push_link(link)
+    assert link.sync_state == EventLink.SyncState.IN_SYNC and fake_provider.calls == []
+
+
+def test_cleared_description_is_pushed_as_empty(
+    clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    clean_event.description = None
+    clean_event.save()
+    link = sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+    assert ("set_description", link.remote_id) in fake_provider.calls
+    assert fake_provider.get_event(connected.token(), link.remote_id).description_html == ""
 
 
 def test_live_link_mirrors_cancelled_and_warns_on_draft(
