@@ -115,7 +115,7 @@ class FakeProvider:
         rid = f"ev-{self._event_counter}"
         url = f"https://fake.example/e/{rid}"
         self.events[rid] = event.model_copy(
-            update={"remote_id": rid, "status": "draft", "url": url, "ticket_classes": []}
+            deep=True, update={"remote_id": rid, "status": "draft", "url": url, "ticket_classes": []}
         )
         return RemoteEventRef(remote_id=rid, url=url, status="draft")
 
@@ -124,12 +124,13 @@ class FakeProvider:
         self._guard("update_event", remote_id)
         current = self._stored(remote_id)
         self.events[remote_id] = event.model_copy(
+            deep=True,
             update={
                 "remote_id": remote_id,
                 "status": current.status,
                 "url": current.url,
                 "ticket_classes": current.ticket_classes,
-            }
+            },
         )
         return RemoteEventRef(remote_id=remote_id, url=current.url, status=current.status)
 
@@ -141,12 +142,12 @@ class FakeProvider:
     def publish_event(self, token: TokenSet, remote_id: str) -> None:
         """Publish a remote event."""
         self._guard("publish_event", remote_id)
-        self._stored(remote_id).status = "live"  # type: ignore[misc]
+        self._stored(remote_id).status = "live"
 
     def cancel_event(self, token: TokenSet, remote_id: str) -> None:
         """Cancel a remote event."""
         self._guard("cancel_event", remote_id)
-        self._stored(remote_id).status = "cancelled"  # type: ignore[misc]
+        self._stored(remote_id).status = "cancelled"
 
     def upsert_ticket_class(self, token: TokenSet, remote_event_id: str, tc: RemoteTicketClass) -> str:
         """Create or update a ticket class, returning its remote ID."""
@@ -157,7 +158,7 @@ class FakeProvider:
             stored = tc.model_copy(update={"remote_id": f"tc-{self._tc_counter}"})
             event.ticket_classes.append(stored)
         else:
-            stored = tc
+            stored = tc.model_copy(deep=True)
             event.ticket_classes = [stored if c.remote_id == tc.remote_id else c for c in event.ticket_classes]
         return t.cast(str, stored.remote_id)
 

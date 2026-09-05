@@ -53,6 +53,9 @@ def test_ticket_class_upsert_delete_and_pause() -> None:
     assert tc_id == "tc-1"
     assert p.upsert_ticket_class(TOKEN, "ev-1", tc.model_copy(update={"remote_id": "tc-1", "name": "GA+"})) == "tc-1"
     assert [c.name for c in p.get_event(TOKEN, "ev-1").ticket_classes] == ["GA+"]
+    # Prove isolation: mutate the caller's object and verify stored copy is unchanged
+    tc.name = "MUTATED"
+    assert p.get_event(TOKEN, "ev-1").ticket_classes[0].name == "GA+"
     p.set_ticket_class_paused(TOKEN, "ev-1", "tc-1", True)
     assert p.get_event(TOKEN, "ev-1").ticket_classes[0].hidden is True
     p.delete_ticket_class(TOKEN, "ev-1", "tc-1")
