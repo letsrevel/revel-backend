@@ -1,5 +1,6 @@
 """Tests for pulling the IdP ``picture`` claim into ``RevelUser.profile_picture`` on account creation."""
 
+import socket
 import typing as t
 import uuid
 from unittest.mock import patch
@@ -20,6 +21,7 @@ GOOGLE = OIDCProviderConfig(
     key="google", name="Google", issuer="https://accounts.google.com", client_id="c", client_secret="s"
 )
 PICTURE_URL = "https://lh3.googleusercontent.com/a/ACg8ocK=s96-c"
+PUBLIC_IP = "142.250.74.46"
 
 
 def claims(**overrides: t.Any) -> OIDCClaims:
@@ -42,6 +44,7 @@ def image_server(monkeypatch: pytest.MonkeyPatch, png_bytes: bytes) -> list[http
         return httpx.Response(200, content=png_bytes, headers={"Content-Type": "image/png"})
 
     monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(oidc, "_resolve_addresses", lambda host: [PUBLIC_IP])
     return seen
 
 
@@ -53,6 +56,7 @@ def _serve(monkeypatch: pytest.MonkeyPatch, response: httpx.Response) -> list[ht
         return response
 
     monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(oidc, "_resolve_addresses", lambda host: [PUBLIC_IP])
     return seen
 
 
@@ -175,6 +179,66 @@ def test_fetch_transport_error_is_swallowed(user: RevelUser, monkeypatch: pytest
     oidc.fetch_profile_picture(user, PICTURE_URL)
     user.refresh_from_db()
     assert not user.profile_picture
+
+
+def test_fetch_malformed_url_is_dropped(user: RevelUser, image_server: list[httpx.Request]) -> None:
+    """``urlsplit`` raises ValueError on ``https://[``; best effort means log and drop, not crash the task."""
+    oidc.fetch_profile_picture(user, "https://[")
+    assert image_server == []
+    user.refresh_from_db()
+    assert not user.profile_picture
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://10.0.0.5/a.png",
+        "https://127.0.0.1/a.png",
+        "https://[::1]/a.png",
+        "https://169.254.169.254/latest/meta-data",
+        "https://[::ffff:10.0.0.5]/a.png",
+    ],
+)
+def test_fetch_refuses_literal_non_public_address(user: RevelUser, image_server: list[httpx.Request], url: str) -> None:
+    """A self-hosted IdP may let users edit ``picture``; the worker must not be a proxy into the network."""
+    oidc.fetch_profile_picture(user, url)
+    assert image_server == []
+
+
+def test_fetch_refuses_host_resolving_to_private_address(
+    user: RevelUser, image_server: list[httpx.Request], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(oidc, "_resolve_addresses", lambda host: [PUBLIC_IP, "10.0.0.5"])
+    oidc.fetch_profile_picture(user, "https://internal.example.test/a.png")
+    assert image_server == []
+
+
+def test_fetch_unresolvable_host_is_dropped(
+    user: RevelUser, image_server: list[httpx.Request], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(host: str) -> list[str]:
+        raise socket.gaierror("nope")
+
+    monkeypatch.setattr(oidc, "_resolve_addresses", fail)
+    oidc.fetch_profile_picture(user, "https://nope.example.test/a.png")
+    assert image_server == []
+
+
+def test_fetch_does_not_overwrite_upload_that_landed_during_download(
+    user: RevelUser, png_bytes: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pre-download check saw no picture; the save must recheck the row, not trust the stale instance."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        fresh = RevelUser.objects.get(pk=user.pk)
+        fresh.profile_picture.save("mine.png", ContentFile(png_bytes), save=True)
+        return httpx.Response(200, content=png_bytes, headers={"Content-Type": "image/png"})
+
+    monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(oidc, "_resolve_addresses", lambda host: [PUBLIC_IP])
+    oidc.fetch_profile_picture(user, PICTURE_URL)
+    user.refresh_from_db()
+    assert user.profile_picture.name.endswith("mine.png")
 
 
 # --- task ---

@@ -7,8 +7,10 @@ and ADR-0016.
 
 import base64
 import hashlib
+import ipaddress
 import re
 import secrets
+import socket
 import typing as t
 from dataclasses import dataclass
 from urllib.parse import quote, urlencode, urlsplit
@@ -448,6 +450,31 @@ def redeem_login_token(token: str) -> tuple[TokenObtainPairOutputSchema, str]:
         return get_token_pair_for_user(user), payload.return_url
 
 
+def _resolve_addresses(host: str) -> list[str]:
+    """Resolve ``host`` to its IP addresses (monkeypatched in tests, which never touch DNS)."""
+    return [str(info[4][0]) for info in socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)]
+
+
+def _is_public_host(host: str) -> bool:
+    """Whether ``host`` is (or resolves only to) globally routable addresses.
+
+    A self-hosted IdP may let users edit their ``picture`` attribute, so the worker must not
+    fetch loopback, private, link-local or metadata addresses on their behalf (SSRF).
+    """
+    # ponytail: the address is vetted here and then resolved again by httpx for the connection,
+    # so a DNS-rebinding host could still slip through. Accepted: it is a GET with no body leak
+    # (the response is dropped unless it decodes as an image). Upgrade path: a custom httpx
+    # transport that connects to the vetted address.
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            addresses = [ipaddress.ip_address(a) for a in _resolve_addresses(host)]
+        except socket.gaierror, ValueError:
+            return False
+    return bool(addresses) and all(a.is_global for a in addresses)
+
+
 def _picture_fetch_url(url: str) -> str:
     """Google's ``picture`` claim is a 96px square (``=s96-c``); ask for the 400px preview size instead."""
     host = urlsplit(url).hostname or ""
@@ -463,8 +490,12 @@ def fetch_profile_picture(user: RevelUser, url: str) -> None:
     through ``safe_save_uploaded_file`` and get the same validators, EXIF strip, malware scan and
     thumbnails as a user upload. Never overwrites a picture the user set in the meantime.
     """
-    if not url.startswith("https://"):
-        logger.warning("oidc_picture_insecure_url", user_id=str(user.id))
+    try:
+        host = urlsplit(url).hostname or ""
+    except ValueError:
+        host = ""
+    if not url.startswith("https://") or not host or not _is_public_host(host):
+        logger.warning("oidc_picture_url_refused", user_id=str(user.id))
         return
     if user.profile_picture:
         return
@@ -486,11 +517,16 @@ def fetch_profile_picture(user: RevelUser, url: str) -> None:
         logger.warning("oidc_picture_fetch_failed", user_id=str(user.id), error=str(e))
         return
     file = SimpleUploadedFile(f"oidc.{extension}", body, content_type=content_type)
-    try:
-        safe_save_uploaded_file(instance=user, field="profile_picture", file=file, uploader=user)
-    except DjangoValidationError as e:
-        logger.warning("oidc_picture_invalid", user_id=str(user.id), error=str(e))
-        return
+    with transaction.atomic():
+        # Re-read under lock: an upload that landed during the download must win over this one.
+        locked = RevelUser.objects.select_for_update().filter(pk=user.pk).first()
+        if locked is None or locked.profile_picture:
+            return
+        try:
+            safe_save_uploaded_file(instance=locked, field="profile_picture", file=file, uploader=locked)
+        except DjangoValidationError as e:
+            logger.warning("oidc_picture_invalid", user_id=str(user.id), error=str(e))
+            return
     logger.info("oidc_picture_saved", user_id=str(user.id))
 
 

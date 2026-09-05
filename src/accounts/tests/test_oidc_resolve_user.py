@@ -242,7 +242,9 @@ def test_linking_existing_account_does_not_notify(user: RevelUser, django_captur
     site_settings.save()
     with (
         patch("accounts.signals.notify_admin_new_user_joined.delay") as pushover,
+        patch("accounts.signals.notify_admin_new_user_joined_discord.delay") as discord,
         django_capture_on_commit_callbacks(execute=True),
     ):
         oidc._resolve_user(GOOGLE, claims(email=user.email))
     pushover.assert_not_called()
+    discord.assert_not_called()
