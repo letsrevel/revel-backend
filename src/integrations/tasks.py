@@ -32,5 +32,16 @@ def push_event_link(link_id: str) -> None:
 
 @shared_task(name="integrations.import_remote_event")
 def import_remote_event(connection_id: str, remote_id: str) -> None:
-    """Create a Revel draft from a remote event (spec §7.6). Implemented in Task 8."""
-    raise NotImplementedError
+    """Create a Revel draft from a remote event (spec §7.6)."""
+    from integrations.models import PlatformConnection
+    from integrations.service import sync_service
+
+    conn = (
+        PlatformConnection.objects.select_related("organization")
+        .filter(id=connection_id, status=PlatformConnection.Status.ACTIVE)
+        .first()
+    )
+    if conn is None:
+        logger.info("integration_import_skipped_inactive_connection", connection_id=connection_id)
+        return
+    sync_service.import_remote_event(conn, remote_id)

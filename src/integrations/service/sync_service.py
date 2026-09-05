@@ -1,18 +1,29 @@
 """Push/publish orchestration (spec §7.3–7.4). Function-based; the Celery tasks in ``integrations.tasks`` call in."""
 
 import typing as t
+from functools import partial
 
 import structlog
+from django.conf import settings
+from django.contrib.gis.geos import Point
 from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext as _
+from markdownify import markdownify
 
 from events.models import Event, Organization, TicketTier
 from integrations import registry
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
-from integrations.providers.base import ListingProvider, RemoteEventRef
-from integrations.schema import EventLinkSchema, IntegrationErrorCode, SyncReportEntry, TierLinkSchema
+from integrations.providers.base import ListingProvider, RemoteEvent, RemoteEventRef, RemoteTicketClass
+from integrations.schema import (
+    EventLinkSchema,
+    ImportResultSchema,
+    IntegrationErrorCode,
+    RemoteEventSummarySchema,
+    SyncReportEntry,
+    TierLinkSchema,
+)
 from integrations.service import connection_service, mapper
 from integrations.service.mapper import EventNotEligible
 
@@ -56,6 +67,116 @@ def _active_connection(organization: Organization, provider_key: str) -> Platfor
             status=409,
         )
     return conn
+
+
+def list_remote_events(organization: Organization, provider_key: str) -> list[RemoteEventSummarySchema]:
+    """The remote account's events for the import picker, flagged when already linked."""
+    conn = _active_connection(organization, provider_key)
+    provider = registry.get_provider(provider_key)
+    try:
+        summaries = provider.list_events(conn.token(), conn.remote_account_id)
+    except ProviderError as e:
+        if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
+            connection_service.mark_revoked(conn)
+        raise IntegrationError(
+            e.code, str(_("The platform could not list its events.")), e.provider_message, status=502
+        ) from e
+    linked = set(EventLink.objects.filter(connection=conn).values_list("remote_id", flat=True))
+    return [
+        RemoteEventSummarySchema(
+            remote_id=s.remote_id,
+            name=s.name,
+            start=s.start,
+            status=s.status,
+            url=s.url,
+            already_linked=s.remote_id in linked,
+        )
+        for s in summaries
+    ]
+
+
+def request_import(organization: Organization, provider_key: str, remote_ids: list[str]) -> ImportResultSchema:
+    """Queue one import task per unlinked remote id."""
+    conn = _active_connection(organization, provider_key)
+    linked = set(
+        EventLink.objects.filter(connection=conn, remote_id__in=remote_ids).values_list("remote_id", flat=True)
+    )
+    queued = [rid for rid in dict.fromkeys(remote_ids) if rid not in linked]
+    from integrations.tasks import import_remote_event as import_task
+
+    conn_id = str(conn.id)
+    for rid in queued:
+        transaction.on_commit(partial(import_task.delay, conn_id, rid))
+    return ImportResultSchema(queued=queued, skipped=[rid for rid in dict.fromkeys(remote_ids) if rid in linked])
+
+
+def _tier_from_remote(event: Event, tc: RemoteTicketClass) -> TicketTier:
+    """Create one draft ``TicketTier`` mirroring a remote ticket class."""
+    return TicketTier.objects.create(
+        event=event,
+        name=tc.name[:255],
+        price=tc.price,
+        currency=tc.currency or str(settings.DEFAULT_CURRENCY),
+        total_quantity=tc.quantity_total or None,
+        sales_start_at=tc.sales_start,
+        sales_end_at=tc.sales_end,
+        visibility=TicketTier.Visibility.UNLISTED if tc.hidden else TicketTier.Visibility.PUBLIC,
+        payment_method=TicketTier.PaymentMethod.FREE if tc.is_free else TicketTier.PaymentMethod.ONLINE,
+        description=tc.description or None,
+    )
+
+
+@transaction.atomic
+def import_remote_event(connection: PlatformConnection, remote_id: str) -> EventLink:
+    """Create a Revel draft from a remote event (spec §7.6). The link is written last on purpose."""
+    existing = EventLink.objects.filter(connection=connection, remote_id=remote_id).first()
+    if existing is not None:
+        return existing
+    provider = registry.get_provider(connection.provider)
+    remote: RemoteEvent = provider.get_event(
+        connection.token(), remote_id
+    )  # ProviderError propagates → task fails loudly
+    city = None
+    location = None
+    if remote.venue and remote.venue.latitude is not None and remote.venue.longitude is not None:
+        location = Point(remote.venue.longitude, remote.venue.latitude, srid=4326)
+        city = mapper.nearest_city(remote.venue.latitude, remote.venue.longitude)
+    event = Event.objects.create(
+        organization=connection.organization,
+        name=remote.name[:255],
+        description=markdownify(remote.description_html).strip() or None,
+        status=Event.EventStatus.DRAFT,
+        event_type=Event.EventType.PUBLIC,
+        requires_ticket=True,
+        start=remote.start,
+        end=remote.end,
+        is_virtual=remote.is_virtual,
+        address=(remote.venue.address if remote.venue else "") or None,
+        city=city,
+        location=location,
+    )
+    event.ticket_tiers.all().delete()  # drop the signal-created default tier; remote classes are the truth
+    tiers = [(_tier_from_remote(event, tc), tc) for tc in remote.ticket_classes]
+    link = EventLink.objects.create(
+        event=event,
+        connection=connection,
+        remote_id=remote_id,
+        remote_url=remote.url,
+        remote_status=remote.status,
+        sync_state=EventLink.SyncState.IN_SYNC,
+        origin=EventLink.Origin.IMPORTED,
+        last_pulled_at=timezone.now(),
+    )
+    TierLink.objects.bulk_create(
+        [
+            TierLink(
+                tier=tier, event_link=link, remote_id=t.cast(str, tc.remote_id), remote_quantity_sold=tc.quantity_sold
+            )
+            for tier, tc in tiers
+        ]
+    )
+    logger.info("integration_imported", link_id=str(link.id), provider=connection.provider, remote_id=remote_id)
+    return link
 
 
 def request_push(event: Event, provider_key: str) -> EventLink:

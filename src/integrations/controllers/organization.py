@@ -11,7 +11,7 @@ from events.controllers.organization_admin.base import OrganizationAdminBaseCont
 from events.controllers.permissions import IsOrganizationOwner
 from integrations import schema
 from integrations.models import PlatformConnection
-from integrations.service import connection_service
+from integrations.service import connection_service, sync_service
 from integrations.service.state import CONNECT_STATE_COOKIE, CONNECT_STATE_COOKIE_PATH
 
 
@@ -79,6 +79,26 @@ class OrganizationIntegrationsController(OrganizationAdminBaseController):
     def update(self, slug: str, provider: str, payload: schema.ConnectionUpdateSchema) -> schema.ConnectionSchema:
         """Org-wide auto-sync default."""
         return _to_schema(connection_service.set_auto_sync(self.get_one(slug), provider, payload.auto_sync))
+
+    @route.get(
+        "/{provider}/remote-events",
+        url_name="integration_remote_events",
+        response=list[schema.RemoteEventSummarySchema],
+    )
+    def remote_events(self, slug: str, provider: str) -> list[schema.RemoteEventSummarySchema]:
+        """Upcoming events on the connected account, flagged when already linked to a Revel event."""
+        return sync_service.list_remote_events(self.get_one(slug), provider)
+
+    @route.post(
+        "/{provider}/import",
+        url_name="integration_import",
+        response={202: schema.ImportResultSchema},
+        throttle=WriteThrottle(),
+    )
+    def import_events(self, slug: str, provider: str, payload: schema.ImportRequestSchema) -> HttpResponse:
+        """Queue imports; each becomes a Revel draft event with its ticket tiers."""
+        result = sync_service.request_import(self.get_one(slug), provider, payload.remote_ids)
+        return self.create_response(result, status_code=202)
 
     @route.delete("/{provider}", url_name="integration_disconnect", response=ResponseOk, throttle=WriteThrottle())
     def disconnect(self, slug: str, provider: str) -> ResponseOk:

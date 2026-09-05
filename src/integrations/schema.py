@@ -5,7 +5,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime
+from pydantic import AwareDatetime, Field
 
 
 class IntegrationErrorCode(StrEnum):
@@ -132,3 +132,27 @@ class EventLinkUpdateSchema(Schema):
     """Per-event auto-sync override (null = inherit the connection default)."""
 
     auto_sync: bool | None = None
+
+
+class RemoteEventSummarySchema(Schema):
+    """One remote event row for the import picker."""
+
+    remote_id: str
+    name: str
+    start: AwareDatetime
+    status: t.Literal["draft", "live", "cancelled"]
+    url: str = ""
+    already_linked: bool = False
+
+
+class ImportRequestSchema(Schema):
+    """Remote event ids to queue for import."""
+
+    remote_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class ImportResultSchema(Schema):
+    """Which remote ids were queued for import vs. already linked."""
+
+    queued: list[str]
+    skipped: list[str]
