@@ -2931,7 +2931,9 @@ msgstr ""
 
 msgid ""
 "The platform connection is no longer valid; this tier was not attempted."
-msgstr "La connessione con la piattaforma non è più valida; questa categoria non è stata elaborata."
+msgstr ""
+"La connessione con la piattaforma non è più valida; questa categoria non è "
+"stata elaborata."
 
 msgid "Malformed webhook delivery."
 msgstr "Consegna webhook malformata."

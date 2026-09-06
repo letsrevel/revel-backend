@@ -142,6 +142,14 @@ class TestEventIntegrationPublishErrorContracts:
 class TestEventIntegrationPauseErrorContracts:
     """``pause``/``resume`` (spec §7.7) reject a ``tier_id`` that isn't linked to this event's push."""
 
+    def test_unpushed_link_returns_404_contract(
+        self, organization_owner_client: Client, clean_event: Event, connected: PlatformConnection
+    ) -> None:
+        """Pausing before the event was ever pushed is the same "push first" error as publish."""
+        url = reverse("api:event_integration_pause", kwargs={"event_id": clean_event.id, "provider": "fake"})
+        response = organization_owner_client.post(url, content_type="application/json")
+        assert_integration_error_body(response, 404, "provider_not_connected")
+
     def test_unknown_tier_returns_404_contract(
         self, organization_owner_client: Client, clean_event: Event, connected: PlatformConnection
     ) -> None:

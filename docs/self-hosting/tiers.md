@@ -93,6 +93,8 @@ needs credentials from an identity provider to do anything (the opt-in rule is e
 |---|---|
 | `INTEGRATIONS_EVENTBRITE_CLIENT_ID` | Eventbrite "API Key" from https://www.eventbrite.com/account-settings/apps |
 | `INTEGRATIONS_EVENTBRITE_CLIENT_SECRET` | Eventbrite "Client secret" |
+| `INTEGRATIONS_RATE_RESERVE` (default `200`) | Calls kept in reserve in the shared per-app-key hourly budget so organizer actions (push, pause) never starve behind the reconcile sweep |
+| `INTEGRATIONS_WEBHOOK_DELIVERY_RETENTION_DAYS` (default `30`) | Days a `WebhookDelivery` audit row is kept before the daily prune sweep deletes it |
 
 Both empty → the provider is not offered. Register the app's OAuth redirect URI as
 `{BASE_URL}/api/integrations/eventbrite/callback` and set the application URL to `{BASE_URL}`.
@@ -108,6 +110,9 @@ is flagged but doesn't block the sync. The first push always creates a draft on 
 making it live is a separate, explicit "publish" action. After that, auto-sync is opt-in: enable it
 per connection (every pushed event) or override it per event, and it only ever keeps already-pushed
 listings up to date — it never pushes a new event on its own.
+
+Sold counts refresh from platform webhooks and a 15-minute reconcile; the reconcile stops when
+fewer than the reserve remain in the shared hourly budget.
 
 ### Email
 

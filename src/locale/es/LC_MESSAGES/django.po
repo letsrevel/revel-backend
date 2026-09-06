@@ -2924,7 +2924,9 @@ msgstr "La plataforma se negó a cambiar el estado de venta de esta categoría."
 
 msgid ""
 "The platform connection is no longer valid; this tier was not attempted."
-msgstr "La conexión con la plataforma ya no es válida; no se intentó procesar esta categoría."
+msgstr ""
+"La conexión con la plataforma ya no es válida; no se intentó procesar esta "
+"categoría."
 
 msgid "Malformed webhook delivery."
 msgstr "Entrega de webhook malformada."
