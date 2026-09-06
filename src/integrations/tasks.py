@@ -104,3 +104,20 @@ def handle_webhook_delivery(delivery_id: str) -> None:
         logger.info("integration_webhook_skipped_missing_delivery", delivery_id=delivery_id)
         return
     webhook_service.handle_delivery(UUID(delivery_id))
+
+
+@shared_task(name="integrations.reconcile_counts")
+def reconcile_counts() -> dict[str, int]:
+    """Beat: 15-minute count reconcile (spec §7.8), budget-aware (§7.7a)."""
+    from integrations.service import reconcile_service
+
+    summary = reconcile_service.reconcile_counts()
+    return {"refreshed": summary.refreshed, "skipped_for_budget": summary.skipped_for_budget, "failed": summary.failed}
+
+
+@shared_task(name="integrations.prune_webhook_deliveries")
+def prune_webhook_deliveries() -> int:
+    """Beat: daily retention sweep of the webhook audit log."""
+    from integrations.service import reconcile_service
+
+    return reconcile_service.prune_webhook_deliveries()

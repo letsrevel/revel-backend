@@ -111,3 +111,18 @@ def test_import_task_skips_disabled_provider(connected: PlatformConnection, monk
     monkeypatch.setattr(registry, "PROVIDERS", {})
     tasks.import_remote_event(str(connected.id), "ev-1")  # no raise, nothing imported
     assert not EventLink.objects.filter(connection=connected).exists()
+
+
+def test_beat_task_names_are_pinned() -> None:
+    assert tasks.reconcile_counts.name == "integrations.reconcile_counts"
+    assert tasks.prune_webhook_deliveries.name == "integrations.prune_webhook_deliveries"
+    assert tasks.handle_webhook_delivery.name == "integrations.handle_webhook_delivery"
+
+
+def test_beat_rows_exist(db: None) -> None:
+    from django_celery_beat.models import PeriodicTask
+
+    rows = {p.name: p for p in PeriodicTask.objects.filter(task__startswith="integrations.")}
+    assert rows["Reconcile platform listing counts"].interval.every == 15
+    assert rows["Reconcile platform listing counts"].interval.period == "minutes"
+    assert rows["Prune platform webhook deliveries"].crontab.hour == "4"

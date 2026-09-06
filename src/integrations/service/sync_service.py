@@ -123,10 +123,15 @@ def _break_link(
     return _write_report(link, entries, EventLink.SyncState.BROKEN)
 
 
-def refresh_counts(link: EventLink) -> EventLink:
+def refresh_counts(link: EventLink) -> bool:
     """Pull sold counts for every linked class (spec §7.8).
 
-    Task/beat-side: failures are recorded, not raised, except transient ones.
+    Task/beat-side: non-transient failures are recorded (revoked marks the connection, missing
+    breaks the link, anything else is just logged) and reported through the return value, never
+    raised. Transient failures still raise ``RetryableProviderError`` so a caller can back off.
+
+    Returns:
+        True if counts were refreshed; False if a non-transient failure was recorded.
     """
     conn = link.connection
     provider = registry.get_provider(conn.provider)
@@ -137,11 +142,12 @@ def refresh_counts(link: EventLink) -> EventLink:
             raise RetryableProviderError(e.code, e.provider_message, retryable=True) from e
         if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
             connection_service.mark_revoked(conn)
-            return link
+            return False
         if e.code == IntegrationErrorCode.REMOTE_EVENT_MISSING:
-            return _break_link(link, e.provider_message)
+            _break_link(link, e.provider_message)
+            return False
         logger.warning("integration_counts_refresh_failed", link_id=str(link.id), code=e.code.value)
-        return link
+        return False
     sold = {c.remote_id: c.quantity_sold for c in remote.ticket_classes if c.remote_id}
     now = timezone.now()
     for tl in TierLink.objects.filter(event_link=link, remote_id__in=list(sold)):
@@ -149,7 +155,7 @@ def refresh_counts(link: EventLink) -> EventLink:
             remote_quantity_sold=sold[tl.remote_id], counts_updated_at=now, updated_at=now
         )
     logger.info("integration_counts_refreshed", link_id=str(link.id), classes=len(sold))
-    return link
+    return True
 
 
 def _reconcile_tiers(

@@ -22,3 +22,10 @@ INTEGRATIONS_EVENTBRITE_CLIENT_SECRET: str = config("INTEGRATIONS_EVENTBRITE_CLI
 INTEGRATIONS_CONNECT_STATE_TTL = timedelta(
     seconds=config("INTEGRATIONS_CONNECT_STATE_TTL_SECONDS", default=600, cast=int)
 )
+# Calls kept in reserve in the shared per-app-key bucket so organizer actions never starve behind
+# the reconcile sweep.
+INTEGRATIONS_RATE_RESERVE: int = config("INTEGRATIONS_RATE_RESERVE", default=200, cast=int)
+# How long a WebhookDelivery audit row is kept before the daily prune sweep deletes it.
+INTEGRATIONS_WEBHOOK_DELIVERY_RETENTION_DAYS: int = config(
+    "INTEGRATIONS_WEBHOOK_DELIVERY_RETENTION_DAYS", default=30, cast=int
+)
