@@ -15,15 +15,11 @@ from markdownify import markdownify
 from common.sanitizers import sanitize_html
 from events.models import Event, Organization, TicketTier
 from integrations import registry
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.providers.base import RemoteEvent, RemoteTicketClass
-from integrations.schema import (
-    ImportResultSchema,
-    IntegrationErrorCode,
-    RemoteEventSummarySchema,
-    SyncReportEntry,
-)
+from integrations.schema import ImportResultSchema, RemoteEventSummarySchema, SyncReportEntry
 from integrations.service import connection_service, mapper
 from integrations.service.sync_service import active_connection
 

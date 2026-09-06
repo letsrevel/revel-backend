@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
 from integrations.providers.base import RemoteEvent, RemoteTicketClass, RemoteVenue, TokenSet
-from integrations.schema import IntegrationErrorCode
 from integrations.tests.recorder import Recorder
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eventbrite"

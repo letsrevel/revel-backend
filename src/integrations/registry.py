@@ -3,9 +3,9 @@
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError
 from integrations.providers.base import ListingProvider
-from integrations.schema import IntegrationErrorCode
 
 PROVIDERS: dict[str, ListingProvider] = {}
 

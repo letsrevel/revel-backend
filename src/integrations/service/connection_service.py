@@ -10,10 +10,11 @@ from django.utils.translation import gettext_lazy as _
 from accounts.models import RevelUser
 from events.models import Organization
 from integrations import registry
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError
 from integrations.models import PlatformConnection
 from integrations.providers.base import ListingProvider, RemoteAccount
-from integrations.schema import ConnectionSchema, IntegrationErrorCode, IntegrationErrorSchema
+from integrations.schema import ConnectionSchema, IntegrationErrorSchema
 from integrations.service import state as state_service
 
 logger = structlog.get_logger(__name__)
@@ -63,7 +64,9 @@ def list_connections(organization: Organization) -> list[ConnectionSchema]:
             ConnectionSchema(
                 provider=provider.key,
                 display_name=provider.display_name,
-                status=t.cast(t.Any, conn.status) if conn else None,
+                # django-stubs types CharField.__get__ as `str` even with `choices=`, so mypy needs
+                # a hint here; the column only ever holds a Status value.
+                status=t.cast(PlatformConnection.Status, conn.status) if conn else None,
                 remote_account_name=conn.remote_account_name if conn else "",
                 auto_sync=conn.auto_sync if conn else False,
                 last_error=IntegrationErrorSchema(**conn.last_error) if conn and conn.last_error else None,

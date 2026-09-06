@@ -17,8 +17,9 @@ from django.utils.translation import gettext as _
 from common.sanitizers import render_markdown
 from events.models import Event, TicketTier
 from geo.models import City
+from integrations.enums import IntegrationErrorCode
 from integrations.providers.base import RemoteEvent, RemoteTicketClass, RemoteVenue
-from integrations.schema import IntegrationErrorCode, SyncReportEntry
+from integrations.schema import SyncReportEntry
 
 SUMMARY_MAX_CHARS = 140
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s")

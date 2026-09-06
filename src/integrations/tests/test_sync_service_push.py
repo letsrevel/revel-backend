@@ -5,10 +5,10 @@ from decimal import Decimal
 import pytest
 
 from events.models import Event, TicketTier
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.providers.base import RemoteTicketClass
-from integrations.schema import IntegrationErrorCode
 from integrations.service import connection_service, sync_service
 from integrations.tests.fake_provider import FakeProvider
 

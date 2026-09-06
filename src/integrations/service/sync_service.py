@@ -12,10 +12,11 @@ from django.utils.translation import gettext as _
 
 from events.models import Event, Organization, TicketTier
 from integrations import registry
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.providers.base import ListingProvider, RemoteEventRef
-from integrations.schema import EventLinkSchema, IntegrationErrorCode, SyncReportEntry, TierLinkSchema
+from integrations.schema import EventLinkSchema, SyncReportEntry, TierLinkSchema
 from integrations.service import connection_service, mapper
 from integrations.service.mapper import EventNotEligible
 
@@ -254,9 +255,11 @@ def to_link_schema(link: EventLink) -> EventLinkSchema:
         display_name=provider.display_name,
         remote_id=link.remote_id,
         remote_url=link.remote_url,
-        remote_status=t.cast(t.Any, link.remote_status),
-        sync_state=t.cast(t.Any, link.sync_state),
-        origin=t.cast(t.Any, link.origin),
+        # django-stubs types CharField.__get__ as `str` even with `choices=`, so mypy needs a hint
+        # here; each column only ever holds the corresponding TextChoices value.
+        remote_status=t.cast(EventLink.RemoteStatus, link.remote_status),
+        sync_state=t.cast(EventLink.SyncState, link.sync_state),
+        origin=t.cast(EventLink.Origin, link.origin),
         auto_sync=link.auto_sync,
         effective_auto_sync=link.effective_auto_sync,
         last_pushed_at=link.last_pushed_at,

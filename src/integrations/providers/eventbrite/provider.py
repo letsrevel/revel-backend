@@ -7,6 +7,7 @@ import httpx
 import orjson
 from django.http import HttpRequest
 
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
 from integrations.providers.base import (
     Capabilities,
@@ -21,7 +22,6 @@ from integrations.providers.base import (
 )
 from integrations.providers.eventbrite import translate as tr
 from integrations.providers.eventbrite.client import API_HOST, OAUTH_AUTHORIZE, EventbriteClient
-from integrations.schema import IntegrationErrorCode
 
 # ponytail: 20-page cap on list_events pagination — an org with >1000 draft/live/started events
 # (at page_size 50) would need a real "sync in batches" design; not worth building speculatively.

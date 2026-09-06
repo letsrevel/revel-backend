@@ -8,10 +8,10 @@ import httpx
 import pytest
 from django.test import RequestFactory
 
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
 from integrations.providers.base import ListingProvider, TokenSet
 from integrations.providers.eventbrite.provider import EventbriteProvider
-from integrations.schema import IntegrationErrorCode
 from integrations.tests.recorder import Recorder
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eventbrite"

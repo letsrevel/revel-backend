@@ -11,8 +11,8 @@ from ninja_extra import ControllerBase, api_controller, route
 
 from common.throttling import AnonDefaultThrottle
 from events.models import Organization
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError
-from integrations.schema import IntegrationErrorCode
 from integrations.service import connection_service, webhook_service
 from integrations.service.state import (
     CONNECT_STATE_COOKIE,

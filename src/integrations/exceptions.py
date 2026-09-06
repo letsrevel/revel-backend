@@ -1,6 +1,6 @@
 """Exceptions raised by providers and by the integrations service layer."""
 
-from integrations.schema import IntegrationErrorCode
+from integrations.enums import IntegrationErrorCode
 
 
 class ProviderError(Exception):

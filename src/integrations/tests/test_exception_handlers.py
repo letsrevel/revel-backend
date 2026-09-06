@@ -3,9 +3,9 @@
 import orjson
 from django.test import RequestFactory
 
+from integrations.enums import IntegrationErrorCode
 from integrations.exception_handlers import HANDLERS
 from integrations.exceptions import IntegrationError
-from integrations.schema import IntegrationErrorCode
 
 
 def test_handler_renders_code_and_provider_message() -> None:

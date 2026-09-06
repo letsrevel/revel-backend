@@ -4,10 +4,10 @@ import pytest
 
 from accounts.models import RevelUser
 from events.models import Organization
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError
 from integrations.models import PlatformConnection
 from integrations.providers.base import RemoteAccount
-from integrations.schema import IntegrationErrorCode
 from integrations.service import connection_service
 from integrations.tests.fake_provider import FakeProvider
 

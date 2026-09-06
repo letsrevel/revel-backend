@@ -16,8 +16,8 @@ from django.utils.translation import gettext_lazy as _
 from pydantic import BaseModel, ValidationError
 
 from accounts.jwt import create_token
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError
-from integrations.schema import IntegrationErrorCode
 
 CONNECT_STATE_COOKIE = "integrations_connect_state"
 CONNECT_STATE_COOKIE_PATH = "/api/integrations"

@@ -6,7 +6,7 @@ import pytest
 from django.conf import settings
 
 from events.models import Event, MembershipTier, TicketTier
-from integrations.schema import IntegrationErrorCode
+from integrations.enums import IntegrationErrorCode
 from integrations.service import mapper
 from integrations.service.mapper import EventNotEligible
 

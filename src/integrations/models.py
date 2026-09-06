@@ -1,18 +1,33 @@
 """Platform listing links: one connection per (organization, provider), one link per event."""
 
 import secrets
+import typing as t
 
 from django.db import models
 from encrypted_fields.fields import EncryptedTextField
 
 from common.models import TimeStampedModel
+from integrations.enums import IntegrationErrorCode
 from integrations.providers.base import TokenSet
-from integrations.schema import IntegrationErrorCode
 
 
 def new_webhook_secret() -> str:
     """Random URL-safe path token that hides the webhook endpoint from unregistered senders."""
     return secrets.token_urlsafe(32)
+
+
+class ConnectionStatus(models.TextChoices):
+    """A platform connection's authorization state.
+
+    Named distinctly (not the generic ``Status``) so it gets its own OpenAPI component: several
+    other models have an unrelated nested ``Status`` enum, and a shared bare name would collide
+    in ``components.schemas`` (see ``api.management.commands.dump_openapi`` issue #782).
+    """
+
+    PENDING = "pending", "Pending account selection"
+    ACTIVE = "active", "Active"
+    REVOKED = "revoked", "Revoked"
+    ERROR = "error", "Error"
 
 
 class PlatformConnection(TimeStampedModel):
@@ -27,11 +42,7 @@ class PlatformConnection(TimeStampedModel):
 
         EVENTBRITE = "eventbrite", "Eventbrite"
 
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending account selection"
-        ACTIVE = "active", "Active"
-        REVOKED = "revoked", "Revoked"
-        ERROR = "error", "Error"
+    Status: t.TypeAlias = ConnectionStatus
 
     organization = models.ForeignKey(
         "events.Organization", on_delete=models.CASCADE, related_name="platform_connections"

@@ -5,9 +5,9 @@ import typing as t
 import pytest
 
 from integrations import registry
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError
 from integrations.providers.base import ListingProvider
-from integrations.schema import IntegrationErrorCode
 from integrations.tests.fake_provider import FakeProvider
 
 

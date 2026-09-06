@@ -8,8 +8,8 @@ import typing as t
 
 import httpx
 
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
-from integrations.schema import IntegrationErrorCode
 
 API_BASE = "https://www.eventbriteapi.com/v3"
 API_HOST = "www.eventbriteapi.com"

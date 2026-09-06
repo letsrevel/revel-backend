@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 
 from django.http import HttpRequest
 
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
 from integrations.providers.base import (
     Capabilities,
@@ -16,7 +17,6 @@ from integrations.providers.base import (
     TokenSet,
     WebhookNotification,
 )
-from integrations.schema import IntegrationErrorCode
 
 
 class FakeProvider:

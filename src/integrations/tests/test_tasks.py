@@ -7,9 +7,9 @@ import pytest
 
 from events.models import Event, TicketTier
 from integrations import registry, tasks
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection
-from integrations.schema import IntegrationErrorCode
 from integrations.service import connection_service, sync_service
 from integrations.tests.fake_provider import FakeProvider
 

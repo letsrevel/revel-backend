@@ -6,8 +6,8 @@ from datetime import timedelta
 import pytest
 from freezegun import freeze_time
 
+from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError
-from integrations.schema import IntegrationErrorCode
 from integrations.service import state as state_service
 
 
