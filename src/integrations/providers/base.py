@@ -6,22 +6,10 @@ this Protocol in place.
 """
 
 import typing as t
-from dataclasses import dataclass
 from decimal import Decimal
 
 from django.http import HttpRequest
 from pydantic import AwareDatetime, BaseModel, Field
-
-
-@dataclass(frozen=True)
-class Capabilities:
-    """What a platform cannot do, so the shared mapper warns instead of crashing."""
-
-    requires_end_time: bool
-    requires_capacity: bool
-    supports_structured_content: bool
-    supports_unpublish_with_orders: bool
-    single_currency_per_event: bool
 
 
 class TokenSet(BaseModel):
@@ -88,6 +76,9 @@ class RemoteEvent(BaseModel):
     """A remote platform's event."""
 
     remote_id: str | None = None
+    # The remote account that owns this event, when the platform reports it. Import checks it
+    # against the connection's selected account; "" means the platform did not say.
+    account_id: str = ""
     name: str
     summary: str = ""  # ≤ 140 chars, plain text
     description_html: str = ""
@@ -127,7 +118,6 @@ class ListingProvider(t.Protocol):
 
     key: t.ClassVar[str]
     display_name: t.ClassVar[str]
-    capabilities: t.ClassVar[Capabilities]
 
     def authorize_url(self, state: str, redirect_uri: str) -> str:
         """Generate an authorization URL for OAuth flow."""

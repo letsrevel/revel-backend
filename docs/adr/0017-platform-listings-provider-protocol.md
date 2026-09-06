@@ -54,12 +54,22 @@ Policy decisions baked into the protocol and the sync/reconcile services:
 
 ## Consequences
 
-- A second platform is a client + translator behind the same protocol; no changes to the sync
-  service, signals, controllers, or error-code contract.
+- A second platform is a client + translator behind the same protocol. Signals, controllers and
+  the error-code contract are untouched; the sync service and mapper are *mostly* untouched, but
+  they do encode assumptions Eventbrite happens to impose — one currency per event, an end time
+  and a capacity always required, unpublish refused once orders exist. A platform that differs
+  will need those rules made conditional. We deliberately do not carry a capability-flag table
+  for a second provider that does not exist yet: the flags a real one needs are not knowable in
+  advance, and an unread table is worse than none (it reads as enforcement that is not there).
 - One schema migration per app per PR, squashed before merge into `main`
   (`integrations/migrations/0001_initial.py` + `0002_beat_tasks.py`, the latter a data migration
   seeding the beat rows).
 - Eventbrite-specific gotchas the generic design has to route around, all confirmed in the spike:
+  - A venue cannot be detached from an event. Both `venue_id: ""` and `venue_id: null` are
+    accepted and ignored; only `online_event: true` drops it, which `is_virtual` already carries.
+    A physical event that loses its address keeps showing the old venue remotely — the state has
+    no Eventbrite representation, and clearing it would mean recreating the listing, losing its
+    URL and orders.
   - Eventbrite's CloudFront WAF returns 403 on `/oauth/authorize` whenever `redirect_uri` points
     at a loopback host (`localhost`, `127.0.0.1`, any scheme) — local OAuth testing needs a
     non-loopback alias for the API.

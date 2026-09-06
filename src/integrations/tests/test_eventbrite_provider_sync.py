@@ -293,13 +293,28 @@ def test_list_accounts_follows_pagination() -> None:
     assert len(calls) == 2 and calls[1]["continuation"] == "cont-acc-1"
 
 
-def test_update_clears_the_venue_when_the_event_lost_one() -> None:
-    """Eventbrite leaves omitted fields untouched, so a venue-less update must blank ``venue_id``."""
+def test_update_without_a_venue_omits_venue_id_and_lets_online_event_detach() -> None:
+    """Eventbrite has no "physical event with no venue" state.
+
+    Verified against the live API: both ``venue_id: ""`` and ``venue_id: null`` are ignored and
+    leave the previous venue attached. ``online_event: true`` is what actually detaches it, so a
+    Revel event turning virtual clears its remote venue through ``is_virtual`` alone.
+    """
     rec = Recorder({("POST", "/v3/events/123/"): (200, {"id": "123", "url": "u", "status": "draft"})})
     rec.provider().update_event(TOKEN, "123", _remote_event(with_venue=False))
 
     body = json.loads(rec.requests[-1].content)["event"]
-    assert body["venue_id"] == ""
+    assert "venue_id" not in body
+
+
+def test_a_virtual_event_is_sent_as_online_which_is_what_drops_the_remote_venue() -> None:
+    """The detach path that actually works, pinned so it cannot regress."""
+    rec = Recorder({("POST", "/v3/events/123/"): (200, {"id": "123", "url": "u", "status": "draft"})})
+    virtual = _remote_event(with_venue=False).model_copy(update={"is_virtual": True})
+    rec.provider().update_event(TOKEN, "123", virtual)
+
+    body = json.loads(rec.requests[-1].content)["event"]
+    assert body["online_event"] is True and "venue_id" not in body
 
 
 def test_get_description_reads_structured_content_and_tolerates_404() -> None:

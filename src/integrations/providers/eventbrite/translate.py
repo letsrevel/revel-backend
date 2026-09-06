@@ -38,11 +38,18 @@ def status_from_eventbrite(status: str) -> RemoteStatus:
     return "draft"
 
 
-def to_eventbrite_event(event: RemoteEvent, *, venue_id: str | None, clear_venue: bool = False) -> dict[str, t.Any]:
+def to_eventbrite_event(event: RemoteEvent, *, venue_id: str | None) -> dict[str, t.Any]:
     """Create/update body. Never sends the legacy ``description`` (conflicts with ``summary``).
 
-    ``clear_venue`` is for the update path only: Eventbrite leaves omitted fields untouched, so a
-    Revel event that lost its venue must send an explicit empty ``venue_id`` to detach the old one.
+    ``venue_id`` is omitted rather than blanked when there is no venue. Eventbrite has no
+    "physical event with no venue" state and ignores an attempt to clear the field — verified
+    against the live API, where both ``venue_id: ""`` and ``venue_id: null`` leave the old venue
+    attached. What actually detaches it is ``online_event: true``, which ``is_virtual`` already
+    carries, so a Revel event turning virtual drops its remote venue correctly.
+
+    The residual case is a *physical* event whose address and city are both cleared: Eventbrite
+    keeps showing the previous venue because the state cannot be expressed. Detaching would mean
+    deleting and recreating the listing, which would drop its URL and its orders.
     """
     body: dict[str, t.Any] = {
         "name": {"html": event.name},
@@ -56,8 +63,6 @@ def to_eventbrite_event(event: RemoteEvent, *, venue_id: str | None, clear_venue
         body["summary"] = event.summary
     if venue_id:
         body["venue_id"] = venue_id
-    elif clear_venue:
-        body["venue_id"] = ""
     return {"event": body}
 
 
@@ -156,6 +161,7 @@ def from_eventbrite_event(data: dict[str, t.Any]) -> RemoteEvent:
     description = data.get("description") or {}
     return RemoteEvent(
         remote_id=str(data["id"]),
+        account_id=str(data.get("organization_id") or ""),
         name=str((data.get("name") or {}).get("text") or ""),
         summary=str(data.get("summary") or ""),
         description_html=str(description.get("html") or ""),

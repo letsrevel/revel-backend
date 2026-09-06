@@ -9,7 +9,6 @@ from django.http import HttpRequest
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
 from integrations.providers.base import (
-    Capabilities,
     NotificationKind,
     RemoteAccount,
     RemoteEvent,
@@ -36,13 +35,6 @@ _KIND_BY_ACTION: dict[str, NotificationKind] = {
 class FakeProvider:
     key: t.ClassVar[str] = "fake"
     display_name: t.ClassVar[str] = "Fake"
-    capabilities: t.ClassVar[Capabilities] = Capabilities(
-        requires_end_time=True,
-        requires_capacity=True,
-        supports_structured_content=False,
-        supports_unpublish_with_orders=True,
-        single_currency_per_event=True,
-    )
 
     def __init__(self, accounts: list[RemoteAccount] | None = None) -> None:
         self.accounts = accounts or [RemoteAccount(remote_id="acc-1", name="Fake Org")]
@@ -157,7 +149,14 @@ class FakeProvider:
         rid = f"ev-{self._event_counter}"
         url = f"https://fake.example/e/{rid}"
         self.events[rid] = event.model_copy(
-            deep=True, update={"remote_id": rid, "status": "draft", "url": url, "ticket_classes": []}
+            deep=True,
+            update={
+                "remote_id": rid,
+                "account_id": account_id,
+                "status": "draft",
+                "url": url,
+                "ticket_classes": [],
+            },
         )
         return RemoteEventRef(remote_id=rid, url=url, status="draft")
 
@@ -169,6 +168,7 @@ class FakeProvider:
             deep=True,
             update={
                 "remote_id": remote_id,
+                "account_id": current.account_id,
                 "status": current.status,
                 "url": current.url,
                 "ticket_classes": current.ticket_classes,

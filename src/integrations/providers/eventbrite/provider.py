@@ -12,7 +12,6 @@ from django.http import HttpRequest
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
 from integrations.providers.base import (
-    Capabilities,
     NotificationKind,
     RemoteAccount,
     RemoteEvent,
@@ -57,13 +56,6 @@ _KIND_BY_ACTION: dict[str, NotificationKind] = {
 class EventbriteProvider:
     key: t.ClassVar[str] = "eventbrite"
     display_name: t.ClassVar[str] = "Eventbrite"
-    capabilities: t.ClassVar[Capabilities] = Capabilities(
-        requires_end_time=True,
-        requires_capacity=True,
-        supports_structured_content=True,
-        supports_unpublish_with_orders=False,
-        single_currency_per_event=True,
-    )
 
     def __init__(self, client_id: str, client_secret: str, *, transport: httpx.BaseTransport | None = None) -> None:
         """Initialize with Eventbrite OAuth credentials; ``transport`` swaps in a fake httpx transport for tests."""
@@ -246,7 +238,7 @@ class EventbriteProvider:
                 org = self._shape(lambda: str(current["organization_id"]))
                 venue_id = self._create_venue(token, org, event.venue)
         body = self._client(token).request(
-            "POST", f"/events/{remote_id}/", json=tr.to_eventbrite_event(event, venue_id=venue_id, clear_venue=True)
+            "POST", f"/events/{remote_id}/", json=tr.to_eventbrite_event(event, venue_id=venue_id)
         )
         return self._ref(body)
 

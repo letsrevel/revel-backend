@@ -10,6 +10,7 @@ import pytest
 from django.db.models import Manager
 
 from events.models import Event, TicketTier
+from integrations.enums import IntegrationErrorCode
 from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.providers.base import RemoteEvent, RemoteTicketClass, RemoteVenue
 from integrations.service import connection_service, import_service
@@ -296,3 +297,29 @@ def test_import_reads_structured_content_when_the_legacy_description_is_empty(
     assert link.event.description is not None
     assert "real" in link.event.description
     assert ("get_description", ref.remote_id) in fake_provider.calls
+
+
+def test_import_refuses_an_event_from_another_account(
+    connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    """``get_event`` is not account-scoped, so a hand-crafted id must not cross the chosen boundary.
+
+    The picker never offers these, but one token can reach every account its owner belongs to.
+    """
+    from integrations.exceptions import IntegrationError
+
+    ev = RemoteEvent(
+        name="Someone else's account",
+        start=START,
+        end=START + timedelta(hours=2),
+        timezone="Europe/Vienna",
+        currency="EUR",
+    )
+    ref = fake_provider.create_event(connected.token(), "acc-OTHER", ev)
+
+    with pytest.raises(IntegrationError) as exc:
+        import_service.import_remote_event(connected, ref.remote_id)
+
+    assert exc.value.code == IntegrationErrorCode.ACCOUNT_UNKNOWN
+    assert not EventLink.objects.filter(connection=connected, remote_id=ref.remote_id).exists()
+    assert not Event.objects.filter(name="Someone else's account").exists()

@@ -108,6 +108,22 @@ def import_remote_event(connection: PlatformConnection, remote_id: str) -> Event
     remote: RemoteEvent = provider.get_event(
         connection.token(), remote_id
     )  # ProviderError propagates → task fails loudly
+    # The picker only ever offers events from the selected account, but `get_event` is not
+    # account-scoped the way `list_events` is: one token can reach every account its owner
+    # belongs to. Honour the boundary the organizer chose, so a hand-crafted id cannot link —
+    # and later mutate — a listing in one of their other accounts. Providers that do not report
+    # the owning account send "" and are trusted as before.
+    if remote.account_id and remote.account_id != connection.remote_account_id:
+        logger.warning(
+            "integration_import_rejected_foreign_account",
+            remote_id=remote_id,
+            provider=connection.provider,
+        )
+        raise IntegrationError(
+            IntegrationErrorCode.ACCOUNT_UNKNOWN,
+            str(_("That account is not available to this connection.")),
+            status=404,
+        )
     city = None
     location = None
     if remote.venue and remote.venue.latitude is not None and remote.venue.longitude is not None:
