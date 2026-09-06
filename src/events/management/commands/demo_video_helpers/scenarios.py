@@ -16,6 +16,7 @@ import structlog
 from events import models as events_models
 from questionnaires import models as questionnaires_models
 
+from .artwork import attach_scenario_artwork
 from .base import (
     EvaluationStatus,
     ScenarioSummary,
@@ -193,6 +194,8 @@ please skip the perfume.
         ),
     ]
 
+    attach_scenario_artwork(organization, event)
+
     summary = ScenarioSummary(
         title="Questionnaire gate — Shibari Circle Vienna",
         org_slug=organization.slug,
@@ -301,6 +304,8 @@ cash or card. We do not sell tickets online.
     member = upsert_user("Lena", "Krause", "member", pronouns="she/her")
     upsert_membership(organization, member)
     guest = upsert_user("Paul", "Vogt", "guest", pronouns="he/him")
+
+    attach_scenario_artwork(organization, event)
 
     summary = ScenarioSummary(
         title="Member-only tier — The Velvet Cellar",
@@ -443,6 +448,8 @@ something of your own. Nobody keeps score, and there is always, always too much 
             "Battery powered, park-legal volume, requests welcome.",
         ),
     ]
+
+    attach_scenario_artwork(organization, event)
 
     summary = ScenarioSummary(
         title="Potluck — Sunday Slow Picnic Club",
@@ -643,6 +650,8 @@ your ear off about it.
         ),
     ]
 
+    attach_scenario_artwork(organization, event)
+
     summary = ScenarioSummary(
         title="Questionnaire insights — Analog Photo Walks",
         org_slug=organization.slug,
@@ -753,6 +762,8 @@ Come anyway. Seriously. Half the room never does.
             "just ask at the bar for Iris."
         ),
     )
+
+    attach_scenario_artwork(organization, event)
 
     summary = ScenarioSummary(
         title="Eligibility gates — Paper Hearts Book Club",

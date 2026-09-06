@@ -1,8 +1,10 @@
 """Tests for the ``bootstrap_demo_video`` management command."""
 
+import typing as t
 from io import StringIO
 
 import pytest
+from django.core.files.storage import default_storage
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
@@ -10,6 +12,7 @@ from django.test import override_settings
 from accounts.models import RevelUser
 from events.management.commands import bootstrap_demo_video
 from events.management.commands.demo_video_helpers import DEMO_EMAIL_DOMAIN, SCENARIOS, ScenarioSummary
+from events.management.commands.demo_video_helpers.artwork import COVER_STORAGE_PREFIX, LOGO_STORAGE_PREFIX
 from events.models import (
     Event,
     EventInvitation,
@@ -33,10 +36,22 @@ DEMO_ORG_SLUGS = {
 EvalStatus = QuestionnaireEvaluation.QuestionnaireEvaluationStatus
 
 
+@pytest.fixture(autouse=True)
+def isolated_media(settings: t.Any, tmp_path: t.Any) -> None:
+    """Keep the seeded artwork out of the repo's media directory."""
+    settings.MEDIA_ROOT = tmp_path
+
+
 def _run() -> str:
     out = StringIO()
     call_command("bootstrap_demo_video", stdout=out)
     return out.getvalue()
+
+
+def _stored(prefix: str) -> list[str]:
+    """Every file the seed wrote under ``prefix`` (thumbnails share the directory)."""
+    _, files = default_storage.listdir(prefix)
+    return sorted(files)
 
 
 def _demo_counts() -> dict[str, int]:
@@ -107,6 +122,27 @@ class TestBootstrapDemoVideo:
         assert Event.objects.get(slug="monthly-reading-circle").event_type == Event.EventType.MEMBERS_ONLY
 
     @override_settings(DEMO_MODE=True)
+    def test_every_org_gets_a_logo_and_every_event_cover_art(self) -> None:
+        """The scenarios are recorded on camera, so nothing may render bare."""
+        output = _run()
+
+        for org in Organization.objects.filter(slug__in=DEMO_ORG_SLUGS):
+            assert org.logo.name == f"{LOGO_STORAGE_PREFIX}/{org.slug}.jpg"
+            assert org.logo_thumbnail.name, f"{org.slug} has no logo thumbnail"
+            assert default_storage.exists(org.logo.name)
+            assert default_storage.exists(org.logo_thumbnail.name)
+
+        for event in Event.objects.filter(organization__slug__in=DEMO_ORG_SLUGS):
+            assert event.cover_art.name == f"{COVER_STORAGE_PREFIX}/{event.slug}.jpg"
+            # cover_art_social is the rendition the frontend's hero actually reads.
+            assert event.cover_art_thumbnail.name, f"{event.slug} has no cover thumbnail"
+            assert event.cover_art_social.name, f"{event.slug} has no social cover"
+            assert default_storage.exists(event.cover_art.name)
+            assert default_storage.exists(event.cover_art_social.name)
+
+        assert "cover art" in output
+
+    @override_settings(DEMO_MODE=True)
     def test_is_idempotent(self) -> None:
         """A second run must refresh the same rows, never duplicate them."""
         _run()
@@ -115,6 +151,17 @@ class TestBootstrapDemoVideo:
         _run()
 
         assert _demo_counts() == first
+
+    @override_settings(DEMO_MODE=True)
+    def test_a_second_run_relinks_the_artwork_instead_of_re_uploading_it(self) -> None:
+        """Storage must not accumulate ``<slug>_A1b2C3.jpg`` copies on every reseed."""
+        _run()
+        logos, covers = _stored(LOGO_STORAGE_PREFIX), _stored(COVER_STORAGE_PREFIX)
+        assert logos == sorted(f"{slug}{suffix}.jpg" for slug in DEMO_ORG_SLUGS for suffix in ("", "_thumbnail"))
+
+        _run()
+
+        assert (_stored(LOGO_STORAGE_PREFIX), _stored(COVER_STORAGE_PREFIX)) == (logos, covers)
 
     @override_settings(DEMO_MODE=True)
     def test_every_demo_account_signs_in_with_the_shared_password(self) -> None:

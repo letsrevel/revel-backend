@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `bootstrap_demo_video` (`make demo-video`) now gives every demo organization a logo and every demo event 16:9 cover art, so the scenarios the product videos are recorded against no longer render bare cards and placeholder heroes. The images are bundled CC0 / public-domain photographs, credited in `src/events/management/commands/demo_video_helpers/assets/IMAGE_CREDITS.md`; a re-run relinks the cached files instead of re-uploading them
+
 ## [2.8.1] - 2026-09-06
 
 ### Fixed
