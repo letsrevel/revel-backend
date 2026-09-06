@@ -11,6 +11,7 @@ from events.models import Event, TicketTier
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
+from integrations.providers.base import TokenSet
 from integrations.service import connection_service, sync_service
 from integrations.tests.fake_provider import FakeProvider
 
@@ -32,6 +33,21 @@ def pushed(event: Event, connected: PlatformConnection) -> EventLink:
     TicketTier.objects.create(
         event=event, name="VIP", price=Decimal("50"), total_quantity=10, payment_method=TicketTier.PaymentMethod.ONLINE
     )
+    return sync_service.push_link(sync_service.ensure_link(event, connected))
+
+
+@pytest.fixture
+def pushed3(event: Event, connected: PlatformConnection) -> EventLink:
+    """Three tiers so a mid-loop revocation leaves a genuinely untouched tier behind."""
+    event.ticket_tiers.all().delete()
+    for name, price, qty in (("GA", "10", 100), ("PREMIUM", "30", 50), ("VIP", "50", 10)):
+        TicketTier.objects.create(
+            event=event,
+            name=name,
+            price=Decimal(price),
+            total_quantity=qty,
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
     return sync_service.push_link(sync_service.ensure_link(event, connected))
 
 
@@ -64,13 +80,73 @@ def test_partial_failure_reported(pushed: EventLink, fake_provider: FakeProvider
     assert result.failed[0].code == IntegrationErrorCode.PAUSE_FAILED and result.failed[0].provider_message == "nope"
 
 
-def test_unknown_tier_404(pushed: EventLink) -> None:
+def test_revoked_token_reports_the_untried_tiers_and_marks_the_connection(
+    pushed3: EventLink,
+    fake_provider: FakeProvider,
+    connected: PlatformConnection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tier hit by the revocation and every tier after it in the loop must both show up as failed.
+
+    ``fail_once`` fires on the *first* call to the method regardless of which tier it targets, so a
+    plain call-counting stub is used here to fail specifically the second of three tiers (GA succeeds,
+    PREMIUM is revoked, VIP is never attempted).
+    """
+    real = fake_provider.set_ticket_class_paused
+    calls = {"n": 0}
+
+    def flaky(token: TokenSet, remote_event_id: str, remote_id: str, paused: bool) -> None:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise ProviderError(IntegrationErrorCode.CONNECTION_REVOKED, "401")
+        real(token, remote_event_id, remote_id, paused)
+
+    monkeypatch.setattr(fake_provider, "set_ticket_class_paused", flaky)
+    result = sync_service.set_remote_paused(pushed3.event, "fake", tier_id=None, paused=True)
+    assert len(result.updated) == 1  # GA, alphabetically/display-order first
+    assert len(result.failed) == 2  # PREMIUM (the failing call) + VIP (never attempted)
+    assert {f.code for f in result.failed} == {IntegrationErrorCode.CONNECTION_REVOKED}
+    assert {f.tier_name for f in result.failed} == {"PREMIUM", "VIP"}
+    not_attempted = next(f for f in result.failed if f.tier_name == "VIP")
+    assert not_attempted.provider_message is None
+    assert calls["n"] == 2  # VIP's call was never made
+    connected.refresh_from_db()
+    assert connected.status == PlatformConnection.Status.ERROR
+
+
+def test_unknown_tier_returns_tier_not_linked(pushed: EventLink) -> None:
     import uuid
 
-    from django.http import Http404
-
-    with pytest.raises(Http404):
+    with pytest.raises(IntegrationError) as exc:
         sync_service.set_remote_paused(pushed.event, "fake", tier_id=uuid.uuid4(), paused=True)
+    assert exc.value.status == 404
+    assert exc.value.code == IntegrationErrorCode.TIER_NOT_LINKED
+
+
+def test_other_event_tier_is_not_linked(pushed: EventLink, fake_provider: FakeProvider) -> None:
+    """A tier belonging to a different event of the same organization must not be reachable here (IDOR)."""
+    other_event = Event.objects.create(
+        organization=pushed.event.organization,
+        name="Other Event",
+        slug="other-event",
+        event_type=Event.EventType.PUBLIC,
+        status=Event.EventStatus.OPEN,
+        start=pushed.event.start,
+        end=pushed.event.end,
+        requires_ticket=True,
+    )
+    other_tier = TicketTier.objects.create(
+        event=other_event,
+        name="GA",
+        price=Decimal("10"),
+        total_quantity=100,
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+    )
+    with pytest.raises(IntegrationError) as exc:
+        sync_service.set_remote_paused(pushed.event, "fake", tier_id=other_tier.id, paused=True)
+    assert exc.value.status == 404
+    assert exc.value.code == IntegrationErrorCode.TIER_NOT_LINKED
+    assert not any(c[0] == "set_ticket_class_paused" for c in fake_provider.calls)
 
 
 def test_requires_pushed_link(event: Event, connected: PlatformConnection) -> None:

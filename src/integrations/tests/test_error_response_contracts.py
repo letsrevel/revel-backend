@@ -139,6 +139,20 @@ class TestEventIntegrationPublishErrorContracts:
         assert_integration_error_body(response, 409, "remote_event_missing")
 
 
+class TestEventIntegrationPauseErrorContracts:
+    """``pause``/``resume`` (spec §7.7) reject a ``tier_id`` that isn't linked to this event's push."""
+
+    def test_unknown_tier_returns_404_contract(
+        self, organization_owner_client: Client, clean_event: Event, connected: PlatformConnection
+    ) -> None:
+        sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+        url = reverse("api:event_integration_pause", kwargs={"event_id": clean_event.id, "provider": "fake"})
+        response = organization_owner_client.post(
+            url, data=b'{"tier_id": "00000000-0000-0000-0000-000000000000"}', content_type="application/json"
+        )
+        assert_integration_error_body(response, 404, "tier_not_linked")
+
+
 class TestIntegrationRemoteEventsErrorContracts:
     """``remote-events`` (import picker, spec §7.6) requires an ACTIVE connection."""
 

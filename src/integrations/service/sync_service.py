@@ -8,7 +8,6 @@ from uuid import UUID
 
 import structlog
 from django.db import transaction
-from django.http import Http404
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
@@ -401,33 +400,48 @@ def set_remote_paused(event: Event, provider_key: str, *, tier_id: UUID | None, 
     link = _require_pushed_link(event, provider_key)
     provider = registry.get_provider(provider_key)
     token = link.connection.token()
-    links = (
+    qs = (
         TierLink.objects.filter(event_link=link, tier__isnull=False)
         .select_related("tier")
         .order_by("tier__display_order", "tier__name")
     )
     if tier_id is not None:
-        links = links.filter(tier_id=tier_id)
-        if not links.exists():
-            raise Http404
+        qs = qs.filter(tier_id=tier_id)
+    links = list(qs)
+    if tier_id is not None and not links:
+        raise IntegrationError(
+            IntegrationErrorCode.TIER_NOT_LINKED, str(_("This tier is not linked to the platform.")), status=404
+        )
     updated: list[UUID] = []
     failed: list[TierPauseFailureSchema] = []
-    for tl in links:
+    for index, tl in enumerate(links):
         tier = t.cast(TicketTier, tl.tier)
         try:
             provider.set_ticket_class_paused(token, link.remote_id, tl.remote_id, paused)
         except ProviderError as e:
+            revoked = e.code == IntegrationErrorCode.CONNECTION_REVOKED
             failed.append(
                 TierPauseFailureSchema(
                     tier_id=tier.id,
                     tier_name=tier.name,
-                    code=IntegrationErrorCode.PAUSE_FAILED,
+                    code=IntegrationErrorCode.CONNECTION_REVOKED if revoked else IntegrationErrorCode.PAUSE_FAILED,
                     detail=str(_("The platform refused to change this tier's sales state.")),
                     provider_message=e.provider_message,
                 )
             )
-            if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
+            if revoked:
                 connection_service.mark_revoked(link.connection)
+                for remaining in links[index + 1 :]:
+                    remaining_tier = t.cast(TicketTier, remaining.tier)
+                    failed.append(
+                        TierPauseFailureSchema(
+                            tier_id=remaining_tier.id,
+                            tier_name=remaining_tier.name,
+                            code=IntegrationErrorCode.CONNECTION_REVOKED,
+                            detail=str(_("The platform connection is no longer valid; this tier was not attempted.")),
+                            provider_message=None,
+                        )
+                    )
                 break
             continue
         tl.remote_paused = paused

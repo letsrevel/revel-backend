@@ -2921,8 +2921,17 @@ msgstr "Invia prima l'evento alla piattaforma."
 msgid "The platform refused to publish the listing."
 msgstr "La piattaforma ha rifiutato di pubblicare l'annuncio."
 
+msgid "This tier is not linked to the platform."
+msgstr "Questa categoria non è collegata alla piattaforma."
+
 msgid "The platform refused to change this tier's sales state."
-msgstr "La piattaforma ha rifiutato di modificare lo stato di vendita di questa categoria."
+msgstr ""
+"La piattaforma ha rifiutato di modificare lo stato di vendita di questa "
+"categoria."
+
+msgid ""
+"The platform connection is no longer valid; this tier was not attempted."
+msgstr "La connessione con la piattaforma non è più valida; questa categoria non è stata elaborata."
 
 msgid "Malformed webhook delivery."
 msgstr "Consegna webhook malformata."

@@ -34,3 +34,4 @@ class IntegrationErrorCode(StrEnum):
     UNPUBLISH_REFUSED = "unpublish_refused"
     IMAGE_MISSING = "image_missing"
     PAUSE_FAILED = "pause_failed"
+    TIER_NOT_LINKED = "tier_not_linked"
