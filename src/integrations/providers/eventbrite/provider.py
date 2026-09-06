@@ -43,7 +43,7 @@ WEBHOOK_ACTIONS = (
 )
 
 _EVENT_PATH = re.compile(r"^/events/(\d+)/")
-_ORDER_PATH = re.compile(r"^/orders/([^/]+)/$")
+_ORDER_PATH = re.compile(r"^/orders/(\d+)/$")
 _KIND_BY_ACTION: dict[str, NotificationKind] = {
     "order.placed": "order_changed",
     "order.refunded": "order_changed",

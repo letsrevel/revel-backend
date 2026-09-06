@@ -68,14 +68,23 @@ def test_order_path_fetches_order_from_own_host() -> None:
 
 
 def test_order_fetch_failure_propagates() -> None:
-    rec = Recorder({("GET", "/v3/orders/x/"): (401, {"error": "NOT_AUTHORIZED", "error_description": "bad token"})})
+    rec = Recorder(
+        {("GET", "/v3/orders/999999999/"): (401, {"error": "NOT_AUTHORIZED", "error_description": "bad token"})}
+    )
     with pytest.raises(ProviderError):
-        rec.provider().resolve_notification(TOKEN, _n("order.placed", "/orders/x/"))
+        rec.provider().resolve_notification(TOKEN, _n("order.placed", "/orders/999999999/"))
 
 
 def test_unknown_path_is_ignored() -> None:
     r = Recorder({}).provider().resolve_notification(TOKEN, _n("order.placed", "/venues/1/"))
     assert (r.kind, r.remote_event_id) == ("ignored", None)
+
+
+def test_order_path_traversal_is_ignored_without_a_fetch() -> None:
+    rec = Recorder({})
+    r = rec.provider().resolve_notification(TOKEN, _n("order.placed", "/orders/..%2Fusers%2Fme/"))
+    assert (r.kind, r.remote_event_id) == ("ignored", None)
+    assert rec.requests == []
 
 
 def test_client_records_key_budget_from_header() -> None:

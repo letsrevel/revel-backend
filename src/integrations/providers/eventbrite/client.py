@@ -1,7 +1,7 @@
 """Thin httpx wrapper around the Eventbrite v3 API with the error mapping the service layer expects.
 
 Rate budget (spec §7.7a): 2000/h per token *and* per app key, reported in ``x-rate-limit``.
-Phase 1 only surfaces 429 as retryable; the budget-aware reconcile arrives with phase 3.
+This client records the app-key bucket's remaining calls in the cache for the reconcile to read.
 """
 
 import re
