@@ -4,9 +4,11 @@ Rate budget (spec §7.7a): 2000/h per token *and* per app key, reported in ``x-r
 Phase 1 only surfaces 429 as retryable; the budget-aware reconcile arrives with phase 3.
 """
 
+import re
 import typing as t
 
 import httpx
+from django.core.cache import cache
 
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
@@ -16,6 +18,18 @@ API_HOST = "www.eventbriteapi.com"
 OAUTH_AUTHORIZE = "https://www.eventbrite.com/oauth/authorize"
 OAUTH_TOKEN = "https://www.eventbrite.com/oauth/token"
 TIMEOUT_SECONDS = 15.0
+BUDGET_CACHE_KEY = "integrations:budget:eventbrite"
+BUDGET_CACHE_TTL = 3600
+_KEY_BUCKET = re.compile(r"key:\S+\s+(\d+)/(\d+)")
+
+
+def _record_budget(response: httpx.Response) -> None:
+    """Cache the app-key bucket's remaining calls from ``x-rate-limit`` (spec §7.7a); no-op when absent."""
+    match = _KEY_BUCKET.search(response.headers.get("x-rate-limit", ""))
+    if match is None:
+        return
+    used, limit = int(match.group(1)), int(match.group(2))
+    cache.set(BUDGET_CACHE_KEY, max(limit - used, 0), BUDGET_CACHE_TTL)
 
 
 def _error_message(body: dict[str, t.Any]) -> str | None:
@@ -83,6 +97,7 @@ class EventbriteClient:
                 response = http.request(method, f"{API_BASE}{path}", json=json, params=params)
         except httpx.HTTPError as e:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, str(e), retryable=True) from e
+        _record_budget(response)
         _raise_for(response)
         return _json_dict(response)
 
@@ -100,5 +115,6 @@ class EventbriteClient:
                 response = http.post(OAUTH_TOKEN, data=data)
         except httpx.HTTPError as e:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, str(e), retryable=True) from e
+        _record_budget(response)
         _raise_for(response)
         return _json_dict(response)

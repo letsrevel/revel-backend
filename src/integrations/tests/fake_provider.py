@@ -1,5 +1,6 @@
 """In-memory ``ListingProvider`` used by every non-translator test."""
 
+import re
 import typing as t
 from urllib.parse import urlencode
 
@@ -9,14 +10,27 @@ from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
 from integrations.providers.base import (
     Capabilities,
+    NotificationKind,
     RemoteAccount,
     RemoteEvent,
     RemoteEventRef,
     RemoteEventSummary,
     RemoteTicketClass,
+    ResolvedNotification,
     TokenSet,
     WebhookNotification,
 )
+
+_EVENT_PATH = re.compile(r"^/events/([^/]+)/")
+_ORDER_PATH = re.compile(r"^/orders/([^/]+)/$")
+_KIND_BY_ACTION: dict[str, NotificationKind] = {
+    "order.placed": "order_changed",
+    "order.refunded": "order_changed",
+    "order.updated": "order_changed",
+    "attendee.updated": "order_changed",
+    "event.published": "event_published",
+    "event.unpublished": "event_unpublished",
+}
 
 
 class FakeProvider:
@@ -44,6 +58,8 @@ class FakeProvider:
         self.missing: set[str] = set()
         self._event_counter = 0
         self._tc_counter = 0
+        self.orders: dict[str, str] = {}  # order id -> event id
+        self.budget: int | None = None
 
     def authorize_url(self, state: str, redirect_uri: str) -> str:
         return "https://fake.example/authorize?" + urlencode({"state": state, "redirect_uri": redirect_uri})
@@ -80,6 +96,26 @@ class FakeProvider:
         if "action" not in body or "path" not in body:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "malformed")
         return WebhookNotification(action=body["action"], resource_path=body["path"], raw=body)
+
+    def resolve_notification(self, token: TokenSet, notification: WebhookNotification) -> ResolvedNotification:
+        """Map the action to a kind and find the event id; ``raw["kind"]`` lets tests force a kind."""
+        self._guard("resolve_notification", notification.resource_path)
+        raw_kind = notification.raw.get("kind")
+        kind = t.cast(NotificationKind, raw_kind) if raw_kind else _KIND_BY_ACTION.get(notification.action, "ignored")
+        if kind == "ignored":
+            return ResolvedNotification(remote_event_id=None, kind="ignored")
+        if match := _EVENT_PATH.match(notification.resource_path):
+            return ResolvedNotification(remote_event_id=match.group(1), kind=kind)
+        if match := _ORDER_PATH.match(notification.resource_path):
+            event_id = self.orders.get(match.group(1))
+            if event_id is None:
+                return ResolvedNotification(remote_event_id=None, kind="ignored")
+            return ResolvedNotification(remote_event_id=event_id, kind=kind)
+        return ResolvedNotification(remote_event_id=None, kind="ignored")
+
+    def remaining_budget(self) -> int | None:
+        """Return the configured budget (None = unknown)."""
+        return self.budget
 
     def _guard(self, method: str, *ids: str) -> None:
         """Record method call and check for configured failures."""

@@ -1,27 +1,31 @@
 """Eventbrite implementation of ``ListingProvider`` (connection + webhook half; sync arrives in phase 2)."""
 
+import re
 import typing as t
 from urllib.parse import urlencode, urlsplit
 
 import httpx
 import orjson
+from django.core.cache import cache
 from django.http import HttpRequest
 
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
 from integrations.providers.base import (
     Capabilities,
+    NotificationKind,
     RemoteAccount,
     RemoteEvent,
     RemoteEventRef,
     RemoteEventSummary,
     RemoteTicketClass,
     RemoteVenue,
+    ResolvedNotification,
     TokenSet,
     WebhookNotification,
 )
 from integrations.providers.eventbrite import translate as tr
-from integrations.providers.eventbrite.client import API_HOST, OAUTH_AUTHORIZE, EventbriteClient
+from integrations.providers.eventbrite.client import API_HOST, BUDGET_CACHE_KEY, OAUTH_AUTHORIZE, EventbriteClient
 
 # ponytail: 20-page cap on list_events pagination — an org with >1000 draft/live/started events
 # (at page_size 50) would need a real "sync in batches" design; not worth building speculatively.
@@ -37,6 +41,17 @@ WEBHOOK_ACTIONS = (
     "event.published",
     "event.unpublished",
 )
+
+_EVENT_PATH = re.compile(r"^/events/(\d+)/")
+_ORDER_PATH = re.compile(r"^/orders/([^/]+)/$")
+_KIND_BY_ACTION: dict[str, NotificationKind] = {
+    "order.placed": "order_changed",
+    "order.refunded": "order_changed",
+    "order.updated": "order_changed",
+    "attendee.updated": "order_changed",
+    "event.published": "event_published",
+    "event.unpublished": "event_unpublished",
+}
 
 
 class EventbriteProvider:
@@ -125,6 +140,23 @@ class EventbriteProvider:
         if parts.scheme != "https" or parts.hostname != API_HOST or not port_ok or not parts.path.startswith("/v3/"):
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected resource host")
         return WebhookNotification(action=action, resource_path=parts.path.removeprefix("/v3"), raw=raw)
+
+    def resolve_notification(self, token: TokenSet, notification: WebhookNotification) -> ResolvedNotification:
+        """Map the action to a kind and find the event id, fetching the order only when the path is an order."""
+        kind = _KIND_BY_ACTION.get(notification.action, "ignored")
+        if kind == "ignored":
+            return ResolvedNotification(remote_event_id=None, kind="ignored")
+        if match := _EVENT_PATH.match(notification.resource_path):
+            return ResolvedNotification(remote_event_id=match.group(1), kind=kind)
+        if match := _ORDER_PATH.match(notification.resource_path):
+            body = self._client(token).request("GET", f"/orders/{match.group(1)}/")
+            return ResolvedNotification(remote_event_id=self._shape(lambda: str(body["event_id"])), kind=kind)
+        return ResolvedNotification(remote_event_id=None, kind="ignored")
+
+    def remaining_budget(self) -> int | None:
+        """Remaining calls in the shared app-key bucket, as last reported by the API (None = unknown)."""
+        value = cache.get(BUDGET_CACHE_KEY)
+        return int(value) if value is not None else None
 
     # -- read -----------------------------------------------------------------
     def list_events(self, token: TokenSet, account_id: str) -> list[RemoteEventSummary]:

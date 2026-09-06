@@ -43,6 +43,16 @@ class WebhookNotification(BaseModel):
     raw: dict[str, t.Any]
 
 
+NotificationKind = t.Literal["order_changed", "event_published", "event_unpublished", "ignored"]
+
+
+class ResolvedNotification(BaseModel):
+    """What an inbound delivery means, after fetching only from the provider's own host (spec §8)."""
+
+    remote_event_id: str | None
+    kind: NotificationKind
+
+
 class RemoteVenue(BaseModel):
     """A remote platform's venue/location data."""
 
@@ -139,6 +149,12 @@ class ListingProvider(t.Protocol):
 
     def parse_webhook(self, request: HttpRequest) -> WebhookNotification:
         """Parse an inbound webhook request."""
+
+    def resolve_notification(self, token: TokenSet, notification: WebhookNotification) -> ResolvedNotification:
+        """Resolve a parsed notification to the remote event it concerns, and what kind of change it is."""
+
+    def remaining_budget(self) -> int | None:
+        """Remaining calls in the shared rate-limit bucket, as last reported by the API (None = unknown)."""
 
     # -- read -----------------------------------------------------------------
     def list_events(self, token: TokenSet, account_id: str) -> list[RemoteEventSummary]:

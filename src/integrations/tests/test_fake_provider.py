@@ -7,7 +7,7 @@ import pytest
 
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
-from integrations.providers.base import ListingProvider, RemoteEvent, RemoteTicketClass, TokenSet
+from integrations.providers.base import ListingProvider, RemoteEvent, RemoteTicketClass, TokenSet, WebhookNotification
 from integrations.tests.fake_provider import FakeProvider
 
 TOKEN = TokenSet(access_token="t")
@@ -78,3 +78,17 @@ def test_fail_map_raises_for_named_method() -> None:
     p.fail["create_event"] = ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "nope")
     with pytest.raises(ProviderError):
         p.create_event(TOKEN, "acc-1", _event())
+
+
+def test_fake_resolve_and_budget() -> None:
+    p = FakeProvider()
+    p.orders["o-1"] = "ev-7"
+    n = WebhookNotification(action="order.placed", resource_path="/orders/o-1/", raw={})
+    assert p.resolve_notification(TOKEN, n).model_dump() == {"remote_event_id": "ev-7", "kind": "order_changed"}
+    n = WebhookNotification(action="event.published", resource_path="/events/ev-7/", raw={})
+    assert p.resolve_notification(TOKEN, n).kind == "event_published"
+    n = WebhookNotification(action="x", resource_path="/events/ev-7/", raw={"kind": "event_unpublished"})
+    assert p.resolve_notification(TOKEN, n).kind == "event_unpublished"  # raw["kind"] override for tests
+    assert p.remaining_budget() is None
+    p.budget = 5
+    assert p.remaining_budget() == 5
