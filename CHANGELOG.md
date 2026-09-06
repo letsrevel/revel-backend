@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-09-06
+
+### Fixed
+
+- Public event and organization listings no longer return a 500 when the IP2Location database file is missing from the deployment. Both endpoints sort by distance from the visitor's IP by default, and the geo lookup raised instead of degrading, so a deployment that had never run the database downloader — or whose bind mount left a directory in place of the `.BIN` — served an error page with no events at all. A missing or unusable database now simply disables nearest-first sorting (logged as a warning) and the listing falls back to its normal ordering; the database is picked up automatically once it appears
+
 ## [2.8.0] - 2026-09-06
 
 ### Added
