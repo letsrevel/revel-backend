@@ -23,7 +23,10 @@ INTEGRATIONS_CONNECT_STATE_TTL = timedelta(
     seconds=config("INTEGRATIONS_CONNECT_STATE_TTL_SECONDS", default=600, cast=int)
 )
 # Calls kept in reserve in the shared per-app-key bucket so organizer actions never starve behind
-# the reconcile sweep.
+# the reconcile sweep. Sizing: one update push costs roughly 5 + N calls — GET event, venue
+# update, event update, structured-content GET + POST, the expanded GET the tier reconcile
+# needs, then one upsert per mapped tier — so the default 200 leaves room for about 20–40
+# organizer actions in the hour the bucket takes to refill.
 INTEGRATIONS_RATE_RESERVE: int = config("INTEGRATIONS_RATE_RESERVE", default=200, cast=int)
 # How long a WebhookDelivery audit row is kept before the daily prune sweep deletes it.
 INTEGRATIONS_WEBHOOK_DELIVERY_RETENTION_DAYS: int = config(

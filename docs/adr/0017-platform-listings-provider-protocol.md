@@ -71,5 +71,9 @@ Policy decisions baked into the protocol and the sync/reconcile services:
   - The rate limit is 2000 calls/hour **per token and per app key simultaneously**; every
     organization's OAuth token shares the same app-key bucket, which is why the budget is
     instance-wide rather than per connection.
+- The create path has a narrow orphan window: a worker dying between `create_event` and the
+  immediate `link.save` that records the returned `remote_id` leaves one orphaned draft on the
+  platform (harmless — a draft is not public), and the retry creates a second listing it then
+  keeps updating; every attempt after that takes the update path.
 - Attendee import, two-way sync, shared-capacity arithmetic, and any provider beyond Eventbrite
   remain explicitly out of scope for this phase.
