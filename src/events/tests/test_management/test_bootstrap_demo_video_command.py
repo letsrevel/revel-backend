@@ -34,6 +34,14 @@ DEMO_ORG_SLUGS = {
     "paper-hearts-book-club",
 }
 
+DEMO_EVENT_SLUGS = {
+    "intro-to-shibari-rope-and-trust",
+    "basement-sessions-live-and-loud",
+    "picnic-in-the-park",
+    "golden-hour-photo-walk",
+    "monthly-reading-circle",
+}
+
 EvalStatus = QuestionnaireEvaluation.QuestionnaireEvaluationStatus
 
 
@@ -139,6 +147,7 @@ class TestBootstrapDemoVideo:
             assert event.cover_art_thumbnail.name, f"{event.slug} has no cover thumbnail"
             assert event.cover_art_social.name, f"{event.slug} has no social cover"
             assert default_storage.exists(event.cover_art.name)
+            assert default_storage.exists(event.cover_art_thumbnail.name)
             assert default_storage.exists(event.cover_art_social.name)
 
         assert "cover art" in output
@@ -159,6 +168,9 @@ class TestBootstrapDemoVideo:
         _run()
         logos, covers = _stored(LOGO_STORAGE_PREFIX), _stored(COVER_STORAGE_PREFIX)
         assert logos == sorted(f"{slug}{suffix}.jpg" for slug in DEMO_ORG_SLUGS for suffix in ("", "_thumbnail"))
+        assert covers == sorted(
+            f"{slug}{suffix}.jpg" for slug in DEMO_EVENT_SLUGS for suffix in ("", "_thumbnail", "_social")
+        )
 
         _run()
 
