@@ -19,7 +19,6 @@ Sources and licences for every file are listed in ``assets/IMAGE_CREDITS.md``.
 import typing as t
 from pathlib import Path
 
-import structlog
 from django.core.files.base import File
 from django.core.files.storage import default_storage
 from django.db import models
@@ -27,8 +26,6 @@ from django.db import models
 from common.thumbnails.config import THUMBNAIL_CONFIGS
 from common.thumbnails.service import generate_and_save_thumbnails, get_thumbnail_path
 from events import models as events_models
-
-logger = structlog.get_logger(__name__)
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_STORAGE_PREFIX = "logos/demo-video"
@@ -54,9 +51,14 @@ def _attach(instance: models.Model, *, field: str, asset: Path, storage_prefix: 
     thumbs = {spec.field_name: get_thumbnail_path(target, spec.field_name) for spec in config.specs}
     if not all(default_storage.exists(path) for path in thumbs.values()):
         result = generate_and_save_thumbnails(target, config)
-        thumbs = result.thumbnails
         if result.has_failures:
-            logger.warning("Demo artwork thumbnail generation failed", asset=asset.name, failures=result.failures)
+            # ``generate_and_save_thumbnails`` reports per-rendition failures instead of
+            # raising. Writing the source field with a rendition missing would make the
+            # gap permanent — every later run returns at the guard above — and a blank
+            # cover_art_social is exactly what must not reach a recording. The command is
+            # atomic, so aborting here lets a re-run redo the whole seed.
+            raise RuntimeError(f"Demo artwork thumbnails failed for {asset.name}: {result.failures}")
+        thumbs = result.thumbnails
 
     updates: dict[str, str] = {field: target, **thumbs}
     type(instance)._default_manager.filter(pk=instance.pk).update(**updates)

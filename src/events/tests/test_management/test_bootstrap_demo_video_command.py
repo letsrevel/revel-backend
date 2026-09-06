@@ -10,6 +10,7 @@ from django.core.management.base import CommandError
 from django.test import override_settings
 
 from accounts.models import RevelUser
+from common.thumbnails.service import ThumbnailResult
 from events.management.commands import bootstrap_demo_video
 from events.management.commands.demo_video_helpers import DEMO_EMAIL_DOMAIN, SCENARIOS, ScenarioSummary
 from events.management.commands.demo_video_helpers.artwork import COVER_STORAGE_PREFIX, LOGO_STORAGE_PREFIX
@@ -162,6 +163,22 @@ class TestBootstrapDemoVideo:
         _run()
 
         assert (_stored(LOGO_STORAGE_PREFIX), _stored(COVER_STORAGE_PREFIX)) == (logos, covers)
+
+    @override_settings(DEMO_MODE=True)
+    def test_a_failed_thumbnail_aborts_instead_of_persisting_a_gap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Linking a cover whose social rendition failed would make the gap permanent."""
+
+        def half_failed(original_path: str, config: t.Any) -> ThumbnailResult:
+            return ThumbnailResult(thumbnails={}, failures={"logo_thumbnail": "boom"})
+
+        monkeypatch.setattr(
+            "events.management.commands.demo_video_helpers.artwork.generate_and_save_thumbnails", half_failed
+        )
+
+        with pytest.raises(RuntimeError, match="Demo artwork thumbnails failed"):
+            _run()
+
+        assert not Organization.objects.filter(slug__in=DEMO_ORG_SLUGS).exists()
 
     @override_settings(DEMO_MODE=True)
     def test_every_demo_account_signs_in_with_the_shared_password(self) -> None:
