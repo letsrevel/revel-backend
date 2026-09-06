@@ -8,6 +8,7 @@ from uuid import UUID
 
 import structlog
 from django.db import transaction
+from django.http import Http404
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
@@ -17,7 +18,13 @@ from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.providers.base import ListingProvider, RemoteEventRef
-from integrations.schema import EventLinkSchema, SyncReportEntry, TierLinkSchema
+from integrations.schema import (
+    EventLinkSchema,
+    PauseResultSchema,
+    SyncReportEntry,
+    TierLinkSchema,
+    TierPauseFailureSchema,
+)
 from integrations.service import connection_service, mapper
 from integrations.service.mapper import EventNotEligible
 
@@ -387,6 +394,49 @@ def publish_link(event: Event, provider_key: str) -> EventLink:
     link.save(update_fields=["remote_status", "updated_at"])
     logger.info("integration_published", link_id=str(link.id), provider=provider_key)
     return link
+
+
+def set_remote_paused(event: Event, provider_key: str, *, tier_id: UUID | None, paused: bool) -> PauseResultSchema:
+    """Kill switch on the platform side (spec §7.7): synchronous, one call per tier, partial failures returned."""
+    link = _require_pushed_link(event, provider_key)
+    provider = registry.get_provider(provider_key)
+    token = link.connection.token()
+    links = (
+        TierLink.objects.filter(event_link=link, tier__isnull=False)
+        .select_related("tier")
+        .order_by("tier__display_order", "tier__name")
+    )
+    if tier_id is not None:
+        links = links.filter(tier_id=tier_id)
+        if not links.exists():
+            raise Http404
+    updated: list[UUID] = []
+    failed: list[TierPauseFailureSchema] = []
+    for tl in links:
+        tier = t.cast(TicketTier, tl.tier)
+        try:
+            provider.set_ticket_class_paused(token, link.remote_id, tl.remote_id, paused)
+        except ProviderError as e:
+            failed.append(
+                TierPauseFailureSchema(
+                    tier_id=tier.id,
+                    tier_name=tier.name,
+                    code=IntegrationErrorCode.PAUSE_FAILED,
+                    detail=str(_("The platform refused to change this tier's sales state.")),
+                    provider_message=e.provider_message,
+                )
+            )
+            if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
+                connection_service.mark_revoked(link.connection)
+                break
+            continue
+        tl.remote_paused = paused
+        tl.save(update_fields=["remote_paused", "updated_at"])
+        updated.append(tier.id)
+    logger.info(
+        "integration_remote_pause", link_id=str(link.id), paused=paused, updated=len(updated), failed=len(failed)
+    )
+    return PauseResultSchema(paused=paused, updated=updated, failed=failed, link=to_link_schema(link))
 
 
 def set_link_auto_sync(event: Event, provider_key: str, auto_sync: bool | None) -> EventLink:

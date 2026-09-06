@@ -2928,8 +2928,15 @@ msgstr "Das Listing hat noch kein Titelbild."
 msgid "The platform connection needs to be re-established."
 msgstr "Die Plattformverbindung muss neu hergestellt werden."
 
+msgid ""
+"The listing no longer exists on the platform. Push again to recreate it."
+msgstr ""
+"Das Listing existiert auf der Plattform nicht mehr. Sende es erneut, um es "
+"neu zu erstellen."
+
 msgid "This ticket class exists only on the platform and is left untouched."
-msgstr "Diese Ticketklasse existiert nur auf der Plattform und bleibt unverändert."
+msgstr ""
+"Diese Ticketklasse existiert nur auf der Plattform und bleibt unverändert."
 
 msgid ""
 "The listing is live and cannot be unpublished from here; cancel it or edit "
@@ -2938,20 +2945,16 @@ msgstr ""
 "Das Listing ist live und kann von hier aus nicht zurückgezogen werden; "
 "storniere es oder bearbeite es auf der Plattform."
 
-msgid ""
-"The listing no longer exists on the platform. Push again to recreate it."
-msgstr ""
-"Das Listing existiert auf der Plattform nicht mehr. Sende es erneut, um es "
-"neu zu erstellen."
-
 msgid "The platform rejected the update."
 msgstr "Die Plattform hat die Aktualisierung abgelehnt."
 
 msgid "The platform kept refusing the push; try again later."
-msgstr "Die Plattform hat das Senden wiederholt abgelehnt; versuche es später erneut."
+msgstr ""
+"Die Plattform hat das Senden wiederholt abgelehnt; versuche es später erneut."
 
 msgid "The platform is busy; the push will be retried shortly."
-msgstr "Die Plattform ist ausgelastet; das Senden wird in Kürze erneut versucht."
+msgstr ""
+"Die Plattform ist ausgelastet; das Senden wird in Kürze erneut versucht."
 
 msgid "The push failed unexpectedly."
 msgstr "Das Senden ist unerwartet fehlgeschlagen."
@@ -2961,6 +2964,9 @@ msgstr "Sende das Event zuerst an die Plattform."
 
 msgid "The platform refused to publish the listing."
 msgstr "Die Plattform hat sich geweigert, das Listing zu veröffentlichen."
+
+msgid "The platform refused to change this tier's sales state."
+msgstr "Die Plattform hat sich geweigert, den Verkaufsstatus dieser Kategorie zu ändern."
 
 msgid "Malformed webhook delivery."
 msgstr "Fehlerhafte Webhook-Zustellung."

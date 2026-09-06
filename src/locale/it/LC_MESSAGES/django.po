@@ -2886,8 +2886,15 @@ msgstr "L'annuncio non ha ancora un'immagine di copertina."
 msgid "The platform connection needs to be re-established."
 msgstr "La connessione con la piattaforma deve essere ristabilita."
 
+msgid ""
+"The listing no longer exists on the platform. Push again to recreate it."
+msgstr ""
+"L'annuncio non esiste più sulla piattaforma. Invialo di nuovo per ricrearlo."
+
 msgid "This ticket class exists only on the platform and is left untouched."
-msgstr "Questa classe di biglietti esiste solo sulla piattaforma e viene lasciata invariata."
+msgstr ""
+"Questa classe di biglietti esiste solo sulla piattaforma e viene lasciata "
+"invariata."
 
 msgid ""
 "The listing is live and cannot be unpublished from here; cancel it or edit "
@@ -2895,11 +2902,6 @@ msgid ""
 msgstr ""
 "L'annuncio è pubblicato e non può essere ritirato da qui; annullalo o "
 "modificalo sulla piattaforma."
-
-msgid ""
-"The listing no longer exists on the platform. Push again to recreate it."
-msgstr ""
-"L'annuncio non esiste più sulla piattaforma. Invialo di nuovo per ricrearlo."
 
 msgid "The platform rejected the update."
 msgstr "La piattaforma ha rifiutato l'aggiornamento."
@@ -2918,6 +2920,9 @@ msgstr "Invia prima l'evento alla piattaforma."
 
 msgid "The platform refused to publish the listing."
 msgstr "La piattaforma ha rifiutato di pubblicare l'annuncio."
+
+msgid "The platform refused to change this tier's sales state."
+msgstr "La piattaforma ha rifiutato di modificare lo stato di vendita di questa categoria."
 
 msgid "Malformed webhook delivery."
 msgstr "Consegna webhook malformata."

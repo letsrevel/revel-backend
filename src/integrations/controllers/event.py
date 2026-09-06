@@ -1,8 +1,10 @@
 """Event-level listing management: push, publish, auto-sync override (spec §11)."""
 
+import typing as t
 from uuid import UUID
 
 from django.http import HttpResponse
+from ninja import Body
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
@@ -57,3 +59,35 @@ class EventIntegrationsController(EventAdminBaseController):
         return sync_service.to_link_schema(
             sync_service.set_link_auto_sync(self.get_one(event_id), provider, payload.auto_sync)
         )
+
+    @route.post(
+        "/{provider}/pause",
+        url_name="event_integration_pause",
+        response=schema.PauseResultSchema,
+        throttle=WriteThrottle(),
+    )
+    def pause(
+        self,
+        event_id: UUID,
+        provider: str,
+        payload: t.Annotated[schema.PauseRequestSchema | None, Body(None)] = None,
+    ) -> schema.PauseResultSchema:
+        """Hide one tier (or all linked tiers) on the platform. Synchronous: a kill switch must not say "pending"."""
+        tier_id = payload.tier_id if payload else None
+        return sync_service.set_remote_paused(self.get_one(event_id), provider, tier_id=tier_id, paused=True)
+
+    @route.post(
+        "/{provider}/resume",
+        url_name="event_integration_resume",
+        response=schema.PauseResultSchema,
+        throttle=WriteThrottle(),
+    )
+    def resume(
+        self,
+        event_id: UUID,
+        provider: str,
+        payload: t.Annotated[schema.PauseRequestSchema | None, Body(None)] = None,
+    ) -> schema.PauseResultSchema:
+        """Undo ``pause`` for one tier or all linked tiers."""
+        tier_id = payload.tier_id if payload else None
+        return sync_service.set_remote_paused(self.get_one(event_id), provider, tier_id=tier_id, paused=False)

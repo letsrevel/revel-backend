@@ -2924,8 +2924,15 @@ msgstr "L'annonce n'a pas encore d'image de couverture."
 msgid "The platform connection needs to be re-established."
 msgstr "La connexion à la plateforme doit être rétablie."
 
+msgid ""
+"The listing no longer exists on the platform. Push again to recreate it."
+msgstr ""
+"L'annonce n'existe plus sur la plateforme. Envoie-la à nouveau pour la "
+"recréer."
+
 msgid "This ticket class exists only on the platform and is left untouched."
-msgstr "Cette catégorie de billets n'existe que sur la plateforme et reste inchangée."
+msgstr ""
+"Cette catégorie de billets n'existe que sur la plateforme et reste inchangée."
 
 msgid ""
 "The listing is live and cannot be unpublished from here; cancel it or edit "
@@ -2934,17 +2941,12 @@ msgstr ""
 "L'annonce est en ligne et ne peut pas être dépubliée depuis ici ; annule-la "
 "ou modifie-la sur la plateforme."
 
-msgid ""
-"The listing no longer exists on the platform. Push again to recreate it."
-msgstr ""
-"L'annonce n'existe plus sur la plateforme. Envoie-la à nouveau pour la "
-"recréer."
-
 msgid "The platform rejected the update."
 msgstr "La plateforme a rejeté la mise à jour."
 
 msgid "The platform kept refusing the push; try again later."
-msgstr "La plateforme a refusé l'envoi à plusieurs reprises ; réessaie plus tard."
+msgstr ""
+"La plateforme a refusé l'envoi à plusieurs reprises ; réessaie plus tard."
 
 msgid "The platform is busy; the push will be retried shortly."
 msgstr "La plateforme est saturée ; l'envoi sera réessayé sous peu."
@@ -2957,6 +2959,9 @@ msgstr "Envoie d'abord l'événement à la plateforme."
 
 msgid "The platform refused to publish the listing."
 msgstr "La plateforme a refusé de publier l'annonce."
+
+msgid "The platform refused to change this tier's sales state."
+msgstr "La plateforme a refusé de modifier l'état de vente de cette catégorie."
 
 msgid "Malformed webhook delivery."
 msgstr "Livraison de webhook malformée."

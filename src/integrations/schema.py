@@ -19,11 +19,14 @@ __all__ = [
     "ImportResultSchema",
     "IntegrationErrorCode",
     "IntegrationErrorSchema",
+    "PauseRequestSchema",
+    "PauseResultSchema",
     "RemoteAccountSchema",
     "RemoteEventSummarySchema",
     "SelectAccountSchema",
     "SyncReportEntry",
     "TierLinkSchema",
+    "TierPauseFailureSchema",
 ]
 
 
@@ -116,6 +119,31 @@ class EventLinkUpdateSchema(Schema):
     """Per-event auto-sync override (null = inherit the connection default)."""
 
     auto_sync: bool | None = None
+
+
+class PauseRequestSchema(Schema):
+    """Which tier to pause/resume; omitted or null means every linked tier."""
+
+    tier_id: UUID | None = None
+
+
+class TierPauseFailureSchema(Schema):
+    """One tier the platform refused to pause or resume."""
+
+    tier_id: UUID
+    tier_name: str
+    code: IntegrationErrorCode
+    detail: str
+    provider_message: str | None = None
+
+
+class PauseResultSchema(Schema):
+    """Outcome of a pause/resume request: which tiers changed, which failed, and the refreshed link."""
+
+    paused: bool
+    updated: list[UUID]
+    failed: list[TierPauseFailureSchema]
+    link: EventLinkSchema
 
 
 class RemoteEventSummarySchema(Schema):
