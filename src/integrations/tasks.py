@@ -1,6 +1,7 @@
 """Celery entry points for the integrations app. Every task pins ``name=``."""
 
 import typing as t
+from uuid import UUID
 
 import structlog
 from celery import shared_task
@@ -81,3 +82,25 @@ def import_remote_event(connection_id: str, remote_id: str) -> None:
         logger.info("integration_import_skipped_disabled_provider", connection_id=connection_id, provider=conn.provider)
         return
     import_service.import_remote_event(conn, remote_id)
+
+
+@shared_task(
+    name="integrations.handle_webhook_delivery",
+    autoretry_for=(RetryableProviderError,),
+    retry_backoff=RETRY_BACKOFF_SECONDS,
+    retry_backoff_max=RETRY_BACKOFF_MAX_SECONDS,
+    max_retries=3,
+)
+def handle_webhook_delivery(delivery_id: str) -> None:
+    """Process one recorded webhook delivery (spec §8).
+
+    Args:
+        delivery_id: UUID (as a string) of the ``WebhookDelivery`` row to process.
+    """
+    from integrations.models import WebhookDelivery
+    from integrations.service import webhook_service
+
+    if not WebhookDelivery.objects.filter(id=delivery_id).exists():
+        logger.info("integration_webhook_skipped_missing_delivery", delivery_id=delivery_id)
+        return
+    webhook_service.handle_delivery(UUID(delivery_id))

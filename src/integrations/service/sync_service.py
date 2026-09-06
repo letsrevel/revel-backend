@@ -4,6 +4,7 @@ Importing remote events into Revel lives in ``integrations.service.import_servic
 """
 
 import typing as t
+from uuid import UUID
 
 import structlog
 from django.db import transaction
@@ -83,6 +84,59 @@ def _write_report(link: EventLink, entries: list[SyncReportEntry], state: str) -
     link.sync_report = [e.model_dump(mode="json") for e in entries]
     link.sync_state = state
     link.save(update_fields=["sync_report", "sync_state", "updated_at"])
+    return link
+
+
+COUNTS_DEBOUNCE_SECONDS = 30
+
+
+def counts_debounce_key(link_id: UUID) -> str:
+    """Cache key that collapses a burst of order notifications into one refresh."""
+    return f"integrations:counts:{link_id}"
+
+
+def _break_link(link: EventLink, provider_message: str | None) -> EventLink:
+    """The remote listing is gone: clear the id, drop tier links, mark broken (shared by push and refresh)."""
+    link.remote_id = ""
+    TierLink.objects.filter(event_link=link).delete()
+    link.save(update_fields=["remote_id", "updated_at"])
+    report = [SyncReportEntry.model_validate(e) for e in link.sync_report]
+    report.append(
+        report_entry(
+            IntegrationErrorCode.REMOTE_EVENT_MISSING,
+            str(_("The listing no longer exists on the platform. Push again to recreate it.")),
+            provider_message,
+        )
+    )
+    return _write_report(link, report, EventLink.SyncState.BROKEN)
+
+
+def refresh_counts(link: EventLink) -> EventLink:
+    """Pull sold counts for every linked class (spec §7.8).
+
+    Task/beat-side: failures are recorded, not raised, except transient ones.
+    """
+    conn = link.connection
+    provider = registry.get_provider(conn.provider)
+    try:
+        remote = provider.get_event(conn.token(), link.remote_id)
+    except ProviderError as e:
+        if e.retryable:
+            raise RetryableProviderError(e.code, e.provider_message, retryable=True) from e
+        if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
+            connection_service.mark_revoked(conn)
+            return link
+        if e.code == IntegrationErrorCode.REMOTE_EVENT_MISSING:
+            return _break_link(link, e.provider_message)
+        logger.warning("integration_counts_refresh_failed", link_id=str(link.id), code=e.code.value)
+        return link
+    sold = {c.remote_id: c.quantity_sold for c in remote.ticket_classes if c.remote_id}
+    now = timezone.now()
+    for tl in TierLink.objects.filter(event_link=link, remote_id__in=list(sold)):
+        TierLink.objects.filter(pk=tl.pk).update(
+            remote_quantity_sold=sold[tl.remote_id], counts_updated_at=now, updated_at=now
+        )
+    logger.info("integration_counts_refreshed", link_id=str(link.id), classes=len(sold))
     return link
 
 
@@ -190,17 +244,7 @@ def push_link(link: EventLink) -> EventLink:
             except ProviderError as e:
                 if e.code != IntegrationErrorCode.REMOTE_EVENT_MISSING:
                     raise
-                report.append(
-                    report_entry(
-                        e.code,
-                        str(_("The listing no longer exists on the platform. Push again to recreate it.")),
-                        e.provider_message,
-                    )
-                )
-                link.remote_id = ""
-                TierLink.objects.filter(event_link=link).delete()
-                link.save(update_fields=["remote_id", "updated_at"])
-                return _write_report(link, report, EventLink.SyncState.BROKEN)
+                return _break_link(link, e.provider_message)
         else:
             ref = provider.create_event(token, conn.remote_account_id, mapped.remote)
             link.remote_id, link.remote_url = ref.remote_id, ref.url

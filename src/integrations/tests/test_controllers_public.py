@@ -97,13 +97,19 @@ def _connected(organization: Organization) -> PlatformConnection:
     return connection_service.complete_connect(start.state, "c")
 
 
-def test_webhook_records_delivery(organization: Organization, fake_provider: FakeProvider) -> None:
+def test_webhook_records_delivery(
+    organization: Organization,
+    fake_provider: FakeProvider,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
     conn = _connected(organization)
     url = reverse("api:integration_webhook", kwargs={"provider": "fake", "secret": conn.webhook_secret})
-    response = Client().post(
-        url, data=orjson.dumps({"action": "order.placed", "path": "/orders/1/"}), content_type="application/json"
-    )
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        response = Client().post(
+            url, data=orjson.dumps({"action": "order.placed", "path": "/orders/1/"}), content_type="application/json"
+        )
     assert response.status_code == 200
+    assert len(callbacks) == 1
     delivery = WebhookDelivery.objects.get()
     assert (delivery.connection_id, delivery.action, delivery.resource_path, delivery.outcome) == (
         conn.id,
