@@ -11,7 +11,7 @@ from django.urls import reverse
 
 from events.models import Event, TicketTier
 from integrations.enums import IntegrationErrorCode
-from integrations.exceptions import ProviderError
+from integrations.exceptions import ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, WebhookDelivery
 from integrations.service import connection_service, sync_service, webhook_service
 from integrations.tests.fake_provider import FakeProvider
@@ -106,6 +106,33 @@ def test_status_matrix(connected: PlatformConnection, pushed: EventLink) -> None
     pushed.refresh_from_db()
     d.refresh_from_db()
     assert pushed.remote_status == EventLink.RemoteStatus.DRAFT and d.outcome == WebhookDelivery.Outcome.IGNORED
+
+
+def test_retryable_failure_releases_debounce_key_and_leaves_delivery_received(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    fake_provider.fail_once["get_event"] = ProviderError(
+        IntegrationErrorCode.PROVIDER_RATE_LIMITED, "429", retryable=True
+    )
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    with pytest.raises(RetryableProviderError):
+        webhook_service.handle_delivery(d.id)
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.RECEIVED
+    assert cache.get(sync_service.counts_debounce_key(pushed.id)) is None
+    webhook_service.handle_delivery(d.id)  # a Celery retry would land here
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.PROCESSED
+
+
+def test_publish_on_already_live_link_is_ignored(connected: PlatformConnection, pushed: EventLink) -> None:
+    pushed.remote_status = EventLink.RemoteStatus.LIVE
+    pushed.save(update_fields=["remote_status"])
+    d = _deliver(connected, "event.published", f"/events/{pushed.remote_id}/")
+    webhook_service.handle_delivery(d.id)
+    pushed.refresh_from_db()
+    d.refresh_from_db()
+    assert pushed.remote_status == EventLink.RemoteStatus.LIVE and d.outcome == WebhookDelivery.Outcome.IGNORED
 
 
 def test_unknown_event_and_ignored_kind(connected: PlatformConnection, pushed: EventLink) -> None:

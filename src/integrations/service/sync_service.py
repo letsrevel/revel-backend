@@ -95,20 +95,26 @@ def counts_debounce_key(link_id: UUID) -> str:
     return f"integrations:counts:{link_id}"
 
 
-def _break_link(link: EventLink, provider_message: str | None) -> EventLink:
-    """The remote listing is gone: clear the id, drop tier links, mark broken (shared by push and refresh)."""
+def _break_link(
+    link: EventLink, provider_message: str | None, *, report: list[SyncReportEntry] | None = None
+) -> EventLink:
+    """The remote listing is gone: clear the id, drop tier links, mark broken (shared by push and refresh).
+
+    ``report`` lets a caller mid-push (which already has an in-flight report list with this
+    attempt's mapper entries) keep those instead of falling back to the link's last saved report.
+    """
     link.remote_id = ""
     TierLink.objects.filter(event_link=link).delete()
     link.save(update_fields=["remote_id", "updated_at"])
-    report = [SyncReportEntry.model_validate(e) for e in link.sync_report]
-    report.append(
+    entries = list(report) if report is not None else [SyncReportEntry.model_validate(e) for e in link.sync_report]
+    entries.append(
         report_entry(
             IntegrationErrorCode.REMOTE_EVENT_MISSING,
             str(_("The listing no longer exists on the platform. Push again to recreate it.")),
             provider_message,
         )
     )
-    return _write_report(link, report, EventLink.SyncState.BROKEN)
+    return _write_report(link, entries, EventLink.SyncState.BROKEN)
 
 
 def refresh_counts(link: EventLink) -> EventLink:
@@ -244,7 +250,7 @@ def push_link(link: EventLink) -> EventLink:
             except ProviderError as e:
                 if e.code != IntegrationErrorCode.REMOTE_EVENT_MISSING:
                     raise
-                return _break_link(link, e.provider_message)
+                return _break_link(link, e.provider_message, report=report)
         else:
             ref = provider.create_event(token, conn.remote_account_id, mapped.remote)
             link.remote_id, link.remote_url = ref.remote_id, ref.url

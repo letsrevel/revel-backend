@@ -55,6 +55,7 @@ class FakeProvider:
         self.events: dict[str, RemoteEvent] = {}
         self.calls: list[tuple[str, ...]] = []
         self.fail: dict[str, ProviderError] = {}
+        self.fail_once: dict[str, ProviderError] = {}
         self.missing: set[str] = set()
         self._event_counter = 0
         self._tc_counter = 0
@@ -118,8 +119,10 @@ class FakeProvider:
         return self.budget
 
     def _guard(self, method: str, *ids: str) -> None:
-        """Record method call and check for configured failures."""
+        """Record method call and check for configured failures (``fail_once`` fires only once)."""
         self.calls.append((method, *ids))
+        if method in self.fail_once:
+            raise self.fail_once.pop(method)
         if method in self.fail:
             raise self.fail[method]
 

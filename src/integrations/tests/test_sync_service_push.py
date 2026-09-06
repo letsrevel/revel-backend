@@ -254,6 +254,27 @@ def test_remote_missing_marks_broken_and_repush_recreates(
     assert link.remote_id == "ev-2" and link.sync_state == EventLink.SyncState.IN_SYNC
 
 
+def test_remote_missing_keeps_the_in_flight_mapper_report(
+    clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    """``_break_link`` must not discard this push's own mapper-skip entries (a PWYC tier here)."""
+    TicketTier.objects.create(
+        event=clean_event,
+        name="VIP",
+        price_type=TicketTier.PriceType.PWYC,
+        pwyc_min=Decimal("1"),
+        total_quantity=10,
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+    )
+    link = sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+    fake_provider.missing.add(link.remote_id)
+    link = sync_service.push_link(link)
+    assert link.sync_state == EventLink.SyncState.BROKEN
+    codes = [e["code"] for e in link.sync_report]
+    assert IntegrationErrorCode.TIER_VARIABLE_PRICE.value in codes
+    assert codes[-1] == IntegrationErrorCode.REMOTE_EVENT_MISSING.value
+
+
 def test_provider_rejected_marks_failed_with_message(
     clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
 ) -> None:

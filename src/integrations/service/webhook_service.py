@@ -13,7 +13,7 @@ from django.http import Http404, HttpRequest
 from django.utils.translation import gettext_lazy as _
 
 from integrations import registry
-from integrations.exceptions import IntegrationError, ProviderError
+from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, WebhookDelivery
 from integrations.providers.base import NotificationKind, WebhookNotification
 from integrations.service import sync_service
@@ -81,18 +81,25 @@ def handle_delivery(delivery_id: UUID) -> WebhookDelivery:
         if resolved.kind == "ignored" or not resolved.remote_event_id:
             return _finish(delivery, WebhookDelivery.Outcome.IGNORED)
         link = (
-            EventLink.objects.select_related("connection", "event")
+            EventLink.objects.select_related("connection")
             .filter(connection=conn, remote_id=resolved.remote_event_id)
             .first()
         )
         if link is None:
             return _finish(delivery, WebhookDelivery.Outcome.IGNORED)
         if resolved.kind == "order_changed":
-            if cache.add(sync_service.counts_debounce_key(link.id), 1, sync_service.COUNTS_DEBOUNCE_SECONDS):
-                sync_service.refresh_counts(link)
+            key = sync_service.counts_debounce_key(link.id)
+            if cache.add(key, 1, sync_service.COUNTS_DEBOUNCE_SECONDS):
+                try:
+                    sync_service.refresh_counts(link)
+                except RetryableProviderError:
+                    cache.delete(key)
+                    raise
             return _finish(delivery, WebhookDelivery.Outcome.PROCESSED)
         changed = apply_status_notification(link, resolved.kind)
         return _finish(delivery, WebhookDelivery.Outcome.PROCESSED if changed else WebhookDelivery.Outcome.IGNORED)
+    except RetryableProviderError:
+        raise  # leave the delivery RECEIVED so the Celery retry can complete it
     except Exception:
         _finish(delivery, WebhookDelivery.Outcome.FAILED)
         raise
