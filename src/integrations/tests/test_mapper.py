@@ -198,3 +198,32 @@ def test_currency_majority_ties_break_toward_first_tier(clean_event: Event) -> N
     mapped = mapper.map_event(clean_event, remote_paused={}, remote_tier_ids={})
     assert mapped.remote.currency == "USD"
     assert [e.tier_name for e in mapped.report if e.code == IntegrationErrorCode.TIER_CURRENCY_MISMATCH] == ["B"]
+
+
+def test_currency_majority_ignores_tiers_that_are_skipped_anyway(clean_event: Event) -> None:
+    """Two offline USD tiers must not elect USD and starve the one listable EUR tier.
+
+    Counting tiers that fail another rule can pick a currency no survivor uses, so the event maps
+    to zero remote classes even though one tier was perfectly listable.
+    """
+    _tier(clean_event, "Door A", currency="USD", payment_method=TicketTier.PaymentMethod.AT_THE_DOOR, display_order=0)
+    _tier(clean_event, "Door B", currency="USD", payment_method=TicketTier.PaymentMethod.AT_THE_DOOR, display_order=1)
+    _tier(clean_event, "Online", currency="EUR", display_order=2)
+
+    mapped = mapper.map_event(clean_event, remote_paused={}, remote_tier_ids={})
+
+    assert mapped.remote.currency == "EUR"
+    assert [m.tier.name for m in mapped.tiers] == ["Online"]
+    assert not [e for e in mapped.report if e.code == IntegrationErrorCode.TIER_CURRENCY_MISMATCH]
+
+
+def test_tier_hidden_covers_visibility_pause_and_remote_pause(clean_event: Event) -> None:
+    """The one rule both the push and the remote resume read."""
+    tier = _tier(clean_event, "GA")
+    assert mapper.tier_hidden(tier, False) is False
+    assert mapper.tier_hidden(tier, True) is True
+    tier.sales_paused = True
+    assert mapper.tier_hidden(tier, False) is True
+    tier.sales_paused = False
+    tier.visibility = TicketTier.Visibility.UNLISTED
+    assert mapper.tier_hidden(tier, False) is True

@@ -10,6 +10,7 @@ from uuid import UUID
 from django.core.cache import cache
 from django.db import transaction
 from django.http import Http404, HttpRequest
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from integrations import registry
@@ -67,6 +68,17 @@ def _finish(delivery: WebhookDelivery, outcome: str) -> WebhookDelivery:
     return delivery
 
 
+def mark_exhausted(delivery_id: UUID) -> None:
+    """Mark a delivery FAILED once its retry budget is spent.
+
+    ``handle_delivery`` deliberately leaves a retryable failure RECEIVED so the next attempt can
+    finish it; without this the row would claim pending work forever after the last retry.
+    """
+    WebhookDelivery.objects.filter(id=delivery_id, outcome=WebhookDelivery.Outcome.RECEIVED).update(
+        outcome=WebhookDelivery.Outcome.FAILED, updated_at=timezone.now()
+    )
+
+
 def _refresh_counts_debounced(delivery: WebhookDelivery, link: EventLink) -> WebhookDelivery:
     """One fetch per burst, and never a lost order (spec §7.8).
 
@@ -118,6 +130,11 @@ def handle_delivery(delivery_id: UUID) -> WebhookDelivery:
     except RetryableProviderError:
         raise  # leave the delivery RECEIVED so the Celery retry can complete it
     except ProviderError as e:
+        if e.retryable:
+            # Providers signal transience with a flag, not the subclass — `resolve_notification`
+            # fetches the order live, so a 429/5xx arrives here as a plain ProviderError. Upgrade
+            # it, or the guard above never matches and the task's autoretry_for never fires.
+            raise RetryableProviderError(e.code, e.provider_message, retryable=True) from e
         if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
             connection_service.mark_revoked(conn)
         _finish(delivery, WebhookDelivery.Outcome.FAILED)

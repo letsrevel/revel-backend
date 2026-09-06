@@ -127,7 +127,18 @@ def _venue(event: Event) -> RemoteVenue | None:
     )
 
 
-def _tier_skip(tier: TicketTier, event: Event, currency: str) -> tuple[IntegrationErrorCode, str] | None:
+def tier_hidden(tier: TicketTier, remote_paused: bool) -> bool:
+    """Whether the remote ticket class must be hidden. The single source of this rule.
+
+    Read by ``map_event`` on every push and by ``sync_service.set_remote_paused`` on resume, so
+    clearing the organizer's remote pause can never un-hide a tier that is unlisted or locally
+    ``sales_paused``.
+    """
+    return tier.visibility != TicketTier.Visibility.PUBLIC or tier.sales_paused or remote_paused
+
+
+def _tier_skip_before_currency(tier: TicketTier, event: Event) -> tuple[IntegrationErrorCode, str] | None:
+    """Every skip rule that does not depend on the event's chosen currency."""
     if tier.price_type != TicketTier.PriceType.FIXED:
         return IntegrationErrorCode.TIER_VARIABLE_PRICE, _("Pay-what-you-can tiers cannot be listed externally.")
     # `restricted_to_membership_tiers` is prefetched by map_event()'s queryset, so `.exists()`
@@ -145,6 +156,13 @@ def _tier_skip(tier: TicketTier, event: Event, currency: str) -> tuple[Integrati
         return IntegrationErrorCode.TIER_NO_CAPACITY, _(
             "Set a quantity on the tier or a maximum attendance on the event."
         )
+    return None
+
+
+def _tier_skip(tier: TicketTier, event: Event, currency: str) -> tuple[IntegrationErrorCode, str] | None:
+    skip = _tier_skip_before_currency(tier, event)
+    if skip is not None:
+        return skip
     if tier.currency != currency:
         return IntegrationErrorCode.TIER_CURRENCY_MISMATCH, _(
             "The platform allows one currency per event; this tier uses another."
@@ -165,7 +183,10 @@ def map_event(event: Event, *, remote_paused: dict[UUID, bool], remote_tier_ids:
     tiers = list(
         event.ticket_tiers.prefetch_related("restricted_to_membership_tiers").order_by("display_order", "name")
     )
-    currency = _majority_currency(tiers)
+    # Vote only among tiers that are otherwise listable: counting tiers that will be skipped for
+    # another reason can elect a currency none of the survivors use, rejecting every tier.
+    listable = [tier for tier in tiers if _tier_skip_before_currency(tier, event) is None]
+    currency = _majority_currency(listable or tiers)
     report: list[SyncReportEntry] = []
     mapped: list[MappedTier] = []
     for tier in tiers:
@@ -187,9 +208,7 @@ def map_event(event: Event, *, remote_paused: dict[UUID, bool], remote_tier_ids:
                     quantity_total=quantity,
                     sales_start=tier.sales_start_at,
                     sales_end=tier.sales_end_at,
-                    hidden=tier.visibility != TicketTier.Visibility.PUBLIC
-                    or tier.sales_paused
-                    or remote_paused.get(tier.id, False),
+                    hidden=tier_hidden(tier, remote_paused.get(tier.id, False)),
                     description=tier.description or "",
                 ),
             )

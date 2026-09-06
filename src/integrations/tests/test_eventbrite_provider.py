@@ -285,3 +285,23 @@ def test_budget_ttl_is_clamped(header: str, expected_ttl: int, monkeypatch: pyte
     )
     client._record_budget(httpx.Response(200, headers={"x-rate-limit": header}))
     assert calls == [expected_ttl]
+
+
+def test_a_cache_outage_never_fails_a_successful_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Budget bookkeeping is advisory and runs after the response.
+
+    Letting a Redis outage raise here would discard the body of a successful ``create_event`` —
+    losing the new remote ID and duplicating the listing on the retry.
+    """
+
+    def _boom(key: str, value: int, timeout: int) -> None:
+        raise ConnectionError("redis is down")
+
+    monkeypatch.setattr("integrations.providers.eventbrite.client.cache.set", _boom)
+    rec = Recorder({("POST", "/v3/organizations/acc-1/events/"): (200, {"id": "999", "url": "u", "status": "draft"})})
+
+    body = client.EventbriteClient("TOK", transport=rec.transport()).request(
+        "POST", "/organizations/acc-1/events/", json={}
+    )
+
+    assert body["id"] == "999"

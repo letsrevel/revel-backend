@@ -2,6 +2,7 @@ import typing as t
 from uuid import UUID
 
 from django.http import HttpRequest
+from django.utils.translation import gettext_lazy as _
 from ninja_extra import (
     ControllerBase,
     api_controller,
@@ -202,6 +203,8 @@ class CanPurchaseTicket(RootPermission):
     ) -> bool:
         """Check if user can purchase from this tier."""
         user = t.cast(RevelUser, request.user)
+        if obj.sales_paused:
+            raise PermissionDenied(str(_("Ticket sales are paused.")))
         if not obj.can_purchase():
             raise PermissionDenied("You're outside of the sale window.")
         if obj.purchasable_by == models.TicketTier.PurchasableBy.PUBLIC:

@@ -2,8 +2,9 @@
 
 import typing as t
 from datetime import UTC, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
+from events.utils.currency import to_stripe_amount
 from integrations.providers.base import RemoteEvent, RemoteEventSummary, RemoteStatus, RemoteTicketClass, RemoteVenue
 
 _LIVE_STATUSES = {"live", "started", "ended", "completed"}
@@ -18,9 +19,14 @@ def _parse_z(value: str) -> datetime:
     return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
 
 
-def minor_units(price: Decimal) -> int:
-    """Major → minor units (cents), half-up."""
-    return int((price * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+def minor_units(price: Decimal, currency: str) -> int:
+    """Major → smallest currency unit, half-up.
+
+    Delegates to the shared ISO-4217 helper rather than hand-rolling ``price * 100``: zero-decimal
+    currencies (JPY, KRW, ...) take no scaling at all, and Eventbrite reads ``cost`` in the same
+    smallest-unit convention Stripe does. Hard-coding ×100 listed a ¥1,000 tier at ¥100,000.
+    """
+    return to_stripe_amount(price, currency)
 
 
 def status_from_eventbrite(status: str) -> RemoteStatus:
@@ -32,8 +38,12 @@ def status_from_eventbrite(status: str) -> RemoteStatus:
     return "draft"
 
 
-def to_eventbrite_event(event: RemoteEvent, *, venue_id: str | None) -> dict[str, t.Any]:
-    """Create/update body. Never sends the legacy ``description`` (conflicts with ``summary``)."""
+def to_eventbrite_event(event: RemoteEvent, *, venue_id: str | None, clear_venue: bool = False) -> dict[str, t.Any]:
+    """Create/update body. Never sends the legacy ``description`` (conflicts with ``summary``).
+
+    ``clear_venue`` is for the update path only: Eventbrite leaves omitted fields untouched, so a
+    Revel event that lost its venue must send an explicit empty ``venue_id`` to detach the old one.
+    """
     body: dict[str, t.Any] = {
         "name": {"html": event.name},
         "start": {"timezone": event.timezone, "utc": iso_z(event.start)},
@@ -46,6 +56,8 @@ def to_eventbrite_event(event: RemoteEvent, *, venue_id: str | None) -> dict[str
         body["summary"] = event.summary
     if venue_id:
         body["venue_id"] = venue_id
+    elif clear_venue:
+        body["venue_id"] = ""
     return {"event": body}
 
 
@@ -72,7 +84,7 @@ def to_eventbrite_ticket_class(tc: RemoteTicketClass) -> dict[str, t.Any]:
     if tc.is_free:
         body["free"] = True
     else:
-        body["cost"] = f"{tc.currency},{minor_units(tc.price)}"
+        body["cost"] = f"{tc.currency},{minor_units(tc.price, tc.currency)}"
     if tc.sales_start:
         body["sales_start"] = iso_z(tc.sales_start)
     if tc.sales_end:
@@ -85,6 +97,22 @@ def to_eventbrite_ticket_class(tc: RemoteTicketClass) -> dict[str, t.Any]:
 def to_eventbrite_structured_content(html: str) -> dict[str, t.Any]:
     """Wrap raw HTML as a single published text module for the structured-content endpoint."""
     return {"modules": [{"type": "text", "data": {"body": {"text": html, "alignment": "left"}}}], "publish": True}
+
+
+def from_eventbrite_structured_content(data: dict[str, t.Any]) -> str:
+    """Concatenate the text modules of a structured-content page into one HTML blob.
+
+    The modern Eventbrite editor writes the body here and leaves the legacy ``description.html``
+    null, so an import that reads only the legacy field lands a Revel draft with no description.
+    """
+    parts: list[str] = []
+    for module in data.get("modules") or []:
+        if not isinstance(module, dict) or module.get("type") != "text":
+            continue
+        text = ((module.get("data") or {}).get("body") or {}).get("text")
+        if text:
+            parts.append(str(text))
+    return "".join(parts)
 
 
 def from_eventbrite_ticket_class(data: dict[str, t.Any]) -> RemoteTicketClass:

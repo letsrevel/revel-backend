@@ -8,10 +8,13 @@ import re
 import typing as t
 
 import httpx
+import structlog
 from django.core.cache import cache
 
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
+
+logger = structlog.get_logger(__name__)
 
 API_BASE = "https://www.eventbriteapi.com/v3"
 API_HOST = "www.eventbriteapi.com"
@@ -41,7 +44,15 @@ def _record_budget(response: httpx.Response) -> None:
     if match is None:
         return
     used, limit = int(match.group(1)), int(match.group(2))
-    cache.set(BUDGET_CACHE_KEY, max(limit - used, 0), _budget_ttl(match.group(3)))
+    try:
+        cache.set(BUDGET_CACHE_KEY, max(limit - used, 0), _budget_ttl(match.group(3)))
+    except Exception as e:
+        # Fail open, like the auto-sync debounce in integrations/signals.py: the cache backend
+        # raises on connection failures (see the CACHES comment in revel/settings/base.py), and
+        # this bookkeeping runs *after* a successful call. Letting it raise would discard the
+        # response body — losing a freshly created event's remote ID and duplicating the listing
+        # on retry. A missing reading only makes the reconcile treat the budget as unknown.
+        logger.warning("integration_budget_cache_unavailable", error=str(e))
 
 
 def _error_message(body: dict[str, t.Any]) -> str | None:

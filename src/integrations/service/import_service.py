@@ -67,8 +67,13 @@ def request_import(organization: Organization, provider_key: str, remote_ids: li
     return ImportResultSchema(queued=queued, skipped=[rid for rid in dict.fromkeys(remote_ids) if rid in linked])
 
 
-def _tier_from_remote(event: Event, tc: RemoteTicketClass) -> TicketTier:
+def _tier_from_remote(event: Event, tc: RemoteTicketClass, *, fallback_currency: str) -> TicketTier:
     """Create one draft ``TicketTier`` mirroring a remote ticket class.
+
+    ``fallback_currency`` is the remote *event's* currency, used when the class carries none of
+    its own — free classes usually have no ``cost`` object at all. Falling back to the instance
+    default instead would import them in the wrong currency, and the next push would drop them
+    as a currency mismatch.
 
     Raises:
         ValidationError: if the remote class maps to an invalid tier (e.g. a sales window that
@@ -78,7 +83,7 @@ def _tier_from_remote(event: Event, tc: RemoteTicketClass) -> TicketTier:
         event=event,
         name=tc.name[:255],
         price=tc.price,
-        currency=(tc.currency or str(settings.DEFAULT_CURRENCY))[:3],
+        currency=(tc.currency or fallback_currency or str(settings.DEFAULT_CURRENCY))[:3],
         total_quantity=tc.quantity_total or None,
         sales_start_at=tc.sales_start,
         sales_end_at=tc.sales_end,
@@ -109,12 +114,15 @@ def import_remote_event(connection: PlatformConnection, remote_id: str) -> Event
         location = Point(remote.venue.longitude, remote.venue.latitude, srid=4326)
         city = mapper.nearest_city(remote.venue.latitude, remote.venue.longitude)
     address = (remote.venue.address if remote.venue else "")[:255] or None
+    # The modern editor leaves `description.html` null and keeps the body in structured content,
+    # so ask for it explicitly rather than importing an event with no description.
+    description_html = remote.description_html or provider.get_description(connection.token(), remote_id)
     try:
         with transaction.atomic():
             event = Event.objects.create(
                 organization=connection.organization,
                 name=remote.name[:255],
-                description=markdownify(sanitize_html(remote.description_html)).strip() or None,
+                description=markdownify(sanitize_html(description_html)).strip() or None,
                 status=Event.EventStatus.DRAFT,
                 event_type=Event.EventType.PUBLIC,
                 requires_ticket=True,
@@ -130,7 +138,7 @@ def import_remote_event(connection: PlatformConnection, remote_id: str) -> Event
             report: list[SyncReportEntry] = []
             for tc in remote.ticket_classes:
                 try:
-                    tiers.append((_tier_from_remote(event, tc), tc))
+                    tiers.append((_tier_from_remote(event, tc, fallback_currency=remote.currency), tc))
                 except ValidationError as e:
                     logger.warning("integration_import_tier_skipped", remote_id=tc.remote_id, error=str(e))
                     report.append(

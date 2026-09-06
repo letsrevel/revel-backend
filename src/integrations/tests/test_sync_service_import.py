@@ -247,3 +247,52 @@ def test_import_sanitizes_description_html_before_markdown(
 
     assert link.event.description is not None
     assert "javascript:" not in link.event.description
+
+
+def test_free_class_without_a_cost_inherits_the_event_currency(
+    connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    """Free Eventbrite classes carry no ``cost``, so the class currency is blank.
+
+    Falling back to the instance default would import the tier in the wrong currency and the next
+    push would drop it as a currency mismatch.
+    """
+    ev = RemoteEvent(
+        name="Yen Night",
+        start=START,
+        end=START + timedelta(hours=2),
+        timezone="Asia/Tokyo",
+        currency="JPY",
+    )
+    ref = fake_provider.create_event(connected.token(), "acc-1", ev)
+    fake_provider.upsert_ticket_class(
+        connected.token(),
+        ref.remote_id,
+        RemoteTicketClass(name="Free", price=Decimal("0"), currency="", is_free=True, quantity_total=10),
+    )
+
+    link = import_service.import_remote_event(connected, ref.remote_id)
+
+    assert link.event.ticket_tiers.get(name="Free").currency == "JPY"
+
+
+def test_import_reads_structured_content_when_the_legacy_description_is_empty(
+    connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    """The modern editor leaves ``description.html`` null and keeps the body in structured content."""
+    ev = RemoteEvent(
+        name="Structured",
+        description_html="",
+        start=START,
+        end=START + timedelta(hours=2),
+        timezone="Europe/Vienna",
+        currency="EUR",
+    )
+    ref = fake_provider.create_event(connected.token(), "acc-1", ev)
+    fake_provider.descriptions[ref.remote_id] = "<p>The <strong>real</strong> body.</p>"
+
+    link = import_service.import_remote_event(connected, ref.remote_id)
+
+    assert link.event.description is not None
+    assert "real" in link.event.description
+    assert ("get_description", ref.remote_id) in fake_provider.calls

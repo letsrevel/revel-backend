@@ -80,7 +80,15 @@ def test_ticket_class_paid_and_free() -> None:
 
 @pytest.mark.parametrize(("price", "minor"), [("15.00", 1500), ("0.1", 10), ("19.995", 2000), ("7", 700)])
 def test_minor_units(price: str, minor: int) -> None:
-    assert tr.minor_units(Decimal(price)) == minor
+    assert tr.minor_units(Decimal(price), "EUR") == minor
+
+
+@pytest.mark.parametrize(("currency", "price", "minor"), [("JPY", "1000", 1000), ("KRW", "5000", 5000)])
+def test_minor_units_zero_decimal_currencies_are_not_scaled(currency: str, price: str, minor: int) -> None:
+    """A ¥1,000 tier is ``JPY,1000`` — scaling it by 100 would list it at a hundred times the price."""
+    assert tr.minor_units(Decimal(price), currency) == minor
+    tc = RemoteTicketClass(name="Regular", price=Decimal(price), currency=currency, is_free=False, quantity_total=10)
+    assert tr.to_eventbrite_ticket_class(tc)["ticket_class"]["cost"] == f"{currency},{minor}"
 
 
 def test_venue_payload() -> None:

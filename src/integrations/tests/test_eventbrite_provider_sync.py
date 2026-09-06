@@ -266,3 +266,46 @@ def test_publish_rejected_carries_message() -> None:
     assert (
         exc.value.code == IntegrationErrorCode.PROVIDER_REJECTED and exc.value.provider_message == "Venue is required"
     )
+
+
+def test_list_accounts_follows_pagination() -> None:
+    """Organizations page like events do; stopping at page one hides accounts from the picker."""
+    page1 = {
+        "pagination": {"has_more_items": True, "continuation": "cont-acc-1"},
+        "organizations": [{"id": "org-1", "name": "First"}],
+    }
+    page2 = {"pagination": {"has_more_items": False}, "organizations": [{"id": "org-2", "name": "Second"}]}
+    calls: list[dict[str, t.Any]] = []
+
+    import httpx
+
+    from integrations.providers.eventbrite.provider import EventbriteProvider
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = dict(request.url.params)
+        calls.append(params)
+        return httpx.Response(200, json=page2 if params.get("continuation") == "cont-acc-1" else page1)
+
+    provider = EventbriteProvider(client_id="K", client_secret="S", transport=httpx.MockTransport(handler))
+    accounts = provider.list_accounts(TOKEN)
+
+    assert [a.remote_id for a in accounts] == ["org-1", "org-2"]
+    assert len(calls) == 2 and calls[1]["continuation"] == "cont-acc-1"
+
+
+def test_update_clears_the_venue_when_the_event_lost_one() -> None:
+    """Eventbrite leaves omitted fields untouched, so a venue-less update must blank ``venue_id``."""
+    rec = Recorder({("POST", "/v3/events/123/"): (200, {"id": "123", "url": "u", "status": "draft"})})
+    rec.provider().update_event(TOKEN, "123", _remote_event(with_venue=False))
+
+    body = json.loads(rec.requests[-1].content)["event"]
+    assert body["venue_id"] == ""
+
+
+def test_get_description_reads_structured_content_and_tolerates_404() -> None:
+    """The modern editor keeps the body here; a 404 just means the event has none yet."""
+    rec = Recorder({("GET", "/v3/events/123/structured_content/"): (200, _fixture("structured_content_set"))})
+    assert "<p>" in rec.provider().get_description(TOKEN, "123")
+
+    empty = Recorder({})
+    assert empty.provider().get_description(TOKEN, "123") == ""

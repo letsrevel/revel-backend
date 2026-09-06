@@ -60,6 +60,9 @@ class FakeProvider:
         self._event_counter = 0
         self._tc_counter = 0
         self.orders: dict[str, str] = {}  # order id -> event id
+        # Long-form body kept apart from `description_html`, mirroring platforms (Eventbrite)
+        # where the listing read leaves the legacy field null and the body lives elsewhere.
+        self.descriptions: dict[str, str] = {}
         self.budget: int | None = None
 
     def authorize_url(self, state: str, redirect_uri: str) -> str:
@@ -172,6 +175,11 @@ class FakeProvider:
             },
         )
         return RemoteEventRef(remote_id=remote_id, url=current.url, status=current.status)
+
+    def get_description(self, token: TokenSet, remote_id: str) -> str:
+        """Long-form description HTML, for imports; falls back to the inline field."""
+        self._guard("get_description", remote_id)
+        return self.descriptions.get(remote_id, self._stored(remote_id).description_html)
 
     def set_description(self, token: TokenSet, remote_id: str, html: str) -> None:
         """Set long-form description (structured content on some platforms)."""

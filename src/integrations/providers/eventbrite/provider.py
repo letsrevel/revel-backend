@@ -97,15 +97,24 @@ class EventbriteProvider:
         """Eventbrite has no revocation endpoint; the owner removes the app in their account settings."""
 
     def list_accounts(self, token: TokenSet) -> list[RemoteAccount]:
-        """List remote accounts accessible with the given token."""
-        body = self._client(token).request("GET", "/users/me/organizations/")
-        try:
-            return [
-                RemoteAccount(remote_id=str(o["id"]), name=str(o.get("name") or o["id"]))
-                for o in body.get("organizations", [])
-            ]
-        except (KeyError, TypeError) as e:
-            raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response shape") from e
+        """List remote accounts accessible with the given token, following ``pagination.continuation``."""
+        client = self._client(token)
+        params: dict[str, t.Any] = {}
+        accounts: list[RemoteAccount] = []
+        for _ in range(MAX_LIST_PAGES):
+            body = client.request("GET", "/users/me/organizations/", params=params or None)
+            try:
+                accounts.extend(
+                    RemoteAccount(remote_id=str(o["id"]), name=str(o.get("name") or o["id"]))
+                    for o in body.get("organizations", [])
+                )
+                pagination = body.get("pagination") or {}
+                if not pagination.get("has_more_items"):
+                    break
+                params["continuation"] = pagination["continuation"]
+            except (KeyError, TypeError) as e:
+                raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected response shape") from e
+        return accounts
 
     # -- webhooks ---------------------------------------------------------------------
     def register_webhook(self, token: TokenSet, account_id: str, url: str) -> str:
@@ -237,9 +246,23 @@ class EventbriteProvider:
                 org = self._shape(lambda: str(current["organization_id"]))
                 venue_id = self._create_venue(token, org, event.venue)
         body = self._client(token).request(
-            "POST", f"/events/{remote_id}/", json=tr.to_eventbrite_event(event, venue_id=venue_id)
+            "POST", f"/events/{remote_id}/", json=tr.to_eventbrite_event(event, venue_id=venue_id, clear_venue=True)
         )
         return self._ref(body)
+
+    def get_description(self, token: TokenSet, remote_id: str) -> str:
+        """Long-form description HTML from structured content; ``""`` when the event has none.
+
+        Kept off ``get_event`` on purpose: that call is also the counts refresh, which runs on
+        every order webhook and on the 15-minute reconcile, and must stay one request.
+        """
+        try:
+            body = self._client(token).request("GET", f"/events/{remote_id}/structured_content/")
+        except ProviderError as e:
+            if e.code == IntegrationErrorCode.REMOTE_EVENT_MISSING:  # 404 = no structured content
+                return ""
+            raise
+        return tr.from_eventbrite_structured_content(body)
 
     def set_description(self, token: TokenSet, remote_id: str, html: str) -> None:
         """Set long-form description via the structured-content endpoint."""

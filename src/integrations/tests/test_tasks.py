@@ -146,3 +146,19 @@ def test_beat_rows_exist(db: None) -> None:
     assert rows["Reconcile platform listing counts"].interval.every == 15
     assert rows["Reconcile platform listing counts"].interval.period == "minutes"
     assert rows["Prune platform webhook deliveries"].crontab.hour == "4"
+
+
+@pytest.mark.django_db
+def test_transient_failure_keeps_the_providers_own_error_code(pushed: EventLink, fake_provider: FakeProvider) -> None:
+    """5xx and transport errors are retryable too, but they are not rate limits.
+
+    The report codes are a stable contract the frontend renders copy from, so recording every
+    transient failure as ``provider_rate_limited`` tells the organizer the wrong story.
+    """
+    fake_provider.fail["update_event"] = ProviderError(
+        IntegrationErrorCode.PROVIDER_REJECTED, "502 Bad Gateway", retryable=True
+    )
+    with pytest.raises(RetryableProviderError):
+        tasks.push_event_link(str(pushed.id))
+    pushed.refresh_from_db()
+    assert [e["code"] for e in pushed.sync_report] == [IntegrationErrorCode.PROVIDER_REJECTED.value]

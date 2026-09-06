@@ -205,3 +205,44 @@ def test_inactive_connection_is_ignored(connected: PlatformConnection, pushed: E
     webhook_service.handle_delivery(d.id)
     d.refresh_from_db()
     assert d.outcome == WebhookDelivery.Outcome.IGNORED
+
+
+def test_retryable_order_resolution_leaves_the_delivery_received(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    """A 429 while resolving an *order* pointer must retry, not fail the delivery permanently.
+
+    The client signals transience with ``retryable=True`` on a plain ``ProviderError``; if that is
+    not upgraded to ``RetryableProviderError`` the task's autoretry never fires and the order's
+    counts are lost.
+    """
+    fake_provider.orders["ord-1"] = pushed.remote_id
+    fake_provider.fail["resolve_notification"] = ProviderError(
+        IntegrationErrorCode.PROVIDER_RATE_LIMITED, "429", retryable=True
+    )
+    d = _deliver(connected, "order.placed", "/orders/ord-1/")
+
+    with pytest.raises(RetryableProviderError):
+        webhook_service.handle_delivery(d.id)
+
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.RECEIVED
+
+
+def test_exhausted_retries_mark_the_delivery_failed(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    """The row must not claim pending work once the retry budget is spent."""
+    fake_provider.orders["ord-2"] = pushed.remote_id
+    fake_provider.fail["resolve_notification"] = ProviderError(
+        IntegrationErrorCode.PROVIDER_RATE_LIMITED, "429", retryable=True
+    )
+    d = _deliver(connected, "order.placed", "/orders/ord-2/")
+
+    # `apply(retries=...)` runs the task eagerly with a spent budget; celery re-raises the
+    # original exception rather than MaxRetriesExceededError because we hand it an ``exc``.
+    with pytest.raises(RetryableProviderError):
+        tasks.handle_webhook_delivery.apply(args=(str(d.id),), retries=tasks.WEBHOOK_MAX_RETRIES)
+
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.FAILED

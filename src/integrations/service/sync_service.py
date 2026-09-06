@@ -311,7 +311,9 @@ def note_retry(link: EventLink, error: ProviderError, *, exhausted: bool = False
         else _("The platform is busy; the push will be retried shortly.")
     )
     state = EventLink.SyncState.FAILED if exhausted else EventLink.SyncState.PENDING
-    entry = report_entry(IntegrationErrorCode.PROVIDER_RATE_LIMITED, str(detail), error.provider_message)
+    # Keep the provider's own code: a 5xx and a transport error are both retryable but arrive as
+    # `provider_rejected`, and the codes are a stable contract the frontend renders copy from.
+    entry = report_entry(error.code, str(detail), error.provider_message)
     return _write_report(link, [entry], state)
 
 
@@ -439,8 +441,12 @@ def set_remote_paused(event: Event, provider_key: str, *, tier_id: UUID | None, 
     failed: list[TierPauseFailureSchema] = []
     for index, tl in enumerate(links):
         tier = t.cast(TicketTier, tl.tier)
+        # Resuming clears the organizer's remote pause, but the class must stay hidden when the
+        # tier is unlisted or locally `sales_paused` — otherwise resume puts a tier on sale
+        # externally that nobody can buy on Revel.
+        hidden = mapper.tier_hidden(tier, paused)
         try:
-            provider.set_ticket_class_paused(token, link.remote_id, tl.remote_id, paused)
+            provider.set_ticket_class_paused(token, link.remote_id, tl.remote_id, hidden)
         except ProviderError as e:
             revoked = e.code == IntegrationErrorCode.CONNECTION_REVOKED
             failed.append(

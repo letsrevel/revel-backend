@@ -170,6 +170,13 @@ class ListingProvider(t.Protocol):
     def update_event(self, token: TokenSet, remote_id: str, event: RemoteEvent) -> RemoteEventRef:
         """Update a remote event."""
 
+    def get_description(self, token: TokenSet, remote_id: str) -> str:
+        """Long-form description HTML, for imports; ``""`` when the platform has none.
+
+        Separate from ``get_event`` because that call doubles as the counts refresh and must
+        stay a single request on the webhook and reconcile paths.
+        """
+
     def set_description(self, token: TokenSet, remote_id: str, html: str) -> None:
         """Set long-form description (structured content on some platforms)."""
 

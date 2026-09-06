@@ -66,3 +66,23 @@ def test_admin_can_toggle_sales_paused(organization_owner_client: Client, ticket
     assert response.json()["sales_paused"] is True
     ticket_tier.refresh_from_db()
     assert ticket_tier.sales_paused is True
+
+
+def test_paused_tier_403s_with_a_pause_message_not_a_sale_window_one() -> None:
+    """A paused tier's sale window is usually wide open; saying otherwise misleads the buyer."""
+    from ninja.errors import HttpError
+
+    from events.service.batch_ticket_service.eligibility import assert_sale_window
+
+    tier = TicketTier(name="General", price=10, sales_paused=True)
+    with pytest.raises(HttpError) as exc:
+        assert_sale_window(tier)
+    assert "paused" in str(exc.value).lower()
+    assert "sale window" not in str(exc.value).lower()
+
+
+def test_anonymous_listing_does_not_advertise_a_paused_tier(event: Event, ticket_tier: TicketTier) -> None:
+    """The public tier list must not report ``can_purchase`` for a tier nobody can buy."""
+    assert ticket_service.anonymous_can_purchase(ticket_tier, event, None) is True
+    ticket_tier.sales_paused = True
+    assert ticket_service.anonymous_can_purchase(ticket_tier, event, None) is False

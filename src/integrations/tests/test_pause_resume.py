@@ -167,3 +167,29 @@ def test_endpoints(organization_owner_client: Client, pushed: EventLink, fake_pr
         url, data=orjson.dumps({"tier_id": str(ga.id)}), content_type="application/json"
     )
     assert response.status_code == 200 and response.json()["updated"] == [str(ga.id)]
+
+
+def test_resume_keeps_a_locally_paused_tier_hidden(pushed: EventLink, fake_provider: FakeProvider) -> None:
+    """Clearing the remote pause must not put a tier on sale that Revel itself has paused."""
+    sync_service.set_remote_paused(pushed.event, "fake", tier_id=None, paused=True)
+    ga = pushed.event.ticket_tiers.get(name="GA")
+    ga.sales_paused = True
+    ga.save(update_fields=["sales_paused"])
+
+    sync_service.set_remote_paused(pushed.event, "fake", tier_id=None, paused=False)
+
+    assert _hidden(fake_provider, pushed.remote_id) == {"GA": True, "VIP": False}
+    # The organizer's own remote-pause record is still cleared for both.
+    assert set(TierLink.objects.filter(event_link=pushed).values_list("remote_paused", flat=True)) == {False}
+
+
+def test_resume_keeps_an_unlisted_tier_hidden(pushed: EventLink, fake_provider: FakeProvider) -> None:
+    """Same rule for visibility: an unlisted tier stays hidden remotely after a resume."""
+    sync_service.set_remote_paused(pushed.event, "fake", tier_id=None, paused=True)
+    vip = pushed.event.ticket_tiers.get(name="VIP")
+    vip.visibility = TicketTier.Visibility.UNLISTED
+    vip.save(update_fields=["visibility"])
+
+    sync_service.set_remote_paused(pushed.event, "fake", tier_id=None, paused=False)
+
+    assert _hidden(fake_provider, pushed.remote_id) == {"GA": False, "VIP": True}

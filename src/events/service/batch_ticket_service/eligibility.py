@@ -40,10 +40,13 @@ def assert_sale_window(tier: TicketTier) -> None:
         tier: The tier being purchased from.
 
     Raises:
-        HttpError: 403 when the tier's sale window is not currently open. No staff
+        HttpError: 403 when the tier is paused or its sale window is not currently open. No staff
             exemption — matches CanPurchaseTicket, which checked the window before
-            any exemption.
+            any exemption. The pause is reported separately: ``can_purchase()`` covers both, and
+            telling a buyer they are "outside of the sale window" while it is wide open is wrong.
     """
+    if tier.sales_paused:
+        raise HttpError(403, str(_("Ticket sales are paused.")))
     if not tier.can_purchase():
         raise HttpError(403, str(_("You're outside of the sale window.")))
 

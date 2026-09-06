@@ -13,6 +13,7 @@ from integrations.exceptions import RetryableProviderError
 logger = structlog.get_logger(__name__)
 
 MAX_RETRIES = 5
+WEBHOOK_MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 30
 RETRY_BACKOFF_MAX_SECONDS = 600
 
@@ -84,17 +85,16 @@ def import_remote_event(connection_id: str, remote_id: str) -> None:
     import_service.import_remote_event(conn, remote_id)
 
 
-@shared_task(
-    name="integrations.handle_webhook_delivery",
-    autoretry_for=(RetryableProviderError,),
-    retry_backoff=RETRY_BACKOFF_SECONDS,
-    retry_backoff_max=RETRY_BACKOFF_MAX_SECONDS,
-    max_retries=3,
-)
-def handle_webhook_delivery(delivery_id: str) -> None:
+@shared_task(bind=True, name="integrations.handle_webhook_delivery", max_retries=WEBHOOK_MAX_RETRIES)
+def handle_webhook_delivery(self: t.Any, delivery_id: str) -> None:
     """Process one recorded webhook delivery (spec §8).
 
+    ``handle_delivery`` leaves a retryable failure RECEIVED so the retry can finish it, so this
+    task owns the other half of that contract: once the budget is spent the row is marked FAILED
+    rather than claiming pending work forever.
+
     Args:
+        self: Celery task instance (automatically passed when bind=True).
         delivery_id: UUID (as a string) of the ``WebhookDelivery`` row to process.
     """
     from integrations.models import WebhookDelivery
@@ -103,7 +103,17 @@ def handle_webhook_delivery(delivery_id: str) -> None:
     if not WebhookDelivery.objects.filter(id=delivery_id).exists():
         logger.info("integration_webhook_skipped_missing_delivery", delivery_id=delivery_id)
         return
-    webhook_service.handle_delivery(UUID(delivery_id))
+    try:
+        webhook_service.handle_delivery(UUID(delivery_id))
+    except RetryableProviderError as e:
+        try:
+            raise self.retry(exc=e, countdown=_retry_countdown(self.request.retries))
+        except MaxRetriesExceededError, RetryableProviderError:
+            # Same shape as push_event_link: Celery re-raises the passed ``exc`` instead of
+            # MaxRetriesExceededError, and does so too when the task is called directly.
+            if self.request.retries >= WEBHOOK_MAX_RETRIES:
+                webhook_service.mark_exhausted(UUID(delivery_id))
+            raise
 
 
 @shared_task(
