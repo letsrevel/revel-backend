@@ -5,6 +5,7 @@ from datetime import timedelta
 
 import structlog
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import F, Min, QuerySet
 from django.utils import timezone
 
@@ -14,6 +15,11 @@ from integrations.models import EventLink, PlatformConnection, WebhookDelivery
 from integrations.service import sync_service
 
 logger = structlog.get_logger(__name__)
+
+RECONCILE_LOCK_KEY = "integrations:reconcile:lock"
+# Longer than any healthy sweep, short enough that a worker killed mid-sweep frees the lock
+# before the next beat tick but one.
+RECONCILE_LOCK_TTL_SECONDS = 900
 
 
 @dataclass(frozen=True)
@@ -43,7 +49,22 @@ def links_due_for_reconcile() -> QuerySet[EventLink]:
 
 
 def reconcile_counts() -> ReconcileSummary:
-    """Refresh counts for due links, per provider, until the shared budget reaches the reserve."""
+    """Refresh counts for due links, per provider, until the shared budget reaches the reserve.
+
+    Guarded against overlap: a sweep that outlives its 15-minute beat interval would otherwise
+    have a second one racing it through the same links and spending the same shared budget.
+    """
+    if not cache.add(RECONCILE_LOCK_KEY, 1, RECONCILE_LOCK_TTL_SECONDS):
+        logger.info("integration_reconcile_skipped_overlap")
+        return ReconcileSummary(0, 0, 0)
+    try:
+        return _reconcile_counts()
+    finally:
+        cache.delete(RECONCILE_LOCK_KEY)
+
+
+def _reconcile_counts() -> ReconcileSummary:
+    """The sweep itself; ``reconcile_counts`` holds the overlap lock around it."""
     refreshed = skipped = failed = 0
     stopped: set[str] = set()
     unknown_budget_logged: set[str] = set()

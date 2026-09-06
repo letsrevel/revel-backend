@@ -10,7 +10,13 @@ from django.test import RequestFactory
 
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError
-from integrations.providers.base import ListingProvider, TokenSet
+from integrations.providers.base import (
+    ListingProvider,
+    ResolvedNotification,
+    TokenSet,
+    WebhookNotification,
+)
+from integrations.providers.eventbrite import client
 from integrations.providers.eventbrite.provider import EventbriteProvider
 from integrations.tests.recorder import Recorder
 
@@ -183,7 +189,18 @@ def test_parse_webhook_strips_host_and_reads_action_from_body() -> None:
     n = _provider(Recorder({})).parse_webhook(request)
     assert n.action == "event.published"
     assert n.resource_path == "/events/1999760883635/"
+    body["config"].pop("endpoint_url")  # redacted (see the test below); everything else round-trips
     assert n.raw == body
+
+
+def test_parse_webhook_redacts_the_endpoint_url() -> None:
+    """``config.endpoint_url`` carries our webhook secret; the stored payload must not."""
+    body = _fixture("webhook_delivery_event_published")
+    assert "endpoint_url" in body["config"]  # the delivery really does echo it back
+    request = RequestFactory().post("/x", data=json.dumps(body), content_type="application/json")
+    n = _provider(Recorder({})).parse_webhook(request)
+    assert "endpoint_url" not in n.raw["config"]
+    assert "s3cret" not in json.dumps(n.raw)
 
 
 def test_parse_webhook_rejects_foreign_host() -> None:
@@ -214,3 +231,57 @@ def test_parse_webhook_rejects_malformed() -> None:
     request = RequestFactory().post("/x", data="not json", content_type="application/json")
     with pytest.raises(ProviderError):
         _provider(Recorder({})).parse_webhook(request)
+
+
+def test_resolve_notification_ignores_a_vanished_order() -> None:
+    """A 404 on the order fetch resolves to ``ignored``: there is no event to refresh, ever."""
+    rec = Recorder({})  # every route 404s
+    resolved = _provider(rec).resolve_notification(
+        TokenSet(access_token="TOK"),
+        WebhookNotification(action="order.placed", resource_path="/orders/123/", raw={}),
+    )
+    assert resolved == ResolvedNotification(remote_event_id=None, kind="ignored")
+    assert [(r.method, r.url.path) for r in rec.requests] == [("GET", "/v3/orders/123/")]
+
+
+def test_resolve_notification_reraises_other_order_failures() -> None:
+    """Only ``remote_event_missing`` is swallowed; a 401 must still surface."""
+    rec = Recorder({("GET", "/v3/orders/123/"): (401, {"error": "UNAUTHORIZED"})})
+    with pytest.raises(ProviderError) as exc:
+        _provider(rec).resolve_notification(
+            TokenSet(access_token="TOK"),
+            WebhookNotification(action="order.placed", resource_path="/orders/123/", raw={}),
+        )
+    assert exc.value.code == IntegrationErrorCode.CONNECTION_REVOKED
+
+
+def test_budget_ttl_follows_the_bucket_reset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The cached budget expires with the bucket it was read from, not an hour later."""
+    calls: list[tuple[str, int, int]] = []
+
+    def _set(key: str, value: int, timeout: int) -> None:
+        calls.append((key, value, timeout))
+
+    monkeypatch.setattr("integrations.providers.eventbrite.client.cache.set", _set)
+    client._record_budget(
+        httpx.Response(200, headers={"x-rate-limit": "key:APPKEY 1500/2000 reset=120s, token:TOK 10/2000"})
+    )
+    assert calls == [(client.BUDGET_CACHE_KEY, 500, 120)]
+
+
+@pytest.mark.parametrize(
+    ("header", "expected_ttl"),
+    [
+        ("key:APPKEY 1500/2000", client.BUDGET_CACHE_TTL),  # no reset reported
+        ("key:APPKEY 1500/2000 reset=5s", client.BUDGET_CACHE_TTL_MIN),  # clamped up
+        ("key:APPKEY 1500/2000 reset=99999s", client.BUDGET_CACHE_TTL),  # clamped down
+    ],
+)
+def test_budget_ttl_is_clamped(header: str, expected_ttl: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr(
+        "integrations.providers.eventbrite.client.cache.set",
+        lambda key, value, timeout: calls.append(timeout),
+    )
+    client._record_budget(httpx.Response(200, headers={"x-rate-limit": header}))
+    assert calls == [expected_ttl]

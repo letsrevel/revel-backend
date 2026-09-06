@@ -139,6 +139,10 @@ class EventbriteProvider:
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "malformed webhook body") from e
         if parts.scheme != "https" or parts.hostname != API_HOST or not port_ok or not parts.path.startswith("/v3/"):
             raise ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "unexpected resource host")
+        # `config.endpoint_url` echoes back our own callback URL, whose path carries the
+        # connection's webhook secret. The payload is stored verbatim in the audit log, so the
+        # secret must not travel with it.
+        raw["config"].pop("endpoint_url", None)
         return WebhookNotification(action=action, resource_path=parts.path.removeprefix("/v3"), raw=raw)
 
     def resolve_notification(self, token: TokenSet, notification: WebhookNotification) -> ResolvedNotification:
@@ -149,7 +153,14 @@ class EventbriteProvider:
         if match := _EVENT_PATH.match(notification.resource_path):
             return ResolvedNotification(remote_event_id=match.group(1), kind=kind)
         if match := _ORDER_PATH.match(notification.resource_path):
-            body = self._client(token).request("GET", f"/orders/{match.group(1)}/")
+            try:
+                body = self._client(token).request("GET", f"/orders/{match.group(1)}/")
+            except ProviderError as e:
+                if e.code != IntegrationErrorCode.REMOTE_EVENT_MISSING:
+                    raise
+                # The order is gone (deleted, or a test delivery pointing at nothing): there is
+                # no event to refresh, and retrying would never find one.
+                return ResolvedNotification(remote_event_id=None, kind="ignored")
             return ResolvedNotification(remote_event_id=self._shape(lambda: str(body["event_id"])), kind=kind)
         return ResolvedNotification(remote_event_id=None, kind="ignored")
 

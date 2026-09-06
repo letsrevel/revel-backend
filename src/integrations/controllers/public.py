@@ -90,8 +90,20 @@ class IntegrationsPublicController(ControllerBase):
         url_name="integration_webhook",
         include_in_schema=False,
         response={200: dict[str, t.Any]},
+        throttle=[],  # see the docstring: the path secret is the auth here
     )
     def webhook(self, request: HttpRequest, provider: str, secret: str) -> dict[str, t.Any]:
-        """Record the delivery and answer fast. Body is untrusted; nothing is fetched here (spec §8)."""
+        """Record the delivery and answer fast. Body is untrusted; nothing is fetched here (spec §8).
+
+        Deliberately unthrottled, unlike the callback next to it: the path secret *is* the
+        authentication here, and a provider delivers from a small pool of its own IPs on behalf
+        of *every* organization connected to this instance. Under the controller's anonymous
+        throttle those deliveries would all share one per-IP bucket and a busy on-sale would
+        collect 429s — dropped notifications, since we never get the pointer body again. The
+        endpoint is cheap by construction (parse, insert one audit row, dispatch after commit)
+        and an unknown secret is a 404 before any work happens. ``throttle=[]`` rather than
+        ``None``: an empty list is how ninja spells "no throttles" while still overriding the
+        controller's (``None`` is not iterable there).
+        """
         webhook_service.record_delivery(provider, secret, request)
         return {}

@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from events.models import Event, TicketTier
@@ -132,6 +133,31 @@ def test_reconcile_transient_error_stops_provider_other_errors_continue(  # type
     fake_provider.fail["get_event"] = ProviderError(IntegrationErrorCode.PROVIDER_RATE_LIMITED, "429", retryable=True)
     summary = reconcile_service.reconcile_counts()
     assert summary.refreshed == 0 and summary.failed == 1  # stopped after the first transient failure
+
+
+def test_overlapping_sweeps_are_skipped(  # type: ignore[no-untyped-def]
+    organization, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    """A sweep still running when the next beat tick fires must not race it through the same links."""
+    _live_link(organization, connected, "A")
+    cache.add(reconcile_service.RECONCILE_LOCK_KEY, 1, reconcile_service.RECONCILE_LOCK_TTL_SECONDS)
+    before = [c for c in fake_provider.calls if c[0] == "get_event"]
+    assert reconcile_service.reconcile_counts() == reconcile_service.ReconcileSummary(0, 0, 0)
+    assert [c for c in fake_provider.calls if c[0] == "get_event"] == before
+    cache.delete(reconcile_service.RECONCILE_LOCK_KEY)
+    assert reconcile_service.reconcile_counts().refreshed == 1
+
+
+def test_the_lock_is_released_even_when_the_sweep_raises(  # type: ignore[no-untyped-def]
+    organization, connected: PlatformConnection, fake_provider: FakeProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _boom() -> reconcile_service.ReconcileSummary:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(reconcile_service, "_reconcile_counts", _boom)
+    with pytest.raises(RuntimeError):
+        reconcile_service.reconcile_counts()
+    assert cache.get(reconcile_service.RECONCILE_LOCK_KEY) is None
 
 
 def test_prune_deletes_only_old_deliveries(connected: PlatformConnection) -> None:

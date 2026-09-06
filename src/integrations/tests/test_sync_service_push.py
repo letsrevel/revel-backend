@@ -8,7 +8,7 @@ from events.models import Event, TicketTier
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
-from integrations.providers.base import RemoteTicketClass
+from integrations.providers.base import RemoteEvent, RemoteEventRef, RemoteTicketClass, TokenSet
 from integrations.service import connection_service, sync_service
 from integrations.tests.fake_provider import FakeProvider
 
@@ -312,3 +312,26 @@ def test_revoked_connection_marks_connection_and_fails_link(
     connected.refresh_from_db()
     assert connected.status == PlatformConnection.Status.ERROR
     assert link.sync_state == EventLink.SyncState.FAILED
+
+
+def test_push_does_not_clobber_a_status_set_meanwhile(
+    clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An ``event.published`` webhook landing mid-push must survive the push's final save.
+
+    The push holds the row as it was when the task started; writing ``remote_status`` back
+    unconditionally would demote the listing to ``draft`` again.
+    """
+    link = sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+    assert link.remote_status == EventLink.RemoteStatus.DRAFT
+    update_event = FakeProvider.update_event
+
+    def _publish_mid_push(self: FakeProvider, token: TokenSet, remote_id: str, event: RemoteEvent) -> RemoteEventRef:
+        EventLink.objects.filter(pk=link.pk).update(remote_status=EventLink.RemoteStatus.LIVE)
+        return update_event(self, token, remote_id, event)
+
+    monkeypatch.setattr(FakeProvider, "update_event", _publish_mid_push)
+    sync_service.push_link(link)
+    link.refresh_from_db()
+    assert link.remote_status == EventLink.RemoteStatus.LIVE
+    assert link.sync_state == EventLink.SyncState.IN_SYNC

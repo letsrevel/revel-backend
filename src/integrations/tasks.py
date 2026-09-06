@@ -106,6 +106,39 @@ def handle_webhook_delivery(delivery_id: str) -> None:
     webhook_service.handle_delivery(UUID(delivery_id))
 
 
+@shared_task(
+    name="integrations.refresh_link_counts",
+    autoretry_for=(RetryableProviderError,),
+    retry_backoff=RETRY_BACKOFF_SECONDS,
+    retry_backoff_max=RETRY_BACKOFF_MAX_SECONDS,
+    max_retries=3,
+)
+def refresh_link_counts(link_id: str) -> None:
+    """Trailing edge of the counts debounce (spec §7.8).
+
+    Scheduled after an immediate refresh so the last order of a burst — every notification
+    that arrived inside the debounce window and was answered without a fetch — is still
+    reflected in the stored counts.
+
+    Args:
+        link_id: UUID (as a string) of the ``EventLink`` whose counts to refresh.
+    """
+    from integrations.models import EventLink
+    from integrations.service import sync_service
+
+    link = EventLink.objects.select_related("connection").filter(id=link_id).first()
+    if link is None:
+        logger.info("integration_counts_skipped_missing_link", link_id=link_id)
+        return
+    if link.connection.status != link.connection.Status.ACTIVE:
+        logger.info("integration_counts_skipped_inactive_connection", link_id=link_id)
+        return
+    if link.connection.provider not in registry.PROVIDERS:
+        logger.info("integration_counts_skipped_disabled_provider", link_id=link_id, provider=link.connection.provider)
+        return
+    sync_service.refresh_counts(link)
+
+
 @shared_task(name="integrations.reconcile_counts")
 def reconcile_counts() -> dict[str, int]:
     """Beat: 15-minute count reconcile (spec §7.8), budget-aware (§7.7a)."""

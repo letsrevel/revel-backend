@@ -94,6 +94,10 @@ def _write_report(link: EventLink, entries: list[SyncReportEntry], state: str) -
 
 
 COUNTS_DEBOUNCE_SECONDS = 30
+# Slightly shorter than the countdown so the key expires before the trailing refresh runs: an
+# order landing just after that refresh must schedule the next one, not be swallowed by a stale
+# key (same reasoning as ``signals.DEBOUNCE_TTL_SECONDS``).
+COUNTS_DEBOUNCE_TTL_SECONDS = 25
 
 
 def counts_debounce_key(link_id: UUID) -> str:
@@ -216,14 +220,22 @@ def _reconcile_tiers(
             provider.set_ticket_class_paused(token, link.remote_id, stale_id, True)
 
 
-def _apply_status(link: EventLink, provider: ListingProvider, event: Event, report: list[SyncReportEntry]) -> None:
+def _apply_status(link: EventLink, provider: ListingProvider, event: Event, report: list[SyncReportEntry]) -> bool:
+    """Mirror Revel's status onto a live listing.
+
+    Returns:
+        True when ``link.remote_status`` was changed in memory and has to be persisted. A push
+        that leaves it alone must never write the column back: the value was loaded when the
+        task started and a webhook may have moved it since.
+    """
     token = link.connection.token()
     if link.remote_status != EventLink.RemoteStatus.LIVE:
-        return  # first push and drafts stay drafts; publishing is an explicit action
+        return False  # first push and drafts stay drafts; publishing is an explicit action
     if event.status == Event.EventStatus.CANCELLED:
         provider.cancel_event(token, link.remote_id)
         link.remote_status = EventLink.RemoteStatus.CANCELLED
-    elif event.status == Event.EventStatus.DRAFT:
+        return True
+    if event.status == Event.EventStatus.DRAFT:
         report.append(
             report_entry(
                 IntegrationErrorCode.UNPUBLISH_REFUSED,
@@ -232,6 +244,7 @@ def _apply_status(link: EventLink, provider: ListingProvider, event: Event, repo
                 ),
             )
         )
+    return False
 
 
 def push_link(link: EventLink) -> EventLink:
@@ -255,6 +268,7 @@ def push_link(link: EventLink) -> EventLink:
     )
     report = list(mapped.report)
     existed_before = bool(link.remote_id)
+    status_changed = False
     try:
         if existed_before:
             try:
@@ -271,7 +285,7 @@ def push_link(link: EventLink) -> EventLink:
         # Sent even when empty: clearing the description in Revel must clear it remotely too.
         provider.set_description(token, link.remote_id, mapped.remote.description_html)
         _reconcile_tiers(link, provider, mapped, report, existed_before=existed_before)
-        _apply_status(link, provider, event, report)
+        status_changed = _apply_status(link, provider, event, report)
     except ProviderError as e:
         if e.retryable:
             raise RetryableProviderError(e.code, e.provider_message, retryable=True) from e
@@ -281,7 +295,10 @@ def push_link(link: EventLink) -> EventLink:
         logger.warning("integration_push_failed", link_id=str(link.id), code=e.code.value)
         return _write_report(link, report, EventLink.SyncState.FAILED)
     link.last_pushed_at = timezone.now()
-    link.save(update_fields=["last_pushed_at", "remote_status", "updated_at"])
+    # `remote_status` is written back only when this push moved it: a concurrent
+    # ``event.published`` webhook must not be clobbered by the value loaded at task start.
+    fields = ["last_pushed_at", "updated_at"] + (["remote_status"] if status_changed else [])
+    link.save(update_fields=fields)
     logger.info("integration_pushed", link_id=str(link.id), provider=conn.provider, remote_id=link.remote_id)
     return _write_report(link, report, EventLink.SyncState.IN_SYNC)
 

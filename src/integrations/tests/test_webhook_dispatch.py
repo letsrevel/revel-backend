@@ -2,6 +2,7 @@
 
 import typing as t
 from decimal import Decimal
+from unittest import mock
 
 import orjson
 import pytest
@@ -10,6 +11,7 @@ from django.test.client import Client
 from django.urls import reverse
 
 from events.models import Event, TicketTier
+from integrations import tasks
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, WebhookDelivery
@@ -66,19 +68,45 @@ def test_webhook_endpoint_dispatches_on_commit(
     assert pushed.tier_links.get().remote_quantity_sold == 4
 
 
-def test_order_notifications_debounce_to_one_refresh(
+def test_order_notifications_debounce_to_one_refresh_plus_a_trailing_one(
     connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
 ) -> None:
+    """One immediate fetch for the burst, and one delayed task so the last order is not lost."""
     d1 = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
     d2 = _deliver(connected, "attendee.updated", f"/events/{pushed.remote_id}/attendees/1/")
     before = sum(1 for c in fake_provider.calls if c[0] == "get_event")
-    webhook_service.handle_delivery(d1.id)
-    webhook_service.handle_delivery(d2.id)
+    with mock.patch.object(tasks.refresh_link_counts, "apply_async") as apply_async:
+        webhook_service.handle_delivery(d1.id)
+        webhook_service.handle_delivery(d2.id)
     after = sum(1 for c in fake_provider.calls if c[0] == "get_event")
     assert after - before == 1  # the pair collapsed into one refresh fetch
+    apply_async.assert_called_once_with(args=(str(pushed.id),), countdown=sync_service.COUNTS_DEBOUNCE_SECONDS)
     d1.refresh_from_db()
     d2.refresh_from_db()
     assert d1.outcome == d2.outcome == WebhookDelivery.Outcome.PROCESSED
+
+
+def test_trailing_refresh_task_picks_up_the_orders_of_the_window(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    """The scheduled task is what makes the debounce lossless: it re-reads the counts."""
+    for c in fake_provider.events[pushed.remote_id].ticket_classes:
+        c.quantity_sold = 11
+    tasks.refresh_link_counts(str(pushed.id))
+    assert pushed.tier_links.get().remote_quantity_sold == 11
+
+
+def test_counts_refresh_failure_fails_the_delivery(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    """A non-transient refresh failure is recorded on the delivery, not papered over as processed."""
+    fake_provider.fail["get_event"] = ProviderError(IntegrationErrorCode.PROVIDER_REJECTED, "boom")
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    with mock.patch.object(tasks.refresh_link_counts, "apply_async") as apply_async:
+        webhook_service.handle_delivery(d.id)
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.FAILED
+    apply_async.assert_not_called()  # nothing to trail: the immediate refresh got nowhere
 
 
 def test_status_matrix(connected: PlatformConnection, pushed: EventLink) -> None:
@@ -155,6 +183,20 @@ def test_resolution_failure_marks_failed_and_reraises(
         webhook_service.handle_delivery(d.id)
     d.refresh_from_db()
     assert d.outcome == WebhookDelivery.Outcome.FAILED
+
+
+def test_revoked_resolution_marks_the_connection_and_fails_the_delivery(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    """A 401 while resolving means the token is dead: flag the connection instead of retrying forever."""
+    fake_provider.fail["resolve_notification"] = ProviderError(IntegrationErrorCode.CONNECTION_REVOKED, "401")
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    with pytest.raises(ProviderError):
+        webhook_service.handle_delivery(d.id)
+    d.refresh_from_db()
+    connected.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.FAILED
+    assert connected.status == PlatformConnection.Status.ERROR
 
 
 def test_inactive_connection_is_ignored(connected: PlatformConnection, pushed: EventLink) -> None:

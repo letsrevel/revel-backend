@@ -20,7 +20,19 @@ OAUTH_TOKEN = "https://www.eventbrite.com/oauth/token"
 TIMEOUT_SECONDS = 15.0
 BUDGET_CACHE_KEY = "integrations:budget:eventbrite"
 BUDGET_CACHE_TTL = 3600
-_KEY_BUCKET = re.compile(r"key:\S+\s+(\d+)/(\d+)")
+# The bucket refills at `reset`; caching a stale "nearly spent" reading past that point would
+# stall the reconcile for a whole window, and caching it forever would never expire it.
+BUDGET_CACHE_TTL_MIN = 60
+_KEY_BUCKET = re.compile(r"key:\S+\s+(\d+)/(\d+)([^,]*)")
+_RESET = re.compile(r"reset=(\d+)s")
+
+
+def _budget_ttl(bucket: str) -> int:
+    """Seconds to keep the reading: the bucket's own ``reset=<n>s``, clamped; an hour when absent."""
+    reset = _RESET.search(bucket)
+    if reset is None:
+        return BUDGET_CACHE_TTL
+    return min(max(int(reset.group(1)), BUDGET_CACHE_TTL_MIN), BUDGET_CACHE_TTL)
 
 
 def _record_budget(response: httpx.Response) -> None:
@@ -29,7 +41,7 @@ def _record_budget(response: httpx.Response) -> None:
     if match is None:
         return
     used, limit = int(match.group(1)), int(match.group(2))
-    cache.set(BUDGET_CACHE_KEY, max(limit - used, 0), BUDGET_CACHE_TTL)
+    cache.set(BUDGET_CACHE_KEY, max(limit - used, 0), _budget_ttl(match.group(3)))
 
 
 def _error_message(body: dict[str, t.Any]) -> str | None:

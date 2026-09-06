@@ -117,6 +117,26 @@ def test_beat_task_names_are_pinned() -> None:
     assert tasks.reconcile_counts.name == "integrations.reconcile_counts"
     assert tasks.prune_webhook_deliveries.name == "integrations.prune_webhook_deliveries"
     assert tasks.handle_webhook_delivery.name == "integrations.handle_webhook_delivery"
+    assert tasks.refresh_link_counts.name == "integrations.refresh_link_counts"
+
+
+def test_refresh_counts_task_ignores_missing_link(db: None) -> None:
+    tasks.refresh_link_counts(str(uuid.uuid4()))  # no raise: link deleted before the delayed run
+
+
+@pytest.mark.django_db
+def test_refresh_counts_task_skips_inactive_connection(pushed: EventLink, connected: PlatformConnection) -> None:
+    connected.status = PlatformConnection.Status.REVOKED
+    connected.save(update_fields=["status"])
+    tasks.refresh_link_counts(str(pushed.id))
+    assert not pushed.tier_links.filter(counts_updated_at__isnull=False).exists()
+
+
+@pytest.mark.django_db
+def test_refresh_counts_task_skips_disabled_provider(pushed: EventLink, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(registry, "PROVIDERS", {})
+    tasks.refresh_link_counts(str(pushed.id))  # no raise: the provider is gone, not the link
+    assert not pushed.tier_links.filter(counts_updated_at__isnull=False).exists()
 
 
 def test_beat_rows_exist(db: None) -> None:

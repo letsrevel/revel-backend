@@ -119,6 +119,20 @@ def test_webhook_records_delivery(
     )
 
 
+def test_webhook_is_not_throttled(organization: Organization, fake_provider: FakeProvider, settings: t.Any) -> None:
+    """A provider delivers from a handful of IPs for the whole instance: an anon bucket would 429 it."""
+    settings.DISABLE_THROTTLING = False  # the dev .env turns throttling off; this test is about it
+    conn = _connected(organization)
+    url = reverse("api:integration_webhook", kwargs={"provider": "fake", "secret": conn.webhook_secret})
+    client = Client()
+    body = orjson.dumps({"action": "order.placed", "path": "/orders/1/"})
+    statuses = {
+        client.post(url, data=body, content_type="application/json").status_code for _ in range(70)
+    }  # well past AnonDefaultThrottle's 60/min
+    assert statuses == {200}
+    assert WebhookDelivery.objects.count() == 70
+
+
 def test_webhook_unknown_secret_404(organization: Organization, fake_provider: FakeProvider) -> None:
     _connected(organization)
     url = reverse("api:integration_webhook", kwargs={"provider": "fake", "secret": "wrong"})
