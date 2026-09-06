@@ -67,6 +67,7 @@ class Command(BaseCommand):
 
         self.stdout.write("")
         self.stdout.write(self.style.MIGRATE_HEADING(RULE))
+        self.stdout.write("Every organization above carries a logo and every event its cover art.")
         self.stdout.write(
             self.style.SUCCESS(
                 "Re-run this command any time — it refreshes the same rows and rolls every "
