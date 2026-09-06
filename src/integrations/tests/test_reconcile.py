@@ -60,6 +60,31 @@ def test_due_links_exclude_past_draft_broken_and_inactive(  # type: ignore[no-un
     assert not reconcile_service.links_due_for_reconcile().exists()
 
 
+def test_zero_tier_links_are_excluded_from_the_sweep(  # type: ignore[no-untyped-def]
+    organization, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    start = timezone.now() + timedelta(days=30)
+    event = Event.objects.create(
+        organization=organization,
+        name="PWYC-only",
+        event_type=Event.EventType.PUBLIC,
+        status=Event.EventStatus.OPEN,
+        start=start,
+        end=start + timedelta(hours=2),
+        requires_ticket=True,
+    )
+    event.ticket_tiers.all().delete()
+    TicketTier.objects.create(
+        event=event, name="PWYC", price_type=TicketTier.PriceType.PWYC, payment_method=TicketTier.PaymentMethod.ONLINE
+    )
+    pwyc_link = sync_service.push_link(sync_service.ensure_link(event, connected))
+    pwyc_link.remote_status = EventLink.RemoteStatus.LIVE
+    pwyc_link.save(update_fields=["remote_status"])
+    assert not TierLink.objects.filter(event_link=pwyc_link).exists()  # unmappable tier, no TierLink
+    has_tier = _live_link(organization, connected, "Has tier")
+    assert list(reconcile_service.links_due_for_reconcile().values_list("id", flat=True)) == [has_tier.id]
+
+
 def test_reconcile_orders_by_staleness_and_refreshes(  # type: ignore[no-untyped-def]
     organization, connected: PlatformConnection, fake_provider: FakeProvider
 ) -> None:

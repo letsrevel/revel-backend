@@ -36,6 +36,7 @@ def links_due_for_reconcile() -> QuerySet[EventLink]:
             event__end__gt=timezone.now(),
         )
         .exclude(sync_state=EventLink.SyncState.BROKEN)
+        .filter(tier_links__isnull=False)
         .annotate(stalest=Min("tier_links__counts_updated_at"))
         .order_by(F("stalest").asc(nulls_first=True), "id")
     )
@@ -45,6 +46,7 @@ def reconcile_counts() -> ReconcileSummary:
     """Refresh counts for due links, per provider, until the shared budget reaches the reserve."""
     refreshed = skipped = failed = 0
     stopped: set[str] = set()
+    unknown_budget_logged: set[str] = set()
     for link in links_due_for_reconcile():
         key = link.connection.provider
         if key in stopped or key not in registry.PROVIDERS:
@@ -52,6 +54,9 @@ def reconcile_counts() -> ReconcileSummary:
             continue
         provider = registry.get_provider(key)
         remaining = provider.remaining_budget()
+        if remaining is None and key not in unknown_budget_logged:
+            logger.info("integration_reconcile_budget_unknown", provider=key)
+            unknown_budget_logged.add(key)
         if remaining is not None and remaining < settings.INTEGRATIONS_RATE_RESERVE:
             logger.warning("integration_reconcile_budget_low", provider=key, remaining=remaining)
             stopped.add(key)
