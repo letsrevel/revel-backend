@@ -17,29 +17,44 @@ logger = structlog.get_logger(__name__)
 _local = threading.local()
 
 
-def get_ip2location() -> IP2Location:
-    """Return a thread-local IP2Location database handle.
+def get_ip2location() -> IP2Location | None:
+    """Return a thread-local IP2Location database handle, or None if unavailable.
 
     Each thread gets its own file descriptor because FILE_IO mode is not
     thread-safe. Uses the database file's modification time to detect when a new
     database has been downloaded, reloading the calling thread's handle.
+
+    Returns:
+        The calling thread's handle, or ``None`` when the database file is absent
+        or unusable — the downloader may not have run yet, and a bind mount for a
+        missing file leaves a directory behind. Callers degrade to "no geo data"
+        rather than failing the request (see issue #931).
     """
-    # Get current file modification time
-    current_mtime = conf.IP2LOCATION_DB_PATH.stat().st_mtime
+    try:
+        # Get current file modification time
+        current_mtime = conf.IP2LOCATION_DB_PATH.stat().st_mtime
 
-    # Reload if this thread hasn't loaded the database or the file has changed
-    db: IP2Location | None = getattr(_local, "db", None)
-    if db is None or _local.mtime != current_mtime:
-        db = IP2Location(conf.IP2LOCATION_DB_PATH)
-        _local.db = db
-        _local.mtime = current_mtime
+        # Reload if this thread hasn't loaded the database or the file has changed
+        db: IP2Location | None = getattr(_local, "db", None)
+        if db is None or _local.mtime != current_mtime:
+            # OSError if the path is gone; ValueError if it isn't a regular file.
+            db = IP2Location(conf.IP2LOCATION_DB_PATH)
+            _local.db = db
+            _local.mtime = current_mtime
 
-    return db
+        return db
+    except OSError, ValueError:
+        # warning, not debug: an unavailable database silently disables
+        # nearest-first sorting everywhere, exactly like a corrupt one.
+        logger.warning("ip2location_db_unavailable", path=str(conf.IP2LOCATION_DB_PATH), exc_info=True)
+        return None
 
 
 def resolve_ip_to_point(ip: str) -> Point | None:
     """Resolves an IP address to a geographical point."""
     ipdb = get_ip2location()
+    if ipdb is None:
+        return None
     try:
         record = ipdb.get_all(ip)
         if record is None or record.city == "-":

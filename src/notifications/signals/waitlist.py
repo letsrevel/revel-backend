@@ -104,7 +104,11 @@ def _check_and_notify_waitlist(event_id: t.Any, old_count: int | None = None) ->
         event_id: ID of the event to check
         old_count: Previous attendee count (before the change)
     """
-    event = Event.objects.select_related("organization").get(pk=event_id)
+    event = Event.objects.select_related("organization").filter(pk=event_id).first()
+
+    # The ticket/RSVP may have been cascaded away by event.delete(): nothing left to notify (#937)
+    if event is None:
+        return
 
     # Skip if event has no max attendees (unlimited capacity)
     if event.max_attendees == 0:

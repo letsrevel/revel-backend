@@ -105,11 +105,12 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
     Returns:
         The response status code and message.
     """
-    banner = _get_active_banner()
+    site = SiteSettings.get_solo()
     return 200, VersionResponse(
         version=settings.VERSION,
         demo=settings.DEMO_MODE,
-        banner=banner,
+        banner=_get_active_banner(site),
+        demo_booking_url=site.demo_booking_url or None,
         features=_get_features(),
         sso_providers=[SSOProviderSchema(key=p.key, name=p.name) for p in settings.OIDC_PROVIDERS],
     )
@@ -124,9 +125,8 @@ def _get_features() -> FeaturesSchema:
     )
 
 
-def _get_active_banner() -> BannerSchema | None:
+def _get_active_banner(site: SiteSettings) -> BannerSchema | None:
     """Return the maintenance banner if active, None otherwise."""
-    site = SiteSettings.get_solo()
     if not site.is_maintenance_banner_active:
         return None
     return BannerSchema(

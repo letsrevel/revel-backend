@@ -122,6 +122,15 @@ seed:
 bootstrap-tests:
 	uv run python src/manage.py bootstrap_test_events
 
+# Pre-arranged scenarios for recording the product demo videos. Idempotent and
+# additive: it creates only its own orgs and @demovideo.example.com accounts, so
+# it can run before or after the bootstrap chain above (or on its own against an
+# empty-but-migrated DB), and re-running just rolls the event dates forward.
+# `reset_events` wipes it along with everything else — re-run after an e2e reseed.
+.PHONY: demo-video
+demo-video:
+	uv run python src/manage.py bootstrap_demo_video
+
 .PHONY: run
 run:
 	uv run python src/manage.py generate_test_jwts; \

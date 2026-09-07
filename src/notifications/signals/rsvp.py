@@ -7,7 +7,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
-from events.models import EventRSVP
+from events.models import Event, EventRSVP
 from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_organization_staff_and_owners
@@ -170,7 +170,10 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
     def send_notifications() -> None:
         from common.models import SiteSettings
 
-        event = instance.event
+        event = Event.objects.filter(pk=instance.event_id).first()
+        if event is None:
+            # RSVP cascaded away by event.delete(): nobody to tell about a cancellation (#937)
+            return
         user = instance.user
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
 

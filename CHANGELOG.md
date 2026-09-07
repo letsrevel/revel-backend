@@ -18,6 +18,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Revel-side **"sales paused"** switch on ticket tiers: stop selling one tier without deleting it or changing its dates, and it stays paused on connected platforms too
 - Self-hosters: set `INTEGRATIONS_EVENTBRITE_CLIENT_ID` and `INTEGRATIONS_EVENTBRITE_CLIENT_SECRET` to offer the provider (both empty → it is hidden), and register `{BASE_URL}/api/integrations/eventbrite/callback` as the Eventbrite app's OAuth redirect URI. Eventbrite's WAF rejects loopback redirect URIs, so local testing needs a non-loopback hostname for the API
 
+## [2.10.0] - 2026-09-07
+
+### Added
+
+- `GET /api/version` now returns `demo_booking_url`, a public "book a demo" link configured on the Common Settings singleton in the admin (new *Public Links* section). It is `null` until set, so clients can show the call-to-action only when a booking page exists
+
+### Fixed
+
+- Deleting an event that has tickets or RSVPs no longer returns HTTP 500 after the delete has already committed. The ticket and RSVP post-delete hooks defer work to after commit (waitlist spot check, RSVP-cancelled staff notification) or to Celery (attendee visibility rebuild, waitlist offer processing), and each looked the event up again once the cascade had removed it. Every such lookup, including the attendee rebuild's second fetch after it releases its row lock, now treats a missing event as "nothing to do"
+- Every rate limit now keeps its own counter. All specialised throttles shared one cache bucket per user/IP with the 100/min defaults, so long-window limits were judged against the last minute of unrelated traffic: organizers who had made ~25 admin calls in a minute got a 429 on `POST /organization-admin/{slug}/announcements/{id}/send`, any request in the previous 60 s blocked an export, and the daily caps on registration and GDPR data exports were never enforced. Rates are unchanged; as a side effect, GET and write traffic each get their full 100/min budget instead of one shared one
+
+### Security
+
+- Authenticated account and OTP routes are now rate limited per user. Their controllers set an anonymous-only throttle at class level, which yields no key for logged-in requests and replaced the API default, so profile, language, deletion-request and TOTP enable/disable endpoints were unlimited and TOTP verification was open to brute force with a stolen access token. Both controllers now inherit the default per-IP + per-user limits
+
+## [2.9.0] - 2026-09-06
+
+### Added
+
+- `bootstrap_demo_video` (`make demo-video`) now gives every demo organization a logo and every demo event 16:9 cover art, so the scenarios the product videos are recorded against no longer render bare cards and placeholder heroes. The images are bundled CC0 / public-domain photographs, credited in `src/events/management/commands/demo_video_helpers/assets/IMAGE_CREDITS.md`; a re-run relinks the cached files instead of re-uploading them
+
+## [2.8.1] - 2026-09-06
+
+### Fixed
+
+- Public event and organization listings no longer return a 500 when the IP2Location database file is missing from the deployment. Both endpoints sort by distance from the visitor's IP by default, and the geo lookup raised instead of degrading, so a deployment that had never run the database downloader — or whose bind mount left a directory in place of the `.BIN` — served an error page with no events at all. A missing or unusable database now simply disables nearest-first sorting (logged as a warning) and the listing falls back to its normal ordering; the database is picked up automatically once it appears
+
+## [2.8.0] - 2026-09-06
+
+### Added
+
+- **`bootstrap_demo_video` seed command** (`make demo-video`): pre-seeds the five scenarios the product demo videos are recorded against — a questionnaire-gated workshop with pending applications, members-only vs. at-the-door ticket tiers, an open potluck board, a questionnaire-insights event with ten submissions, and an event exercising the members-only / questionnaire / invitation eligibility gates. Idempotent and strictly additive (it never touches the `bootstrap_events` fixtures), it computes event dates relative to now and prints the presenter's cheat sheet of org slugs, event paths and credentials
+
 ## [2.7.0] - 2026-09-05
 
 ### Added
