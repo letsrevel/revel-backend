@@ -351,3 +351,14 @@ def test_paid_classes_are_not_paused_when_stripe_is_connected(connected: Platfor
     link = import_service.import_remote_event(connected, remote)
     assert all(tier.sales_paused is False for tier in link.event.ticket_tiers.all())
     assert not [e for e in link.sync_report if e["code"] == "stripe_not_connected"]
+
+
+def test_import_never_creates_the_default_tier(connected: PlatformConnection, fake_provider: FakeProvider) -> None:
+    """The post-save hook's "General Admission" tier is suppressed during import; a classless remote yields no tiers."""
+    from events.models.ticket import DEFAULT_TICKET_TIER_NAME
+
+    ev = RemoteEvent(name="Empty", start=START, end=START + timedelta(hours=1), timezone="UTC", currency="EUR")
+    ref = fake_provider.create_event(connected.token(), "acc-1", ev)
+    link = import_service.import_remote_event(connected, ref.remote_id)
+    assert link.event.ticket_tiers.count() == 0
+    assert not TicketTier.objects.filter(event=link.event, name=DEFAULT_TICKET_TIER_NAME).exists()

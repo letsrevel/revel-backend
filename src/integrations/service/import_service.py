@@ -14,6 +14,7 @@ from markdownify import markdownify
 
 from common.sanitizers import sanitize_html
 from events.models import Event, Organization, TicketTier
+from events.suppression import suppress_default_tier_creation
 from integrations import registry
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError
@@ -138,21 +139,22 @@ def import_remote_event(connection: PlatformConnection, remote_id: str) -> Event
     description_html = remote.description_html or provider.get_description(connection.token(), remote_id)
     try:
         with transaction.atomic():
-            event = Event.objects.create(
-                organization=connection.organization,
-                name=remote.name[:255],
-                description=markdownify(sanitize_html(description_html)).strip() or None,
-                status=Event.EventStatus.DRAFT,
-                event_type=Event.EventType.PUBLIC,
-                requires_ticket=True,
-                start=remote.start,
-                end=remote.end,
-                is_virtual=remote.is_virtual,
-                address=address,
-                city=city,
-                location=location,
-            )
-            event.ticket_tiers.all().delete()  # drop the signal-created default tier; remote classes are the truth
+            # The remote classes are the truth: never let the post-save hook add a default tier.
+            with suppress_default_tier_creation():
+                event = Event.objects.create(
+                    organization=connection.organization,
+                    name=remote.name[:255],
+                    description=markdownify(sanitize_html(description_html)).strip() or None,
+                    status=Event.EventStatus.DRAFT,
+                    event_type=Event.EventType.PUBLIC,
+                    requires_ticket=True,
+                    start=remote.start,
+                    end=remote.end,
+                    is_virtual=remote.is_virtual,
+                    address=address,
+                    city=city,
+                    location=location,
+                )
             tiers: list[tuple[TicketTier, RemoteTicketClass]] = []
             report: list[SyncReportEntry] = []
             # Paid classes become online (Stripe) tiers. Without Stripe Connect they start paused so a
