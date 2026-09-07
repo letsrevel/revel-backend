@@ -1,5 +1,6 @@
 """Tests for event admin core endpoints (update, status, media, delete, duplicate, slug)."""
 
+import typing as t
 from io import BytesIO
 
 import orjson
@@ -9,8 +10,9 @@ from django.test.client import Client
 from django.urls import reverse
 from PIL import Image
 
+from accounts.models import RevelUser
 from common.utils import assert_image_equal
-from events.models import Event, Organization, OrganizationStaff, TicketTier
+from events.models import Event, EventRSVP, Organization, OrganizationStaff, Ticket, TicketTier
 
 pytestmark = pytest.mark.django_db
 
@@ -520,6 +522,39 @@ def test_delete_event_by_owner(organization_owner_client: Client, event: Event) 
 
     assert response.status_code == 204
     assert not Event.objects.filter(pk=event_id).exists()
+
+
+def test_delete_event_with_tickets_survives_post_commit_waitlist_hook(
+    organization_owner_client: Client, ticket: Ticket, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Deleting an event cascades its tickets; the ticket post_delete waitlist hook must not 500 on commit.
+
+    pytest-django rolls the wrapping transaction back so on_commit callbacks never fire on their own;
+    django_capture_on_commit_callbacks(execute=True) runs them, mirroring ATOMIC_REQUESTS in production.
+    Regression test for #937.
+    """
+    event_id = ticket.event_id
+    url = reverse("api:delete_event", kwargs={"event_id": event_id})
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+    assert not Event.objects.filter(pk=event_id).exists()
+
+
+def test_delete_event_with_rsvps_survives_post_commit_waitlist_hook(
+    organization_owner_client: Client, event: Event, member_user: RevelUser, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Same as above for RSVP events: the EventRSVP post_delete hook shares the helper (#937)."""
+    EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
+    url = reverse("api:delete_event", kwargs={"event_id": event.pk})
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+    assert not Event.objects.filter(pk=event.pk).exists()
 
 
 def test_delete_event_by_staff_with_permission(
