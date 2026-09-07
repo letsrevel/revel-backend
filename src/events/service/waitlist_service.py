@@ -23,6 +23,7 @@ class ProcessResult:
     """Outcome of a process_waitlist_for_event call."""
 
     status: t.Literal[
+        "event_deleted",
         "disabled",
         "no_spots",
         "no_eligible_users",
@@ -56,7 +57,10 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
     Returns:
         ProcessResult describing what happened.
     """
-    event = Event.objects.select_for_update().get(pk=event_id)
+    event = Event.objects.select_for_update().filter(pk=event_id).first()
+    if event is None:
+        # Enqueued from a post_delete receiver cascaded by event.delete() (#937)
+        return ProcessResult(status="event_deleted")
     if not event.waitlist_open or event.waitlist_time_window is None:
         return ProcessResult(status="disabled")
 

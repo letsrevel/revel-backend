@@ -41,7 +41,10 @@ def build_attendee_visibility_flags(event_id: str) -> None:
     # Multiple tasks may run concurrently when tickets are confirmed rapidly;
     # this ensures the count is read and written while holding the lock.
     with transaction.atomic():
-        event = Event.objects.with_organization().select_for_update().get(pk=event_id)
+        event = Event.objects.with_organization().select_for_update().filter(pk=event_id).first()
+        if event is None:
+            # Dispatched by a Ticket/RSVP post_delete cascaded from event.delete() (#937)
+            return
         ticket_count = Ticket.objects.filter(
             event=event,
             status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],

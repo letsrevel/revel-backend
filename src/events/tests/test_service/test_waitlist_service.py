@@ -55,6 +55,11 @@ class TestDisabledFeature:
         result = waitlist_service.process_waitlist_for_event(event.id)
         assert result.status == "disabled"
 
+    def test_returns_event_deleted_when_event_is_gone(self) -> None:
+        """The EventWaitList post_delete receiver enqueues this after event.delete() cascades (#937)."""
+        result = waitlist_service.process_waitlist_for_event(uuid.uuid4())
+        assert result.status == "event_deleted"
+
 
 class TestNoSpots:
     def test_returns_no_spots_when_capacity_full(self, event: Event, user: RevelUser) -> None:
