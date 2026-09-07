@@ -35,3 +35,4 @@ class IntegrationErrorCode(StrEnum):
     IMAGE_MISSING = "image_missing"
     PAUSE_FAILED = "pause_failed"
     TIER_NOT_LINKED = "tier_not_linked"
+    STRIPE_NOT_CONNECTED = "stripe_not_connected"

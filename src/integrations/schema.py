@@ -59,6 +59,7 @@ class ConnectionSchema(Schema):
     auto_sync: bool = False
     last_error: IntegrationErrorSchema | None = None
     connected_at: AwareDatetime | None = None
+    stripe_connected: bool = False  # org-level: paid imported tiers start paused until this is True
 
 
 class ConnectStartSchema(Schema):

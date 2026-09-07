@@ -71,6 +71,7 @@ def list_connections(organization: Organization) -> list[ConnectionSchema]:
                 auto_sync=conn.auto_sync if conn else False,
                 last_error=IntegrationErrorSchema(**conn.last_error) if conn and conn.last_error else None,
                 connected_at=conn.created_at if conn else None,
+                stripe_connected=organization.is_stripe_connected,
             )
         )
     return rows

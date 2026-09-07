@@ -67,7 +67,9 @@ def request_import(organization: Organization, provider_key: str, remote_ids: li
     return ImportResultSchema(queued=queued, skipped=[rid for rid in dict.fromkeys(remote_ids) if rid in linked])
 
 
-def _tier_from_remote(event: Event, tc: RemoteTicketClass, *, fallback_currency: str) -> TicketTier:
+def _tier_from_remote(
+    event: Event, tc: RemoteTicketClass, *, fallback_currency: str, pause: bool = False
+) -> TicketTier:
     """Create one draft ``TicketTier`` mirroring a remote ticket class.
 
     ``fallback_currency`` is the remote *event's* currency, used when the class carries none of
@@ -90,6 +92,7 @@ def _tier_from_remote(event: Event, tc: RemoteTicketClass, *, fallback_currency:
         visibility=TicketTier.Visibility.UNLISTED if tc.hidden else TicketTier.Visibility.PUBLIC,
         payment_method=TicketTier.PaymentMethod.FREE if tc.is_free else TicketTier.PaymentMethod.ONLINE,
         description=tc.description or None,
+        sales_paused=pause,
     )
 
 
@@ -152,9 +155,13 @@ def import_remote_event(connection: PlatformConnection, remote_id: str) -> Event
             event.ticket_tiers.all().delete()  # drop the signal-created default tier; remote classes are the truth
             tiers: list[tuple[TicketTier, RemoteTicketClass]] = []
             report: list[SyncReportEntry] = []
+            # Paid classes become online (Stripe) tiers. Without Stripe Connect they start paused so a
+            # buyer can never reach a checkout that would refuse; the organizer resumes them after connecting.
+            stripe_ready = connection.organization.is_stripe_connected
             for tc in remote.ticket_classes:
+                pause = not tc.is_free and not stripe_ready
                 try:
-                    tiers.append((_tier_from_remote(event, tc, fallback_currency=remote.currency), tc))
+                    tier = _tier_from_remote(event, tc, fallback_currency=remote.currency, pause=pause)
                 except ValidationError as e:
                     logger.warning("integration_import_tier_skipped", remote_id=tc.remote_id, error=str(e))
                     report.append(
@@ -165,6 +172,19 @@ def import_remote_event(connection: PlatformConnection, remote_id: str) -> Event
                             code=IntegrationErrorCode.PROVIDER_REJECTED,
                             detail=str(_("Ticket class %(name)s could not be imported.") % {"name": tc.name}),
                             provider_message=str(e),
+                        )
+                    )
+                    continue
+                tiers.append((tier, tc))
+                if pause:
+                    report.append(
+                        SyncReportEntry(
+                            scope="tier",
+                            tier_id=tier.id,
+                            tier_name=tier.name,
+                            code=IntegrationErrorCode.STRIPE_NOT_CONNECTED,
+                            detail=str(_("Sales are paused until Stripe is connected; resume the tier afterwards.")),
+                            provider_message=None,
                         )
                     )
             link = EventLink.objects.create(

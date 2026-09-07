@@ -1067,6 +1067,9 @@ msgstr "El PDF de la factura aún no se ha generado."
 msgid "Invoice PDF could not be generated."
 msgstr "No se ha podido generar el PDF de la factura."
 
+msgid "Ticket sales are paused."
+msgstr "La venta de entradas está pausada."
+
 msgid ""
 "Your payment went through. We're still confirming your subscription — check "
 "back in a moment."
@@ -1826,9 +1829,6 @@ msgstr "El plazo para confirmar la asistencia ha vencido."
 
 msgid "Tickets are not currently on sale."
 msgstr "Las entradas no están a la venta en este momento."
-
-msgid "Ticket sales are paused."
-msgstr "La venta de entradas está pausada."
 
 msgid "This ticket tier requires a specific membership tier."
 msgstr "Este tipo de entrada requiere un nivel de membresía específico."
@@ -2835,6 +2835,9 @@ msgstr "La plataforma no pudo listar sus eventos."
 #, python-format
 msgid "Ticket class %(name)s could not be imported."
 msgstr "La clase de entrada %(name)s no se pudo importar."
+
+msgid "Sales are paused until Stripe is connected; resume the tier afterwards."
+msgstr "Las ventas están en pausa hasta que conectes Stripe; reanuda la categoría después."
 
 msgid "Only public events can be listed on external platforms."
 msgstr "Solo los eventos públicos pueden publicarse en plataformas externas."

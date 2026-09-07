@@ -40,6 +40,7 @@ def test_list_shows_enabled_provider_unconnected(
             "auto_sync": False,
             "last_error": None,
             "connected_at": None,
+            "stripe_connected": False,
         }
     ]
 

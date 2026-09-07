@@ -184,10 +184,11 @@ def test_import_skips_invalid_tier_and_reports_it(connected: PlatformConnection,
     tiers = list(link.event.ticket_tiers.all())
     assert [tier.name for tier in tiers] == ["Good"]
     assert TierLink.objects.filter(event_link=link).count() == 1
-    assert len(link.sync_report) == 1
-    assert link.sync_report[0]["scope"] == "tier"
-    assert link.sync_report[0]["tier_name"] == "Bad Window"
-    assert link.sync_report[0]["tier_id"] is None
+    skipped = [e for e in link.sync_report if e["code"] == "provider_rejected"]
+    assert len(skipped) == 1
+    assert skipped[0]["scope"] == "tier"
+    assert skipped[0]["tier_name"] == "Bad Window"
+    assert skipped[0]["tier_id"] is None
 
 
 def test_import_race_returns_winner_link_and_rolls_back_loser_draft(connected: PlatformConnection, remote: str) -> None:
@@ -323,3 +324,30 @@ def test_import_refuses_an_event_from_another_account(
     assert exc.value.code == IntegrationErrorCode.ACCOUNT_UNKNOWN
     assert not EventLink.objects.filter(connection=connected, remote_id=ref.remote_id).exists()
     assert not Event.objects.filter(name="Someone else's account").exists()
+
+
+def test_paid_classes_are_paused_until_stripe_is_connected(connected: PlatformConnection, remote: str) -> None:
+    """Without Stripe Connect, imported paid tiers start paused and the report says why; free tiers are untouched."""
+    assert connected.organization.is_stripe_connected is False
+    link = import_service.import_remote_event(connected, remote)
+    tiers = {tier.name: tier for tier in link.event.ticket_tiers.all()}
+    assert tiers["Early"].sales_paused is True and tiers["Early"].payment_method == TicketTier.PaymentMethod.ONLINE
+    assert tiers["Free"].sales_paused is False
+    entries = [e for e in link.sync_report if e["code"] == "stripe_not_connected"]
+    assert len(entries) == 1
+    assert (
+        entries[0]["scope"] == "tier"
+        and entries[0]["tier_name"] == "Early"
+        and entries[0]["tier_id"] == str(tiers["Early"].id)
+    )
+
+
+def test_paid_classes_are_not_paused_when_stripe_is_connected(connected: PlatformConnection, remote: str) -> None:
+    org = connected.organization
+    org.stripe_account_id = "acct_test"
+    org.stripe_charges_enabled = True
+    org.stripe_details_submitted = True
+    org.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
+    link = import_service.import_remote_event(connected, remote)
+    assert all(tier.sales_paused is False for tier in link.event.ticket_tiers.all())
+    assert not [e for e in link.sync_report if e["code"] == "stripe_not_connected"]
