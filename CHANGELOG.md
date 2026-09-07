@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Deleting an event that has tickets or RSVPs no longer answers 500 after the delete has already committed. The ticket and RSVP post-delete hooks defer work to after commit (waitlist spot check, RSVP-cancelled staff notification) or to Celery (attendee visibility rebuild, waitlist offer processing), and each looked the event up again once the cascade had removed it. All four now treat a missing event as "nothing to do"
+- Deleting an event that has tickets or RSVPs no longer returns HTTP 500 after the delete has already committed. The ticket and RSVP post-delete hooks defer work to after commit (waitlist spot check, RSVP-cancelled staff notification) or to Celery (attendee visibility rebuild, waitlist offer processing), and each looked the event up again once the cascade had removed it. Every such lookup, including the attendee rebuild's second fetch after it releases its row lock, now treats a missing event as "nothing to do"
 
 ## [2.9.0] - 2026-09-06
 

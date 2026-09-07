@@ -68,8 +68,12 @@ def build_attendee_visibility_flags(event_id: str) -> None:
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [visibility_rebuild_lock_key(event_id)])
 
-        # Re-fetch event without a row lock for visibility flag building (read-only)
-        event = Event.objects.with_organization().get(pk=event_id)
+        # Re-fetch event without a row lock for visibility flag building (read-only).
+        # The first block's row lock is released at its commit, so the event can have
+        # been deleted in between (#937).
+        event = Event.objects.with_organization().filter(pk=event_id).first()
+        if event is None:
+            return
 
         organization = event.organization
         owner_id = organization.owner_id

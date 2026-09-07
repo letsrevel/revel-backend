@@ -196,6 +196,28 @@ def test_visibility_rebuild_lock_key_is_stable_and_64_bit() -> None:
     assert visibility_rebuild_lock_key(str(uuid.uuid4())) != key
 
 
+def test_build_attendee_visibility_flags_returns_when_event_is_gone(event: Event) -> None:
+    """Both event lookups tolerate a deleted event (#937).
+
+    The first lookup is reached by the Ticket/RSVP post_delete receivers cascaded from
+    event.delete(). The second runs after the attendee-count block committed and released
+    its row lock, so a concurrent delete can land in between; we simulate it by deleting the
+    event from inside the advisory-lock key call, which sits between the two lookups.
+    """
+    build_attendee_visibility_flags(str(uuid.uuid4()))  # first lookup: unknown id
+
+    event_id = str(event.id)
+
+    def _delete_then_key(key_event_id: str) -> int:
+        Event.objects.filter(pk=key_event_id).delete()
+        return visibility_rebuild_lock_key(key_event_id)
+
+    with patch("events.tasks.attendees.visibility_rebuild_lock_key", side_effect=_delete_then_key):
+        build_attendee_visibility_flags(event_id)  # second lookup: deleted mid-task
+
+    assert not AttendeeVisibilityFlag.objects.filter(event_id=event_id).exists()
+
+
 @pytest.mark.django_db(transaction=True)
 def test_build_attendee_visibility_flags_takes_per_event_advisory_lock(
     event: Event,
