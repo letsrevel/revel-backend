@@ -97,6 +97,13 @@ class SiteSettings(SingletonModel):
         help_text="BCC email for all platform fee invoices (internal accounting copy).",
     )
 
+    # Public links
+    demo_booking_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Public link to book a product demo (e.g. a Cal.com/Calendly page). Leave blank to hide.",
+    )
+
     # Maintenance banner
     maintenance_message = models.CharField(
         max_length=500,

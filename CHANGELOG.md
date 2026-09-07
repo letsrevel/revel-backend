@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `GET /api/version` now returns `demo_booking_url`, a public "book a demo" link configured on the Common Settings singleton in the admin (new *Public Links* section). It is `null` until set, so clients can show the call-to-action only when a booking page exists
+
 ## [2.9.0] - 2026-09-06
 
 ### Added
