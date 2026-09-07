@@ -20,13 +20,16 @@ from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
 from common.schema import EmailSchema, ErrorDetail, ResponseMessage
-from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
+from common.throttling import UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from revel.oidc_config import KEY_PATTERN
 
 
-@api_controller("/account", tags=["Account"], auth=I18nJWTAuth(), throttle=AuthThrottle())
+# No class-level throttle: routes inherit the API default pair (anon by IP, user
+# by pk). An anonymous-only throttle here would leave authenticated routes
+# unlimited, because AnonRateThrottle yields no cache key for logged-in users.
+@api_controller("/account", tags=["Account"], auth=I18nJWTAuth())
 class AccountController(UserAwareController):
     @route.post(
         "/export-data",

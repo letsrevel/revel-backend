@@ -4,6 +4,14 @@ from django.conf import settings
 from django.http import HttpRequest
 from ninja_extra.throttling import AnonRateThrottle, UserRateThrottle
 
+# Every throttle below MUST declare its own ``scope``. ninja's throttles key their
+# request history in the cache as ``throttle_<scope>_<ident>``, and the base classes
+# default to ``scope = "user"`` / ``"anon"``. Without an override, a 25/day throttle
+# reads and writes the same bucket as the 100/min default throttle: the short-window
+# throttles keep the list trimmed to the last minute, so the long-window limit is
+# applied to "requests in the last minute" instead (#936). Only the two default
+# throttles keep the base scope, matching ``NINJA_EXTRA["THROTTLE_RATES"]``.
+
 
 class DisableableThrottleMixin:
     """Mixin that allows throttling to be disabled via settings.
@@ -38,6 +46,7 @@ class UserDefaultThrottle(DisableableThrottleMixin, UserRateThrottle):
 class AuthThrottle(DisableableThrottleMixin, AnonRateThrottle):
     """Authentication endpoint throttle (100 requests/min)."""
 
+    scope = "auth"
     rate = "100/min"
 
 
@@ -53,42 +62,49 @@ class MediaValidationThrottle(DisableableThrottleMixin, AnonRateThrottle):
     while still providing brute-force protection.
     """
 
+    scope = "media_validation"
     rate = "1000/min"
 
 
 class UserRegistrationThrottle(DisableableThrottleMixin, AnonRateThrottle):
     """User registration throttle (100 requests/day)."""
 
+    scope = "user_registration"
     rate = "100/day"
 
 
 class WriteThrottle(DisableableThrottleMixin, UserRateThrottle):
     """Write operation throttle (100 requests/min)."""
 
+    scope = "write"
     rate = "100/min"
 
 
 class GeoThrottle(DisableableThrottleMixin, AnonRateThrottle):
     """Geolocation endpoint throttle (100 requests/min)."""
 
+    scope = "geo"
     rate = "100/min"
 
 
 class QuestionnaireSubmissionThrottle(DisableableThrottleMixin, UserRateThrottle):
     """Questionnaire submission throttle (100 requests/min)."""
 
+    scope = "questionnaire_submission"
     rate = "100/min"
 
 
 class UserRequestThrottle(DisableableThrottleMixin, UserRateThrottle):
     """User request throttle (100 requests/min)."""
 
+    scope = "user_request"
     rate = "100/min"
 
 
 class UserDataExportThrottle(DisableableThrottleMixin, UserRateThrottle):
     """User data export throttle (30 requests/day)."""
 
+    scope = "user_data_export"
     rate = "30/day"
 
 
@@ -99,6 +115,7 @@ class ExportThrottle(DisableableThrottleMixin, UserRateThrottle):
     so we limit to 1 per minute per user.
     """
 
+    scope = "export"
     rate = "1/min"
 
 
@@ -109,4 +126,5 @@ class SendAnnouncementThrottle(DisableableThrottleMixin, UserRateThrottle):
     notification spam to organization members.
     """
 
+    scope = "send_announcement"
     rate = "25/day"
