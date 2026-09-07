@@ -77,6 +77,26 @@ class TestVersionEndpointFeatures:
         assert client.get(VERSION_URL).json()["sso_providers"] == []
 
 
+class TestVersionEndpointDemoBookingUrl:
+    """Tests for the public demo-booking link exposed in /version."""
+
+    def test_demo_booking_url_is_null_by_default(self, client: Client) -> None:
+        """Test that demo_booking_url is null when the singleton has no link configured."""
+        data = client.get(VERSION_URL).json()
+
+        assert data["demo_booking_url"] is None
+
+    def test_demo_booking_url_returned_when_set(self, client: Client) -> None:
+        """Test that the configured demo-booking link is echoed back."""
+        site = SiteSettings.get_solo()
+        site.demo_booking_url = "https://cal.example.com/revel/demo"
+        site.save()
+
+        data = client.get(VERSION_URL).json()
+
+        assert data["demo_booking_url"] == "https://cal.example.com/revel/demo"
+
+
 class TestVersionEndpointWithBanner:
     """Tests for /version when a maintenance banner is configured."""
 
