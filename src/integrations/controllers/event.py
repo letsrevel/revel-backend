@@ -25,10 +25,10 @@ from integrations.service import sync_service
 class EventIntegrationsController(EventAdminBaseController):
     """Mirror an event onto connected platforms."""
 
-    @route.get("", url_name="list_event_integrations", response=list[schema.EventLinkSchema])
-    def list_links(self, event_id: UUID) -> list[schema.EventLinkSchema]:
-        """Every platform link this event has, with sync state and report."""
-        return sync_service.list_links(self.get_one(event_id))
+    @route.get("", url_name="list_event_integrations", response=list[schema.EventListingSchema])
+    def list_listings(self, event_id: UUID) -> list[schema.EventListingSchema]:
+        """One row per enabled provider: connection state, plus this event's link once it has one."""
+        return sync_service.list_listings(self.get_one(event_id))
 
     @route.post(
         "/{provider}/push",

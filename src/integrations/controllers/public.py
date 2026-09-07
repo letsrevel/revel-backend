@@ -25,10 +25,9 @@ logger = structlog.get_logger(__name__)
 
 
 def _settings_url(slug: str | None, **params: str) -> str:
+    """The organization's Integrations admin page, or the organizations index when the slug is unknown."""
     base = (
-        f"{settings.FRONTEND_BASE_URL}/org/{slug}/settings/integrations"
-        if slug
-        else f"{settings.FRONTEND_BASE_URL}/org"
+        f"{settings.FRONTEND_BASE_URL}/org/{slug}/admin/integrations" if slug else f"{settings.FRONTEND_BASE_URL}/org"
     )
     return f"{base}?{urlencode(params)}"
 

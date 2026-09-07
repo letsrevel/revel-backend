@@ -72,10 +72,10 @@ def test_publish_remote_missing_breaks_the_link(pushed: EventLink, fake_provider
     assert TierLink.objects.filter(event_link=pushed).count() == 0
 
 
-def test_list_links_skips_a_disabled_provider(pushed: EventLink, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert len(sync_service.list_links(pushed.event)) == 1
+def test_list_listings_skips_a_disabled_provider(pushed: EventLink, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert len(sync_service.list_listings(pushed.event)) == 1
     monkeypatch.setattr(registry, "PROVIDERS", {})
-    assert sync_service.list_links(pushed.event) == []
+    assert sync_service.list_listings(pushed.event) == []
 
 
 def test_set_link_auto_sync_and_schema(pushed: EventLink) -> None:
@@ -83,9 +83,10 @@ def test_set_link_auto_sync_and_schema(pushed: EventLink) -> None:
     assert link.auto_sync is True and link.effective_auto_sync is True
     link = sync_service.set_link_auto_sync(pushed.event, "fake", None)
     assert link.auto_sync is None and link.effective_auto_sync is False
-    rows = sync_service.list_links(pushed.event)
-    assert len(rows) == 1
-    row = rows[0]
+    rows = sync_service.list_listings(pushed.event)
+    assert len(rows) == 1 and rows[0].connection_status == "active"
+    row = rows[0].link
+    assert row is not None
     assert (row.provider, row.display_name, row.remote_status, row.sync_state, row.origin) == (
         "fake",
         "Fake",

@@ -31,7 +31,7 @@ def test_callback_success_redirects_connected(organization: Organization, fake_p
     assert response.status_code == 302
     assert (
         response["Location"]
-        == f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/settings/integrations?connected=fake"
+        == f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/integrations?connected=fake"
     )
     assert PlatformConnection.objects.get().status == "active"
     assert CONNECT_STATE_COOKIE in response.cookies and response.cookies[CONNECT_STATE_COOKIE]["max-age"] == 0

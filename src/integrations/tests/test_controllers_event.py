@@ -43,7 +43,8 @@ def test_list_empty_then_after_push(  # type: ignore[no-untyped-def]
     connected: PlatformConnection,
     django_capture_on_commit_callbacks,
 ) -> None:
-    assert organization_owner_client.get(_url("list_event_integrations", clean_event)).json() == []
+    before = organization_owner_client.get(_url("list_event_integrations", clean_event)).json()
+    assert before == [{"provider": "fake", "display_name": "Fake", "connection_status": "active", "link": None}]
     with django_capture_on_commit_callbacks(execute=True):
         response = organization_owner_client.post(
             _url("event_integration_push", clean_event, "fake"), content_type="application/json"
@@ -51,7 +52,23 @@ def test_list_empty_then_after_push(  # type: ignore[no-untyped-def]
     assert response.status_code == 202, response.content
     assert response.json()["sync_state"] in ("pending", "in_sync")
     rows = organization_owner_client.get(_url("list_event_integrations", clean_event)).json()
-    assert rows[0]["remote_id"] == "ev-1" and rows[0]["remote_status"] == "draft"
+    assert rows[0]["link"]["remote_id"] == "ev-1" and rows[0]["link"]["remote_status"] == "draft"
+
+
+def test_list_shows_the_provider_before_the_organization_connects(
+    organization_staff_client: Client, clean_event: Event, fake_provider: FakeProvider
+) -> None:
+    """Staff cannot read the owner-only connection list, so the row must carry the connection state."""
+    rows = organization_staff_client.get(_url("list_event_integrations", clean_event)).json()
+    assert rows == [{"provider": "fake", "display_name": "Fake", "connection_status": None, "link": None}]
+
+
+def test_list_reports_a_revoked_connection(
+    organization_staff_client: Client, clean_event: Event, connected: PlatformConnection
+) -> None:
+    connection_service.mark_revoked(connected)
+    rows = organization_staff_client.get(_url("list_event_integrations", clean_event)).json()
+    assert rows[0]["connection_status"] == "error" and rows[0]["link"] is None
 
 
 def test_staff_with_manage_event_can_push(

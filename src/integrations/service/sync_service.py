@@ -19,6 +19,7 @@ from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.providers.base import ListingProvider, RemoteEventRef
 from integrations.schema import (
     EventLinkSchema,
+    EventListingSchema,
     PauseResultSchema,
     SyncReportEntry,
     TierLinkSchema,
@@ -361,13 +362,30 @@ def to_link_schema(link: EventLink) -> EventLinkSchema:
     )
 
 
-def list_links(event: Event) -> list[EventLinkSchema]:
-    """Every link this event has, across providers. Links of a disabled provider are skipped."""
-    return [
-        to_link_schema(link)
-        for link in EventLink.objects.filter(event=event).select_related("connection").order_by("created_at")
-        if link.connection.provider in registry.PROVIDERS
-    ]
+def list_listings(event: Event) -> list[EventListingSchema]:
+    """One row per enabled provider: the organization's connection state and this event's link, if any.
+
+    Disabled providers are skipped even when a link exists, so a self-hoster who removes the
+    credentials sees the listing disappear rather than fail.
+    """
+    connections = {c.provider: c for c in PlatformConnection.objects.filter(organization=event.organization)}
+    links = {
+        link.connection.provider: link for link in EventLink.objects.filter(event=event).select_related("connection")
+    }
+    rows: list[EventListingSchema] = []
+    for provider in registry.enabled_providers():
+        conn = connections.get(provider.key)
+        link = links.get(provider.key)
+        rows.append(
+            EventListingSchema(
+                provider=provider.key,
+                display_name=provider.display_name,
+                # django-stubs types CharField.__get__ as `str` even with `choices=`; see to_link_schema.
+                connection_status=t.cast(PlatformConnection.Status, conn.status) if conn else None,
+                link=to_link_schema(link) if link else None,
+            )
+        )
+    return rows
 
 
 def _require_pushed_link(event: Event, provider_key: str) -> EventLink:

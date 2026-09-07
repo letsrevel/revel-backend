@@ -15,6 +15,7 @@ __all__ = [
     "ConnectionUpdateSchema",
     "EventLinkSchema",
     "EventLinkUpdateSchema",
+    "EventListingSchema",
     "ImportRequestSchema",
     "ImportResultSchema",
     "IntegrationErrorCode",
@@ -114,6 +115,19 @@ class EventLinkSchema(Schema):
     last_pulled_at: AwareDatetime | None = None
     sync_report: list[SyncReportEntry]
     tiers: list[TierLinkSchema]
+
+
+class EventListingSchema(Schema):
+    """One row per enabled provider, so the event page can offer "list on X" before any link exists.
+
+    Event staff cannot read the owner-only connection list, so the organization's connection
+    state travels here; ``link`` is ``None`` until the event has been pushed or imported.
+    """
+
+    provider: str
+    display_name: str
+    connection_status: PlatformConnection.Status | None = None  # None = organization not connected
+    link: EventLinkSchema | None = None
 
 
 class EventLinkUpdateSchema(Schema):
