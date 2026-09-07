@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-09-07
+
 ### Added
 
 - `GET /api/version` now returns `demo_booking_url`, a public "book a demo" link configured on the Common Settings singleton in the admin (new *Public Links* section). It is `null` until set, so clients can show the call-to-action only when a booking page exists
@@ -14,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Deleting an event that has tickets or RSVPs no longer returns HTTP 500 after the delete has already committed. The ticket and RSVP post-delete hooks defer work to after commit (waitlist spot check, RSVP-cancelled staff notification) or to Celery (attendee visibility rebuild, waitlist offer processing), and each looked the event up again once the cascade had removed it. Every such lookup, including the attendee rebuild's second fetch after it releases its row lock, now treats a missing event as "nothing to do"
+- Every rate limit now keeps its own counter. All specialised throttles shared one cache bucket per user/IP with the 100/min defaults, so long-window limits were judged against the last minute of unrelated traffic: organizers who had made ~25 admin calls in a minute got a 429 on `POST /organization-admin/{slug}/announcements/{id}/send`, any request in the previous 60 s blocked an export, and the daily caps on registration and GDPR data exports were never enforced. Rates are unchanged; as a side effect, GET and write traffic each get their full 100/min budget instead of one shared one
+
+### Security
+
+- Authenticated account and OTP routes are now rate limited per user. Their controllers set an anonymous-only throttle at class level, which yields no key for logged-in requests and replaced the API default, so profile, language, deletion-request and TOTP enable/disable endpoints were unlimited and TOTP verification was open to brute force with a stolen access token. Both controllers now inherit the default per-IP + per-user limits
 
 ## [2.9.0] - 2026-09-06
 
