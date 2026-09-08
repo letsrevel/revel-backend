@@ -735,7 +735,12 @@ class TicketSalesGate(BaseEligibilityGate):
 
         # Check if there are any ticket tiers with active sales
         current_time = timezone.now()
-        for tier in self.event.ticket_tiers.all():
+        tiers = list(self.event.ticket_tiers.all())
+        all_paused = bool(tiers) and all(tier.sales_paused for tier in tiers)
+        for tier in tiers:
+            if tier.sales_paused:
+                continue
+
             # If no sales window is set, assume tickets are always on sale
             if tier.sales_start_at is None and tier.sales_end_at is None:
                 return None
@@ -754,11 +759,12 @@ class TicketSalesGate(BaseEligibilityGate):
                 return None  # At least one tier has active sales
 
         # No tiers have active sales
+        reason = Reasons.SALES_PAUSED if all_paused else Reasons.NO_TICKETS_ON_SALE
         return EventUserEligibility(
             allowed=False,
             event_id=self.event.id,
-            reason=_(Reasons.NO_TICKETS_ON_SALE),
-            reason_code=Reasons.NO_TICKETS_ON_SALE.code,
+            reason=_(reason),
+            reason_code=reason.code,
             next_step=None,
         )
 

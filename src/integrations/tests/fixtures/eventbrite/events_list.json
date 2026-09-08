@@ -1,0 +1,72 @@
+{
+  "pagination": {
+    "object_count": 1,
+    "page_number": 1,
+    "page_size": 50,
+    "page_count": 1,
+    "has_more_items": false
+  },
+  "events": [
+    {
+      "name": {
+        "text": "Spike Event (throwaway)",
+        "html": "Spike Event (throwaway)"
+      },
+      "description": {
+        "text": null,
+        "html": null
+      },
+      "url": "https://www.eventbrite.com/e/spike-event-throwaway-tickets-1999760883635",
+      "start": {
+        "timezone": "Europe/Vienna",
+        "utc": "2026-10-04T11:04:17Z",
+        "local": "2026-10-04T13:04:17"
+      },
+      "end": {
+        "timezone": "Europe/Vienna",
+        "utc": "2026-10-04T14:04:17Z",
+        "local": "2026-10-04T16:04:17"
+      },
+      "organization_id": "3012894655993",
+      "created": "2026-09-04T11:04:19Z",
+      "changed": "2026-09-04T11:04:19Z",
+      "capacity": 0,
+      "capacity_is_custom": false,
+      "status": "draft",
+      "currency": "EUR",
+      "listed": false,
+      "shareable": false,
+      "invite_only": false,
+      "online_event": false,
+      "show_remaining": false,
+      "tx_time_limit": 1200,
+      "hide_start_date": false,
+      "hide_end_date": false,
+      "locale": "en_US",
+      "is_locked": false,
+      "privacy_setting": "unlocked",
+      "is_series": false,
+      "is_series_parent": false,
+      "inventory_type": "limited",
+      "is_reserved_seating": false,
+      "show_pick_a_seat": false,
+      "show_seatmap_thumbnail": false,
+      "show_colors_in_seatmap_thumbnail": false,
+      "source": "api",
+      "is_free": true,
+      "version": null,
+      "summary": null,
+      "facebook_event_id": null,
+      "logo_id": null,
+      "organizer_id": "121711077154",
+      "venue_id": "299287124",
+      "category_id": null,
+      "subcategory_id": null,
+      "format_id": null,
+      "id": "1999760883635",
+      "resource_uri": "https://www.eventbriteapi.com/v3/events/1999760883635/",
+      "is_externally_ticketed": false,
+      "logo": null
+    }
+  ]
+}

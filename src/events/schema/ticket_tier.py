@@ -141,6 +141,7 @@ class TicketTierSchema(ModelSchema):
             "currency",
             "sales_start_at",
             "sales_end_at",
+            "sales_paused",
             "purchasable_by",
             "payment_method",
             "manual_payment_instructions",
@@ -280,6 +281,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     currency: Currencies = Field(default="EUR", max_length=3)
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
+    sales_paused: bool = False
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
     manual_payment_instructions: StrippedString | None = None
@@ -341,6 +343,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     currency: Currencies | None = None
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
+    sales_paused: bool | None = None
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
     manual_payment_instructions: StrippedString | None = None
@@ -387,6 +390,15 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
         return self
 
 
+class ExternalSalesSchema(Schema):
+    """Sold count on one external listing platform, for the organizer's combined view (spec §11)."""
+
+    provider: str
+    quantity_sold: int
+    updated_at: AwareDatetime | None = None
+    paused: bool
+
+
 class TicketTierDetailSchema(ModelSchema):
     event_id: UUID
     total_available: int | None = None
@@ -401,6 +413,7 @@ class TicketTierDetailSchema(ModelSchema):
     category_prices: CategoryPriceMap = Field(default_factory=dict)
     pricing_gaps: list[TierPricingGapSchema] = Field(default_factory=list)
     unsellable_zones: list[TierUnsellableZoneSchema] = Field(default_factory=list)
+    external_sales: list[ExternalSalesSchema] = Field(default_factory=list)
 
     class Meta:
         model = TicketTier
@@ -420,6 +433,7 @@ class TicketTierDetailSchema(ModelSchema):
             "currency",
             "sales_start_at",
             "sales_end_at",
+            "sales_paused",
             "created_at",
             "updated_at",
             "total_quantity",
@@ -526,6 +540,22 @@ class TicketTierDetailSchema(ModelSchema):
             return []
         zones = models.PriceCategory.objects.filter(id__in=unpainted).order_by("display_order", "name")
         return [TierUnsellableZoneSchema(id=c.id, name=c.name, color=c.color) for c in zones]
+
+    @staticmethod
+    def resolve_external_sales(obj: TicketTier) -> list[ExternalSalesSchema]:
+        """Per-platform counts via the reverse relation from ``integrations.TierLink`` (no app import needed)."""
+        links = getattr(obj, "platform_links", None)
+        if links is None:
+            return []
+        return [
+            ExternalSalesSchema(
+                provider=tl.event_link.connection.provider,
+                quantity_sold=tl.remote_quantity_sold,
+                updated_at=tl.counts_updated_at,
+                paused=tl.remote_paused,
+            )
+            for tl in links.all()
+        ]
 
 
 class ReorderSchema(Schema):

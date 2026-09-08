@@ -84,6 +84,7 @@ INSTALLED_APPS = [
     "geo",
     "notifications",
     "wallet",
+    "integrations",
 ]
 
 if SILK_PROFILER:

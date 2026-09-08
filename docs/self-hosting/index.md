@@ -54,6 +54,7 @@ each dependency does, whether you can omit it, and the lever you use to do so:
 | Geo / IP2Location | Yes | Lookups return `None` | BIN optional; mini cities fallback |
 | Telegram | Yes | Per-user delivery skipped | `FEATURE_TELEGRAM=False`; profile off |
 | OIDC login (Google, Keycloak, …) | Yes (opt-in) | Login buttons hidden; password auth only | `OIDC_PROVIDERS=google` + per-provider vars |
+| Eventbrite listing sync | Yes (opt-in) | Integrations panel hides the provider | `INTEGRATIONS_EVENTBRITE_CLIENT_ID` + `_CLIENT_SECRET` |
 | Apple Wallet | Yes | `/wallet/apple` → 503; PDF tickets fine | leave certs unset |
 | Google Wallet | Yes | `/wallet/google` → 503; PDF tickets fine | leave issuer ID / key unset |
 | Email / SMTP | Required* | Needed for verification | real SMTP or `EMAIL_DRY_RUN=True` |

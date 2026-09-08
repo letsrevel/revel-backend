@@ -326,6 +326,11 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     sales_end_at = models.DateTimeField(
         null=True, blank=True, db_index=True, help_text="When ticket sales end for this tier"
     )
+    sales_paused = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Organizer kill switch: hides the tier from checkout until resumed. Independent of the sales window.",
+    )
     total_quantity = models.PositiveIntegerField(default=None, null=True, blank=True)
     quantity_sold = models.PositiveIntegerField(default=0)
     manual_payment_instructions = MarkdownField(null=True, blank=True)
@@ -548,7 +553,9 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         self._validate_invitation_restrictions()
 
     def can_purchase(self) -> bool:
-        """Check if the ticket can be purchased."""
+        """Check if the ticket can be purchased (inside the sales window and not paused)."""
+        if self.sales_paused:
+            return False
         now = timezone.now()
         return (self.sales_start_at is None or self.sales_start_at <= now) and (
             self.sales_end_at is None or self.sales_end_at >= now

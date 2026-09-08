@@ -63,6 +63,7 @@ from .ticket_detail import (
 from .ticket_tier import (
     CategoryPriceMap,
     Currencies,
+    ExternalSalesSchema,
     RefundPolicySchema,
     RefundPolicyTierSchema,
     ReorderSchema,
@@ -99,6 +100,7 @@ __all__ = [
     "ConfirmPaymentSchema",
     "Currencies",
     "EventRefundPreviewSchema",
+    "ExternalSalesSchema",
     "GuestActionConfirmSchema",
     "GuestActionPayload",
     "GuestActionResponseSchema",

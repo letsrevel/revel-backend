@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Eventbrite listing sync** (#924): an organization can connect its Eventbrite account from the integrations panel and list the same event on both platforms without retyping it. Revel stays the source of truth — every push sends the event's full state, and remote edits are never pulled back
+- Pushing a public event creates it on Eventbrite as a **draft** (with its venue, description, summary and eligible ticket tiers); publishing is a separate, explicit action, and later pushes mirror Revel's status
+- **Import from Eventbrite**: browse the connected account's events and import one as a Revel draft, linked to the remote listing from then on
+- **Import jobs**: each queued import is an `ImportJob` the picker polls (`GET .../integrations/{provider}/import-jobs?ids=`) — database only, no platform calls while waiting — and a failed import reports its `IntegrationErrorCode` and the provider's message instead of timing out silently
+- **Opt-in auto-sync**: once a listing exists, edits to the event or its tiers are pushed automatically. Enable it per connection or override it per event; it never publishes and never pushes an event that was not pushed by hand first
+- **Per-platform sold counts**: each tier reports how many tickets sold on each connected platform, refreshed from the platform's own webhooks and reconciled on a schedule, so an organizer sees one number per tier without opening two dashboards
+- **Pause or resume a tier's sales on Eventbrite from Revel**, per tier or for the whole event — the kill switch for a tier that sold out in Revel
+- A Revel-side **"sales paused"** switch on ticket tiers: stop selling one tier without deleting it or changing its dates, and it stays paused on connected platforms too
+- Self-hosters: set `INTEGRATIONS_EVENTBRITE_CLIENT_ID` and `INTEGRATIONS_EVENTBRITE_CLIENT_SECRET` to offer the provider (both empty → it is hidden), and register `{BASE_URL}/api/integrations/eventbrite/callback` as the Eventbrite app's OAuth redirect URI. Eventbrite's WAF rejects loopback redirect URIs, so local testing needs a non-loopback hostname for the API
+
 ## [2.10.0] - 2026-09-07
 
 ### Added

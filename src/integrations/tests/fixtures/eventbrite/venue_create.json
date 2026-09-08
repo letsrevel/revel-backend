@@ -1,0 +1,25 @@
+{
+  "address": {
+    "address_1": "Stephansplatz 1",
+    "address_2": "",
+    "city": "Wien",
+    "region": "",
+    "postal_code": "1010",
+    "country": "AT",
+    "latitude": "48.2084609",
+    "longitude": "16.3734547",
+    "localized_address_display": "Stephansplatz 1, 1010 Wien",
+    "localized_area_display": "Wien",
+    "localized_multi_line_address_display": [
+      "Stephansplatz 1",
+      "1010 Wien"
+    ]
+  },
+  "resource_uri": "https://www.eventbriteapi.com/v3/venues/299287124/",
+  "id": "299287124",
+  "age_restriction": null,
+  "capacity": null,
+  "name": "Spike Hall",
+  "latitude": "48.2084609",
+  "longitude": "16.3734547"
+}

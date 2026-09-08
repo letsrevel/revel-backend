@@ -147,7 +147,9 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
         if not _check_tier_visibility(tier, is_staff_or_owner, is_member, is_invited, invitation_tier_ids):
             continue
 
-        # 2. Check sales window
+        # 2. Check sales window / pause
+        if tier.sales_paused:
+            continue
         if tier.sales_start_at and now < tier.sales_start_at:
             continue
         if tier.sales_end_at and now > tier.sales_end_at:
@@ -225,6 +227,11 @@ def anonymous_can_purchase(tier: TicketTier, event: Event, event_token: EventTok
     Returns:
         True if an anonymous viewer carrying ``event_token`` can purchase from the tier.
     """
+    # A paused tier is unbuyable for everyone, so the listing must not advertise it (mirrors
+    # get_eligible_tiers step 2). The sales *window* is deliberately still not checked here —
+    # that gap predates the kill switch and is tracked separately.
+    if tier.sales_paused:
+        return False
     # A membership-tier restriction can never be met without an account (mirrors
     # get_eligible_tiers step 4). ``.all()`` reads the manager's prefetch.
     if tier.restricted_to_membership_tiers.all():

@@ -1,0 +1,301 @@
+"""Import orchestration (spec §7.6): remote events listed, queued, and turned into Revel drafts."""
+
+import typing as t
+from functools import partial
+from uuid import UUID
+
+import structlog
+from django.conf import settings
+from django.contrib.gis.geos import Point
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+from django.utils.translation import gettext as _
+from markdownify import markdownify
+
+from common.sanitizers import sanitize_html
+from events.models import Event, Organization, TicketTier
+from events.suppression import suppress_default_tier_creation
+from integrations import registry
+from integrations.enums import IntegrationErrorCode
+from integrations.exceptions import IntegrationError, ProviderError
+from integrations.models import EventLink, ImportJob, PlatformConnection, TierLink
+from integrations.providers.base import RemoteEvent, RemoteTicketClass
+from integrations.schema import ImportJobSchema, ImportResultSchema, RemoteEventSummarySchema, SyncReportEntry
+from integrations.service import connection_service, mapper
+from integrations.service.sync_service import active_connection
+
+logger = structlog.get_logger(__name__)
+
+
+def list_remote_events(organization: Organization, provider_key: str) -> list[RemoteEventSummarySchema]:
+    """The remote account's events for the import picker, flagged when already linked."""
+    conn = active_connection(organization, provider_key)
+    provider = registry.get_provider(provider_key)
+    try:
+        summaries = provider.list_events(conn.token(), conn.remote_account_id)
+    except ProviderError as e:
+        if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
+            connection_service.mark_revoked(conn)
+        raise IntegrationError(
+            e.code, str(_("The platform could not list its events.")), e.provider_message, status=502
+        ) from e
+    linked = set(EventLink.objects.filter(connection=conn).values_list("remote_id", flat=True))
+    return [
+        RemoteEventSummarySchema(
+            remote_id=s.remote_id,
+            name=s.name,
+            start=s.start,
+            status=s.status,
+            url=s.url,
+            already_linked=s.remote_id in linked,
+        )
+        for s in summaries
+    ]
+
+
+def request_import(organization: Organization, provider_key: str, remote_ids: list[str]) -> ImportResultSchema:
+    """Record one ``ImportJob`` per unlinked remote id and queue its task after commit."""
+    conn = active_connection(organization, provider_key)
+    linked = set(
+        EventLink.objects.filter(connection=conn, remote_id__in=remote_ids).values_list("remote_id", flat=True)
+    )
+    wanted = list(dict.fromkeys(remote_ids))
+    # A double-clicked "Import" must not queue the same event twice: hand back the job already in flight.
+    in_flight = {
+        j.remote_id: j
+        for j in ImportJob.objects.filter(connection=conn, remote_id__in=wanted, status=ImportJob.Status.QUEUED)
+    }
+    new_jobs = ImportJob.objects.bulk_create(
+        [ImportJob(connection=conn, remote_id=rid) for rid in wanted if rid not in linked and rid not in in_flight]
+    )
+    from integrations.tasks import import_remote_event as import_task
+
+    for job in new_jobs:
+        transaction.on_commit(partial(import_task.delay, str(job.id)))
+    by_remote = in_flight | {j.remote_id: j for j in new_jobs}
+    return ImportResultSchema(
+        jobs=[job_schema(by_remote[rid]) for rid in wanted if rid in by_remote],
+        skipped=[rid for rid in wanted if rid in linked],
+    )
+
+
+def list_import_jobs(organization: Organization, provider_key: str, ids: list[UUID]) -> list[ImportJobSchema]:
+    """The requested jobs, scoped to the organization's connection for this provider (poll target)."""
+    jobs = ImportJob.objects.filter(
+        connection__organization=organization, connection__provider=provider_key, id__in=ids
+    ).select_related("link__event")
+    return [job_schema(j) for j in jobs]
+
+
+def job_schema(job: ImportJob) -> ImportJobSchema:
+    """Serialize a job; ``event_*`` are filled from the link once the import is done."""
+    event = job.link.event if job.link else None  # narrows for mypy; select_related makes it one query
+    return ImportJobSchema(
+        id=job.id,
+        remote_id=job.remote_id,
+        status=ImportJob.Status(job.status),
+        event_id=event.id if event else None,
+        event_slug=event.slug if event else None,
+        error_code=IntegrationErrorCode(job.error_code) if job.error_code else None,
+        error_message=job.error_message,
+        provider_message=job.provider_message or None,
+    )
+
+
+def run_import_job(job: ImportJob) -> None:
+    """Run one queued job and record its outcome so the poll can explain a failure.
+
+    Classified failures (provider errors, a foreign-account rejection) are recorded and swallowed:
+    the job row *is* the report. Anything unexpected is recorded as ``import_failed`` and
+    re-raised so the task still fails loudly.
+    """
+    # ponytail: no automatic retry on a transient provider error (429/5xx); the job row makes a
+    # "retry" action a one-liner (re-queue the same job) when it is wanted.
+    conn = job.connection
+    if conn.status != PlatformConnection.Status.ACTIVE or conn.provider not in registry.PROVIDERS:
+        _fail(job, IntegrationErrorCode.PROVIDER_NOT_CONNECTED, str(_("The platform is no longer connected.")))
+        return
+    try:
+        link = import_remote_event(conn, job.remote_id)
+    except ProviderError as e:
+        if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
+            connection_service.mark_revoked(conn)
+        _fail(job, e.code, str(_("The platform could not provide that event.")), e.provider_message)
+        return
+    except IntegrationError as e:
+        _fail(job, e.code, e.message, e.provider_message)
+        return
+    except Exception:
+        _fail(job, IntegrationErrorCode.IMPORT_FAILED, str(_("The import failed unexpectedly.")))
+        raise
+    job.status = ImportJob.Status.DONE
+    job.link = link
+    job.save(update_fields=["status", "link", "updated_at"])
+
+
+def _fail(job: ImportJob, code: IntegrationErrorCode, message: str, provider_message: str | None = None) -> None:
+    logger.warning("integration_import_failed", job_id=str(job.id), remote_id=job.remote_id, code=code.value)
+    job.status = ImportJob.Status.FAILED
+    job.error_code = code.value
+    job.error_message = message
+    job.provider_message = provider_message or ""
+    job.save(update_fields=["status", "error_code", "error_message", "provider_message", "updated_at"])
+
+
+def _tier_from_remote(
+    event: Event, tc: RemoteTicketClass, *, fallback_currency: str, pause: bool = False
+) -> TicketTier:
+    """Create one draft ``TicketTier`` mirroring a remote ticket class.
+
+    ``fallback_currency`` is the remote *event's* currency, used when the class carries none of
+    its own — free classes usually have no ``cost`` object at all. Falling back to the instance
+    default instead would import them in the wrong currency, and the next push would drop them
+    as a currency mismatch.
+
+    Raises:
+        ValidationError: if the remote class maps to an invalid tier (e.g. a sales window that
+            starts after the event) — the caller skips that class and reports it instead.
+    """
+    return TicketTier.objects.create(
+        event=event,
+        name=tc.name[:255],
+        price=tc.price,
+        currency=(tc.currency or fallback_currency or str(settings.DEFAULT_CURRENCY))[:3],
+        total_quantity=tc.quantity_total or None,
+        sales_start_at=tc.sales_start,
+        sales_end_at=tc.sales_end,
+        visibility=TicketTier.Visibility.UNLISTED if tc.hidden else TicketTier.Visibility.PUBLIC,
+        payment_method=TicketTier.PaymentMethod.FREE if tc.is_free else TicketTier.PaymentMethod.ONLINE,
+        description=tc.description or None,
+        sales_paused=pause,
+    )
+
+
+def import_remote_event(connection: PlatformConnection, remote_id: str) -> EventLink:
+    """Create a Revel draft from a remote event (spec §7.6). The link is written last on purpose.
+
+    Invalid ticket classes are skipped individually (and noted in the link's ``sync_report``)
+    rather than failing the whole import. A race between two callers importing the same
+    ``remote_id`` is resolved by the connection+remote_id uniqueness constraint: the loser's
+    draft is rolled back and it returns the winner's link.
+    """
+    existing = EventLink.objects.filter(connection=connection, remote_id=remote_id).first()
+    if existing is not None:
+        return existing
+    provider = registry.get_provider(connection.provider)
+    remote: RemoteEvent = provider.get_event(
+        connection.token(), remote_id
+    )  # ProviderError propagates → task fails loudly
+    # The picker only ever offers events from the selected account, but `get_event` is not
+    # account-scoped the way `list_events` is: one token can reach every account its owner
+    # belongs to. Honour the boundary the organizer chose, so a hand-crafted id cannot link —
+    # and later mutate — a listing in one of their other accounts. Providers that do not report
+    # the owning account send "" and are trusted as before.
+    if remote.account_id and remote.account_id != connection.remote_account_id:
+        logger.warning(
+            "integration_import_rejected_foreign_account",
+            remote_id=remote_id,
+            provider=connection.provider,
+        )
+        raise IntegrationError(
+            IntegrationErrorCode.ACCOUNT_UNKNOWN,
+            str(_("That account is not available to this connection.")),
+            status=404,
+        )
+    city = None
+    location = None
+    if remote.venue and remote.venue.latitude is not None and remote.venue.longitude is not None:
+        location = Point(remote.venue.longitude, remote.venue.latitude, srid=4326)
+        city = mapper.nearest_city(remote.venue.latitude, remote.venue.longitude)
+    address = (remote.venue.address if remote.venue else "")[:255] or None
+    # The modern editor leaves `description.html` null and keeps the body in structured content,
+    # so ask for it explicitly rather than importing an event with no description.
+    description_html = remote.description_html or provider.get_description(connection.token(), remote_id)
+    try:
+        with transaction.atomic():
+            # The remote classes are the truth: never let the post-save hook add a default tier.
+            with suppress_default_tier_creation():
+                event = Event.objects.create(
+                    organization=connection.organization,
+                    name=remote.name[:255],
+                    description=markdownify(sanitize_html(description_html)).strip() or None,
+                    status=Event.EventStatus.DRAFT,
+                    event_type=Event.EventType.PUBLIC,
+                    requires_ticket=True,
+                    start=remote.start,
+                    end=remote.end,
+                    is_virtual=remote.is_virtual,
+                    address=address,
+                    city=city,
+                    location=location,
+                )
+            tiers: list[tuple[TicketTier, RemoteTicketClass]] = []
+            report: list[SyncReportEntry] = []
+            # Paid classes become online (Stripe) tiers. Without Stripe Connect they start paused so a
+            # buyer can never reach a checkout that would refuse; the organizer resumes them after connecting.
+            stripe_ready = connection.organization.is_stripe_connected
+            for tc in remote.ticket_classes:
+                pause = not tc.is_free and not stripe_ready
+                try:
+                    tier = _tier_from_remote(event, tc, fallback_currency=remote.currency, pause=pause)
+                except ValidationError as e:
+                    logger.warning("integration_import_tier_skipped", remote_id=tc.remote_id, error=str(e))
+                    report.append(
+                        SyncReportEntry(
+                            scope="tier",
+                            tier_id=None,
+                            tier_name=tc.name,
+                            code=IntegrationErrorCode.PROVIDER_REJECTED,
+                            detail=str(_("Ticket class %(name)s could not be imported.") % {"name": tc.name}),
+                            provider_message=str(e),
+                        )
+                    )
+                    continue
+                tiers.append((tier, tc))
+                if pause:
+                    report.append(
+                        SyncReportEntry(
+                            scope="tier",
+                            tier_id=tier.id,
+                            tier_name=tier.name,
+                            code=IntegrationErrorCode.STRIPE_NOT_CONNECTED,
+                            detail=str(_("Sales are paused until Stripe is connected; resume the tier afterwards.")),
+                            provider_message=None,
+                        )
+                    )
+            link = EventLink.objects.create(
+                event=event,
+                connection=connection,
+                remote_id=remote_id,
+                remote_url=remote.url,
+                remote_status=remote.status,
+                sync_state=EventLink.SyncState.IN_SYNC,
+                origin=EventLink.Origin.IMPORTED,
+                last_pulled_at=timezone.now(),
+                sync_report=[entry.model_dump(mode="json") for entry in report],
+            )
+            TierLink.objects.bulk_create(
+                [
+                    TierLink(
+                        tier=tier,
+                        event_link=link,
+                        remote_id=t.cast(str, tc.remote_id),
+                        remote_quantity_sold=tc.quantity_sold,
+                    )
+                    for tier, tc in tiers
+                ]
+            )
+    except IntegrityError, ValidationError:
+        # A concurrent importer won the race on (connection, remote_id). Depending on timing
+        # this surfaces as IntegrityError (raw INSERT conflict) or ValidationError
+        # (TimeStampedModel.save's full_clean -> validate_constraints, when the winner's row
+        # was already committed and visible before our own insert) — mirrors
+        # common.utils.get_or_create_with_race_protection. Re-fetch the winner; if this wasn't
+        # actually that race (no winner row appears), the failure is genuine — re-raise it.
+        winner = EventLink.objects.filter(connection=connection, remote_id=remote_id).first()
+        if winner is None:
+            raise
+        return winner
+    logger.info("integration_imported", link_id=str(link.id), provider=connection.provider, remote_id=remote_id)
+    return link

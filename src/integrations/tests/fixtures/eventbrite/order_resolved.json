@@ -1,0 +1,133 @@
+{
+  "costs": {
+    "base_price": {
+      "display": "\u20ac0.00",
+      "currency": "EUR",
+      "value": 0,
+      "major_value": "0.00"
+    },
+    "display_fee": {
+      "display": "\u20ac0.00",
+      "currency": "EUR",
+      "value": 0,
+      "major_value": "0.00"
+    },
+    "display_price": {
+      "display": "\u20ac0.00",
+      "currency": "EUR",
+      "value": 0,
+      "major_value": "0.00"
+    },
+    "eventbrite_fee": {
+      "display": "\u20ac0.00",
+      "currency": "EUR",
+      "value": 0,
+      "major_value": "0.00"
+    },
+    "gross": {
+      "display": "\u20ac0.00",
+      "currency": "EUR",
+      "value": 0,
+      "major_value": "0.00"
+    },
+    "payment_fee": {
+      "display": "\u20ac0.00",
+      "currency": "EUR",
+      "value": 0,
+      "major_value": "0.00"
+    },
+    "tax": {
+      "display": "\u20ac0.00",
+      "currency": "EUR",
+      "value": 0,
+      "major_value": "0.00"
+    },
+    "has_gts_tax": false,
+    "fee_components": [],
+    "shipping_components": [],
+    "tax_components": []
+  },
+  "resource_uri": "https://www.eventbriteapi.com/v3/orders/15614839853/",
+  "id": "15614839853",
+  "changed": "2026-09-04T11:24:24Z",
+  "created": "2026-09-04T11:24:08Z",
+  "name": "<redacted>",
+  "first_name": "<redacted>",
+  "last_name": "<redacted>",
+  "email": "<redacted>",
+  "status": "placed",
+  "time_remaining": 0,
+  "event_id": "1999760883635",
+  "attendees": [
+    {
+      "costs": {
+        "base_price": {
+          "display": "\u20ac0.00",
+          "currency": "EUR",
+          "value": 0,
+          "major_value": "0.00"
+        },
+        "eventbrite_fee": {
+          "display": "\u20ac0.00",
+          "currency": "EUR",
+          "value": 0,
+          "major_value": "0.00"
+        },
+        "gross": {
+          "display": "\u20ac0.00",
+          "currency": "EUR",
+          "value": 0,
+          "major_value": "0.00"
+        },
+        "payment_fee": {
+          "display": "\u20ac0.00",
+          "currency": "EUR",
+          "value": 0,
+          "major_value": "0.00"
+        },
+        "tax": {
+          "display": "\u20ac0.00",
+          "currency": "EUR",
+          "value": 0,
+          "major_value": "0.00"
+        }
+      },
+      "resource_uri": "https://www.eventbriteapi.com/v3/events/1999760883635/attendees/22824788917/",
+      "id": "22824788917",
+      "changed": "2026-09-04T11:24:26Z",
+      "created": "2026-09-04T11:24:22Z",
+      "quantity": 1,
+      "variant_id": null,
+      "profile": {
+        "first_name": "<redacted>",
+        "last_name": "<redacted>",
+        "email": "<redacted>",
+        "name": "<redacted>",
+        "addresses": {}
+      },
+      "barcodes": [
+        {
+          "status": "unused",
+          "barcode": "1561483985322824788917001",
+          "created": "2026-09-04T11:24:26Z",
+          "changed": "2026-09-04T11:24:26Z",
+          "checkin_type": 0,
+          "is_printed": false
+        }
+      ],
+      "answers": [],
+      "checked_in": false,
+      "cancelled": false,
+      "refunded": false,
+      "affiliate": "oddtdtdirect",
+      "guestlist_id": null,
+      "invited_by": null,
+      "status": "Attending",
+      "ticket_class_name": "Free entry",
+      "delivery_method": "electronic",
+      "event_id": "1999760883635",
+      "order_id": "15614839853",
+      "ticket_class_id": "3451654574"
+    }
+  ]
+}
