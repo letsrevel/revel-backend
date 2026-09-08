@@ -6,13 +6,13 @@ import pytest
 from django.test.client import Client
 from django.urls import reverse
 
-from events.models import Event, Ticket, TicketTier
+from events.models import Event, Ticket, TicketAttribution, TicketTier
 from events.schema import UserTicketSchema
 
 pytestmark = pytest.mark.django_db
 
-NEWSLETTER = {"utm_source": "newsletter", "utm_medium": "email", "utm_campaign": "spring"}
-INSTAGRAM = {"utm_source": "instagram", "utm_medium": "social", "utm_campaign": "spring"}
+NEWSLETTER: TicketAttribution = {"utm_source": "newsletter", "utm_medium": "email", "utm_campaign": "spring"}
+INSTAGRAM: TicketAttribution = {"utm_source": "instagram", "utm_medium": "social", "utm_campaign": "spring"}
 
 
 @pytest.fixture
