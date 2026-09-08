@@ -1,7 +1,8 @@
 """Purchase attribution payload field (#922).
 
-One mixin shared by every checkout payload (authenticated, guest, series pass) and
-the guest confirmation JWT, so the sanitiser has a single authority.
+One mixin shared by every checkout payload (authenticated, guest, series pass), so the
+sanitiser has a single authority. The guest confirmation JWT carries the already-sanitised
+value as a plain field and never re-validates it.
 """
 
 import re

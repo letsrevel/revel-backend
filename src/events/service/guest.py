@@ -252,6 +252,7 @@ def create_guest_ticket_token(
             accessible_required=accessible_required,
             price_category_id=price_category_id,
             guest_session=guest_session,
+            attribution=attribution,
             exp=timezone.now() + timedelta(hours=1),
             jti=str(uuid4()),
         )

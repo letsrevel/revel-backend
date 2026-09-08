@@ -182,6 +182,27 @@ class TestGuestServiceLayer:
         assert isinstance(payload, schema.GuestTicketJWTPayloadSchema)
         assert payload.accessible_required is True
 
+    def test_create_guest_ticket_token_single_tier_form_carries_attribution(
+        self, existing_guest_user: RevelUser, guest_event_with_tickets: Event, free_tier: TicketTier
+    ) -> None:
+        """#922: the legacy single-tier form embeds attribution in the token like the cart form does."""
+        # Arrange
+        tickets = [schema.TicketPurchaseItem(guest_name="Attributed Guest")]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user,
+            guest_event_with_tickets.id,
+            free_tier.id,
+            tickets,
+            attribution={"utm_source": "newsletter", "utm_campaign": "spring"},
+        )
+
+        # Act
+        payload = guest_service.validate_and_decode_guest_token(token)
+
+        # Assert
+        assert isinstance(payload, schema.GuestTicketJWTPayloadSchema)
+        assert payload.attribution == {"utm_source": "newsletter", "utm_campaign": "spring"}
+
     def test_create_guest_ticket_token_accessible_required_defaults_false(
         self, existing_guest_user: RevelUser, guest_event_with_tickets: Event, free_tier: TicketTier
     ) -> None:
