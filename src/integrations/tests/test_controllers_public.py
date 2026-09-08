@@ -5,11 +5,11 @@ from urllib.parse import parse_qs, urlparse
 
 import orjson
 import pytest
-from django.conf import settings
 from django.http import HttpResponse
 from django.test.client import Client
 from django.urls import reverse
 
+from common.models import SiteSettings
 from events.models import Organization
 from integrations.models import PlatformConnection, WebhookDelivery
 from integrations.service import connection_service
@@ -19,20 +19,28 @@ from integrations.tests.fake_provider import FakeProvider
 pytestmark = pytest.mark.django_db
 
 
+@pytest.fixture
+def frontend_url() -> str:
+    """Pin a trailing-slash frontend origin in ``SiteSettings`` so the redirect provably reads it from there."""
+    site = SiteSettings.get_solo()
+    site.frontend_base_url = "https://fe.example.org/"
+    site.save(update_fields=["frontend_base_url"])
+    return "https://fe.example.org"
+
+
 def _callback(client: Client, provider: str, **params: str) -> HttpResponse:
     return t.cast(HttpResponse, client.get(reverse("api:integration_callback", kwargs={"provider": provider}), params))
 
 
-def test_callback_success_redirects_connected(organization: Organization, fake_provider: FakeProvider) -> None:
+def test_callback_success_redirects_connected(
+    organization: Organization, fake_provider: FakeProvider, frontend_url: str
+) -> None:
     start = connection_service.begin_connect(organization, organization.owner, "fake")
     client = Client()
     client.cookies[CONNECT_STATE_COOKIE] = start.state
     response = _callback(client, "fake", code="c1", state=start.state)
     assert response.status_code == 302
-    assert (
-        response["Location"]
-        == f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/integrations?connected=fake"
-    )
+    assert response["Location"] == f"{frontend_url}/org/{organization.slug}/admin/integrations?connected=fake"
     assert PlatformConnection.objects.get().status == "active"
     assert CONNECT_STATE_COOKIE in response.cookies and response.cookies[CONNECT_STATE_COOKIE]["max-age"] == 0
 
@@ -64,15 +72,15 @@ def test_callback_denied_by_user_redirects_error(organization: Organization, fak
     assert response["Location"].endswith("?error=provider_rejected")
 
 
-def test_callback_garbage_state_redirects_generic_error(fake_provider: FakeProvider) -> None:
+def test_callback_garbage_state_redirects_generic_error(fake_provider: FakeProvider, frontend_url: str) -> None:
     """No valid state → no org slug is known → generic landing page with the error code."""
     response = _callback(Client(), "nope", code="c", state="s")
     assert response.status_code == 302
-    assert response["Location"] == f"{settings.FRONTEND_BASE_URL}/org?error=state_invalid"
+    assert response["Location"] == f"{frontend_url}/org?error=state_invalid"
 
 
 def test_callback_provider_mismatch_redirects_error_no_connection(
-    organization: Organization, fake_provider: FakeProvider
+    organization: Organization, fake_provider: FakeProvider, frontend_url: str
 ) -> None:
     """The URL ``provider`` must match the one bound into the state, or the callback is rejected."""
     start = connection_service.begin_connect(organization, organization.owner, "fake")
@@ -80,7 +88,7 @@ def test_callback_provider_mismatch_redirects_error_no_connection(
     client.cookies[CONNECT_STATE_COOKIE] = start.state
     response = _callback(client, "other", code="c1", state=start.state)
     assert response.status_code == 302
-    assert response["Location"] == f"{settings.FRONTEND_BASE_URL}/org?error=state_invalid"
+    assert response["Location"] == f"{frontend_url}/org?error=state_invalid"
     assert not PlatformConnection.objects.exists()
 
 

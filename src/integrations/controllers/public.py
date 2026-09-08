@@ -4,11 +4,11 @@ import typing as t
 from urllib.parse import urlencode
 
 import structlog
-from django.conf import settings
 from django.http import HttpRequest, HttpResponseRedirect
 from ninja import Query
 from ninja_extra import ControllerBase, api_controller, route
 
+from common.models import SiteSettings
 from common.throttling import AnonDefaultThrottle
 from events.models import Organization
 from integrations.enums import IntegrationErrorCode
@@ -26,9 +26,8 @@ logger = structlog.get_logger(__name__)
 
 def _settings_url(slug: str | None, **params: str) -> str:
     """The organization's Integrations admin page, or the organizations index when the slug is unknown."""
-    base = (
-        f"{settings.FRONTEND_BASE_URL}/org/{slug}/admin/integrations" if slug else f"{settings.FRONTEND_BASE_URL}/org"
-    )
+    frontend = str(SiteSettings.get_solo().frontend_base_url).rstrip("/")
+    base = f"{frontend}/org/{slug}/admin/integrations" if slug else f"{frontend}/org"
     return f"{base}?{urlencode(params)}"
 
 
