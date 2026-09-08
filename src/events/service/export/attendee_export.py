@@ -9,7 +9,7 @@ from openpyxl import Workbook
 
 from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
-from events.models import Event, EventRSVP, Ticket
+from events.models import Event, EventRSVP, Ticket, TicketAttribution
 
 from .formatting import (
     auto_fit_columns,
@@ -156,7 +156,7 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
         payment = getattr(ticket, "payment", None)
         seat_label = sanitize_cell(ticket.seat.label) if ticket.seat else ""
         is_checked_in = ticket.status == Ticket.TicketStatus.CHECKED_IN
-        attribution = ticket.attribution or {}
+        attribution: TicketAttribution = ticket.attribution or TicketAttribution()
         ws.append(
             [
                 sanitize_cell(ticket.user.get_full_name()) if ticket.user else "",

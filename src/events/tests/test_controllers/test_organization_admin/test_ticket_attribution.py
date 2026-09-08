@@ -9,12 +9,12 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, Ticket, TicketTier
+from events.models import Event, Organization, Ticket, TicketAttribution, TicketTier
 
 pytestmark = pytest.mark.django_db
 
-NEWSLETTER = {"utm_source": "newsletter", "utm_medium": "email", "utm_campaign": "spring"}
-INSTAGRAM = {"utm_source": "instagram", "utm_medium": "social", "utm_campaign": "spring"}
+NEWSLETTER: TicketAttribution = {"utm_source": "newsletter", "utm_medium": "email", "utm_campaign": "spring"}
+INSTAGRAM: TicketAttribution = {"utm_source": "instagram", "utm_medium": "social", "utm_campaign": "spring"}
 
 
 def _url(organization: Organization) -> str:
