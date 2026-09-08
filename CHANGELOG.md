@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-09-08
+
 ### Added
 
-- **Eventbrite listing sync** (#924): an organization can connect its Eventbrite account from the integrations panel and list the same event on both platforms without retyping it. Revel stays the source of truth — every push sends the event's full state, and remote edits are never pulled back
+- **Eventbrite listing sync**: an organization can connect its Eventbrite account from the integrations panel and list the same event on both platforms without retyping it. Revel stays the source of truth — every push sends the event's full state, and remote edits are never pulled back
 - Pushing a public event creates it on Eventbrite as a **draft** (with its venue, description, summary and eligible ticket tiers); publishing is a separate, explicit action, and later pushes mirror Revel's status
 - **Import from Eventbrite**: browse the connected account's events and import one as a Revel draft, linked to the remote listing from then on
 - **Import jobs**: each queued import is an `ImportJob` the picker polls (`GET .../integrations/{provider}/import-jobs?ids=`) — database only, no platform calls while waiting — and a failed import reports its `IntegrationErrorCode` and the provider's message instead of timing out silently
