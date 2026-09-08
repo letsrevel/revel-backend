@@ -62,5 +62,5 @@ class HeldSeriesPassAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     list_filter = ["status"]
     search_fields = ["user__email", "series_pass__name"]
     autocomplete_fields = ["series_pass", "user"]
-    readonly_fields = ["id", "stripe_session_id", "price_paid", "created_at", "updated_at"]
+    readonly_fields = ["id", "stripe_session_id", "price_paid", "attribution", "created_at", "updated_at"]
     date_hierarchy = "created_at"

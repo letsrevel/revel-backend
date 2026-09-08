@@ -100,6 +100,7 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
         "offline_refund_amount",
         "held_pass",
         "refund_policy_snapshot",
+        "attribution",  # written once by checkout (#922); the export relies on it being an object
         "cancelled_at",
         "cancelled_by",
         "cancellation_source",
