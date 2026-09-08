@@ -577,8 +577,8 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     Raises:
         StripeNotConnectedError: When transitioning to online payment, or resuming a paused online tier,
             but the org has no Stripe Connect.
-        BillingInfoRequiredError: When transitioning to online payment with platform fees and the
-            org has incomplete billing info.
+        BillingInfoRequiredError: When transitioning to online payment, or resuming a paused online tier,
+            with platform fees but the org has incomplete billing info.
         HttpError 404: If any provided membership tier ID is invalid or belongs to another org.
 
     Note:
