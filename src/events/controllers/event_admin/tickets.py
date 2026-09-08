@@ -255,7 +255,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         (the *direct* bucket).
         """
         event = self.get_one(event_id)
-        return ticket_service.attribution_breakdown(event)
+        return ticket_service.attribution_breakdown(models.Ticket.objects.filter(event=event))
 
     @route.get(
         "/tickets/{ticket_id}",
