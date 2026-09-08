@@ -78,8 +78,10 @@ def to_eventbrite_venue(venue: RemoteVenue) -> dict[str, t.Any]:
         },
     }
     if venue.latitude is not None and venue.longitude is not None:
-        body["latitude"] = str(venue.latitude)
-        body["longitude"] = str(venue.longitude)
+        # Coordinates belong to the address sub-object; top-level ``venue.latitude`` is rejected
+        # as "Unknown parameter" by the live API (the GET shape echoes them in both places).
+        body["address"]["latitude"] = str(venue.latitude)
+        body["address"]["longitude"] = str(venue.longitude)
     return {"venue": body}
 
 

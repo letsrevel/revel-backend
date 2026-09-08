@@ -104,9 +104,15 @@ def test_venue_payload() -> None:
     assert tr.to_eventbrite_venue(v) == {
         "venue": {
             "name": "Hall",
-            "address": {"address_1": "Stephansplatz 1", "city": "Wien", "postal_code": "1010", "country": "AT"},
-            "latitude": "48.2",
-            "longitude": "16.37",
+            # Coordinates go under address: top-level venue.latitude is "Unknown parameter" on the live API.
+            "address": {
+                "address_1": "Stephansplatz 1",
+                "city": "Wien",
+                "postal_code": "1010",
+                "country": "AT",
+                "latitude": "48.2",
+                "longitude": "16.37",
+            },
         }
     }
 
