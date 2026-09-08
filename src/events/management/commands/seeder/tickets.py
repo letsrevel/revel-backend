@@ -9,7 +9,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from events.management.commands.seeder.base import BaseSeeder
-from events.models import CancellationSource, Payment, Ticket, TicketTier
+from events.models import CancellationSource, Payment, Ticket, TicketAttribution, TicketTier
 
 # Ticket tier name templates
 TIER_NAMES = [
@@ -24,6 +24,16 @@ TIER_NAMES = [
     "Member Special",
     "Sponsor",
 ]
+
+# Campaign tags a seeded ticket may carry (#922). Shapes match what the checkout
+# sanitiser would store, so the admin breakdown/export look like real data.
+ATTRIBUTION_CAMPAIGNS: dict[str, TicketAttribution | None] = {
+    "direct": None,
+    "newsletter": {"utm_source": "newsletter", "utm_medium": "email", "utm_campaign": "spring-2026"},
+    "instagram": {"utm_source": "instagram", "utm_medium": "social", "utm_campaign": "spring-2026"},
+    "partner_embed": {"utm_source": "revel-embed", "utm_medium": "embed", "utm_content": "partner.example.org"},
+    "poster_qr": {"utm_source": "poster", "utm_medium": "qr", "utm_campaign": "street-team"},
+}
 
 # Ticket status map (module-level constant to reduce complexity)
 TICKET_STATUS_MAP = {
@@ -240,6 +250,7 @@ class TicketSeeder(BaseSeeder):
                         price_paid=self._get_pwyc_price(tier),
                         venue=tier.venue,
                         sector=tier.sector,
+                        attribution=ATTRIBUTION_CAMPAIGNS[self.weighted_choice(self.config.ticket_attribution_weights)],
                     )
                     tickets_to_create.append(ticket)
 
