@@ -9,7 +9,7 @@ from openpyxl import Workbook
 
 from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
-from events.models import Event, EventRSVP, Ticket
+from events.models import Event, EventRSVP, Ticket, TicketAttribution
 
 from .formatting import (
     auto_fit_columns,
@@ -120,6 +120,8 @@ _STATUS_DISPLAY: dict[str, str] = {
     Ticket.TicketStatus.PENDING: "Pending",
 }
 
+_ATTRIBUTION_KEYS: tuple[str, ...] = ("utm_source", "utm_medium", "utm_campaign", "utm_content")
+
 _RSVP_STATUS_DISPLAY: dict[str, str] = {
     EventRSVP.RsvpStatus.YES: "Yes",
     EventRSVP.RsvpStatus.NO: "No",
@@ -143,6 +145,10 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
         "Guest Name",
         "Seat",
         "Payment",
+        "UTM Source",
+        "UTM Medium",
+        "UTM Campaign",
+        "UTM Content",
     ]
     ws.append(headers)
 
@@ -150,6 +156,7 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
         payment = getattr(ticket, "payment", None)
         seat_label = sanitize_cell(ticket.seat.label) if ticket.seat else ""
         is_checked_in = ticket.status == Ticket.TicketStatus.CHECKED_IN
+        attribution: TicketAttribution = ticket.attribution or TicketAttribution()
         ws.append(
             [
                 sanitize_cell(ticket.user.get_full_name()) if ticket.user else "",
@@ -164,6 +171,7 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
                 sanitize_cell(ticket.guest_name or ""),
                 seat_label,
                 payment.status if payment else (ticket.tier.payment_method if ticket.tier else ""),
+                *(sanitize_cell(attribution.get(key, "")) for key in _ATTRIBUTION_KEYS),
             ]
         )
 
@@ -182,6 +190,7 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
                 "",
                 "",
                 "",
+                *([""] * len(_ATTRIBUTION_KEYS)),
             ]
         )
 

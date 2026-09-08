@@ -71,6 +71,18 @@ class SeederConfig:
         }
     )
 
+    # Distribution weights for ticket attribution (#922). Keys index
+    # ``seeder.tickets.ATTRIBUTION_CAMPAIGNS``; "direct" means no campaign tag.
+    ticket_attribution_weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "direct": 0.45,
+            "newsletter": 0.20,
+            "instagram": 0.15,
+            "partner_embed": 0.12,
+            "poster_qr": 0.08,
+        }
+    )
+
     # Distribution weights for payment status
     payment_status_weights: dict[str, float] = field(
         default_factory=lambda: {

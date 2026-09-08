@@ -148,6 +148,12 @@ class HeldSeriesPass(TimeStampedModel):
     )
     price_paid = models.DecimalField(max_digits=10, decimal_places=2)
     stripe_session_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    attribution = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Campaign tags the pass was bought through (#922); copied onto every ticket "
+        "materialised for it, including later backfills and series extensions.",
+    )
 
     pdf_file = ProtectedFileField(upload_to="series_passes/pdf/", null=True, blank=True)
     pkpass_file = ProtectedFileField(upload_to="series_passes/pkpass/", null=True, blank=True)

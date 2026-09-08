@@ -128,6 +128,7 @@ class EventPublicGuestController(EventPublicBaseController):
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
             event_token=self.get_event_token(),
+            attribution=payload.attribution,
         )
 
     @route.post(
@@ -195,6 +196,7 @@ class EventPublicGuestController(EventPublicBaseController):
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
             event_token=self.get_event_token(),
+            attribution=payload.attribution,
         )
 
     @route.post(
@@ -273,6 +275,7 @@ class EventPublicGuestController(EventPublicBaseController):
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
             event_token=self.get_event_token(),
+            attribution=payload.attribution,
         )
 
     @route.post(

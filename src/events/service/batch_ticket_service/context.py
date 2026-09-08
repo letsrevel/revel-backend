@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, TicketTier
+from events.models import Event, TicketAttribution, TicketTier
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 
@@ -157,6 +157,7 @@ class BatchTicketContext:
         price_category_id: UUID | None = None,
         groups: list[CartGroup] | None = None,
         discount_valid_tier_ids: set[UUID] | None = None,
+        attribution: TicketAttribution | None = None,
     ) -> None:
         """Initialize the batch ticket service.
 
@@ -179,6 +180,8 @@ class BatchTicketContext:
                 cart-form controllers validate per group and pass the subset that
                 passed, so a code scoped to one tier cannot leak onto the rest of the
                 cart (see :meth:`_dc_for`).
+            attribution: Sanitised campaign tags from the checkout payload (#922),
+                stamped verbatim on every ticket in the cart.
 
         Raises:
             TypeError: If ``user`` is missing, or if ``tier``/``groups`` aren't
@@ -208,6 +211,7 @@ class BatchTicketContext:
         self.tier: TicketTier = tier if tier is not None else self.groups[0].tier
         self.accessible_required = accessible_required
         self.price_category_id = price_category_id
+        self.attribution = attribution
         self._reserve_buyer_vat: "BuyerVATContext | None" = None
 
     def _dc_for(self, tier: TicketTier) -> DiscountCode | None:

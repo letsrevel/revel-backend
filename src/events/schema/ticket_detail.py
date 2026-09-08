@@ -12,7 +12,7 @@ from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
 from common.schema import StrippedString
 from common.signing import get_file_url
 from events import models
-from events.models import DiscountCode, Payment, Ticket
+from events.models import DiscountCode, Payment, Ticket, TicketAttribution
 
 from .event import MinimalEventSchema
 from .organization import MemberVerificationSchema, MinimalOrganizationMemberSchema
@@ -95,6 +95,8 @@ class AdminTicketSchema(ModelSchema):
     discount_amount: Decimal | None = None
     offline_refund_amount: Decimal | None = None
     series_pass: TicketSeriesPassSchema | None = None
+    # Organizer-only (#922): deliberately absent from UserTicketSchema.
+    attribution: TicketAttribution | None = None
 
     class Meta:
         model = Ticket
@@ -117,6 +119,20 @@ class AdminTicketSchema(ModelSchema):
         return memberships[0] if memberships else None
 
     resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
+
+
+class TicketAttributionBucketSchema(Schema):
+    """One row of the organizer's attribution breakdown (#922).
+
+    A row with every tag ``None`` is the *direct* bucket: tickets bought without any
+    campaign tag in the URL.
+    """
+
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
+    utm_content: str | None = None
+    count: int
 
 
 class UserTicketSchema(ModelSchema):

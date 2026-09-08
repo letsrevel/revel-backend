@@ -23,6 +23,7 @@ from events import models, schema
 from events.service.event_manager import EventManager
 
 if t.TYPE_CHECKING:
+    from events.models import TicketAttribution
     from events.service.batch_ticket_service.context import CartGroup
 
 logger = structlog.get_logger(__name__)
@@ -152,6 +153,7 @@ def create_guest_ticket_token(
     price_category_id: UUID | None = None,
     guest_session: str | None = None,
     groups: "list[CartGroup] | None" = None,
+    attribution: "TicketAttribution | None" = None,
 ) -> str:
     """Create JWT token for guest ticket purchase confirmation.
 
@@ -171,6 +173,9 @@ def create_guest_ticket_token(
 
     Exactly one of ``tier_id`` / ``groups`` must be given.
 
+    ``attribution`` (#922) rides in the token so the tickets created on the
+    confirmation click carry the tags the buyer arrived with.
+
     Args:
         user: The guest user.
         event_id: Event ID.
@@ -188,6 +193,7 @@ def create_guest_ticket_token(
             token so confirm-time assignment consumes the buyer's own holds even
             when the confirmation link is opened on a different device.
         groups: The cart's groups — cart form only.
+        attribution: Sanitised campaign tags to stamp on the tickets at confirm time.
 
     Returns:
         JWT token string.
@@ -221,6 +227,7 @@ def create_guest_ticket_token(
             discount_code=discount_code,
             guest_session=guest_session,
             groups=group_payloads,
+            attribution=attribution,
             exp=timezone.now() + timedelta(hours=1),
             jti=str(uuid4()),
         )
@@ -245,6 +252,7 @@ def create_guest_ticket_token(
             accessible_required=accessible_required,
             price_category_id=price_category_id,
             guest_session=guest_session,
+            attribution=attribution,
             exp=timezone.now() + timedelta(hours=1),
             jti=str(uuid4()),
         )
@@ -389,6 +397,7 @@ def handle_guest_ticket_checkout(
     billing_info: "schema.BuyerBillingInfoSchema | None" = None,
     guest_session: str | None = None,
     event_token: models.EventToken | None = None,
+    attribution: "TicketAttribution | None" = None,
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request, spanning as many tiers as the cart holds (#846).
 
@@ -417,6 +426,8 @@ def handle_guest_ticket_checkout(
         guest_session: Resolved guest-hold session id (seat holds are owned by it).
         event_token: Invitation link carried by the request, claimed for the guest
             before eligibility and tier access are checked (see :func:`claim_invitation_link`).
+        attribution: Sanitised campaign tags (#922). Stamped on the tickets now
+            (ONLINE) or carried in the confirmation token until they are created.
 
     Returns:
         GuestCheckoutResponseSchema. Non-online carts: `message` (email confirmation
@@ -526,6 +537,7 @@ def handle_guest_ticket_checkout(
             discount_code=dc,
             discount_valid_tier_ids=valid_tier_ids,
             guest_session=guest_session,
+            attribution=attribution,
         )
         result = service.create_batch(billing_info=billing_info, buyer_vat_context=buyer_vat_context)
 
@@ -560,6 +572,7 @@ def handle_guest_ticket_checkout(
             groups=groups,
             discount_code=discount_code,
             guest_session=guest_session,
+            attribution=attribution,
         )
         # A multi-tier cart is serialized WHOLE into this token (every group, every
         # item's guest_name and seat_id), so a wide cart with long holder names mints
@@ -712,6 +725,7 @@ def confirm_guest_action(
             # holds are consumed even when confirming from a different device; fall
             # back to the confirming request's cookie for legacy tokens (None).
             guest_session=payload.guest_session or guest_session,
+            attribution=payload.attribution,
         )
         result = service.create_batch()
 

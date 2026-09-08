@@ -238,6 +238,25 @@ class EventAdminTicketsController(EventAdminBaseController):
         # the wide full() select costs ~600ms of Postgres *planning* time per request (#880).
         return qs.order_by(TICKET_ORDER_FIELDS[order_by], "-id")
 
+    # Declared before ``/tickets/{ticket_id}``: ninja matches routes in registration
+    # order with a plain string converter, so the literal segment must come first.
+    @route.get(
+        "/tickets/attribution",
+        url_name="ticket_attribution_breakdown",
+        response=list[schema.TicketAttributionBucketSchema],
+        throttle=UserDefaultThrottle(),
+    )
+    def ticket_attribution_breakdown(self, event_id: UUID) -> list[ticket_service.TicketAttributionBucket]:
+        """Which campaign tags the event's tickets were bought through (#922).
+
+        One row per distinct `(utm_source, utm_medium, utm_campaign, utm_content)`
+        combination with its count of non-cancelled tickets, busiest first. Tickets
+        bought without any tag in the URL appear as one row with every tag `null`
+        (the *direct* bucket).
+        """
+        event = self.get_one(event_id)
+        return ticket_service.attribution_breakdown(models.Ticket.objects.filter(event=event))
+
     @route.get(
         "/tickets/{ticket_id}",
         url_name="get_ticket",

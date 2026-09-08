@@ -41,6 +41,8 @@ from .bookmark import EventBookmarkSchema
 
 # Checkout schemas (multi-tier cart, #846) — the single-tier checkout schemas
 # still resolve through .ticket, which re-exports .checkout for backward compat.
+# Attribution (#922)
+from .attribution import AttributionPayloadMixin
 from .checkout import (
     CheckoutGroupSchema,
     MultiTierCheckoutPayload,
@@ -290,6 +292,7 @@ from .seating import (
 
 # Series pass schemas
 from .series_pass import (
+    SeriesPassCheckoutPayload,
     HeldSeriesPassAdminSchema,
     HeldSeriesPassCancelSchema,
     HeldSeriesPassSchema,
@@ -344,6 +347,7 @@ from .ticket import (
     AdminIssueRefundSchema,
     AdminRefundTicketSchema,
     AdminTicketSchema,
+    TicketAttributionBucketSchema,
     BatchCheckoutPayload,
     BatchCheckoutPWYCPayload,
     BatchCheckoutResponse,
@@ -456,6 +460,7 @@ __all__ = [
     "AdminIssueRefundSchema",
     "AdminRefundTicketSchema",
     "AdminTicketSchema",
+    "TicketAttributionBucketSchema",
     "AffectedTierSchema",
     "AggregatedDietaryPreferenceSchema",
     "AggregatedDietaryRestrictionSchema",
@@ -468,6 +473,7 @@ __all__ = [
     "ApplyRequestSchema",
     "ApplyResponseSchema",
     "ApproveMembershipRequestSchema",
+    "AttributionPayloadMixin",
     "AttendeeInvoiceCreditNoteSchema",
     "AttendeeInvoiceDetailSchema",
     "AttendeeInvoiceSchema",
@@ -689,6 +695,7 @@ __all__ = [
     "SeatingAvailabilitySchema",
     "SectorAvailabilitySchema",
     "SeriesPassAdminSchema",
+    "SeriesPassCheckoutPayload",
     "SeriesPassCheckoutResponseSchema",
     "SeriesPassCreateSchema",
     "SeriesPassLinkInputSchema",

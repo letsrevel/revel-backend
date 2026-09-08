@@ -15,6 +15,7 @@ from .revenue import OrganizationAdminRevenueController
 from .tokens import OrganizationAdminTokensController
 from .recurring_events import OrganizationAdminRecurringEventsController
 from .subscriptions import OrganizationAdminSubscriptionsController
+from .tickets import OrganizationAdminTicketsController
 from .vat import OrganizationAdminVATController
 from .venues import OrganizationAdminVenuesController
 from .whitelist import OrganizationAdminWhitelistController
@@ -35,6 +36,7 @@ ORGANIZATION_ADMIN_CONTROLLERS: list[type] = [
     OrganizationAdminVATController,
     OrganizationAdminSubscriptionsController,
     OrganizationAdminRevenueController,
+    OrganizationAdminTicketsController,
 ]
 
 __all__ = [
@@ -53,4 +55,5 @@ __all__ = [
     "OrganizationAdminVATController",
     "OrganizationAdminRevenueController",
     "ORGANIZATION_ADMIN_CONTROLLERS",
+    "OrganizationAdminTicketsController",
 ]

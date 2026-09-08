@@ -119,7 +119,7 @@ class SeriesPassController(UserAwareController):
     def checkout_series_pass(
         self,
         pass_id: UUID,
-        billing_info: t.Annotated[schema.BuyerBillingInfoSchema | None, Body(None)] = None,
+        payload: t.Annotated[schema.SeriesPassCheckoutPayload | None, Body(None)] = None,
     ) -> _CheckoutResult:
         """Purchase a series pass.
 
@@ -140,7 +140,10 @@ class SeriesPassController(UserAwareController):
         - 429: A covered future event's tier just sold out.
         """
         series_pass = self._get_visible_pass(pass_id)
-        result = SeriesPassPurchaseService(series_pass, self.user()).purchase(billing_info=billing_info)
+        result = SeriesPassPurchaseService(series_pass, self.user()).purchase(
+            billing_info=payload.billing_info if payload else None,
+            attribution=payload.attribution if payload else None,
+        )
         if isinstance(result, tuple):
             held_pass, reservation_id = result
             held_pass = self._held_pass_queryset().get(pk=held_pass.pk)

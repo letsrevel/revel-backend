@@ -11,6 +11,7 @@ from accounts.models import RevelUser
 from common.models import Tag
 from events import models as events_models
 from events.management.commands.bootstrap_helpers.logos import attach_logo
+from events.management.commands.seeder.tickets import ATTRIBUTION_CAMPAIGNS
 from geo.models import City
 from questionnaires import models as questionnaires_models
 
@@ -609,10 +610,12 @@ This event has:
                 status=events_models.EventRSVP.RsvpStatus.YES,
             )
 
-        # Create tickets for sold out event
+        # Create tickets for sold out event, with a deterministic campaign mix so the
+        # organizer's attribution breakdown/export show real-looking data (#922).
         sold_out_tier = events_models.TicketTier.objects.get(event=self.events["sold_out"], name="General Admission")
 
-        for i in range(5):
+        campaigns = ["newsletter", "newsletter", "instagram", "partner_embed", "direct"]
+        for i, campaign in enumerate(campaigns):
             ticket_user = RevelUser.objects.create_user(
                 username=f"ticketholder{i}@test.com",
                 password="password123",
@@ -624,6 +627,7 @@ This event has:
                 user=ticket_user,
                 tier=sold_out_tier,
                 status=events_models.Ticket.TicketStatus.ACTIVE,
+                attribution=ATTRIBUTION_CAMPAIGNS[campaign],
             )
 
         # Give the member user an invitation to the private event

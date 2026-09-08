@@ -79,6 +79,7 @@ class TicketWriterMixin(BatchTicketContext):
                 # reference with the live tier. Protects the "immutable snapshot"
                 # contract against future in-place mutation of tier.refund_policy.
                 refund_policy_snapshot=(copy.deepcopy(tier.refund_policy) if tier.refund_policy else None),
+                attribution=self.attribution,
             )
             if seat:
                 ticket.seat = seat
