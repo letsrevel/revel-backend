@@ -575,9 +575,10 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
         The updated tier, re-fetched via ``with_venue_and_sector()`` for serialization.
 
     Raises:
-        StripeNotConnectedError: When transitioning to online payment but org has no Stripe Connect.
-        BillingInfoRequiredError: When transitioning to online payment with platform fees and the
-            org has incomplete billing info.
+        StripeNotConnectedError: When transitioning to online payment, or resuming a paused online tier,
+            but the org has no Stripe Connect.
+        BillingInfoRequiredError: When transitioning to online payment, or resuming a paused online tier,
+            with platform fees but the org has incomplete billing info.
         HttpError 404: If any provided membership tier ID is invalid or belongs to another org.
 
     Note:
@@ -597,8 +598,14 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
     _drop_null_category_prices(payload_dict)
 
-    if payload.payment_method is not None:
-        check_online_tier_prerequisites(tier.event.organization, payload.payment_method)
+    # Resuming a paused tier is the other way to put an ONLINE tier on sale (the Eventbrite import
+    # creates paid tiers paused when the org has no Stripe Connect), so gate it like a create (#945).
+    # ``payload.payment_method`` defaults to OFFLINE on the schema, so only ``payload_dict`` (built
+    # with ``exclude_unset``) can tell a sent value from the default; fall back to the stored one.
+    resuming = payload.sales_paused is False and tier.sales_paused
+    if "payment_method" in payload_dict or resuming:
+        effective_method = TicketTier.PaymentMethod(payload_dict.get("payment_method", tier.payment_method))
+        check_online_tier_prerequisites(tier.event.organization, effective_method)
 
     # Update regular fields
     for field, value in payload_dict.items():

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Resuming a paused online ticket tier now requires Stripe Connect (and billing info when platform fees apply), the same gate as creating one. Previously a `sales_paused: false` update skipped the check, so an organizer could put a paid tier live that every buyer would then fail to check out — the exact dead end the Eventbrite import's pause-on-import guard exists to prevent
+
 ## [2.11.0] - 2026-09-08
 
 ### Added
