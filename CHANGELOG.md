@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-09-09
+
+### Added
+
+- **Purchase attribution**: the `utm_source` / `utm_medium` / `utm_campaign` / `utm_content` tags the embed already puts in the page URL are now read at checkout and stamped on the ticket, so an organizer can tell which newsletter, post or partner embed a sale came from. Nothing is stored on the visitor's device — no cookie, no local storage, no referrer — the tags exist only while they are in the URL, and a malformed value is dropped rather than blocking the purchase
+  - Every checkout body (single-tier, pay-what-you-can, multi-tier, guest and series pass) accepts an optional `attribution` object; values are trimmed, capped at 100 characters and restricted to `[A-Za-z0-9._:-]`
+  - Tickets minted from a series pass, including activation backfill and series-extension tickets, inherit the tags the pass was bought with; guest tickets confirmed by email keep them through the confirmation link
+  - Organizer surfaces: `attribution` on the admin ticket list with `utm_source` / `utm_campaign` filters, four UTM columns at the end of the attendee export, and a per-event breakdown (`GET /event-admin/{event_id}/tickets/attribution`) counting non-cancelled tickets per tag combination with an all-`null` row for direct sales
+  - Org-wide breakdown (`GET /organization-admin/{slug}/tickets/attribution`, requires `manage_tickets`) sums the same rows across every event, with optional `since` and repeatable `event_ids` filters
+  - `make e2e-seed` now produces attributed tickets: the random seeder draws from a five-entry campaign catalogue and the sold-out fixture event carries a fixed newsletter / instagram / embed / direct sequence for stable e2e assertions
+
+### Changed
+
+- **Series-pass checkout body** (`POST /series-passes/{pass_id}/checkout`) now takes a wrapper `{"billing_info": {...}, "attribution": {...}}` instead of the bare billing object. Both keys are optional and an empty body still works, but a stale client posting the old shape gets a 422 rather than silently losing its billing details — regenerate the frontend client before deploying
+
 ### Fixed
 
 - Resuming a paused online ticket tier now requires Stripe Connect (and billing info when platform fees apply), the same gate as creating one. Previously a `sales_paused: false` update skipped the check, so an organizer could put a paid tier live that every buyer would then fail to check out — the exact dead end the Eventbrite import's pause-on-import guard exists to prevent
