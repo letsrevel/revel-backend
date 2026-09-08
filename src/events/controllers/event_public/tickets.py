@@ -192,6 +192,7 @@ class EventPublicTicketsController(EventPublicBaseController):
             discount_code=dc,
             accessible_required=payload.accessible_required,
             price_category_id=payload.price_category_id,
+            attribution=payload.attribution,
         )
         result = service.create_batch(payload.tickets, billing_info=payload.billing_info)
 
@@ -284,6 +285,7 @@ class EventPublicTicketsController(EventPublicBaseController):
             user,
             accessible_required=payload.accessible_required,
             price_category_id=payload.price_category_id,
+            attribution=payload.attribution,
         )
         result = service.create_batch(
             payload.tickets, pwyc_amount=payload.price_per_ticket, billing_info=payload.billing_info
@@ -371,7 +373,12 @@ class EventPublicTicketsController(EventPublicBaseController):
                 payload.discount_code, event, groups, user
             )
         service = BatchTicketService(
-            event, user=user, groups=groups, discount_code=dc, discount_valid_tier_ids=valid_tier_ids
+            event,
+            user=user,
+            groups=groups,
+            discount_code=dc,
+            discount_valid_tier_ids=valid_tier_ids,
+            attribution=payload.attribution,
         )
         result = service.create_batch(billing_info=payload.billing_info)
 

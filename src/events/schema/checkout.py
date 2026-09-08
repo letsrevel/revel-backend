@@ -13,6 +13,7 @@ from common.schema import StripeAccountStatusSchema as StripeAccountStatusSchema
 from common.schema import StripeOnboardingLinkSchema as StripeOnboardingLinkSchema  # noqa: F401, E402
 from common.schema import StrippedString, validate_country_code
 
+from .attribution import AttributionPayloadMixin
 from .ticket_detail import UserTicketSchema
 
 
@@ -71,7 +72,7 @@ class BuyerBillingInfoSchema(Schema):
         return v
 
 
-class BatchCheckoutPayload(Schema):
+class BatchCheckoutPayload(AttributionPayloadMixin):
     """Payload for batch ticket checkout (authenticated users)."""
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
@@ -112,7 +113,7 @@ class CheckoutGroupSchema(Schema):
     )
 
 
-class MultiTierCheckoutPayload(Schema):
+class MultiTierCheckoutPayload(AttributionPayloadMixin):
     """Cart payload for POST /events/{event_id}/checkout."""
 
     items: list[CheckoutGroupSchema] = Field(..., min_length=1, max_length=20)

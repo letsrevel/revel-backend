@@ -6,12 +6,14 @@ from uuid import UUID
 
 from django.utils import timezone
 from ninja import ModelSchema, Schema
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, ConfigDict, Field
 
 from accounts.schema import MemberUserSchema
 from common.schema import OneToOneFiftyString, StrippedString
 from events.models import HeldSeriesPass, SeriesPass
 from events.models.ticket import TicketTier
+from events.schema.attribution import AttributionPayloadMixin
+from events.schema.checkout import BuyerBillingInfoSchema
 from events.schema.ticket import Currencies
 
 if t.TYPE_CHECKING:
@@ -153,6 +155,19 @@ class SeriesPassAdminSchema(ModelSchema):
             )
             for link in obj.tier_links.all()
         ]
+
+
+class SeriesPassCheckoutPayload(AttributionPayloadMixin):
+    """Body of ``POST /series-passes/{pass_id}/checkout`` (#922).
+
+    Before #922 the body *was* the billing info object. ``extra="forbid"`` makes a
+    client still posting that shape fail with a 422 instead of silently losing its
+    billing details.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    billing_info: BuyerBillingInfoSchema | None = Field(default=None, description="Optional billing info for invoicing")
 
 
 class SeriesPassCheckoutResponseSchema(Schema):

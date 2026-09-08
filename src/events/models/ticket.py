@@ -29,6 +29,20 @@ if t.TYPE_CHECKING:
 DEFAULT_TICKET_TIER_NAME = "General Admission"
 
 
+class TicketAttribution(t.TypedDict, total=False):
+    """Campaign tags a ticket was bought through (#922).
+
+    The four ``utm_*`` values the embed loader already emits — nothing else
+    (no ``utm_term``, no referrer). Sanitised at the API boundary by
+    ``events.schema.attribution``; never written from anything but a checkout payload.
+    """
+
+    utm_source: str
+    utm_medium: str
+    utm_campaign: str
+    utm_content: str
+
+
 class CancellationSource(models.TextChoices):
     """Who or what cancelled the ticket."""
 
@@ -775,6 +789,12 @@ class Ticket(TimeStampedModel):
         null=True,
         blank=True,
         help_text="Copy of tier.refund_policy at purchase time. Immutable — drives refund math.",
+    )
+    attribution = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Campaign tags (utm_source/medium/campaign/content) the buyer arrived with, "
+        "as sent by the checkout payload (#922). Null when the URL carried none. Never updated.",
     )
     cancelled_at = models.DateTimeField(null=True, blank=True, editable=False)
     cancelled_by = models.ForeignKey(

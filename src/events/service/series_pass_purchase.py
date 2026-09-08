@@ -14,7 +14,15 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.exceptions import SeriesPassNotPurchasableError
-from events.models import HeldSeriesPass, OrganizationMember, SeriesPass, SeriesPassTierLink, Ticket, TicketTier
+from events.models import (
+    HeldSeriesPass,
+    OrganizationMember,
+    SeriesPass,
+    SeriesPassTierLink,
+    Ticket,
+    TicketAttribution,
+    TicketTier,
+)
 from events.service import series_pass_service
 from events.service.blacklist_service import check_user_hard_blacklisted
 from notifications.signals.series_pass import send_series_pass_purchased
@@ -56,7 +64,7 @@ class SeriesPassPurchaseService:
             .exists()
         )
 
-    def _create_held_pass(self, price: Decimal) -> HeldSeriesPass:
+    def _create_held_pass(self, price: Decimal, attribution: TicketAttribution | None) -> HeldSeriesPass:
         """Create the HeldSeriesPass row, mapping a concurrent-purchase race to a 409.
 
         Two concurrent purchases by the same user can both pass the pre-lock duplicate
@@ -71,6 +79,7 @@ class SeriesPassPurchaseService:
         try:
             return HeldSeriesPass.objects.create(
                 series_pass=self.series_pass,
+                attribution=attribution,
                 user=self.user,
                 price_paid=price,
                 status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
@@ -84,9 +93,15 @@ class SeriesPassPurchaseService:
 
     @transaction.atomic
     def purchase(
-        self, billing_info: "BuyerBillingInfoSchema | None" = None
+        self,
+        billing_info: "BuyerBillingInfoSchema | None" = None,
+        *,
+        attribution: TicketAttribution | None = None,
     ) -> HeldSeriesPass | tuple[HeldSeriesPass, UUID]:
         """Purchase the pass.
+
+        ``attribution`` (#922) is stored on the HeldSeriesPass and inherited by every
+        ticket materialised for it, now and on later backfills/extensions.
 
         Returns the HeldSeriesPass (free/offline) or ``(held_pass, reservation_id)``
         for ONLINE passes — the caller must POST the reservation_id to the
@@ -141,7 +156,7 @@ class SeriesPassPurchaseService:
             if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
                 raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
 
-        held_pass = self._create_held_pass(quote.price)
+        held_pass = self._create_held_pass(quote.price, attribution)
         method = self.series_pass.payment_method
         is_free = method == TicketTier.PaymentMethod.FREE or quote.price <= 0
         ticket_status = Ticket.TicketStatus.ACTIVE if is_free else Ticket.TicketStatus.PENDING

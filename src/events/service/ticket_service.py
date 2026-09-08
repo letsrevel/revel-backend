@@ -8,7 +8,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Max, Q
+from django.db.models import Count, F, Max, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -891,3 +891,41 @@ def start_attendee_export(event: Event, requested_by: RevelUser) -> "FileExport"
     # export pattern.
     transaction.on_commit(lambda: generate_attendee_export_task.delay(str(export.id)))
     return export
+
+
+class TicketAttributionBucket(t.TypedDict):
+    """One ``(source, medium, campaign, content)`` group and its ticket count (#922)."""
+
+    utm_source: str | None
+    utm_medium: str | None
+    utm_campaign: str | None
+    utm_content: str | None
+    count: int
+
+
+def attribution_breakdown(event: Event) -> list[TicketAttributionBucket]:
+    """Count the event's non-cancelled tickets per campaign-tag combination.
+
+    Untagged tickets (``attribution IS NULL``) group into one all-``None`` row — the
+    *direct* bucket. Busiest bucket first; ties break on the tag values so the
+    order is stable across requests.
+
+    Args:
+        event: The event to break down.
+
+    Returns:
+        One bucket per distinct tag combination, empty when the event has no tickets.
+    """
+    rows = (
+        Ticket.objects.filter(event=event)
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .values(
+            utm_source=F("attribution__utm_source"),
+            utm_medium=F("attribution__utm_medium"),
+            utm_campaign=F("attribution__utm_campaign"),
+            utm_content=F("attribution__utm_content"),
+        )
+        .annotate(count=Count("id"))
+        .order_by("-count", "utm_source", "utm_medium", "utm_campaign", "utm_content")
+    )
+    return [t.cast(TicketAttributionBucket, row) for row in rows]

@@ -9,7 +9,9 @@ from pydantic import UUID4, EmailStr, Field
 
 from accounts.schema import BaseEmailJWTPayloadSchema
 from common.schema import StrippedString
+from events.models import TicketAttribution
 
+from .attribution import AttributionPayloadMixin
 from .checkout import BuyerBillingInfoSchema, CheckoutGroupSchema, TicketPurchaseItem
 from .ticket_detail import UserTicketSchema
 
@@ -30,7 +32,7 @@ class GuestPWYCCheckoutSchema(GuestUserDataSchema):
     pwyc: Decimal = Field(..., ge=1, description="Pay what you can amount, minimum 1")
 
 
-class GuestBatchCheckoutPayload(GuestUserDataSchema):
+class GuestBatchCheckoutPayload(GuestUserDataSchema, AttributionPayloadMixin):
     """Payload for batch checkout by guest (unauthenticated) users."""
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
@@ -56,7 +58,7 @@ class GuestBatchCheckoutPWYCPayload(GuestBatchCheckoutPayload):
     price_per_ticket: Decimal = Field(..., ge=1, description="Pay what you can amount per ticket (same for all)")
 
 
-class GuestMultiTierCheckoutPayload(GuestUserDataSchema):
+class GuestMultiTierCheckoutPayload(GuestUserDataSchema, AttributionPayloadMixin):
     """Cart payload for POST /events/{event_id}/checkout/public (#846)."""
 
     items: list[CheckoutGroupSchema] = Field(..., min_length=1, max_length=20)
@@ -169,6 +171,8 @@ class GuestTicketJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     guest_session: str | None = None
     # v2 (#846): the cart's groups, one per tier. Empty on every v1 token.
     groups: list[GuestCheckoutGroupPayload] = Field(default_factory=list)
+    # #922: already sanitised when the token was minted; absent from earlier tokens.
+    attribution: TicketAttribution | None = None
 
 
 # Discriminated union for guest action payloads

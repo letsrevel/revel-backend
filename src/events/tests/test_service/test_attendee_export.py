@@ -256,8 +256,37 @@ class TestAttendeeExportAttendees:
             "Guest Name",
             "Seat",
             "Payment",
+            "UTM Source",
+            "UTM Medium",
+            "UTM Campaign",
+            "UTM Content",
         ]
         assert headers == expected_headers
+
+    def test_ticket_row_attribution_columns(
+        self,
+        export_user: RevelUser,
+        att_event: Event,
+        ticket_user: RevelUser,
+        free_tier: TicketTier,
+    ) -> None:
+        """Campaign tags land in the four trailing columns; untagged tickets leave them blank (#922)."""
+        Ticket.objects.create(
+            event=att_event,
+            user=ticket_user,
+            tier=free_tier,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name="Tagged",
+            attribution={"utm_source": "newsletter", "utm_campaign": "spring"},
+        )
+        export = _create_attendee_export(export_user, att_event)
+
+        generate_attendee_export(export.id)
+
+        wb = _load_workbook_from_export(export)
+        rows = list(wb["Attendees"].iter_rows(min_row=2, values_only=True))
+        assert len(rows) == 1
+        assert rows[0][-4:] == ("newsletter", None, "spring", None)
 
     def test_ticket_row_content(
         self,

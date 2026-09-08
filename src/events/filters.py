@@ -191,6 +191,8 @@ class TicketFilterSchema(FilterSchema):
 
     status: Ticket.TicketStatus | None = None
     tier__payment_method: t.Annotated[TicketTier.PaymentMethod | None, FilterLookup(q="tier__payment_method")] = None
+    utm_source: t.Annotated[str | None, FilterLookup(q="attribution__utm_source")] = None
+    utm_campaign: t.Annotated[str | None, FilterLookup(q="attribution__utm_campaign")] = None
     include_past: bool = False
 
     def filter_include_past(self, include_past: bool) -> Q:

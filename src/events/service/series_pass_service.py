@@ -328,6 +328,9 @@ def materialize_tickets(
             guest_name=guest_name,
             refund_policy_snapshot=None,
             price_paid=price_paid,
+            # The pass, not the request, is the source of truth (#922): backfills and
+            # extensions never see a checkout payload.
+            attribution=held_pass.attribution,
         )
         for link in links
         if link.event_id not in existing_event_ids
