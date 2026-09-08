@@ -6,7 +6,7 @@ from django.contrib import admin
 from django.http import HttpRequest
 from unfold.admin import ModelAdmin
 
-from integrations.models import EventLink, PlatformConnection, TierLink, WebhookDelivery
+from integrations.models import EventLink, ImportJob, PlatformConnection, TierLink, WebhookDelivery
 
 
 @admin.register(PlatformConnection)
@@ -88,4 +88,24 @@ class WebhookDeliveryAdmin(ModelAdmin):  # type: ignore[misc]
 
     def has_delete_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
         """Deleting the delivery log would invite double-processing."""
+        return False
+
+
+@admin.register(ImportJob)
+class ImportJobAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for ImportJob model. Read-only: the outcome of each queued import."""
+
+    list_display = ("connection", "remote_id", "status", "error_code", "created_at")
+    list_filter = ("status", "error_code")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Jobs are created by the import endpoint, never in the admin."""
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        """A job's outcome is written by the task; editing it would lie to the organizer."""
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        """Rows expire via the daily prune sweep."""
         return False

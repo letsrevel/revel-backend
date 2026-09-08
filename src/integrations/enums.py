@@ -36,3 +36,4 @@ class IntegrationErrorCode(StrEnum):
     PAUSE_FAILED = "pause_failed"
     TIER_NOT_LINKED = "tier_not_linked"
     STRIPE_NOT_CONNECTED = "stripe_not_connected"
+    IMPORT_FAILED = "import_failed"

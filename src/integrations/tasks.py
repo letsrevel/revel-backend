@@ -66,23 +66,21 @@ def push_event_link(self: t.Any, link_id: str) -> None:
 
 
 @shared_task(name="integrations.import_remote_event")
-def import_remote_event(connection_id: str, remote_id: str) -> None:
-    """Create a Revel draft from a remote event (spec §7.6)."""
-    from integrations.models import PlatformConnection
+def import_remote_event(job_id: str) -> None:
+    """Run one queued ``ImportJob`` (spec §7.6); the row records the outcome either way."""
+    from integrations.models import ImportJob
     from integrations.service import import_service
 
-    conn = (
-        PlatformConnection.objects.select_related("organization")
-        .filter(id=connection_id, status=PlatformConnection.Status.ACTIVE)
-        .first()
-    )
-    if conn is None:
-        logger.info("integration_import_skipped_inactive_connection", connection_id=connection_id)
+    job = ImportJob.objects.select_related("connection__organization").filter(id=job_id).first()
+    if job is None:
+        logger.info("integration_import_skipped_missing_job", job_id=job_id)
         return
-    if conn.provider not in registry.PROVIDERS:
-        logger.info("integration_import_skipped_disabled_provider", connection_id=connection_id, provider=conn.provider)
+    if job.status != ImportJob.Status.QUEUED:
+        # A plain read, not a claim: two concurrent deliveries can both pass it, and the
+        # (connection, remote_id) uniqueness race inside import_remote_event settles that case.
+        logger.info("integration_import_skipped_already_run", job_id=job_id, status=job.status)
         return
-    import_service.import_remote_event(conn, remote_id)
+    import_service.run_import_job(job)
 
 
 @shared_task(bind=True, name="integrations.handle_webhook_delivery", max_retries=WEBHOOK_MAX_RETRIES)
@@ -160,7 +158,7 @@ def reconcile_counts() -> dict[str, int]:
 
 @shared_task(name="integrations.prune_webhook_deliveries")
 def prune_webhook_deliveries() -> int:
-    """Beat: daily retention sweep of the webhook audit log."""
+    """Beat: daily retention sweep of the audit rows (webhook deliveries and finished import jobs)."""
     from integrations.service import reconcile_service
 
-    return reconcile_service.prune_webhook_deliveries()
+    return reconcile_service.prune_webhook_deliveries() + reconcile_service.prune_import_jobs()

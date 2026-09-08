@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from integrations import registry
 from integrations.exceptions import RetryableProviderError
-from integrations.models import EventLink, PlatformConnection, WebhookDelivery
+from integrations.models import EventLink, ImportJob, PlatformConnection, WebhookDelivery
 from integrations.service import sync_service
 
 logger = structlog.get_logger(__name__)
@@ -104,4 +104,16 @@ def prune_webhook_deliveries() -> int:
     cutoff = timezone.now() - timedelta(days=settings.INTEGRATIONS_WEBHOOK_DELIVERY_RETENTION_DAYS)
     deleted, _ = WebhookDelivery.objects.filter(created_at__lt=cutoff).delete()
     logger.info("integration_webhook_deliveries_pruned", deleted=deleted)
+    return deleted
+
+
+def prune_import_jobs() -> int:
+    """Delete import jobs past the same retention window, whatever their status.
+
+    A job still ``queued`` after weeks was stranded (its task was never dispatched); keeping it
+    would only make the row immortal.
+    """
+    cutoff = timezone.now() - timedelta(days=settings.INTEGRATIONS_WEBHOOK_DELIVERY_RETENTION_DAYS)
+    deleted, _ = ImportJob.objects.filter(created_at__lt=cutoff).delete()
+    logger.info("integration_import_jobs_pruned", deleted=deleted)
     return deleted

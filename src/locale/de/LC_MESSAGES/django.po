@@ -2882,12 +2882,23 @@ msgstr ""
 msgid "The platform could not list its events."
 msgstr "Die Plattform konnte ihre Events nicht auflisten."
 
+msgid "The platform is no longer connected."
+msgstr "Die Plattform ist nicht mehr verbunden."
+
+msgid "The platform could not provide that event."
+msgstr "Die Plattform konnte dieses Event nicht bereitstellen."
+
+msgid "The import failed unexpectedly."
+msgstr "Der Import ist unerwartet fehlgeschlagen."
+
 #, python-format
 msgid "Ticket class %(name)s could not be imported."
 msgstr "Die Ticketklasse %(name)s konnte nicht importiert werden."
 
 msgid "Sales are paused until Stripe is connected; resume the tier afterwards."
-msgstr "Der Verkauf ist pausiert, bis Stripe verbunden ist; setze die Kategorie danach fort."
+msgstr ""
+"Der Verkauf ist pausiert, bis Stripe verbunden ist; setze die Kategorie "
+"danach fort."
 
 msgid "Only public events can be listed on external platforms."
 msgstr ""

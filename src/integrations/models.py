@@ -185,3 +185,36 @@ class WebhookDelivery(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.action} for connection {self.connection_id}"
+
+
+class ImportJobStatus(models.TextChoices):
+    """Lifecycle of one queued import. Module-level for its own OpenAPI component (see ``ConnectionStatus``)."""
+
+    QUEUED = "queued", "Queued"
+    DONE = "done", "Done"
+    FAILED = "failed", "Failed"
+
+
+class ImportJob(TimeStampedModel):
+    """One queued "import this remote event" request the organizer can follow without polling the platform.
+
+    ``done`` carries the resulting link; ``failed`` carries a stable ``IntegrationErrorCode`` plus the
+    provider's own words.
+    """
+
+    Status: t.TypeAlias = ImportJobStatus
+
+    connection = models.ForeignKey(PlatformConnection, on_delete=models.CASCADE, related_name="import_jobs")
+    remote_id = models.CharField(max_length=255)
+    status = models.CharField(max_length=16, choices=ImportJobStatus.choices, default=ImportJobStatus.QUEUED)
+    link = models.ForeignKey(EventLink, on_delete=models.SET_NULL, null=True, blank=True, related_name="import_jobs")
+    error_code = models.CharField(max_length=64, blank=True, default="")  # an IntegrationErrorCode value
+    error_message = models.TextField(blank=True, default="")
+    provider_message = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["connection", "remote_id"])]
+
+    def __str__(self) -> str:
+        return f"import {self.remote_id} ({self.status})"

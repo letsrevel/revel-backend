@@ -2,6 +2,7 @@
 
 import typing as t
 from functools import partial
+from uuid import UUID
 
 import structlog
 from django.conf import settings
@@ -18,9 +19,9 @@ from events.suppression import suppress_default_tier_creation
 from integrations import registry
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError
-from integrations.models import EventLink, PlatformConnection, TierLink
+from integrations.models import EventLink, ImportJob, PlatformConnection, TierLink
 from integrations.providers.base import RemoteEvent, RemoteTicketClass
-from integrations.schema import ImportResultSchema, RemoteEventSummarySchema, SyncReportEntry
+from integrations.schema import ImportJobSchema, ImportResultSchema, RemoteEventSummarySchema, SyncReportEntry
 from integrations.service import connection_service, mapper
 from integrations.service.sync_service import active_connection
 
@@ -54,18 +55,92 @@ def list_remote_events(organization: Organization, provider_key: str) -> list[Re
 
 
 def request_import(organization: Organization, provider_key: str, remote_ids: list[str]) -> ImportResultSchema:
-    """Queue one import task per unlinked remote id."""
+    """Record one ``ImportJob`` per unlinked remote id and queue its task after commit."""
     conn = active_connection(organization, provider_key)
     linked = set(
         EventLink.objects.filter(connection=conn, remote_id__in=remote_ids).values_list("remote_id", flat=True)
     )
-    queued = [rid for rid in dict.fromkeys(remote_ids) if rid not in linked]
+    wanted = list(dict.fromkeys(remote_ids))
+    # A double-clicked "Import" must not queue the same event twice: hand back the job already in flight.
+    in_flight = {
+        j.remote_id: j
+        for j in ImportJob.objects.filter(connection=conn, remote_id__in=wanted, status=ImportJob.Status.QUEUED)
+    }
+    new_jobs = ImportJob.objects.bulk_create(
+        [ImportJob(connection=conn, remote_id=rid) for rid in wanted if rid not in linked and rid not in in_flight]
+    )
     from integrations.tasks import import_remote_event as import_task
 
-    conn_id = str(conn.id)
-    for rid in queued:
-        transaction.on_commit(partial(import_task.delay, conn_id, rid))
-    return ImportResultSchema(queued=queued, skipped=[rid for rid in dict.fromkeys(remote_ids) if rid in linked])
+    for job in new_jobs:
+        transaction.on_commit(partial(import_task.delay, str(job.id)))
+    by_remote = in_flight | {j.remote_id: j for j in new_jobs}
+    return ImportResultSchema(
+        jobs=[job_schema(by_remote[rid]) for rid in wanted if rid in by_remote],
+        skipped=[rid for rid in wanted if rid in linked],
+    )
+
+
+def list_import_jobs(organization: Organization, provider_key: str, ids: list[UUID]) -> list[ImportJobSchema]:
+    """The requested jobs, scoped to the organization's connection for this provider (poll target)."""
+    jobs = ImportJob.objects.filter(
+        connection__organization=organization, connection__provider=provider_key, id__in=ids
+    ).select_related("link__event")
+    return [job_schema(j) for j in jobs]
+
+
+def job_schema(job: ImportJob) -> ImportJobSchema:
+    """Serialize a job; ``event_*`` are filled from the link once the import is done."""
+    event = job.link.event if job.link else None  # narrows for mypy; select_related makes it one query
+    return ImportJobSchema(
+        id=job.id,
+        remote_id=job.remote_id,
+        status=ImportJob.Status(job.status),
+        event_id=event.id if event else None,
+        event_slug=event.slug if event else None,
+        error_code=IntegrationErrorCode(job.error_code) if job.error_code else None,
+        error_message=job.error_message,
+        provider_message=job.provider_message or None,
+    )
+
+
+def run_import_job(job: ImportJob) -> None:
+    """Run one queued job and record its outcome so the poll can explain a failure.
+
+    Classified failures (provider errors, a foreign-account rejection) are recorded and swallowed:
+    the job row *is* the report. Anything unexpected is recorded as ``import_failed`` and
+    re-raised so the task still fails loudly.
+    """
+    # ponytail: no automatic retry on a transient provider error (429/5xx); the job row makes a
+    # "retry" action a one-liner (re-queue the same job) when it is wanted.
+    conn = job.connection
+    if conn.status != PlatformConnection.Status.ACTIVE or conn.provider not in registry.PROVIDERS:
+        _fail(job, IntegrationErrorCode.PROVIDER_NOT_CONNECTED, str(_("The platform is no longer connected.")))
+        return
+    try:
+        link = import_remote_event(conn, job.remote_id)
+    except ProviderError as e:
+        if e.code == IntegrationErrorCode.CONNECTION_REVOKED:
+            connection_service.mark_revoked(conn)
+        _fail(job, e.code, str(_("The platform could not provide that event.")), e.provider_message)
+        return
+    except IntegrationError as e:
+        _fail(job, e.code, e.message, e.provider_message)
+        return
+    except Exception:
+        _fail(job, IntegrationErrorCode.IMPORT_FAILED, str(_("The import failed unexpectedly.")))
+        raise
+    job.status = ImportJob.Status.DONE
+    job.link = link
+    job.save(update_fields=["status", "link", "updated_at"])
+
+
+def _fail(job: ImportJob, code: IntegrationErrorCode, message: str, provider_message: str | None = None) -> None:
+    logger.warning("integration_import_failed", job_id=str(job.id), remote_id=job.remote_id, code=code.value)
+    job.status = ImportJob.Status.FAILED
+    job.error_code = code.value
+    job.error_message = message
+    job.provider_message = provider_message or ""
+    job.save(update_fields=["status", "error_code", "error_message", "provider_message", "updated_at"])
 
 
 def _tier_from_remote(

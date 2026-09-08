@@ -150,11 +150,13 @@ def test_request_import_queues_and_skips_linked(  # type: ignore[no-untyped-def]
     connected: PlatformConnection, remote: str, organization, django_capture_on_commit_callbacks
 ) -> None:
     with django_capture_on_commit_callbacks(execute=True):
-        result = import_service.request_import(organization, "fake", [remote])
-    assert result.queued == [remote] and result.skipped == []
-    assert EventLink.objects.filter(connection=connected, remote_id=remote).exists()
+        result = import_service.request_import(organization, "fake", [remote, remote])
+    assert [j.remote_id for j in result.jobs] == [remote] and result.skipped == []
+    link = EventLink.objects.get(connection=connected, remote_id=remote)
+    (job,) = import_service.list_import_jobs(organization, "fake", [result.jobs[0].id])
+    assert job.status == "done" and job.event_id == link.event_id and job.event_slug == link.event.slug
     result = import_service.request_import(organization, "fake", [remote])
-    assert result.queued == [] and result.skipped == [remote]
+    assert result.jobs == [] and result.skipped == [remote]
 
 
 def test_import_skips_invalid_tier_and_reports_it(connected: PlatformConnection, fake_provider: FakeProvider) -> None:

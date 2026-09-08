@@ -9,7 +9,7 @@ from events.models import Event, TicketTier
 from integrations import registry, tasks
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import ProviderError, RetryableProviderError
-from integrations.models import EventLink, PlatformConnection
+from integrations.models import EventLink, ImportJob, PlatformConnection
 from integrations.service import connection_service, sync_service
 from integrations.tests.fake_provider import FakeProvider
 
@@ -99,18 +99,36 @@ def test_push_task_marks_failed_on_an_unexpected_exception(pushed: EventLink, mo
 
 
 @pytest.mark.django_db
-def test_import_task_skips_inactive_connection(connected: PlatformConnection) -> None:
+def test_import_task_records_an_inactive_connection_as_failed(connected: PlatformConnection) -> None:
     connected.status = PlatformConnection.Status.REVOKED
     connected.save(update_fields=["status"])
-    tasks.import_remote_event(str(connected.id), "ev-1")  # no raise, nothing imported
+    job = ImportJob.objects.create(connection=connected, remote_id="ev-1")
+    tasks.import_remote_event(str(job.id))  # no raise, nothing imported
+    job.refresh_from_db()
+    assert job.status == ImportJob.Status.FAILED
+    assert job.error_code == IntegrationErrorCode.PROVIDER_NOT_CONNECTED
     assert not EventLink.objects.filter(connection=connected).exists()
 
 
 @pytest.mark.django_db
-def test_import_task_skips_disabled_provider(connected: PlatformConnection, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_import_task_records_a_disabled_provider_as_failed(
+    connected: PlatformConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(registry, "PROVIDERS", {})
-    tasks.import_remote_event(str(connected.id), "ev-1")  # no raise, nothing imported
+    job = ImportJob.objects.create(connection=connected, remote_id="ev-1")
+    tasks.import_remote_event(str(job.id))  # no raise, nothing imported
+    job.refresh_from_db()
+    assert job.status == ImportJob.Status.FAILED
     assert not EventLink.objects.filter(connection=connected).exists()
+
+
+@pytest.mark.django_db
+def test_import_task_ignores_a_missing_or_finished_job(connected: PlatformConnection) -> None:
+    tasks.import_remote_event(str(uuid.uuid4()))  # no raise
+    job = ImportJob.objects.create(connection=connected, remote_id="ev-1", status=ImportJob.Status.FAILED)
+    tasks.import_remote_event(str(job.id))  # a finished job is never re-run by a redelivered message
+    job.refresh_from_db()
+    assert job.status == ImportJob.Status.FAILED
 
 
 def test_beat_task_names_are_pinned() -> None:

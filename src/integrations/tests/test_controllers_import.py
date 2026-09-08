@@ -1,6 +1,7 @@
 """Owner-only remote listing and import endpoints."""
 
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import orjson
 import pytest
@@ -39,7 +40,22 @@ def test_remote_events_and_import_flow(  # type: ignore[no-untyped-def]
         response = organization_owner_client.post(
             url, data=orjson.dumps({"remote_ids": ["ev-1"]}), content_type="application/json"
         )
-    assert response.status_code == 202 and response.json() == {"queued": ["ev-1"], "skipped": []}
+    assert response.status_code == 202
+    body = response.json()
+    assert body["skipped"] == [] and [j["remote_id"] for j in body["jobs"]] == ["ev-1"]
+    # The poll reads our database only: the job is already done once the on_commit task ran.
+    url = reverse("api:integration_import_jobs", kwargs={"slug": organization.slug, "provider": "fake"})
+    rows = organization_owner_client.get(url, {"ids": [body["jobs"][0]["id"]]}).json()
+    assert rows[0]["status"] == "done" and rows[0]["event_slug"] and rows[0]["error_code"] is None
+
+
+def test_import_jobs_requires_ids_and_is_owner_only(  # type: ignore[no-untyped-def]
+    organization_owner_client: Client, organization_staff_client: Client, organization, connected: PlatformConnection
+) -> None:
+    url = reverse("api:integration_import_jobs", kwargs={"slug": organization.slug, "provider": "fake"})
+    assert organization_owner_client.get(url).status_code == 422
+    assert organization_owner_client.get(url, {"ids": [str(uuid4()) for _ in range(51)]}).status_code == 422
+    assert organization_staff_client.get(url, {"ids": [str(uuid4())]}).status_code == 403
 
 
 def test_staff_forbidden(organization_staff_client: Client, organization, connected: PlatformConnection) -> None:  # type: ignore[no-untyped-def]
@@ -49,9 +65,8 @@ def test_staff_forbidden(organization_staff_client: Client, organization, connec
 
 def test_import_validation(organization_owner_client: Client, organization, connected: PlatformConnection) -> None:  # type: ignore[no-untyped-def]
     url = reverse("api:integration_import", kwargs={"slug": organization.slug, "provider": "fake"})
-    assert (
-        organization_owner_client.post(
-            url, data=orjson.dumps({"remote_ids": []}), content_type="application/json"
-        ).status_code
-        == 422
-    )
+    for bad in ([], ["x" * 256]):  # empty list; an id longer than the column it is now stored in
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"remote_ids": bad}), content_type="application/json"
+        )
+        assert response.status_code == 422

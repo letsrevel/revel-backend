@@ -7,7 +7,7 @@ from ninja import Schema
 from pydantic import AwareDatetime, Field
 
 from integrations.enums import IntegrationErrorCode
-from integrations.models import EventLink, PlatformConnection
+from integrations.models import EventLink, ImportJob, PlatformConnection
 
 __all__ = [
     "ConnectStartSchema",
@@ -16,6 +16,7 @@ __all__ = [
     "EventLinkSchema",
     "EventLinkUpdateSchema",
     "EventListingSchema",
+    "ImportJobSchema",
     "ImportRequestSchema",
     "ImportResultSchema",
     "IntegrationErrorCode",
@@ -175,11 +176,24 @@ class RemoteEventSummarySchema(Schema):
 class ImportRequestSchema(Schema):
     """Remote event ids to queue for import."""
 
-    remote_ids: list[str] = Field(min_length=1, max_length=50)
+    remote_ids: list[t.Annotated[str, Field(max_length=255)]] = Field(min_length=1, max_length=50)
+
+
+class ImportJobSchema(Schema):
+    """One queued import and its outcome; the picker polls these instead of the platform."""
+
+    id: UUID
+    remote_id: str
+    status: ImportJob.Status
+    event_id: UUID | None = None
+    event_slug: str | None = None
+    error_code: IntegrationErrorCode | None = None
+    error_message: str = ""
+    provider_message: str | None = None
 
 
 class ImportResultSchema(Schema):
-    """Which remote ids were queued for import vs. already linked."""
+    """The jobs queued for import, and the remote ids skipped because they are already linked."""
 
-    queued: list[str]
+    jobs: list[ImportJobSchema]
     skipped: list[str]

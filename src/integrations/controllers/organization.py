@@ -1,7 +1,11 @@
 """Owner-only connection management, mounted under the organization-admin prefix."""
 
+import typing as t
+from uuid import UUID
+
 from django.conf import settings
 from django.http import HttpResponse
+from ninja import Query
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
@@ -99,6 +103,13 @@ class OrganizationIntegrationsController(OrganizationAdminBaseController):
         """Queue imports; each becomes a Revel draft event with its ticket tiers."""
         result = import_service.request_import(self.get_one(slug), provider, payload.remote_ids)
         return self.create_response(result, status_code=202)
+
+    @route.get("/{provider}/import-jobs", url_name="integration_import_jobs", response=list[schema.ImportJobSchema])
+    def import_jobs(
+        self, slug: str, provider: str, ids: t.Annotated[list[UUID], Query(min_length=1, max_length=50)]
+    ) -> list[schema.ImportJobSchema]:
+        """Outcome of queued imports — reads only our database, so the picker can poll it freely."""
+        return import_service.list_import_jobs(self.get_one(slug), provider, ids)
 
     @route.delete("/{provider}", url_name="integration_disconnect", response=ResponseOk, throttle=WriteThrottle())
     def disconnect(self, slug: str, provider: str) -> ResponseOk:
