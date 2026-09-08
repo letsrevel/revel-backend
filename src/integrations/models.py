@@ -92,32 +92,45 @@ class PlatformConnection(TimeStampedModel):
         self.save(update_fields=fields)
 
 
+class RemoteListingStatus(models.TextChoices):
+    DRAFT = "draft", "Draft"
+    LIVE = "live", "Live"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+class ListingSyncState(models.TextChoices):
+    IN_SYNC = "in_sync", "In sync"
+    PENDING = "pending", "Pending"
+    FAILED = "failed", "Failed"
+    BROKEN = "broken", "Broken (remote deleted)"
+
+
+class ListingOrigin(models.TextChoices):
+    PUSHED = "pushed", "Pushed from Revel"
+    IMPORTED = "imported", "Imported from platform"
+
+
 class EventLink(TimeStampedModel):
     """A Revel event mirrored on one platform (spec §5)."""
 
-    class RemoteStatus(models.TextChoices):
-        DRAFT = "draft", "Draft"
-        LIVE = "live", "Live"
-        CANCELLED = "cancelled", "Cancelled"
-
-    class SyncState(models.TextChoices):
-        IN_SYNC = "in_sync", "In sync"
-        PENDING = "pending", "Pending"
-        FAILED = "failed", "Failed"
-        BROKEN = "broken", "Broken (remote deleted)"
-
-    class Origin(models.TextChoices):
-        PUSHED = "pushed", "Pushed from Revel"
-        IMPORTED = "imported", "Imported from platform"
+    # Distinct module-level names so each enum gets its own OpenAPI component (issue #782); the
+    # nested aliases keep ``EventLink.RemoteStatus`` etc. working everywhere.
+    RemoteStatus: t.TypeAlias = RemoteListingStatus
+    SyncState: t.TypeAlias = ListingSyncState
+    Origin: t.TypeAlias = ListingOrigin
 
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="platform_links")
     connection = models.ForeignKey(PlatformConnection, on_delete=models.CASCADE, related_name="event_links")
     remote_id = models.CharField(max_length=255, blank=True, default="")
     remote_url = models.URLField(blank=True, default="")
     auto_sync = models.BooleanField(null=True, blank=True, help_text="Null = inherit the connection default.")
-    remote_status = models.CharField(max_length=16, choices=RemoteStatus.choices, default=RemoteStatus.DRAFT)
-    sync_state = models.CharField(max_length=16, choices=SyncState.choices, default=SyncState.PENDING, db_index=True)
-    origin = models.CharField(max_length=16, choices=Origin.choices, default=Origin.PUSHED)
+    remote_status = models.CharField(
+        max_length=16, choices=RemoteListingStatus.choices, default=RemoteListingStatus.DRAFT
+    )
+    sync_state = models.CharField(
+        max_length=16, choices=ListingSyncState.choices, default=ListingSyncState.PENDING, db_index=True
+    )
+    origin = models.CharField(max_length=16, choices=ListingOrigin.choices, default=ListingOrigin.PUSHED)
     last_pushed_at = models.DateTimeField(null=True, blank=True)
     last_pulled_at = models.DateTimeField(null=True, blank=True)
     sync_report = models.JSONField(default=list, blank=True)
