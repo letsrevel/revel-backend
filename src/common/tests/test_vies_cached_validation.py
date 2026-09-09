@@ -12,6 +12,7 @@ import pytest
 
 from common.service.vies_service import (
     VIES_CACHE_TTL,
+    VIES_TIMEOUT_SECONDS,
     VIESUnavailableError,
     VIESValidationResult,
     validate_vat_id_cached,
@@ -68,13 +69,29 @@ class TestValidateVatIdCached:
         result = validate_vat_id_cached("IT12345678901")
 
         assert result == vies_result
-        mock_validate.assert_called_once_with("IT12345678901")
+        mock_validate.assert_called_once_with("IT12345678901", timeout=VIES_TIMEOUT_SECONDS)
         mock_cache_set.assert_called_once()
 
         # Verify cache key and TTL
         call_args = mock_cache_set.call_args
         assert call_args[0][0] == "vies:validation:IT12345678901"
         assert call_args[1]["timeout"] == VIES_CACHE_TTL
+
+    @patch(MOCK_CACHE_SET)
+    @patch(MOCK_VALIDATE)
+    @patch(MOCK_CACHE_GET, return_value=None)
+    def test_cache_miss_forwards_caller_timeout(
+        self,
+        mock_cache_get: MagicMock,
+        mock_validate: MagicMock,
+        mock_cache_set: MagicMock,
+    ) -> None:
+        """On a miss the caller's timeout bounds the live VIES call (#633)."""
+        mock_validate.return_value = VIESValidationResult(valid=True, name="", address="", request_identifier="")
+
+        validate_vat_id_cached("IT12345678901", timeout=2)
+
+        mock_validate.assert_called_once_with("IT12345678901", timeout=2)
 
     @patch(MOCK_CACHE_SET)
     @patch(MOCK_VALIDATE)

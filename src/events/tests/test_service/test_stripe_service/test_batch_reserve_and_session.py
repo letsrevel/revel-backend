@@ -11,6 +11,7 @@ from django.utils import timezone
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.service.vies_service import VIES_CHECKOUT_TIMEOUT_SECONDS
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.schema.ticket import BuyerBillingInfoSchema
 from events.service import pending_checkout, stripe_service
@@ -173,6 +174,19 @@ class TestResolveAttendeeVatForReserve:
         billing_info = BuyerBillingInfoSchema(billing_name="Acme Corp", vat_country_code="DE")  # type: ignore[call-arg]
         context = stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)
         assert context == BuyerVATContext(buyer_country="DE", buyer_vat_validated=False)
+
+    def test_checkout_bounds_the_vies_timeout(self) -> None:
+        """Checkout passes the short VIES timeout: a third-party hang must not stall a payment request (#633)."""
+        billing_info = BuyerBillingInfoSchema(billing_name="Acme Corp", vat_id="DE123456789")  # type: ignore[call-arg]
+        with mock.patch(
+            "events.service.attendee_vat_service.validate_and_resolve_buyer_country",
+            return_value=(True, None, "DE"),
+        ) as resolve:
+            stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)
+
+        resolve.assert_called_once_with(
+            vat_id="DE123456789", vat_country_code="", timeout=VIES_CHECKOUT_TIMEOUT_SECONDS
+        )
 
 
 class TestCreateBatchSession:

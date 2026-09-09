@@ -66,7 +66,7 @@ def test_online_create_batch_charges_lock_time_price_when_price_changes_during_v
     """
 
     def vies_bumps_price(
-        vat_id: str | None, vat_country_code: str | None
+        vat_id: str | None, vat_country_code: str | None, *, timeout: float
     ) -> tuple[bool | None, str | None, str | None]:
         # Simulates an organizer repricing the tier while VIES is in flight.
         TicketTier.objects.filter(pk=paid_ticket_tier.pk).update(price=Decimal("60.00"))
