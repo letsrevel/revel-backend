@@ -27,6 +27,7 @@ from events.exceptions import (
     BillingInfoRequiredError,
     DuplicateDiscountCodeError,
     EventRefundsStartedError,
+    GuestActionError,
     InvalidPeriodError,
     InvalidResourceStateError,
     InvalidStripeWebhookSignatureError,
@@ -50,7 +51,7 @@ from events.exceptions import (
     TicketAlreadyCancelledError,
     TooManyItemsError,
 )
-from events.schema import SubscriptionActivationPendingSchema
+from events.schema import GuestActionErrorSchema, SubscriptionActivationPendingSchema
 from events.service.event_manager import UserIsIneligibleError
 from events.service.membership_manager import MembershipApplicationIneligibleError
 from events.service.organization_service import (
@@ -126,8 +127,31 @@ def handle_subscription_activation_pending_error(request: HttpRequest, exc: Exce
     )
 
 
+def handle_guest_action_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a guest RSVP/checkout refusal with a machine-readable ``code`` (#905).
+
+    The frontend cannot key on the translated ``detail`` (localization rule), so
+    the body carries the exception's stable ``code`` for it to branch on.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``GuestActionError`` subclass (bare-raised; carries its own message).
+
+    Returns:
+        Response: A 400 response shaped like ``GuestActionErrorSchema``.
+    """
+    error = t.cast(GuestActionError, exc)
+    return Response(
+        status=400,
+        data=GuestActionErrorSchema(detail=str(error.message), code=error.code).model_dump(mode="json"),
+    )
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
+    # Guest refusals the FE renders as CTAs → 400 with a stable ``code`` (#905).
+    # MRO covers GuestAccountExistsError and GuestCartTooLargeError.
+    GuestActionError: handle_guest_action_error,
     UserIsIneligibleError: handle_user_is_ineligible_error,
     MembershipApplicationIneligibleError: handle_membership_application_ineligible_error,
     # Checkout already paid, activation webhooks in flight → 409 with a stable

@@ -19,6 +19,7 @@ from .checkout import (
 )
 from .guest_checkout import (
     GuestActionConfirmSchema,
+    GuestActionErrorSchema,
     GuestActionPayload,
     GuestActionResponseSchema,
     GuestBatchCheckoutPayload,
@@ -103,6 +104,7 @@ __all__ = [
     "EventRefundPreviewSchema",
     "ExternalSalesSchema",
     "GuestActionConfirmSchema",
+    "GuestActionErrorSchema",
     "GuestActionPayload",
     "GuestActionResponseSchema",
     "GuestBatchCheckoutPWYCPayload",

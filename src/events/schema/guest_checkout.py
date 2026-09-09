@@ -9,6 +9,7 @@ from pydantic import UUID4, EmailStr, Field
 
 from accounts.schema import BaseEmailJWTPayloadSchema
 from common.schema import StrippedString
+from events.exceptions import GuestActionErrorCode
 from events.models import TicketAttribution
 
 from .attribution import AttributionPayloadMixin
@@ -70,6 +71,19 @@ class GuestActionResponseSchema(Schema):
     """Response after guest action initiated (RSVP or non-online-payment ticket)."""
 
     message: str = Field(default="Please check your email to confirm your action")
+
+
+class GuestActionErrorSchema(Schema):
+    """Refusal body for a guest RSVP/checkout carrying a stable ``code`` (#905).
+
+    ``detail`` is translated and must never be matched on; ``code`` is the
+    machine-readable discriminator the frontend keys on to render a proper CTA
+    (``guest_account_exists`` → "Log in", ``guest_cart_too_large`` → "log in or
+    split your purchase").
+    """
+
+    detail: str
+    code: GuestActionErrorCode
 
 
 class GuestCheckoutResponseSchema(Schema):

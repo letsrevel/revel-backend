@@ -1,4 +1,11 @@
+import enum
+import typing as t
+
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils.translation import gettext_lazy as _
+
+if t.TYPE_CHECKING:
+    from django_stubs_ext import StrPromise
 
 
 class InvalidResourceStateError(DjangoValidationError):
@@ -131,3 +138,40 @@ class NothingToRefundError(Exception):
 
 class EventRefundsStartedError(Exception):
     """Raised on an un-cancel attempt after the bulk refund sweep already started."""
+
+
+class GuestActionErrorCode(str, enum.Enum):
+    """Stable discriminators for guest RSVP/checkout refusals (#905).
+
+    The frontend branches on these to render a CTA ("Log in", "split your
+    purchase") instead of echoing the translated ``detail``. Renaming a value is a
+    breaking change; rewording the message is always safe.
+    """
+
+    ACCOUNT_EXISTS = "guest_account_exists"
+    CART_TOO_LARGE = "guest_cart_too_large"
+
+
+class GuestActionError(Exception):
+    """Base for guest RSVP/checkout refusals rendered with a machine-readable ``code`` (#905).
+
+    Subclasses are bare-raised; the handler renders ``message`` (lazy, so it is
+    translated in the request's language) alongside ``code``.
+    """
+
+    code: t.ClassVar[GuestActionErrorCode]
+    message: t.ClassVar["StrPromise"]
+
+
+class GuestAccountExistsError(GuestActionError):
+    """Raised when a guest action names an email that belongs to a non-guest account."""
+
+    code = GuestActionErrorCode.ACCOUNT_EXISTS
+    message = _("An account with this email already exists. Please log in.")
+
+
+class GuestCartTooLargeError(GuestActionError):
+    """Raised when a cart's guest-confirmation JWT would blow past the emailed-link URL budget."""
+
+    code = GuestActionErrorCode.CART_TOO_LARGE
+    message = _("Your cart is too large for guest checkout. Please log in or split your purchase.")
