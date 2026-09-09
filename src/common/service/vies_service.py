@@ -25,9 +25,13 @@ logger = structlog.get_logger(__name__)
 
 VIES_REST_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number"
 VIES_TIMEOUT_SECONDS = 10
-# Checkout runs a live VIES call (on a cold cache) inside a payment request; a
-# third-party hang must not stall it. The user-initiated "validate my VAT" flows in
-# settings keep the shared default, where waiting is acceptable (#633).
+# Bound for the payment-reservation call only (resolve_attendee_vat_for_reserve):
+# on a cold cache it runs a live VIES call inside a payment request, and a
+# third-party hang must not stall that. Every other surface keeps the shared
+# default on purpose (#633): the VAT preview is not a payment request and, by
+# warming the shared cache, is what normally spares checkout the live call at all;
+# the user/org "validate my VAT" settings flows are user-initiated, where a slow but
+# authoritative answer beats a fast "unavailable".
 VIES_CHECKOUT_TIMEOUT_SECONDS = 2
 
 VAT_RESET_FIELDS = [

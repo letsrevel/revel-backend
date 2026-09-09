@@ -358,6 +358,7 @@ class TestValidateAndResolveBuyerCountryTimeout:
 
     @patch("common.service.vies_service.validate_vat_id_cached")
     def test_timeout_is_forwarded_to_vies(self, mock_validate: MagicMock) -> None:
+        """A caller-supplied timeout reaches the cached VIES validator unchanged."""
         mock_validate.return_value = VIESValidationResult(valid=True, name="", address="", request_identifier="")
 
         validate_and_resolve_buyer_country("DE123456789", None, timeout=2)
