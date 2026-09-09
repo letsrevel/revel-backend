@@ -13,13 +13,15 @@ Tests cover:
 
 import typing as t
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from common.service.vies_service import VIESValidationResult
 from events.service.attendee_vat_service import (
     determine_attendee_vat,
     get_effective_vat_rate,
+    validate_and_resolve_buyer_country,
 )
 
 # ---------------------------------------------------------------------------
@@ -349,3 +351,16 @@ class TestGetEffectiveVatRate:
         org.vat_rate = Decimal("22.00")
 
         assert get_effective_vat_rate(tier, org) == Decimal("0.00")
+
+
+class TestValidateAndResolveBuyerCountryTimeout:
+    """The shared resolver forwards a caller-supplied VIES timeout (#633)."""
+
+    @patch("common.service.vies_service.validate_vat_id_cached")
+    def test_timeout_is_forwarded_to_vies(self, mock_validate: MagicMock) -> None:
+        """A caller-supplied timeout reaches the cached VIES validator unchanged."""
+        mock_validate.return_value = VIESValidationResult(valid=True, name="", address="", request_identifier="")
+
+        validate_and_resolve_buyer_country("DE123456789", None, timeout=2)
+
+        mock_validate.assert_called_once_with("DE123456789", timeout=2)

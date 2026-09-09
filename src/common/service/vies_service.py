@@ -25,6 +25,14 @@ logger = structlog.get_logger(__name__)
 
 VIES_REST_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number"
 VIES_TIMEOUT_SECONDS = 10
+# Bound for the payment-reservation call only (resolve_attendee_vat_for_reserve):
+# on a cold cache it runs a live VIES call inside a payment request, and a
+# third-party hang must not stall that. Every other surface keeps the shared
+# default on purpose (#633): the VAT preview is not a payment request and, by
+# warming the shared cache, is what normally spares checkout the live call at all;
+# the user/org "validate my VAT" settings flows are user-initiated, where a slow but
+# authoritative answer beats a fast "unavailable".
+VIES_CHECKOUT_TIMEOUT_SECONDS = 2
 
 VAT_RESET_FIELDS = [
     "vat_id",
@@ -92,11 +100,12 @@ def parse_vat_id(vat_id: str) -> tuple[str, str]:
     return vat_id[:2], vat_id[2:]
 
 
-def validate_vat_id(vat_id: str) -> VIESValidationResult:
+def validate_vat_id(vat_id: str, *, timeout: float = VIES_TIMEOUT_SECONDS) -> VIESValidationResult:
     """Validate a VAT ID against the VIES REST API.
 
     Args:
         vat_id: Full VAT ID with country prefix (e.g., "IT12345678901").
+        timeout: Seconds to wait for VIES before treating it as unavailable.
 
     Returns:
         VIESValidationResult with validation details.
@@ -118,7 +127,7 @@ def validate_vat_id(vat_id: str) -> VIESValidationResult:
                 "countryCode": country_code,
                 "vatNumber": vat_number,
             },
-            timeout=VIES_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
     except httpx.HTTPError as e:
         raise VIESUnavailableError(f"VIES service unreachable: {e}") from e
@@ -142,7 +151,7 @@ def validate_vat_id(vat_id: str) -> VIESValidationResult:
 VIES_CACHE_TTL = 1800  # 30 minutes
 
 
-def validate_vat_id_cached(vat_id: str) -> VIESValidationResult:
+def validate_vat_id_cached(vat_id: str, *, timeout: float = VIES_TIMEOUT_SECONDS) -> VIESValidationResult:
     """Validate a VAT ID with Redis caching.
 
     Returns cached result if available. On cache miss, validates via VIES
@@ -151,6 +160,7 @@ def validate_vat_id_cached(vat_id: str) -> VIESValidationResult:
 
     Args:
         vat_id: Full VAT ID with country prefix.
+        timeout: Seconds to wait for VIES on a cache miss.
 
     Returns:
         VIESValidationResult.
@@ -166,7 +176,7 @@ def validate_vat_id_cached(vat_id: str) -> VIESValidationResult:
     if cached is not None:
         return VIESValidationResult(**cached)
 
-    result = validate_vat_id(normalized)  # may raise VIESUnavailableError
+    result = validate_vat_id(normalized, timeout=timeout)  # may raise VIESUnavailableError
     cache.set(cache_key, asdict(result), timeout=VIES_CACHE_TTL)
     return result
 
