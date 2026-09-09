@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.1] - 2026-09-09
+
+### Fixed
+
+- The Eventbrite integration admin pages (platform connections, event and tier links, webhook deliveries, import jobs) now appear in the admin sidebar under a new **Integrations** group. They were registered but missing from the curated navigation, so operators could only reach them by typing the URL or using the sidebar search
+
+### Security
+
+- Upgraded `weasyprint` to 70.0 for CVE-2026-55073 (server-side request forgery in PDF rendering)
+
 ## [2.12.0] - 2026-09-09
 
 ### Added
