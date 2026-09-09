@@ -336,6 +336,7 @@ def handle_guest_rsvp(
     Raises:
         HttpError: If event doesn't allow guest access, doesn't accept notes but one was
             provided, or eligibility checks fail
+        GuestAccountExistsError: 400 with ``code`` if the email belongs to a non-guest account.
     """
     from events.tasks import send_guest_rsvp_confirmation
 
@@ -439,6 +440,7 @@ def handle_guest_ticket_checkout(
     Raises:
         HttpError: If event doesn't allow guest access, the cart is malformed, tier
             issues, or eligibility checks fail.
+        GuestAccountExistsError: 400 with ``code`` if the email belongs to a non-guest account.
         GuestCartTooLargeError: 400 with ``code`` if (non-online carts) the confirmation
             token would exceed ``_GUEST_TOKEN_MAX_CHARS``.
         InvalidZoneSelectionError: 400 if a requested zone is unusable on its tier.
