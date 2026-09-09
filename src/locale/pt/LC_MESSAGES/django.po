@@ -5249,6 +5249,24 @@ msgstr "Faturas de comissões da plataforma"
 msgid "Platform Fee Credit Notes"
 msgstr "Notas de crédito de comissões da plataforma"
 
+msgid "Integrations"
+msgstr "Integrações"
+
+msgid "Platform Connections"
+msgstr "Ligações de plataforma"
+
+msgid "Event Links"
+msgstr "Ligações de eventos"
+
+msgid "Tier Links"
+msgstr "Ligações de tipos de bilhete"
+
+msgid "Webhook Deliveries"
+msgstr "Entregas de webhook"
+
+msgid "Import Jobs"
+msgstr "Tarefas de importação"
+
 msgid "Subscriptions"
 msgstr "Subscrições"
 

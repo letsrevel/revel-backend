@@ -318,6 +318,9 @@ def list_items(self) -> QuerySet[Item]:
 ### Other conventions
 - **Dependency direction**: controllers → services → models/utils. **Models must never import
   from services.** Pure model helpers go in `<app>/utils/` (e.g. `accounts/utils/email_normalization.py`).
+- **Django admin sidebar is curated, not auto-discovered**: `revel/settings/unfold.py` sets
+  `show_all_applications: False`, so a new `admin.py` (or new admin model) is invisible until you
+  add its changelist link to the `SIDEBAR` navigation there.
 - **Don't catch exceptions for the sake of it** — especially in Celery tasks, let them
   propagate rather than failing silently.
 - **Avoid raw dicts** — prefer `TypedDict`, Pydantic, or dataclasses.
