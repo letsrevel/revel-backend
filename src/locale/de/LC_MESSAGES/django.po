@@ -5371,6 +5371,24 @@ msgstr "Plattformgebühren-Rechnungen"
 msgid "Platform Fee Credit Notes"
 msgstr "Plattformgebühren-Gutschriften"
 
+msgid "Integrations"
+msgstr "Integrationen"
+
+msgid "Platform Connections"
+msgstr "Plattform-Verbindungen"
+
+msgid "Event Links"
+msgstr "Event-Zuordnungen"
+
+msgid "Tier Links"
+msgstr "Kategorie-Zuordnungen"
+
+msgid "Webhook Deliveries"
+msgstr "Webhook-Zustellungen"
+
+msgid "Import Jobs"
+msgstr "Import-Aufträge"
+
 msgid "Subscriptions"
 msgstr "Abonnements"
 

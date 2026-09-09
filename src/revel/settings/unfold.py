@@ -341,6 +341,38 @@ UNFOLD = {
                 ],
             },
             {
+                "title": _("Integrations"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Platform Connections"),
+                        "icon": "link",
+                        "link": reverse_lazy("admin:integrations_platformconnection_changelist"),
+                    },
+                    {
+                        "title": _("Event Links"),
+                        "icon": "sync_alt",
+                        "link": reverse_lazy("admin:integrations_eventlink_changelist"),
+                    },
+                    {
+                        "title": _("Tier Links"),
+                        "icon": "confirmation_number",
+                        "link": reverse_lazy("admin:integrations_tierlink_changelist"),
+                    },
+                    {
+                        "title": _("Webhook Deliveries"),
+                        "icon": "webhook",
+                        "link": reverse_lazy("admin:integrations_webhookdelivery_changelist"),
+                    },
+                    {
+                        "title": _("Import Jobs"),
+                        "icon": "download",
+                        "link": reverse_lazy("admin:integrations_importjob_changelist"),
+                    },
+                ],
+            },
+            {
                 "title": _("Subscriptions"),
                 "separator": True,
                 "collapsible": True,

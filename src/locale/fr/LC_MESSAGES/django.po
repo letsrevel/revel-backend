@@ -5356,6 +5356,24 @@ msgstr "Factures de frais de plateforme"
 msgid "Platform Fee Credit Notes"
 msgstr "Avoirs de frais de plateforme"
 
+msgid "Integrations"
+msgstr "Intégrations"
+
+msgid "Platform Connections"
+msgstr "Connexions aux plateformes"
+
+msgid "Event Links"
+msgstr "Liaisons d'événements"
+
+msgid "Tier Links"
+msgstr "Liaisons de catégories"
+
+msgid "Webhook Deliveries"
+msgstr "Distributions de webhook"
+
+msgid "Import Jobs"
+msgstr "Tâches d'importation"
+
 msgid "Subscriptions"
 msgstr "Abonnements"
 
