@@ -520,13 +520,17 @@ def resolve_attendee_vat_for_reserve(
     Returns:
         The buyer's VAT context, or None when no billing info was provided.
     """
+    from common.service.vies_service import VIES_CHECKOUT_TIMEOUT_SECONDS
     from events.service.attendee_vat_service import BuyerVATContext, validate_and_resolve_buyer_country
 
     if not billing_info:
         return None
+    # Bounded timeout: this is a payment request, so a VIES hang degrades to
+    # "not validated" fast instead of stalling the checkout for 10s (#633).
     vat_id_valid, _, buyer_country = validate_and_resolve_buyer_country(
         vat_id=billing_info.vat_id,
         vat_country_code=billing_info.vat_country_code,
+        timeout=VIES_CHECKOUT_TIMEOUT_SECONDS,
     )
     return BuyerVATContext(buyer_country=buyer_country, buyer_vat_validated=bool(vat_id_valid))
 

@@ -71,6 +71,15 @@ class TestValidateVatId:
             timeout=VIES_TIMEOUT_SECONDS,
         )
 
+    @patch("common.service.vies_service.httpx.post")
+    def test_timeout_override_reaches_httpx(self, mock_post: MagicMock) -> None:
+        """A caller-supplied timeout replaces the shared default on the wire (#633)."""
+        mock_post.return_value = mock_vies_response()
+
+        validate_vat_id("DE123456789", timeout=2)
+
+        assert mock_post.call_args.kwargs["timeout"] == 2
+
     def test_short_vat_id_raises_value_error(self) -> None:
         with pytest.raises(ValueError, match="Invalid VAT ID format"):
             validate_vat_id("IT")

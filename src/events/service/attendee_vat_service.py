@@ -28,6 +28,7 @@ from django.utils.translation import gettext as _
 
 from common.constants import EU_MEMBER_STATES
 from common.service.vat_utils import TWO_PLACES, calculate_vat_inclusive
+from common.service.vies_service import VIES_TIMEOUT_SECONDS
 
 if t.TYPE_CHECKING:
     from events.models.event import Event
@@ -198,6 +199,8 @@ class VATPreviewResult:
 def validate_and_resolve_buyer_country(
     vat_id: str | None,
     vat_country_code: str | None,
+    *,
+    timeout: float = VIES_TIMEOUT_SECONDS,
 ) -> tuple[bool | None, str | None, str | None]:
     """Validate a buyer's VAT ID via VIES and resolve their country.
 
@@ -208,6 +211,7 @@ def validate_and_resolve_buyer_country(
     Args:
         vat_id: The buyer's VAT ID (if provided).
         vat_country_code: Explicit buyer country code (if provided).
+        timeout: Seconds to wait for a live VIES call on a cache miss.
 
     Returns:
         Tuple of (vat_id_valid, vat_id_validation_error, buyer_country).
@@ -220,7 +224,7 @@ def validate_and_resolve_buyer_country(
         from common.service.vies_service import VIESUnavailableError, validate_vat_id_cached
 
         try:
-            result = validate_vat_id_cached(vat_id)
+            result = validate_vat_id_cached(vat_id, timeout=timeout)
             vat_id_valid = result.valid
         except VIESUnavailableError:
             vat_id_valid = None
