@@ -35,6 +35,11 @@ runs:
     - name: Install system deps
       shell: bash
       run: |
+        # The runner image ships Google's Chrome apt source, which we never use
+        # and which intermittently serves a "Hash Sum mismatch" that fails
+        # `apt-get update` outright. Drop it so a third-party mirror can't
+        # block every job.
+        sudo rm -f /etc/apt/sources.list.d/google-chrome*
         sudo apt-get update
         sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
           gdal-bin libgdal-dev gettext
