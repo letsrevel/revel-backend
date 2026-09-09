@@ -111,6 +111,7 @@ RESPONSE_MESSAGE_400_ALLOWLIST = {
 KNOWN_400_COMPONENTS = {
     "ErrorDetail",
     "EventUserEligibility",
+    "GuestActionErrorSchema",
     "MembershipEligibilitySchema",
     "ResponseMessage",
     "ValidationErrorResponse",
@@ -218,3 +219,20 @@ def test_eligibility_endpoints_also_declare_the_detail_shape() -> None:
         "/api/events/{event_id}/tickets/{tier_id}/checkout/pwyc",
     ):
         assert declared[(path, "post")] == {"EventUserEligibility", "ErrorDetail"}, path
+
+
+def test_guest_endpoints_declare_the_coded_error_shape() -> None:
+    """Guest RSVP/checkout can also refuse with a ``code``-bearing body (#905).
+
+    ``guest_account_exists`` is reachable from every endpoint that mints a guest
+    user; ``guest_cart_too_large`` from the non-online checkout branches. One
+    schema covers both so the generated client narrows ``code`` to the enum.
+    """
+    declared = _declared_400_schemas()
+    for path in (
+        "/api/events/{event_id}/rsvp/{answer}/public",
+        "/api/events/{event_id}/tickets/{tier_id}/checkout/public",
+        "/api/events/{event_id}/tickets/{tier_id}/checkout/pwyc/public",
+        "/api/events/{event_id}/checkout/public",
+    ):
+        assert declared[(path, "post")] == {"EventUserEligibility", "ErrorDetail", "GuestActionErrorSchema"}, path

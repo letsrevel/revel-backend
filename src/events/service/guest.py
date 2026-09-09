@@ -20,6 +20,7 @@ from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, create_token
 from accounts.models import RevelUser
 from events import models, schema
+from events.exceptions import GuestAccountExistsError, GuestCartTooLargeError
 from events.service.event_manager import EventManager
 
 if t.TYPE_CHECKING:
@@ -47,8 +48,8 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
         Guest user instance
 
     Raises:
-        HttpError: If a non-guest user with this email already exists, or the email
-            is globally banned.
+        GuestAccountExistsError: 400 with ``code`` if a non-guest user with this email exists.
+        HttpError: If the email is globally banned.
     """
     from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
 
@@ -81,7 +82,7 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
     if not existing_user.guest:
         # Non-guest user exists, reject
         logger.warning("guest_user_creation_blocked_existing_account", email=email)
-        raise HttpError(400, str(_("An account with this email already exists. Please log in.")))
+        raise GuestAccountExistsError()
 
     # Guest user already exists — keep existing names to prevent overwrite by third parties.
     # Per-ticket guest_name is captured separately in the JWT payload.
@@ -335,6 +336,7 @@ def handle_guest_rsvp(
     Raises:
         HttpError: If event doesn't allow guest access, doesn't accept notes but one was
             provided, or eligibility checks fail
+        GuestAccountExistsError: 400 with ``code`` if the email belongs to a non-guest account.
     """
     from events.tasks import send_guest_rsvp_confirmation
 
@@ -437,7 +439,9 @@ def handle_guest_ticket_checkout(
 
     Raises:
         HttpError: If event doesn't allow guest access, the cart is malformed, tier
-            issues, eligibility checks fail, or (non-online carts) the confirmation
+            issues, or eligibility checks fail.
+        GuestAccountExistsError: 400 with ``code`` if the email belongs to a non-guest account.
+        GuestCartTooLargeError: 400 with ``code`` if (non-online carts) the confirmation
             token would exceed ``_GUEST_TOKEN_MAX_CHARS``.
         InvalidZoneSelectionError: 400 if a requested zone is unusable on its tier.
     """
@@ -585,9 +589,7 @@ def handle_guest_ticket_checkout(
         # ponytail: the real fix is to persist the cart and put an opaque handle in the
         # link (as the ONLINE branch's reservation_id already does) — see #632.
         if len(token) > _GUEST_TOKEN_MAX_CHARS:
-            raise HttpError(
-                400, str(_("Your cart is too large for guest checkout. Please log in or split your purchase."))
-            )
+            raise GuestCartTooLargeError()
 
         tier_name = _cart_tier_name_summary(groups)
         transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier_name))

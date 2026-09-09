@@ -28,6 +28,11 @@ from .application import (
     MembershipEligibilitySchema,
 )
 
+# Checkout schemas (multi-tier cart, #846) — the single-tier checkout schemas
+# still resolve through .ticket, which re-exports .checkout for backward compat.
+# Attribution (#922)
+from .attribution import AttributionPayloadMixin
+
 # Blacklist schemas
 from .blacklist import (
     BlacklistCreateSchema,
@@ -38,11 +43,6 @@ from .blacklist import (
     WhitelistRequestSchema,
 )
 from .bookmark import EventBookmarkSchema
-
-# Checkout schemas (multi-tier cart, #846) — the single-tier checkout schemas
-# still resolve through .ticket, which re-exports .checkout for backward compat.
-# Attribution (#922)
-from .attribution import AttributionPayloadMixin
 from .checkout import (
     CheckoutGroupSchema,
     MultiTierCheckoutPayload,
@@ -292,11 +292,11 @@ from .seating import (
 
 # Series pass schemas
 from .series_pass import (
-    SeriesPassCheckoutPayload,
     HeldSeriesPassAdminSchema,
     HeldSeriesPassCancelSchema,
     HeldSeriesPassSchema,
     SeriesPassAdminSchema,
+    SeriesPassCheckoutPayload,
     SeriesPassCheckoutResponseSchema,
     SeriesPassCreateSchema,
     SeriesPassQuoteSchema,
@@ -347,7 +347,6 @@ from .ticket import (
     AdminIssueRefundSchema,
     AdminRefundTicketSchema,
     AdminTicketSchema,
-    TicketAttributionBucketSchema,
     BatchCheckoutPayload,
     BatchCheckoutPWYCPayload,
     BatchCheckoutResponse,
@@ -362,6 +361,7 @@ from .ticket import (
     EventRefundPreviewSchema,
     ExternalSalesSchema,
     GuestActionConfirmSchema,
+    GuestActionErrorSchema,
     GuestActionPayload,
     GuestActionResponseSchema,
     GuestBatchCheckoutPayload,
@@ -386,6 +386,7 @@ from .ticket import (
     StripeAccountStatusSchema,
     StripeCheckoutSessionSchema,
     StripeOnboardingLinkSchema,
+    TicketAttributionBucketSchema,
     TicketCancellationRequestSchema,
     TicketCancellationResponseSchema,
     TicketDiscountCodeSchema,
@@ -460,7 +461,6 @@ __all__ = [
     "AdminIssueRefundSchema",
     "AdminRefundTicketSchema",
     "AdminTicketSchema",
-    "TicketAttributionBucketSchema",
     "AffectedTierSchema",
     "AggregatedDietaryPreferenceSchema",
     "AggregatedDietaryRestrictionSchema",
@@ -473,11 +473,11 @@ __all__ = [
     "ApplyRequestSchema",
     "ApplyResponseSchema",
     "ApproveMembershipRequestSchema",
-    "AttributionPayloadMixin",
     "AttendeeInvoiceCreditNoteSchema",
     "AttendeeInvoiceDetailSchema",
     "AttendeeInvoiceSchema",
     "AttendeeSchema",
+    "AttributionPayloadMixin",
     "BatchCheckoutPWYCPayload",
     "BatchCheckoutPayload",
     "BatchCheckoutResponse",
@@ -559,6 +559,7 @@ __all__ = [
     "GeneralUserPreferencesUpdateSchema",
     "GenerateSeriesEventsSchema",
     "GuestActionConfirmSchema",
+    "GuestActionErrorSchema",
     "GuestActionPayload",
     "GuestActionResponseSchema",
     "GuestBatchCheckoutPWYCPayload",
@@ -723,6 +724,7 @@ __all__ = [
     "SubscriptionStatusBreakdownSchema",
     "TagUpdateSchema",
     "TemplateEditSchema",
+    "TicketAttributionBucketSchema",
     "TicketCancellationRequestSchema",
     "TicketCancellationResponseSchema",
     "TicketDiscountCodeSchema",

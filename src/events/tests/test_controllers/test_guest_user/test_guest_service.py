@@ -14,6 +14,7 @@ from ninja_jwt.token_blacklist.models import BlacklistedToken
 
 from accounts.models import RevelUser
 from events import schema
+from events.exceptions import GuestAccountExistsError, GuestCartTooLargeError
 from events.models import Event, EventRSVP, TicketTier
 from events.models.discount_code import DiscountCode
 from events.service import guest as guest_service
@@ -61,10 +62,8 @@ class TestGuestServiceLayer:
     def test_get_or_create_guest_user_rejects_non_guest(self, existing_regular_user: RevelUser) -> None:
         """Test that attempting to create guest with existing non-guest email fails."""
         # Act & Assert
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(GuestAccountExistsError):
             guest_service.get_or_create_guest_user(existing_regular_user.email, "New", "Name")
-
-        assert "already exists" in str(exc_info.value).lower()
 
     def test_create_guest_rsvp_token(self, existing_guest_user: RevelUser, guest_event: Event) -> None:
         """Test creating a guest RSVP JWT token."""
@@ -388,13 +387,11 @@ class TestGuestServiceLayer:
         items = [schema.TicketPurchaseItem(guest_name="N" * 255) for _ in range(50)]
         group = CartGroup(tier=offline_tier, items=items)
 
-        with pytest.raises(HttpError) as exc_info:
+        with pytest.raises(GuestCartTooLargeError):
             guest_service.handle_guest_ticket_checkout(
                 guest_event_with_tickets, [group], "biggie@test.com", "Big", "Cart"
             )
 
-        assert exc_info.value.status_code == 400
-        assert "too large" in str(exc_info.value.message)
         mock_send_email.assert_not_called()
 
     def test_handle_guest_ticket_checkout_large_cart_with_discount(

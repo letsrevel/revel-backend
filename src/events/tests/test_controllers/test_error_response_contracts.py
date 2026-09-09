@@ -1,11 +1,14 @@
 """Wire-contract tests for 400 response bodies (#712).
 
-Endpoints declare a 400 schema in OpenAPI, but 400 bodies are produced by three
+Endpoints declare a 400 schema in OpenAPI, but 400 bodies are produced by four
 independent mechanisms that never pass through Ninja's response serialization:
 
 - ``{"detail": ...}`` — a raised ``ninja.errors.HttpError``, or an exception
   mapped by an app's ``exception_handlers.py`` via ``make_simple_handler`` /
   ``make_static_handler``.
+- ``{"detail": ..., "code": ...}`` — a refusal with a stable, machine-readable
+  discriminator, rendered by a dedicated handler (``GuestActionError`` in
+  ``events/exception_handlers.py``, #905).
 - ``{"errors": {field: [msgs]}}`` — the global Django ``ValidationError``
   handler in ``api/exception_handlers.py``.
 - the eligibility payload — ``UserIsIneligibleError`` in
@@ -37,6 +40,8 @@ from accounts.models import RevelUser
 from events.exception_handlers import HANDLERS
 from events.exceptions import (
     EventRefundsStartedError,
+    GuestAccountExistsError,
+    GuestCartTooLargeError,
     NothingToRefundError,
     RefundInsufficientBalanceError,
     StripeRefundFailed,
@@ -270,7 +275,11 @@ class TestMultiTierCheckoutErrorContracts:
 
 
 class TestGuestErrorContracts:
-    """The three guest endpoints declared ``ResponseMessage``; they emit ``{detail}``/eligibility."""
+    """The guest endpoints declared ``ResponseMessage``; they emit ``{detail}``/eligibility.
+
+    Since #905 the account-exists refusal additionally carries a ``code``
+    (``{detail, code}``), pinned end-to-end here on guest RSVP.
+    """
 
     def test_guest_rsvp_requires_login_returns_detail(self, client: Client, public_event: Event) -> None:
         public_event.requires_ticket = False
@@ -328,6 +337,67 @@ class TestGuestErrorContracts:
         url = reverse("api:confirm_guest_action")
         response = client.post(url, data={"token": "not-a-jwt"}, content_type="application/json")
         assert_detail_body(response)
+
+    def test_guest_rsvp_existing_account_returns_stable_code(self, client: Client, public_event: Event) -> None:
+        """A non-guest account on the email is a 400 carrying a ``code`` the FE can key on (#905).
+
+        The translated ``detail`` is unmatchable; ``code`` lets the frontend render a
+        "Log in" CTA instead of echoing the message.
+        """
+        public_event.requires_ticket = False
+        public_event.can_attend_without_login = True
+        public_event.save(update_fields=["requires_ticket", "can_attend_without_login"])
+        RevelUser.objects.create_user(username="taken@example.com", email="taken@example.com", password="p")
+
+        url = reverse("api:guest_rsvp", kwargs={"event_id": public_event.id, "answer": "yes"})
+        response = client.post(
+            url,
+            data={"email": "Taken@example.com", "first_name": "G", "last_name": "U"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert isinstance(body.get("detail"), str) and body["detail"]
+        assert body["code"] == "guest_account_exists"
+        assert set(body) == {"detail", "code"}, body
+
+
+class GuestActionErrorBody(t.TypedDict):
+    """Decoded ``GuestActionErrorSchema`` body as it reaches the wire."""
+
+    detail: str
+    code: str
+
+
+class TestGuestActionErrorHandlerContracts:
+    """The two guest refusals with a machine-readable ``code`` (#905), pinned at the handler.
+
+    The cart-too-large refusal needs a ~50-ticket offline cart to trip the JWT
+    size guard, which the endpoint fixtures here don't support; its exception
+    type is proven at the service level, so pin the wire shape on the handler.
+    """
+
+    @staticmethod
+    def _invoke(exc: Exception) -> tuple[int, GuestActionErrorBody]:
+        # Registered on the base class; resolve by MRO the way ninja-extra dispatches.
+        handler = next(HANDLERS[cls] for cls in type(exc).__mro__ if cls in HANDLERS)
+        response = handler(HttpRequest(), exc)
+        return response.status_code, t.cast(GuestActionErrorBody, json.loads(response.content))
+
+    @pytest.mark.parametrize(
+        ("exc", "code"),
+        [
+            (GuestAccountExistsError(), "guest_account_exists"),
+            (GuestCartTooLargeError(), "guest_cart_too_large"),
+        ],
+    )
+    def test_returns_400_detail_and_code(self, exc: Exception, code: str) -> None:
+        status, body = self._invoke(exc)
+        assert status == 400
+        assert isinstance(body.get("detail"), str) and body["detail"]
+        assert body["code"] == code
+        assert set(body) == {"detail", "code"}, body
 
 
 class TestCheckoutManagementErrorContracts:

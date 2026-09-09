@@ -31,7 +31,11 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/rsvp/{answer}/public",
         url_name="guest_rsvp",
-        response={200: schema.GuestActionResponseSchema, 400: EventUserEligibility | ErrorDetail, 403: ErrorDetail},
+        response={
+            200: schema.GuestActionResponseSchema,
+            400: EventUserEligibility | ErrorDetail | schema.GuestActionErrorSchema,
+            403: ErrorDetail,
+        },
         throttle=WriteThrottle(),
     )
     def guest_rsvp(
@@ -65,7 +69,11 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout/public",
         url_name="guest_ticket_checkout",
-        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail, 403: ErrorDetail},
+        response={
+            200: schema.GuestCheckoutResponseSchema,
+            400: EventUserEligibility | ErrorDetail | schema.GuestActionErrorSchema,
+            403: ErrorDetail,
+        },
         throttle=WriteThrottle(),
         deprecated=True,
     )
@@ -134,7 +142,11 @@ class EventPublicGuestController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout/pwyc/public",
         url_name="guest_ticket_pwyc_checkout",
-        response={200: schema.GuestCheckoutResponseSchema, 400: EventUserEligibility | ErrorDetail, 403: ErrorDetail},
+        response={
+            200: schema.GuestCheckoutResponseSchema,
+            400: EventUserEligibility | ErrorDetail | schema.GuestActionErrorSchema,
+            403: ErrorDetail,
+        },
         throttle=WriteThrottle(),
         deprecated=True,
     )
@@ -204,7 +216,7 @@ class EventPublicGuestController(EventPublicBaseController):
         url_name="guest_multi_tier_checkout",
         response={
             200: schema.GuestCheckoutResponseSchema,
-            400: EventUserEligibility | ErrorDetail,
+            400: EventUserEligibility | ErrorDetail | schema.GuestActionErrorSchema,
             403: ErrorDetail,
             404: ErrorDetail,
         },
