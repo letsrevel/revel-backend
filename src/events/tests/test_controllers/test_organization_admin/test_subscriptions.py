@@ -23,7 +23,8 @@ from events.models import (
     PermissionMap,
     PermissionsSchema,
 )
-from events.service import subscription_service
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
 
 pytestmark = pytest.mark.django_db
 
@@ -38,7 +39,7 @@ def tier(organization: Organization) -> MembershipTier:
 
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
     )
 
@@ -68,7 +69,7 @@ class TestSubscriptionEndpoints:
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        subscription_service.create_subscription(plan, subscriber)
+        subscription_lifecycle.create_subscription(plan, subscriber)
         url = reverse("api:list_subscriptions", kwargs={"slug": organization.slug})
         response = organization_owner_client.get(url)
         assert response.status_code == 200
@@ -87,13 +88,13 @@ class TestSubscriptionEndpoints:
             user = django_user_model.objects.create_user(
                 username=f"pastdue_{i}", email=f"pastdue-{i}@example.com", password="pass"
             )
-            sub = subscription_service.create_subscription(plan, user)
+            sub = subscription_lifecycle.create_subscription(plan, user)
             sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
             sub.save(update_fields=["status"])
         active_user = django_user_model.objects.create_user(
             username="active_user", email="active@example.com", password="pass"
         )
-        active_sub = subscription_service.create_subscription(plan, active_user)
+        active_sub = subscription_lifecycle.create_subscription(plan, active_user)
         active_sub.status = MembershipSubscription.SubscriptionStatus.ACTIVE
         active_sub.save(update_fields=["status"])
 
@@ -122,7 +123,7 @@ class TestSubscriptionEndpoints:
             user = django_user_model.objects.create_user(
                 username=f"anysub_{i}", email=f"anysub-{i}@example.com", password="pass"
             )
-            sub = subscription_service.create_subscription(plan, user)
+            sub = subscription_lifecycle.create_subscription(plan, user)
             sub.status = (
                 MembershipSubscription.SubscriptionStatus.PAST_DUE
                 if i == 0
@@ -142,7 +143,7 @@ class TestSubscriptionEndpoints:
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
         url = reverse("api:get_subscription", kwargs={"slug": organization.slug, "sub_id": sub.id})
         response = organization_owner_client.get(url)
         assert response.status_code == 200
@@ -158,7 +159,7 @@ class TestSubscriptionEndpoints:
         """The staff SubscriptionSchema surfaces expired_at + computed revival_deadline (issue #778)."""
         organization.membership_subscription_revival_window_days = 30
         organization.save(update_fields=["membership_subscription_revival_window_days"])
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
         sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
         sub.expired_at = timezone.now() - datetime.timedelta(days=1)
         sub.save(update_fields=["status", "expired_at"])
@@ -198,7 +199,7 @@ class TestSubscriptionEndpoints:
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
         url = reverse("api:record_subscription_payment", kwargs={"slug": organization.slug, "sub_id": sub.id})
         payload = {"amount": "10.00", "currency": "EUR"}
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
@@ -215,7 +216,7 @@ class TestSubscriptionEndpoints:
     ) -> None:
         # Subscription must predate the backfilled payment, so create it 30 days ago.
         with freeze_time(timezone.now() - datetime.timedelta(days=30)):
-            sub = subscription_service.create_subscription(plan, subscriber)
+            sub = subscription_lifecycle.create_subscription(plan, subscriber)
         backfill = (timezone.now() - datetime.timedelta(days=10)).isoformat()
         url = reverse("api:record_subscription_payment", kwargs={"slug": organization.slug, "sub_id": sub.id})
         payload = {"amount": "10.00", "currency": "EUR", "occurred_at": backfill}
@@ -232,7 +233,7 @@ class TestSubscriptionEndpoints:
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
         future = (timezone.now() + datetime.timedelta(days=1)).isoformat()
         url = reverse("api:record_subscription_payment", kwargs={"slug": organization.slug, "sub_id": sub.id})
         payload = {"amount": "10.00", "currency": "EUR", "occurred_at": future}
@@ -246,7 +247,7 @@ class TestSubscriptionEndpoints:
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
 
         pause_url = reverse("api:pause_subscription", kwargs={"slug": organization.slug, "sub_id": sub.id})
         assert organization_owner_client.post(pause_url).status_code == 200
@@ -276,10 +277,10 @@ class TestSubscriptionEndpoints:
         """The default (``immediate=False``) path flips ``cancel_at_period_end`` and leaves status alone."""
         # The initial payment gives the row a period boundary to cancel at;
         # without one the scheduled cancel is upgraded to an immediate one.
-        sub = subscription_service.create_subscription(
+        sub = subscription_lifecycle.create_subscription(
             plan,
             subscriber,
-            initial_payment=subscription_service.InitialPayment(
+            initial_payment=subscription_lifecycle.InitialPayment(
                 amount=plan.price, currency=plan.currency, recorded_by=organization.owner
             ),
         )
@@ -318,10 +319,10 @@ class TestSubscriptionEndpoints:
         subscriber: RevelUser,
         organization_owner_user: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(
+        sub = subscription_lifecycle.create_subscription(
             plan,
             subscriber,
-            initial_payment=subscription_service.InitialPayment(
+            initial_payment=subscription_lifecycle.InitialPayment(
                 amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
             ),
         )
@@ -360,11 +361,11 @@ class TestListSubscriptionPayments:
         subscriber: RevelUser,
         organization_owner_user: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
-        first = subscription_service.record_payment(
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        first = subscription_lifecycle.record_payment(
             sub, amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
         )
-        second = subscription_service.record_payment(
+        second = subscription_lifecycle.record_payment(
             sub, amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
         )
 
@@ -384,8 +385,8 @@ class TestListSubscriptionPayments:
         staff_member: OrganizationStaff,
         organization_owner_user: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
-        subscription_service.record_payment(
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        subscription_lifecycle.record_payment(
             sub, amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
         )
         _set_staff_permission(staff_member, manage_subscriptions=True)
@@ -403,7 +404,7 @@ class TestListSubscriptionPayments:
         subscriber: RevelUser,
         staff_member: OrganizationStaff,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
         _set_staff_permission(staff_member, manage_subscriptions=False)
         url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
         response = organization_staff_client.get(url)
@@ -416,7 +417,7 @@ class TestListSubscriptionPayments:
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
         url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
         response = member_client.get(url)
         assert response.status_code == 403
@@ -431,13 +432,13 @@ class TestListSubscriptionPayments:
         )
         other_org = Organization.objects.create(name="Other Payments Org", slug="other-payments", owner=other_owner)
         other_tier = MembershipTier.objects.get(organization=other_org, name="General membership")
-        other_plan = subscription_service.create_plan(
+        other_plan = subscription_plans.create_plan(
             other_tier, name="Monthly", price=Decimal("5.00"), currency="EUR", period_unit="month"
         )
         other_subscriber = RevelUser.objects.create_user(
             username="payments_other_sub", email="payments-other-sub@example.com", password="pass"
         )
-        other_sub = subscription_service.create_subscription(other_plan, other_subscriber)
+        other_sub = subscription_lifecycle.create_subscription(other_plan, other_subscriber)
 
         url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": other_sub.id})
         response = organization_owner_client.get(url)
@@ -451,9 +452,9 @@ class TestListSubscriptionPayments:
         subscriber: RevelUser,
         organization_owner_user: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
         for _ in range(3):
-            subscription_service.record_payment(
+            subscription_lifecycle.record_payment(
                 sub, amount=Decimal("1.00"), currency="EUR", recorded_by=organization_owner_user
             )
         url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
@@ -540,7 +541,7 @@ class TestOnlinePlanGuards:
         online_subscription: MembershipSubscription,
     ) -> None:
 
-        with mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as mock_modify:
+        with mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify:
             url = reverse(
                 "api:pause_subscription",
                 kwargs={"slug": organization.slug, "sub_id": online_subscription.id},
@@ -563,7 +564,7 @@ class TestOnlinePlanGuards:
         online_subscription.status = MembershipSubscription.SubscriptionStatus.PAUSED
         online_subscription.save(update_fields=["status"])
 
-        with mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as mock_modify:
+        with mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify:
             url = reverse(
                 "api:resume_subscription",
                 kwargs={"slug": organization.slug, "sub_id": online_subscription.id},
@@ -622,8 +623,8 @@ class TestOnlinePlanGuards:
         subscriber: RevelUser,
         organization_owner_user: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
-        subscription_service.record_payment(
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        subscription_lifecycle.record_payment(
             sub, amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
         )
         url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
@@ -672,7 +673,7 @@ class TestCrossOrgIsolation:
         other_owner = RevelUser.objects.create_user(username="cross_owner", email="cross@example.com", password="pass")
         other_org = Organization.objects.create(name="Other Org", slug="other", owner=other_owner)
         other_tier = MembershipTier.objects.get(organization=other_org, name="General membership")
-        other_plan = subscription_service.create_plan(
+        other_plan = subscription_plans.create_plan(
             other_tier, name="Monthly", price=Decimal("5.00"), currency="EUR", period_unit="month"
         )
 

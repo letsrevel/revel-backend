@@ -25,8 +25,8 @@ from events.models import (
     OrganizationMember,
     OrganizationMembershipRequest,
 )
-from events.service import subscription_stripe_sync
 from events.service.stripe_webhooks import StripeEventHandler
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -340,7 +340,7 @@ class TestUnresolvedPaymentIntentIsNotPersisted:
         invoice = _invoice("sub_intent", invoice_id="in_intent")
         invoice.pop("payment_intent")
         with patch(
-            "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
+            "events.service.subscription.stripe.payloads.stripe.Invoice.retrieve",
             side_effect=stripe.error.APIConnectionError("boom"),
         ):
             subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)

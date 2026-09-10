@@ -37,7 +37,7 @@ class MembershipSubscriptionAdmin(SimpleHistoryAdmin, ModelAdmin, UserLinkMixin,
 
     Lifecycle fields (``status``, ``cancelled_at``, ``current_period_*``) are
     readonly here so admin edits cannot bypass the service-layer state
-    machine (see :mod:`events.service.subscription_service`).
+    machine (see :mod:`events.service.subscription.lifecycle`).
     """
 
     list_display = [

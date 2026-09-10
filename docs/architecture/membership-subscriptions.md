@@ -33,11 +33,11 @@ flowchart LR
     end
 
     subgraph Services["Service layer"]
-        Sub[subscription_service]
-        Stripe[subscription_stripe_service]
-        PlanChange[subscription_stripe_plan_change]
-        Dispatch[subscription_stripe_dispatch]
-        Report[subscription_reporting]
+        Sub[subscription.lifecycle]
+        Stripe[subscription.stripe.checkout]
+        PlanChange[subscription.stripe.plan_change]
+        Dispatch[subscription.stripe.dispatch]
+        Report[subscription.reporting]
     end
 
     subgraph Async["Async"]
@@ -95,7 +95,7 @@ Constraint: `unique_plan_name_per_tier(tier, name)`.
 
 `payment_method` constrains `price` and `period_unit`. Enforced once in
 `events/utils/subscription_plan_rules.py:validate_plan_shape`, called from both
-`PlanCreateSchema` (422 at create) and `subscription_service.update_plan` (400
+`PlanCreateSchema` (422 at create) and `subscription.lifecycle.update_plan` (400
 at patch, against the *merged* post-patch values) so the two cannot drift.
 
 | `payment_method` | `price` | `period_unit` | Why |
@@ -108,7 +108,7 @@ at patch, against the *merged* post-patch values) so the two cannot drift.
 
 `ensure_plan_on_sale` (PAUSED check, member paths only — staff callers pass
 `enforce_sales_status=False`) and `ensure_plan_sales_capacity` (cap check,
-everyone) live in `subscription_service` and are enforced on **create**,
+everyone) live in `subscription.lifecycle` and are enforced on **create**,
 **revive** and **plan switches**. The capacity check `select_for_update`s the
 plan row so concurrent creations serialize, mirroring the capacity-reclaim
 invariants of ticket tiers. The public plan schema exposes `sales_status` and a
@@ -205,26 +205,39 @@ Key invariants:
 
 ## Service Layer
 
-### `events/service/subscription_service.py`
+The service lives in the `events/service/subscription/` package: the local
+state machine at the top level (`core`, `lifecycle`, `plans`, `sales`,
+`eligibility`, `uncancel`, `refunds`, `reporting`, `notifications`) and the
+Stripe integration under `subscription/stripe/`. Every public symbol is
+re-exported from `subscription/__init__.py`.
 
-Function-based service that owns the OFFLINE flow and the dispatch layer for
-ONLINE operations. Imports `subscription_stripe_service` lazily inside
-functions to avoid a cycle.
+### `events/service/subscription/lifecycle.py`
+
+Function-based service that owns the per-subscription OFFLINE flow and the
+dispatch layer for ONLINE operations. Plan CRUD and price migration live in
+`subscription/plans.py`.
 
 | Function | Responsibility |
 |---|---|
-| `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency edits are refused when active subs exist. `delete_plan` catches `ProtectedError` from the FK |
 | `create_subscription` | Refuses BANNED users, duplicate non-terminal subs, and cap-full plans (`ensure_plan_sales_capacity`, under the plan-row lock); auto-creates an `OrganizationMember` at `plan.tier`. OFFLINE and FREE only — ONLINE goes via `start_online_subscription` so the user can confirm payment. A FREE plan additionally lands the row **ACTIVE** with `current_period_start=now` and a NULL period end (nothing to pay, nothing to renew) |
 | `record_payment` | Advances `current_period_*`, revives PENDING/PAST_DUE → ACTIVE. Refuses terminal. Dispatches `RENEWAL_SUCCEEDED` only on a real renewal (prior_status ∈ {ACTIVE, PAST_DUE}). `dispatch_renewal_notification=False` for revival callers |
 | `cancel_subscription` | `immediate=True` → CANCELLED. `immediate=False` → `cancel_at_period_end=True` and let the beat task finish it. Refuses scheduled cancel on PAUSED (frozen time would never reach the boundary). A **period-less** row — any LIFETIME/FREE subscription, or an unpaid checkout — has no boundary to wait for, so a scheduled cancel is upgraded to immediate (the one exception is a row whose Stripe Subscription is already linked: Stripe owns that boundary). Routes ONLINE through `cancel_online_subscription` |
 | `pause_subscription` / `resume_subscription` | Local for OFFLINE; routes to Stripe `pause_collection` for ONLINE. Refuses ONLINE without `stripe_subscription_id` to keep local PAUSED in lockstep with Stripe |
 | `revive_subscription` | EXPIRED → ACTIVE (OFFLINE, with `initial_payment` — staff callers only; the member endpoint refuses OFFLINE plans) or PENDING + hosted Checkout for a fresh Stripe Subscription (ONLINE); staff-initiated ONLINE revivals also email the member the checkout link (`SUBSCRIPTION_REVIVAL_CHECKOUT`). Enforces the plan cap (a revived sub re-occupies a slot) and, for member callers, `sales_status` (`enforce_sales_status=False` for staff) |
-| `change_plan` | Routes ONLINE to `subscription_stripe_plan_change.change_online_plan`; OFFLINE does an immediate same-org/same-currency swap |
-| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
-| `refund_payment` | (in `subscription_refunds`) Marks payment REFUNDED and stamps `refund_amount` / `refunded_at`. If the refund fully covers the current period → `_cancel_refunded_subscription`, **not** `cancel_subscription(immediate=True)`: the refund callers already hold row locks, so the local row is terminalized (CANCELLED) under the lock and the Stripe-side cancel is deferred to `on_commit` as a best-effort call — never a network call under a row lock |
+| `change_plan` | Routes ONLINE to `subscription.stripe.plan_change.change_online_plan`; OFFLINE does an immediate same-org/same-currency swap |
+| `refund_payment` | (in `subscription.refunds`) Marks payment REFUNDED and stamps `refund_amount` / `refunded_at`. If the refund fully covers the current period → `_cancel_refunded_subscription`, **not** `cancel_subscription(immediate=True)`: the refund callers already hold row locks, so the local row is terminalized (CANCELLED) under the lock and the Stripe-side cancel is deferred to `on_commit` as a best-effort call — never a network call under a row lock |
 | `_dispatch_*` | Private notification helpers — one per `NotificationType`. Always render via the existing notification dispatcher |
 
-### `events/service/subscription_stripe_service.py`
+### `events/service/subscription/plans.py`
+
+Everything that operates on a plan rather than on one subscriber's lifecycle.
+
+| Function | Responsibility |
+|---|---|
+| `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency edits are refused when active subs exist. `delete_plan` catches `ProtectedError` from the FK |
+| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
+
+### `events/service/subscription/stripe/checkout.py`
 
 | Function | Responsibility |
 |---|---|
@@ -233,15 +246,26 @@ functions to avoid a cycle.
 | `archive_stripe_price` | Deactivates the Stripe Price when a plan is archived — existing subscribers keep paying via their own subscription's price binding |
 | `start_online_subscription` | Refuses PAUSED plans (member path), then creates local PENDING row, then a hosted Checkout Session (`mode='subscription'`) on the org's Connect account. Returns `checkout_url`; the session id lands on `stripe_checkout_session_id` and the Stripe Subscription is only created (and linked via `checkout.session.completed`) when the member completes the session. Rolls back the local row if Stripe fails. An existing PENDING row is resumed (same session `url`) while its session is still `open` on the same plan, expired + cleared when superseded (revival rows revert to EXPIRED instead of deleting the ledger), or answered with a `SubscriptionActivationPendingError` (409, `code=subscription_activation_pending`) when the session already completed and only the activation webhooks are outstanding |
 | `create_revival_checkout` | Mints a hosted Checkout Session for a fresh Stripe Subscription on an EXPIRED row (old Stripe sub cancelled first — a failure here fails the revival, since the id is about to be cleared — then `stripe_subscription_id` cleared, row → PENDING). Idempotency key is **per attempt** (`sub-revival:{pk}:{uuid4}`): anchoring it on `expired_at` would repeat the key across retries after an abandoned checkout (which preserves `expired_at`) while the session's `expires_at` is recomputed from `now()` — same key, different params, which Stripe rejects for ~24h. The caller's row lock serializes concurrent attempts, and a `mode=subscription` session only charges on completion, so an orphaned session cannot double-charge. The old `stripe_subscription_id` survives in `historical_membership_subscription` |
-| `cancel_online_subscription`, `pause_online_subscription`, `resume_online_subscription` | Stripe mutations + local mirror. The dispatch helpers in `subscription_service` cover the OFFLINE-equivalent local-only behavior |
+| `cancel_online_subscription`, `pause_online_subscription`, `resume_online_subscription` | Stripe mutations + local mirror. The dispatch helpers in `subscription.lifecycle` cover the OFFLINE-equivalent local-only behavior |
 | `update_subscription_price` | Single-call Stripe price swap used by `migrate_plan_subscribers`. `proration_behavior='none'` — new price takes effect at the next renewal |
 | `create_billing_portal_session` | Customer Portal URL on the org's Connect account. **Requires** an existing `CustomerProfile` (404 otherwise) — only members who have actually subscribed can get a portal session |
 | `sync_subscription_from_stripe` | Mirrors `customer.subscription.{created,updated,deleted}` payloads. Uses `_resolve_target_status` (terminal wins over `pause_collection`), `_apply_period_dates`, and `_apply_stripe_price_swap` (terminal rows frozen) |
 | `record_stripe_payment_from_invoice` | Upserts the `MembershipPayment` row on `invoice.paid` / `invoice.payment_failed`. `update_or_create(stripe_invoice_id=...)` is the idempotency anchor |
 
-### `events/service/subscription_stripe_plan_change.py`
+### `events/service/subscription/stripe/fees.py`
 
-Extracted from `subscription_stripe_service.py` to stay under the 1000-line
+The platform's `application_fee_percent` — the only fee mechanism Stripe offers
+for subscriptions, so the org fee **and the VAT on it** are folded into a single
+percent (`effective_application_fee_percent`; the fixed fee component does not
+apply to subscriptions). `resync_subscription_application_fees` pushes today's
+percent onto every live ONLINE subscription when an org's VAT status changes,
+skipping schedule-managed rows (Stripe rejects a plain `Subscription.modify`
+while a schedule is attached) and counting per-subscription failures instead of
+raising.
+
+### `events/service/subscription/stripe/plan_change.py`
+
+Extracted from `subscription/stripe/checkout.py` to stay under the 1000-line
 file limit. All plan-change logic for ONLINE subs:
 
 - `_classify_plan_change` normalizes both prices to a per-month figure
@@ -268,7 +292,7 @@ file limit. All plan-change logic for ONLINE subs:
   transition arrives via `customer.subscription.updated`, at which point
   `_apply_stripe_price_swap` clears both fields.
 
-### `events/service/subscription_stripe_dispatch.py`
+### `events/service/subscription/stripe/dispatch.py`
 
 Notification dispatch helpers for the Stripe sync/invoice code paths.
 Holds the gates that prevent double-firing on re-delivered webhooks:
@@ -279,7 +303,7 @@ Holds the gates that prevent double-firing on re-delivered webhooks:
   `update_or_create`) and `prior_status` so the first invoice of a brand-new
   subscription does not fire `RENEWAL_SUCCEEDED`.
 
-### `events/service/subscription_reporting.py`
+### `events/service/subscription/reporting.py`
 
 Per-organization metrics for the admin dashboard:
 
@@ -382,7 +406,7 @@ clobbered.
 ### Stripe webhooks
 
 `events/service/stripe_webhooks.py` dispatches subscription events to
-`subscription_stripe_service`:
+`subscription.stripe.checkout`:
 
 | Event | Handler |
 |---|---|
@@ -391,7 +415,7 @@ clobbered.
 | `invoice.paid` | `record_stripe_payment_from_invoice(..., succeeded=True)` |
 | `invoice.payment_failed` | `record_stripe_payment_from_invoice(..., succeeded=False)` |
 | `invoice.payment_action_required` | Same as `payment_failed`: an off-session renewal blocked on SCA/3DS keeps the invoice open with no failure event, so this is the only prompt signal to go PAST_DUE and dun the member (the portal link in the notification is where they complete confirmation) |
-| `charge.refunded` | If a `MembershipPayment` matches the `payment_intent_id`, delegates to `_handle_subscription_refund` → `subscription_refunds.refund_payment`. Only a **fully** refunded charge flips the row to REFUNDED and triggers the auto-cancel. A partial refund is recorded on the audit fields (`refund_amount`, `refunded_at`, `stripe_refund_id`) while `status` stays SUCCEEDED — the member keeps the period they partly paid for. `amount_refunded` is cumulative, so a later top-up refund reaching the full charge falls through to the full-refund branch |
+| `charge.refunded` | If a `MembershipPayment` matches the `payment_intent_id`, delegates to `_handle_subscription_refund` → `subscription.refunds.refund_payment`. Only a **fully** refunded charge flips the row to REFUNDED and triggers the auto-cancel. A partial refund is recorded on the audit fields (`refund_amount`, `refunded_at`, `stripe_refund_id`) while `status` stays SUCCEEDED — the member keeps the period they partly paid for. `amount_refunded` is cumulative, so a later top-up refund reaching the full charge falls through to the full-refund branch |
 
 A monotonicity guard in `record_stripe_payment_from_invoice` protects the
 ledger against out-of-order delivery: a late `payment_failed` (Stripe gives no

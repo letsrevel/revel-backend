@@ -16,7 +16,8 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_service
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
 
 pytestmark = pytest.mark.django_db
 
@@ -33,7 +34,7 @@ def pro_tier(organization: Organization) -> MembershipTier:
 
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
     )
 
@@ -69,7 +70,7 @@ class TestSyncMemberFromSubscription:
             status=OrganizationMember.MembershipStatus.ACTIVE,
             tier=tier,
         )
-        subscription_service.create_subscription(plan, subscriber)
+        subscription_lifecycle.create_subscription(plan, subscriber)
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
 
@@ -85,10 +86,10 @@ class TestSyncMemberFromSubscription:
             tier=MembershipTier.objects.get(organization=organization, name="General membership"),
             status=OrganizationMember.MembershipStatus.ACTIVE,
         )
-        pro_plan = subscription_service.create_plan(
+        pro_plan = subscription_plans.create_plan(
             pro_tier, name="Pro Monthly", price=Decimal("20.00"), currency="EUR", period_unit="month"
         )
-        subscription_service.create_subscription(pro_plan, subscriber)
+        subscription_lifecycle.create_subscription(pro_plan, subscriber)
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.tier_id == pro_tier.pk
 
@@ -117,7 +118,7 @@ class TestSyncMemberFromSubscription:
         subscriber: RevelUser,
         plan: MembershipSubscriptionPlan,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
         sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
         sub.save()
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
@@ -129,8 +130,8 @@ class TestSyncMemberFromSubscription:
         subscriber: RevelUser,
         plan: MembershipSubscriptionPlan,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
-        subscription_service.pause_subscription(sub)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        subscription_lifecycle.pause_subscription(sub)
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.PAUSED
 
@@ -141,14 +142,14 @@ class TestSyncMemberFromSubscription:
         plan: MembershipSubscriptionPlan,
     ) -> None:
         """Subscription-driven pause → resume must still flip the member back to ACTIVE."""
-        sub = subscription_service.create_subscription(plan, subscriber)
-        subscription_service.pause_subscription(sub)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        subscription_lifecycle.pause_subscription(sub)
         assert (
             OrganizationMember.objects.get(organization=organization, user=subscriber).status
             == OrganizationMember.MembershipStatus.PAUSED
         )
 
-        subscription_service.resume_subscription(sub)
+        subscription_lifecycle.resume_subscription(sub)
 
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
@@ -165,9 +166,9 @@ class TestSyncMemberFromSubscription:
         Sub1 is later re-saved (e.g. via admin edit). The signal must not
         flip the member back to CANCELLED because Sub2 owns the state.
         """
-        old_sub = subscription_service.create_subscription(plan, subscriber)
-        subscription_service.cancel_subscription(old_sub, immediate=True)
-        subscription_service.create_subscription(plan, subscriber)
+        old_sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        subscription_lifecycle.cancel_subscription(old_sub, immediate=True)
+        subscription_lifecycle.create_subscription(plan, subscriber)
 
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE

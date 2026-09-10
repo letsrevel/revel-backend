@@ -25,12 +25,10 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import (
-    subscription_service,
-    subscription_stripe_plan_change,
-    subscription_stripe_service,
-    subscription_stripe_sync,
-)
+from events.service.subscription import plans as subscription_plans
+from events.service.subscription.stripe import checkout as subscription_stripe_checkout
+from events.service.subscription.stripe import plan_change as subscription_stripe_plan_change
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -73,7 +71,7 @@ def online_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
 
 @pytest.fixture
 def offline_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier,
         name="Monthly Offline",
         price=Decimal("10.00"),
@@ -145,8 +143,8 @@ class TestChangeOnlinePlan:
             stripe_price_id="price_lite",
         )
 
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.Subscription.modify")
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.Subscription.retrieve")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.Subscription.retrieve")
     def test_upgrade_modifies_stripe_with_proration(
         self,
         mock_retrieve: mock.Mock,
@@ -172,8 +170,8 @@ class TestChangeOnlinePlan:
         assert result.plan_id == pricier_plan.pk
         assert result.pending_plan_id is None
 
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.modify")
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.create")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.modify")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.create")
     def test_downgrade_creates_schedule_and_sets_pending_plan(
         self,
         mock_schedule_create: mock.Mock,
@@ -259,8 +257,8 @@ class TestChangeOnlinePlan:
             subscription_stripe_plan_change.change_online_plan(sub, cheaper_plan)
         assert exc.value.status_code == 400
 
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.Subscription.modify")
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.Subscription.retrieve")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.Subscription.retrieve")
     def test_refuses_upgrade_when_past_due(
         self,
         mock_retrieve: mock.Mock,
@@ -290,7 +288,7 @@ class TestChangeOnlinePlan:
         sub.refresh_from_db()
         assert sub.plan_id == online_plan.pk
 
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.create")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.create")
     def test_refuses_downgrade_when_past_due(
         self,
         mock_schedule_create: mock.Mock,
@@ -323,13 +321,13 @@ class TestPauseResumeOnlineSubscription:
     ) -> MembershipSubscription:
         return _make_online_subscription(online_plan, subscriber, stripe_id="sub_pause_test")
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_pause_calls_stripe_with_void_behavior(
         self,
         mock_modify: mock.Mock,
         online_subscription: MembershipSubscription,
     ) -> None:
-        result = subscription_stripe_service.pause_online_subscription(online_subscription)
+        result = subscription_stripe_checkout.pause_online_subscription(online_subscription)
         mock_modify.assert_called_once_with(
             "sub_pause_test",
             pause_collection={"behavior": "void"},
@@ -337,7 +335,7 @@ class TestPauseResumeOnlineSubscription:
         )
         assert result.status == MembershipSubscription.SubscriptionStatus.PAUSED
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_pause_is_idempotent_when_already_paused(
         self,
         mock_modify: mock.Mock,
@@ -345,7 +343,7 @@ class TestPauseResumeOnlineSubscription:
     ) -> None:
         online_subscription.status = MembershipSubscription.SubscriptionStatus.PAUSED
         online_subscription.save(update_fields=["status"])
-        result = subscription_stripe_service.pause_online_subscription(online_subscription)
+        result = subscription_stripe_checkout.pause_online_subscription(online_subscription)
         mock_modify.assert_not_called()
         assert result.status == MembershipSubscription.SubscriptionStatus.PAUSED
 
@@ -361,10 +359,10 @@ class TestPauseResumeOnlineSubscription:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         )
         with pytest.raises(HttpError) as exc:
-            subscription_stripe_service.pause_online_subscription(sub)
+            subscription_stripe_checkout.pause_online_subscription(sub)
         assert exc.value.status_code == 400
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_pause_stripe_error_propagates_502(
         self,
         mock_modify: mock.Mock,
@@ -372,13 +370,13 @@ class TestPauseResumeOnlineSubscription:
     ) -> None:
         mock_modify.side_effect = stripe.error.APIConnectionError("boom")
         with pytest.raises(HttpError) as exc:
-            subscription_stripe_service.pause_online_subscription(online_subscription)
+            subscription_stripe_checkout.pause_online_subscription(online_subscription)
         assert exc.value.status_code == 502
         online_subscription.refresh_from_db()
         # Local state stays untouched when Stripe call fails.
         assert online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_resume_clears_pause_collection(
         self,
         mock_modify: mock.Mock,
@@ -386,7 +384,7 @@ class TestPauseResumeOnlineSubscription:
     ) -> None:
         online_subscription.status = MembershipSubscription.SubscriptionStatus.PAUSED
         online_subscription.save(update_fields=["status"])
-        result = subscription_stripe_service.resume_online_subscription(online_subscription)
+        result = subscription_stripe_checkout.resume_online_subscription(online_subscription)
         mock_modify.assert_called_once_with(
             "sub_pause_test",
             pause_collection="",
@@ -399,7 +397,7 @@ class TestPauseResumeOnlineSubscription:
         online_subscription: MembershipSubscription,
     ) -> None:
         with pytest.raises(HttpError) as exc:
-            subscription_stripe_service.resume_online_subscription(online_subscription)
+            subscription_stripe_checkout.resume_online_subscription(online_subscription)
         assert exc.value.status_code == 400
 
 
@@ -414,7 +412,7 @@ class TestCreateBillingPortalSession:
             user=subscriber, organization=stripe_org, stripe_customer_id="cus_for_portal"
         )
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.billing_portal.Session.create")
     def test_returns_session_url(
         self,
         mock_portal: mock.Mock,
@@ -424,7 +422,7 @@ class TestCreateBillingPortalSession:
     ) -> None:
         mock_portal.return_value = mock.MagicMock(url="https://stripe.example/portal/abc")
 
-        url = subscription_stripe_service.create_billing_portal_session(
+        url = subscription_stripe_checkout.create_billing_portal_session(
             subscriber, stripe_org, return_url="https://app.example/account"
         )
 
@@ -440,12 +438,12 @@ class TestCreateBillingPortalSession:
         subscriber: RevelUser,
     ) -> None:
         with pytest.raises(HttpError) as exc:
-            subscription_stripe_service.create_billing_portal_session(
+            subscription_stripe_checkout.create_billing_portal_session(
                 subscriber, organization, return_url="https://app.example/account"
             )
         assert exc.value.status_code == 400
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.billing_portal.Session.create")
     def test_stripe_failure_propagates_502(
         self,
         mock_portal: mock.Mock,
@@ -455,7 +453,7 @@ class TestCreateBillingPortalSession:
     ) -> None:
         mock_portal.side_effect = stripe.error.APIConnectionError("boom")
         with pytest.raises(HttpError) as exc:
-            subscription_stripe_service.create_billing_portal_session(
+            subscription_stripe_checkout.create_billing_portal_session(
                 subscriber, stripe_org, return_url="https://app.example/account"
             )
         assert exc.value.status_code == 502
@@ -632,10 +630,10 @@ class TestClassifyPlanChangePeriodNormalization:
         sub = _make_online_subscription(online_plan, subscriber, stripe_id="sub_x_cross")
         with (
             mock.patch(
-                "events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.create"
+                "events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.create"
             ) as mock_create,
             mock.patch(
-                "events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.modify"
+                "events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.modify"
             ) as mock_modify,
         ):
             schedule_mock = mock.MagicMock(id="sched_cross")
@@ -670,8 +668,8 @@ class TestClassifyPlanChangePeriodNormalization:
         )
         sub = _make_online_subscription(online_plan, subscriber, stripe_id="sub_x_up")
         with (
-            mock.patch("events.service.subscription_stripe_plan_change.stripe.Subscription.retrieve") as mock_retrieve,
-            mock.patch("events.service.subscription_stripe_plan_change.stripe.Subscription.modify") as mock_modify,
+            mock.patch("events.service.subscription.stripe.plan_change.stripe.Subscription.retrieve") as mock_retrieve,
+            mock.patch("events.service.subscription.stripe.plan_change.stripe.Subscription.modify") as mock_modify,
         ):
             mock_retrieve.return_value = {"items": {"data": [{"id": "si_xyz"}]}}
             subscription_stripe_plan_change.change_online_plan(sub, annual)
@@ -688,8 +686,8 @@ class TestClassifyPlanChangePeriodNormalization:
 class TestBillingPortalRequiresCustomerProfile:
     """The portal endpoint must refuse non-subscribers so they can't create junk Stripe Customers."""
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.billing_portal.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_refuses_when_no_customer_profile_exists(
         self,
         mock_customer: mock.Mock,
@@ -698,15 +696,15 @@ class TestBillingPortalRequiresCustomerProfile:
         subscriber: RevelUser,
     ) -> None:
         with pytest.raises(HttpError) as exc:
-            subscription_stripe_service.create_billing_portal_session(
+            subscription_stripe_checkout.create_billing_portal_session(
                 subscriber, stripe_org, return_url="https://app.example/billing"
             )
         assert exc.value.status_code == 404
         mock_customer.assert_not_called()
         mock_portal.assert_not_called()
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.billing_portal.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_uses_existing_customer_profile(
         self,
         mock_customer: mock.Mock,
@@ -718,7 +716,7 @@ class TestBillingPortalRequiresCustomerProfile:
             user=subscriber, organization=stripe_org, stripe_customer_id="cus_existing_portal"
         )
         mock_portal.return_value = mock.MagicMock(url="https://stripe.example/portal/ok")
-        url = subscription_stripe_service.create_billing_portal_session(
+        url = subscription_stripe_checkout.create_billing_portal_session(
             subscriber, stripe_org, return_url="https://app.example/billing"
         )
         assert url == "https://stripe.example/portal/ok"
@@ -815,15 +813,15 @@ class TestScheduleReleaseOnCancelPause:
         sub.save(update_fields=["pending_plan", "stripe_schedule_id"])
         return sub
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.release")
     def test_cancel_at_period_end_releases_schedule_then_proceeds(
         self,
         mock_release: mock.Mock,
         mock_modify: mock.Mock,
         scheduled_subscription: MembershipSubscription,
     ) -> None:
-        result = subscription_stripe_service.cancel_online_subscription(scheduled_subscription, immediate=False)
+        result = subscription_stripe_checkout.cancel_online_subscription(scheduled_subscription, immediate=False)
         mock_release.assert_called_once_with("sub_sched_xyz", stripe_account="acct_test_org")
         mock_modify.assert_called_once()
         assert mock_modify.call_args.kwargs["cancel_at_period_end"] is True
@@ -832,15 +830,15 @@ class TestScheduleReleaseOnCancelPause:
         assert result.stripe_schedule_id == ""
         assert result.pending_plan_id is None
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.release")
     def test_immediate_cancel_releases_schedule_then_terminalizes(
         self,
         mock_release: mock.Mock,
         mock_cancel: mock.Mock,
         scheduled_subscription: MembershipSubscription,
     ) -> None:
-        result = subscription_stripe_service.cancel_online_subscription(scheduled_subscription, immediate=True)
+        result = subscription_stripe_checkout.cancel_online_subscription(scheduled_subscription, immediate=True)
         mock_release.assert_called_once_with("sub_sched_xyz", stripe_account="acct_test_org")
         mock_cancel.assert_called_once()
         result.refresh_from_db()
@@ -848,15 +846,15 @@ class TestScheduleReleaseOnCancelPause:
         assert result.stripe_schedule_id == ""
         assert result.pending_plan_id is None
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.release")
     def test_pause_releases_schedule_then_proceeds(
         self,
         mock_release: mock.Mock,
         mock_modify: mock.Mock,
         scheduled_subscription: MembershipSubscription,
     ) -> None:
-        result = subscription_stripe_service.pause_online_subscription(scheduled_subscription)
+        result = subscription_stripe_checkout.pause_online_subscription(scheduled_subscription)
         mock_release.assert_called_once_with("sub_sched_xyz", stripe_account="acct_test_org")
         # Pause modify happens after the release.
         assert mock_modify.call_args.kwargs["pause_collection"] == {"behavior": "void"}
@@ -865,8 +863,8 @@ class TestScheduleReleaseOnCancelPause:
         assert result.stripe_schedule_id == ""
         assert result.pending_plan_id is None
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.release")
     def test_cancel_after_price_swap_still_releases_schedule(
         self,
         mock_release: mock.Mock,
@@ -885,7 +883,7 @@ class TestScheduleReleaseOnCancelPause:
         scheduled_subscription.pending_plan = None
         scheduled_subscription.save(update_fields=["plan", "pending_plan"])
 
-        result = subscription_stripe_service.cancel_online_subscription(scheduled_subscription, immediate=False)
+        result = subscription_stripe_checkout.cancel_online_subscription(scheduled_subscription, immediate=False)
 
         mock_release.assert_called_once_with("sub_sched_xyz", stripe_account="acct_test_org")
         assert mock_modify.call_args.kwargs["cancel_at_period_end"] is True
@@ -893,8 +891,8 @@ class TestScheduleReleaseOnCancelPause:
         assert result.cancel_at_period_end is True
         assert result.stripe_schedule_id == ""
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
-    @mock.patch("events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.release")
     def test_release_tolerates_already_released_schedule(
         self,
         mock_release: mock.Mock,
@@ -903,7 +901,7 @@ class TestScheduleReleaseOnCancelPause:
     ) -> None:
         """A schedule Stripe already released/completed must not block the cancel."""
         mock_release.side_effect = stripe.error.InvalidRequestError("No such schedule", param=None)
-        result = subscription_stripe_service.cancel_online_subscription(scheduled_subscription, immediate=False)
+        result = subscription_stripe_checkout.cancel_online_subscription(scheduled_subscription, immediate=False)
         mock_release.assert_called_once()
         mock_modify.assert_called_once()
         result.refresh_from_db()

@@ -22,7 +22,7 @@ from events.models import (
     OrganizationMembershipRequest,
     SubscriptionPaymentMethod,
 )
-from events.service.subscription_stripe_sync import _ensure_active_member
+from events.service.subscription.stripe.sync import _ensure_active_member
 
 pytestmark = pytest.mark.django_db
 

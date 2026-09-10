@@ -23,7 +23,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_service
+from events.service.subscription import plans as subscription_plans
 
 
 @pytest.fixture
@@ -82,10 +82,10 @@ class TestMigrateSkipsScheduleManaged:
         _make_sub(online_plan, organization, subscriber, schedule_id="sub_sched_pending_downgrade")
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve") as mock_retrieve,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as mock_modify,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve") as mock_retrieve,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
         ):
-            result = subscription_service.migrate_plan_subscribers(online_plan, initiated_by=organization_owner_user)
+            result = subscription_plans.migrate_plan_subscribers(online_plan, initiated_by=organization_owner_user)
 
         mock_retrieve.assert_not_called()
         mock_modify.assert_not_called()
@@ -112,15 +112,15 @@ class TestMigrateSkipsScheduleManaged:
 
         with (
             patch(
-                "events.service.subscription_stripe_service.stripe.Subscription.retrieve",
+                "events.service.subscription.stripe.checkout.stripe.Subscription.retrieve",
                 return_value={
                     "id": "sub_plain_user",
                     "items": {"data": [{"id": "si_plain", "price": {"id": "price_old"}}]},
                 },
             ) as mock_retrieve,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as mock_modify,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
         ):
-            result = subscription_service.migrate_plan_subscribers(online_plan, initiated_by=organization_owner_user)
+            result = subscription_plans.migrate_plan_subscribers(online_plan, initiated_by=organization_owner_user)
 
         # Exactly one Stripe round trip: the schedule-managed row never got one.
         mock_retrieve.assert_called_once()

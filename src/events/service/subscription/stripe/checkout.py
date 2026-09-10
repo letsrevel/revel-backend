@@ -1,16 +1,15 @@
 """Stripe integration for membership subscriptions (Phase 2).
 
-Lives next to ``subscription_service`` (the OFFLINE/staff-managed flow) and
-adds the ONLINE flow on top of Stripe Connect direct charges. The local
-state machine is still authoritative; Stripe events flow back via the
+Lives next to ``subscription.lifecycle`` (the OFFLINE/staff-managed flow) and
+adds the ONLINE flow on top of Stripe Connect direct charges. The platform
+fee maths it spends lives in :mod:`events.service.subscription.stripe.fees`.
+The local state machine is still authoritative; Stripe events flow back via the
 webhook handlers in :mod:`events.service.stripe_webhooks`.
 """
 
-import time
 import typing as t
 import uuid
 from datetime import timedelta
-from decimal import ROUND_HALF_UP, Decimal
 
 import stripe
 import structlog
@@ -23,7 +22,6 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.service.stripe_config import configure_stripe
-from common.service.vat_utils import b2b_vat_context
 from common.utils import get_or_create_with_race_protection
 from events.exceptions import SubscriptionActivationPendingError
 from events.models import (
@@ -32,18 +30,19 @@ from events.models import (
     MembershipSubscriptionPlan,
     Organization,
 )
-from events.service import subscription_core, subscription_sales
-from events.service.subscription_stripe_base import (
-    _require_stripe_connected,
-)
-from events.service.subscription_stripe_base import (
+from events.service.subscription import core, sales
+from events.service.subscription.stripe.base import (
     ensure_stripe_price as ensure_stripe_price,
 )
-from events.service.subscription_stripe_payloads import (
-    _is_subscription_gone,
-    _stripe_account_kwargs,
+from events.service.subscription.stripe.base import (
+    require_stripe_connected,
 )
-from events.service.subscription_stripe_plan_change import (
+from events.service.subscription.stripe.fees import effective_application_fee_percent
+from events.service.subscription.stripe.payloads import (
+    is_subscription_gone,
+    stripe_account_kwargs,
+)
+from events.service.subscription.stripe.plan_change import (
     release_online_schedule,
     resolve_refused_cancel,
 )
@@ -58,7 +57,7 @@ configure_stripe()
 
 def ensure_customer_profile(user: RevelUser, organization: Organization) -> CustomerProfile:
     """Return the per-(user, organization) Stripe Customer, creating it if needed."""
-    _require_stripe_connected(organization)
+    require_stripe_connected(organization)
     existing = CustomerProfile.objects.filter(user=user, organization=organization).first()
     if existing:
         return existing
@@ -71,7 +70,7 @@ def ensure_customer_profile(user: RevelUser, organization: Organization) -> Cust
             # Deterministic key keeps concurrent first-time subscribes from
             # creating duplicate Stripe Customers on the same Connect account.
             idempotency_key=f"cust:{user.pk}:{organization.pk}",
-            **_stripe_account_kwargs(organization),
+            **stripe_account_kwargs(organization),
         )
     except stripe.error.StripeError as exc:
         logger.error(
@@ -95,7 +94,7 @@ def ensure_customer_profile(user: RevelUser, organization: Organization) -> Cust
 
 
 # ---- Product + Price provisioning -------------------------------------------
-# ``ensure_stripe_price`` lives in :mod:`subscription_stripe_base` (shared with
+# ``ensure_stripe_price`` lives in :mod:`subscription.stripe.base` (shared with
 # ``subscription_stripe_plan_change``) and is re-exported via the import above.
 
 
@@ -114,7 +113,7 @@ def archive_stripe_price(plan: MembershipSubscriptionPlan) -> None:
     if not org.is_stripe_connected:
         return
     try:
-        stripe.Price.modify(plan.stripe_price_id, active=False, **_stripe_account_kwargs(org))
+        stripe.Price.modify(plan.stripe_price_id, active=False, **stripe_account_kwargs(org))
     except stripe.error.InvalidRequestError as exc:
         # Price already archived or no longer exists — nothing actionable.
         logger.warning(
@@ -147,119 +146,6 @@ def _checkout_session_urls(organization: Organization) -> _CheckoutSessionUrls:
         "success_url": f"{frontend_base_url}/org/{organization.id}/membership?membership_success=true",
         "cancel_url": f"{frontend_base_url}/org/{organization.id}/membership?membership_cancelled=true",
     }
-
-
-def effective_application_fee_percent(org: Organization) -> Decimal | None:
-    """Org fee percent grossed up with platform VAT when applicable.
-
-    Tickets charge the org fee + VAT on the fee (``calculate_platform_fee_vat``
-    adds VAT on top). ``application_fee_percent`` is the only fee mechanism for
-    subscriptions (Stripe has no fixed/absolute variant), so the same economics
-    are achieved by grossing the percent itself up. The fixed fee component
-    (``org.platform_fee_fixed``) intentionally does NOT apply to subscriptions.
-
-    Returns:
-        The percent to send to Stripe, or ``None`` when no fee applies.
-    """
-    if not org.platform_fee_percent:
-        return None
-    if not org.stripe_account_id or org.stripe_account_id == settings.STRIPE_ACCOUNT:
-        return None
-    site = SiteSettings.get_solo()
-    reverse_charge, rate = b2b_vat_context(
-        org, site.platform_vat_country, site.platform_vat_rate, unknown_country_domestic=True
-    )
-    if reverse_charge or rate <= 0:
-        return org.platform_fee_percent
-    grossed = (org.platform_fee_percent * (1 + rate / 100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    # Stripe rejects percents above 100; the org field is capped at 100, so a
-    # gross-up can theoretically overshoot.
-    return min(grossed, Decimal("100"))
-
-
-class FeeResyncCounters(t.TypedDict):
-    """Telemetry counters returned by :func:`resync_subscription_application_fees`."""
-
-    updated: int
-    skipped_schedule_managed: int
-    failed: int
-
-
-def resync_subscription_application_fees(org: Organization, *, sleep_seconds: float = 0.0) -> FeeResyncCounters:
-    """Push the org's *current* effective fee percent onto its live Stripe subscriptions.
-
-    The grossed-up ``application_fee_percent`` is frozen into each Stripe
-    Subscription at Checkout; when the org's VAT status later changes (VIES
-    revalidation, VAT ID set/cleared, country change) the frozen percent stops
-    matching the fee the ledger decomposition assumes. This resyncs every
-    non-terminal ONLINE subscription to the value Checkout would send today.
-    A ``None`` percent (fee-free org) clears the fee on Stripe (``""`` unsets).
-
-    Schedule-managed subscriptions (pending downgrades) are **skipped**: Stripe
-    rejects a plain ``Subscription.modify`` while a schedule is attached, and
-    releasing the schedule would silently drop the pending plan change. They
-    are counted so callers can surface them; re-run the
-    ``resync_subscription_fees`` management command once the schedule releases.
-
-    Per-subscription Stripe failures are logged and counted, not raised — one
-    bad subscription must not strand the rest of the org's resync.
-
-    Args:
-        org: The organization whose subscriptions to resync.
-        sleep_seconds: Optional pause between Stripe calls (rate limiting for
-            large backfills; the org's subscriptions all live on one Connect
-            account).
-
-    Returns:
-        Counters for updated / skipped (schedule-managed) / failed rows.
-    """
-    target = effective_application_fee_percent(org)
-    kwargs = _stripe_account_kwargs(org)
-    subscriptions = (
-        MembershipSubscription.objects.filter(
-            organization=org,
-            plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
-        )
-        .exclude(stripe_subscription_id="")
-        .exclude(stripe_subscription_id__isnull=True)
-        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-    )
-    counters: FeeResyncCounters = {"updated": 0, "skipped_schedule_managed": 0, "failed": 0}
-    for subscription in subscriptions:
-        if subscription.stripe_schedule_id:
-            counters["skipped_schedule_managed"] += 1
-            logger.warning(
-                "subscription_fee_resync_skipped_schedule_managed",
-                subscription_id=str(subscription.pk),
-                org_id=str(org.pk),
-                schedule_id=subscription.stripe_schedule_id,
-            )
-            continue
-        try:
-            stripe.Subscription.modify(
-                t.cast(str, subscription.stripe_subscription_id),
-                application_fee_percent=float(target) if target is not None else "",
-                **kwargs,
-            )
-        except stripe.error.StripeError as exc:
-            counters["failed"] += 1
-            logger.error(
-                "subscription_fee_resync_failed",
-                subscription_id=str(subscription.pk),
-                org_id=str(org.pk),
-                error=str(exc),
-            )
-            continue
-        counters["updated"] += 1
-        if sleep_seconds:
-            time.sleep(sleep_seconds)
-    logger.info(
-        "subscription_fee_resync_done",
-        org_id=str(org.pk),
-        target_percent=str(target) if target is not None else None,
-        **counters,
-    )
-    return counters
 
 
 def _create_subscription_checkout_session(
@@ -299,7 +185,7 @@ def _create_subscription_checkout_session(
         # accidentally mint two sessions on the next attempt.
         idempotency_key=idempotency_key,
         **_checkout_session_urls(org),
-        **_stripe_account_kwargs(org),
+        **stripe_account_kwargs(org),
     )
 
 
@@ -309,7 +195,7 @@ def start_online_subscription(
 ) -> tuple[MembershipSubscription, str]:
     """Start an ONLINE subscription via hosted Stripe Checkout.
 
-    Creates the local row via :func:`subscription_core.create_subscription`
+    Creates the local row via :func:`core.create_subscription`
     (re-using its BANNED / duplicate-active checks and member sync), then
     creates a Checkout Session (``mode=subscription``) on the org's Connect
     account. The Stripe Subscription itself is only created when the member
@@ -336,10 +222,10 @@ def start_online_subscription(
     # Member self-service path: a PAUSED plan sells to no one (staff-created
     # OFFLINE subs don't come through here). The capacity cap is enforced
     # race-safely inside create_subscription, under the plan row lock.
-    subscription_sales.ensure_plan_on_sale(plan)
+    sales.ensure_plan_on_sale(plan)
 
     org = plan.tier.organization
-    _require_stripe_connected(org)
+    require_stripe_connected(org)
 
     # Abandoned-checkout recovery: a PENDING row from an abandoned redirect
     # would otherwise trip create_subscription's duplicate-active check and
@@ -364,7 +250,7 @@ def start_online_subscription(
     # transaction) — a ``checkout.session.completed`` webhook cannot race us
     # here because the member can only reach the session via the URL this
     # request returns after commit.
-    subscription = subscription_core.create_subscription(plan, user)
+    subscription = core.create_subscription(plan, user)
 
     try:
         session = _create_subscription_checkout_session(
@@ -449,13 +335,13 @@ def _maybe_resume_pending_checkout(
 
     if not pending.stripe_checkout_session_id:
         # Stranded local row from a failed session-create call: clear and start over.
-        _clear_stale_pending_checkout(pending)
+        clear_stale_pending_checkout(pending)
         return None
 
     try:
         session = stripe.checkout.Session.retrieve(
             pending.stripe_checkout_session_id,
-            **_stripe_account_kwargs(pending.organization),
+            **stripe_account_kwargs(pending.organization),
         )
     except stripe.error.StripeError:
         logger.exception(
@@ -492,7 +378,7 @@ def _maybe_resume_pending_checkout(
         try:
             stripe.checkout.Session.expire(
                 pending.stripe_checkout_session_id,
-                **_stripe_account_kwargs(pending.organization),
+                **stripe_account_kwargs(pending.organization),
             )
         except stripe.error.InvalidRequestError:
             # Almost certainly "not in status open" — the member completed the
@@ -510,11 +396,11 @@ def _maybe_resume_pending_checkout(
                 stripe_checkout_session_id=pending.stripe_checkout_session_id,
             )
             raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
-    _clear_stale_pending_checkout(pending)
+    clear_stale_pending_checkout(pending)
     return None
 
 
-def _clear_stale_pending_checkout(pending: MembershipSubscription) -> None:
+def clear_stale_pending_checkout(pending: MembershipSubscription) -> None:
     """Remove a superseded PENDING row so a fresh subscription can be created.
 
     A pristine row (no payment history) is deleted outright. A revival row
@@ -562,7 +448,7 @@ def classify_stale_pending_checkout(pending: MembershipSubscription) -> StalePen
     try:
         session = stripe.checkout.Session.retrieve(
             pending.stripe_checkout_session_id,
-            **_stripe_account_kwargs(pending.organization),
+            **stripe_account_kwargs(pending.organization),
         )
     except stripe.error.StripeError:
         logger.exception(
@@ -611,7 +497,7 @@ def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription,
     try:
         stripe.Subscription.cancel(
             subscription.stripe_subscription_id,
-            **_stripe_account_kwargs(subscription.organization),
+            **stripe_account_kwargs(subscription.organization),
         )
     except stripe.error.InvalidRequestError as exc:
         # Already gone → the desired end state holds. Schedule-managed (pending
@@ -653,7 +539,7 @@ def create_revival_checkout(subscription: MembershipSubscription) -> str:
     """
     plan = subscription.plan
     org = subscription.organization
-    _require_stripe_connected(org)
+    require_stripe_connected(org)
 
     # The old Stripe sub may still be alive in past_due dunning when the local
     # row expired first (grace clock beat Smart Retries). Close it before its
@@ -678,7 +564,7 @@ def create_revival_checkout(subscription: MembershipSubscription) -> str:
 
     # Per-attempt idempotency key. It cannot be anchored on ``expired_at``: an
     # abandoned revival is reverted to EXPIRED with ``expired_at`` deliberately
-    # preserved (see ``_clear_stale_pending_checkout``), so the key would repeat
+    # preserved (see ``clear_stale_pending_checkout``), so the key would repeat
     # while ``_create_subscription_checkout_session`` recomputes ``expires_at``
     # from ``now()`` — same key, different params, which Stripe rejects with an
     # idempotency error for the ~24h the key is cached, 502-ing every retry.
@@ -740,7 +626,7 @@ def _tolerate_gone_or_raise(subscription: MembershipSubscription, exc: stripe.er
     Stripe refuses to modify — means Stripe is still billing, so it surfaces as
     the module's retryable 502 and local state stays untouched.
     """
-    if not _is_subscription_gone(exc):
+    if not is_subscription_gone(exc):
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
     logger.info(
         "subscription_stripe_cancel_already_terminal",
@@ -769,7 +655,7 @@ def cancel_online_subscription(
         return subscription
 
     org = subscription.organization
-    kwargs = _stripe_account_kwargs(org)
+    kwargs = stripe_account_kwargs(org)
 
     # A pending downgrade makes the subscription schedule-managed on Stripe,
     # which rejects a plain cancel/modify. Release the schedule first (clears
@@ -813,8 +699,8 @@ def cancel_online_subscription(
 
 
 # ---- Plan changes (Phase 3) -------------------------------------------------
-# Full implementation lives in subscription_stripe_plan_change.py.
-# See subscription_service.change_plan for the dispatch entry-point.
+# Full implementation lives in subscription.stripe.plan_change.py.
+# See subscription.lifecycle.change_plan for the dispatch entry-point.
 
 
 def update_subscription_price(subscription: MembershipSubscription) -> bool:
@@ -823,7 +709,7 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     Callers must filter out schedule-managed rows (``stripe_schedule_id`` set)
     first — Stripe rejects a plain ``Subscription.modify`` while a schedule is
     attached, so this raises the module's 502 rather than migrating them. See
-    ``subscription_service.migrate_plan_subscribers`` and
+    ``subscription.lifecycle.migrate_plan_subscribers`` and
     :func:`resync_subscription_application_fees` for the carve-out.
 
     Returns True when modify was called; False when already current or skipped.
@@ -835,7 +721,7 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
         return False
 
     org = subscription.organization
-    kwargs = _stripe_account_kwargs(org)
+    kwargs = stripe_account_kwargs(org)
     try:
         stripe_sub = stripe.Subscription.retrieve(subscription.stripe_subscription_id, **kwargs)
     except stripe.error.StripeError as exc:
@@ -893,7 +779,7 @@ def pause_online_subscription(subscription: MembershipSubscription) -> Membershi
         stripe.Subscription.modify(
             subscription.stripe_subscription_id,
             pause_collection={"behavior": "void"},
-            **_stripe_account_kwargs(org),
+            **stripe_account_kwargs(org),
         )
     except stripe.error.StripeError as exc:
         logger.error(
@@ -927,7 +813,7 @@ def resume_online_subscription(subscription: MembershipSubscription) -> Membersh
         stripe.Subscription.modify(
             subscription.stripe_subscription_id,
             pause_collection="",
-            **_stripe_account_kwargs(org),
+            **stripe_account_kwargs(org),
         )
     except stripe.error.StripeError as exc:
         logger.error(
@@ -960,7 +846,7 @@ def create_billing_portal_session(
     This keeps strangers from triggering Stripe Customer creation on
     arbitrary Connect accounts via the public endpoint.
     """
-    _require_stripe_connected(organization)
+    require_stripe_connected(organization)
     customer = CustomerProfile.objects.filter(user=user, organization=organization).first()
     if customer is None:
         raise HttpError(404, str(_("No billing profile exists for this organization. Subscribe first.")))
@@ -968,7 +854,7 @@ def create_billing_portal_session(
         session = stripe.billing_portal.Session.create(
             customer=customer.stripe_customer_id,
             return_url=return_url,
-            **_stripe_account_kwargs(organization),
+            **stripe_account_kwargs(organization),
         )
     except stripe.error.StripeError as exc:
         logger.error(

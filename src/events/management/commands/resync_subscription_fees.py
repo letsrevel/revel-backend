@@ -13,7 +13,7 @@ import typing as t
 from django.core.management.base import BaseCommand, CommandError
 
 from events.models import MembershipSubscription, MembershipSubscriptionPlan, Organization
-from events.service.subscription_stripe_service import (
+from events.service.subscription.stripe.fees import (
     effective_application_fee_percent,
     resync_subscription_application_fees,
 )

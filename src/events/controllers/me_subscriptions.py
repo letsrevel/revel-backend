@@ -23,12 +23,10 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import (
-    subscription_eligibility,
-    subscription_service,
-    subscription_stripe_service,
-    subscription_uncancel,
-)
+from events.service.subscription import eligibility as subscription_eligibility
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import uncancel as subscription_uncancel
+from events.service.subscription.stripe import checkout as subscription_stripe_checkout
 
 
 @api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Subscriptions"], throttle=UserDefaultThrottle())
@@ -208,7 +206,7 @@ class MeSubscriptionsController(UserAwareController):
             .order_by("-created_at")
         )
         subscription = get_object_or_404(qs)
-        return subscription_service.cancel_subscription(subscription, immediate=payload.immediate)
+        return subscription_lifecycle.cancel_subscription(subscription, immediate=payload.immediate)
 
     @route.post(
         "/organizations/{org_id}/subscription/uncancel",
@@ -289,7 +287,7 @@ class MeSubscriptionsController(UserAwareController):
             tier__organization_id=org_id,
             is_active=True,
         )
-        return subscription_service.change_plan(subscription, new_plan)
+        return subscription_lifecycle.change_plan(subscription, new_plan)
 
     @route.post(
         "/organizations/{org_id}/subscription/revive",
@@ -338,7 +336,7 @@ class MeSubscriptionsController(UserAwareController):
                 str(_("This subscription is managed by the organization. Contact them to renew your membership.")),
             )
 
-        revived, checkout_url = subscription_service.revive_subscription(
+        revived, checkout_url = subscription_lifecycle.revive_subscription(
             subscription,
             initial_payment=None,
             revived_by=self.user(),
@@ -379,7 +377,7 @@ class MeSubscriptionsController(UserAwareController):
         # to plain ``str`` for the Stripe API. Falling back to the platform's
         # frontend keeps a sensible default when the client omits it.
         return_url = str(payload.return_url) if payload.return_url else SiteSettings.get_solo().frontend_base_url
-        url = subscription_stripe_service.create_billing_portal_session(
+        url = subscription_stripe_checkout.create_billing_portal_session(
             self.user(),
             organization,
             return_url=return_url,

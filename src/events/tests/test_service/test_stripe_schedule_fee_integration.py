@@ -1,6 +1,6 @@
 """Empirical probe: does a scheduled downgrade keep the Connect platform fee? (#821).
 
-``subscription_stripe_plan_change._downgrade_online_subscription`` creates a
+``subscription.stripe.plan_change._downgrade_online_subscription`` creates a
 ``stripe.SubscriptionSchedule`` with ``from_subscription=...`` and then
 *replaces* the whole ``phases`` array with hand-built phases that carry no
 ``application_fee_percent`` — and it never passes ``default_settings``. Whether
@@ -53,8 +53,8 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_plan_change
-from events.service.subscription_stripe_payloads import StripeAccountKwargs
+from events.service.subscription.stripe import plan_change as subscription_stripe_plan_change
+from events.service.subscription.stripe.payloads import StripeAccountKwargs
 
 pytestmark = [
     pytest.mark.integration,
@@ -204,7 +204,7 @@ def downgrade_rows(
 
     The two plans point at the two real Stripe prices from the sandbox, and the
     organization is pointed at the real connected test account so
-    ``_stripe_account_kwargs`` emits the right Stripe-Account header.
+    ``stripe_account_kwargs`` emits the right Stripe-Account header.
 
     Returns:
         The ACTIVE subscription on the pricier plan, and the cheaper target plan.

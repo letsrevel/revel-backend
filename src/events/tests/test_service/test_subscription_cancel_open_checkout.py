@@ -24,7 +24,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_service
+from events.service.subscription import lifecycle as subscription_lifecycle
 
 
 @pytest.fixture
@@ -80,7 +80,7 @@ class TestScheduledCancelOfPendingCheckout:
     ) -> None:
         """``immediate=False`` on a period-less row with a live session cancels now."""
         with mock.patch("stripe.checkout.Session.expire") as mock_expire:
-            out = subscription_service.cancel_subscription(pending_with_open_session, immediate=False)
+            out = subscription_lifecycle.cancel_subscription(pending_with_open_session, immediate=False)
 
         mock_expire.assert_called_once()
         assert mock_expire.call_args.args[0] == "cs_live_open"
@@ -97,9 +97,9 @@ class TestScheduledCancelOfPendingCheckout:
         """The member must be told the subscription ended now, not at a boundary."""
         with (
             mock.patch("stripe.checkout.Session.expire"),
-            mock.patch("events.service.subscription_service._dispatch_cancellation_confirmed") as mock_dispatch,
+            mock.patch("events.service.subscription.lifecycle._dispatch_cancellation_confirmed") as mock_dispatch,
         ):
-            subscription_service.cancel_subscription(pending_with_open_session, immediate=False)
+            subscription_lifecycle.cancel_subscription(pending_with_open_session, immediate=False)
 
         mock_dispatch.assert_called_once()
         assert mock_dispatch.call_args.kwargs["immediate"] is True
@@ -123,7 +123,7 @@ class TestScheduledCancelOfPendingCheckout:
             mock.patch("stripe.checkout.Session.retrieve", return_value={"status": "complete"}),
             pytest.raises(SubscriptionActivationPendingError),
         ):
-            subscription_service.cancel_subscription(pending_with_open_session, immediate=False)
+            subscription_lifecycle.cancel_subscription(pending_with_open_session, immediate=False)
 
         pending_with_open_session.refresh_from_db()
         assert pending_with_open_session.status == MembershipSubscription.SubscriptionStatus.PENDING
@@ -147,7 +147,7 @@ class TestScheduledCancelOfPendingCheckout:
             mock.patch("stripe.checkout.Session.expire") as mock_expire,
             mock.patch("stripe.Subscription.modify") as mock_modify,
         ):
-            out = subscription_service.cancel_subscription(pending_with_open_session, immediate=False)
+            out = subscription_lifecycle.cancel_subscription(pending_with_open_session, immediate=False)
 
         mock_expire.assert_not_called()
         assert mock_modify.call_args.kwargs["cancel_at_period_end"] is True
@@ -169,9 +169,9 @@ class TestScheduledCancelOfPendingCheckout:
             period_count=1,
             payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
         )
-        sub = subscription_service.create_subscription(offline_plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(offline_plan, subscriber)
 
-        out = subscription_service.cancel_subscription(sub, immediate=False)
+        out = subscription_lifecycle.cancel_subscription(sub, immediate=False)
 
         assert out.status == MembershipSubscription.SubscriptionStatus.CANCELLED
         assert out.cancel_at_period_end is False

@@ -35,7 +35,7 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_stripe_sync
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 from events.tasks import send_subscription_renewal_reminders
 from events.utils.subscription_periods import REMINDER_DAYS
 from notifications.enums import NotificationType

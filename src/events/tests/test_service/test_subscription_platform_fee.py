@@ -23,7 +23,9 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_service, subscription_stripe_sync
+from events.service.subscription.stripe import checkout as subscription_stripe_checkout
+from events.service.subscription.stripe import fees as subscription_stripe_fees
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -84,8 +86,8 @@ def _reverse_charge(org: Organization) -> None:
 
 
 class TestEffectiveApplicationFeePercent:
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_domestic_org_percent_is_grossed_up_with_vat(
         self,
         mock_customer: mock.Mock,
@@ -98,13 +100,13 @@ class TestEffectiveApplicationFeePercent:
         mock_customer.return_value = mock.MagicMock(id="cus_fee")
         mock_session.return_value = mock.MagicMock(id="cs_fee", url="https://checkout.stripe.com/c/pay/cs_fee")
 
-        subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+        subscription_stripe_checkout.start_online_subscription(online_plan, subscriber)
 
         subscription_data = mock_session.call_args.kwargs["subscription_data"]
         assert subscription_data["application_fee_percent"] == 1.80
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_reverse_charge_org_percent_is_untouched(
         self,
         mock_customer: mock.Mock,
@@ -119,13 +121,13 @@ class TestEffectiveApplicationFeePercent:
         mock_customer.return_value = mock.MagicMock(id="cus_rc")
         mock_session.return_value = mock.MagicMock(id="cs_rc", url="https://checkout.stripe.com/c/pay/cs_rc")
 
-        subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+        subscription_stripe_checkout.start_online_subscription(online_plan, subscriber)
 
         subscription_data = mock_session.call_args.kwargs["subscription_data"]
         assert subscription_data["application_fee_percent"] == 1.50
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_zero_percent_org_sends_no_application_fee(
         self,
         mock_customer: mock.Mock,
@@ -141,7 +143,7 @@ class TestEffectiveApplicationFeePercent:
         mock_customer.return_value = mock.MagicMock(id="cus_free")
         mock_session.return_value = mock.MagicMock(id="cs_free", url="https://checkout.stripe.com/c/pay/cs_free")
 
-        subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+        subscription_stripe_checkout.start_online_subscription(online_plan, subscriber)
 
         subscription_data = mock_session.call_args.kwargs["subscription_data"]
         assert "application_fee_percent" not in subscription_data
@@ -150,7 +152,7 @@ class TestEffectiveApplicationFeePercent:
         """Stripe rejects >100; a 100% org grossed up by 20% must clamp."""
         stripe_org.platform_fee_percent = Decimal("100.00")
 
-        assert subscription_stripe_service.effective_application_fee_percent(stripe_org) == Decimal("100")
+        assert subscription_stripe_fees.effective_application_fee_percent(stripe_org) == Decimal("100")
 
 
 # ---- fee ledger on MembershipPayment ----------------------------------------
@@ -166,7 +168,7 @@ class TestRecordedPlatformFee:
     regression where every ONLINE payment records a zero fee.
     """
 
-    RETRIEVE = "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve"
+    RETRIEVE = "events.service.subscription.stripe.payloads.stripe.Invoice.retrieve"
 
     @pytest.fixture
     def subscription(

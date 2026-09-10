@@ -31,10 +31,10 @@ STRIPE_CONFIGURING_MODULES = [
     "events.service.pending_checkout",
     "events.service.stripe_service",
     "events.service.stripe_webhooks",
-    "events.service.subscription_stripe_base",
-    "events.service.subscription_stripe_payloads",
-    "events.service.subscription_stripe_service",
-    "events.service.subscription_stripe_sync",
+    "events.service.subscription.stripe.base",
+    "events.service.subscription.stripe.payloads",
+    "events.service.subscription.stripe.checkout",
+    "events.service.subscription.stripe.sync",
 ]
 
 

@@ -18,7 +18,8 @@ from events.models import (
     PermissionMap,
     PermissionsSchema,
 )
-from events.service import subscription_service
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
 
 pytestmark = pytest.mark.django_db
 
@@ -33,7 +34,7 @@ def tier(organization: Organization) -> MembershipTier:
 
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
     )
 
@@ -88,7 +89,7 @@ class TestListOrganizationPlans:
         plan: MembershipSubscriptionPlan,
     ) -> None:
         other_tier = MembershipTier.objects.create(organization=organization, name="VIP membership")
-        other_plan = subscription_service.create_plan(
+        other_plan = subscription_plans.create_plan(
             other_tier, name="VIP Monthly", price=Decimal("50.00"), currency="EUR", period_unit="month"
         )
 
@@ -108,10 +109,10 @@ class TestListOrganizationPlans:
         tier: MembershipTier,
         plan: MembershipSubscriptionPlan,
     ) -> None:
-        archived = subscription_service.create_plan(
+        archived = subscription_plans.create_plan(
             tier, name="Archived", price=Decimal("1.00"), currency="EUR", period_unit="month"
         )
-        subscription_service.archive_plan(archived)
+        subscription_plans.archive_plan(archived)
 
         url = reverse("api:list_organization_plans", kwargs={"slug": organization.slug})
 
@@ -137,7 +138,7 @@ class TestListOrganizationPlans:
         )
         other_org = Organization.objects.create(name="Other Plans Org", slug="other-plans", owner=other_owner)
         other_tier = MembershipTier.objects.get(organization=other_org, name="General membership")
-        subscription_service.create_plan(
+        subscription_plans.create_plan(
             other_tier, name="Other", price=Decimal("9.00"), currency="EUR", period_unit="month"
         )
 
@@ -292,7 +293,7 @@ class TestUpdateArchiveDeletePlan:
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        subscription_service.create_subscription(plan, subscriber)
+        subscription_lifecycle.create_subscription(plan, subscriber)
         url = reverse("api:delete_subscription_plan", kwargs={"slug": organization.slug, "plan_id": plan.id})
         response = organization_owner_client.delete(url)
         assert response.status_code == 400
@@ -310,7 +311,7 @@ class TestMigrateSubscribersEndpoint:
         subscriber: RevelUser,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        subscription_service.create_subscription(plan, subscriber)  # one non-terminal subscriber
+        subscription_lifecycle.create_subscription(plan, subscriber)  # one non-terminal subscriber
         url = reverse("api:migrate_plan_subscribers", kwargs={"slug": organization.slug, "plan_id": plan.id})
 
         with mock.patch("events.tasks.subscriptions.migrate_plan_subscribers.delay") as mock_delay:

@@ -1,7 +1,7 @@
 """Undo a scheduled cancellation on a membership subscription.
 
-Split out of :mod:`events.service.subscription_service` and
-:mod:`events.service.subscription_stripe_service` (both at the 1000-line
+Split out of :mod:`events.service.subscription.lifecycle` and
+:mod:`events.service.subscription.stripe.checkout` (both at the 1000-line
 file-length cap). Holds the exact inverse of
 ``cancel_subscription(immediate=False)``: clearing ``cancel_at_period_end`` so
 the subscription keeps renewing.
@@ -18,7 +18,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events.models import MembershipSubscription, MembershipSubscriptionPlan, OrganizationMember
-from events.service.subscription_stripe_payloads import _stripe_account_kwargs
+from events.service.subscription.stripe.payloads import stripe_account_kwargs
 
 logger = structlog.get_logger(__name__)
 
@@ -26,7 +26,7 @@ logger = structlog.get_logger(__name__)
 def _uncancel_on_stripe(subscription: MembershipSubscription, stripe_subscription_id: str) -> None:
     """Clear ``cancel_at_period_end`` on the linked Stripe subscription.
 
-    Mirrors :func:`subscription_stripe_service.pause_online_subscription`'s
+    Mirrors :func:`subscription.stripe.checkout.pause_online_subscription`'s
     failure handling: any Stripe error surfaces as the module-wide retryable
     502 and leaves local state untouched, so we never record a renewal Stripe
     never accepted.
@@ -35,7 +35,7 @@ def _uncancel_on_stripe(subscription: MembershipSubscription, stripe_subscriptio
         stripe.Subscription.modify(
             stripe_subscription_id,
             cancel_at_period_end=False,
-            **_stripe_account_kwargs(subscription.organization),
+            **stripe_account_kwargs(subscription.organization),
         )
     except stripe.error.StripeError as exc:
         logger.error(
@@ -93,7 +93,7 @@ def uncancel_subscription(subscription: MembershipSubscription, *, staff: bool =
     same reason a fresh subscribe would give, and a subscriber whose membership
     is suspended (see :func:`_assert_membership_allows_renewal`). A row that is
     not scheduled to cancel is already in the requested state and returns
-    unchanged, mirroring :func:`subscription_service.pause_subscription`'s
+    unchanged, mirroring :func:`subscription.lifecycle.pause_subscription`'s
     already-PAUSED no-op.
 
     For ONLINE (Stripe-managed) subscriptions the flag is cleared on Stripe

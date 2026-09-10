@@ -16,7 +16,7 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service.subscription_service import InitialPayment
+from events.service.subscription.lifecycle import InitialPayment
 
 
 @pytest.fixture

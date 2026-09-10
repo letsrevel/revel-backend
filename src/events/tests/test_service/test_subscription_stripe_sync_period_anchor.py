@@ -27,7 +27,8 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_refunds, subscription_stripe_sync
+from events.service.subscription import refunds as subscription_refunds
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 

@@ -1,4 +1,4 @@
-"""Tests for events.service.subscription_reporting."""
+"""Tests for events.service.subscription.reporting."""
 
 import typing as t
 from datetime import timedelta
@@ -17,7 +17,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_reporting
+from events.service.subscription import reporting as subscription_reporting
 
 
 @pytest.fixture

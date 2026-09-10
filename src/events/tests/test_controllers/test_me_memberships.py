@@ -16,7 +16,8 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_service
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
 
 pytestmark = pytest.mark.django_db
 
@@ -28,7 +29,7 @@ def tier(organization: Organization) -> MembershipTier:
 
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
     )
 
@@ -46,7 +47,7 @@ def subscriber_client(subscriber_user: RevelUser) -> Client:
 
 @pytest.fixture
 def their_subscription(plan: MembershipSubscriptionPlan, subscriber_user: RevelUser) -> MembershipSubscription:
-    return subscription_service.create_subscription(plan, subscriber_user)
+    return subscription_lifecycle.create_subscription(plan, subscriber_user)
 
 
 class TestListMyMemberships:
@@ -113,7 +114,7 @@ class TestListMyMemberships:
         their_subscription: MembershipSubscription,
         organization: Organization,
     ) -> None:
-        subscription_service.cancel_subscription(their_subscription, immediate=True)
+        subscription_lifecycle.cancel_subscription(their_subscription, immediate=True)
         url = reverse("api:list_my_memberships")
         response = subscriber_client.get(url)
         assert response.status_code == 200

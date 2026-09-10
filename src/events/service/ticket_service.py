@@ -655,7 +655,7 @@ def check_online_payment_prerequisites(org: "Organization") -> None:
     """Validate that an organization may sell anything online.
 
     Shared by the ticket-tier gate below and the subscription-plan gate in
-    ``subscription_service``: both must keep the monthly platform-fee invoice
+    ``subscription.lifecycle``: both must keep the monthly platform-fee invoice
     issuable, so neither may go online without Stripe Connect or (when platform
     fees apply) complete billing info.
 

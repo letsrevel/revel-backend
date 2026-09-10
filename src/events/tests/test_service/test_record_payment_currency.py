@@ -22,8 +22,9 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_service
-from events.service.subscription_service import InitialPayment
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
+from events.service.subscription.lifecycle import InitialPayment
 
 pytestmark = pytest.mark.django_db
 
@@ -37,7 +38,7 @@ def tier(organization: Organization) -> MembershipTier:
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
     """A monthly EUR plan."""
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier,
         name="Monthly",
         price=Decimal("10.00"),
@@ -69,10 +70,10 @@ class TestRecordPaymentCurrency:
         subscriber: RevelUser,
         organization_owner_user: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
 
         with pytest.raises(HttpError) as excinfo:
-            subscription_service.record_payment(
+            subscription_lifecycle.record_payment(
                 sub, amount=Decimal("1200.00"), currency="JPY", recorded_by=organization_owner_user
             )
         assert excinfo.value.status_code == 400
@@ -88,9 +89,9 @@ class TestRecordPaymentCurrency:
         subscriber: RevelUser,
         organization_owner_user: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
 
-        payment = subscription_service.record_payment(
+        payment = subscription_lifecycle.record_payment(
             sub, amount=Decimal("10.00"), currency="eur", recorded_by=organization_owner_user
         )
         assert payment.pk
@@ -106,7 +107,7 @@ class TestRecordPaymentCurrency:
     ) -> None:
         """The guard also covers the initial payment recorded with a new subscription."""
         with pytest.raises(HttpError) as excinfo:
-            subscription_service.create_subscription(
+            subscription_lifecycle.create_subscription(
                 plan,
                 subscriber,
                 initial_payment=InitialPayment(
@@ -124,7 +125,7 @@ class TestRecordPaymentCurrency:
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
-        sub = subscription_service.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
         url = reverse("api:record_subscription_payment", kwargs={"slug": organization.slug, "sub_id": sub.id})
 
         response = owner_client.post(
