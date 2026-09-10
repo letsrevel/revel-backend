@@ -516,3 +516,22 @@ def test_free_text_evaluation_tolerates_question_without_llm_guidelines(
     evaluation = SubmissionEvaluator(submission=submitted_submission, llm_evaluator=mock_evaluator).evaluate()
 
     assert evaluation.evaluation_data.ft_points_scored == Decimal("1.0")
+
+
+@pytest.mark.django_db
+def test_free_text_rejection_without_llm_guidelines_scores_zero(
+    submitted_submission: QuestionnaireSubmission,
+    mock_evaluator: MockEvaluator,
+) -> None:
+    """A rejected answer on a guideline-less question records zero free-text points (#956)."""
+    submitted_submission.questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
+    submitted_submission.questionnaire.save()
+    question = FreeTextQuestion.objects.create(
+        questionnaire=submitted_submission.questionnaire, question="Why?", order=1, llm_guidelines=None
+    )
+    FreeTextAnswer.objects.create(submission=submitted_submission, question=question, answer="Because.")
+
+    evaluation = SubmissionEvaluator(submission=submitted_submission, llm_evaluator=mock_evaluator).evaluate()
+
+    assert evaluation.evaluation_data.ft_points_scored == Decimal("0.0")
+    assert evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
