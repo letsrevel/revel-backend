@@ -66,7 +66,7 @@ def _client(user: RevelUser) -> Client:
     return client
 
 
-@mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+@mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
 def test_subscribe_to_free_plan_activates_immediately(
     mock_session: mock.Mock,
     public_org: Organization,
@@ -107,7 +107,7 @@ def test_subscribing_twice_to_a_free_plan_is_refused(
     assert response.status_code == 400, response.content
 
 
-@mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+@mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
 def test_gated_free_membership_full_lifecycle(
     mock_session: mock.Mock,
     public_org: Organization,

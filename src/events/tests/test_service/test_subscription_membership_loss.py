@@ -29,7 +29,8 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import blacklist_service, organization_service, subscription_stripe_sync
+from events.service import blacklist_service, organization_service
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -103,7 +104,7 @@ class TestBlacklistCancelsSubscription:
             cancel_at_period_end=True,
         )
 
-        with patch("events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort") as cancel:
+        with patch("events.service.subscription.stripe.checkout.cancel_stripe_subscription_best_effort") as cancel:
             with django_capture_on_commit_callbacks(execute=True):
                 blacklist_service.apply_blacklist_consequences(member_user, organization)
 
@@ -130,7 +131,7 @@ class TestBlacklistCancelsSubscription:
             status=_ACTIVE,
         )
 
-        with patch("events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort") as cancel:
+        with patch("events.service.subscription.stripe.checkout.cancel_stripe_subscription_best_effort") as cancel:
             with django_capture_on_commit_callbacks(execute=True):
                 blacklist_service.apply_blacklist_consequences(member_user, organization)
 
@@ -194,7 +195,7 @@ class TestMemberUpdateAndRemoveCancelSubscription:
             stripe_subscription_id="sub_staff_cancel",
         )
 
-        with patch("events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort") as cancel:
+        with patch("events.service.subscription.stripe.checkout.cancel_stripe_subscription_best_effort") as cancel:
             with django_capture_on_commit_callbacks(execute=True):
                 organization_service.update_member(member, status=OrganizationMember.MembershipStatus.CANCELLED)
 
@@ -239,7 +240,7 @@ class TestMemberUpdateAndRemoveCancelSubscription:
             stripe_subscription_id="sub_staff_pause",
         )
 
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as modify:
+        with patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as modify:
             organization_service.update_member(member, status=OrganizationMember.MembershipStatus.PAUSED)
 
         modify.assert_called_once()
@@ -270,7 +271,7 @@ class TestMemberUpdateAndRemoveCancelSubscription:
         )
 
         with patch(
-            "events.service.subscription_stripe_service.stripe.Subscription.modify",
+            "events.service.subscription.stripe.checkout.stripe.Subscription.modify",
             side_effect=stripe.error.APIConnectionError("boom"),
         ):
             with pytest.raises(HttpError) as exc:
@@ -302,7 +303,7 @@ class TestMemberUpdateAndRemoveCancelSubscription:
             stripe_subscription_id="sub_renewal",
         )
 
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.modify"):
+        with patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify"):
             organization_service.update_member(member, status=OrganizationMember.MembershipStatus.PAUSED)
 
         # Simulate the next billing-cycle write (renewals bump the period bounds).

@@ -35,7 +35,7 @@ def test_default_channels_are_in_app_and_telegram() -> None:
 
 
 @patch("events.tasks.send_organization_contact_message_email.delay")
-@patch("notifications.signals.contact.notification_requested.send")
+@patch("notifications.signals.notification_requested.send")
 def test_signal_dispatches_to_owner_and_edit_org_staff(
     mock_signal: MagicMock,
     mock_email: MagicMock,
@@ -87,7 +87,7 @@ def test_signal_dispatches_to_owner_and_edit_org_staff(
 
 
 @patch("events.tasks.send_organization_contact_message_email.delay")
-@patch("notifications.signals.contact.notification_requested.send")
+@patch("notifications.signals.notification_requested.send")
 def test_signal_does_not_fire_on_update(
     mock_signal: MagicMock,
     mock_email: MagicMock,

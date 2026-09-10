@@ -14,7 +14,7 @@ from aiogram.types import Message
 from asgiref.sync import sync_to_async
 
 from accounts.models import RevelUser
-from common.models import Legal
+from common.models import Legal, SiteSettings
 from telegram import keyboards
 from telegram.models import AccountOTP, TelegramUser
 
@@ -29,25 +29,26 @@ async def handle_start(message: Message, tg_user: TelegramUser, state: FSMContex
 
     logger.info("telegram_user_started_bot", telegram_id=tg_user.telegram_id)
 
+    base_url = str((await sync_to_async(SiteSettings.get_solo)()).frontend_base_url).rstrip("/")
+    consent = (
+        f"By using this bot, you agree to our Terms and Conditions and Privacy Policy.\n"
+        f"- {base_url}/legal/terms\n"
+        f"- {base_url}/legal/privacy"
+    )
+
     # Check if account is linked
     if tg_user.user_id:
         user = tg_user.user
         assert user is not None  # user_id is set, so user must exist
         await message.answer(
-            f"Welcome back, {user.display_name}!\n\n"
-            f"I am your Revel companion.\n\n"
-            f"By using this bot, you agree to our Terms and Conditions and Privacy Policy.\n"
-            f"- https://beta.letsrevel.io/legal/terms\n"
-            f"- https://beta.letsrevel.io/legal/privacy",
-            reply_markup=keyboards.get_main_menu_keyboard(),
+            f"Welcome back, {user.display_name}!\n\nI am your Revel companion.\n\n{consent}",
+            # Clears the legacy reply keyboard that older clients still have persisted.
+            reply_markup=keyboards.remove_keyboard,
         )
     else:
         await message.answer(
-            "Welcome to Revel!\n\n"
-            "To get started, link your Revel account using the /connect command.\n\n"
-            "By using this bot, you agree to our Terms and Conditions and Privacy Policy.\n"
-            "- https://beta.letsrevel.io/legal/terms\n"
-            "- https://beta.letsrevel.io/legal/privacy",
+            f"Welcome to Revel!\n\nTo get started, link your Revel account using the /connect command.\n\n{consent}",
+            reply_markup=keyboards.remove_keyboard,
         )
 
     # Re-activate the user if they were deactivated or previously blocked the bot
@@ -61,9 +62,9 @@ async def handle_cancel(message: Message, state: FSMContext) -> None:
     current_state = await state.get_state()
     if current_state is not None:
         await state.clear()
-        await message.reply("Action cancelled.", reply_markup=keyboards.get_main_menu_keyboard())
+        await message.reply("Action cancelled.", reply_markup=keyboards.remove_keyboard)
     else:
-        await message.reply("Nothing to cancel.", reply_markup=keyboards.get_main_menu_keyboard())
+        await message.reply("Nothing to cancel.", reply_markup=keyboards.remove_keyboard)
 
 
 _ALLOWED_TAGS = {"b", "strong", "i", "em", "u", "s", "strike", "del", "span", "code", "pre", "a"}
@@ -157,5 +158,5 @@ async def handle_unsubscribe(message: Message, tg_user: TelegramUser, user: Reve
     await message.answer(
         "✅ You have been unsubscribed from all Telegram notifications.\n\n"
         "You will no longer receive notification messages from Revel on Telegram.\n\n"
-        "To re-enable notifications, use /preferences or update your settings in the Revel app."
+        "To re-enable notifications, update your settings in the Revel app."
     )

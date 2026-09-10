@@ -8,6 +8,7 @@ from django.db import transaction
 from django.db.models import Prefetch
 
 from questionnaires.llms.llm_interfaces import AnswerToEvaluate, EvaluationResponse, FreeTextEvaluator
+from questionnaires.utils.applicability import compute_applicable_ids
 
 from .models import (
     EvaluationAuditData,
@@ -79,39 +80,29 @@ class SubmissionEvaluator:
         self._compute_applicable_questions()
 
     def _compute_applicable_questions(self) -> None:
-        """Compute which questions are applicable based on conditional dependencies.
+        """Compute which questions are applicable, from the answers already persisted.
 
-        A question is applicable if:
-        1. It has no depends_on_option, OR its depends_on_option was selected
-        2. Its section (if any) is also applicable
-
-        A section is applicable if:
-        1. It has no depends_on_option, OR its depends_on_option was selected
+        The predicate itself lives in :func:`questionnaires.utils.applicability.compute_applicable_ids`
+        so that the evaluator and the submit path cannot drift apart; only the
+        source of the selected options differs (persisted answers here, the
+        inbound payload there).
         """
         # Get all selected option IDs from the submission
         self._selected_option_ids = set(
             self.submission.multiplechoiceanswer_answers.values_list("option_id", flat=True)
         )
 
-        # Determine applicable sections
-        for section in self.questionnaire.sections.all():
-            if section.depends_on_option_id is None or section.depends_on_option_id in self._selected_option_ids:
-                self._applicable_section_ids.add(section.id)
-
-        # Determine applicable MC questions
-        for mc_question in self.questionnaire.multiplechoicequestion_questions.all():
-            if self._is_question_applicable(mc_question):
-                self._applicable_mcq_ids.add(mc_question.id)
-
-        # Determine applicable FT questions
-        for ft_question in self.questionnaire.freetextquestion_questions.all():
-            if self._is_question_applicable(ft_question):
-                self._applicable_ftq_ids.add(ft_question.id)
-
-        # Determine applicable FU questions
-        for fu_question in self.questionnaire.fileuploadquestion_questions.all():
-            if self._is_question_applicable(fu_question):
-                self._applicable_fuq_ids.add(fu_question.id)
+        applicable = compute_applicable_ids(
+            sections=self.questionnaire.sections.all(),
+            mc_questions=self.questionnaire.multiplechoicequestion_questions.all(),
+            ft_questions=self.questionnaire.freetextquestion_questions.all(),
+            fu_questions=self.questionnaire.fileuploadquestion_questions.all(),
+            selected_option_ids=self._selected_option_ids,
+        )
+        self._applicable_section_ids = applicable.sections
+        self._applicable_mcq_ids = applicable.multiple_choice
+        self._applicable_ftq_ids = applicable.free_text
+        self._applicable_fuq_ids = applicable.file_upload
 
         logger.debug(
             "questionnaire_applicable_questions_computed",
@@ -122,18 +113,6 @@ class SubmissionEvaluator:
             applicable_ftq=len(self._applicable_ftq_ids),
             applicable_fuq=len(self._applicable_fuq_ids),
         )
-
-    def _is_question_applicable(self, question: MultipleChoiceQuestion | FreeTextQuestion | FileUploadQuestion) -> bool:
-        """Check if a question is applicable based on its dependencies."""
-        # Check section applicability
-        if question.section_id is not None and question.section_id not in self._applicable_section_ids:
-            return False
-
-        # Check direct option dependency
-        if question.depends_on_option_id is not None and question.depends_on_option_id not in self._selected_option_ids:
-            return False
-
-        return True
 
     @transaction.atomic
     def evaluate(self) -> QuestionnaireEvaluation:

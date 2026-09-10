@@ -11,7 +11,7 @@ from common.models import SiteSettings
 from events.models import Event, Ticket, TicketTier
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
-from notifications.service.notification_helpers import format_event_datetime
+from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -131,17 +131,6 @@ def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, 
     }
 
 
-def _build_ticket_refunded_context(ticket: Ticket, refund_amount: str | None = None) -> dict[str, t.Any]:
-    """Build notification context for TICKET_REFUNDED."""
-    return {
-        "ticket_id": str(ticket.id),
-        "ticket_reference": str(ticket.id),
-        "event_id": str(ticket.event.id),
-        "event_name": ticket.event.name,
-        "refund_amount": refund_amount or str(ticket.tier.price),
-    }
-
-
 def _send_ticket_created_notifications(ticket: Ticket) -> None:
     """Send notifications for newly created ticket.
 
@@ -179,15 +168,12 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
         "include_ics": False,
         "include_pkpass": False,
     }
-    staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_CREATED)
-    for staff_user in staff_and_owners:
-        if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_CREATED):
-            notification_requested.send(
-                sender=Ticket,
-                user=staff_user,
-                notification_type=NotificationType.TICKET_CREATED,
-                context=staff_context,
-            )
+    notify_org_staff(
+        organization_id=ticket.event.organization_id,
+        notification_type=NotificationType.TICKET_CREATED,
+        context=staff_context,
+        sender=Ticket,
+    )
 
 
 def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
@@ -290,14 +276,14 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
             "include_ics": False,
             "include_pkpass": False,
         }
-        for staff_user in staff_and_owners:
-            if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_CREATED):
-                notification_requested.send(
-                    sender=Ticket,
-                    user=staff_user,
-                    notification_type=NotificationType.TICKET_CREATED,
-                    context=staff_context,
-                )
+        notify_org_staff(
+            organization_id=event.organization_id,
+            notification_type=NotificationType.TICKET_CREATED,
+            context=staff_context,
+            sender=Ticket,
+            # Reuse the list hoisted above: one staff query for the whole batch.
+            recipients=staff_and_owners,
+        )
 
 
 def _send_ticket_activated_notification(ticket: Ticket, old_status: str) -> None:
@@ -357,53 +343,12 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
         "ticket_holder_name": ticket.user.get_display_name(),
         "ticket_holder_email": ticket.user.email,
     }
-    staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_CANCELLED)
-    for staff_user in staff_and_owners:
-        if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_CANCELLED):
-            notification_requested.send(
-                sender=Ticket,
-                user=staff_user,
-                notification_type=NotificationType.TICKET_CANCELLED,
-                context=staff_context,
-            )
-
-
-def _send_ticket_refunded_notifications(ticket: Ticket) -> None:
-    """Send notifications when ticket is refunded.
-
-    Notifies both the ticket holder and organization staff/owners about the refund.
-    Includes refund amount from ticket._refund_amount if available.
-
-    Args:
-        ticket: The ticket being refunded
-    """
-    # Add refund amount if available
-    refund_amount_value = getattr(ticket, "_refund_amount", None)
-    context = _build_ticket_refunded_context(ticket, refund_amount_value)
-
-    # Notify ticket holder
-    notification_requested.send(
+    notify_org_staff(
+        organization_id=ticket.event.organization_id,
+        notification_type=NotificationType.TICKET_CANCELLED,
+        context=staff_context,
         sender=Ticket,
-        user=ticket.user,
-        notification_type=NotificationType.TICKET_REFUNDED,
-        context=context,
     )
-
-    # Notify staff/owners with additional context
-    staff_context = {
-        **context,
-        "ticket_holder_name": ticket.user.get_display_name(),
-        "ticket_holder_email": ticket.user.email,
-    }
-    staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_REFUNDED)
-    for staff_user in staff_and_owners:
-        if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_REFUNDED):
-            notification_requested.send(
-                sender=Ticket,
-                user=staff_user,
-                notification_type=NotificationType.TICKET_REFUNDED,
-                context=staff_context,
-            )
 
 
 def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None:
@@ -425,16 +370,12 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
                 "include_ics": False,
                 "include_pkpass": False,
             }
-            staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_CREATED)
-            for staff_user in list(staff_and_owners):
-                prefs = getattr(staff_user, "notification_preferences", None)
-                if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_CREATED):
-                    notification_requested.send(
-                        sender=Ticket,
-                        user=staff_user,
-                        notification_type=NotificationType.TICKET_CREATED,
-                        context=staff_context,
-                    )
+            notify_org_staff(
+                organization_id=ticket.event.organization_id,
+                notification_type=NotificationType.TICKET_CREATED,
+                context=staff_context,
+                sender=Ticket,
+            )
     elif ticket.status == Ticket.TicketStatus.CANCELLED:
         # TICKET_CANCELLED fires for every cancellation. When a Stripe refund is
         # involved, the cancellation_service / Stripe webhook handler set

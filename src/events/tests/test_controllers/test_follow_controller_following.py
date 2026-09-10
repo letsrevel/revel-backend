@@ -318,7 +318,7 @@ class TestFollowEndToEndFlow:
 
         # 1. Follow the organization
         follow_url = reverse("api:follow_organization", kwargs={"slug": organization.slug})
-        with patch("events.service.follow_service.notification_requested.send"):
+        with patch("notifications.signals.notification_requested.send"):
             with django_capture_on_commit_callbacks(execute=True):
                 response = client.post(
                     follow_url,
@@ -353,7 +353,7 @@ class TestFollowEndToEndFlow:
         assert response.json()["count"] == 0
 
         # 5. Re-follow (reactivation)
-        with patch("events.service.follow_service.notification_requested.send"):
+        with patch("notifications.signals.notification_requested.send"):
             with django_capture_on_commit_callbacks(execute=True):
                 response = client.post(
                     follow_url,

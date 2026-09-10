@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import Model, QuerySet
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -12,8 +13,7 @@ from common.models import SiteSettings
 from events.models import EventSeries, Organization, OrganizationMember
 from events.models.follow import EventSeriesFollow, OrganizationFollow
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_staff_for_notification
-from notifications.signals import notification_requested
+from notifications.service.notification_helpers import notify_org_staff
 
 # Type variable for follow models
 FollowT = t.TypeVar("FollowT", OrganizationFollow, EventSeriesFollow)
@@ -117,7 +117,7 @@ def follow_organization(
         HttpError: If the organization is not visible to the user
     """
     if not Organization.objects.for_user(user).filter(pk=organization.pk).exists():
-        raise HttpError(404, "Organization not found")
+        raise HttpError(404, str(_("Organization not found")))
 
     follow = _get_or_reactivate_follow(
         model=OrganizationFollow,
@@ -125,7 +125,7 @@ def follow_organization(
         target_field="organization",
         target=organization,
         defaults={"notify_new_events": notify_new_events, "notify_announcements": notify_announcements},
-        already_following_message="Already following this organization",
+        already_following_message=str(_("Already following this organization")),
     )
 
     # Ensure organization is attached for schema serialization
@@ -139,23 +139,21 @@ def _send_org_follow_notification(user: RevelUser, organization: Organization) -
     """Send notification to org admins about a new follower."""
 
     def send() -> None:
-        staff_users = get_staff_for_notification(organization.id, NotificationType.ORGANIZATION_FOLLOWED)
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
-        for staff_user in staff_users:
-            notification_requested.send(
-                sender=OrganizationFollow,
-                user=staff_user,
-                notification_type=NotificationType.ORGANIZATION_FOLLOWED,
-                context={
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "follower_id": str(user.id),
-                    "follower_name": user.display_name,
-                    "follower_email": user.email,
-                    "frontend_url": f"{frontend_base_url}/org/{organization.slug}",
-                },
-            )
+        notify_org_staff(
+            organization_id=organization.id,
+            notification_type=NotificationType.ORGANIZATION_FOLLOWED,
+            context={
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "follower_id": str(user.id),
+                "follower_name": user.display_name,
+                "follower_email": user.email,
+                "frontend_url": f"{frontend_base_url}/org/{organization.slug}",
+            },
+            sender=OrganizationFollow,
+        )
 
     transaction.on_commit(send)
 
@@ -175,7 +173,7 @@ def unfollow_organization(user: RevelUser, organization: Organization) -> None:
         user=user,
         target_field="organization",
         target=organization,
-        not_following_message="Not following this organization",
+        not_following_message=str(_("Not following this organization")),
     )
 
 
@@ -208,7 +206,7 @@ def update_organization_follow_preferences(
     try:
         follow = OrganizationFollow.objects.get(user=user, organization=organization, is_archived=False)
     except OrganizationFollow.DoesNotExist:
-        raise HttpError(400, "Not following this organization")
+        raise HttpError(400, str(_("Not following this organization")))
 
     update_fields: list[str] = []
     if notify_new_events is not None:
@@ -247,7 +245,7 @@ def follow_event_series(
         HttpError: If the event series is not visible to the user
     """
     if not EventSeries.objects.for_user(user).filter(pk=event_series.pk).exists():
-        raise HttpError(404, "Event series not found")
+        raise HttpError(404, str(_("Event series not found")))
 
     follow = _get_or_reactivate_follow(
         model=EventSeriesFollow,
@@ -255,7 +253,7 @@ def follow_event_series(
         target_field="event_series",
         target=event_series,
         defaults={"notify_new_events": notify_new_events},
-        already_following_message="Already following this series",
+        already_following_message=str(_("Already following this series")),
     )
 
     # Ensure event_series is attached for schema serialization
@@ -270,25 +268,23 @@ def _send_series_follow_notification(user: RevelUser, event_series: EventSeries)
 
     def send() -> None:
         organization = event_series.organization
-        staff_users = get_staff_for_notification(organization.id, NotificationType.EVENT_SERIES_FOLLOWED)
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
-        for staff_user in staff_users:
-            notification_requested.send(
-                sender=EventSeriesFollow,
-                user=staff_user,
-                notification_type=NotificationType.EVENT_SERIES_FOLLOWED,
-                context={
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "event_series_id": str(event_series.id),
-                    "event_series_name": event_series.name,
-                    "follower_id": str(user.id),
-                    "follower_name": user.display_name,
-                    "follower_email": user.email,
-                    "frontend_url": f"{frontend_base_url}/events/{organization.slug}/series/{event_series.slug}",
-                },
-            )
+        notify_org_staff(
+            organization_id=organization.id,
+            notification_type=NotificationType.EVENT_SERIES_FOLLOWED,
+            context={
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "event_series_id": str(event_series.id),
+                "event_series_name": event_series.name,
+                "follower_id": str(user.id),
+                "follower_name": user.display_name,
+                "follower_email": user.email,
+                "frontend_url": f"{frontend_base_url}/events/{organization.slug}/series/{event_series.slug}",
+            },
+            sender=EventSeriesFollow,
+        )
 
     transaction.on_commit(send)
 
@@ -308,7 +304,7 @@ def unfollow_event_series(user: RevelUser, event_series: EventSeries) -> None:
         user=user,
         target_field="event_series",
         target=event_series,
-        not_following_message="Not following this series",
+        not_following_message=str(_("Not following this series")),
     )
 
 
@@ -339,7 +335,7 @@ def update_event_series_follow_preferences(
     try:
         follow = EventSeriesFollow.objects.get(user=user, event_series=event_series, is_archived=False)
     except EventSeriesFollow.DoesNotExist:
-        raise HttpError(400, "Not following this series")
+        raise HttpError(400, str(_("Not following this series")))
 
     if notify_new_events is not None:
         follow.notify_new_events = notify_new_events

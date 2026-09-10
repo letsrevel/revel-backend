@@ -22,7 +22,7 @@ from events.service import series_pass_file_service, series_pass_service
 from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.utils import apple_wallet_configured, google_wallet_configured
 from wallet.google import service as google_wallet_service
-from wallet.schema import GoogleWalletSaveUrlSchema
+from wallet.schema import GoogleWalletSaveUrlSchema, WalletPassErrorSchema
 
 
 class _CheckoutResult(t.TypedDict):
@@ -227,7 +227,7 @@ class SeriesPassController(UserAwareController):
         url_name="series_pass_apple_wallet_pass",
         summary="Download Apple Wallet pass",
         description="Generate and download an Apple Wallet pass (.pkpass) for a held series pass.",
-        response={200: None, 404: None, 503: None},
+        response={200: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
         auth=I18nJWTAuth(),
     )
     def download_series_pass_pkpass(self, held_pass_id: UUID) -> HttpResponse:
@@ -238,7 +238,7 @@ class SeriesPassController(UserAwareController):
         )
 
         if not apple_wallet_configured():
-            raise HttpError(503, "Apple Wallet is not configured")
+            raise HttpError(503, str(_("Apple Wallet is not configured")))
 
         pkpass_bytes = series_pass_file_service.get_or_generate_pass_pkpass(held_pass)
 
@@ -254,7 +254,7 @@ class SeriesPassController(UserAwareController):
         description="Redirects to a signed 'save to Google Wallet' link for a held series pass. "
         "Pass ?format=json to receive the link as JSON instead — browser clients cannot "
         "follow the cross-origin redirect.",
-        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: None},
+        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
         auth=I18nJWTAuth(),
     )
     def google_wallet_save_link(
@@ -272,7 +272,7 @@ class SeriesPassController(UserAwareController):
         )
 
         if not google_wallet_configured():
-            raise HttpError(503, "Google Wallet is not configured")
+            raise HttpError(503, str(_("Google Wallet is not configured")))
 
         save_url = google_wallet_service.series_pass_save_url(held_pass)
         if format == "json":

@@ -21,8 +21,9 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_service
-from events.service.subscription_notifications import last_paid_amounts
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import notifications as subscription_notifications
+from events.service.subscription.notifications import last_paid_amounts
 from events.utils import format_organization_datetime
 from notifications.context_schemas import (
     NOTIFICATION_CONTEXT_SCHEMAS,
@@ -155,7 +156,7 @@ class TestDispatchWiring:
         """
         with mock.patch("notifications.tasks.dispatch_notification.delay") as mock_delay:
             with django_capture_on_commit_callbacks(execute=True):
-                subscription_service._dispatch_renewal_succeeded(helper_subscription)
+                subscription_notifications._dispatch_renewal_succeeded(helper_subscription)
         notif = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
@@ -166,7 +167,7 @@ class TestDispatchWiring:
 @pytest.mark.django_db
 class TestDispatchHelpers:
     def test_renewal_succeeded_creates_notification(self, helper_subscription: MembershipSubscription) -> None:
-        subscription_service._dispatch_renewal_succeeded(helper_subscription)
+        subscription_notifications._dispatch_renewal_succeeded(helper_subscription)
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
@@ -186,7 +187,9 @@ class TestDispatchHelpers:
         (higher) figure.
         """
         assert helper_subscription.plan.price == Decimal("10.00")
-        subscription_service._dispatch_renewal_succeeded(helper_subscription, amount=Decimal("8.00"), currency="EUR")
+        subscription_notifications._dispatch_renewal_succeeded(
+            helper_subscription, amount=Decimal("8.00"), currency="EUR"
+        )
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
@@ -197,7 +200,7 @@ class TestDispatchHelpers:
         self, helper_subscription: MembershipSubscription
     ) -> None:
         """Callers with no real figure keep the pre-existing behaviour."""
-        subscription_service._dispatch_renewal_succeeded(helper_subscription, amount=None)
+        subscription_notifications._dispatch_renewal_succeeded(helper_subscription, amount=None)
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
@@ -206,7 +209,7 @@ class TestDispatchHelpers:
 
     def test_payment_failed_quotes_amount_at_stake(self, helper_subscription: MembershipSubscription) -> None:
         """The failed-payment warning quotes the invoice's amount, not plan.price."""
-        subscription_service._dispatch_payment_failed(
+        subscription_notifications._dispatch_payment_failed(
             helper_subscription,
             grace_period_end=timezone.now() + timedelta(days=7),
             is_online=True,
@@ -220,7 +223,7 @@ class TestDispatchHelpers:
         assert n.context["amount"] == "8.00 EUR"
 
     def test_payment_failed_includes_is_online(self, helper_subscription: MembershipSubscription) -> None:
-        subscription_service._dispatch_payment_failed(
+        subscription_notifications._dispatch_payment_failed(
             helper_subscription,
             grace_period_end=timezone.now() + timedelta(days=7),
             is_online=True,
@@ -235,7 +238,7 @@ class TestDispatchHelpers:
     def test_expired_includes_revival_window_when_within(self, helper_subscription: MembershipSubscription) -> None:
         helper_subscription.expired_at = timezone.now() - timedelta(days=5)
         helper_subscription.save(update_fields=["expired_at"])
-        subscription_service._dispatch_subscription_expired(helper_subscription)
+        subscription_notifications._dispatch_subscription_expired(helper_subscription)
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
@@ -252,7 +255,7 @@ class TestDispatchHelpers:
         organization.save(update_fields=["membership_subscription_revival_window_days"])
         helper_subscription.expired_at = timezone.now()
         helper_subscription.save(update_fields=["expired_at"])
-        subscription_service._dispatch_subscription_expired(helper_subscription)
+        subscription_notifications._dispatch_subscription_expired(helper_subscription)
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
@@ -261,7 +264,7 @@ class TestDispatchHelpers:
         assert "revival_window_end" not in n.context
 
     def test_cancellation_confirmed_immediate(self, helper_subscription: MembershipSubscription) -> None:
-        subscription_service._dispatch_cancellation_confirmed(helper_subscription, immediate=True)
+        subscription_notifications._dispatch_cancellation_confirmed(helper_subscription, immediate=True)
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
@@ -269,7 +272,7 @@ class TestDispatchHelpers:
         assert n.context["immediate"] is True
 
     def test_cancellation_confirmed_at_period_end(self, helper_subscription: MembershipSubscription) -> None:
-        subscription_service._dispatch_cancellation_confirmed(helper_subscription, immediate=False)
+        subscription_notifications._dispatch_cancellation_confirmed(helper_subscription, immediate=False)
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
@@ -286,7 +289,7 @@ class TestDispatchHelpers:
     ) -> None:
         """OFFLINE plans have no self-service billing page, so the CTA is absent."""
         assert helper_subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE.value
-        subscription_service._dispatch_renewal_succeeded(helper_subscription)
+        subscription_notifications._dispatch_renewal_succeeded(helper_subscription)
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
@@ -307,7 +310,7 @@ class TestDispatchHelpers:
             current_period_start=timezone.now() - timedelta(days=10),
             current_period_end=timezone.now() + timedelta(days=20),
         )
-        subscription_service._dispatch_renewal_succeeded(sub)
+        subscription_notifications._dispatch_renewal_succeeded(sub)
         n = Notification.objects.get(
             user=nonmember_user,
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
@@ -327,7 +330,7 @@ class TestDispatchHelpers:
         would 404 the one CTA an offline subscriber in dunning gets.
         """
         assert helper_subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE.value
-        subscription_service._dispatch_payment_failed(
+        subscription_notifications._dispatch_payment_failed(
             helper_subscription,
             grace_period_end=timezone.now() + timedelta(days=7),
             is_online=False,
@@ -341,7 +344,7 @@ class TestDispatchHelpers:
 
     def test_expired_omits_revival_when_expired_at_none(self, helper_subscription: MembershipSubscription) -> None:
         assert helper_subscription.expired_at is None
-        subscription_service._dispatch_subscription_expired(helper_subscription)
+        subscription_notifications._dispatch_subscription_expired(helper_subscription)
         n = Notification.objects.get(
             user=helper_subscription.user,
             notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
@@ -350,7 +353,7 @@ class TestDispatchHelpers:
         assert "revival_window_end" not in n.context
 
     def test_price_migration_includes_old_and_new(self, helper_subscription: MembershipSubscription) -> None:
-        subscription_service._dispatch_price_migration(
+        subscription_notifications._dispatch_price_migration(
             helper_subscription,
             old_price=Decimal("10.00"),
             new_price=Decimal("12.00"),
@@ -378,7 +381,7 @@ class TestOfflineDispatchSites:
     ) -> None:
         """ACTIVE subscription receiving a payment → RENEWAL_SUCCEEDED fires."""
         assert helper_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
-        subscription_service.record_payment(
+        subscription_lifecycle.record_payment(
             helper_subscription,
             amount=helper_plan.price,
             currency=helper_plan.currency,
@@ -400,7 +403,7 @@ class TestOfflineDispatchSites:
         a grandfathered price, a part payment) but the receipt always quoted
         ``plan.price``, telling the member they paid a sum they never did.
         """
-        subscription_service.record_payment(
+        subscription_lifecycle.record_payment(
             helper_subscription,
             amount=Decimal("7.50"),
             currency="EUR",
@@ -421,7 +424,7 @@ class TestOfflineDispatchSites:
         """PAST_DUE subscription receiving a payment → RENEWAL_SUCCEEDED fires."""
         helper_subscription.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
         helper_subscription.save(update_fields=["status"])
-        subscription_service.record_payment(
+        subscription_lifecycle.record_payment(
             helper_subscription,
             amount=helper_plan.price,
             currency=helper_plan.currency,
@@ -445,7 +448,7 @@ class TestOfflineDispatchSites:
             organization=organization,
             status=MembershipSubscription.SubscriptionStatus.PENDING,
         )
-        subscription_service.record_payment(
+        subscription_lifecycle.record_payment(
             sub,
             amount=helper_plan.price,
             currency=helper_plan.currency,
@@ -463,7 +466,7 @@ class TestOfflineDispatchSites:
         nonmember_user: RevelUser,
     ) -> None:
         """dispatch_renewal_notification=False suppresses the notification."""
-        subscription_service.record_payment(
+        subscription_lifecycle.record_payment(
             helper_subscription,
             amount=helper_plan.price,
             currency=helper_plan.currency,
@@ -481,7 +484,7 @@ class TestOfflineDispatchSites:
         nonmember_user: RevelUser,
     ) -> None:
         """Immediate cancel from ACTIVE → CANCELLATION_CONFIRMED with immediate=True."""
-        subscription_service.cancel_subscription(helper_subscription, immediate=True)
+        subscription_lifecycle.cancel_subscription(helper_subscription, immediate=True)
         notifs = Notification.objects.filter(
             user=nonmember_user,
             notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
@@ -495,8 +498,8 @@ class TestOfflineDispatchSites:
         nonmember_user: RevelUser,
     ) -> None:
         """at-period-end cancel fires once; idempotent re-call does not re-fire."""
-        subscription_service.cancel_subscription(helper_subscription, immediate=False)
-        subscription_service.cancel_subscription(helper_subscription, immediate=False)  # idempotent
+        subscription_lifecycle.cancel_subscription(helper_subscription, immediate=False)
+        subscription_lifecycle.cancel_subscription(helper_subscription, immediate=False)  # idempotent
         notifs = Notification.objects.filter(
             user=nonmember_user,
             notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
@@ -522,7 +525,7 @@ class TestOnlineCancelDispatch:
         """ONLINE cancel routes through cancel_online_subscription but must
         still fire CANCELLATION_CONFIRMED exactly once (the local-side gate)."""
         from events.models import CustomerProfile
-        from events.service import subscription_stripe_service
+        from events.service.subscription.stripe import checkout as subscription_stripe_checkout
 
         online_plan = MembershipSubscriptionPlan.objects.create(
             tier=helper_tier,
@@ -557,8 +560,8 @@ class TestOnlineCancelDispatch:
             subscription.save(update_fields=["status", "cancelled_at", "cancel_at_period_end", "updated_at"])
             return subscription
 
-        monkeypatch.setattr(subscription_stripe_service, "cancel_online_subscription", fake_cancel_online)
-        subscription_service.cancel_subscription(sub, immediate=True)
+        monkeypatch.setattr(subscription_stripe_checkout, "cancel_online_subscription", fake_cancel_online)
+        subscription_lifecycle.cancel_subscription(sub, immediate=True)
 
         notifs = Notification.objects.filter(
             user=nonmember_user,

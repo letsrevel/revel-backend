@@ -12,7 +12,7 @@ from uuid import UUID
 
 from events.models import Event, HeldSeriesPass, Ticket
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_staff_for_notification
+from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
 
 
@@ -62,16 +62,12 @@ def send_series_pass_purchased(held_pass_id: UUID) -> None:
         "holder_name": held_pass.user.get_display_name(),
         "holder_email": held_pass.user.email,
     }
-    organization_id = held_pass.series_pass.event_series.organization_id
-    staff_and_owners = get_staff_for_notification(organization_id, NotificationType.SERIES_PASS_PURCHASED)
-    for staff_user in staff_and_owners:
-        if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.SERIES_PASS_PURCHASED):
-            notification_requested.send(
-                sender=HeldSeriesPass,
-                user=staff_user,
-                notification_type=NotificationType.SERIES_PASS_PURCHASED,
-                context=staff_context,
-            )
+    notify_org_staff(
+        organization_id=held_pass.series_pass.event_series.organization_id,
+        notification_type=NotificationType.SERIES_PASS_PURCHASED,
+        context=staff_context,
+        sender=HeldSeriesPass,
+    )
 
 
 def send_series_pass_extended(held_pass_id: UUID, event_ids: list[UUID]) -> None:
@@ -160,13 +156,9 @@ def send_series_pass_cancelled(held_pass_id: UUID, refunded_total: Decimal, canc
         "holder_name": held_pass.user.get_display_name(),
         "holder_email": held_pass.user.email,
     }
-    organization_id = held_pass.series_pass.event_series.organization_id
-    staff_and_owners = get_staff_for_notification(organization_id, NotificationType.SERIES_PASS_CANCELLED)
-    for staff_user in staff_and_owners:
-        if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.SERIES_PASS_CANCELLED):
-            notification_requested.send(
-                sender=HeldSeriesPass,
-                user=staff_user,
-                notification_type=NotificationType.SERIES_PASS_CANCELLED,
-                context=staff_context,
-            )
+    notify_org_staff(
+        organization_id=held_pass.series_pass.event_series.organization_id,
+        notification_type=NotificationType.SERIES_PASS_CANCELLED,
+        context=staff_context,
+        sender=HeldSeriesPass,
+    )

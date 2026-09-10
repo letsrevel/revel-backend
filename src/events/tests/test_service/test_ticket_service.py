@@ -28,22 +28,51 @@ from events.service.ticket_service import get_eligible_tiers
 pytestmark = pytest.mark.django_db
 
 
+@pytest.fixture
+def org_owner(revel_user_factory: RevelUserFactory) -> RevelUser:
+    """Organization owner."""
+    return revel_user_factory(username="org_owner")
+
+
+@pytest.fixture
+def org(org_owner: RevelUser) -> Organization:
+    """Test organization."""
+    return Organization.objects.create(
+        name="Test Org",
+        slug="test-org",
+        owner=org_owner,
+    )
+
+
+@pytest.fixture
+def member_user(revel_user_factory: RevelUserFactory, org: Organization) -> RevelUser:
+    """Active organization member."""
+    user = revel_user_factory(username="member_user")
+    OrganizationMember.objects.create(
+        organization=org,
+        user=user,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+    return user
+
+
+@pytest.fixture
+def event(org: Organization) -> Event:
+    """Test event."""
+    return Event.objects.create(
+        organization=org,
+        name="Test Event",
+        slug="test-event",
+        event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
+        status=Event.EventStatus.OPEN,
+        start=timezone.now() + timedelta(days=7),
+        requires_ticket=True,
+    )
+
+
 class TestGetEligibleTiersVisibility:
     """Tests for visibility logic in get_eligible_tiers."""
-
-    @pytest.fixture
-    def org_owner(self, revel_user_factory: RevelUserFactory) -> RevelUser:
-        """Organization owner."""
-        return revel_user_factory(username="org_owner")
-
-    @pytest.fixture
-    def org(self, org_owner: RevelUser) -> Organization:
-        """Test organization."""
-        return Organization.objects.create(
-            name="Test Org",
-            slug="test-org",
-            owner=org_owner,
-        )
 
     @pytest.fixture
     def staff_user(self, revel_user_factory: RevelUserFactory, org: Organization) -> RevelUser:
@@ -57,17 +86,6 @@ class TestGetEligibleTiersVisibility:
         return user
 
     @pytest.fixture
-    def member_user(self, revel_user_factory: RevelUserFactory, org: Organization) -> RevelUser:
-        """Active organization member."""
-        user = revel_user_factory(username="member_user")
-        OrganizationMember.objects.create(
-            organization=org,
-            user=user,
-            status=OrganizationMember.MembershipStatus.ACTIVE,
-        )
-        return user
-
-    @pytest.fixture
     def invited_user(self, revel_user_factory: RevelUserFactory) -> RevelUser:
         """User who will be invited to events."""
         return revel_user_factory(username="invited_user")
@@ -76,20 +94,6 @@ class TestGetEligibleTiersVisibility:
     def regular_user(self, revel_user_factory: RevelUserFactory) -> RevelUser:
         """Regular user with no special status."""
         return revel_user_factory(username="regular_user")
-
-    @pytest.fixture
-    def event(self, org: Organization) -> Event:
-        """Test event."""
-        return Event.objects.create(
-            organization=org,
-            name="Test Event",
-            slug="test-event",
-            event_type=Event.EventType.PUBLIC,
-            visibility=Event.Visibility.PUBLIC,
-            status=Event.EventStatus.OPEN,
-            start=timezone.now() + timedelta(days=7),
-            requires_ticket=True,
-        )
 
     @pytest.fixture
     def public_tier(self, event: Event) -> TicketTier:
@@ -217,31 +221,6 @@ class TestGetEligibleTiersPurchasableBy:
     """Tests for purchasable_by logic in get_eligible_tiers."""
 
     @pytest.fixture
-    def org_owner(self, revel_user_factory: RevelUserFactory) -> RevelUser:
-        """Organization owner."""
-        return revel_user_factory(username="org_owner")
-
-    @pytest.fixture
-    def org(self, org_owner: RevelUser) -> Organization:
-        """Test organization."""
-        return Organization.objects.create(
-            name="Test Org",
-            slug="test-org",
-            owner=org_owner,
-        )
-
-    @pytest.fixture
-    def member_user(self, revel_user_factory: RevelUserFactory, org: Organization) -> RevelUser:
-        """Active organization member."""
-        user = revel_user_factory(username="member_user")
-        OrganizationMember.objects.create(
-            organization=org,
-            user=user,
-            status=OrganizationMember.MembershipStatus.ACTIVE,
-        )
-        return user
-
-    @pytest.fixture
     def invited_user(self, revel_user_factory: RevelUserFactory) -> RevelUser:
         """User who will be invited."""
         return revel_user_factory(username="invited_user")
@@ -250,20 +229,6 @@ class TestGetEligibleTiersPurchasableBy:
     def regular_user(self, revel_user_factory: RevelUserFactory) -> RevelUser:
         """Regular user."""
         return revel_user_factory(username="regular_user")
-
-    @pytest.fixture
-    def event(self, org: Organization) -> Event:
-        """Test event."""
-        return Event.objects.create(
-            organization=org,
-            name="Test Event",
-            slug="test-event",
-            event_type=Event.EventType.PUBLIC,
-            visibility=Event.Visibility.PUBLIC,
-            status=Event.EventStatus.OPEN,
-            start=timezone.now() + timedelta(days=7),
-            requires_ticket=True,
-        )
 
     def test_public_purchasable_by_allows_anyone(
         self,
@@ -358,37 +323,9 @@ class TestGetEligibleTiersSalesWindow:
     """Tests for sales window logic in get_eligible_tiers."""
 
     @pytest.fixture
-    def org_owner(self, revel_user_factory: RevelUserFactory) -> RevelUser:
-        """Organization owner."""
-        return revel_user_factory(username="org_owner")
-
-    @pytest.fixture
-    def org(self, org_owner: RevelUser) -> Organization:
-        """Test organization."""
-        return Organization.objects.create(
-            name="Test Org",
-            slug="test-org",
-            owner=org_owner,
-        )
-
-    @pytest.fixture
     def regular_user(self, revel_user_factory: RevelUserFactory) -> RevelUser:
         """Regular user."""
         return revel_user_factory(username="regular_user")
-
-    @pytest.fixture
-    def event(self, org: Organization) -> Event:
-        """Test event."""
-        return Event.objects.create(
-            organization=org,
-            name="Test Event",
-            slug="test-event",
-            event_type=Event.EventType.PUBLIC,
-            visibility=Event.Visibility.PUBLIC,
-            status=Event.EventStatus.OPEN,
-            start=timezone.now() + timedelta(days=7),
-            requires_ticket=True,
-        )
 
     def test_tier_before_sales_start_excluded(
         self,
@@ -444,20 +381,6 @@ class TestGetEligibleTiersMembershipRestriction:
     """Tests for membership tier restriction logic in get_eligible_tiers."""
 
     @pytest.fixture
-    def org_owner(self, revel_user_factory: RevelUserFactory) -> RevelUser:
-        """Organization owner."""
-        return revel_user_factory(username="org_owner")
-
-    @pytest.fixture
-    def org(self, org_owner: RevelUser) -> Organization:
-        """Test organization."""
-        return Organization.objects.create(
-            name="Test Org",
-            slug="test-org",
-            owner=org_owner,
-        )
-
-    @pytest.fixture
     def vip_membership_tier(self, org: Organization) -> MembershipTier:
         """VIP membership tier."""
         return MembershipTier.objects.create(
@@ -489,20 +412,6 @@ class TestGetEligibleTiersMembershipRestriction:
             status=OrganizationMember.MembershipStatus.ACTIVE,
         )
         return user
-
-    @pytest.fixture
-    def event(self, org: Organization) -> Event:
-        """Test event."""
-        return Event.objects.create(
-            organization=org,
-            name="Test Event",
-            slug="test-event",
-            event_type=Event.EventType.PUBLIC,
-            visibility=Event.Visibility.PUBLIC,
-            status=Event.EventStatus.OPEN,
-            start=timezone.now() + timedelta(days=7),
-            requires_ticket=True,
-        )
 
     def test_tier_restricted_to_specific_membership(
         self,
@@ -550,45 +459,6 @@ class TestGetEligibleTiersMembershipRestriction:
 
 class TestGetEligibleTiersCombinedScenarios:
     """Tests for combined scenarios in get_eligible_tiers."""
-
-    @pytest.fixture
-    def org_owner(self, revel_user_factory: RevelUserFactory) -> RevelUser:
-        """Organization owner."""
-        return revel_user_factory(username="org_owner")
-
-    @pytest.fixture
-    def org(self, org_owner: RevelUser) -> Organization:
-        """Test organization."""
-        return Organization.objects.create(
-            name="Test Org",
-            slug="test-org",
-            owner=org_owner,
-        )
-
-    @pytest.fixture
-    def member_user(self, revel_user_factory: RevelUserFactory, org: Organization) -> RevelUser:
-        """Active organization member."""
-        user = revel_user_factory(username="member_user")
-        OrganizationMember.objects.create(
-            organization=org,
-            user=user,
-            status=OrganizationMember.MembershipStatus.ACTIVE,
-        )
-        return user
-
-    @pytest.fixture
-    def event(self, org: Organization) -> Event:
-        """Test event."""
-        return Event.objects.create(
-            organization=org,
-            name="Test Event",
-            slug="test-event",
-            event_type=Event.EventType.PUBLIC,
-            visibility=Event.Visibility.PUBLIC,
-            status=Event.EventStatus.OPEN,
-            start=timezone.now() + timedelta(days=7),
-            requires_ticket=True,
-        )
 
     def test_visible_but_not_purchasable_excluded(
         self,
@@ -680,51 +550,12 @@ class TestGetEligibleTiersQueryOptimization:
     """Tests for query optimization in get_eligible_tiers."""
 
     @pytest.fixture
-    def org_owner(self, revel_user_factory: RevelUserFactory) -> RevelUser:
-        """Organization owner."""
-        return revel_user_factory(username="org_owner")
-
-    @pytest.fixture
-    def org(self, org_owner: RevelUser) -> Organization:
-        """Test organization."""
-        return Organization.objects.create(
-            name="Test Org",
-            slug="test-org",
-            owner=org_owner,
-        )
-
-    @pytest.fixture
     def vip_membership_tier(self, org: Organization) -> MembershipTier:
         """VIP membership tier."""
         return MembershipTier.objects.create(
             organization=org,
             name="VIP Membership",
         )
-
-    @pytest.fixture
-    def event(self, org: Organization) -> Event:
-        """Test event."""
-        return Event.objects.create(
-            organization=org,
-            name="Test Event",
-            slug="test-event",
-            event_type=Event.EventType.PUBLIC,
-            visibility=Event.Visibility.PUBLIC,
-            status=Event.EventStatus.OPEN,
-            start=timezone.now() + timedelta(days=7),
-            requires_ticket=True,
-        )
-
-    @pytest.fixture
-    def member_user(self, revel_user_factory: RevelUserFactory, org: Organization) -> RevelUser:
-        """Active organization member."""
-        user = revel_user_factory(username="member_user")
-        OrganizationMember.objects.create(
-            organization=org,
-            user=user,
-            status=OrganizationMember.MembershipStatus.ACTIVE,
-        )
-        return user
 
     def test_no_n_plus_one_with_membership_restrictions(
         self,
@@ -768,20 +599,6 @@ class TestGetEligibleTiersQueryOptimization:
 
 class TestCheckInTicketAtTheDoor:
     """Tests for check_in_ticket rejecting AT_THE_DOOR PENDING tickets."""
-
-    @pytest.fixture
-    def org_owner(self, revel_user_factory: RevelUserFactory) -> RevelUser:
-        """Organization owner."""
-        return revel_user_factory(username="org_owner")
-
-    @pytest.fixture
-    def org(self, org_owner: RevelUser) -> Organization:
-        """Test organization."""
-        return Organization.objects.create(
-            name="Test Org",
-            slug="test-org",
-            owner=org_owner,
-        )
 
     @pytest.fixture
     def event(self, org: Organization) -> Event:

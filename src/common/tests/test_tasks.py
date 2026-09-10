@@ -7,8 +7,8 @@ import pytest
 from django.core.files.base import ContentFile
 
 from common.models import FileUploadAudit, QuarantinedFile
+from common.service.upload_service import safe_save_uploaded_file
 from common.tasks import notify_malware_detected, scan_for_malware
-from common.utils import safe_save_uploaded_file
 from conftest import RevelUserFactory
 from events.models import AdditionalResource, Organization
 

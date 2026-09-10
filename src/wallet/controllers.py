@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
+from django.utils.translation import gettext_lazy as _
 from ninja import Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -19,7 +20,7 @@ from events.service import ticket_file_service
 from events.service.ticket_file_service import get_apple_pass_generator
 from events.utils import create_membership_pdf
 from wallet.google import service as google_wallet_service
-from wallet.schema import GoogleWalletSaveUrlSchema
+from wallet.schema import GoogleWalletSaveUrlSchema, WalletPassErrorSchema
 
 
 @api_controller("/tickets", tags=["Tickets - Wallet"], auth=I18nJWTAuth())
@@ -38,7 +39,7 @@ class TicketWalletController(UserAwareController):
         url_name="ticket_apple_wallet_pass",
         summary="Download Apple Wallet pass",
         description="Generate and download an Apple Wallet pass (.pkpass) for a ticket.",
-        response={200: None, 404: None, 503: None},
+        response={200: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
     )
     def download_apple_pass(self, ticket_id: UUID) -> HttpResponse:
         """Download an Apple Wallet pass for a ticket.
@@ -52,7 +53,7 @@ class TicketWalletController(UserAwareController):
         ticket = self.get_object_or_exception(self.get_queryset(), id=ticket_id)
 
         if not ticket.apple_pass_available:
-            raise HttpError(503, "Apple Wallet is not configured")
+            raise HttpError(503, str(_("Apple Wallet is not configured")))
 
         pkpass_bytes = ticket_file_service.get_or_generate_pkpass(ticket)
 
@@ -68,7 +69,7 @@ class TicketWalletController(UserAwareController):
         description="Redirects to a signed 'save to Google Wallet' link for a ticket. "
         "Pass ?format=json to receive the link as JSON instead — browser clients cannot "
         "follow the cross-origin redirect.",
-        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: None},
+        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
     )
     def google_wallet_save_link(
         self,
@@ -83,7 +84,7 @@ class TicketWalletController(UserAwareController):
         ticket = self.get_object_or_exception(self.get_queryset(), id=ticket_id)
 
         if not ticket.google_pass_available:
-            raise HttpError(503, "Google Wallet is not configured")
+            raise HttpError(503, str(_("Google Wallet is not configured")))
 
         save_url = google_wallet_service.ticket_save_url(ticket)
         if format == "json":
@@ -96,7 +97,7 @@ class TicketWalletController(UserAwareController):
         summary="Download Apple Wallet pass via signed link",
         description="Auth-free pkpass download guarded by an HMAC signature and expiry; "
         "used by the Add to Apple Wallet badge in ticket emails.",
-        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: None},
+        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: WalletPassErrorSchema | ErrorDetail},
         auth=None,
     )
     def download_apple_pass_signed(
@@ -114,13 +115,13 @@ class TicketWalletController(UserAwareController):
         try:
             expires = int(exp)
         except ValueError:
-            raise HttpError(403, "Invalid link")
+            raise HttpError(403, str(_("Invalid link")))
         if expires <= time.time():
-            raise HttpError(410, "Link expired")
+            raise HttpError(410, str(_("Link expired")))
 
         request_path = self.context.request.path  # type: ignore[union-attr]
         if not verify_signature(request_path, exp, sig):
-            raise HttpError(403, "Invalid link")
+            raise HttpError(403, str(_("Invalid link")))
 
         ticket = self.get_object_or_exception(
             Ticket.objects.full().filter(status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING]),
@@ -128,7 +129,7 @@ class TicketWalletController(UserAwareController):
         )
 
         if not ticket.apple_pass_available:
-            raise HttpError(503, "Apple Wallet is not configured")
+            raise HttpError(503, str(_("Apple Wallet is not configured")))
 
         pkpass_bytes = ticket_file_service.get_or_generate_pkpass(ticket)
 
@@ -192,13 +193,13 @@ class MembershipWalletController(UserAwareController):
         "/wallet/apple",
         url_name="me_membership_apple_wallet_pass",
         summary="Download Apple Wallet membership card",
-        response={200: None, 404: None, 503: None},
+        response={200: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
     )
     def download_apple_pass(self, slug: str) -> HttpResponse:
         """Generate and download the caller's membership card (.pkpass)."""
         member = self.get_member(slug)
         if not member.apple_pass_available:
-            raise HttpError(503, "Apple Wallet is not configured")
+            raise HttpError(503, str(_("Apple Wallet is not configured")))
         pkpass_bytes = get_apple_pass_generator().generate_membership_pass(member)
         response = HttpResponse(pkpass_bytes, content_type="application/vnd.apple.pkpass")
         safe_name = "membership_" + str(member.id).split("-")[0]
@@ -209,7 +210,7 @@ class MembershipWalletController(UserAwareController):
         "/wallet/google",
         url_name="me_membership_google_wallet_pass",
         summary="Add membership card to Google Wallet",
-        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: None},
+        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
     )
     def google_wallet_save_link(
         self,
@@ -219,7 +220,7 @@ class MembershipWalletController(UserAwareController):
         """Redirect to (or return as JSON) the Google Wallet save link for the caller's card."""
         member = self.get_member(slug)
         if not member.google_pass_available:
-            raise HttpError(503, "Google Wallet is not configured")
+            raise HttpError(503, str(_("Google Wallet is not configured")))
         save_url = google_wallet_service.membership_save_url(member)
         if format == "json":
             return 200, GoogleWalletSaveUrlSchema(save_url=save_url)
@@ -253,7 +254,7 @@ class MembershipWalletSignedController(UserAwareController):
         summary="Download Apple Wallet membership card via signed link",
         description="Auth-free pkpass download guarded by an HMAC signature and expiry; "
         "used by the Add to Apple Wallet badge in membership emails.",
-        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: None},
+        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: WalletPassErrorSchema | ErrorDetail},
         auth=None,
     )
     def download_apple_pass_signed(
@@ -266,19 +267,19 @@ class MembershipWalletSignedController(UserAwareController):
         try:
             expires = int(exp)
         except ValueError:
-            raise HttpError(403, "Invalid link")
+            raise HttpError(403, str(_("Invalid link")))
         if expires <= time.time():
-            raise HttpError(410, "Link expired")
+            raise HttpError(410, str(_("Link expired")))
         request_path = self.context.request.path  # type: ignore[union-attr]
         if not verify_signature(request_path, exp, sig):
-            raise HttpError(403, "Invalid link")
+            raise HttpError(403, str(_("Invalid link")))
 
         member = self.get_object_or_exception(
             OrganizationMember.objects.for_visibility().select_related("organization", "tier", "user"),
             id=member_id,
         )
         if not member.apple_pass_available:
-            raise HttpError(503, "Apple Wallet is not configured")
+            raise HttpError(503, str(_("Apple Wallet is not configured")))
         pkpass_bytes = get_apple_pass_generator().generate_membership_pass(member)
         response = HttpResponse(pkpass_bytes, content_type="application/vnd.apple.pkpass")
         safe_name = "membership_" + str(member.id).split("-")[0]

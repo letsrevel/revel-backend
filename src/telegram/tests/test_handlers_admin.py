@@ -2,6 +2,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aiogram import Bot
 
 from accounts.models import RevelUser
 from telegram.fsm import BroadcastStates
@@ -9,6 +10,7 @@ from telegram.models import TelegramUser
 from telegram.routers.admin import (
     cb_broadcast_confirm,
     handle_potential_broadcast_message,
+    router,
 )
 
 pytestmark = pytest.mark.django_db
@@ -19,6 +21,13 @@ pytestmark = pytest.mark.django_db
 
 async def _get_tg_user(user: RevelUser) -> TelegramUser:
     return await TelegramUser.objects.select_related("user").aget(user=user)
+
+
+async def _catch_all_matches(message: AsyncMock, bot: Bot) -> bool:
+    """Run the registered filter chain of the broadcast catch-all against a message."""
+    handler = next(h for h in router.message.handlers if h.callback is handle_potential_broadcast_message)
+    matched, _ = await handler.check(message, bot=bot)
+    return matched
 
 
 # ── handle_potential_broadcast_message ───────────────────────────────
@@ -58,7 +67,7 @@ class TestHandlePotentialBroadcastMessage:
     ) -> None:
         tg_user = await _get_tg_user(django_superuser)
         mock_message.text = "Hello everyone!"
-        mock_fsm_context.get_state.return_value = "PreferenceStates:choosing_action"
+        mock_fsm_context.get_state.return_value = "BroadcastStates:confirming_broadcast"
 
         await handle_potential_broadcast_message(
             mock_message, user=django_superuser, tg_user=tg_user, state=mock_fsm_context
@@ -83,6 +92,31 @@ class TestHandlePotentialBroadcastMessage:
 
         mock_fsm_context.set_state.assert_not_awaited()
         mock_message.reply.assert_not_awaited()
+
+
+# ── broadcast catch-all filters ──────────────────────────────────────
+
+
+class TestBroadcastCatchAllFilters:
+    """The catch-all must only claim free text, never commands (issue: unknown /commands)."""
+
+    @pytest.fixture
+    def dummy_bot(self) -> Bot:
+        """A syntactically valid Bot; the catch-all's filters never touch the API."""
+        return Bot(token="123456789:AAtesttoken")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("text", ["/foo", "/preferences", "/start", "/help@revelbot"])
+    async def test_commands_are_not_claimed(self, mock_message: AsyncMock, dummy_bot: Bot, text: str) -> None:
+        mock_message.text = text
+
+        assert await _catch_all_matches(mock_message, dummy_bot) is False
+
+    @pytest.mark.asyncio
+    async def test_free_text_is_still_claimed(self, mock_message: AsyncMock, dummy_bot: Bot) -> None:
+        mock_message.text = "Hello everyone!"
+
+        assert await _catch_all_matches(mock_message, dummy_bot) is True
 
 
 # ── cb_broadcast_confirm ─────────────────────────────────────────────

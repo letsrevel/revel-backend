@@ -18,7 +18,8 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_service, subscription_stripe_service
+from events.service.subscription import plans as subscription_plans
+from events.service.subscription.stripe import checkout as subscription_stripe_checkout
 
 
 @pytest.fixture
@@ -58,7 +59,7 @@ class TestPlanCurrencyChange:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         )
         with pytest.raises(HttpError) as exc_info:
-            subscription_service.update_plan(offline_plan, currency="USD")
+            subscription_plans.update_plan(offline_plan, currency="USD")
         assert exc_info.value.status_code == 400
         offline_plan.refresh_from_db()
         # Plan currency unchanged
@@ -68,7 +69,7 @@ class TestPlanCurrencyChange:
         self,
         offline_plan: MembershipSubscriptionPlan,
     ) -> None:
-        subscription_service.update_plan(offline_plan, currency="USD")
+        subscription_plans.update_plan(offline_plan, currency="USD")
         offline_plan.refresh_from_db()
         assert offline_plan.currency == "USD"
 
@@ -86,7 +87,7 @@ class TestPlanCurrencyChange:
             status=MembershipSubscription.SubscriptionStatus.CANCELLED,
             cancelled_at=timezone.now() - timedelta(days=1),
         )
-        subscription_service.update_plan(offline_plan, currency="USD")
+        subscription_plans.update_plan(offline_plan, currency="USD")
         offline_plan.refresh_from_db()
         assert offline_plan.currency == "USD"
 
@@ -104,7 +105,7 @@ class TestPlanCurrencyChange:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         )
         # Should NOT raise — currency value is unchanged
-        subscription_service.update_plan(offline_plan, currency="EUR")
+        subscription_plans.update_plan(offline_plan, currency="EUR")
         offline_plan.refresh_from_db()
         assert offline_plan.currency == "EUR"
 
@@ -122,7 +123,7 @@ class TestPlanCurrencyChange:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         )
         # Should NOT raise — case-insensitive comparison
-        subscription_service.update_plan(offline_plan, currency="eur")
+        subscription_plans.update_plan(offline_plan, currency="eur")
 
 
 @pytest.mark.django_db
@@ -141,7 +142,7 @@ class TestPlanPriceChange:
             organization=organization,
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         )
-        subscription_service.update_plan(offline_plan, price=Decimal("15.00"))
+        subscription_plans.update_plan(offline_plan, price=Decimal("15.00"))
         offline_plan.refresh_from_db()
         assert offline_plan.price == Decimal("15.00")
 
@@ -184,15 +185,15 @@ class TestUpdateSubscriptionPrice:
         )
 
         with (
-            mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve") as mock_retrieve,
-            mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as mock_modify,
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve") as mock_retrieve,
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
         ):
             mock_retrieve.return_value = {
                 "id": "sub_test_xyz",
                 "items": {"data": [{"id": "si_test", "price": {"id": "price_old"}}]},
             }
             mock_modify.return_value = {"id": "sub_test_xyz", "status": "active"}
-            result = subscription_stripe_service.update_subscription_price(sub)
+            result = subscription_stripe_checkout.update_subscription_price(sub)
 
         assert result is True
         mock_modify.assert_called_once()
@@ -218,14 +219,14 @@ class TestUpdateSubscriptionPrice:
         )
 
         with (
-            mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve") as mock_retrieve,
-            mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as mock_modify,
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve") as mock_retrieve,
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
         ):
             mock_retrieve.return_value = {
                 "id": "sub_test_xyz",
                 "items": {"data": [{"id": "si_test", "price": {"id": online_plan_g2.stripe_price_id}}]},
             }
-            result = subscription_stripe_service.update_subscription_price(sub)
+            result = subscription_stripe_checkout.update_subscription_price(sub)
 
         assert result is False
         mock_modify.assert_not_called()
@@ -243,7 +244,7 @@ class TestUpdateSubscriptionPrice:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
             stripe_subscription_id=None,
         )
-        result = subscription_stripe_service.update_subscription_price(sub)
+        result = subscription_stripe_checkout.update_subscription_price(sub)
         assert result is False
 
 
@@ -278,7 +279,7 @@ class TestMigratePlanSubscribers:
         )
         offline_plan.price = old_price + Decimal("5")
         offline_plan.save(update_fields=["price"])
-        result = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
         assert result["migrated"] == 1
         assert result["skipped"] == 0
         assert result["failed"] == 0
@@ -325,10 +326,10 @@ class TestMigratePlanSubscribers:
         offline_plan.price = old_price + Decimal("5")
         offline_plan.save(update_fields=["price"])
 
-        first = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        first = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
         assert first["migrated"] == 1
 
-        second = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        second = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
         assert second["migrated"] == 0
         assert second["skipped"] == 1
         assert (
@@ -383,7 +384,7 @@ class TestMigratePlanSubscribers:
         offline_plan.price = old_price + Decimal("5")
         offline_plan.save(update_fields=["price"])
 
-        result = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
         assert result["migrated"] == 1
 
         notification = Notification.objects.get(
@@ -412,7 +413,7 @@ class TestMigratePlanSubscribers:
             organization=organization,
             status=MembershipSubscription.SubscriptionStatus.PENDING,
         )
-        result = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
         assert result["migrated"] == 1
         assert result["skipped"] == 0
         assert result["failed"] == 0
@@ -444,12 +445,12 @@ class TestMigratePlanSubscribers:
             stripe_subscription_id="sub_test_xyz",
         )
         # Stripe says sub is already on the plan's stripe_price_id → no-op
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve") as mock_ret:
+        with patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve") as mock_ret:
             mock_ret.return_value = {
                 "id": "sub_test_xyz",
                 "items": {"data": [{"id": "si_test", "price": {"id": online_plan_g2.stripe_price_id}}]},
             }
-            result = subscription_service.migrate_plan_subscribers(online_plan_g2, initiated_by=organization_owner_user)
+            result = subscription_plans.migrate_plan_subscribers(online_plan_g2, initiated_by=organization_owner_user)
         assert result["skipped"] == 1
         assert result["migrated"] == 0
         # No notification fired for skipped subs
@@ -474,7 +475,7 @@ class TestMigratePlanSubscribers:
             status=MembershipSubscription.SubscriptionStatus.CANCELLED,
             cancelled_at=timezone.now() - timedelta(days=1),
         )
-        result = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
         assert result["migrated"] == 0
         assert result["skipped"] == 0
         assert Notification.objects.count() == 0
@@ -517,13 +518,13 @@ class TestMigratePlanSubscribers:
 
         with (
             patch(
-                "events.service.subscription_stripe_service.stripe.Subscription.retrieve",
+                "events.service.subscription.stripe.checkout.stripe.Subscription.retrieve",
                 side_effect=fake_retrieve,
             ),
-            patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as mock_modify,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
         ):
             mock_modify.return_value = {"id": "sub_test_x", "status": "active"}
-            result = subscription_service.migrate_plan_subscribers(online_plan_g2, initiated_by=organization_owner_user)
+            result = subscription_plans.migrate_plan_subscribers(online_plan_g2, initiated_by=organization_owner_user)
 
         assert result["failed"] == 1
         assert result["migrated"] == 1
@@ -555,7 +556,7 @@ class TestMigratePlanSubscribers:
             period_start=timezone.now() - timedelta(days=30),
             period_end=timezone.now(),
         )
-        result = subscription_service.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
         assert result["migrated"] == 1
         # Notification should have been dispatched with old_amount reflecting 8.00
         notif = Notification.objects.get(

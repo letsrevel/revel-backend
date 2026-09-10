@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -73,7 +74,7 @@ class EventPublicSeatingController(EventPublicBaseController):
         """Return the render-ready seating chart (sectors, seats, price categories) for the event's venue."""
         event = self.get_one(event_id)
         if not event.venue_id:
-            raise HttpError(404, "This event has no venue.")
+            raise HttpError(404, str(_("This event has no venue.")))
         # build_chart does its own prefetch (sectors, seats, price categories) — pass a plain venue.
         venue = models.Venue.objects.get(pk=event.venue_id)
         return chart_service.build_chart(venue)

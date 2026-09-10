@@ -13,8 +13,7 @@ from common.models import SiteSettings
 from events.models import Event, Payment, Ticket
 from notifications.context_schemas import EventRefundSummaryContext, RefundUnmatchedCandidate
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_staff_for_notification
-from notifications.service.notification_helpers import format_event_datetime
+from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -150,16 +149,12 @@ def _send_refund_notifications(payment: Payment) -> None:
         "ticket_holder_email": payment.user.email,
     }
 
-    staff_and_owners = get_staff_for_notification(event.organization_id, NotificationType.TICKET_REFUNDED)
-    for staff_user in staff_and_owners:
-        prefs = getattr(staff_user, "notification_preferences", None)
-        if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_REFUNDED):
-            notification_requested.send(
-                sender=_send_refund_notifications,
-                user=staff_user,
-                notification_type=NotificationType.TICKET_REFUNDED,
-                context=staff_context,
-            )
+    notify_org_staff(
+        organization_id=event.organization_id,
+        notification_type=NotificationType.TICKET_REFUNDED,
+        context=staff_context,
+        sender=_send_refund_notifications,
+    )
 
     logger.info(
         "refund_notifications_sent",
@@ -242,18 +237,12 @@ def send_refund_unmatched(
         "resolve_url": resolve_url,
     }
 
-    recipients = get_staff_for_notification(organization.id, NotificationType.REFUND_UNMATCHED)
-    notified = 0
-    for staff_user in recipients:
-        prefs = getattr(staff_user, "notification_preferences", None)
-        if prefs and prefs.is_notification_type_enabled(NotificationType.REFUND_UNMATCHED):
-            notification_requested.send(
-                sender=send_refund_unmatched,
-                user=staff_user,
-                notification_type=NotificationType.REFUND_UNMATCHED,
-                context=context,
-            )
-            notified += 1
+    notified = notify_org_staff(
+        organization_id=organization.id,
+        notification_type=NotificationType.REFUND_UNMATCHED,
+        context=context,
+        sender=send_refund_unmatched,
+    )
 
     logger.info(
         "refund_unmatched_notifications_sent",
@@ -302,18 +291,12 @@ def send_event_refund_summary(
         "still_active": still_active,
     }
 
-    recipients = get_staff_for_notification(event.organization_id, NotificationType.EVENT_REFUND_SUMMARY)
-    notified = 0
-    for staff_user in recipients:
-        prefs = getattr(staff_user, "notification_preferences", None)
-        if prefs and prefs.is_notification_type_enabled(NotificationType.EVENT_REFUND_SUMMARY):
-            notification_requested.send(
-                sender=send_event_refund_summary,
-                user=staff_user,
-                notification_type=NotificationType.EVENT_REFUND_SUMMARY,
-                context=context,
-            )
-            notified += 1
+    notified = notify_org_staff(
+        organization_id=event.organization_id,
+        notification_type=NotificationType.EVENT_REFUND_SUMMARY,
+        context=context,
+        sender=send_event_refund_summary,
+    )
 
     logger.info(
         "event_refund_summary_notifications_sent",

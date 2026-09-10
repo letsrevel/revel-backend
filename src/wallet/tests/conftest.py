@@ -425,3 +425,147 @@ def google_wallet_not_configured(settings: t.Any) -> None:
     """Clear Google Wallet settings for tests."""
     settings.GOOGLE_WALLET_ISSUER_ID = ""
     settings.GOOGLE_WALLET_SERVICE_ACCOUNT_KEY_PATH = ""
+
+
+# --- Seating Fixtures (shared by the Apple and Google rail tests) ---
+
+
+@pytest.fixture
+def seated_venue(organization: t.Any) -> t.Any:
+    """A venue with an address, for testing venue/sector/seat resolution."""
+    from events.models import Venue
+
+    return Venue.objects.create(organization=organization, name="Teatro Grande", address="1 Teatro Street")
+
+
+@pytest.fixture
+def seated_sector(seated_venue: t.Any) -> t.Any:
+    """The sector the seated tier sells."""
+    from events.models import VenueSector
+
+    return VenueSector.objects.create(venue=seated_venue, name="Platea")
+
+
+@pytest.fixture
+def seated_seat(seated_sector: t.Any) -> t.Any:
+    """A materialized seat in the sector."""
+    from events.models import VenueSeat
+
+    return VenueSeat.objects.create(sector=seated_sector, label="A-7", row_label="A", number=7)
+
+
+@pytest.fixture
+def seated_tier(event: t.Any, seated_venue: t.Any, seated_sector: t.Any) -> t.Any:
+    """A tier wired to the venue/sector, for user-choice seat assignment."""
+    from decimal import Decimal
+
+    from events.models import TicketTier
+
+    return TicketTier.objects.create(
+        event=event,
+        name="Platea Tier",
+        price=Decimal("10.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.OFFLINE,
+        venue=seated_venue,
+        sector=seated_sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+    )
+
+
+@pytest.fixture
+def seated_ticket(event: t.Any, member_user: t.Any, seated_tier: t.Any, seated_seat: t.Any) -> t.Any:
+    """A ticket for the seated tier, with a materialized seat assigned."""
+    from events.models import Ticket
+
+    return Ticket.objects.create(
+        event=event,
+        user=member_user,
+        tier=seated_tier,
+        seat=seated_seat,
+        status=Ticket.TicketStatus.ACTIVE,
+        guest_name=member_user.get_display_name(),
+    )
+
+
+# --- Series Pass Fixtures (shared by the Apple and Google rail tests) ---
+
+
+@pytest.fixture
+def event_series(organization: t.Any) -> t.Any:
+    """Event series for wallet series pass tests."""
+    from events.models import EventSeries
+
+    return EventSeries.objects.create(organization=organization, name="Wallet Series", slug="wallet-series")
+
+
+@pytest.fixture
+def series_pass(event_series: t.Any) -> t.Any:
+    """Series pass product for wallet tests."""
+    from decimal import Decimal
+
+    from events.models import SeriesPass, TicketTier
+
+    return SeriesPass.objects.create(
+        event_series=event_series,
+        name="Wallet Season Pass",
+        price=Decimal("60.00"),
+        pro_rata_discount=Decimal("10.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.FREE,
+    )
+
+
+def make_covered_event(
+    organization: t.Any,
+    event_series: t.Any,
+    series_pass: t.Any,
+    name: str,
+    slug: str,
+    start_delta: timedelta,
+) -> t.Any:
+    """Create an OPEN covered event with a linked tier."""
+    from django.utils import timezone
+
+    from events.models import Event, SeriesPassTierLink, TicketTier
+
+    now = timezone.now()
+    covered = Event.objects.create(
+        organization=organization,
+        event_series=event_series,
+        name=name,
+        slug=slug,
+        start=now + start_delta,
+        end=now + start_delta + timedelta(hours=2),
+        requires_ticket=True,
+        status=Event.EventStatus.OPEN,
+    )
+    tier = TicketTier.objects.create(
+        event=covered, name=f"{name} Tier", price=10, currency="EUR", payment_method=TicketTier.PaymentMethod.FREE
+    )
+    SeriesPassTierLink.objects.create(series_pass=series_pass, event=covered, tier=tier)
+    return covered
+
+
+@pytest.fixture
+def covered_events(organization: t.Any, event_series: t.Any, series_pass: t.Any) -> list[t.Any]:
+    """Two future covered events (7 and 14 days out)."""
+    return [
+        make_covered_event(organization, event_series, series_pass, "Covered One", "covered-one", timedelta(days=7)),
+        make_covered_event(organization, event_series, series_pass, "Covered Two", "covered-two", timedelta(days=14)),
+    ]
+
+
+@pytest.fixture
+def held_pass(series_pass: t.Any, member_user: t.Any, covered_events: list[t.Any]) -> t.Any:
+    """An active held series pass covering two future events."""
+    from decimal import Decimal
+
+    from events.models import HeldSeriesPass
+
+    return HeldSeriesPass.objects.create(
+        series_pass=series_pass,
+        user=member_user,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+        price_paid=Decimal("50.00"),
+    )

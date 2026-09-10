@@ -18,7 +18,6 @@ from zoneinfo import ZoneInfo
 
 import structlog
 from django.conf import settings
-from django.utils import timezone
 
 from events.models import HeldSeriesPass, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
@@ -45,6 +44,7 @@ from wallet.apple.images import (
 )
 from wallet.apple.signer import ApplePassSigner, ApplePassSignerError
 from wallet.pricing import resolve_ticket_price
+from wallet.resolution import resolve_series_window, resolve_ticket_location
 
 logger = structlog.get_logger(__name__)
 
@@ -282,58 +282,41 @@ class ApplePassGenerator:
         """Build PassData from a HeldSeriesPass model.
 
         A series pass has no single covered event, so event-shaped fields are
-        derived from the covered events as a whole: ``event_start``/
-        ``relevant_date`` use the soonest upcoming covered event (falling back
-        to the most recent past one once all events have elapsed), while
-        ``event_end``/``expiration_date`` use the latest-ending covered event
-        so the pass stays valid until the series is fully over. Branding
-        (logo) and address use the same representative event, mirroring
-        ``_build_pass_data``'s per-event resolution.
+        derived from the covered events as a whole by
+        :func:`wallet.resolution.resolve_series_window` (shared with the Google
+        rail): ``event_start``/``relevant_date`` use the soonest upcoming
+        covered event (falling back to the most recent past one once all events
+        have elapsed), while ``event_end``/``expiration_date`` use the
+        latest-ending covered event so the pass stays valid until the series is
+        fully over. Only the logo is rail-specific — Apple embeds the bytes.
         """
         series_pass = held_pass.series_pass
         event_series = series_pass.event_series
         org = event_series.organization
 
-        events = [link.event for link in series_pass.tier_links.select_related("event").all()]
-        now = timezone.now()
-        upcoming = sorted((event for event in events if event.end >= now), key=lambda event: event.start)
-        representative_event = upcoming[0] if upcoming else (max(events, key=lambda event: event.start, default=None))
-
-        if representative_event is not None:
-            logo_image = resolve_cover_art(representative_event) or generate_fallback_logo(org)
-            venue = representative_event.venue
-            address = (venue.full_address() if venue else None) or representative_event.address or None
-            venue_name = venue.name if venue else None
-            event_tz = get_event_timezone(representative_event)
-            event_start = representative_event.start
-        else:
-            # Defensive fallback: a purchasable series pass always covers at least
-            # two events, so this only guards against an edge case with none.
-            logo_image = generate_fallback_logo(org)
-            address = None
-            venue_name = None
-            event_tz = get_organization_timezone(org)
-            event_start = held_pass.created_at
-
-        event_end = max((event.end for event in events), default=event_start)
+        window = resolve_series_window(held_pass)
+        representative_event = window.representative_event
+        logo_image = (resolve_cover_art(representative_event) if representative_event else None) or (
+            generate_fallback_logo(org)
+        )
 
         return PassData(
             serial_number=str(held_pass.id),
             description=f"Series Pass for {event_series.name}",
             organization_name=org.name,
             event_name=series_pass.name,
-            event_start=event_start,
-            event_end=event_end,
-            event_tz=event_tz,
-            address=address,
+            event_start=window.start,
+            event_end=window.end,
+            event_tz=window.tz,
+            address=window.address,
             ticket_tier="Series Pass",
             ticket_price=format_price(held_pass.price_paid, series_pass.currency),
             colors=get_theme_colors(),
             logo_image=logo_image,
             barcode_message=held_pass.qr_payload,
-            relevant_date=event_start,
-            expiration_date=event_end + PASS_EXPIRATION_GRACE_PERIOD,
-            venue_name=venue_name,
+            relevant_date=window.start,
+            expiration_date=window.end + PASS_EXPIRATION_GRACE_PERIOD,
+            venue_name=window.venue_name,
         )
 
     def _build_pass_data(self, ticket: Ticket) -> PassData:
@@ -349,27 +332,9 @@ class ApplePassGenerator:
         # 2. ticket.payment.amount (online Stripe payment)
         # 3. the seat's category price, else tier.price (see resolve_ticket_price)
         price, currency = resolve_ticket_price(ticket)
-        ticket_price = format_price(price, currency) if price > 0 else "Free"
 
-        # Extract venue (from tier's venue, ticket's venue, or event's venue)
-        venue = None
-        if ticket.tier.venue:
-            venue = ticket.tier.venue
-        elif ticket.venue:
-            venue = ticket.venue
-        elif event.venue:
-            venue = event.venue
-        venue_name = venue.name if venue else None
-
-        # Extract sector name (from tier's sector or ticket's sector)
-        sector_name: str | None = None
-        if ticket.tier.sector:
-            sector_name = ticket.tier.sector.name
-        elif ticket.sector:
-            sector_name = ticket.sector.name
-
-        # Extract seat label
-        seat_label = ticket.seat.label if ticket.seat else None
+        # Venue, sector and seat resolution is shared with the Google rail.
+        location = resolve_ticket_location(ticket)
 
         return PassData(
             serial_number=str(ticket.id),
@@ -379,18 +344,18 @@ class ApplePassGenerator:
             event_start=event.start,
             event_end=event.end,
             event_tz=get_event_timezone(event),
-            address=(venue.full_address() if venue else None) or event.address or None,
+            address=location.address,
             ticket_tier=ticket.tier.name,
-            ticket_price=ticket_price,
+            ticket_price=format_price(price, currency),
             colors=get_theme_colors(),
             logo_image=logo_image,
             barcode_message=str(ticket.id),
             relevant_date=event.start,
             expiration_date=event.end + PASS_EXPIRATION_GRACE_PERIOD,
             guest_name=ticket.guest_name,
-            venue_name=venue_name,
-            sector_name=sector_name,
-            seat_label=seat_label,
+            venue_name=location.venue_name,
+            sector_name=location.sector.name if location.sector else None,
+            seat_label=location.seat_label,
         )
 
     def _generate_files(self, pass_json: bytes, colors: PassColors, logo_image: bytes) -> dict[str, bytes]:

@@ -770,3 +770,42 @@ class TestEventCancelledNotificationReason:
         notifications = Notification.objects.filter(user=user, notification_type=NotificationType.EVENT_CANCELLED)
         assert notifications.count() == 1, "context failed schema validation and was swallowed"
         assert notifications.get().context["refund_available"] is True
+
+
+@pytest.mark.django_db(transaction=True)
+class TestStaffNotificationPreferenceGate:
+    """Staff fan-out must respect the recipient's per-type preference.
+
+    Uses transaction=True because the ticket notifications fire from an
+    ``on_commit`` callback, which pytest-django's rollback would otherwise
+    never run.
+    """
+
+    def test_staff_who_disabled_ticket_created_is_not_notified(
+        self, public_event: t.Any, organization: Organization, member_user: RevelUser
+    ) -> None:
+        prefs = organization.owner.notification_preferences
+        prefs.notification_type_settings[NotificationType.TICKET_CREATED] = {"enabled": False}
+        prefs.save(update_fields=["notification_type_settings"])
+
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Staff Gate Tier",
+            price=Decimal("0.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.FREE,
+        )
+
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                Ticket.objects.create(
+                    event=public_event,
+                    tier=tier,
+                    user=member_user,
+                    status=Ticket.TicketStatus.ACTIVE,
+                    guest_name=member_user.get_display_name(),
+                )
+
+        notified_users = [call.kwargs["user"] for call in send_mock.call_args_list]
+        assert member_user in notified_users, "the ticket holder must still be notified"
+        assert organization.owner not in notified_users

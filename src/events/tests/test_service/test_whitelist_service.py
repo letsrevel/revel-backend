@@ -10,6 +10,7 @@ Tests cover:
 - Notification dispatching
 """
 
+import typing as t
 from unittest.mock import patch
 
 import pytest
@@ -18,6 +19,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Blacklist, Organization, WhitelistRequest
 from events.service import whitelist_service
+from notifications.enums import NotificationType
 
 pytestmark = pytest.mark.django_db
 
@@ -450,3 +452,42 @@ class TestRemoveFromWhitelist:
         )
 
         assert new_request.status == WhitelistRequest.Status.PENDING
+
+
+class TestWhitelistRequestNotificationRespectsStaffPreference:
+    """The whitelist-request fan-out must honour the recipient's per-type preference.
+
+    It used to loop over ``get_staff_for_notification`` and send unconditionally,
+    so an admin who switched WHITELIST_REQUEST_CREATED off still received it.
+    """
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_respects_staff_preference(
+        self,
+        whitelist_org: Organization,
+        whitelist_admin: RevelUser,
+        requester_user: RevelUser,
+        fuzzy_blacklist_entry: Blacklist,
+        django_capture_on_commit_callbacks: t.Any,
+        enabled: bool,
+    ) -> None:
+        """WHITELIST_REQUEST_CREATED reaches the owner only while they have it enabled."""
+        prefs = whitelist_admin.notification_preferences
+        prefs.notification_type_settings[NotificationType.WHITELIST_REQUEST_CREATED] = {"enabled": enabled}
+        prefs.save(update_fields=["notification_type_settings"])
+
+        with patch("notifications.signals.notification_requested.send") as mock_send:
+            with django_capture_on_commit_callbacks(execute=True):
+                whitelist_service.create_whitelist_request(
+                    user=requester_user,
+                    organization=whitelist_org,
+                    matched_entries=[fuzzy_blacklist_entry],
+                    message="Please review",
+                )
+
+        notified = any(
+            c.kwargs.get("notification_type") == NotificationType.WHITELIST_REQUEST_CREATED
+            and c.kwargs.get("user") == whitelist_admin
+            for c in mock_send.call_args_list
+        )
+        assert notified is enabled

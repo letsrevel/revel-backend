@@ -197,7 +197,7 @@ class TestUploadFile:
         assert response.status_code == 401
 
     @pytest.mark.django_db(transaction=True)
-    @mock.patch("common.utils.tasks.scan_for_malware")
+    @mock.patch("common.service.upload_service.tasks.scan_for_malware")
     def test_upload_file_triggers_malware_scan(
         self, mock_scan: mock.MagicMock, user_client: Client, user: RevelUser, png_bytes: bytes
     ) -> None:

@@ -29,7 +29,7 @@ from events.tasks.subscriptions import reconcile_stripe_subscriptions
 
 pytestmark = pytest.mark.django_db
 
-SESSION_RETRIEVE = "events.service.subscription_stripe_service.stripe.checkout.Session.retrieve"
+SESSION_RETRIEVE = "events.service.subscription.stripe.checkout.stripe.checkout.Session.retrieve"
 
 
 @pytest.fixture

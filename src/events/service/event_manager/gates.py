@@ -24,6 +24,7 @@ from events.models import (
     WhitelistRequest,
 )
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
+from questionnaires.utils.retake_policy import RetakeVerdict, approval_is_stale, evaluate_retake_policy
 
 from .enums import NextStep, Reasons
 from .types import EventUserEligibility
@@ -70,7 +71,7 @@ class PrivilegedAccessGate(BaseEligibilityGate):
     def check(self) -> EventUserEligibility | None:
         """Check whether a user is staff."""
         if self.event.organization.owner_id == self.user.id or self.user.id in self.handler.staff_ids:
-            return EventUserEligibility(allowed=True, tier="staff", event_id=self.event.pk)
+            return EventUserEligibility(allowed=True, event_id=self.event.pk)
         return None
 
 
@@ -457,9 +458,6 @@ class QuestionnaireGate(BaseEligibilityGate):
             True if submission has an APPROVED evaluation that has expired.
             False if no expiration configured, or submission is not approved yet.
         """
-        if org_questionnaire.max_submission_age is None:
-            return False  # No expiration configured
-
         evaluation: QuestionnaireEvaluation | None = getattr(submission, "evaluation", None)
         if evaluation is None:
             return False  # No evaluation yet - let _check_pending_review handle this
@@ -467,23 +465,29 @@ class QuestionnaireGate(BaseEligibilityGate):
         if evaluation.status != QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED:
             return False  # Not approved - let _check_failed handle this
 
-        # Check if the approved evaluation has expired
-        expiry_time = evaluation.updated_at + org_questionnaire.max_submission_age
-        return bool(expiry_time < timezone.now())
+        return approval_is_stale(org_questionnaire.max_submission_age, evaluation.updated_at)
 
     def _check_retake_eligibility(
         self,
         questionnaire: Questionnaire,
-        submission: QuestionnaireSubmission,
+        submissions: list[QuestionnaireSubmission],
         questionnaires_missing: list[uuid.UUID],
+        failed_questionnaires: list[uuid.UUID],
     ) -> EventUserEligibility | None:
-        """Check if user can retake a rejected questionnaire. Mutates questionnaires_missing list."""
-        if questionnaire.can_retake_after is None:
-            questionnaires_missing.append(questionnaire.id)
-            return None
+        """Apply the retake policy to a rejected questionnaire. Mutates both id lists."""
+        submission = submissions[0]
         assert submission.submitted_at is not None  # Submissions with evaluations always have submitted_at
-        retry_on = submission.submitted_at + questionnaire.can_retake_after
-        if retry_on < timezone.now():
+        decision = evaluate_retake_policy(
+            questionnaire,
+            last_submitted_at=submission.submitted_at,
+            attempts=len(submissions),
+            # Admission reads a NULL cooldown as "no cooldown, retake now".
+            null_cooldown_is_terminal=False,
+        )
+        if decision.verdict is RetakeVerdict.ATTEMPTS_EXHAUSTED:
+            failed_questionnaires.append(questionnaire.id)
+            return None
+        if decision.verdict is RetakeVerdict.RETAKE_NOW:
             questionnaires_missing.append(questionnaire.id)
             return None
         return EventUserEligibility(
@@ -492,7 +496,7 @@ class QuestionnaireGate(BaseEligibilityGate):
             reason_code=Reasons.QUESTIONNAIRE_FAILED.code,
             event_id=self.event.id,
             next_step=NextStep.WAIT_TO_RETAKE_QUESTIONNAIRE,
-            retry_on=retry_on,
+            retry_on=decision.retry_on,
         )
 
     def _check_missing_questionnaires(self) -> EventUserEligibility | None:
@@ -560,12 +564,11 @@ class QuestionnaireGate(BaseEligibilityGate):
                 continue
             if evaluation.status != QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED:
                 continue
-            # At this point we have a rejected evaluation
-            if 0 < questionnaire.max_attempts <= len(submissions):
-                failed_questionnaires.append(org_questionnaire.questionnaire_id)
-                continue
-            # Check if user can retake
-            if result := self._check_retake_eligibility(questionnaire, submissions[0], questionnaires_missing):
+            # At this point we have a rejected evaluation: the attempts cap and the
+            # retake cooldown are both applied by the shared policy helper.
+            if result := self._check_retake_eligibility(
+                questionnaire, submissions, questionnaires_missing, failed_questionnaires
+            ):
                 return result
         if failed_questionnaires:
             return EventUserEligibility(

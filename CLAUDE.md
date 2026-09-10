@@ -75,7 +75,7 @@ This project uses a comprehensive Makefile.
 - `make setup` — One-time setup: venv, deps, Docker services, server.
 - `make run` — Start Django dev server (generates test JWTs first).
 - `make jwt EMAIL=user@example.com` — Get JWT access/refresh tokens for a user.
-- `make check` — All quality checks (format, lint, mypy, migration-check, i18n-check, file-length, task-names).
+- `make check` — All quality checks (format, lint, mypy, migration-check, i18n-check, i18n-literals, file-length, task-names).
 - `make test` — Parallel pytest with coverage; on failure saves the failures section to `.tests.output`.
 - `make test-linear` — Sequential tests (single process, for debugging).
 - `make test-failed` — Re-run only failed tests.
@@ -336,6 +336,12 @@ def list_items(self) -> QuerySet[Item]:
   a deploy. Enforced by `make task-names` (in `make check` **and** CI). When moving an existing
   task, keep its current name verbatim. To catch beat rows pointing at a now-missing task (e.g.
   manually-created ones), run `python manage.py check_orphaned_beat_tasks`.
+- **User-facing error messages must be marked for translation**: any message that reaches the
+  client — `raise HttpError(<status>, msg)`, or `raise <AppError>(msg)` for an exception mapped
+  with `make_simple_handler` (subclasses included, dispatch is by MRO) — uses
+  `str(_("..."))`. For interpolation, translate **first** and then `.format(...)`
+  (`str(_("Unknown event {}.").format(event_id))`); f-strings are invisible to `xgettext` and are
+  rejected. Enforced by `make i18n-literals` (in `make check` **and** CI).
 - Use Django Ninja's automatic OpenAPI docs. Use the **context7 MCP** to look up library docs.
 
 > ⚠️ **Deep production gotchas** — Celery `transaction.on_commit` / `ATOMIC_REQUESTS`, and

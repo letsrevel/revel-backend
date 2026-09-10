@@ -52,8 +52,8 @@ Key consequences of the split:
   field regardless of payment_method.
 - **Service-layer dispatch.** `cancel_subscription`, `pause_subscription`,
   `resume_subscription`, `change_plan` etc. check `plan.payment_method` and
-  route to `subscription_stripe_service` (or the dedicated
-  `subscription_stripe_plan_change` module) for ONLINE flows. Controllers do
+  route to `subscription.stripe.checkout` (or the dedicated
+  `subscription.stripe.plan_change` module) for ONLINE flows. Controllers do
   not branch.
 - **`payment_method` is not patchable.** Switching an existing subscription
   between OFFLINE and ONLINE would require non-trivial Stripe migration with
@@ -66,7 +66,7 @@ Key consequences of the split:
   Stripe confirms the first invoice (no tier benefits before payment). FREE has
   no webhook that could ever run, so `create_subscription` is its *only*
   materialization point — and the originating application is settled COMPLETED
-  in `subscription_eligibility.subscribe_to_plan` for the same reason.
+  in `subscription.eligibility.subscribe_to_plan` for the same reason.
 
 ## Consequences
 
@@ -78,12 +78,12 @@ Key consequences of the split:
   Monthly/Annual) on the same tier hierarchy.
 - **Con:** Some operations have two implementations (cancel, pause, resume,
   change_plan, revive). The dispatch is concentrated in
-  `subscription_service.py` and verified by paired tests
-  (`test_subscription_service.py` + `test_subscription_stripe_service.py`).
+  `subscription/lifecycle.py` and verified by paired tests
+  (`test_subscription/lifecycle.py` + `test_subscription/stripe/checkout.py`).
 - **Con:** ONLINE payments are never hand-recorded — `record_payment`
   accepting an ONLINE plan would create duplicates with the `invoice.paid`
   webhook. The admin record-payment endpoint refuses ONLINE subscriptions
   explicitly.
-- **Con:** The duplicated `_stripe_account_kwargs` helper in
-  `subscription_stripe_plan_change.py` exists to avoid an import cycle with
-  `subscription_stripe_service`. Accepted as a small, contained price.
+- **Con:** The duplicated `stripe_account_kwargs` helper in
+  `subscription/stripe/plan_change.py` exists to avoid an import cycle with
+  `subscription.stripe.checkout`. Accepted as a small, contained price.

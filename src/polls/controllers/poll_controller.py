@@ -16,6 +16,7 @@ import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -161,7 +162,7 @@ class PollController(UserAwareController):
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_base_queryset(), pk=poll_id))
         is_staff = eligibility.is_staff_or_owner(user, poll)
         if not eligibility.can_see_poll(user, poll, _is_staff=is_staff):
-            raise HttpError(403, "You are not allowed to see this poll.")
+            raise HttpError(403, str(_("You are not allowed to see this poll.")))
         return self._to_detail(poll, user, _is_staff=is_staff)
 
     @route.get("/{poll_id}/results", url_name="get_poll_results", response=PollResultsSchema)
@@ -171,7 +172,7 @@ class PollController(UserAwareController):
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         is_staff = eligibility.is_staff_or_owner(user, poll)
         if not eligibility.can_see_results(user, poll, _is_staff=is_staff):
-            raise HttpError(403, "You are not allowed to see the results for this poll.")
+            raise HttpError(403, str(_("You are not allowed to see the results for this poll.")))
         return compute_poll_results(
             poll, viewer_sees_identity=self._viewer_sees_identity(poll, user, _is_staff=is_staff)
         )

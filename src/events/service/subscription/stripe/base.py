@@ -1,0 +1,103 @@
+"""Shared Stripe provisioning primitives for membership subscriptions.
+
+Bottom of the subscription Stripe stack (next to
+:mod:`subscription.stripe.payloads`): helpers needed by both
+:mod:`subscription.stripe.checkout` and :mod:`subscription.stripe.plan_change`,
+extracted so the two can depend on this module instead of on each other.
+"""
+
+import stripe
+import structlog
+from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
+
+from common.service.stripe_config import configure_stripe
+from events.models import MembershipSubscriptionPlan, Organization
+from events.service.subscription.stripe.payloads import stripe_account_kwargs, stripe_interval
+from events.utils.currency import to_stripe_amount
+
+logger = structlog.get_logger(__name__)
+
+configure_stripe()
+
+
+def require_stripe_connected(organization: Organization) -> None:
+    """Raise 400 if the organization has not finished Stripe Connect onboarding."""
+    if not organization.is_stripe_connected:
+        raise HttpError(400, str(_("This organization is not configured to accept payments.")))
+
+
+def _price_inputs_changed(plan: MembershipSubscriptionPlan, price: stripe.Price) -> bool:
+    """True when ``plan``'s pricing inputs no longer match the Stripe Price."""
+    if not price.active:
+        return True
+    if price.unit_amount != to_stripe_amount(plan.price, plan.currency):
+        return True
+    if (price.currency or "").upper() != plan.currency.upper():
+        return True
+    recurring = price.recurring
+    if recurring is None or recurring.interval != plan.period_unit:
+        return True
+    if recurring.interval_count != plan.period_count:
+        return True
+    return False
+
+
+def ensure_stripe_price(plan: MembershipSubscriptionPlan) -> MembershipSubscriptionPlan:
+    """Create or sync the Stripe Product + Price for an ONLINE plan.
+
+    Stripe Prices are immutable on the dimensions we care about (unit amount,
+    currency, recurring interval). When any of those change we archive the
+    existing Price and create a fresh one.
+
+    A no-op for OFFLINE plans.
+    """
+    if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        return plan
+
+    org = plan.tier.organization
+    require_stripe_connected(org)
+    kwargs = stripe_account_kwargs(org)
+    update_fields: list[str] = []
+
+    try:
+        if not plan.stripe_product_id:
+            product = stripe.Product.create(
+                # Generic label only — tier/plan names and descriptions never reach Stripe (#848).
+                name="Membership",
+                metadata={"revel_plan_id": str(plan.pk)},
+                **kwargs,
+            )
+            plan.stripe_product_id = product.id
+            update_fields.append("stripe_product_id")
+
+        needs_new_price = not plan.stripe_price_id
+        if not needs_new_price:
+            existing_price = stripe.Price.retrieve(plan.stripe_price_id, **kwargs)
+            if _price_inputs_changed(plan, existing_price):
+                if existing_price.active:
+                    stripe.Price.modify(plan.stripe_price_id, active=False, **kwargs)
+                needs_new_price = True
+
+        if needs_new_price:
+            new_price = stripe.Price.create(
+                product=plan.stripe_product_id,
+                unit_amount=to_stripe_amount(plan.price, plan.currency),
+                currency=plan.currency.lower(),
+                recurring={"interval": stripe_interval(plan.period_unit), "interval_count": plan.period_count},
+                metadata={"revel_plan_id": str(plan.pk)},
+                **kwargs,
+            )
+            plan.stripe_price_id = new_price.id
+            update_fields.append("stripe_price_id")
+    except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_stripe_price_sync_failed",
+            plan_id=str(plan.pk),
+            error=str(exc),
+        )
+        raise HttpError(502, str(_("Could not sync the plan with Stripe. Please try again later."))) from exc
+
+    if update_fields:
+        plan.save(update_fields=[*update_fields, "updated_at"])
+    return plan

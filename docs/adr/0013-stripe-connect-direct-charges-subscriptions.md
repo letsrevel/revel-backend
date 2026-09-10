@@ -36,7 +36,7 @@ Specific implications:
   single create/lookup entrypoint and uses a deterministic
   `idempotency_key=cust:{user}:{org}` to prevent duplicates under concurrent
   first-time subscribes.
-- **Every Stripe API call is scoped via `_stripe_account_kwargs(org)`.** It
+- **Every Stripe API call is scoped via `stripe_account_kwargs(org)`.** It
   returns `{"stripe_account": org.stripe_account_id}` for connected orgs and
   `{}` for the platform's own account (mirroring `stripe_service` for
   tickets).

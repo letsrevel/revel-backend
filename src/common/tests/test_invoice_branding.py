@@ -14,6 +14,7 @@ from django.conf import settings
 from django.template.loader import render_to_string
 
 from common.service.invoice_utils import render_pdf
+from common.tests.branding import LEGACY_BRAND_HEXES
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -185,8 +186,6 @@ _TEMPLATES_AND_CONTEXTS: list[tuple[str, dict[str, t.Any]]] = [
     ("invoices/referral_payout_statement.html", _REFERRAL_CTX),
 ]
 
-_LEGACY_ACCENTS = ("#667eea", "#764ba2")
-
 
 @pytest.mark.parametrize("tpl,ctx", _TEMPLATES_AND_CONTEXTS, ids=[t_[0] for t_ in _TEMPLATES_AND_CONTEXTS])
 def test_invoice_template_branding(tpl: str, ctx: dict[str, t.Any]) -> None:
@@ -202,7 +201,7 @@ def test_invoice_template_branding(tpl: str, ctx: dict[str, t.Any]) -> None:
     body_html = html.split("<body", 1)[1]
     assert "revel-logo.png" in body_html, f"{tpl}: brand logo is not in <body> — WeasyPrint would render it invisible"
 
-    for legacy in _LEGACY_ACCENTS:
+    for legacy in LEGACY_BRAND_HEXES:
         assert legacy not in html, f"{tpl}: still contains legacy accent {legacy}"
 
 

@@ -511,13 +511,13 @@ def calculate_vat_preview(
     for item in items:
         tier = TicketTier.objects.filter(pk=item.tier_id, event=event).first()
         if not tier:
-            raise HttpError(404, "Ticket tier not found.")
+            raise HttpError(404, str(_("Ticket tier not found.")))
 
         # Validate consistent currency across all tiers
         if not currency:
             currency = tier.currency
         elif tier.currency != currency:
-            raise HttpError(400, "All tiers must use the same currency.")
+            raise HttpError(400, str(_("All tiers must use the same currency.")))
 
         seats = _resolve_preview_seats(tier, item)
         pricing = _resolve_line_pricing(tier, org, seats, price_per_ticket, discount_code)

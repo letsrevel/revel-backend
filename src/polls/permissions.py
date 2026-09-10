@@ -11,6 +11,7 @@ import typing as t
 from uuid import UUID
 
 from django.http import HttpRequest
+from django.utils.translation import gettext_lazy as _
 from ninja_extra import ControllerBase
 from ninja_extra.exceptions import PermissionDenied
 
@@ -57,7 +58,7 @@ class IsPollOrganizationOwner(RootPermission):
         """Return True iff ``request.user`` owns the poll's organization."""
         if obj.organization.owner_id == request.user.id:
             return True
-        raise PermissionDenied("Only the organization owner can perform this action.")
+        raise PermissionDenied(str(_("Only the organization owner can perform this action.")))
 
 
 __all__ = ["IsPollOrganizationOwner", "PollPermission"]

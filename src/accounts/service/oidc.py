@@ -38,7 +38,8 @@ from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, consume_one_shot_token, create_oidc_login_token, validate_oidc_login_token
 from accounts.models import ExternalIdentity, RevelUser
 from common.models import SiteSettings
-from common.utils import get_or_create_with_race_protection, safe_save_uploaded_file
+from common.service.upload_service import safe_save_uploaded_file
+from common.utils import get_or_create_with_race_protection
 from revel.oidc_config import OIDCProviderConfig
 
 logger = structlog.get_logger(__name__)

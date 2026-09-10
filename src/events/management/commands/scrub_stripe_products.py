@@ -23,14 +23,11 @@ import stripe
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
 
+from common.service.stripe_config import configure_stripe
 from events.models import MembershipSubscriptionPlan, Organization
-from events.service.subscription_stripe_payloads import StripeAccountKwargs, _stripe_account_kwargs
+from events.service.subscription.stripe.payloads import StripeAccountKwargs, stripe_account_kwargs
 
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 # Prefixes of the legacy organizer-authored product names → generic replacement.
 _PREFIX_TO_GENERIC: dict[str, str] = {
@@ -63,7 +60,7 @@ class Command(BaseCommand):
 
         plans = MembershipSubscriptionPlan.objects.exclude(stripe_product_id="").select_related("tier__organization")
         for plan in plans:
-            account_kwargs = _stripe_account_kwargs(plan.tier.organization)
+            account_kwargs = stripe_account_kwargs(plan.tier.organization)
             if dry_run:
                 self.stdout.write(f"[dry-run] would scrub plan product {plan.stripe_product_id} (plan {plan.pk})")
                 plans_scrubbed += 1

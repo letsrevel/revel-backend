@@ -11,6 +11,7 @@ import structlog
 from django.db import transaction
 from django.db.models import F, QuerySet
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -30,7 +31,7 @@ from notifications.service.dispatcher import NotificationData, bulk_create_notif
 logger = structlog.get_logger(__name__)
 
 # Error messages
-_ERR_EVENT_NOT_FOUND = "Event not found or does not belong to this organization"
+_ERR_EVENT_NOT_FOUND: str = _("Event not found or does not belong to this organization")  # type: ignore[assignment]
 
 
 def _validate_announcement_has_targeting(announcement: Announcement) -> None:
@@ -52,8 +53,12 @@ def _validate_announcement_has_targeting(announcement: Announcement) -> None:
     )
     if not has_targeting:
         raise ValueError(
-            "Announcement must have at least one targeting option: "
-            "event, target_all_members, target_tiers, or target_staff_only"
+            str(
+                _(
+                    "Announcement must have at least one targeting option: "
+                    "event, target_all_members, target_tiers, or target_staff_only"
+                )
+            )
         )
 
 
@@ -167,7 +172,7 @@ def update_announcement(
     """
     editable = (Announcement.AnnouncementStatus.DRAFT, Announcement.AnnouncementStatus.SCHEDULED)
     if announcement.status not in editable:
-        raise ValueError("Only draft or scheduled announcements can be updated")
+        raise ValueError(str(_("Only draft or scheduled announcements can be updated")))
 
     update_data = payload.model_dump(exclude_unset=True)
 
@@ -192,10 +197,10 @@ def update_announcement(
             setattr(announcement, field, value)
 
     if announcement.resend_to_new_signups and announcement.event_id is None:
-        raise ValueError("Re-sending to new sign-ups requires an event-targeted announcement")
+        raise ValueError(str(_("Re-sending to new sign-ups requires an event-targeted announcement")))
 
     if announcement.schedule_anchor is not None and announcement.event_id is None:
-        raise ValueError("Relative scheduling requires an event-targeted announcement")
+        raise ValueError(str(_("Relative scheduling requires an event-targeted announcement")))
 
     # Validate that at least one targeting option remains
     _validate_announcement_has_targeting(announcement)
@@ -236,7 +241,7 @@ def schedule_announcement(
         ValueError: If not a draft, the schedule is unresolvable, or it is in the past.
     """
     if announcement.status != Announcement.AnnouncementStatus.DRAFT:
-        raise ValueError("Only draft announcements can be scheduled")
+        raise ValueError(str(_("Only draft announcements can be scheduled")))
 
     announcement.scheduled_at = scheduled_at
     announcement.schedule_anchor = schedule_anchor
@@ -244,13 +249,13 @@ def schedule_announcement(
 
     is_relative = announcement.schedule_anchor is not None or announcement.schedule_offset_minutes is not None
     if is_relative and (announcement.schedule_anchor is None or announcement.schedule_offset_minutes is None):
-        raise ValueError("Relative scheduling requires both an anchor and an offset")
+        raise ValueError(str(_("Relative scheduling requires both an anchor and an offset")))
 
     resolved = announcement.effective_send_at
     if resolved is None:
-        raise ValueError("Could not resolve a scheduled time (relative scheduling requires an event)")
+        raise ValueError(str(_("Could not resolve a scheduled time (relative scheduling requires an event)")))
     if resolved <= timezone.now():
-        raise ValueError("Scheduled time must be in the future")
+        raise ValueError(str(_("Scheduled time must be in the future")))
 
     announcement.status = Announcement.AnnouncementStatus.SCHEDULED
     announcement.save()
@@ -271,7 +276,7 @@ def unschedule_announcement(announcement: Announcement) -> Announcement:
         ValueError: If the announcement is not scheduled.
     """
     if announcement.status != Announcement.AnnouncementStatus.SCHEDULED:
-        raise ValueError("Only scheduled announcements can be unscheduled")
+        raise ValueError(str(_("Only scheduled announcements can be unscheduled")))
 
     announcement.status = Announcement.AnnouncementStatus.DRAFT
     announcement.scheduled_at = None
@@ -437,7 +442,7 @@ def send_announcement(announcement: Announcement) -> int:
 
     sendable = (Announcement.AnnouncementStatus.DRAFT, Announcement.AnnouncementStatus.SCHEDULED)
     if announcement.status not in sendable:
-        raise ValueError("Only draft or scheduled announcements can be sent")
+        raise ValueError(str(_("Only draft or scheduled announcements can be sent")))
 
     recipients = list(get_recipients(announcement).select_related("notification_preferences"))
     recipient_count = len(recipients)
@@ -478,9 +483,9 @@ def resend_to_new_recipients(announcement: Announcement) -> int:
 
     announcement = Announcement.objects.select_related("organization").select_for_update().get(pk=announcement.pk)
     if announcement.status != Announcement.AnnouncementStatus.SENT:
-        raise ValueError("Only sent announcements can be resent")
+        raise ValueError(str(_("Only sent announcements can be resent")))
     if not announcement.resend_to_new_signups:
-        raise ValueError("Announcement is not configured for resending")
+        raise ValueError(str(_("Announcement is not configured for resending")))
 
     now = timezone.now()
     if announcement.event is not None and announcement.event.end <= now:

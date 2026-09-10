@@ -70,7 +70,7 @@ def _run(*args: str) -> str:
     return out.getvalue()
 
 
-@mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+@mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
 def test_dry_run_reports_without_calling_stripe(
     mock_modify: mock.Mock,
     site_settings: SiteSettings,
@@ -83,7 +83,7 @@ def test_dry_run_reports_without_calling_stripe(
     assert "Done: 1 updated" in output
 
 
-@mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+@mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
 def test_live_run_pushes_percent(
     mock_modify: mock.Mock,
     site_settings: SiteSettings,
@@ -97,7 +97,7 @@ def test_live_run_pushes_percent(
     assert "Done: 1 updated, 0 schedule-managed skipped, 0 failed." in output
 
 
-@mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+@mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
 def test_null_subscription_id_rows_are_excluded(
     mock_modify: mock.Mock,
     site_settings: SiteSettings,
@@ -123,7 +123,7 @@ def test_null_subscription_id_rows_are_excluded(
     assert "Done: 1 updated, 0 schedule-managed skipped, 0 failed." in output
 
 
-@mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+@mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
 def test_failures_surface_as_command_error(
     mock_modify: mock.Mock,
     site_settings: SiteSettings,
@@ -140,7 +140,7 @@ def test_unknown_org_slug_errors(site_settings: SiteSettings, online_sub: Member
         _run("--org-slug", "no-such-org", "--dry-run")
 
 
-@mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+@mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
 def test_schedule_managed_rows_are_reported_skipped(
     mock_modify: mock.Mock,
     site_settings: SiteSettings,

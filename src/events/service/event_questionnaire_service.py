@@ -14,7 +14,6 @@ from uuid import UUID
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Avg, Count, Max, Min, Q, QuerySet
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -30,7 +29,6 @@ from events.schema.questionnaire import (
     ScoreStatsSchema,
     StatusBreakdownSchema,
 )
-from events.service.membership_questionnaire_service import approval_is_stale
 from questionnaires.models import (
     MultipleChoiceOption,
     Questionnaire,
@@ -41,6 +39,7 @@ from questionnaires.models import (
 from questionnaires.schema import QuestionnaireSubmissionSchema
 from questionnaires.service.questionnaire_service import QuestionnaireService
 from questionnaires.service.submission_service import SubmissionService
+from questionnaires.utils.retake_policy import RetakeVerdict, approval_is_stale, evaluate_retake_policy
 
 if t.TYPE_CHECKING:
     from datetime import datetime
@@ -76,9 +75,10 @@ def _validate_admission_resubmission(
     consistent validation at submission time.
 
     Note:
-        This logic is duplicated from QuestionnaireGate in
-        events/service/event_manager/gates.py. Any changes here should be
-        reflected there and vice versa.
+        The staleness and retake rules themselves live in
+        :mod:`questionnaires.utils.retake_policy`, shared with
+        ``QuestionnaireGate`` in ``events/service/event_manager/gates.py``;
+        only the HTTP shaping differs between the two.
 
     Raises:
         HttpError: If user cannot submit due to pending/approved/rejected status.
@@ -114,23 +114,25 @@ def _validate_admission_resubmission(
 
     # Case 2: Already approved
     if evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED:
-        if approval_is_stale(org_questionnaire, evaluation):
+        if approval_is_stale(org_questionnaire.max_submission_age, evaluation.updated_at):
             # max_submission_age elapsed: the gate asks for a fresh submission again.
             return
         raise HttpError(400, str(_("Your questionnaire has already been approved.")))
 
-    # Case 3: Rejected - check retake eligibility
+    # Case 3: Rejected - apply the shared retake policy (attempts cap, then cooldown).
     if evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED:
-        # Check max_attempts
-        if 0 < questionnaire.max_attempts <= len(existing_submissions):
-            raise HttpError(400, str(_("You have reached the maximum number of attempts.")))
-
-        # Check can_retake_after cooldown (None or zero means immediate retake)
-        if questionnaire.can_retake_after:
+        decision = evaluate_retake_policy(
+            questionnaire,
             # submitted_at is guaranteed to be set for READY submissions (see QuestionnaireSubmission.save())
-            retry_on = t.cast("datetime", latest.submission.submitted_at) + questionnaire.can_retake_after
-            if retry_on > timezone.now():
-                raise HttpError(400, str(_("You can retry after %(retry_on)s.") % {"retry_on": retry_on}))
+            last_submitted_at=t.cast("datetime", latest.submission.submitted_at),
+            attempts=len(existing_submissions),
+            # Admission reads a NULL cooldown as "no cooldown, retake now".
+            null_cooldown_is_terminal=False,
+        )
+        if decision.verdict is RetakeVerdict.ATTEMPTS_EXHAUSTED:
+            raise HttpError(400, str(_("You have reached the maximum number of attempts.")))
+        if decision.verdict is RetakeVerdict.COOLDOWN:
+            raise HttpError(400, str(_("You can retry after %(retry_on)s.") % {"retry_on": decision.retry_on}))
 
         # Cooldown elapsed (or no cooldown) and attempts remaining - allow submission
 
@@ -439,7 +441,7 @@ def update_organization_questionnaire(
         if not has_free_text:
             has_free_text = any(section.freetextquestion_questions.exists() for section in questionnaire.sections.all())
         if has_free_text:
-            raise HttpError(400, "LLM evaluation is not available.")
+            raise HttpError(400, str(_("LLM evaluation is not available.")))
 
     # Extract questionnaire-specific fields with type conversions
     questionnaire_kwargs = {}

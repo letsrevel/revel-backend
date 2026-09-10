@@ -25,7 +25,8 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_service, vies_service
+from events.service import vies_service
+from events.service.subscription.stripe import fees as subscription_stripe_fees
 from events.tasks import resync_org_subscription_fees
 
 pytestmark = pytest.mark.django_db
@@ -92,7 +93,7 @@ def _make_sub(
 
 
 class TestResyncService:
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_pushes_grossed_percent_to_live_subscriptions(
         self,
         mock_modify: mock.Mock,
@@ -104,7 +105,7 @@ class TestResyncService:
         _make_sub(online_plan, "resync_a", stripe_subscription_id="sub_a")
         _make_sub(online_plan, "resync_b", stripe_subscription_id="sub_b")
 
-        counters = subscription_stripe_service.resync_subscription_application_fees(stripe_org)
+        counters = subscription_stripe_fees.resync_subscription_application_fees(stripe_org)
 
         assert counters == {"updated": 2, "skipped_schedule_managed": 0, "failed": 0}
         assert mock_modify.call_count == 2
@@ -114,7 +115,7 @@ class TestResyncService:
             assert call.kwargs["application_fee_percent"] == 1.80
             assert call.kwargs["stripe_account"] == "acct_test_org"
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_fee_free_org_clears_the_percent(
         self,
         mock_modify: mock.Mock,
@@ -127,12 +128,12 @@ class TestResyncService:
         stripe_org.save(update_fields=["platform_fee_percent"])
         _make_sub(online_plan, "resync_free", stripe_subscription_id="sub_free")
 
-        counters = subscription_stripe_service.resync_subscription_application_fees(stripe_org)
+        counters = subscription_stripe_fees.resync_subscription_application_fees(stripe_org)
 
         assert counters["updated"] == 1
         assert mock_modify.call_args.kwargs["application_fee_percent"] == ""
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_schedule_managed_subscription_is_skipped(
         self,
         mock_modify: mock.Mock,
@@ -144,13 +145,13 @@ class TestResyncService:
         _make_sub(online_plan, "resync_sched", stripe_subscription_id="sub_sched", stripe_schedule_id="sub_sched_1")
         _make_sub(online_plan, "resync_plain", stripe_subscription_id="sub_plain")
 
-        counters = subscription_stripe_service.resync_subscription_application_fees(stripe_org)
+        counters = subscription_stripe_fees.resync_subscription_application_fees(stripe_org)
 
         assert counters == {"updated": 1, "skipped_schedule_managed": 1, "failed": 0}
         assert mock_modify.call_count == 1
         assert mock_modify.call_args.args[0] == "sub_plain"
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_terminal_offline_and_unlinked_rows_are_excluded(
         self,
         mock_modify: mock.Mock,
@@ -176,12 +177,12 @@ class TestResyncService:
         )
         _make_sub(offline_plan, "resync_offline", stripe_subscription_id="sub_off")
 
-        counters = subscription_stripe_service.resync_subscription_application_fees(stripe_org)
+        counters = subscription_stripe_fees.resync_subscription_application_fees(stripe_org)
 
         assert counters == {"updated": 0, "skipped_schedule_managed": 0, "failed": 0}
         mock_modify.assert_not_called()
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_null_subscription_id_does_not_strand_live_rows(
         self,
         mock_modify: mock.Mock,
@@ -198,13 +199,13 @@ class TestResyncService:
         _make_sub(online_plan, "resync_linked", stripe_subscription_id="sub_linked")
         _make_sub(online_plan, "resync_pending", status=MembershipSubscription.SubscriptionStatus.PENDING)
 
-        counters = subscription_stripe_service.resync_subscription_application_fees(stripe_org)
+        counters = subscription_stripe_fees.resync_subscription_application_fees(stripe_org)
 
         assert counters == {"updated": 1, "skipped_schedule_managed": 0, "failed": 0}
         assert mock_modify.call_count == 1
         assert mock_modify.call_args.args[0] == "sub_linked"
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_stripe_failure_is_counted_and_does_not_strand_the_rest(
         self,
         mock_modify: mock.Mock,
@@ -222,7 +223,7 @@ class TestResyncService:
 
         mock_modify.side_effect = _modify
 
-        counters = subscription_stripe_service.resync_subscription_application_fees(stripe_org)
+        counters = subscription_stripe_fees.resync_subscription_application_fees(stripe_org)
 
         assert counters == {"updated": 1, "skipped_schedule_managed": 0, "failed": 1}
         assert mock_modify.call_count == 2
@@ -361,7 +362,7 @@ class TestVatChangeDispatch:
 
 
 class TestResyncTask:
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_task_resolves_org_and_returns_counters(
         self,
         mock_modify: mock.Mock,

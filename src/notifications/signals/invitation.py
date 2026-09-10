@@ -11,8 +11,7 @@ from common.models import SiteSettings
 from events.models import EventInvitation, EventInvitationRequest, PendingEventInvitation
 from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_staff_for_notification
-from notifications.service.notification_helpers import format_event_datetime
+from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -99,31 +98,26 @@ def handle_invitation_request_created(
         frontend_url = f"{frontend_base_url}/org/{event.organization.slug}/admin/events/{event.id}/invitations"
 
         # Notify staff and owners with invite_to_event permission
-        staff_and_owners = get_staff_for_notification(
-            event.organization.id, NotificationType.INVITATION_REQUEST_CREATED
+        notified = notify_org_staff(
+            organization_id=event.organization.id,
+            notification_type=NotificationType.INVITATION_REQUEST_CREATED,
+            context={
+                "request_id": str(instance.id),
+                "event_id": str(event.id),
+                "event_name": event.name,
+                "requester_email": requester.email,
+                "requester_name": requester.display_name,
+                "request_message": instance.message or "",
+                "frontend_url": frontend_url,
+            },
+            sender=handle_invitation_request_created,
         )
-
-        for staff_member in staff_and_owners:
-            notification_requested.send(
-                sender=handle_invitation_request_created,
-                user=staff_member,
-                notification_type=NotificationType.INVITATION_REQUEST_CREATED,
-                context={
-                    "request_id": str(instance.id),
-                    "event_id": str(event.id),
-                    "event_name": event.name,
-                    "requester_email": requester.email,
-                    "requester_name": requester.display_name,
-                    "request_message": instance.message or "",
-                    "frontend_url": frontend_url,
-                },
-            )
 
         logger.info(
             "invitation_request_notifications_sent",
             request_id=str(instance.id),
             event_id=str(event.id),
-            recipient_count=len(staff_and_owners),
+            recipient_count=notified,
         )
 
     transaction.on_commit(send_request_notifications)

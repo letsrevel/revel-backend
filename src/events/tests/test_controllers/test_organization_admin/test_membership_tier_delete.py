@@ -18,7 +18,8 @@ from events.models import (
     Organization,
     OrganizationMembershipRequest,
 )
-from events.service import subscription_service
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
 
 pytestmark = pytest.mark.django_db
 
@@ -30,7 +31,7 @@ def tier(organization: Organization) -> MembershipTier:
 
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
     )
 
@@ -78,7 +79,7 @@ def test_delete_tier_with_subscribed_plan_returns_409(
     subscriber: RevelUser,
 ) -> None:
     """A plan carrying a subscription PROTECTs the cascade — answer 409, not 500."""
-    subscription_service.create_subscription(plan, subscriber)
+    subscription_lifecycle.create_subscription(plan, subscriber)
 
     response = organization_owner_client.delete(_url(organization, tier))
 
@@ -95,8 +96,8 @@ def test_delete_tier_with_cancelled_subscription_returns_409(
     subscriber: RevelUser,
 ) -> None:
     """Terminal subscriptions are still money history: they keep blocking the delete (#804 repro)."""
-    subscription = subscription_service.create_subscription(plan, subscriber)
-    subscription_service.cancel_subscription(subscription, immediate=True)
+    subscription = subscription_lifecycle.create_subscription(plan, subscriber)
+    subscription_lifecycle.cancel_subscription(subscription, immediate=True)
     plan.refresh_from_db()
 
     response = organization_owner_client.delete(_url(organization, tier))

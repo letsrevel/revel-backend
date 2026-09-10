@@ -26,7 +26,8 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_payloads, subscription_stripe_sync
+from events.service.subscription.stripe import payloads as subscription_stripe_payloads
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -179,7 +180,7 @@ def test_invoice_without_embedded_payments_fetches_outbound(
         }
     }
     with mock.patch(
-        "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
+        "events.service.subscription.stripe.payloads.stripe.Invoice.retrieve",
         return_value=retrieved,
     ) as mock_retrieve:
         payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
@@ -212,7 +213,7 @@ def test_embedded_unexpanded_payment_still_resolves_fee_outbound(
         }
     }
     with mock.patch(
-        "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
+        "events.service.subscription.stripe.payloads.stripe.Invoice.retrieve",
         return_value=retrieved,
     ) as mock_retrieve:
         payment = subscription_stripe_sync.record_stripe_payment_from_invoice(_dahlia_invoice(payments), succeeded=True)
@@ -227,7 +228,7 @@ def test_invoice_payment_intent_fetch_failure_is_tolerated(
 ) -> None:
     """A failed payments lookup must not fail the webhook — the id is best-effort."""
     with mock.patch(
-        "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
+        "events.service.subscription.stripe.payloads.stripe.Invoice.retrieve",
         side_effect=stripe.error.StripeError("boom"),
     ):
         payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
@@ -290,8 +291,8 @@ class TestDahliaProrationDetection:
         pending_subscription: MembershipSubscription,
     ) -> None:
         """End-to-end: the upgrade's proration invoice must not move the anchor."""
-        anchor_start = subscription_stripe_payloads._epoch_to_dt(self.ANCHOR - 10 * 86400)
-        anchor_end = subscription_stripe_payloads._epoch_to_dt(self.ANCHOR + 20 * 86400)
+        anchor_start = subscription_stripe_payloads.epoch_to_dt(self.ANCHOR - 10 * 86400)
+        anchor_end = subscription_stripe_payloads.epoch_to_dt(self.ANCHOR + 20 * 86400)
         pending_subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
         pending_subscription.current_period_start = anchor_start
         pending_subscription.current_period_end = anchor_end
@@ -348,4 +349,4 @@ def test_is_subscription_gone_classification(message: str, code: str | None, exp
     no-op on Stripe while the local row said "cancelled" (they kept being billed).
     """
     exc = stripe.error.InvalidRequestError(message, param=None, code=code)
-    assert subscription_stripe_payloads._is_subscription_gone(exc) is expected
+    assert subscription_stripe_payloads.is_subscription_gone(exc) is expected

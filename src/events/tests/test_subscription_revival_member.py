@@ -25,8 +25,9 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import organization_service, subscription_service
-from events.service.subscription_service import InitialPayment
+from events.service import organization_service
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription.lifecycle import InitialPayment
 
 
 @pytest.fixture
@@ -93,7 +94,7 @@ class TestOfflineRevivalMaterializesMember:
     ) -> None:
         assert not OrganizationMember.objects.filter(organization=organization, user=subscriber).exists()
 
-        revived, url = subscription_service.revive_subscription(
+        revived, url = subscription_lifecycle.revive_subscription(
             expired_sub,
             initial_payment=payload,
             revived_by=staff_user,
@@ -131,7 +132,7 @@ class TestOfflineRevivalMaterializesMember:
         assert expired_sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
         assert not OrganizationMember.objects.filter(organization=organization, user=subscriber).exists()
 
-        subscription_service.revive_subscription(
+        subscription_lifecycle.revive_subscription(
             expired_sub,
             initial_payment=payload,
             revived_by=staff_user,
@@ -158,7 +159,7 @@ class TestOfflineRevivalMaterializesMember:
             status=OrganizationMember.MembershipStatus.CANCELLED,
         )
 
-        subscription_service.revive_subscription(
+        subscription_lifecycle.revive_subscription(
             expired_sub,
             initial_payment=payload,
             revived_by=staff_user,
@@ -184,7 +185,7 @@ class TestOfflineRevivalMaterializesMember:
         )
 
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(
+            subscription_lifecycle.revive_subscription(
                 expired_sub,
                 initial_payment=payload,
                 revived_by=staff_user,
@@ -214,7 +215,7 @@ class TestOfflineRevivalMaterializesMember:
             status=OrganizationMember.MembershipStatus.PAUSED,
         )
 
-        subscription_service.revive_subscription(
+        subscription_lifecycle.revive_subscription(
             expired_sub,
             initial_payment=payload,
             revived_by=staff_user,

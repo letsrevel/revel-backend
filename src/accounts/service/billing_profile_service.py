@@ -6,6 +6,7 @@ Thin wrappers around the generic billing operations in ``common.service.vies_ser
 import typing as t
 
 from django.db.models import Q
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from common.service.vies_service import VIESValidationResult, validate_and_update_vat_entity
@@ -35,7 +36,7 @@ def create_billing_profile(user: "RevelUser", data: dict[str, t.Any]) -> "UserBi
         defaults={"user": user, **data},
     )
     if not created:
-        raise HttpError(409, "Billing profile already exists.")
+        raise HttpError(409, str(_("Billing profile already exists.")))
     return profile
 
 

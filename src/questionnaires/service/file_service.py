@@ -4,10 +4,12 @@ import hashlib
 
 import magic
 from django.db import IntegrityError, transaction
+from django.utils.translation import gettext_lazy as _
 from ninja.files import UploadedFile
 
 from accounts.models import RevelUser
-from common.utils import create_file_audit_and_scan, strip_exif
+from common.service.upload_service import create_file_audit_and_scan
+from common.utils import strip_exif
 
 from ..exceptions import DisallowedMimeTypeError, FileSizeExceededError
 from ..models import QuestionnaireFile
@@ -45,7 +47,9 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
     """
     # Validate global file size limit before processing
     if file.size and file.size > MAX_UPLOAD_FILE_SIZE:
-        raise FileSizeExceededError(f"File exceeds maximum upload size of {MAX_UPLOAD_FILE_SIZE // (1024 * 1024)}MB.")
+        raise FileSizeExceededError(
+            str(_("File exceeds maximum upload size of {}MB.").format(MAX_UPLOAD_FILE_SIZE // (1024 * 1024)))
+        )
 
     # Read file content for MIME detection
     file_content = file.read()
@@ -57,8 +61,11 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
     # Validate MIME type against global allowlist
     if detected_mime_type not in ALLOWED_QUESTIONNAIRE_MIME_TYPES:
         raise DisallowedMimeTypeError(
-            f"File type '{detected_mime_type}' is not allowed. "
-            f"Allowed types: documents, images, audio, video, and archives."
+            str(
+                _(
+                    "File type '{}' is not allowed. Allowed types: documents, images, audio, video, and archives."
+                ).format(detected_mime_type)
+            )
         )
 
     # Strip EXIF metadata from images for privacy protection

@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
-import stripe
 import structlog
 from django.conf import settings
 from django.db import transaction
@@ -17,6 +16,7 @@ from stripe.checkout import Session
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.service.exchange_rate_service import convert as convert_currency
+from common.service.stripe_config import configure_stripe
 from common.service.stripe_connect_service import (
     create_account_link as _create_account_link,
 )
@@ -76,15 +76,7 @@ if t.TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Pin both credentials and API version at import time. The pinned version
-# guards outbound response shapes against silent changes when the stripe SDK
-# (whose default version tracks its release) gets bumped by a `uv sync`.
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Bound every outbound call's HTTP timeout (stripe-python's own default is
-# ~80s) — see docs/engineering-notes.md "Row locks across Stripe calls" for
-# why this matters on the refund paths that hold a row lock across the call.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 
 def create_connect_account(organization: Organization, stripe_account_email: EmailStr) -> str:

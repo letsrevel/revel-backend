@@ -11,8 +11,8 @@ import pytest
 
 from events.models import MembershipSubscriptionPlan, MembershipTier, Organization, OrganizationQuestionnaire
 from events.schema import MembershipTierUpdateSchema
-from events.service import subscription_service
 from events.service.organization_service import membership as membership_service
+from events.service.subscription import plans as subscription_plans
 from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
@@ -36,7 +36,7 @@ def test_active_plan_on_gated_tier_is_allowed(organization: Organization, tier: 
     tier.membership_questionnaire = _membership_questionnaire(organization)
     tier.save(update_fields=["requires_membership_approval", "membership_questionnaire"])
 
-    plan = subscription_service.create_plan(
+    plan = subscription_plans.create_plan(
         tier,
         name="Monthly",
         price=Decimal("10.00"),

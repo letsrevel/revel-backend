@@ -11,8 +11,8 @@ from django.utils import timezone
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 
 if t.TYPE_CHECKING:
-    from events.service.subscription_service import MigrationResult
-    from events.service.subscription_stripe_service import FeeResyncCounters
+    from events.service.subscription.plans import MigrationResult
+    from events.service.subscription.stripe.fees import FeeResyncCounters
 
 logger = structlog.get_logger(__name__)
 
@@ -44,9 +44,9 @@ def _expire_row(sub: MembershipSubscription, now: "datetime.datetime", stripe_ca
     sub.save(update_fields=["status", "cancelled_at", "expired_at", "updated_at"])
     if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value:
         stripe_cancel_ids.append(sub.pk)
-    from events.service import subscription_service  # lazy: avoid import cycle
+    from events.service.subscription import notifications as subscription_notifications
 
-    subscription_service._dispatch_subscription_expired(sub)
+    subscription_notifications._dispatch_subscription_expired(sub)
 
 
 def _terminalize_cancelled_row(
@@ -61,7 +61,7 @@ def _terminalize_cancelled_row(
     Status → CANCELLED, not EXPIRED: the member opted out at the period
     boundary, so this is not an involuntary lapse to offer a "revive" CTA for.
     We stamp ``cancelled_at`` but deliberately leave ``expired_at`` unset —
-    :func:`subscription_service.revive_subscription` only accepts EXPIRED rows,
+    :func:`subscription.lifecycle.revive_subscription` only accepts EXPIRED rows,
     so a CANCELLED row is naturally out of the revival window (correct for a
     chosen cancel). No notification is dispatched: CANCELLATION_CONFIRMED
     already fired when the member scheduled the cancel. This closes the race
@@ -118,12 +118,12 @@ def _lapse_active_rows(
             counters["past_due"] += 1
             newly_past_due.add(sub.pk)
             if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE.value:
-                from events.service import subscription_service  # lazy: avoid import cycle
+                from events.service.subscription import notifications as subscription_notifications
 
                 grace_period_end = sub.current_period_end + datetime.timedelta(
                     days=sub.organization.membership_grace_period_days
                 )
-                subscription_service._dispatch_payment_failed(
+                subscription_notifications._dispatch_payment_failed(
                     sub,
                     grace_period_end=grace_period_end,
                     is_online=False,
@@ -209,10 +209,12 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
     _expire_past_due_rows(now, counters, stripe_cancel_ids, newly_past_due)
 
     if stripe_cancel_ids:
-        from events.service import subscription_stripe_service  # lazy: avoid import cycle
+        from events.service.subscription.stripe import (
+            checkout as subscription_stripe_checkout,  # lazy: avoid import cycle
+        )
 
         for sub in MembershipSubscription.objects.filter(pk__in=stripe_cancel_ids).select_related("organization"):
-            subscription_stripe_service.cancel_stripe_subscription_best_effort(sub, reason="local_grace_expiry")
+            subscription_stripe_checkout.cancel_stripe_subscription_best_effort(sub, reason="local_grace_expiry")
 
     logger.info(
         "expire_subscriptions_past_grace_done",
@@ -244,8 +246,8 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     Returns:
         Counters dict: {"sent": N}.
     """
-    from events.service import subscription_service  # lazy: avoid import cycle
-    from events.service.subscription_notifications import last_paid_amounts
+    from events.service.subscription import notifications as subscription_notifications
+    from events.service.subscription.notifications import last_paid_amounts
     from events.utils.subscription_periods import REMINDER_DAYS
     from notifications.enums import NotificationType
     from notifications.signals import notification_requested
@@ -276,9 +278,9 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     sent = 0
     for sub in subs:
         plan = sub.plan
-        ctx = subscription_service._common_subscription_context(sub)
+        ctx = subscription_notifications._common_subscription_context(sub)
         ctx.update(
-            amount=subscription_service._format_money(last_paid.get(sub.id, plan.price), plan.currency),
+            amount=subscription_notifications._format_money(last_paid.get(sub.id, plan.price), plan.currency),
             period_end=sub.current_period_end.date().isoformat() if sub.current_period_end else "",
             is_online=(plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value),
         )
@@ -297,7 +299,7 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
 def migrate_plan_subscribers(plan_id: str, initiated_by_id: str) -> "MigrationResult":
     """Force-migrate a plan's non-terminal subscribers to its current price (async).
 
-    Wraps :func:`events.service.subscription_service.migrate_plan_subscribers`,
+    Wraps :func:`events.service.subscription.plans.migrate_plan_subscribers`,
     which issues one Stripe retrieve+modify per ONLINE subscriber — too slow to
     run inside the admin request (a large plan blows the gunicorn timeout).
     Dispatched from the migrate-subscribers endpoint via ``transaction.on_commit``
@@ -310,7 +312,7 @@ def migrate_plan_subscribers(plan_id: str, initiated_by_id: str) -> "MigrationRe
     preferences — is out of proportion for a staff-triggered batch job).
     """
     from accounts.models import RevelUser
-    from events.service import subscription_service
+    from events.service.subscription import plans as subscription_plans
 
     empty: MigrationResult = {
         "migrated": 0,
@@ -327,7 +329,7 @@ def migrate_plan_subscribers(plan_id: str, initiated_by_id: str) -> "MigrationRe
     if initiated_by is None:
         logger.warning("migrate_plan_subscribers_task_user_missing", plan_id=plan_id, initiated_by_id=initiated_by_id)
         return empty
-    return subscription_service.migrate_plan_subscribers(plan, initiated_by=initiated_by)
+    return subscription_plans.migrate_plan_subscribers(plan, initiated_by=initiated_by)
 
 
 class SubscriptionReconcileCounters(t.TypedDict):
@@ -346,7 +348,7 @@ def _sweep_stale_pending_checkouts(now: "datetime.datetime") -> int:
     Rows untouched for a day are only *candidates*: the session is retrieved
     from Stripe first, because a ``complete`` one means money was captured and
     the row is the sole handle back to it (see
-    :func:`~events.service.subscription_stripe_service.classify_stale_pending_checkout`).
+    :func:`~events.service.subscription.stripe.checkout.classify_stale_pending_checkout`).
     The retrieve happens BEFORE the row lock — never hold a row lock across a
     network call — so the row is re-read and re-checked inside the lock.
 
@@ -354,9 +356,9 @@ def _sweep_stale_pending_checkouts(now: "datetime.datetime") -> int:
         How many rows were cleared.
     """
     from events.service import stripe_incidents
-    from events.service.subscription_stripe_service import (
-        _clear_stale_pending_checkout,
+    from events.service.subscription.stripe.checkout import (
         classify_stale_pending_checkout,
+        clear_stale_pending_checkout,
     )
 
     stale_pending_ids = list(
@@ -407,7 +409,7 @@ def _sweep_stale_pending_checkouts(now: "datetime.datetime") -> int:
                 continue
             if sub.stripe_checkout_session_id != candidate.stripe_checkout_session_id:
                 continue
-            _clear_stale_pending_checkout(sub)
+            clear_stale_pending_checkout(sub)
             cleared += 1
             logger.info("subscription_reconcile_stale_pending_cleared", subscription_id=str(sub_id))
     return cleared
@@ -455,8 +457,8 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
     """
     import stripe as stripe_sdk
 
-    from events.service import subscription_stripe_sync
-    from events.service.subscription_stripe_payloads import _stripe_account_kwargs
+    from events.service.subscription.stripe import sync as subscription_stripe_sync
+    from events.service.subscription.stripe.payloads import stripe_account_kwargs
 
     now = timezone.now()
     counters: SubscriptionReconcileCounters = {
@@ -491,7 +493,7 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
             stripe_sub = stripe_sdk.Subscription.retrieve(
                 sub.stripe_subscription_id,
                 expand=["latest_invoice"],
-                **_stripe_account_kwargs(sub.organization),
+                **stripe_account_kwargs(sub.organization),
             )
         except stripe_sdk.error.InvalidRequestError:
             # resource_missing: Stripe has no such subscription (test-mode
@@ -525,9 +527,11 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
         # Stripe still has a live subscription. Outside the row lock: the sync's
         # transaction has committed by here.
         if sub.is_terminal and stripe_sub.get("status") not in _STRIPE_CLOSED_STATUSES:
-            from events.service import subscription_stripe_service  # lazy: avoid import cycle
+            from events.service.subscription.stripe import (
+                checkout as subscription_stripe_checkout,  # lazy: avoid import cycle
+            )
 
-            subscription_stripe_service.cancel_stripe_subscription_best_effort(sub, reason="reconcile_terminal_drift")
+            subscription_stripe_checkout.cancel_stripe_subscription_best_effort(sub, reason="reconcile_terminal_drift")
 
         # Ledger backfill: a paid invoice we have no row for means its
         # ``invoice.paid`` was lost for good (redelivery exhausted). The
@@ -565,7 +569,7 @@ def resync_org_subscription_fees(org_id: str) -> "FeeResyncCounters":
     here so a pending downgrade is never dropped).
     """
     from events.models import Organization
-    from events.service.subscription_stripe_service import resync_subscription_application_fees
+    from events.service.subscription.stripe.fees import resync_subscription_application_fees
 
     org = Organization.objects.get(pk=org_id)
     return resync_subscription_application_fees(org)

@@ -102,32 +102,26 @@ def create_whitelist_request(
 
     # Send notification to org admins
     def send_notification() -> None:
-        from notifications.service.eligibility import get_staff_for_notification
-
-        staff = get_staff_for_notification(
-            organization.id,
-            NotificationType.WHITELIST_REQUEST_CREATED,
-        )
+        from notifications.service.notification_helpers import notify_org_staff
 
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
-        for staff_member in staff:
-            notification_requested.send(
-                sender=WhitelistRequest,
-                user=staff_member,
-                notification_type=NotificationType.WHITELIST_REQUEST_CREATED,
-                context={
-                    "request_id": str(request.id),
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "requester_id": str(user.id),
-                    "requester_name": user.get_display_name(),
-                    "requester_email": user.email,
-                    "request_message": message,
-                    "matched_entries_count": len(matched_entries),
-                    "frontend_url": f"{frontend_base_url}/org/{organization.slug}/admin/blacklist",
-                },
-            )
+        notify_org_staff(
+            organization_id=organization.id,
+            notification_type=NotificationType.WHITELIST_REQUEST_CREATED,
+            context={
+                "request_id": str(request.id),
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "requester_id": str(user.id),
+                "requester_name": user.get_display_name(),
+                "requester_email": user.email,
+                "request_message": message,
+                "matched_entries_count": len(matched_entries),
+                "frontend_url": f"{frontend_base_url}/org/{organization.slug}/admin/blacklist",
+            },
+            sender=WhitelistRequest,
+        )
 
     transaction.on_commit(send_notification)
 

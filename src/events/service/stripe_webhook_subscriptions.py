@@ -3,8 +3,8 @@
 Mixin methods for :class:`events.service.stripe_webhooks.StripeEventHandler`,
 split out to keep that module under the file-length cap. The dispatch map and
 dedup gate stay in ``stripe_webhooks``; these methods mirror Stripe
-subscription/invoice state onto the local rows via ``subscription_stripe_sync``
-and route full charge refunds through ``subscription_refunds``.
+subscription/invoice state onto the local rows via ``subscription.stripe.sync``
+and route full charge refunds through ``subscription.refunds``.
 """
 
 import functools
@@ -34,7 +34,7 @@ def _cancel_unlinked_stripe_subscription(subscription: MembershipSubscription, s
     Stripe object. Best-effort by construction: a failure is logged there and the
     incident line already recorded the id an operator needs.
     """
-    from events.service.subscription_stripe_service import cancel_stripe_subscription_best_effort
+    from events.service.subscription.stripe.checkout import cancel_stripe_subscription_best_effort
 
     subscription.stripe_subscription_id = stripe_sub_id
     cancel_stripe_subscription_best_effort(subscription, reason="checkout_completed_while_terminal")
@@ -51,7 +51,7 @@ class SubscriptionWebhookHandlersMixin:
     def _event_account_owns(event: stripe.Event, subscription: MembershipSubscription) -> bool:
         """Whether this delivery's connected account owns ``subscription``.
 
-        Mirrors :func:`_stripe_account_kwargs`' host-org rule rather than
+        Mirrors :func:`stripe_account_kwargs`' host-org rule rather than
         inventing a second one: a platform-endpoint delivery carries no
         ``account``, and an org sitting on the platform's own Stripe account is
         addressed without ``stripe_account`` — so both render as "no connected
@@ -205,8 +205,8 @@ class SubscriptionWebhookHandlersMixin:
         Stripe failure propagates so the whole delivery (including the link and
         the dedup row) rolls back and Stripe redelivers.
         """
-        from events.service import subscription_stripe_sync
-        from events.service.subscription_stripe_payloads import _stripe_account_kwargs
+        from events.service.subscription.stripe import sync as subscription_stripe_sync
+        from events.service.subscription.stripe.payloads import stripe_account_kwargs
 
         invoice_ref = session.get("invoice")
         invoice_id = invoice_ref.get("id") if isinstance(invoice_ref, dict) else invoice_ref
@@ -220,7 +220,7 @@ class SubscriptionWebhookHandlersMixin:
         invoice = stripe.Invoice.retrieve(
             invoice_id,
             expand=["payments.data.payment.payment_intent"],
-            **_stripe_account_kwargs(subscription.organization),
+            **stripe_account_kwargs(subscription.organization),
         )
         if invoice.get("status") != "paid":
             return
@@ -243,7 +243,7 @@ class SubscriptionWebhookHandlersMixin:
         checkouts, org-run sessions) are ignored; the nightly reconcile sweep
         backstops a dropped delivery of this event.
         """
-        from events.service.subscription_stripe_service import _clear_stale_pending_checkout
+        from events.service.subscription.stripe.checkout import clear_stale_pending_checkout
 
         session = event.data.object
         raw_id = (session.get("metadata") or {}).get("membership_subscription_id")
@@ -272,7 +272,7 @@ class SubscriptionWebhookHandlersMixin:
             return  # session completed after all (out-of-order delivery) — leave it
         if subscription.stripe_checkout_session_id != session.get("id"):
             return  # row already carries a newer session — expiring the old one frees nothing
-        _clear_stale_pending_checkout(subscription)
+        clear_stale_pending_checkout(subscription)
         logger.info(
             "subscription_checkout_expired_cleared",
             session_id=session.get("id"),
@@ -349,7 +349,7 @@ class SubscriptionWebhookHandlersMixin:
             event: The Stripe webhook event.
             membership_payment: The MembershipPayment row matched by payment_intent_id.
         """
-        from events.service import subscription_refunds
+        from events.service.subscription import refunds as subscription_refunds
 
         if membership_payment.status == MembershipPayment.PaymentStatus.REFUNDED:
             # Idempotent: re-delivered webhook for an already-processed refund.
@@ -446,31 +446,31 @@ class SubscriptionWebhookHandlersMixin:
 
     def handle_customer_subscription_created(self, event: stripe.Event) -> None:
         """Mirror Stripe Subscription state when Stripe confirms creation."""
-        from events.service import subscription_stripe_sync
+        from events.service.subscription.stripe import sync as subscription_stripe_sync
 
         subscription_stripe_sync.sync_subscription_from_stripe(dict(event.data.object))
 
     def handle_customer_subscription_updated(self, event: stripe.Event) -> None:
         """Mirror status / period / cancel_at_period_end onto the local row."""
-        from events.service import subscription_stripe_sync
+        from events.service.subscription.stripe import sync as subscription_stripe_sync
 
         subscription_stripe_sync.sync_subscription_from_stripe(dict(event.data.object))
 
     def handle_customer_subscription_deleted(self, event: stripe.Event) -> None:
         """Stripe-side cancellation (immediate or end-of-period) — mark terminal."""
-        from events.service import subscription_stripe_sync
+        from events.service.subscription.stripe import sync as subscription_stripe_sync
 
         subscription_stripe_sync.sync_subscription_from_stripe(dict(event.data.object))
 
     def handle_invoice_paid(self, event: stripe.Event) -> None:
         """Record a SUCCEEDED MembershipPayment + revive PENDING/PAST_DUE → ACTIVE."""
-        from events.service import subscription_stripe_sync
+        from events.service.subscription.stripe import sync as subscription_stripe_sync
 
         subscription_stripe_sync.record_stripe_payment_from_invoice(dict(event.data.object), succeeded=True)
 
     def handle_invoice_payment_failed(self, event: stripe.Event) -> None:
         """Record a FAILED MembershipPayment + transition subscription to PAST_DUE."""
-        from events.service import subscription_stripe_sync
+        from events.service.subscription.stripe import sync as subscription_stripe_sync
 
         subscription_stripe_sync.record_stripe_payment_from_invoice(dict(event.data.object), succeeded=False)
 
@@ -486,6 +486,6 @@ class SubscriptionWebhookHandlersMixin:
         ``record_stripe_payment_from_invoice`` keeps a later ``invoice.paid``
         (or an out-of-order one) authoritative for the ledger.
         """
-        from events.service import subscription_stripe_sync
+        from events.service.subscription.stripe import sync as subscription_stripe_sync
 
         subscription_stripe_sync.record_stripe_payment_from_invoice(dict(event.data.object), succeeded=False)

@@ -5,6 +5,8 @@ import typing as t
 import pytest
 from django.template.loader import render_to_string
 
+from common.tests.branding import LEGACY_BRAND_HEXES
+
 pytestmark = pytest.mark.django_db
 
 TEMPLATES = [
@@ -23,7 +25,6 @@ TEMPLATES = [
     "data_export_failed",
     "data_export_failed_admin",
 ]
-LEGACY = ("#667eea", "#764ba2", "#28a745", "#2196F3", "#3498db")
 
 
 @pytest.mark.parametrize("base", TEMPLATES)
@@ -41,7 +42,7 @@ def test_account_email_branded(base: str) -> None:
     }
     html = render_to_string(f"accounts/emails/{base}_body.html", ctx)
     assert "revel-email-logo.png" in html, f"{base} not on branded base"
-    for legacy in LEGACY:
+    for legacy in LEGACY_BRAND_HEXES:
         assert legacy not in html, f"{base} still has {legacy}"
     # The two content-bearing templates must actually render their key value
     # (guards against context-key drift like download_link vs download_url).

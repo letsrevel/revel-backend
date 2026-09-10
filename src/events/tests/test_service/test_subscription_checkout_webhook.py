@@ -252,7 +252,7 @@ class TestCheckoutCompletedAgainstTerminalRow:
         }
         with (
             mock.patch(
-                "events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort"
+                "events.service.subscription.stripe.checkout.cancel_stripe_subscription_best_effort"
             ) as mock_cancel,
             mock.patch("events.service.stripe_incidents.record_subscription_checkout_while_terminal") as mock_incident,
             django_capture_on_commit_callbacks(execute=True),
@@ -284,7 +284,7 @@ class TestCheckoutCompletedAgainstTerminalRow:
             "metadata": {"membership_subscription_id": str(pending_subscription.pk)},
         }
         with mock.patch(
-            "events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort"
+            "events.service.subscription.stripe.checkout.cancel_stripe_subscription_best_effort"
         ) as mock_cancel:
             StripeEventHandler(_session_event(session)).handle()
 

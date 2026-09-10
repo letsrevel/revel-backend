@@ -38,7 +38,7 @@ class TestFollowOrganization:
         organization.save()
 
         # Act
-        with patch("events.service.follow_service.notification_requested.send"):
+        with patch("notifications.signals.notification_requested.send"):
             with django_capture_on_commit_callbacks(execute=True):
                 follow = follow_service.follow_organization(nonmember_user, organization)
 
@@ -65,7 +65,7 @@ class TestFollowOrganization:
         organization.save()
 
         # Act
-        with patch("events.service.follow_service.notification_requested.send"):
+        with patch("notifications.signals.notification_requested.send"):
             with django_capture_on_commit_callbacks(execute=True):
                 follow = follow_service.follow_organization(
                     nonmember_user,
@@ -94,7 +94,7 @@ class TestFollowOrganization:
         organization.save()
 
         # Act
-        with patch("events.service.follow_service.notification_requested.send") as mock_send:
+        with patch("notifications.signals.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 follow_service.follow_organization(nonmember_user, organization)
 
@@ -141,7 +141,7 @@ class TestFollowOrganization:
         original_id = existing_follow.id
 
         # Act
-        with patch("events.service.follow_service.notification_requested.send"):
+        with patch("notifications.signals.notification_requested.send"):
             with django_capture_on_commit_callbacks(execute=True):
                 follow = follow_service.follow_organization(
                     nonmember_user,
@@ -179,7 +179,7 @@ class TestFollowOrganization:
 
         # Act & Assert
         with pytest.raises(HttpError) as exc_info:
-            with patch("events.service.follow_service.notification_requested.send"):
+            with patch("notifications.signals.notification_requested.send"):
                 follow_service.follow_organization(nonmember_user, organization)
 
         assert exc_info.value.status_code == 400
@@ -382,7 +382,7 @@ class TestFollowEventSeries:
         organization.save()
 
         # Act
-        with patch("events.service.follow_service.notification_requested.send"):
+        with patch("notifications.signals.notification_requested.send"):
             with django_capture_on_commit_callbacks(execute=True):
                 follow = follow_service.follow_event_series(nonmember_user, event_series)
 
@@ -408,7 +408,7 @@ class TestFollowEventSeries:
         organization.save()
 
         # Act
-        with patch("events.service.follow_service.notification_requested.send"):
+        with patch("notifications.signals.notification_requested.send"):
             with django_capture_on_commit_callbacks(execute=True):
                 follow = follow_service.follow_event_series(
                     nonmember_user,
@@ -436,7 +436,7 @@ class TestFollowEventSeries:
         organization.save()
 
         # Act
-        with patch("events.service.follow_service.notification_requested.send") as mock_send:
+        with patch("notifications.signals.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 follow_service.follow_event_series(nonmember_user, event_series)
 
@@ -478,7 +478,7 @@ class TestFollowEventSeries:
         original_id = existing_follow.id
 
         # Act
-        with patch("events.service.follow_service.notification_requested.send"):
+        with patch("notifications.signals.notification_requested.send"):
             with django_capture_on_commit_callbacks(execute=True):
                 follow = follow_service.follow_event_series(
                     nonmember_user,
@@ -513,7 +513,7 @@ class TestFollowEventSeries:
 
         # Act & Assert
         with pytest.raises(HttpError) as exc_info:
-            with patch("events.service.follow_service.notification_requested.send"):
+            with patch("notifications.signals.notification_requested.send"):
                 follow_service.follow_event_series(nonmember_user, event_series)
 
         assert exc_info.value.status_code == 400
@@ -637,3 +637,62 @@ class TestUpdateEventSeriesFollowPreferences:
 
         assert exc_info.value.status_code == 400
         assert "Not following" in str(exc_info.value)
+
+
+class TestFollowNotificationsRespectStaffPreferences:
+    """Follow fan-outs must honour the recipient's per-type preference.
+
+    Both sites used to loop over ``get_staff_for_notification`` and send
+    unconditionally, so a staff member who switched the type off still received
+    every follow notification.
+    """
+
+    def _set_enabled(self, staff_user: RevelUser, notification_type: NotificationType, enabled: bool) -> None:
+        prefs = staff_user.notification_preferences
+        prefs.notification_type_settings[notification_type] = {"enabled": enabled}
+        prefs.save(update_fields=["notification_type_settings"])
+
+    def _notified(self, mock_send: t.Any, notification_type: NotificationType, staff_user: RevelUser) -> bool:
+        return any(
+            c.kwargs.get("notification_type") == notification_type and c.kwargs.get("user") == staff_user
+            for c in mock_send.call_args_list
+        )
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_organization_followed_respects_preference(
+        self,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+        enabled: bool,
+    ) -> None:
+        """ORGANIZATION_FOLLOWED reaches the owner only while they have it enabled."""
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save()
+        self._set_enabled(organization.owner, NotificationType.ORGANIZATION_FOLLOWED, enabled)
+
+        with patch("notifications.signals.notification_requested.send") as mock_send:
+            with django_capture_on_commit_callbacks(execute=True):
+                follow_service.follow_organization(nonmember_user, organization)
+
+        assert self._notified(mock_send, NotificationType.ORGANIZATION_FOLLOWED, organization.owner) is enabled
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_event_series_followed_respects_preference(
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        nonmember_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+        enabled: bool,
+    ) -> None:
+        """EVENT_SERIES_FOLLOWED reaches the owner only while they have it enabled."""
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save()
+        self._set_enabled(organization.owner, NotificationType.EVENT_SERIES_FOLLOWED, enabled)
+
+        with patch("notifications.signals.notification_requested.send") as mock_send:
+            with django_capture_on_commit_callbacks(execute=True):
+                follow_service.follow_event_series(nonmember_user, event_series)
+
+        assert self._notified(mock_send, NotificationType.EVENT_SERIES_FOLLOWED, organization.owner) is enabled

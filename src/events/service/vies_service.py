@@ -3,7 +3,7 @@
 Thin wrappers around the generic billing operations in ``common.service.vies_service``.
 
 Each wrapper also compares the org's *effective* subscription fee percent
-(:func:`events.service.subscription_stripe_service.effective_application_fee_percent`)
+(:func:`events.service.subscription.stripe.fees.effective_application_fee_percent`)
 before and after the mutation: a VAT-status change (validation flip, VAT ID
 set/cleared, country change) changes the VAT gross-up baked into Stripe's
 ``application_fee_percent`` at Checkout, so live subscriptions must be resynced
@@ -26,7 +26,7 @@ if t.TYPE_CHECKING:
 
 def _effective_fee_percent(org: "Organization") -> Decimal | None:
     """Current effective subscription fee percent (lazy import: avoid cycles)."""
-    from events.service.subscription_stripe_service import effective_application_fee_percent  # noqa: PLC0415
+    from events.service.subscription.stripe.fees import effective_application_fee_percent  # noqa: PLC0415
 
     return effective_application_fee_percent(org)
 

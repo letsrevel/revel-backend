@@ -14,6 +14,7 @@ from django.db.models import F
 
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
+from common.service.stripe_config import configure_stripe
 from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMismatchError
 from events.models import (
     HeldSeriesPass,
@@ -37,14 +38,7 @@ from notifications.signals.series_pass import send_series_pass_purchased
 logger = structlog.get_logger(__name__)
 
 
-# Pin both credentials and API version at import time (mirrors stripe_service).
-# This module makes its own outbound call (Refund.list in _resolve_refunds), so
-# it must not rely on another module's import side effects to set the pin.
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 # Placeholder values that must never be treated as real signing secrets.
 _PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})
@@ -237,7 +231,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
                 and sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
                 and sub.stripe_subscription_id
             ):
-                from events.service.subscription_stripe_service import cancel_stripe_subscription_best_effort
+                from events.service.subscription.stripe.checkout import cancel_stripe_subscription_best_effort
 
                 transaction.on_commit(
                     functools.partial(cancel_stripe_subscription_best_effort, sub, reason="refund_auto_cancel_replay")
@@ -530,7 +524,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
             return
 
-        # Phase 4: Subscription refunds — handled by subscription_service.
+        # Phase 4: Subscription refunds — handled by subscription.lifecycle.
         membership_payment = (
             MembershipPayment.objects.select_for_update().filter(stripe_payment_intent_id=payment_intent_id).first()
         )
