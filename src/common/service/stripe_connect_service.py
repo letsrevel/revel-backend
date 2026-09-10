@@ -9,20 +9,16 @@ import typing as t
 
 import stripe
 import structlog
-from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from pydantic import EmailStr
 
 from common.models import StripeConnectMixin
+from common.service.stripe_config import configure_stripe
 
 logger = structlog.get_logger(__name__)
 
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 
 def get_account_details(account_id: str) -> stripe.Account:

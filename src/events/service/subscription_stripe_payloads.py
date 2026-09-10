@@ -17,18 +17,12 @@ import stripe
 import structlog
 from django.conf import settings
 
+from common.service.stripe_config import configure_stripe
 from events.models import Organization
 
 logger = structlog.get_logger(__name__)
 
-# Pin both credentials and API version at import time (mirrors stripe_service):
-# this module makes its own outbound call (Invoice.retrieve) and must not rely
-# on another module's import side effects to set the pin.
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 
 class StripeAccountKwargs(t.TypedDict, total=False):

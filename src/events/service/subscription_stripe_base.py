@@ -8,24 +8,17 @@ extracted so the two can depend on this module instead of on each other.
 
 import stripe
 import structlog
-from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from common.service.stripe_config import configure_stripe
 from events.models import MembershipSubscriptionPlan, Organization
 from events.service.subscription_stripe_payloads import _stripe_account_kwargs, stripe_interval
 from events.utils.currency import to_stripe_amount
 
 logger = structlog.get_logger(__name__)
 
-# Pin both credentials and API version at import time (mirrors stripe_service):
-# this module makes its own outbound calls and must not rely on another
-# module's import side effects to set the pin.
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 
 def _require_stripe_connected(organization: Organization) -> None:

@@ -24,6 +24,8 @@ import stripe
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
+from common.service.stripe_config import configure_stripe
+
 # Must stay in sync with the dispatch map in
 # events/service/stripe_webhooks.py::StripeEventHandler.handle — Stripe only
 # delivers events you subscribe to.
@@ -101,11 +103,7 @@ class Command(BaseCommand):
             self.stdout.write(f"Would create Connect endpoint at {url}: {', '.join(CONNECT_EVENTS)}")
             return
 
-        stripe.api_key = settings.STRIPE_SECRET_KEY
-        stripe.api_version = settings.STRIPE_API_VERSION
-        # Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-        # another module's import to configure stripe.default_http_client.
-        stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+        configure_stripe()
 
         existing = [ep for ep in stripe.WebhookEndpoint.list(limit=100).auto_paging_iter() if ep.url == url]
         if existing and not options["force"]:
