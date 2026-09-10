@@ -5,6 +5,7 @@ import typing as t
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import Query
 from ninja_extra import api_controller, route
 
@@ -46,7 +47,7 @@ class OrganizationAdminRevenueController(OrganizationAdminBaseController):
         date_from = payload.date_from or today.replace(month=1, day=1)
         date_to = payload.date_to or today
         if date_from > date_to:
-            raise InvalidPeriodError("date_from must be on or before date_to.")
+            raise InvalidPeriodError(str(_("date_from must be on or before date_to.")))
         scope = revenue_report_service.ReportScope(
             org=org,
             event_id=payload.event_id,

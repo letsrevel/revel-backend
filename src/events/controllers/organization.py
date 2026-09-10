@@ -472,7 +472,7 @@ class OrganizationController(UserAwareController):
         if not fuzzy_matches:
             from ninja.errors import HttpError
 
-            raise HttpError(400, "No matching blacklist entries found.")
+            raise HttpError(400, str(_("No matching blacklist entries found.")))
 
         # Extract blacklist entries from matches
         matched_entries = [entry for entry, _ in fuzzy_matches]

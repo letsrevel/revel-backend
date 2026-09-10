@@ -88,9 +88,10 @@ audit:
 .PHONY: deps-check
 deps-check: licensecheck audit
 
-# Combined command: Runs format, lint, mypy, migration-check, i18n-check, file-length, and task-names in sequence
+# Combined command: Runs format, lint, mypy, migration-check, i18n-check,
+# i18n-literals, file-length, and task-names in sequence
 .PHONY: check
-check: format lint mypy migration-check i18n-check file-length task-names
+check: format lint mypy migration-check i18n-check i18n-literals file-length task-names
 
 .PHONY: file-length
 file-length:
@@ -99,6 +100,10 @@ file-length:
 .PHONY: task-names
 task-names:
 	@uv run python scripts/check_task_names.py src
+
+.PHONY: i18n-literals
+i18n-literals:
+	@uv run python scripts/check_i18n_literals.py src
 
 .PHONY: migration-check
 migration-check:

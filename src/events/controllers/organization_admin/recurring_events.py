@@ -4,6 +4,7 @@ import typing as t
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -200,7 +201,7 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         """
         series = self._get_series(slug, series_id)
         if not series.template_event_id:
-            raise HttpError(404, "Series has no template event.")
+            raise HttpError(404, str(_("Series has no template event.")))
         return get_object_or_404(models.Event.objects.full(), pk=series.template_event_id)
 
     @route.post(

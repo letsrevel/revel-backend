@@ -104,7 +104,7 @@ class IsOrganizationOwner(RootPermission):
         """Can edit organization."""
         if obj.owner_id == request.user.id:
             return True
-        raise PermissionDenied("You must be the owner of this organization.")
+        raise PermissionDenied(str(_("You must be the owner of this organization.")))
 
 
 class IsOrganizationStaff(RootPermission):
@@ -121,7 +121,7 @@ class IsOrganizationStaff(RootPermission):
         """Can edit organization."""
         if obj.is_owner_or_staff(t.cast(RevelUser, request.user)):
             return True
-        raise PermissionDenied("You must be the owner or a staff member of this organization.")
+        raise PermissionDenied(str(_("You must be the owner or a staff member of this organization.")))
 
 
 class CanDuplicateEvent(RootPermission):
@@ -206,7 +206,7 @@ class CanPurchaseTicket(RootPermission):
         if obj.sales_paused:
             raise PermissionDenied(str(_("Ticket sales are paused.")))
         if not obj.can_purchase():
-            raise PermissionDenied("You're outside of the sale window.")
+            raise PermissionDenied(str(_("You're outside of the sale window.")))
         if obj.purchasable_by == models.TicketTier.PurchasableBy.PUBLIC:
             return True
         if obj.event.organization.is_owner_or_staff(user):
@@ -224,7 +224,7 @@ class CanPurchaseTicket(RootPermission):
         if obj.purchasable_by in [PB.INVITED, PB.INVITED_AND_MEMBERS] and self._check_invited(obj, user.id):
             return True
 
-        raise PermissionDenied(f"The ticket can be purchased by {obj.get_purchasable_by_display()}")
+        raise PermissionDenied(str(_("The ticket can be purchased by {}").format(obj.get_purchasable_by_display())))
 
 
 @api_controller("/permissions", auth=I18nJWTAuth(), tags=["Permissions"])

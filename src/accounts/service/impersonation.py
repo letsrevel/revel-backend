@@ -93,7 +93,7 @@ def create_impersonation_request(
             target_email=target.email,
             reason=error,
         )
-        raise HttpError(403, error or "Impersonation not allowed.")
+        raise HttpError(403, error or str(_("Impersonation not allowed.")))
 
     # Generate unique JTI for tracking
     jti = uuid4().hex
@@ -179,7 +179,7 @@ def redeem_impersonation_token(token: str) -> ImpersonationResult:
             target_id=str(log.target_user.id),
             reason=error,
         )
-        raise HttpError(403, error or "Impersonation no longer allowed.")
+        raise HttpError(403, error or str(_("Impersonation no longer allowed.")))
 
     # Consume the request token: refuses the loser of two concurrent redemptions.
     consume_one_shot_token(token)
