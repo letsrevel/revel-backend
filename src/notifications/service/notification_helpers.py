@@ -19,6 +19,7 @@ from notifications.service.dispatcher import NotificationData, bulk_create_notif
 from notifications.service.eligibility import (
     BatchParticipationChecker,
     get_eligible_users_for_event_notification,
+    get_staff_for_notification,
 )
 
 logger = structlog.get_logger(__name__)
@@ -41,6 +42,55 @@ def get_event_location_for_user(event: Event, user: RevelUser) -> tuple[str, str
     if event.can_user_see_address(user):
         return event.full_address(), event.location_maps_url or ""
     return "", ""
+
+
+def notify_org_staff(
+    *,
+    organization_id: UUID,
+    notification_type: NotificationType,
+    context: t.Mapping[str, t.Any],
+    sender: t.Any,
+    recipients: t.Sequence[RevelUser] | None = None,
+) -> int:
+    """Fan a notification out to the org staff/owners who have that type enabled.
+
+    Replaces the fan-out block that every staff-facing notification used to
+    repeat: resolve the eligible staff, skip anyone who disabled the type in
+    their ``NotificationPreference``, and fire ``notification_requested`` for
+    the rest.
+
+    Args:
+        organization_id: Organization whose staff/owners should be notified.
+        notification_type: The notification type being sent; also selects the
+            permission required to receive it and gates each recipient's
+            preference.
+        context: Notification context, sent verbatim to every recipient.
+        sender: Signal ``sender`` — a model class or the calling function.
+            Only used for logging, so callers pass whatever identifies them.
+        recipients: Pre-materialised staff list to reuse instead of querying.
+            Pass it when notifying the same staff repeatedly in a loop (batch
+            paths) so the query is not repeated per iteration.
+
+    Returns:
+        Number of staff members notified.
+    """
+    from notifications.signals import notification_requested
+
+    staff_and_owners = (
+        recipients if recipients is not None else get_staff_for_notification(organization_id, notification_type)
+    )
+
+    notified = 0
+    for staff_user in staff_and_owners:
+        if staff_user.notification_preferences.is_notification_type_enabled(notification_type):
+            notification_requested.send(
+                sender=sender,
+                user=staff_user,
+                notification_type=notification_type,
+                context=context,
+            )
+            notified += 1
+    return notified
 
 
 def notify_event_opened(event: Event) -> int:

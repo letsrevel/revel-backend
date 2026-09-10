@@ -10,6 +10,7 @@ from django.dispatch import receiver
 from common.models import SiteSettings
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
+from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
 
@@ -81,19 +82,19 @@ def handle_questionnaire_submission(
     staff_list = list(staff_and_owners)
 
     def send_notifications() -> None:
-        for staff_user in staff_list:
-            notification_requested.send(
-                sender=sender,
-                user=staff_user,
-                notification_type=NotificationType.QUESTIONNAIRE_SUBMITTED,
-                context=context,
-            )
+        notified = notify_org_staff(
+            organization_id=organization_id,
+            notification_type=NotificationType.QUESTIONNAIRE_SUBMITTED,
+            context=context,
+            sender=sender,
+            recipients=staff_list,
+        )
 
         logger.info(
             "questionnaire_submission_notifications_sent",
             submission_id=str(instance.id),
             organization_id=str(organization_id),
-            recipients_count=len(staff_list),
+            recipients_count=notified,
         )
 
     transaction.on_commit(send_notifications)

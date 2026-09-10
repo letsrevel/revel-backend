@@ -1,14 +1,18 @@
 """Tests for notification helper functions."""
 
+import typing as t
 from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
 from django.contrib.gis.geos import Point
 
+from accounts.models import RevelUser
+from events.models import Organization, OrganizationStaff, Ticket
 from geo.models import City
-from notifications.service.notification_helpers import format_event_datetime, get_event_timezone
+from notifications.enums import NotificationType
+from notifications.service.notification_helpers import format_event_datetime, get_event_timezone, notify_org_staff
 
 
 @pytest.fixture
@@ -220,3 +224,82 @@ class TestGetFormattedContextForTemplate:
         assert result["event_start_formatted"] == "Friday, February 6, 2026 at 6:00 PM CET"
         # Short format should NOT be added (would have wrong timezone)
         assert "event_start_short" not in result
+
+
+@pytest.mark.django_db
+class TestNotifyOrgStaff:
+    """Tests for the shared org-staff fan-out helper."""
+
+    def _disable(self, staff_user: RevelUser, notification_type: NotificationType) -> None:
+        prefs = staff_user.notification_preferences
+        prefs.notification_type_settings[notification_type] = {"enabled": False}
+        prefs.save(update_fields=["notification_type_settings"])
+
+    def test_notifies_staff_with_the_type_enabled(self, organization: Organization) -> None:
+        """The owner receives the notification and the helper reports one recipient."""
+        with patch("notifications.signals.notification_requested.send") as send_mock:
+            notified = notify_org_staff(
+                organization_id=organization.id,
+                notification_type=NotificationType.TICKET_CREATED,
+                context={"ticket_id": "abc"},
+                sender=Ticket,
+            )
+
+        assert notified == 1
+        send_mock.assert_called_once_with(
+            sender=Ticket,
+            user=organization.owner,
+            notification_type=NotificationType.TICKET_CREATED,
+            context={"ticket_id": "abc"},
+        )
+
+    def test_skips_staff_who_disabled_the_type(self, organization: Organization) -> None:
+        """A staff member who turned the type off is silently skipped."""
+        self._disable(organization.owner, NotificationType.TICKET_CREATED)
+
+        with patch("notifications.signals.notification_requested.send") as send_mock:
+            notified = notify_org_staff(
+                organization_id=organization.id,
+                notification_type=NotificationType.TICKET_CREATED,
+                context={"ticket_id": "abc"},
+                sender=Ticket,
+            )
+
+        assert notified == 0
+        send_mock.assert_not_called()
+
+    def test_reuses_supplied_recipients_without_querying(
+        self, organization: Organization, django_assert_num_queries: t.Any
+    ) -> None:
+        """Passing ``recipients`` skips the staff lookup so batch loops keep one query."""
+        recipients = [organization.owner]
+
+        with patch("notifications.signals.notification_requested.send") as send_mock:
+            with django_assert_num_queries(0):
+                notified = notify_org_staff(
+                    organization_id=organization.id,
+                    notification_type=NotificationType.TICKET_CREATED,
+                    context={"ticket_id": "abc"},
+                    sender=Ticket,
+                    recipients=recipients,
+                )
+
+        assert notified == 1
+        assert send_mock.call_args.kwargs["user"] == organization.owner
+
+    def test_returns_the_number_notified(self, organization: Organization, member_user: RevelUser) -> None:
+        """The return value counts only the staff who actually got the notification."""
+        OrganizationStaff.objects.create(organization=organization, user=member_user)
+        self._disable(member_user, NotificationType.TICKET_CREATED)
+
+        with patch("notifications.signals.notification_requested.send") as send_mock:
+            notified = notify_org_staff(
+                organization_id=organization.id,
+                notification_type=NotificationType.TICKET_CREATED,
+                context={"ticket_id": "abc"},
+                sender=Ticket,
+            )
+
+        assert notified == 1
+        assert send_mock.call_count == 1
+        assert send_mock.call_args.kwargs["user"] == organization.owner

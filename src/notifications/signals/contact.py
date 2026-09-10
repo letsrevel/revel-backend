@@ -11,8 +11,7 @@ from common.models import SiteSettings
 from events.models import OrganizationContactMessage
 from events.tasks import send_organization_contact_message_email
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_staff_for_notification
-from notifications.signals import notification_requested
+from notifications.service.notification_helpers import notify_org_staff
 
 logger = structlog.get_logger(__name__)
 
@@ -43,28 +42,26 @@ def handle_contact_message_created(
         admin_url = f"{frontend_base_url}/org/{organization.slug}/admin/contact-messages/{instance.id}"
         message_preview = instance.message[:_MESSAGE_PREVIEW_CHARS]
 
-        recipients = get_staff_for_notification(organization.id, NotificationType.ORG_CONTACT_MESSAGE_RECEIVED)
-        for recipient in recipients:
-            notification_requested.send(
-                sender=handle_contact_message_created,
-                user=recipient,
-                notification_type=NotificationType.ORG_CONTACT_MESSAGE_RECEIVED,
-                context={
-                    "message_id": str(instance.id),
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "sender_email": instance.sender_email_snapshot,
-                    "subject": instance.subject,
-                    "message_preview": message_preview,
-                    "admin_url": admin_url,
-                },
-            )
+        notified = notify_org_staff(
+            organization_id=organization.id,
+            notification_type=NotificationType.ORG_CONTACT_MESSAGE_RECEIVED,
+            context={
+                "message_id": str(instance.id),
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "sender_email": instance.sender_email_snapshot,
+                "subject": instance.subject,
+                "message_preview": message_preview,
+                "admin_url": admin_url,
+            },
+            sender=handle_contact_message_created,
+        )
 
         logger.info(
             "organization_contact_message_dispatched",
             message_id=str(instance.id),
             organization_id=str(organization.id),
-            recipient_count=len(recipients),
+            recipient_count=notified,
         )
 
     transaction.on_commit(fire)
