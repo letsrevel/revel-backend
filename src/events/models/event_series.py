@@ -8,6 +8,7 @@ from django.db.models import Exists, OuterRef, Prefetch, Q
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
+from events.utils.visibility import owner_or_staff_q
 
 from .mixins import LogoCoverValidationMixin, SlugFromNameMixin
 from .organization import Organization
@@ -80,8 +81,7 @@ class EventSeriesQuerySet(models.QuerySet["EventSeries"]):
             return qs
         if user.is_anonymous:
             return qs.exclude(organization__visibility=Organization.Visibility.UNLISTED)
-        is_owner_or_staff = Q(organization__owner=user) | Q(organization__staff_members=user)
-        return qs.exclude(Q(organization__visibility=Organization.Visibility.UNLISTED) & ~is_owner_or_staff)
+        return qs.exclude(Q(organization__visibility=Organization.Visibility.UNLISTED) & ~owner_or_staff_q(user))
 
 
 class EventSeriesManager(models.Manager["EventSeries"]):

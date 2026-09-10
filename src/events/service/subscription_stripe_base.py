@@ -6,8 +6,6 @@ Bottom of the subscription Stripe stack (next to
 extracted so the two can depend on this module instead of on each other.
 """
 
-import typing as t
-
 import stripe
 import structlog
 from django.conf import settings
@@ -15,7 +13,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events.models import MembershipSubscriptionPlan, Organization
-from events.service.subscription_stripe_payloads import _stripe_account_kwargs
+from events.service.subscription_stripe_payloads import _stripe_account_kwargs, stripe_interval
 from events.utils.currency import to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -27,9 +25,7 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe.api_version = settings.STRIPE_API_VERSION
 # Same reasoning for the HTTP timeout (see stripe_service): don't rely on
 # another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined]
-    timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS
-)
+stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
 
 
 def _require_stripe_connected(organization: Organization) -> None:
@@ -46,10 +42,10 @@ def _price_inputs_changed(plan: MembershipSubscriptionPlan, price: stripe.Price)
         return True
     if (price.currency or "").upper() != plan.currency.upper():
         return True
-    recurring = price.recurring or {}
-    if recurring.get("interval") != plan.period_unit:
+    recurring = price.recurring
+    if recurring is None or recurring.interval != plan.period_unit:
         return True
-    if recurring.get("interval_count") != plan.period_count:
+    if recurring.interval_count != plan.period_count:
         return True
     return False
 
@@ -79,7 +75,7 @@ def ensure_stripe_price(plan: MembershipSubscriptionPlan) -> MembershipSubscript
                 metadata={"revel_plan_id": str(plan.pk)},
                 **kwargs,
             )
-            plan.stripe_product_id = t.cast(str, product.id)
+            plan.stripe_product_id = product.id
             update_fields.append("stripe_product_id")
 
         needs_new_price = not plan.stripe_price_id
@@ -95,11 +91,11 @@ def ensure_stripe_price(plan: MembershipSubscriptionPlan) -> MembershipSubscript
                 product=plan.stripe_product_id,
                 unit_amount=to_stripe_amount(plan.price, plan.currency),
                 currency=plan.currency.lower(),
-                recurring={"interval": plan.period_unit, "interval_count": plan.period_count},
+                recurring={"interval": stripe_interval(plan.period_unit), "interval_count": plan.period_count},
                 metadata={"revel_plan_id": str(plan.pk)},
                 **kwargs,
             )
-            plan.stripe_price_id = t.cast(str, new_price.id)
+            plan.stripe_price_id = new_price.id
             update_fields.append("stripe_price_id")
     except stripe.error.StripeError as exc:
         logger.error(

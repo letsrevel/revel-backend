@@ -15,6 +15,14 @@ from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 from events.utils.schedule import validate_schedule
+from events.utils.visibility import (
+    get_excluded_org_ids,
+    get_invited_event_ids,
+    get_rsvp_event_ids,
+    get_ticketed_event_ids,
+    get_valid_member_org_ids,
+    owner_or_staff_q,
+)
 from events.utils.visibility_settings import EventVisibilitySettings, validate_visibility_settings
 
 from .event_series import EventSeries
@@ -86,10 +94,6 @@ class EventQuerySet(models.QuerySet["Event"]):
         - CANCELLED users: Treated as if they have no membership
         - PAUSED/ACTIVE users: Can see events based on visibility rules
         """
-        from .invitation import EventInvitation
-        from .rsvp import EventRSVP
-        from .ticket import Ticket
-
         base_qs = self.select_related("organization", "event_series", "venue").filter(is_template=False)
 
         is_allowed_special = Q(id__in=allowed_ids) if allowed_ids else Q()
@@ -114,46 +118,28 @@ class EventQuerySet(models.QuerySet["Event"]):
 
         # --- Get banned and blacklisted organization IDs ---
         # Users banned/blacklisted from an organization cannot see its events, even if public
-        from events.utils.blacklist import get_hard_blacklisted_org_ids
-
-        banned_org_ids = OrganizationMember.objects.filter(
-            user=user, status=OrganizationMember.MembershipStatus.BANNED
-        ).values_list("organization_id", flat=True)
-
-        blacklisted_org_ids = get_hard_blacklisted_org_ids(user)
-
-        # Combine banned and blacklisted org IDs
-        excluded_org_ids = set(banned_org_ids) | set(blacklisted_org_ids)
+        excluded_org_ids = get_excluded_org_ids(user)
 
         # --- Subquery Strategy ---
         # 1. Get IDs of all non-public events this user has a specific relationship with.
 
-        # Events they are invited to
-        invited_event_ids = EventInvitation.objects.filter(user=user).values_list("event_id", flat=True)
-
         # Events where they are a valid member of the organization (not cancelled, not banned)
-        member_org_ids = (
-            OrganizationMember.objects.for_visibility().filter(user=user).values_list("organization_id", flat=True)
-        )
         member_event_ids = self.filter(
-            visibility=Event.Visibility.MEMBERS_ONLY, organization_id__in=member_org_ids
+            visibility=Event.Visibility.MEMBERS_ONLY, organization_id__in=get_valid_member_org_ids(user)
         ).values_list("id", flat=True)
 
-        # Combine these IDs into a single set
-        ticket_event_ids = Ticket.objects.filter(user=user).values_list("event_id", flat=True)
-        rsvp_event_ids = EventRSVP.objects.filter(user=user).values_list("event_id", flat=True)
-
-        # Combine all these IDs into a single set
+        # Listing visibility is deliberately lenient: any ticket (even cancelled) and any
+        # RSVP row count. Fine-grained checks (address, cancellation reason) are stricter.
         allowed_non_public_ids = (
-            set(invited_event_ids)
+            set(get_invited_event_ids(user))
             | set(member_event_ids)
-            | set(ticket_event_ids)
-            | set(rsvp_event_ids)
+            | set(get_ticketed_event_ids(user, include_cancelled=True))
+            | set(get_rsvp_event_ids(user, confirmed_only=False))
             | set(allowed_ids or [])  # allow specific extra ids (e.g., when an EventToken is used).
         )
 
         # 2. Build the final query
-        is_owner_or_staff = Q(organization__owner=user) | Q(organization__staff_members=user)
+        is_owner_or_staff = owner_or_staff_q(user)
         # UNLISTED events are accessible like PUBLIC (e.g. via direct link);
         # discovery listings use discoverable_for_user() to hide them.
         is_public = Q(visibility__in=Event.Visibility.publicly_accessible()) & ~Q(organization_id__in=excluded_org_ids)
@@ -182,8 +168,7 @@ class EventQuerySet(models.QuerySet["Event"]):
             return qs
         if user.is_anonymous:
             return qs.exclude(visibility=Event.Visibility.UNLISTED)
-        is_owner_or_staff = Q(organization__owner=user) | Q(organization__staff_members=user)
-        return qs.exclude(Q(visibility=Event.Visibility.UNLISTED) & ~is_owner_or_staff)
+        return qs.exclude(Q(visibility=Event.Visibility.UNLISTED) & ~owner_or_staff_q(user))
 
 
 class EventManager(models.Manager["Event"]):

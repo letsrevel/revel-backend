@@ -19,5 +19,5 @@ from events.service import stripe_service, stripe_webhooks  # noqa: F401
 
 def test_default_http_client_is_configured_with_the_settings_timeout() -> None:
     """``stripe.default_http_client`` is a ``RequestsClient`` pinned to the setting."""
-    assert isinstance(stripe.default_http_client, stripe.RequestsClient)  # type: ignore[attr-defined]
+    assert isinstance(stripe.default_http_client, stripe.RequestsClient)
     assert stripe.default_http_client._timeout == settings.STRIPE_HTTP_TIMEOUT_SECONDS

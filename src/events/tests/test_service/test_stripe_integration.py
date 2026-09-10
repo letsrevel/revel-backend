@@ -111,7 +111,8 @@ class TestChargeRefundedOutboundFetch:
         assert payment.status == Payment.PaymentStatus.REFUNDED
         assert payment.stripe_refund_id == refund.id
         ticket.refresh_from_db()
-        assert ticket.status == Ticket.TicketStatus.CANCELLED
+        # Record-only webhook (#865 / PR #870): refund ≠ cancel, the ticket stays live.
+        assert ticket.status == Ticket.TicketStatus.ACTIVE
         row = StripeWebhookEvent.objects.get(event_id=event.id)
         assert row.outcome == StripeWebhookEvent.Outcome.HANDLED
 

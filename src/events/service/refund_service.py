@@ -357,7 +357,7 @@ def build_event_refund_preview(event: Event) -> EventRefundPreview:
             kwargs: dict[str, t.Any] = {}
             if org_account and org_account != settings.STRIPE_ACCOUNT:
                 kwargs["stripe_account"] = org_account
-            balance = stripe.Balance.retrieve(**kwargs)  # type: ignore[no-untyped-call]
+            balance = stripe.Balance.retrieve(**kwargs)
             from events.utils.currency import from_stripe_amount
 
             for entry in balance.available:

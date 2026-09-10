@@ -84,9 +84,7 @@ stripe.api_version = settings.STRIPE_API_VERSION
 # Bound every outbound call's HTTP timeout (stripe-python's own default is
 # ~80s) — see docs/engineering-notes.md "Row locks across Stripe calls" for
 # why this matters on the refund paths that hold a row lock across the call.
-stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined]
-    timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS
-)
+stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
 
 
 def create_connect_account(organization: Organization, stripe_account_email: EmailStr) -> str:

@@ -205,7 +205,7 @@ class TestEnsureStripePrice:
             active=True,
             unit_amount=500,  # plan is 10.00 → 1000; mismatch
             currency="eur",
-            recurring={"interval": "month", "interval_count": 1},
+            recurring=mock.MagicMock(interval="month", interval_count=1),
         )
         mock_create.return_value = mock.MagicMock(id="price_v2")
 
@@ -227,7 +227,7 @@ class TestEnsureStripePrice:
             active=True,
             unit_amount=1000,
             currency="eur",
-            recurring={"interval": "month", "interval_count": 1},
+            recurring=mock.MagicMock(interval="month", interval_count=1),
         )
         result = subscription_stripe_service.ensure_stripe_price(online_plan)
         assert result.stripe_price_id == "price_test"

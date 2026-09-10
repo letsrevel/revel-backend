@@ -16,6 +16,7 @@ from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from events.utils import apple_wallet_configured, google_wallet_configured
 from events.utils.tier_pricing import validate_category_prices
+from events.utils.visibility import get_invited_event_ids, get_valid_member_org_ids, owner_or_staff_q
 
 from .mixins import VisibilityMixin
 from .organization import MembershipTier, OrganizationMember
@@ -80,7 +81,6 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         - BANNED users: Inherit banned status from Event.for_user (won't see events at all)
         """
         from .event import Event
-        from .invitation import EventInvitation
 
         qs = self.select_related("event", "event__organization")
 
@@ -104,7 +104,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         base_q = Q(event_id__in=visible_event_ids)
 
         # If user is owner/staff of the org, they can see all tiers on that event.
-        is_owner_or_staff = Q(event__organization__owner=user) | Q(event__organization__staff_members=user)
+        is_owner_or_staff = owner_or_staff_q(user, org_lookup="event__organization")
         # Django staff are not the same as org staff, but we can treat them like superusers here.
         if user.is_staff:
             return qs.filter(base_q).distinct()
@@ -113,20 +113,16 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         is_public_tier = Q(visibility__in=TicketTier.Visibility.publicly_accessible())
 
         # Only valid members (not cancelled, not banned) can see member-only tiers
-        member_org_ids = (
-            OrganizationMember.objects.for_visibility().filter(user=user).values_list("organization_id", flat=True)
-        )
         is_member_tier = Q(
             visibility=TicketTier.Visibility.MEMBERS_ONLY,
-            event__organization_id__in=member_org_ids,
+            event__organization_id__in=get_valid_member_org_ids(user),
         )
 
-        invited_event_ids = EventInvitation.objects.filter(user=user).values_list("event_id", flat=True)
         # Unrestricted private tiers: any invitation to the event grants visibility
         unrestricted_private = Q(
             visibility=TicketTier.Visibility.PRIVATE,
             restrict_visibility_to_linked_invitations=False,
-            event_id__in=invited_event_ids,
+            event_id__in=get_invited_event_ids(user),
         )
         # Restricted private tiers: user's invitation must link to THIS tier AND be for the same event
         restricted_private = Q(

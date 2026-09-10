@@ -5,6 +5,16 @@ All admin classes are imported here so Django's autodiscovery finds them.
 """
 
 from accounts.admin.billing import UserBillingProfileAdmin as UserBillingProfileAdmin
+from accounts.admin.dietary import (
+    DietaryPreferenceAdmin as DietaryPreferenceAdmin,
+    DietaryRestrictionAdmin as DietaryRestrictionAdmin,
+    FoodItemAdmin as FoodItemAdmin,
+    UserDietaryPreferenceAdmin as UserDietaryPreferenceAdmin,
+)
+from accounts.admin.moderation import (
+    GlobalBanAdmin as GlobalBanAdmin,
+    ImpersonationLogAdmin as ImpersonationLogAdmin,
+)
 from accounts.admin.referral import (
     ReferralAdmin as ReferralAdmin,
     ReferralCodeAdmin as ReferralCodeAdmin,
@@ -15,12 +25,6 @@ from accounts.admin.tracking import (
     EmailVerificationReminderTrackingAdmin as EmailVerificationReminderTrackingAdmin,
 )
 from accounts.admin.user import (
-    DietaryPreferenceAdmin as DietaryPreferenceAdmin,
-    DietaryRestrictionAdmin as DietaryRestrictionAdmin,
-    FoodItemAdmin as FoodItemAdmin,
-    GlobalBanAdmin as GlobalBanAdmin,
-    ImpersonationLogAdmin as ImpersonationLogAdmin,
     RevelUserAdmin as RevelUserAdmin,
     UserDataExportAdmin as UserDataExportAdmin,
-    UserDietaryPreferenceAdmin as UserDietaryPreferenceAdmin,
 )

@@ -7,15 +7,19 @@ from django.db.models import Q
 from accounts.models import RevelUser
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
+from events.utils.visibility import (
+    get_invited_event_ids,
+    get_rsvp_event_ids,
+    get_ticketed_event_ids,
+    get_valid_member_org_ids,
+    owner_or_staff_q,
+)
 
 from .. import exceptions
 from .event import Event
 from .event_series import EventSeries
-from .invitation import EventInvitation
 from .mixins import ResourceVisibility, VisibilityMixin
-from .organization import Organization, OrganizationMember
-from .rsvp import EventRSVP
-from .ticket import Ticket
+from .organization import Organization
 
 
 class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
@@ -64,36 +68,24 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
 
         # 1. Visibility based on the user's role in the organization
         #    (for non-private resources).
-        is_owner = Q(organization__owner=user)
-        is_staff_member = Q(organization__staff_members=user)
-        # Route membership through ``for_visibility()`` so CANCELLED/BANNED
-        # members don't match — mirroring every sibling queryset. The raw
-        # ``members`` M2M has no status filter and would leak MEMBERS_ONLY
-        # resources to lapsed/banned members.
-        valid_member_org_ids = (
-            OrganizationMember.objects.for_visibility().filter(user=user).values_list("organization_id", flat=True)
-        )
-        is_org_member = Q(organization_id__in=valid_member_org_ids)
+        # Membership goes through ``get_valid_member_org_ids`` so CANCELLED/BANNED
+        # members don't match. The raw ``members`` M2M has no status filter and
+        # would leak MEMBERS_ONLY resources to lapsed/banned members.
+        is_org_member = Q(organization_id__in=get_valid_member_org_ids(user))
 
         # Staff and owners see everything up to 'staff-only'.
-        role_based_q = is_owner | is_staff_member
+        role_based_q = owner_or_staff_q(user)
         # Regular members see 'members-only' and 'public' resources.
         role_based_q |= is_org_member & Q(visibility=ResourceVisibility.MEMBERS_ONLY) & org_visible
         # Any authenticated user with access to the org can see public and unlisted resources.
         role_based_q |= Q(visibility__in=ResourceVisibility.publicly_accessible()) & org_visible
 
         # 2. Visibility for PRIVATE resources based on event relationship.
-        # Gather all event IDs the user is directly connected to.
-        invited_event_ids = EventInvitation.objects.filter(user=user).values_list("event_id", flat=True)
-        # Only consider valid tickets (exclude cancelled ones)
-        ticketed_event_ids = (
-            Ticket.objects.filter(user=user)
-            .exclude(status=Ticket.TicketStatus.CANCELLED)
-            .values_list("event_id", flat=True)
-        )
-        rsvpd_event_ids = EventRSVP.objects.filter(user=user, status=EventRSVP.RsvpStatus.YES).values_list(
-            "event_id", flat=True
-        )
+        # Gather all event IDs the user is directly connected to (live tickets and
+        # confirmed RSVPs only — this is a fine-grained check, not listing visibility).
+        invited_event_ids = get_invited_event_ids(user)
+        ticketed_event_ids = get_ticketed_event_ids(user, include_cancelled=False)
+        rsvpd_event_ids = get_rsvp_event_ids(user, confirmed_only=True)
 
         related_event_ids = set(invited_event_ids) | set(ticketed_event_ids) | set(rsvpd_event_ids)
 

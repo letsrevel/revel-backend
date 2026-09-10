@@ -3840,7 +3840,6 @@ dev = [
     { name = "types-openpyxl" },
     { name = "types-qrcode" },
     { name = "types-requests" },
-    { name = "types-stripe" },
     { name = "types-tqdm" },
 ]
 sentinel = [
@@ -3948,7 +3947,6 @@ dev = [
     { name = "types-openpyxl", specifier = ">=3.1.5.20260724" },
     { name = "types-qrcode", specifier = ">=8.2.0.20260518" },
     { name = "types-requests", specifier = ">=2.33.0.20260712" },
-    { name = "types-stripe", specifier = ">=3.5.2.20240106" },
     { name = "types-tqdm", specifier = ">=4.70.0.20260805" },
 ]
 sentinel = [
@@ -4423,15 +4421,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/db/51/703318f7b7be8bee126ec13bf615050f932d0179b8784420f3a0199cc769/types_requests-2.33.0.20260712.tar.gz", hash = "sha256:2141b67ab534a5c5cd2dac5034f2a35f42e699c5bf185eee608c5246a069d7fb", size = 25084, upload-time = "2026-07-12T05:14:20.455Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/e7/010c87f559e216d83f9dc51e939633fd0d0ead3377340181ab0e223cd3b5/types_requests-2.33.0.20260712-py3-none-any.whl", hash = "sha256:de027e28c171d3da529689cbfa023b0b4eab188c8dfa22fd834eebd2cee6e7bb", size = 21392, upload-time = "2026-07-12T05:14:19.616Z" },
-]
-
-[[package]]
-name = "types-stripe"
-version = "3.5.2.20240106"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/be/20/3f23987c2e4ee93e6d9a9ffd3058530d1e8373f5e134fd88b3f0ec5487eb/types-stripe-3.5.2.20240106.tar.gz", hash = "sha256:63a36958f0dc4a71685b027f0b6d807ff197ee337135ac19a0f8b6132365ca52", size = 19075, upload-time = "2024-01-06T02:21:44.89Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/17/73/a21fd4712675a4a0076f9260cdb193a339efbc4bf76fbe0d9a60dadd2b3f/types_stripe-3.5.2.20240106-py3-none-any.whl", hash = "sha256:9ea7bc9b9889a3d8606114c52dcc70a8fc62d44a46da4bc5ee19f0d463674bb8", size = 53986, upload-time = "2024-01-06T02:21:43.461Z" },
 ]
 
 [[package]]

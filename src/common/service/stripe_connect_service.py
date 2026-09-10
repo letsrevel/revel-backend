@@ -22,14 +22,12 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe.api_version = settings.STRIPE_API_VERSION
 # Same reasoning for the HTTP timeout (see stripe_service): don't rely on
 # another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined]
-    timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS
-)
+stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
 
 
 def get_account_details(account_id: str) -> stripe.Account:
     """Retrieve details for a connected Stripe account."""
-    return t.cast(stripe.Account, stripe.Account.retrieve(account_id))
+    return stripe.Account.retrieve(account_id)
 
 
 def create_connect_account(
@@ -53,7 +51,7 @@ def create_connect_account(
     connectable.save(
         update_fields=connectable._stripe_update_fields("stripe_account_id", "stripe_account_email"),
     )
-    return t.cast(str, account.id)
+    return account.id
 
 
 def create_account_link(account_id: str, refresh_url: str, return_url: str) -> str:
@@ -73,7 +71,7 @@ def create_account_link(account_id: str, refresh_url: str, return_url: str) -> s
         return_url=return_url,
         type="account_onboarding",
     )
-    return t.cast(str, account_link.url)
+    return account_link.url
 
 
 def sync_account_status(connectable: StripeConnectMixin) -> stripe.Account | None:
@@ -116,8 +114,8 @@ def sync_account_status(connectable: StripeConnectMixin) -> stripe.Account | Non
             update_fields=connectable._stripe_update_fields("stripe_charges_enabled", "stripe_details_submitted"),
         )
         return None
-    connectable.stripe_charges_enabled = account.charges_enabled
-    connectable.stripe_details_submitted = account.details_submitted
+    connectable.stripe_charges_enabled = bool(account.charges_enabled)
+    connectable.stripe_details_submitted = bool(account.details_submitted)
     connectable.save(
         update_fields=connectable._stripe_update_fields("stripe_charges_enabled", "stripe_details_submitted"),
     )

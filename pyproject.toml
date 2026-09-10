@@ -117,7 +117,6 @@ dev = [
     "types-markdown>=3.10.2.20260712",
     "types-qrcode>=8.2.0.20260518",
     "types-requests>=2.33.0.20260712",
-    "types-stripe>=3.5.2.20240106",
     "types-tqdm>=4.70.0.20260805",
     "bandit>=1.9.4",
     "tqdm>=4.70.0",
@@ -243,6 +242,10 @@ mypy_path = ["./src",]
 plugins = ["pydantic.mypy", "mypy_django_plugin.main"]
 # exclude uses regex patterns: match migration files, playground.py, and files starting with underscore
 exclude = ["(?x)(^.*/migrations/.*\\.py$|^.*playground\\.py$|^.*/_[^/]*\\.py$)"]
+# stripe-python ships py.typed but leaves its exception constructors (stripe._error)
+# and ``Webhook.construct_event`` (stripe._webhook) untyped; skip exactly those two
+# modules instead of ignoring per call site.
+untyped_calls_exclude = ["stripe._error", "stripe._webhook"]
 
 [[tool.mypy.overrides]]
 module = "django_google_sso.*"

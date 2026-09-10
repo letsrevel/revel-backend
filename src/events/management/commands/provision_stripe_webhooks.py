@@ -105,9 +105,7 @@ class Command(BaseCommand):
         stripe.api_version = settings.STRIPE_API_VERSION
         # Same reasoning for the HTTP timeout (see stripe_service): don't rely on
         # another module's import to configure stripe.default_http_client.
-        stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined]
-            timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS
-        )
+        stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
 
         existing = [ep for ep in stripe.WebhookEndpoint.list(limit=100).auto_paging_iter() if ep.url == url]
         if existing and not options["force"]:
@@ -119,14 +117,14 @@ class Command(BaseCommand):
 
         platform = stripe.WebhookEndpoint.create(
             url=url,
-            enabled_events=list(PLATFORM_EVENTS),
+            enabled_events=t.cast(t.Any, list(PLATFORM_EVENTS)),  # Stripe types this as a ~300-entry Literal
             connect=False,
             api_version=settings.STRIPE_API_VERSION,
             description="Revel platform events",
         )
         connect = stripe.WebhookEndpoint.create(
             url=url,
-            enabled_events=list(CONNECT_EVENTS),
+            enabled_events=t.cast(t.Any, list(CONNECT_EVENTS)),
             connect=True,
             api_version=settings.STRIPE_API_VERSION,
             description="Revel Connect events",
