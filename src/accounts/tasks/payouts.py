@@ -14,16 +14,13 @@ from django.utils.translation import gettext as _
 
 from accounts.models import Referral, ReferralPayout, ReferralPayoutStatement, RevelUser
 from common.models import SiteSettings
+from common.service.stripe_config import configure_stripe
 from common.tasks import send_email
 from events.utils.currency import to_stripe_amount
 
 logger = structlog.get_logger(__name__)
 
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 
 def _reclaim_stale_payouts() -> None:

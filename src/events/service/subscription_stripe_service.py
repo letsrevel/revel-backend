@@ -22,6 +22,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.service.stripe_config import configure_stripe
 from common.service.vat_utils import b2b_vat_context
 from common.utils import get_or_create_with_race_protection
 from events.exceptions import SubscriptionActivationPendingError
@@ -49,14 +50,7 @@ from events.service.subscription_stripe_plan_change import (
 
 logger = structlog.get_logger(__name__)
 
-# Pin both credentials and API version at import time (mirrors stripe_service):
-# this module makes its own outbound calls and must not rely on another
-# module's import side effects to set the pin.
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 
 # ---- Customer profile --------------------------------------------------------

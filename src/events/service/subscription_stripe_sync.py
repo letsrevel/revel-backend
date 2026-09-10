@@ -11,14 +11,13 @@ import typing as t
 from datetime import datetime
 from decimal import Decimal
 
-import stripe
 import structlog
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from common.models import SiteSettings
+from common.service.stripe_config import configure_stripe
 from common.service.vat_utils import b2b_fee_vat_from_gross
 from common.utils import get_or_create_with_race_protection
 from events.models import (
@@ -45,12 +44,7 @@ from events.utils.currency import from_stripe_amount
 
 logger = structlog.get_logger(__name__)
 
-# Pin credentials + API version at import time (mirrors subscription_stripe_service).
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 
 # ---- Webhook helpers --------------------------------------------------------

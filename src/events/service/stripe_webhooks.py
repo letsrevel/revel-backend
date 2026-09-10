@@ -14,6 +14,7 @@ from django.db.models import F
 
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
+from common.service.stripe_config import configure_stripe
 from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMismatchError
 from events.models import (
     HeldSeriesPass,
@@ -37,14 +38,7 @@ from notifications.signals.series_pass import send_series_pass_purchased
 logger = structlog.get_logger(__name__)
 
 
-# Pin both credentials and API version at import time (mirrors stripe_service).
-# This module makes its own outbound call (Refund.list in _resolve_refunds), so
-# it must not rely on another module's import side effects to set the pin.
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 # Placeholder values that must never be treated as real signing secrets.
 _PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})

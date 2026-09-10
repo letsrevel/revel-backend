@@ -22,20 +22,13 @@ from ninja.errors import HttpError
 from stripe.checkout import Session
 
 from accounts.models import RevelUser
+from common.service.stripe_config import configure_stripe
 from events.models import Payment, Ticket, TicketTier
 from events.service.waitlist_service import enqueue_waitlist_processing
 
 logger = structlog.get_logger(__name__)
 
-# Pin both credentials and API version at import time (mirrors stripe_service).
-# This module makes its own outbound call (Session.retrieve in
-# resume_pending_checkout), so it must not rely on another module's import
-# side effects to set the pin.
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
-# Same reasoning for the HTTP timeout (see stripe_service): don't rely on
-# another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
+configure_stripe()
 
 
 def _release_batch_tier_capacity(ticket_ids: list[UUID]) -> None:
