@@ -123,8 +123,9 @@ class GlobalBanAdmin(ModelAdmin):  # type: ignore[misc]
     list_select_related = ["user", "created_by"]
     list_filter = ["ban_type", "created_at"]
     search_fields = ["value", "normalized_value", "user__email", "reason"]
-    readonly_fields = ["normalized_value", "user", "created_at", "updated_at"]
-    autocomplete_fields = ["created_by"]
+    # ``created_by`` is stamped from the request user in ``save_model`` and must not be
+    # editable afterwards, or an editor could rewrite who issued the ban.
+    readonly_fields = ["normalized_value", "user", "created_by", "created_at", "updated_at"]
 
     fieldsets = [
         (

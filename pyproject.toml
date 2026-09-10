@@ -242,9 +242,10 @@ mypy_path = ["./src",]
 plugins = ["pydantic.mypy", "mypy_django_plugin.main"]
 # exclude uses regex patterns: match migration files, playground.py, and files starting with underscore
 exclude = ["(?x)(^.*/migrations/.*\\.py$|^.*playground\\.py$|^.*/_[^/]*\\.py$)"]
-# stripe-python ships py.typed but leaves its exception constructors and
-# ``Webhook.construct_event`` untyped; skip them instead of ignoring per call site.
-untyped_calls_exclude = ["stripe"]
+# stripe-python ships py.typed but leaves its exception constructors (stripe._error)
+# and ``Webhook.construct_event`` (stripe._webhook) untyped; skip exactly those two
+# modules instead of ignoring per call site.
+untyped_calls_exclude = ["stripe._error", "stripe._webhook"]
 
 [[tool.mypy.overrides]]
 module = "django_google_sso.*"

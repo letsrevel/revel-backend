@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A members-only or private organization no longer disappears from every valid member's view as soon as any one member cancels or is banned. The visibility query excluded organizations that had *any* cancelled or banned membership rather than the viewer's own
+- A members-only or private organization no longer disappears from every valid member's view as soon as any one member cancels or is banned. The visibility query excluded organizations that had *any* cancelled or banned membership rather than the viewer's own membership status
 - The Eventbrite integration admin pages (platform connections, event and tier links, webhook deliveries, import jobs) now appear in the admin sidebar under a new **Integrations** group. They were registered but missing from the curated navigation, so operators could only reach them by typing the URL or using the sidebar search
 
 ### Security
