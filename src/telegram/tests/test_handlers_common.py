@@ -7,7 +7,8 @@ import pytest
 from asgiref.sync import sync_to_async
 
 from accounts.models import RevelUser
-from common.models import Legal
+from common.models import Legal, SiteSettings
+from telegram import keyboards
 from telegram.models import AccountOTP, TelegramUser
 from telegram.routers.common import (
     handle_cancel,
@@ -41,6 +42,12 @@ async def _get_unlinked_tg_user(telegram_id: int) -> TelegramUser:
 
 
 class TestHandleStart:
+    @staticmethod
+    def _set_frontend_base_url(url: str) -> None:
+        site_settings = SiteSettings.get_solo()
+        site_settings.frontend_base_url = url
+        site_settings.save()
+
     @pytest.mark.asyncio
     async def test_linked_user(
         self,
@@ -57,6 +64,8 @@ class TestHandleStart:
         text = mock_message.answer.call_args.args[0]
         assert "Welcome back" in text
         assert django_user.display_name in text
+        # Clears the legacy reply keyboard still persisted on existing clients.
+        assert mock_message.answer.call_args.kwargs["reply_markup"] is keyboards.remove_keyboard
 
     @pytest.mark.asyncio
     async def test_unlinked_user(
@@ -74,6 +83,42 @@ class TestHandleStart:
         text = mock_message.answer.call_args.args[0]
         assert "/connect" in text
         assert "Welcome to Revel" in text
+
+    @pytest.mark.asyncio
+    async def test_linked_user_consent_links_come_from_site_settings(
+        self,
+        mock_message: AsyncMock,
+        mock_fsm_context: AsyncMock,
+        django_user: RevelUser,
+    ) -> None:
+        """Self-hosted instances must link to their own legal pages, not letsrevel.io's."""
+        await sync_to_async(self._set_frontend_base_url)("https://revel.example.test/")
+        tg_user = await _get_tg_user(django_user)
+
+        await handle_start(mock_message, tg_user=tg_user, state=mock_fsm_context)
+
+        text = mock_message.answer.call_args.args[0]
+        assert "https://revel.example.test/legal/terms" in text
+        assert "https://revel.example.test/legal/privacy" in text
+        assert "beta.letsrevel.io" not in text
+
+    @pytest.mark.asyncio
+    async def test_unlinked_user_consent_links_come_from_site_settings(
+        self,
+        mock_message: AsyncMock,
+        mock_fsm_context: AsyncMock,
+        aiogram_user: t.Any,
+    ) -> None:
+        """Self-hosted instances must link to their own legal pages, not letsrevel.io's."""
+        await sync_to_async(self._set_frontend_base_url)("https://revel.example.test/")
+        tg_user = await _get_unlinked_tg_user(aiogram_user.id)
+
+        await handle_start(mock_message, tg_user=tg_user, state=mock_fsm_context)
+
+        text = mock_message.answer.call_args.args[0]
+        assert "https://revel.example.test/legal/terms" in text
+        assert "https://revel.example.test/legal/privacy" in text
+        assert "beta.letsrevel.io" not in text
 
 
 # ── handle_cancel ────────────────────────────────────────────────────
@@ -93,6 +138,7 @@ class TestHandleCancel:
         mock_fsm_context.clear.assert_awaited_once()
         mock_message.reply.assert_awaited_once()
         assert "cancelled" in mock_message.reply.call_args.args[0].lower()
+        assert mock_message.reply.call_args.kwargs["reply_markup"] is keyboards.remove_keyboard
 
     @pytest.mark.asyncio
     async def test_cancel_without_active_state(
@@ -107,6 +153,7 @@ class TestHandleCancel:
         mock_fsm_context.clear.assert_not_awaited()
         mock_message.reply.assert_awaited_once()
         assert "nothing to cancel" in mock_message.reply.call_args.args[0].lower()
+        assert mock_message.reply.call_args.kwargs["reply_markup"] is keyboards.remove_keyboard
 
 
 # ── handle_toc ───────────────────────────────────────────────────────
@@ -294,6 +341,7 @@ class TestHandleUnsubscribe:
         mock_message.answer.assert_awaited_once()
         text = mock_message.answer.call_args.args[0]
         assert "unsubscribed" in text.lower()
+        assert "/preferences" not in text
 
     @pytest.mark.asyncio
     async def test_unsubscribe_removes_telegram_channel(

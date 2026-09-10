@@ -2,7 +2,7 @@
 import random
 import typing as t
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -46,10 +46,9 @@ def aiogram_user() -> AiogramUser:
 
 
 @pytest.fixture
-def aiogram_superuser(settings: MagicMock) -> AiogramUser:
+def aiogram_superuser() -> AiogramUser:
     """Fixture for a superuser Aiogram user."""
-    settings.TELEGRAM_SUPERUSER_IDS = [123]
-    return AiogramUser(id=settings.TELEGRAM_SUPERUSER_IDS[0], is_bot=False, first_name="Super", last_name="User")
+    return AiogramUser(id=123, is_bot=False, first_name="Super", last_name="User")
 
 
 @pytest.fixture

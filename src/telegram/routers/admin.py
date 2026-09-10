@@ -2,10 +2,7 @@
 
 import structlog
 from aiogram import F, Router
-from aiogram.filters import (
-    CommandStart,
-    StateFilter,
-)
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InaccessibleMessage, Message
 
@@ -31,7 +28,7 @@ router.callback_query.middleware(AuthorizationMiddleware())
 # IMPORTANT: Read the note on handler order and potential conflicts above.
 @router.message(
     F.text,  # Matches any text message
-    ~CommandStart(),  # Excludes messages starting with '/' (commands)
+    ~F.text.startswith("/"),  # Excludes commands, so unknown ones fall through unhandled
     flags={"requires_superuser": True},
 )
 async def handle_potential_broadcast_message(
@@ -59,7 +56,7 @@ async def _check_broadcast_gates(message: Message, user: RevelUser, state: FSMCo
     """Checks whether a broadcast message can be sent."""
     current_fsm_state = await state.get_state()
     if current_fsm_state is not None:
-        # Superuser is in an active FSM flow (e.g., setting preferences).
+        # Superuser is in an active FSM flow (e.g., confirming a pending broadcast).
         # Do not interpret this message as a broadcast request.
         logger.debug(
             "superuser_broadcast_attempt_in_state",
