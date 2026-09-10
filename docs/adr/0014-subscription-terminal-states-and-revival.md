@@ -15,7 +15,7 @@ outright — needs a definite end state for several reasons:
 - The status-based `OrganizationMember` sync signal needs an unambiguous
   signal that the member has lost access (CANCELLED) vs. is in a transient
   state (PAST_DUE, PENDING).
-- Reporting (`subscription_reporting`) treats CANCELLED/EXPIRED as the churn
+- Reporting (`subscription.reporting`) treats CANCELLED/EXPIRED as the churn
   bucket — anything that can flip back ambiguously breaks the metric.
 
 But a strict no-revival rule creates real UX pain. A member whose card

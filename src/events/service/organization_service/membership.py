@@ -106,7 +106,7 @@ def _assert_free_grant_allowed(membership_request: models.OrganizationMembership
     free path's ``update_or_create(status=ACTIVE)`` would otherwise silently
     un-ban them, and lifting a ban has to stay a deliberate ``update_member`` /
     blacklist action rather than a side effect of clearing the application queue.
-    The blacklist half mirrors ``subscription_stripe_sync._ensure_active_member``.
+    The blacklist half mirrors ``subscription.stripe.sync._ensure_active_member``.
 
     Args:
         membership_request: The application being approved.
@@ -338,9 +338,9 @@ def remove_member(organization: Organization, user: RevelUser) -> None:
     Stripe keeps billing (see ``cancel_subscriptions_for_membership_loss``).
     """
     member = get_object_or_404(OrganizationMember, organization=organization, user=user)
-    from events.service import subscription_service  # lazy: avoid cycle
+    from events.service.subscription import lifecycle as subscription_lifecycle  # lazy: avoid cycle
 
-    subscription_service.cancel_subscriptions_for_membership_loss(user, organization)
+    subscription_lifecycle.cancel_subscriptions_for_membership_loss(user, organization)
     member.delete()
 
 
@@ -365,10 +365,10 @@ def _mirror_status_to_subscriptions(member: OrganizationMember, status: Organiza
     * ACTIVE — deliberately not mirrored. Resuming billing is an explicit act;
       staff use the subscription resume endpoint for it.
     """
-    from events.service import subscription_service  # lazy: avoid cycle
+    from events.service.subscription import lifecycle as subscription_lifecycle  # lazy: avoid cycle
 
     if status in (OrganizationMember.MembershipStatus.BANNED, OrganizationMember.MembershipStatus.CANCELLED):
-        subscription_service.cancel_subscriptions_for_membership_loss(member.user, member.organization)
+        subscription_lifecycle.cancel_subscriptions_for_membership_loss(member.user, member.organization)
         return
 
     if status != OrganizationMember.MembershipStatus.PAUSED:
@@ -387,7 +387,7 @@ def _mirror_status_to_subscriptions(member: OrganizationMember, status: Organiza
             and not subscription.stripe_subscription_id
         ):
             continue
-        subscription_service.pause_subscription(subscription)
+        subscription_lifecycle.pause_subscription(subscription)
 
 
 @transaction.atomic
@@ -535,7 +535,7 @@ def delete_membership_tier(tier: MembershipTier) -> None:
 
     Members are detached (``OrganizationMember.tier`` is SET_NULL) and the tier's
     subscription plans cascade away — deleting a plan nobody subscribed to is
-    already allowed by ``subscription_service.delete_plan``. Two relations PROTECT
+    already allowed by ``subscription.plans.delete_plan``. Two relations PROTECT
     instead, and before #804 the cascade surfaced as a 500:
 
     * ``OrganizationMembershipRequest.tier`` / ``.plan`` — applications are the

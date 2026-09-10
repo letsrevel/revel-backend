@@ -443,11 +443,11 @@ class TestSubscriptionErrorContracts:
         ``message`` key (the #712 contract this file pins).
         """
         from events.models import MembershipTier
-        from events.service import subscription_service
+        from events.service.subscription import plans as subscription_plans
 
         tier = MembershipTier.objects.filter(organization=organization).first()
         assert tier is not None
-        plan = subscription_service.create_plan(
+        plan = subscription_plans.create_plan(
             tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
         )
 

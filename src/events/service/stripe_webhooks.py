@@ -231,7 +231,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
                 and sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
                 and sub.stripe_subscription_id
             ):
-                from events.service.subscription_stripe_service import cancel_stripe_subscription_best_effort
+                from events.service.subscription.stripe.checkout import cancel_stripe_subscription_best_effort
 
                 transaction.on_commit(
                     functools.partial(cancel_stripe_subscription_best_effort, sub, reason="refund_auto_cancel_replay")
@@ -524,7 +524,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
             return
 
-        # Phase 4: Subscription refunds — handled by subscription_service.
+        # Phase 4: Subscription refunds — handled by subscription.lifecycle.
         membership_payment = (
             MembershipPayment.objects.select_for_update().filter(stripe_payment_intent_id=payment_intent_id).first()
         )

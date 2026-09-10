@@ -25,9 +25,10 @@ from events.models import (
     SubscriptionPaymentMethod,
 )
 from events.schema.subscription import PlanCreateSchema
-from events.service import subscription_service
-from events.service.subscription_core import create_subscription
-from events.service.subscription_reporting import _normalize_to_monthly
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
+from events.service.subscription.core import create_subscription
+from events.service.subscription.reporting import _normalize_to_monthly
 from events.tasks.subscriptions import expire_subscriptions_past_grace, send_subscription_renewal_reminders
 from events.utils.subscription_periods import calculate_period_end
 
@@ -99,7 +100,7 @@ def test_plan_create_schema_accepts_coherent_shapes(overrides: dict[str, t.Any])
 
 def test_create_free_lifetime_plan_end_to_end(tier: MembershipTier) -> None:
     payload = PlanCreateSchema(**_payload(name="Supporter"))
-    plan = subscription_service.create_plan(tier, **payload.model_dump())
+    plan = subscription_plans.create_plan(tier, **payload.model_dump())
     assert plan.payment_method == SubscriptionPaymentMethod.FREE
     assert plan.period_unit == PeriodUnit.LIFETIME
     assert plan.price == Decimal("0")
@@ -138,32 +139,32 @@ def online_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
 
 def test_update_refuses_free_plan_going_paid(free_plan: MembershipSubscriptionPlan) -> None:
     with pytest.raises(HttpError) as exc_info:
-        subscription_service.update_plan(free_plan, price=Decimal("5.00"))
+        subscription_plans.update_plan(free_plan, price=Decimal("5.00"))
     assert "price of 0" in str(exc_info.value)
 
 
 def test_update_refuses_free_plan_leaving_lifetime(free_plan: MembershipSubscriptionPlan) -> None:
     with pytest.raises(HttpError) as exc_info:
-        subscription_service.update_plan(free_plan, period_unit=PeriodUnit.MONTH)
+        subscription_plans.update_plan(free_plan, period_unit=PeriodUnit.MONTH)
     assert "lifetime billing period" in str(exc_info.value)
 
 
 def test_update_refuses_online_plan_going_free(online_plan: MembershipSubscriptionPlan) -> None:
     with pytest.raises(HttpError) as exc_info:
-        subscription_service.update_plan(online_plan, price=Decimal("0"))
+        subscription_plans.update_plan(online_plan, price=Decimal("0"))
     assert "greater than 0" in str(exc_info.value)
 
 
 def test_update_refuses_online_plan_going_lifetime(online_plan: MembershipSubscriptionPlan) -> None:
     with pytest.raises(HttpError) as exc_info:
-        subscription_service.update_plan(online_plan, period_unit=PeriodUnit.LIFETIME)
+        subscription_plans.update_plan(online_plan, period_unit=PeriodUnit.LIFETIME)
     assert "cannot use the lifetime" in str(exc_info.value)
 
 
 def test_update_refuses_null_price(online_plan: MembershipSubscriptionPlan) -> None:
     """An explicit ``{"price": null}`` is a present key holding None — a 400, not a TypeError."""
     with pytest.raises(HttpError) as exc_info:
-        subscription_service.update_plan(online_plan, price=None)
+        subscription_plans.update_plan(online_plan, price=None)
     assert "cannot be null" in str(exc_info.value)
 
 
@@ -176,12 +177,12 @@ def test_update_allows_offline_plan_going_lifetime(tier: MembershipTier) -> None
         period_unit=PeriodUnit.YEAR,
         payment_method=SubscriptionPaymentMethod.OFFLINE,
     )
-    updated = subscription_service.update_plan(plan, period_unit=PeriodUnit.LIFETIME)
+    updated = subscription_plans.update_plan(plan, period_unit=PeriodUnit.LIFETIME)
     assert updated.period_unit == PeriodUnit.LIFETIME
 
 
 def test_update_allows_unrelated_field_on_free_plan(free_plan: MembershipSubscriptionPlan) -> None:
-    updated = subscription_service.update_plan(free_plan, name="Friends")
+    updated = subscription_plans.update_plan(free_plan, name="Friends")
     assert updated.name == "Friends"
 
 
@@ -303,7 +304,7 @@ def test_cancelling_a_free_subscription_terminalizes_immediately(
 ) -> None:
     """A NULL period end has no boundary to wait for, so a scheduled cancel becomes immediate."""
     subscription = create_subscription(free_plan, user)
-    cancelled = subscription_service.cancel_subscription(subscription, immediate=False)
+    cancelled = subscription_lifecycle.cancel_subscription(subscription, immediate=False)
     assert cancelled.status == MembershipSubscription.SubscriptionStatus.CANCELLED
     assert cancelled.cancelled_at is not None
     assert cancelled.cancel_at_period_end is False

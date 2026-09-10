@@ -29,16 +29,19 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_service, subscription_stripe_service, subscription_stripe_sync
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
+from events.service.subscription.stripe import checkout as subscription_stripe_checkout
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
 # Stripe's refusal when a SubscriptionSchedule (pending downgrade) is attached.
 SCHEDULE_REFUSAL = "This subscription is managed by a subscription schedule and cannot be updated directly."
-CANCEL = "events.service.subscription_stripe_service.stripe.Subscription.cancel"
+CANCEL = "events.service.subscription.stripe.checkout.stripe.Subscription.cancel"
 # ``stripe`` is one module object, so patching it through either service module
-# patches the retry inside subscription_stripe_plan_change too.
-RELEASE = "events.service.subscription_stripe_plan_change.stripe.SubscriptionSchedule.release"
+# patches the retry inside subscription.stripe.plan_change too.
+RELEASE = "events.service.subscription.stripe.plan_change.stripe.SubscriptionSchedule.release"
 
 
 # ---- Fixtures ---------------------------------------------------------------
@@ -76,7 +79,7 @@ def online_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
 
 @pytest.fixture
 def offline_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier,
         name="Monthly Offline",
         price=Decimal("10.00"),
@@ -148,7 +151,7 @@ class TestCancelBestEffortRefusals:
         mock_cancel.side_effect = refusal
 
         assert (
-            subscription_stripe_service.cancel_stripe_subscription_best_effort(online_subscription, reason="ban")
+            subscription_stripe_checkout.cancel_stripe_subscription_best_effort(online_subscription, reason="ban")
             is True
         )
         assert mock_cancel.call_count == 1
@@ -170,7 +173,7 @@ class TestCancelBestEffortRefusals:
         ]
 
         assert (
-            subscription_stripe_service.cancel_stripe_subscription_best_effort(
+            subscription_stripe_checkout.cancel_stripe_subscription_best_effort(
                 online_subscription, reason="local_grace_expiry"
             )
             is True
@@ -193,7 +196,7 @@ class TestCancelBestEffortRefusals:
         mock_cancel.side_effect = stripe.error.InvalidRequestError(SCHEDULE_REFUSAL, param=None)
 
         assert (
-            subscription_stripe_service.cancel_stripe_subscription_best_effort(online_subscription, reason="ban")
+            subscription_stripe_checkout.cancel_stripe_subscription_best_effort(online_subscription, reason="ban")
             is False
         )
         assert mock_cancel.call_count == 2
@@ -214,7 +217,7 @@ class TestCancelBestEffortRefusals:
         mock_release.side_effect = stripe.error.APIConnectionError("connection reset")
 
         assert (
-            subscription_stripe_service.cancel_stripe_subscription_best_effort(online_subscription, reason="ban")
+            subscription_stripe_checkout.cancel_stripe_subscription_best_effort(online_subscription, reason="ban")
             is False
         )
         assert mock_cancel.call_count == 1
@@ -231,13 +234,13 @@ class TestCancelBestEffortRefusals:
         mock_cancel.side_effect = stripe.error.InvalidRequestError("Invalid request: something else", param=None)
 
         assert (
-            subscription_stripe_service.cancel_stripe_subscription_best_effort(online_subscription, reason="ban")
+            subscription_stripe_checkout.cancel_stripe_subscription_best_effort(online_subscription, reason="ban")
             is False
         )
         assert mock_cancel.call_count == 1
         mock_release.assert_not_called()
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
     @mock.patch(RELEASE)
     @mock.patch(CANCEL)
     def test_revival_aborts_when_the_old_subscription_cannot_be_closed(
@@ -255,7 +258,7 @@ class TestCancelBestEffortRefusals:
         mock_cancel.side_effect = stripe.error.InvalidRequestError(SCHEDULE_REFUSAL, param=None)
 
         with pytest.raises(HttpError) as exc:
-            subscription_stripe_service.create_revival_checkout(online_subscription)
+            subscription_stripe_checkout.create_revival_checkout(online_subscription)
 
         assert exc.value.status_code == 502
         mock_session.assert_not_called()
@@ -276,8 +279,8 @@ class TestOfflinePendingRowSurvivesOnlineSubscribe:
     the member tried to subscribe online.
     """
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_offline_pending_row_is_untouched_and_the_subscribe_is_refused(
         self,
         mock_customer: mock.Mock,
@@ -288,11 +291,11 @@ class TestOfflinePendingRowSurvivesOnlineSubscribe:
         stripe_org: Organization,
     ) -> None:
         mock_customer.return_value = mock.MagicMock(id="cus_offline_guard")
-        offline = subscription_service.create_subscription(offline_plan, subscriber)
+        offline = subscription_lifecycle.create_subscription(offline_plan, subscriber)
         assert offline.status == MembershipSubscription.SubscriptionStatus.PENDING
 
         with pytest.raises(HttpError) as exc:
-            subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+            subscription_stripe_checkout.start_online_subscription(online_plan, subscriber)
 
         # Refused by create_subscription's duplicate-active check, not by a delete.
         assert exc.value.status_code == 400
@@ -303,7 +306,7 @@ class TestOfflinePendingRowSurvivesOnlineSubscribe:
         assert OrganizationMember.objects.filter(organization=stripe_org, user=subscriber).exists()
         assert MembershipSubscription.objects.filter(user=subscriber, organization=stripe_org).count() == 1
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.retrieve")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.retrieve")
     def test_online_pending_row_is_still_resumed(
         self,
         mock_retrieve: mock.Mock,
@@ -323,7 +326,7 @@ class TestOfflinePendingRowSurvivesOnlineSubscribe:
             id="cs_open", status="open", url="https://checkout.stripe.com/c/pay/cs_open"
         )
 
-        subscription, url = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+        subscription, url = subscription_stripe_checkout.start_online_subscription(online_plan, subscriber)
 
         assert subscription.pk == pending.pk
         assert url == "https://checkout.stripe.com/c/pay/cs_open"
@@ -362,7 +365,7 @@ class TestStaleFailureNeverRewritesASettledRow:
             stripe_refund_id="re_test",
         )
 
-        with caplog.at_level("INFO", logger="events.service.subscription_stripe_sync"):
+        with caplog.at_level("INFO", logger="events.service.subscription.stripe.sync"):
             payment = subscription_stripe_sync.record_stripe_payment_from_invoice(
                 _invoice("sub_refunded", invoice_id="in_refunded", amount_paid=0), succeeded=False
             )

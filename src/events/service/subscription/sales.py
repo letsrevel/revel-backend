@@ -1,6 +1,6 @@
 """Sale controls for membership subscription plans.
 
-Split out of :mod:`events.service.subscription_service` (file-length cap).
+Split out of :mod:`events.service.subscription.lifecycle` (file-length cap).
 Two independent knobs on ``MembershipSubscriptionPlan``:
 
 - ``sales_status`` — PAUSED stops member self-service sales; staff bypass it.

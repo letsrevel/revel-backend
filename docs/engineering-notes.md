@@ -196,8 +196,8 @@ See issue #632 for the full design (Option F) and the task-by-task implementatio
 online subscription mutation (subscribe, cancel, pause/resume, change-plan, revive) takes
 `select_for_update` on the *subscription* row and — under `ATOMIC_REQUESTS` — holds it
 across its Stripe round-trips: the inner `transaction.atomic()` exit releases only a
-savepoint, never the lock (code comments in `subscription_service` /
-`subscription_stripe_plan_change` state this explicitly). This is acceptable where the
+savepoint, never the lock (code comments in `subscription.lifecycle` /
+`subscription.stripe.plan_change` state this explicitly). This is acceptable where the
 tier-row lock was not because the contended row is **per-member**: the blast radius is one
 member's own requests, not every buyer of a hot tier. It is also currently *load-bearing*:
 the held lock is what serializes Stripe echo-webhooks against the local mutation (the

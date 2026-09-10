@@ -1,6 +1,6 @@
 """Refund handling for membership subscription payments.
 
-Split out of :mod:`events.service.subscription_service` (file-length cap).
+Split out of :mod:`events.service.subscription.lifecycle` (file-length cap).
 Serves both refund entry points: the ``charge.refunded`` webhook and
 staff-recorded refunds from the org-admin API.
 """
@@ -14,7 +14,8 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
-from events.service import subscription_service, subscription_stripe_service
+from events.service.subscription import notifications
+from events.service.subscription.stripe import checkout as stripe_checkout
 
 logger = structlog.get_logger(__name__)
 
@@ -52,7 +53,7 @@ def _is_full_refund_of_current_period(payment: MembershipPayment) -> bool:
 def _cancel_refunded_subscription(subscription: MembershipSubscription) -> None:
     """Immediately terminalize a fully-refunded subscription.
 
-    Deliberately not :func:`subscription_service.cancel_subscription`: the
+    Deliberately not :func:`subscription.lifecycle.cancel_subscription`: the
     refund callers (the ``charge.refunded`` webhook, staff-recorded refunds)
     already hold row locks, and the ONLINE branch there issues the Stripe
     cancel synchronously — a network call under those locks. Here the local
@@ -77,11 +78,9 @@ def _cancel_refunded_subscription(subscription: MembershipSubscription) -> None:
         and subscription.stripe_subscription_id
     ):
         transaction.on_commit(
-            lambda: subscription_stripe_service.cancel_stripe_subscription_best_effort(
-                subscription, reason="refund_auto_cancel"
-            )
+            lambda: stripe_checkout.cancel_stripe_subscription_best_effort(subscription, reason="refund_auto_cancel")
         )
-    subscription_service._dispatch_cancellation_confirmed(subscription, immediate=True)
+    notifications._dispatch_cancellation_confirmed(subscription, immediate=True)
 
 
 @transaction.atomic

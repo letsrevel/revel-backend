@@ -262,7 +262,7 @@ class PlanUpdateSchema(Schema):
     new one instead.
 
     The price/cadence rules bound to the plan's *existing* payment method are
-    enforced by ``subscription_service.update_plan``, which is the only place
+    enforced by ``subscription.plans.update_plan``, which is the only place
     that can see the merged post-patch shape.
     """
 
@@ -511,7 +511,7 @@ class _BaseSubscriptionSchema(ModelSchema):
         ``expired_at + org.membership_subscription_revival_window_days``. Returns ``None``
         unless the subscription is EXPIRED, has an ``expired_at`` timestamp, and the org's
         revival window is greater than zero — mirroring ``_validate_revivable`` in
-        ``subscription_service`` so the surfaced deadline matches what revival enforces.
+        ``subscription.lifecycle`` so the surfaced deadline matches what revival enforces.
         """
         if obj.status != MembershipSubscription.SubscriptionStatus.EXPIRED or obj.expired_at is None:
             return None

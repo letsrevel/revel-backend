@@ -146,7 +146,7 @@ class TestSelfReviveEndpoint:
 
         client = _auth_client(subscriber)
         url = f"/api/me/organizations/{organization.pk}/subscription/revive"
-        with patch("events.controllers.me_subscriptions.subscription_service.revive_subscription") as mock_revive:
+        with patch("events.controllers.me_subscriptions.subscription_lifecycle.revive_subscription") as mock_revive:
             mock_revive.return_value = (newer, "cs_secret")
             resp = client.post(url, data={}, content_type="application/json")
 

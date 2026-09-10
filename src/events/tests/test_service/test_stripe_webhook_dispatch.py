@@ -308,7 +308,7 @@ def test_duplicate_subscription_refund_replay_retries_stripe_cancel(
     )
     StripeWebhookEvent.objects.create(event_id="evt_sub_refund_replay", event_type="charge.refunded")
     with (
-        patch("events.service.subscription_stripe_service.cancel_stripe_subscription_best_effort") as cancel_spy,
+        patch("events.service.subscription.stripe.checkout.cancel_stripe_subscription_best_effort") as cancel_spy,
         django_capture_on_commit_callbacks(execute=True),
     ):
         stripe_webhooks.handle_event(_make_refund_event("pi_sub_replay", event_id="evt_sub_refund_replay"))

@@ -91,7 +91,7 @@ class TestSubscriptionFixtures:
     def test_revival_in_window_has_payment_ledger(self, org_alpha: Organization) -> None:
         """The in-window row carries a payment so an abandoned revival checkout reverts to EXPIRED (#802).
 
-        ``_clear_stale_pending_checkout`` deletes payment-less PENDING rows; with a
+        ``clear_stale_pending_checkout`` deletes payment-less PENDING rows; with a
         ledger entry it reverts them instead, keeping the revive E2E spec re-runnable.
         """
         _run()

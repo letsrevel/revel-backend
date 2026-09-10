@@ -524,7 +524,7 @@ def _has_paid_current_period(subscription: MembershipSubscription) -> bool:
     or stalls on SCA, which ``invoice.payment_action_required`` deliberately
     routes through the failure branch, and which async methods (SEPA) can do
     days after the checkout completed — moves the row PENDING → PAST_DUE
-    (``subscription_stripe_sync._apply_invoice_outcome``). Without this check
+    (``subscription.stripe.sync._apply_invoice_outcome``). Without this check
     that grace would grant, or upgrade a free member to, the paid tier with
     zero money collected. A revival checkout is the same story on a reused row.
 
@@ -575,9 +575,9 @@ def sync_member_from_subscription(
 
     Rules:
     - Never creates an :class:`OrganizationMember`. Creation lives in
-      :func:`events.service.subscription_service.create_subscription` for the
+      :func:`events.service.subscription.lifecycle.create_subscription` for the
       OFFLINE flow, and in
-      :func:`events.service.subscription_stripe_sync._ensure_active_member`
+      :func:`events.service.subscription.stripe.sync._ensure_active_member`
       for the ONLINE flow (gated on Stripe's first paid invoice / ``active``
       status, so members don't get tier benefits before paying).
     - Leaves ``BANNED`` members untouched.

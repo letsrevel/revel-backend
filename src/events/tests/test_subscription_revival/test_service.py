@@ -19,9 +19,9 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_service
-from events.service.subscription_service import InitialPayment
-from events.service.subscription_stripe_service import _clear_stale_pending_checkout
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription.lifecycle import InitialPayment
+from events.service.subscription.stripe.checkout import clear_stale_pending_checkout
 from events.tests.test_subscription_revival.conftest import _apply_revival_refusal
 
 
@@ -41,7 +41,7 @@ class TestRevivalRefusals:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         )
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(sub, initial_payment=payload)
+            subscription_lifecycle.revive_subscription(sub, initial_payment=payload)
         assert ei.value.status_code == 400
 
     def test_outside_window(
@@ -59,7 +59,7 @@ class TestRevivalRefusals:
             expired_at=timezone.now() - timedelta(days=60),
         )
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(sub, initial_payment=payload)
+            subscription_lifecycle.revive_subscription(sub, initial_payment=payload)
         assert ei.value.status_code == 400
 
     def test_revival_disabled_for_org(
@@ -71,7 +71,7 @@ class TestRevivalRefusals:
         organization.membership_subscription_revival_window_days = 0
         organization.save(update_fields=["membership_subscription_revival_window_days"])
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(expired_sub, initial_payment=payload)
+            subscription_lifecycle.revive_subscription(expired_sub, initial_payment=payload)
         assert ei.value.status_code == 400
 
     def test_legacy_no_expired_at(
@@ -89,7 +89,7 @@ class TestRevivalRefusals:
             expired_at=None,
         )
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(sub, initial_payment=payload)
+            subscription_lifecycle.revive_subscription(sub, initial_payment=payload)
         assert ei.value.status_code == 400
 
     def test_user_has_another_active_sub(
@@ -114,7 +114,7 @@ class TestRevivalRefusals:
             expired_at=timezone.now() - timedelta(days=1),
         )
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(expired, initial_payment=payload)
+            subscription_lifecycle.revive_subscription(expired, initial_payment=payload)
         assert ei.value.status_code == 400
 
     def test_banned_user_refused(
@@ -130,7 +130,7 @@ class TestRevivalRefusals:
             status=OrganizationMember.MembershipStatus.BANNED,
         )
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(expired_sub, initial_payment=payload)
+            subscription_lifecycle.revive_subscription(expired_sub, initial_payment=payload)
         assert ei.value.status_code == 403
 
     def test_hard_blacklisted_user_refused(
@@ -144,7 +144,7 @@ class TestRevivalRefusals:
         """A hard-blacklisted user cannot revive, mirroring the create_subscription guard."""
         Blacklist.objects.create(organization=organization, user=subscriber, created_by=staff_user)
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(expired_sub, initial_payment=payload)
+            subscription_lifecycle.revive_subscription(expired_sub, initial_payment=payload)
         assert ei.value.status_code == 403
 
     @pytest.mark.parametrize("refusal", ["banned", "blacklisted"])
@@ -160,7 +160,7 @@ class TestRevivalRefusals:
         """The admin console is where "banned" vs "blacklisted" is actionable — keep the detail."""
         _apply_revival_refusal(refusal, organization, subscriber, staff_user)
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(expired_sub, initial_payment=payload, revived_by=staff_user)
+            subscription_lifecycle.revive_subscription(expired_sub, initial_payment=payload, revived_by=staff_user)
         assert ei.value.status_code == 403
         assert refusal in str(ei.value)
 
@@ -177,7 +177,7 @@ class TestRevivalRefusals:
         """The member's own page must not confirm the blacklist, nor speak in the third person."""
         _apply_revival_refusal(refusal, organization, subscriber, staff_user)
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(expired_sub, initial_payment=payload, revived_by=subscriber)
+            subscription_lifecycle.revive_subscription(expired_sub, initial_payment=payload, revived_by=subscriber)
         assert ei.value.status_code == 403
         message = str(ei.value)
         assert message == "You can't rejoin this organization."
@@ -199,13 +199,13 @@ class TestRevivalRefusals:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         )
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(expired_sub, initial_payment=payload, revived_by=subscriber)
+            subscription_lifecycle.revive_subscription(expired_sub, initial_payment=payload, revived_by=subscriber)
         assert ei.value.status_code == 400
         assert str(ei.value) == "You already have an active subscription in this organization."
 
     def test_offline_requires_initial_payment(self, expired_sub: MembershipSubscription) -> None:
         with pytest.raises(HttpError) as ei:
-            subscription_service.revive_subscription(expired_sub, initial_payment=None)
+            subscription_lifecycle.revive_subscription(expired_sub, initial_payment=None)
         assert ei.value.status_code == 400
 
 
@@ -218,7 +218,7 @@ class TestOfflineRevivalSuccess:
         payload: InitialPayment,
         staff_user: RevelUser,
     ) -> None:
-        result, client_secret = subscription_service.revive_subscription(
+        result, client_secret = subscription_lifecycle.revive_subscription(
             expired_sub, initial_payment=payload, revived_by=staff_user
         )
         result.refresh_from_db()
@@ -250,7 +250,7 @@ class TestOfflineRevivalSuccess:
         "revival window elapsed".
         """
         assert expired_sub.expired_at is not None
-        subscription_service.revive_subscription(expired_sub, initial_payment=payload, revived_by=staff_user)
+        subscription_lifecycle.revive_subscription(expired_sub, initial_payment=payload, revived_by=staff_user)
         # Re-fetch into a fresh instance (mypy can't see refresh_from_db's mutation).
         expired_sub = MembershipSubscription.objects.get(pk=expired_sub.pk)
         assert expired_sub.expired_at is None
@@ -261,7 +261,7 @@ class TestOfflineRevivalSuccess:
         expired_sub.expired_at = timezone.now()
         expired_sub.save(update_fields=["status", "expired_at"])
 
-        revived, checkout_url = subscription_service.revive_subscription(
+        revived, checkout_url = subscription_lifecycle.revive_subscription(
             expired_sub, initial_payment=payload, revived_by=staff_user
         )
         revived.refresh_from_db()
@@ -285,7 +285,7 @@ class TestOfflineRevivalSuccess:
             tier=plan.tier,
             status=OrganizationMember.MembershipStatus.CANCELLED,
         )
-        subscription_service.revive_subscription(expired_sub, initial_payment=payload)
+        subscription_lifecycle.revive_subscription(expired_sub, initial_payment=payload)
         member = OrganizationMember.objects.get(user=subscriber, organization=organization)
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
 
@@ -297,7 +297,7 @@ class TestOfflineRevivalSuccess:
         from notifications.enums import NotificationType
         from notifications.models import Notification
 
-        subscription_service.revive_subscription(expired_sub, initial_payment=payload)
+        subscription_lifecycle.revive_subscription(expired_sub, initial_payment=payload)
         # The revival success itself is the user-visible confirmation; we
         # explicitly suppress RENEWAL_SUCCEEDED.
         assert not Notification.objects.filter(
@@ -346,11 +346,11 @@ class TestOnlineRevivalSuccess:
         )
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel") as cancel_mock,
         ):
             create_mock.return_value = MagicMock(id="cs_revival", url="https://checkout.stripe.com/c/pay/cs_revival")
-            result, checkout_url = subscription_service.revive_subscription(sub)
+            result, checkout_url = subscription_lifecycle.revive_subscription(sub)
 
         # C2: the old (possibly still-dunning) Stripe sub is closed before its
         # id is cleared, so a late retry success can't double-bill.
@@ -410,11 +410,11 @@ class TestOnlineRevivalSuccess:
         )
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+            patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel"),
         ):
             create_mock.return_value = MagicMock(id="cs_self", url="https://checkout.stripe.com/c/pay/cs_self")
-            subscription_service.revive_subscription(sub, revived_by=subscriber)
+            subscription_lifecycle.revive_subscription(sub, revived_by=subscriber)
 
         assert not Notification.objects.filter(
             user=subscriber,
@@ -457,11 +457,11 @@ class TestOnlineRevivalSuccess:
         )
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+            patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel"),
         ):
             create_mock.return_value = MagicMock(id="cs_staff", url="https://checkout.stripe.com/c/pay/cs_staff")
-            _, checkout_url = subscription_service.revive_subscription(
+            _, checkout_url = subscription_lifecycle.revive_subscription(
                 sub,
                 revived_by=staff_user,
                 enforce_sales_status=False,
@@ -510,12 +510,12 @@ class TestOnlineRevivalSuccess:
         import stripe as stripe_lib
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+            patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel"),
         ):
             create_mock.side_effect = stripe_lib.error.APIConnectionError("network failure")
             with pytest.raises(HttpError) as exc:
-                subscription_service.revive_subscription(sub)
+                subscription_lifecycle.revive_subscription(sub)
 
         assert exc.value.status_code == 502
         # Local row must NOT have been mutated — the subscription stays EXPIRED.
@@ -555,11 +555,11 @@ class TestOnlineRevivalSuccess:
         )
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+            patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel"),
         ):
             create_mock.return_value = MagicMock(id="cs_meta", url="https://checkout.stripe.com/c/pay/cs_meta")
-            subscription_service.revive_subscription(sub)
+            subscription_lifecycle.revive_subscription(sub)
 
         create_kwargs = create_mock.call_args.kwargs
         assert "idempotency_key" in create_kwargs
@@ -618,23 +618,23 @@ class TestOnlineRevivalSuccess:
         )
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+            patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel"),
         ):
             create_mock.return_value = MagicMock(id="cs_rekey_1", url="https://checkout.stripe.com/c/pay/cs_rekey_1")
-            subscription_service.revive_subscription(sub)
+            subscription_lifecycle.revive_subscription(sub)
             first_key = create_mock.call_args.kwargs["idempotency_key"]
 
             # Member abandons the checkout: the row is reverted to EXPIRED with
             # expired_at intact (#802), then they click Rejoin again.
             sub.refresh_from_db()
-            _clear_stale_pending_checkout(sub)
+            clear_stale_pending_checkout(sub)
             sub.refresh_from_db()
             assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
             assert sub.expired_at == expired_at
 
             create_mock.return_value = MagicMock(id="cs_rekey_2", url="https://checkout.stripe.com/c/pay/cs_rekey_2")
-            subscription_service.revive_subscription(sub)
+            subscription_lifecycle.revive_subscription(sub)
             second_key = create_mock.call_args.kwargs["idempotency_key"]
 
         assert first_key != second_key
@@ -674,13 +674,13 @@ class TestOnlineRevivalSuccess:
         session_mock.url = None
 
         with (
-            patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as create_mock,
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+            patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create") as create_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel"),
         ):
             create_mock.return_value = session_mock
 
             with pytest.raises(HttpError) as ei:
-                subscription_service.revive_subscription(sub)
+                subscription_lifecycle.revive_subscription(sub)
             assert ei.value.status_code == 502
 
         # Local row must remain EXPIRED and untouched.

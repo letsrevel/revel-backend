@@ -19,13 +19,12 @@ from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
-from events.service import (
-    subscription_refunds,
-    subscription_reporting,
-    subscription_service,
-    subscription_uncancel,
-)
-from events.service.subscription_service import InitialPayment
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
+from events.service.subscription import refunds as subscription_refunds
+from events.service.subscription import reporting as subscription_reporting
+from events.service.subscription import uncancel as subscription_uncancel
+from events.service.subscription.lifecycle import InitialPayment
 
 from .base import OrganizationAdminBaseController
 
@@ -115,7 +114,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         """Create a new subscription plan on a membership tier."""
         organization = self.get_one(slug)
         tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
-        plan = subscription_service.create_plan(tier, **payload.model_dump())
+        plan = subscription_plans.create_plan(tier, **payload.model_dump())
         return 201, plan
 
     @route.patch(
@@ -145,7 +144,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             pk=plan_id,
             tier__organization=organization,
         )
-        return subscription_service.update_plan(plan, **payload.model_dump(exclude_unset=True))
+        return subscription_plans.update_plan(plan, **payload.model_dump(exclude_unset=True))
 
     @route.post(
         "/plans/{plan_id}/migrate-subscribers",
@@ -196,7 +195,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             pk=plan_id,
             tier__organization=organization,
         )
-        return subscription_service.archive_plan(plan)
+        return subscription_plans.archive_plan(plan)
 
     @route.delete(
         "/plans/{plan_id}",
@@ -211,7 +210,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             pk=plan_id,
             tier__organization=organization,
         )
-        subscription_service.delete_plan(plan)
+        subscription_plans.delete_plan(plan)
         return 204, None
 
     # ---- Subscriptions ----
@@ -349,7 +348,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 notes=payload.initial_payment_notes,
             )
 
-        subscription = subscription_service.create_subscription(plan, user, initial_payment=initial)
+        subscription = subscription_lifecycle.create_subscription(plan, user, initial_payment=initial)
         return 201, subscription
 
     @route.get(
@@ -410,7 +409,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 400,
                 str(_("FREE subscriptions have no payments to record.")),
             )
-        payment = subscription_service.record_payment(
+        payment = subscription_lifecycle.record_payment(
             subscription,
             amount=payload.amount,
             currency=payload.currency,
@@ -445,7 +444,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             pk=sub_id,
             organization=organization,
         )
-        return subscription_service.cancel_subscription(subscription, immediate=payload.immediate)
+        return subscription_lifecycle.cancel_subscription(subscription, immediate=payload.immediate)
 
     @route.post(
         "/subscriptions/{sub_id}/uncancel",
@@ -481,7 +480,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             pk=sub_id,
             organization=organization,
         )
-        return subscription_service.pause_subscription(subscription)
+        return subscription_lifecycle.pause_subscription(subscription)
 
     @route.post(
         "/subscriptions/{sub_id}/resume",
@@ -496,7 +495,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             pk=sub_id,
             organization=organization,
         )
-        return subscription_service.resume_subscription(subscription)
+        return subscription_lifecycle.resume_subscription(subscription)
 
     @route.post(
         "/subscriptions/{sub_id}/revive",
@@ -536,7 +535,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 recorded_by=self.user(),
                 notes=payload.notes,
             )
-        revived, checkout_url = subscription_service.revive_subscription(
+        revived, checkout_url = subscription_lifecycle.revive_subscription(
             subscription,
             initial_payment=initial,
             revived_by=self.user(),

@@ -22,7 +22,9 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_service, subscription_uncancel
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
+from events.service.subscription import uncancel as subscription_uncancel
 
 pytestmark = pytest.mark.django_db
 
@@ -34,7 +36,7 @@ def tier(organization: Organization) -> MembershipTier:
 
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
     )
 
@@ -117,7 +119,7 @@ class TestMemberUncancel:
         assert subscription.cancel_at_period_end is False
         assert subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
-    @mock.patch("events.service.subscription_uncancel.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.uncancel.stripe.Subscription.modify")
     def test_online_clears_the_flag_on_stripe(
         self,
         mock_modify: mock.Mock,
@@ -140,7 +142,7 @@ class TestMemberUncancel:
         subscription.refresh_from_db()
         assert subscription.cancel_at_period_end is False
 
-    @mock.patch("events.service.subscription_uncancel.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.uncancel.stripe.Subscription.modify")
     def test_stripe_failure_leaves_the_flag_set(
         self,
         mock_modify: mock.Mock,
@@ -159,7 +161,7 @@ class TestMemberUncancel:
         subscription.refresh_from_db()
         assert subscription.cancel_at_period_end is True
 
-    @mock.patch("events.service.subscription_uncancel.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.uncancel.stripe.Subscription.modify")
     def test_online_without_stripe_link_stays_local(
         self,
         mock_modify: mock.Mock,
@@ -185,7 +187,7 @@ class TestMemberUncancel:
         plan: MembershipSubscriptionPlan,
         organization: Organization,
     ) -> None:
-        subscription = subscription_service.create_subscription(plan, subscriber_user)
+        subscription = subscription_lifecycle.create_subscription(plan, subscriber_user)
 
         response = subscriber_client.post(_member_url(organization))
 
@@ -201,7 +203,7 @@ class TestMemberUncancel:
         organization: Organization,
     ) -> None:
         subscription = _scheduled_cancel(plan, subscriber_user, organization)
-        subscription_service.archive_plan(plan)
+        subscription_plans.archive_plan(plan)
 
         response = subscriber_client.post(_member_url(organization))
 
@@ -343,16 +345,16 @@ class TestStuckStateResolved:
         # The initial payment gives the row a period boundary — without one the
         # scheduled cancel is upgraded to an immediate one (see
         # ``cancel_subscription``) and there is nothing left to undo.
-        subscription = subscription_service.create_subscription(
+        subscription = subscription_lifecycle.create_subscription(
             plan,
             subscriber_user,
-            initial_payment=subscription_service.InitialPayment(
+            initial_payment=subscription_lifecycle.InitialPayment(
                 amount=plan.price,
                 currency=plan.currency,
                 recorded_by=organization.owner,
             ),
         )
-        subscription_service.cancel_subscription(subscription, immediate=False)
+        subscription_lifecycle.cancel_subscription(subscription, immediate=False)
 
         pause_url = reverse("api:pause_subscription", kwargs={"slug": organization.slug, "sub_id": subscription.id})
         assert organization_owner_client.post(pause_url).status_code == 400
@@ -388,7 +390,7 @@ class TestServiceGuards:
         organization: Organization,
     ) -> None:
         subscription = _scheduled_cancel(plan, subscriber_user, organization)
-        subscription_service.archive_plan(plan)
+        subscription_plans.archive_plan(plan)
 
         with pytest.raises(HttpError) as exc_info:
             subscription_uncancel.uncancel_subscription(subscription)
@@ -428,8 +430,8 @@ class TestServiceGuards:
         organization: Organization,
     ) -> None:
         """Nothing to undo means nothing to refuse — the row is already in the requested state."""
-        subscription = subscription_service.create_subscription(plan, subscriber_user)
-        subscription_service.archive_plan(plan)
+        subscription = subscription_lifecycle.create_subscription(plan, subscriber_user)
+        subscription_plans.archive_plan(plan)
 
         result = subscription_uncancel.uncancel_subscription(subscription)
 

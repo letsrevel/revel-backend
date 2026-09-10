@@ -20,7 +20,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_stripe_sync
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 from notifications.enums import NotificationType
 from notifications.models import Notification
 

@@ -1,8 +1,8 @@
 """Shared Stripe provisioning primitives for membership subscriptions.
 
 Bottom of the subscription Stripe stack (next to
-:mod:`subscription_stripe_payloads`): helpers needed by both
-:mod:`subscription_stripe_service` and :mod:`subscription_stripe_plan_change`,
+:mod:`subscription.stripe.payloads`): helpers needed by both
+:mod:`subscription.stripe.checkout` and :mod:`subscription.stripe.plan_change`,
 extracted so the two can depend on this module instead of on each other.
 """
 
@@ -13,7 +13,7 @@ from ninja.errors import HttpError
 
 from common.service.stripe_config import configure_stripe
 from events.models import MembershipSubscriptionPlan, Organization
-from events.service.subscription_stripe_payloads import _stripe_account_kwargs, stripe_interval
+from events.service.subscription.stripe.payloads import stripe_account_kwargs, stripe_interval
 from events.utils.currency import to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 configure_stripe()
 
 
-def _require_stripe_connected(organization: Organization) -> None:
+def require_stripe_connected(organization: Organization) -> None:
     """Raise 400 if the organization has not finished Stripe Connect onboarding."""
     if not organization.is_stripe_connected:
         raise HttpError(400, str(_("This organization is not configured to accept payments.")))
@@ -56,8 +56,8 @@ def ensure_stripe_price(plan: MembershipSubscriptionPlan) -> MembershipSubscript
         return plan
 
     org = plan.tier.organization
-    _require_stripe_connected(org)
-    kwargs = _stripe_account_kwargs(org)
+    require_stripe_connected(org)
+    kwargs = stripe_account_kwargs(org)
     update_fields: list[str] = []
 
     try:

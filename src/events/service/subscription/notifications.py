@@ -1,6 +1,6 @@
 """Notification dispatch helpers for membership subscriptions.
 
-Split out of :mod:`events.service.subscription_service` (file-length cap).
+Split out of :mod:`events.service.subscription.lifecycle` (file-length cap).
 Private helpers called by OFFLINE dispatch sites (D2), ONLINE webhook
 handlers (D3), and the renewal reminder task (E1). Each fires exactly one
 notification via the ``notification_requested`` signal — the handler creates
@@ -8,8 +8,9 @@ the Notification row synchronously and defers the rendering/delivery task to
 ``transaction.on_commit`` (and MUST NOT raise, so a bad context can never
 roll back a webhook transaction). Never mutates subscription state.
 
-``subscription_service`` re-imports every helper, so callers keep using
-``subscription_service._dispatch_*``.
+Callers import this module directly (``from events.service.subscription import
+notifications``) and go through ``notifications._dispatch_*`` so the helpers stay
+patchable in tests.
 """
 
 import typing as t

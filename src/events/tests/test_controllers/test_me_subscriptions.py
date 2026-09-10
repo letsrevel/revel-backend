@@ -22,7 +22,8 @@ from events.models import (
     OrganizationMembershipRequest,
     OrganizationQuestionnaire,
 )
-from events.service import subscription_service
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
 from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
@@ -52,7 +53,7 @@ def tier(organization: Organization) -> MembershipTier:
 
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
     )
 
@@ -70,7 +71,7 @@ def subscriber_client(subscriber_user: RevelUser) -> Client:
 
 @pytest.fixture
 def their_subscription(plan: MembershipSubscriptionPlan, subscriber_user: RevelUser) -> MembershipSubscription:
-    return subscription_service.create_subscription(plan, subscriber_user)
+    return subscription_lifecycle.create_subscription(plan, subscriber_user)
 
 
 class TestListMySubscriptions:
@@ -81,7 +82,7 @@ class TestListMySubscriptions:
         plan: MembershipSubscriptionPlan,
         nonmember_user: RevelUser,
     ) -> None:
-        subscription_service.create_subscription(plan, nonmember_user)
+        subscription_lifecycle.create_subscription(plan, nonmember_user)
         url = reverse("api:list_my_membership_subscriptions")
         response = subscriber_client.get(url)
         assert response.status_code == 200
@@ -155,7 +156,7 @@ class TestGetMyOrgSubscription:
         their_subscription: MembershipSubscription,
         organization: Organization,
     ) -> None:
-        subscription_service.cancel_subscription(their_subscription, immediate=True)
+        subscription_lifecycle.cancel_subscription(their_subscription, immediate=True)
         url = reverse("api:get_my_organization_subscription", kwargs={"org_id": organization.id})
         response = subscriber_client.get(url)
         assert response.status_code == 404
@@ -176,8 +177,8 @@ class TestSubscribeEndpoint:
             stripe_price_id="price_test",
         )
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_subscribe_returns_checkout_url(
         self,
         mock_customer: mock.Mock,
@@ -210,7 +211,7 @@ class TestSubscribeEndpoint:
         response = subscriber_client.post(url, data={"plan_id": str(plan.id)}, content_type="application/json")
         assert response.status_code == 400
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
     def test_subscribe_gated_without_application_refuses_with_eligibility(
         self,
         mock_session: mock.Mock,
@@ -232,7 +233,7 @@ class TestSubscribeEndpoint:
         mock_session.assert_not_called()
         assert not MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
     def test_subscribe_with_pending_application_waits_for_approval(
         self,
         mock_session: mock.Mock,
@@ -259,7 +260,7 @@ class TestSubscribeEndpoint:
         assert body["application_id"] == str(app.id)
         mock_session.assert_not_called()
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
     def test_subscribe_questionnaire_missing_blocks(
         self,
         mock_session: mock.Mock,
@@ -283,8 +284,8 @@ class TestSubscribeEndpoint:
         assert body["questionnaire_id"] == str(org_q.questionnaire_id)
         mock_session.assert_not_called()
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_subscribe_with_approved_application_opens_checkout_and_links(
         self,
         mock_customer: mock.Mock,
@@ -375,8 +376,8 @@ class TestSubscribeEndpoint:
         response = Client().post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
         assert response.status_code == 401
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_subscribe_stripe_failure_rolls_back(
         self,
         mock_customer: mock.Mock,
@@ -409,7 +410,7 @@ class TestCancelMyMembershipEndpoint:
             stripe_price_id="price_test",
         )
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
     def test_cancel_online_routes_to_stripe(
         self,
         mock_modify: mock.Mock,
@@ -503,8 +504,8 @@ class TestChangePlanEndpoint:
             stripe_subscription_id="sub_change_plan_test",
         )
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve")
     def test_upgrade_routes_through_stripe(
         self,
         mock_retrieve: mock.Mock,
@@ -552,8 +553,8 @@ class TestChangePlanEndpoint:
         online_subscription.refresh_from_db()
         assert online_subscription.plan_id != gated_plan.id
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve")
     def test_change_plan_cross_tier_onto_ungated_tier_allowed(
         self,
         mock_retrieve: mock.Mock,
@@ -628,7 +629,7 @@ class TestChangePlanEndpoint:
         monthly payment (and re-point ``member.tier`` past its gates).
         """
         original_plan_id = their_subscription.plan_id
-        annual = subscription_service.create_plan(
+        annual = subscription_plans.create_plan(
             tier, name="Annual", price=Decimal("100.00"), currency="EUR", period_unit="year"
         )
         url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
@@ -658,7 +659,7 @@ class TestBillingPortalEndpoint:
             user=subscriber_user, organization=stripe_org, stripe_customer_id="cus_seeded_portal"
         )
 
-    @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.billing_portal.Session.create")
     def test_returns_portal_url(
         self,
         mock_portal: mock.Mock,

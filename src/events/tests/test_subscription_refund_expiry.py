@@ -17,8 +17,8 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_refunds
 from events.service.stripe_webhooks import StripeEventHandler
+from events.service.subscription import refunds as subscription_refunds
 
 
 @pytest.fixture
@@ -218,7 +218,7 @@ class TestOnlineRefundAutoCancelLockDiscipline:
         Stripe-side cancel must run only after commit — never hold a row lock
         across a network call."""
         payment = self._full_refund_payment(online_sub, online_plan)
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as mock_cancel:
+        with patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel") as mock_cancel:
             with django_capture_on_commit_callbacks(execute=False) as callbacks:
                 subscription_refunds.refund_payment(payment, recorded_by=None)
                 # Still inside the transaction: local state is settled...
@@ -242,7 +242,7 @@ class TestOnlineRefundAutoCancelLockDiscipline:
         from notifications.models import Notification
 
         payment = self._full_refund_payment(online_sub, online_plan)
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"):
+        with patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel"):
             with django_capture_on_commit_callbacks(execute=True):
                 subscription_refunds.refund_payment(payment, recorded_by=None)
         notifs = Notification.objects.filter(

@@ -10,16 +10,16 @@ Owns the two places the plan-bearing path must consult the gates:
   gate stack against the destination tier; same-tier swaps are deliberately
   not re-gated (the member already passed that tier's gates once).
 
-Lives apart from ``subscription_service`` / ``subscription_stripe_service`` so
+Lives apart from ``subscription.lifecycle`` / ``subscription.stripe.checkout`` so
 neither money module grows a dependency on ``membership_manager``.
 """
 
 from accounts.models import RevelUser
 from events.models import MembershipSubscription, MembershipSubscriptionPlan, OrganizationMembershipRequest
-from events.service import subscription_stripe_service
 from events.service.membership_manager import MembershipApplicationIneligibleError, MembershipEligibilityService
 from events.service.membership_manager.enums import MembershipReasonCode
-from events.service.subscription_core import create_subscription
+from events.service.subscription.core import create_subscription
+from events.service.subscription.stripe import checkout as stripe_checkout
 
 
 def _ensure_plan_eligibility(user: RevelUser, plan: MembershipSubscriptionPlan) -> MembershipEligibilityService:
@@ -62,7 +62,7 @@ def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tupl
     materializes the member in one transaction. No activation webhook will ever
     run for it, so the originating application is settled COMPLETED here
     instead — through the same status-filtered update the Stripe path defers to
-    :mod:`events.service.subscription_stripe_sync`.
+    :mod:`events.service.subscription.stripe.sync`.
 
     Returns:
         The local subscription row and the hosted Checkout URL — ``None`` for a
@@ -75,7 +75,7 @@ def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tupl
         subscription = create_subscription(plan, user)
         checkout_url = None
     else:
-        subscription, checkout_url = subscription_stripe_service.start_online_subscription(plan, user)
+        subscription, checkout_url = stripe_checkout.start_online_subscription(plan, user)
     application = eligibility_service.current_application
     if application is not None and application.status in (
         OrganizationMembershipRequest.Status.PENDING,
@@ -84,11 +84,11 @@ def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tupl
         application.subscription = subscription
         application.save(update_fields=["subscription", "updated_at"])
     if is_free:
-        # lazy: subscription_stripe_sync -> ... -> subscription_service imports
+        # lazy: subscription.stripe.sync -> ... -> subscription.lifecycle imports
         # this module back, so a top-level import would cycle.
-        from events.service.subscription_stripe_sync import _settle_originating_application
+        from events.service.subscription.stripe.sync import settle_originating_application
 
-        _settle_originating_application(subscription)
+        settle_originating_application(subscription)
     return subscription, checkout_url
 
 

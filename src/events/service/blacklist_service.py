@@ -97,9 +97,9 @@ def apply_blacklist_consequences(user: RevelUser, organization: Organization) ->
 
     # A ban must also stop billing: cancel any live subscription (and its Stripe
     # side) so the member isn't charged for access they no longer have.
-    from events.service import subscription_service  # lazy: avoid cycle
+    from events.service.subscription import lifecycle as subscription_lifecycle  # lazy: avoid cycle
 
-    cancelled = subscription_service.cancel_subscriptions_for_membership_loss(user, organization)
+    cancelled = subscription_lifecycle.cancel_subscriptions_for_membership_loss(user, organization)
     if cancelled:
         logger.info(
             "blacklisted_user_subscriptions_cancelled",

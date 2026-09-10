@@ -1,11 +1,12 @@
 """Core lifecycle primitives for membership subscriptions.
 
-Split out of :mod:`events.service.subscription_service` so that
-:mod:`subscription_stripe_service` (which creates the local row before
+Split out of :mod:`events.service.subscription.lifecycle` so that
+:mod:`subscription.stripe.checkout` (which creates the local row before
 minting a Checkout Session) can import them without importing the
 orchestrator back — keeping the service import graph acyclic.
-``subscription_service`` re-exports every public name here, so existing
-call sites (controllers, tasks, tests) are unaffected.
+``subscription.lifecycle`` (and the package ``__init__``) re-export every
+public name here, so existing call sites (controllers, tasks, tests) are
+unaffected.
 """
 
 import dataclasses
@@ -28,8 +29,8 @@ from events.models import (
     OrganizationMember,
 )
 from events.service.blacklist_service import check_user_hard_blacklisted
-from events.service.subscription_notifications import _dispatch_renewal_succeeded
-from events.service.subscription_sales import ensure_plan_sales_capacity
+from events.service.subscription.notifications import _dispatch_renewal_succeeded
+from events.service.subscription.sales import ensure_plan_sales_capacity
 from events.utils.subscription_periods import calculate_period_end
 
 logger = structlog.get_logger(__name__)

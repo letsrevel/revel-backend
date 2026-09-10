@@ -1,6 +1,6 @@
 """Webhook-side mirror for Stripe membership subscriptions.
 
-Split out of :mod:`events.service.subscription_stripe_service` (file-length
+Split out of :mod:`events.service.subscription.stripe.checkout` (file-length
 cap): everything here is driven by inbound Stripe payloads — webhook events
 (``customer.subscription.*``, ``invoice.*``) and the nightly reconcile task —
 never by member/staff API calls. The local state machine's terminal statuses
@@ -29,16 +29,16 @@ from events.models import (
 )
 from events.service import stripe_incidents
 from events.service.blacklist_service import check_user_hard_blacklisted
-from events.service.subscription_stripe_dispatch import (
+from events.service.subscription.stripe.dispatch import (
     _dispatch_invoice_notifications,
     _dispatch_sync_notifications,
 )
-from events.service.subscription_stripe_payloads import (
+from events.service.subscription.stripe.payloads import (
     InvoicePaymentDetails,
-    _epoch_to_dt,
-    _invoice_payment_details,
-    _invoice_subscription_id,
-    _subscription_period_epochs,
+    epoch_to_dt,
+    invoice_payment_details,
+    invoice_subscription_id,
+    subscription_period_epochs,
 )
 from events.utils.currency import from_stripe_amount
 
@@ -63,7 +63,7 @@ certainly no "welcome" notification.
 """
 
 
-def _settle_originating_application(subscription: MembershipSubscription) -> None:
+def settle_originating_application(subscription: MembershipSubscription) -> None:
     """Complete the membership application that initiated this subscription, if any.
 
     The application pipeline hands a gated applicant to ``/subscribe`` once
@@ -88,7 +88,7 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
     """Make sure an ACTIVE :class:`OrganizationMember` exists for an ONLINE subscriber.
 
     Phase 1's signal-driven sync intentionally never *creates* members; that
-    responsibility belongs to :func:`subscription_service.create_subscription`
+    responsibility belongs to :func:`subscription.lifecycle.create_subscription`
     for the OFFLINE flow. For ONLINE plans, the equivalent moment is the
     first successful invoice / Stripe ``active`` status — both of which land
     in this module's webhook helpers.
@@ -113,7 +113,7 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
 
     Side effect: on the ``"created"`` and ``"existing"`` outcomes this also
     settles the originating membership application (COMPLETED) via
-    :func:`_settle_originating_application` — payment is the final step of the
+    :func:`settle_originating_application` — payment is the final step of the
     gated application pipeline. Not on ``"blocked"``: no membership was
     granted, so nothing completes.
 
@@ -132,7 +132,7 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
                 existing.tier_id = subscription.plan.tier_id
                 update_fields.append("tier")
             existing.save(update_fields=update_fields)
-        _settle_originating_application(subscription)
+        settle_originating_application(subscription)
         return "existing"
 
     if check_user_hard_blacklisted(subscription.user, subscription.organization):
@@ -158,7 +158,7 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
             "status": OrganizationMember.MembershipStatus.ACTIVE,
         },
     )
-    _settle_originating_application(subscription)
+    settle_originating_application(subscription)
     return "created"
 
 
@@ -217,11 +217,11 @@ def _apply_period_dates(
     nobody should rewrite either.
     """
     changed: list[str] = []
-    start_epoch, end_epoch = _subscription_period_epochs(stripe_subscription)
+    start_epoch, end_epoch = subscription_period_epochs(stripe_subscription)
     new_start, new_end = _forward_only_period(
         subscription,
-        _epoch_to_dt(start_epoch),
-        _epoch_to_dt(end_epoch),
+        epoch_to_dt(start_epoch),
+        epoch_to_dt(end_epoch),
         source="subscription_sync",
     )
     if new_start and subscription.current_period_start != new_start:
@@ -398,7 +398,7 @@ def _forward_only_period(
     invoice page, late dunning retry) after a later cycle already settled, and a
     ``customer.subscription.updated`` is redelivered for up to 3 days. Rewinding
     ``current_period_end`` into the past corrupts the anchor
-    ``subscription_refunds._is_full_refund_of_current_period`` matches on (the
+    ``subscription.refunds._is_full_refund_of_current_period`` matches on (the
     refund auto-cancel then silently no-ops, leaving a refunded member subscribed
     and still billed), misfires the renewal reminder, and makes the grace-expiry
     beat flip a paid-up member to PAST_DUE.
@@ -449,7 +449,7 @@ def _apply_invoice_outcome(
 
     Terminal rows are frozen here exactly as they are in
     :func:`sync_subscription_from_stripe`, :func:`_apply_stripe_price_swap` and
-    ``subscription_service.record_payment``: a CANCELLED/EXPIRED subscription
+    ``subscription.lifecycle.record_payment``: a CANCELLED/EXPIRED subscription
     must never advance its period (ADR-0014). The payment row itself is still
     written by the caller — the money genuinely moved and Stripe took its
     application fee, so suppressing it would desync our ledger from Stripe — but
@@ -688,14 +688,14 @@ def record_stripe_payment_from_invoice(
         The created/updated :class:`MembershipPayment`, or ``None`` when the
         invoice belongs to a Stripe Subscription we don't know.
     """
-    stripe_sub_id = _invoice_subscription_id(invoice)
+    stripe_sub_id = invoice_subscription_id(invoice)
     invoice_id = invoice.get("id")
     if not stripe_sub_id or not invoice_id:
         return None
 
     # Resolve everything that may hit the network BEFORE taking the row lock
     # (same discipline as the ticket-refund path / #632 reserve-session split):
-    # _invoice_payment_details can fall back to a stripe.Invoice.retrieve,
+    # invoice_payment_details can fall back to a stripe.Invoice.retrieve,
     # and with the pinned dahlia API version the legacy ``payment_intent``
     # field is absent, so that fallback fires on essentially every renewal.
     unlocked_subscription = (
@@ -705,7 +705,7 @@ def record_stripe_payment_from_invoice(
     )
     if unlocked_subscription is None:
         return None
-    payment_details = _invoice_payment_details(invoice, unlocked_subscription.organization, need_fee=succeeded)
+    payment_details = invoice_payment_details(invoice, unlocked_subscription.organization, need_fee=succeeded)
     payment_intent_id = payment_details.payment_intent_id
 
     subscription = (
@@ -744,8 +744,8 @@ def record_stripe_payment_from_invoice(
         if recurring_period is not None
         else ((lines_data[0].get("period") or {}) if lines_data else {})
     )
-    period_start = _epoch_to_dt(ledger_period.get("start")) or timezone.now()
-    period_end = _epoch_to_dt(ledger_period.get("end")) or timezone.now()
+    period_start = epoch_to_dt(ledger_period.get("start")) or timezone.now()
+    period_end = epoch_to_dt(ledger_period.get("end")) or timezone.now()
 
     if not succeeded:
         # Monotonicity guard: Stripe gives no delivery-order guarantee, and a

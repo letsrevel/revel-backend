@@ -695,7 +695,7 @@ This event has:
             expired_at=self.now - timedelta(days=5),
         )
 
-        # Ledger entry for the last paid period (#802): ``_clear_stale_pending_checkout``
+        # Ledger entry for the last paid period (#802): ``clear_stale_pending_checkout``
         # deletes payment-less PENDING rows but reverts ones with payment history to
         # EXPIRED, so an E2E spec that clicks Rejoin and abandons the hosted checkout
         # stays re-runnable instead of losing the fixture on the next subscribe call.

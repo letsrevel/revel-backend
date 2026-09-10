@@ -121,7 +121,7 @@ def _cancel_live_subscriptions(user: RevelUser) -> None:
     hand are emitted up front, since the local rows will not survive this task.
     """
     from events.models import MembershipSubscription
-    from events.service import subscription_service
+    from events.service.subscription import lifecycle as subscription_lifecycle
 
     live = list(
         MembershipSubscription.objects.filter(user=user)
@@ -145,7 +145,7 @@ def _cancel_live_subscriptions(user: RevelUser) -> None:
     organizations = {subscription.organization_id: subscription.organization for subscription in live}
     for organization in organizations.values():
         try:
-            subscription_service.cancel_subscriptions_for_membership_loss(user, organization)
+            subscription_lifecycle.cancel_subscriptions_for_membership_loss(user, organization)
         except Exception:
             logger.exception(
                 "account_deletion_subscription_cancel_failed",

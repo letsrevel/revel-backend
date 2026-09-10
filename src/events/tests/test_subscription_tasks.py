@@ -16,7 +16,8 @@ from events.models import (
     Organization,
     OrganizationMember,
 )
-from events.service import subscription_service
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
 from events.tasks import expire_subscriptions_past_grace
 
 pytestmark = pytest.mark.django_db
@@ -29,7 +30,7 @@ def tier(organization: Organization) -> MembershipTier:
 
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
     )
 
@@ -46,7 +47,7 @@ def _make_active_sub(
     *,
     cancel_at_period_end: bool = False,
 ) -> MembershipSubscription:
-    sub = subscription_service.create_subscription(plan, subscriber)
+    sub = subscription_lifecycle.create_subscription(plan, subscriber)
     sub.status = MembershipSubscription.SubscriptionStatus.ACTIVE
     sub.current_period_start = period_end - datetime.timedelta(days=30)
     sub.current_period_end = period_end
@@ -493,7 +494,7 @@ class TestOnlineExpiryCancelsStripe:
             status=MembershipSubscription.SubscriptionStatus.PAST_DUE,
             period_end=timezone.now() - datetime.timedelta(days=40),
         )
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock:
+        with patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel") as cancel_mock:
             counters = expire_subscriptions_past_grace()
 
         assert counters["expired_after_grace"] == 1
@@ -523,7 +524,7 @@ class TestOnlineExpiryCancelsStripe:
             period_end=timezone.now() - datetime.timedelta(days=1),
             cancel_at_period_end=True,
         )
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock:
+        with patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel") as cancel_mock:
             counters = expire_subscriptions_past_grace()
 
         assert counters["cancelled_at_period_end"] == 1
@@ -551,7 +552,7 @@ class TestOnlineExpiryCancelsStripe:
             period_end=timezone.now() - datetime.timedelta(days=40),
         )
         with patch(
-            "events.service.subscription_stripe_service.stripe.Subscription.cancel",
+            "events.service.subscription.stripe.checkout.stripe.Subscription.cancel",
             side_effect=stripe_sdk.error.StripeError("boom"),
         ):
             counters = expire_subscriptions_past_grace()
@@ -692,7 +693,7 @@ class TestReconcileStripeSubscriptions:
         self._make_online_sub(tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.EXPIRED)
         with (
             patch("stripe.Subscription.retrieve", return_value=self._terminal_row_payload("past_due")),
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel") as cancel_mock,
         ):
             counters = reconcile_stripe_subscriptions()
 
@@ -714,7 +715,7 @@ class TestReconcileStripeSubscriptions:
         self._make_online_sub(tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.EXPIRED)
         with (
             patch("stripe.Subscription.retrieve", return_value=self._terminal_row_payload("canceled")),
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel") as cancel_mock,
         ):
             reconcile_stripe_subscriptions()
 
@@ -734,7 +735,7 @@ class TestReconcileStripeSubscriptions:
         self._make_online_sub(tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.ACTIVE)
         with (
             patch("stripe.Subscription.retrieve", return_value=self._terminal_row_payload("active")),
-            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.cancel") as cancel_mock,
         ):
             reconcile_stripe_subscriptions()
 
@@ -788,7 +789,7 @@ class TestReconcileStripeSubscriptions:
         with (
             patch("stripe.Subscription.retrieve") as retrieve_mock,
             patch(
-                "events.service.subscription_stripe_service.stripe.checkout.Session.retrieve",
+                "events.service.subscription.stripe.checkout.stripe.checkout.Session.retrieve",
                 return_value=MagicMock(id="cs_stale", status="expired"),
             ),
         ):
@@ -829,7 +830,7 @@ class TestReconcileStripeSubscriptions:
         with (
             patch("stripe.Subscription.retrieve"),
             patch(
-                "events.service.subscription_stripe_service.stripe.checkout.Session.retrieve",
+                "events.service.subscription.stripe.checkout.stripe.checkout.Session.retrieve",
                 return_value=MagicMock(id="cs_stale_revival", status="expired"),
             ),
         ):

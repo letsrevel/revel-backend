@@ -1,7 +1,7 @@
 """Shape rules binding a plan's payment method to its price and billing cadence.
 
 Shared by :class:`events.schema.subscription.PlanCreateSchema` (pydantic, create
-time) and :func:`events.service.subscription_service.update_plan` (patch time)
+time) and :func:`events.service.subscription.plans.update_plan` (patch time)
 so the two enforcement points can never drift. Returns the message rather than
 raising so each caller can render it in its own idiom (``ValueError`` → 422 for
 pydantic, ``HttpError`` → 400 for the service).

@@ -23,8 +23,9 @@ from events.models import (
     Organization,
 )
 from events.schema.subscription import PublicPlanSchema
-from events.service import subscription_service, subscription_stripe_service
-from events.service.subscription_service import InitialPayment
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription.lifecycle import InitialPayment
+from events.service.subscription.stripe import checkout as subscription_stripe_checkout
 
 pytestmark = pytest.mark.django_db
 
@@ -64,11 +65,11 @@ class TestSubscriptionCap:
         capped_plan: MembershipSubscriptionPlan,
         django_user_model: t.Type[RevelUser],
     ) -> None:
-        subscription_service.create_subscription(capped_plan, _user(1, django_user_model))
-        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(1, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(2, django_user_model))
 
         with pytest.raises(HttpError) as exc:
-            subscription_service.create_subscription(capped_plan, _user(3, django_user_model))
+            subscription_lifecycle.create_subscription(capped_plan, _user(3, django_user_model))
         assert exc.value.status_code == 400
         assert "sold out" in str(exc.value.message).lower()
 
@@ -77,13 +78,13 @@ class TestSubscriptionCap:
         capped_plan: MembershipSubscriptionPlan,
         django_user_model: t.Type[RevelUser],
     ) -> None:
-        first = subscription_service.create_subscription(capped_plan, _user(1, django_user_model))
-        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
+        first = subscription_lifecycle.create_subscription(capped_plan, _user(1, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(2, django_user_model))
 
         # Slot reclaim: cancelling makes room for a new subscriber.
-        subscription_service.cancel_subscription(first, immediate=True)
+        subscription_lifecycle.cancel_subscription(first, immediate=True)
 
-        sub = subscription_service.create_subscription(capped_plan, _user(3, django_user_model))
+        sub = subscription_lifecycle.create_subscription(capped_plan, _user(3, django_user_model))
         assert sub.status == MembershipSubscription.SubscriptionStatus.PENDING
 
     def test_uncapped_plan_is_unlimited(
@@ -100,7 +101,7 @@ class TestSubscriptionCap:
             payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
         )
         for i in range(1, 4):
-            subscription_service.create_subscription(plan, _user(i, django_user_model))
+            subscription_lifecycle.create_subscription(plan, _user(i, django_user_model))
         assert plan.subscriptions.count() == 3
 
     def test_cap_blocks_revival_when_full(
@@ -118,12 +119,12 @@ class TestSubscriptionCap:
             status=MembershipSubscription.SubscriptionStatus.EXPIRED,
             expired_at=timezone.now() - timedelta(days=1),
         )
-        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
-        subscription_service.create_subscription(capped_plan, _user(3, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(2, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(3, django_user_model))
 
         payment = InitialPayment(amount=capped_plan.price, currency=capped_plan.currency, recorded_by=staff_user)
         with pytest.raises(HttpError) as exc:
-            subscription_service.revive_subscription(expired, initial_payment=payment, enforce_sales_status=False)
+            subscription_lifecycle.revive_subscription(expired, initial_payment=payment, enforce_sales_status=False)
         assert exc.value.status_code == 400
         expired.refresh_from_db()
         assert expired.status == MembershipSubscription.SubscriptionStatus.EXPIRED
@@ -143,14 +144,14 @@ class TestSubscriptionCap:
             period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
             payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
         )
-        subscription_service.create_subscription(capped_plan, _user(1, django_user_model))
-        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
-        mover = subscription_service.create_subscription(other_plan, _user(3, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(1, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(2, django_user_model))
+        mover = subscription_lifecycle.create_subscription(other_plan, _user(3, django_user_model))
         mover.status = MembershipSubscription.SubscriptionStatus.ACTIVE
         mover.save(update_fields=["status"])
 
         with pytest.raises(HttpError) as exc:
-            subscription_service.change_plan(mover, capped_plan, enforce_sales_status=False)
+            subscription_lifecycle.change_plan(mover, capped_plan, enforce_sales_status=False)
         assert exc.value.status_code == 400
 
 
@@ -185,9 +186,9 @@ class TestSalesStatusPause:
         )
         with (
             pytest.raises(HttpError) as exc,
-            mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create") as mock_create,
+            mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create") as mock_create,
         ):
-            subscription_stripe_service.start_online_subscription(online_paused, _user(1, django_user_model))
+            subscription_stripe_checkout.start_online_subscription(online_paused, _user(1, django_user_model))
         assert exc.value.status_code == 400
         mock_create.assert_not_called()
 
@@ -197,7 +198,7 @@ class TestSalesStatusPause:
         django_user_model: t.Type[RevelUser],
     ) -> None:
         """Pausing public sales must not stop staff from managing subscriptions manually."""
-        sub = subscription_service.create_subscription(paused_plan, _user(1, django_user_model))
+        sub = subscription_lifecycle.create_subscription(paused_plan, _user(1, django_user_model))
         assert sub.pk is not None
 
     def test_member_revival_refused_on_paused_plan(
@@ -216,7 +217,7 @@ class TestSalesStatusPause:
         payment = InitialPayment(amount=paused_plan.price, currency=paused_plan.currency, recorded_by=staff_user)
 
         with pytest.raises(HttpError) as exc:
-            subscription_service.revive_subscription(expired, initial_payment=payment)
+            subscription_lifecycle.revive_subscription(expired, initial_payment=payment)
         assert exc.value.status_code == 400
 
     def test_staff_revival_bypasses_pause(
@@ -234,7 +235,7 @@ class TestSalesStatusPause:
         )
         payment = InitialPayment(amount=paused_plan.price, currency=paused_plan.currency, recorded_by=staff_user)
 
-        revived, secret = subscription_service.revive_subscription(
+        revived, secret = subscription_lifecycle.revive_subscription(
             expired, initial_payment=payment, enforce_sales_status=False
         )
         assert secret is None
@@ -254,16 +255,16 @@ class TestSalesStatusPause:
             period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
             payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
         )
-        sub = subscription_service.create_subscription(source, _user(1, django_user_model))
+        sub = subscription_lifecycle.create_subscription(source, _user(1, django_user_model))
         sub.status = MembershipSubscription.SubscriptionStatus.ACTIVE
         sub.save(update_fields=["status"])
 
         with pytest.raises(HttpError) as exc:
-            subscription_service.change_plan(sub, paused_plan)
+            subscription_lifecycle.change_plan(sub, paused_plan)
         assert exc.value.status_code == 400
 
         # Staff bypass the pause (but not the cap — covered separately).
-        moved = subscription_service.change_plan(sub, paused_plan, enforce_sales_status=False)
+        moved = subscription_lifecycle.change_plan(sub, paused_plan, enforce_sales_status=False)
         assert moved.plan_id == paused_plan.pk
 
 
@@ -275,8 +276,8 @@ class TestPublicPlanAvailability:
     ) -> None:
         assert PublicPlanSchema.resolve_sold_out(capped_plan) is False
 
-        subscription_service.create_subscription(capped_plan, _user(1, django_user_model))
-        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(1, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(2, django_user_model))
         assert PublicPlanSchema.resolve_sold_out(capped_plan) is True
 
         # Terminal subs free their slot.
@@ -323,10 +324,10 @@ class TestPendingPlanReservation:
         django_user_model: t.Type[RevelUser],
     ) -> None:
         self._reserving_sub(tier, capped_plan, _user(1, django_user_model))
-        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(2, django_user_model))
 
         with pytest.raises(HttpError) as exc:
-            subscription_service.create_subscription(capped_plan, _user(3, django_user_model))
+            subscription_lifecycle.create_subscription(capped_plan, _user(3, django_user_model))
         assert exc.value.status_code == 400
         assert "sold out" in str(exc.value.message).lower()
 
@@ -337,12 +338,12 @@ class TestPendingPlanReservation:
         django_user_model: t.Type[RevelUser],
     ) -> None:
         reserving = self._reserving_sub(tier, capped_plan, _user(1, django_user_model))
-        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(2, django_user_model))
 
         reserving.pending_plan = None
         reserving.save(update_fields=["pending_plan"])
 
-        sub = subscription_service.create_subscription(capped_plan, _user(3, django_user_model))
+        sub = subscription_lifecycle.create_subscription(capped_plan, _user(3, django_user_model))
         assert sub.pk is not None
 
     def test_annotation_and_resolvers_count_reservations(
@@ -352,7 +353,7 @@ class TestPendingPlanReservation:
         django_user_model: t.Type[RevelUser],
     ) -> None:
         self._reserving_sub(tier, capped_plan, _user(1, django_user_model))
-        subscription_service.create_subscription(capped_plan, _user(2, django_user_model))
+        subscription_lifecycle.create_subscription(capped_plan, _user(2, django_user_model))
 
         annotated = MembershipSubscriptionPlan.objects.with_active_subscription_count().get(pk=capped_plan.pk)
         assert getattr(annotated, "active_subscription_count", None) == 2

@@ -1,6 +1,6 @@
 """Plan-change helpers for ONLINE membership subscriptions (Phase 3).
 
-Extracted from ``subscription_stripe_service`` to keep that module under the
+Extracted from ``subscription.stripe.checkout`` to keep that module under the
 1000-line file-length limit. All functions here deal exclusively with
 switching an ONLINE subscription from one :class:`MembershipSubscriptionPlan`
 to another — either as an immediate prorated upgrade or as a scheduled
@@ -21,8 +21,8 @@ from events.models import (
     MembershipSubscriptionPlan,
     Organization,
 )
-from events.service.subscription_stripe_base import ensure_stripe_price
-from events.service.subscription_stripe_payloads import _is_subscription_gone, _stripe_account_kwargs, stripe_interval
+from events.service.subscription.stripe.base import ensure_stripe_price
+from events.service.subscription.stripe.payloads import is_subscription_gone, stripe_account_kwargs, stripe_interval
 
 logger = structlog.get_logger(__name__)
 
@@ -81,7 +81,7 @@ def release_online_schedule(subscription: MembershipSubscription) -> None:
     """
     if not subscription.stripe_schedule_id:
         return
-    kwargs = _stripe_account_kwargs(subscription.organization)
+    kwargs = stripe_account_kwargs(subscription.organization)
     try:
         stripe.SubscriptionSchedule.release(subscription.stripe_schedule_id, **kwargs)
     except stripe.error.InvalidRequestError as exc:
@@ -128,7 +128,7 @@ def resolve_refused_cancel(
     :func:`release_online_schedule`.
 
     Best-effort like its caller
-    (:func:`subscription_stripe_service.cancel_stripe_subscription_best_effort`):
+    (:func:`subscription.stripe.checkout.cancel_stripe_subscription_best_effort`):
     every failure — including the 502 :func:`release_online_schedule` raises on a
     hard Stripe error — is logged and reported as ``False`` so callers keep
     treating the Stripe subscription as possibly still live and billing.
@@ -141,7 +141,7 @@ def resolve_refused_cancel(
     Returns:
         True when the Stripe subscription is known to be closed.
     """
-    if _is_subscription_gone(exc):
+    if is_subscription_gone(exc):
         logger.info(
             "subscription_stripe_cancel_on_terminalize_already_done",
             subscription_id=str(subscription.pk),
@@ -165,10 +165,10 @@ def resolve_refused_cancel(
         stripe.Subscription.cancel(
             # Non-null: the caller's ``Subscription.cancel`` on this id is what raised ``exc``.
             t.cast(str, subscription.stripe_subscription_id),
-            **_stripe_account_kwargs(subscription.organization),
+            **stripe_account_kwargs(subscription.organization),
         )
     except stripe.error.InvalidRequestError as retry_exc:
-        if not _is_subscription_gone(retry_exc):
+        if not is_subscription_gone(retry_exc):
             logger.error(
                 "subscription_stripe_cancel_on_terminalize_failed",
                 subscription_id=str(subscription.pk),
@@ -199,7 +199,7 @@ def resolve_refused_cancel(
 def _retrieve_subscription_item_id(stripe_subscription_id: str, org: Organization) -> str:
     """Return the first Subscription Item id from a live Stripe Subscription."""
     try:
-        stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id, **_stripe_account_kwargs(org))
+        stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id, **stripe_account_kwargs(org))
     except stripe.error.StripeError as exc:
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
     items = (stripe_sub.get("items") or {}).get("data") or []
@@ -226,7 +226,7 @@ def _upgrade_online_subscription(
     the existing dunning flow takes over; either way the price swap stands.
     """
     org = subscription.organization
-    kwargs = _stripe_account_kwargs(org)
+    kwargs = stripe_account_kwargs(org)
     stripe_sub_id = t.cast(str, subscription.stripe_subscription_id)
     item_id = _retrieve_subscription_item_id(stripe_sub_id, org)
     try:
@@ -277,7 +277,7 @@ def _downgrade_online_subscription(
     ``events/tests/test_service/test_stripe_schedule_fee_integration.py``.
     """
     org = subscription.organization
-    kwargs = _stripe_account_kwargs(org)
+    kwargs = stripe_account_kwargs(org)
     try:
         schedule = stripe.SubscriptionSchedule.create(
             from_subscription=t.cast(str, subscription.stripe_subscription_id),
@@ -404,7 +404,7 @@ def change_online_plan(
     Routes to :func:`_upgrade_online_subscription` or
     :func:`_downgrade_online_subscription` based on the monthly-equivalent
     price delta. Currency parity is enforced upstream by
-    ``subscription_service._validate_change_plan_target``.
+    ``subscription.lifecycle._validate_change_plan_target``.
 
     Validation runs under a ``select_for_update`` lock taken in an inner
     ``transaction.atomic()``. NOTE: under production ATOMIC_REQUESTS the

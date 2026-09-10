@@ -18,7 +18,8 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.service import subscription_service
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
 
 pytestmark = pytest.mark.django_db
 
@@ -45,7 +46,7 @@ def tier(organization: Organization) -> MembershipTier:
 @pytest.fixture
 def offline_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
     """An OFFLINE plan — its members have no Stripe portal at all."""
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier,
         name="Offline monthly",
         price=Decimal("10.00"),
@@ -70,7 +71,7 @@ def subscriber_client(subscriber_user: RevelUser) -> Client:
 
 @pytest.fixture
 def their_subscription(offline_plan: MembershipSubscriptionPlan, subscriber_user: RevelUser) -> MembershipSubscription:
-    return subscription_service.create_subscription(offline_plan, subscriber_user)
+    return subscription_lifecycle.create_subscription(offline_plan, subscriber_user)
 
 
 def _make_payment(
@@ -135,7 +136,7 @@ class TestListMyMembershipPayments:
     ) -> None:
         """Another member's ledger rows in the same org are invisible."""
         mine = _make_payment(their_subscription)
-        other_subscription = subscription_service.create_subscription(offline_plan, nonmember_user)
+        other_subscription = subscription_lifecycle.create_subscription(offline_plan, nonmember_user)
         theirs = _make_payment(other_subscription, amount=Decimal("99.00"))
 
         response = subscriber_client.get(_url(organization))
@@ -157,10 +158,10 @@ class TestListMyMembershipPayments:
         _make_payment(their_subscription)
         other_org = Organization.objects.create(name="Other", slug="other-org", owner=organization_owner_user)
         other_tier = MembershipTier.objects.get(organization=other_org, name="General membership")
-        other_plan = subscription_service.create_plan(
+        other_plan = subscription_plans.create_plan(
             other_tier, name="Other", price=Decimal("5.00"), currency="EUR", period_unit="month"
         )
-        elsewhere = _make_payment(subscription_service.create_subscription(other_plan, subscriber_user))
+        elsewhere = _make_payment(subscription_lifecycle.create_subscription(other_plan, subscriber_user))
 
         response = subscriber_client.get(_url(organization))
 

@@ -24,8 +24,11 @@ from events.models import (
     OrganizationMember,
     OrganizationMembershipRequest,
 )
-from events.service import subscription_service, subscription_stripe_sync, subscription_uncancel
 from events.service.organization_service import approve_membership_request, update_member
+from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import plans as subscription_plans
+from events.service.subscription import uncancel as subscription_uncancel
+from events.service.subscription.stripe import sync as subscription_stripe_sync
 
 pytestmark = pytest.mark.django_db
 
@@ -38,7 +41,7 @@ def tier(organization: Organization) -> MembershipTier:
 @pytest.fixture
 def plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
     """An OFFLINE monthly plan, capped at one subscription so slots are observable."""
-    return subscription_service.create_plan(
+    return subscription_plans.create_plan(
         tier,
         name="Monthly",
         price=Decimal("10.00"),
@@ -146,10 +149,10 @@ class TestPausedMemberCannotSelfResume:
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, organization: Organization
     ) -> MembershipSubscription:
         """An ACTIVE OFFLINE subscription with a real period boundary."""
-        return subscription_service.create_subscription(
+        return subscription_lifecycle.create_subscription(
             plan,
             subscriber,
-            initial_payment=subscription_service.InitialPayment(
+            initial_payment=subscription_lifecycle.InitialPayment(
                 amount=plan.price, currency=plan.currency, recorded_by=organization.owner
             ),
         )
@@ -161,7 +164,7 @@ class TestPausedMemberCannotSelfResume:
         organization: Organization,
     ) -> None:
         subscription = self._paid_subscription(plan, subscriber, organization)
-        subscription_service.cancel_subscription(subscription, immediate=False)
+        subscription_lifecycle.cancel_subscription(subscription, immediate=False)
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         update_member(member, status=OrganizationMember.MembershipStatus.PAUSED)
 
@@ -181,7 +184,7 @@ class TestPausedMemberCannotSelfResume:
         organization: Organization,
     ) -> None:
         subscription = self._paid_subscription(plan, subscriber, organization)
-        subscription_service.cancel_subscription(subscription, immediate=False)
+        subscription_lifecycle.cancel_subscription(subscription, immediate=False)
         OrganizationMember.objects.filter(organization=organization, user=subscriber).update(
             status=OrganizationMember.MembershipStatus.BANNED
         )
@@ -224,7 +227,7 @@ class TestPausedMemberCannotSelfResume:
         subscription.refresh_from_db()
         assert subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED
 
-        subscription_service.resume_subscription(subscription)
+        subscription_lifecycle.resume_subscription(subscription)
 
         member.refresh_from_db()
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
@@ -312,12 +315,12 @@ class TestScheduledCancelOfAPeriodLessRow:
         organization: Organization,
     ) -> None:
         """Staff-created, never paid: the scheduled cancel has no boundary to land on."""
-        subscription = subscription_service.create_subscription(plan, subscriber)
+        subscription = subscription_lifecycle.create_subscription(plan, subscriber)
         assert subscription.status == MembershipSubscription.SubscriptionStatus.PENDING
         assert subscription.current_period_end is None
         assert plan.occupied_slot_count() == 1
 
-        out = subscription_service.cancel_subscription(subscription, immediate=False)
+        out = subscription_lifecycle.cancel_subscription(subscription, immediate=False)
 
         assert out.status == MembershipSubscription.SubscriptionStatus.CANCELLED
         assert out.cancelled_at is not None
@@ -352,7 +355,7 @@ class TestScheduledCancelOfAPeriodLessRow:
         )
 
         with mock.patch("stripe.checkout.Session.expire") as mock_expire:
-            out = subscription_service.cancel_subscription(subscription, immediate=False)
+            out = subscription_lifecycle.cancel_subscription(subscription, immediate=False)
 
         mock_expire.assert_called_once()
         assert out.status == MembershipSubscription.SubscriptionStatus.CANCELLED

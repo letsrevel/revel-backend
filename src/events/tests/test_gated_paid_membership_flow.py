@@ -38,14 +38,14 @@ from events.models import (
     SubscriptionPaymentMethod,
 )
 from events.service.organization_service import membership as membership_service
-from events.service.subscription_stripe_sync import _ensure_active_member
+from events.service.subscription.stripe.sync import _ensure_active_member
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 pytestmark = pytest.mark.django_db
 
 
-@mock.patch("events.service.subscription_stripe_service.stripe.checkout.Session.create")
-@mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+@mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
+@mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
 def test_gated_paid_membership_full_lifecycle(
     mock_customer: mock.Mock,
     mock_session: mock.Mock,

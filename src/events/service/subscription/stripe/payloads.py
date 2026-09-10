@@ -1,6 +1,6 @@
 """Payload-shape helpers for Stripe membership-subscription objects.
 
-Split out of :mod:`subscription_stripe_service` (file-length budget). These
+Split out of :mod:`subscription.stripe.checkout` (file-length budget). These
 readers are pinned-API-version aware: API versions >= 2025-03-31.basil (we pin
 dahlia) moved several fields — subscription periods onto items, the invoice's
 subscription reference under ``parent.subscription_details``, and the invoice
@@ -35,7 +35,7 @@ class StripeAccountKwargs(t.TypedDict, total=False):
     stripe_account: str
 
 
-def _stripe_account_kwargs(organization: Organization) -> StripeAccountKwargs:
+def stripe_account_kwargs(organization: Organization) -> StripeAccountKwargs:
     """Return ``stripe_account=...`` kwargs for a Connect API call.
 
     When the organization happens to share the platform's own Stripe account,
@@ -65,7 +65,7 @@ def stripe_interval(period_unit: str) -> StripeInterval:
 _ALREADY_CANCELED_RE = re.compile(r"cancell?ed subscription|subscription[^.]{0,40}cancell?ed", re.IGNORECASE)
 
 
-def _is_subscription_gone(exc: stripe.error.InvalidRequestError) -> bool:
+def is_subscription_gone(exc: stripe.error.InvalidRequestError) -> bool:
     """Return True when ``exc`` means the Stripe Subscription is already gone.
 
     Stripe raises :class:`InvalidRequestError` for many unrelated reasons — most
@@ -85,14 +85,14 @@ def _is_subscription_gone(exc: stripe.error.InvalidRequestError) -> bool:
     return bool(_ALREADY_CANCELED_RE.search(message))
 
 
-def _epoch_to_dt(epoch: int | None) -> datetime | None:
+def epoch_to_dt(epoch: int | None) -> datetime | None:
     """Convert a Stripe Unix timestamp to a tz-aware datetime."""
     if epoch is None:
         return None
     return datetime.fromtimestamp(epoch, tz=_utc.utc)
 
 
-def _subscription_period_epochs(stripe_subscription: dict[str, t.Any]) -> tuple[int | None, int | None]:
+def subscription_period_epochs(stripe_subscription: dict[str, t.Any]) -> tuple[int | None, int | None]:
     """Extract ``current_period_{start,end}`` from a Subscription payload.
 
     API versions >= 2025-03-31.basil (we pin dahlia) moved the period from the
@@ -117,7 +117,7 @@ def _as_stripe_id(value: t.Any) -> str:
     return t.cast(str, getattr(value, "id", "") or "")
 
 
-def _invoice_subscription_id(invoice: dict[str, t.Any]) -> str:
+def invoice_subscription_id(invoice: dict[str, t.Any]) -> str:
     """Extract the Subscription id from an Invoice payload.
 
     API versions >= 2025-03-31.basil (we pin dahlia) moved it from the
@@ -162,7 +162,7 @@ def _scan_payment_entries(payments_obj: t.Any, invoice_fee: int | None) -> Invoi
     return None
 
 
-def _invoice_payment_details(
+def invoice_payment_details(
     invoice: dict[str, t.Any],
     organization: Organization,
     *,
@@ -210,7 +210,7 @@ def _invoice_payment_details(
         retrieved = stripe.Invoice.retrieve(
             invoice_id,
             expand=["payments.data.payment.payment_intent"],
-            **_stripe_account_kwargs(organization),
+            **stripe_account_kwargs(organization),
         )
     except stripe.error.StripeError:
         logger.warning("subscription_invoice_payments_fetch_failed", stripe_invoice_id=invoice_id)

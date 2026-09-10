@@ -230,7 +230,7 @@ def test_delete_user_account_proceeds_when_cancellation_raises(
     user_id = subscriber.id
 
     with patch(
-        "events.service.subscription_service.cancel_subscriptions_for_membership_loss",
+        "events.service.subscription.lifecycle.cancel_subscriptions_for_membership_loss",
         side_effect=Exception("boom"),
     ) as cancel:
         with django_capture_on_commit_callbacks(execute=False):
@@ -248,7 +248,7 @@ def test_delete_user_account_offline_subscription_is_local_only(
 ) -> None:
     """OFFLINE plans have no Stripe side to close — terminalize locally and delete."""
     from events.models import MembershipSubscription
-    from events.service import subscription_service
+    from events.service.subscription import lifecycle as subscription_lifecycle
 
     subscription = _subscribe(host_organization, subscriber, online=False)
     user_id = subscriber.id
@@ -256,9 +256,9 @@ def test_delete_user_account_offline_subscription_is_local_only(
     with (
         patch("stripe.Subscription.cancel") as stripe_cancel,
         patch.object(
-            subscription_service,
+            subscription_lifecycle,
             "cancel_subscriptions_for_membership_loss",
-            wraps=subscription_service.cancel_subscriptions_for_membership_loss,
+            wraps=subscription_lifecycle.cancel_subscriptions_for_membership_loss,
         ) as cancel,
     ):
         with django_capture_on_commit_callbacks(execute=False) as callbacks:
