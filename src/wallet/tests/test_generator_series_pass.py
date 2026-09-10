@@ -9,7 +9,6 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
-from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
@@ -18,81 +17,11 @@ from events.models import (
     HeldSeriesPass,
     Organization,
     SeriesPass,
-    SeriesPassTierLink,
-    TicketTier,
 )
 from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD, ApplePassGenerator
+from wallet.tests.conftest import make_covered_event
 
 pytestmark = pytest.mark.django_db
-
-
-# --- Fixtures ---
-
-
-@pytest.fixture
-def event_series(organization: Organization) -> EventSeries:
-    """Event series for wallet series pass tests."""
-    return EventSeries.objects.create(organization=organization, name="Wallet Series", slug="wallet-series")
-
-
-@pytest.fixture
-def series_pass(event_series: EventSeries) -> SeriesPass:
-    """Series pass product for wallet tests."""
-    return SeriesPass.objects.create(
-        event_series=event_series,
-        name="Wallet Season Pass",
-        price=Decimal("60.00"),
-        pro_rata_discount=Decimal("10.00"),
-        currency="EUR",
-        payment_method=TicketTier.PaymentMethod.FREE,
-    )
-
-
-def _covered_event(
-    organization: Organization,
-    event_series: EventSeries,
-    series_pass: SeriesPass,
-    name: str,
-    slug: str,
-    start_delta: timedelta,
-) -> Event:
-    """Create an OPEN covered event with a linked tier."""
-    now = timezone.now()
-    covered = Event.objects.create(
-        organization=organization,
-        event_series=event_series,
-        name=name,
-        slug=slug,
-        start=now + start_delta,
-        end=now + start_delta + timedelta(hours=2),
-        requires_ticket=True,
-        status=Event.EventStatus.OPEN,
-    )
-    tier = TicketTier.objects.create(
-        event=covered, name=f"{name} Tier", price=10, currency="EUR", payment_method=TicketTier.PaymentMethod.FREE
-    )
-    SeriesPassTierLink.objects.create(series_pass=series_pass, event=covered, tier=tier)
-    return covered
-
-
-@pytest.fixture
-def covered_events(organization: Organization, event_series: EventSeries, series_pass: SeriesPass) -> list[Event]:
-    """Two future covered events (7 and 14 days out)."""
-    return [
-        _covered_event(organization, event_series, series_pass, "Covered One", "covered-one", timedelta(days=7)),
-        _covered_event(organization, event_series, series_pass, "Covered Two", "covered-two", timedelta(days=14)),
-    ]
-
-
-@pytest.fixture
-def held_pass(series_pass: SeriesPass, member_user: RevelUser, covered_events: list[Event]) -> HeldSeriesPass:
-    """An active held series pass covering two future events."""
-    return HeldSeriesPass.objects.create(
-        series_pass=series_pass,
-        user=member_user,
-        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
-        price_paid=Decimal("50.00"),
-    )
 
 
 class TestBuildSeriesPassData:
@@ -131,8 +60,10 @@ class TestBuildSeriesPassData:
         mock_signer: MagicMock,
     ) -> None:
         """Should skip already-ended events when picking the representative event."""
-        past = _covered_event(organization, event_series, series_pass, "Past Show", "past-show", timedelta(days=-7))
-        upcoming = _covered_event(organization, event_series, series_pass, "Next Show", "next-show", timedelta(days=3))
+        past = make_covered_event(organization, event_series, series_pass, "Past Show", "past-show", timedelta(days=-7))
+        upcoming = make_covered_event(
+            organization, event_series, series_pass, "Next Show", "next-show", timedelta(days=3)
+        )
         held = HeldSeriesPass.objects.create(
             series_pass=series_pass,
             user=member_user,
@@ -155,8 +86,8 @@ class TestBuildSeriesPassData:
         mock_signer: MagicMock,
     ) -> None:
         """Should fall back to the most recent past event once the series is over."""
-        _covered_event(organization, event_series, series_pass, "Old One", "old-one", timedelta(days=-14))
-        latest = _covered_event(organization, event_series, series_pass, "Old Two", "old-two", timedelta(days=-7))
+        make_covered_event(organization, event_series, series_pass, "Old One", "old-one", timedelta(days=-14))
+        latest = make_covered_event(organization, event_series, series_pass, "Old Two", "old-two", timedelta(days=-7))
         held = HeldSeriesPass.objects.create(
             series_pass=series_pass,
             user=member_user,

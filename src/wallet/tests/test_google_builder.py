@@ -6,7 +6,6 @@ from decimal import Decimal
 
 import pytest
 from django.core.files.base import ContentFile
-from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
@@ -15,15 +14,11 @@ from events.models import (
     HeldSeriesPass,
     Organization,
     SeriesPass,
-    SeriesPassTierLink,
     Ticket,
-    TicketTier,
-    Venue,
-    VenueSeat,
-    VenueSector,
 )
 from wallet.apple.formatting import get_theme_hex_background
 from wallet.google.builder import build_ticket_payload
+from wallet.tests.conftest import make_covered_event
 
 pytestmark = pytest.mark.django_db
 
@@ -74,52 +69,6 @@ def test_ticket_payload_address_only_event(google_wallet_configured_settings: No
     cls = payload["eventTicketClasses"][0]
     assert cls["venue"]["name"]["defaultValue"]["value"] == "123 Test Street"
     assert cls["venue"]["address"]["defaultValue"]["value"] == "123 Test Street"
-
-
-@pytest.fixture
-def seated_venue(organization: Organization) -> Venue:
-    """A venue with an address, for testing venue/sector/seat resolution."""
-    return Venue.objects.create(organization=organization, name="Teatro Grande", address="1 Teatro Street")
-
-
-@pytest.fixture
-def seated_sector(seated_venue: Venue) -> VenueSector:
-    """The sector the seated tier sells."""
-    return VenueSector.objects.create(venue=seated_venue, name="Platea")
-
-
-@pytest.fixture
-def seated_seat(seated_sector: VenueSector) -> VenueSeat:
-    """A materialized seat in the sector."""
-    return VenueSeat.objects.create(sector=seated_sector, label="A-7", row_label="A", number=7)
-
-
-@pytest.fixture
-def seated_tier(event: Event, seated_venue: Venue, seated_sector: VenueSector) -> TicketTier:
-    """A tier wired to the venue/sector, for user-choice seat assignment."""
-    return TicketTier.objects.create(
-        event=event,
-        name="Platea Tier",
-        price=Decimal("10.00"),
-        currency="EUR",
-        payment_method=TicketTier.PaymentMethod.OFFLINE,
-        venue=seated_venue,
-        sector=seated_sector,
-        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
-    )
-
-
-@pytest.fixture
-def seated_ticket(event: Event, member_user: RevelUser, seated_tier: TicketTier, seated_seat: VenueSeat) -> Ticket:
-    """A ticket for the seated tier, with a materialized seat assigned."""
-    return Ticket.objects.create(
-        event=event,
-        user=member_user,
-        tier=seated_tier,
-        seat=seated_seat,
-        status=Ticket.TicketStatus.ACTIVE,
-        guest_name=member_user.get_display_name(),
-    )
 
 
 def test_ticket_payload_venue_sector_seat(google_wallet_configured_settings: None, seated_ticket: Ticket) -> None:
@@ -187,122 +136,38 @@ def test_ticket_payload_valid_time_interval(google_wallet_configured_settings: N
     assert end.startswith(expected_year)
 
 
-# --- Series pass fixtures (minimal setup replicated from
-# wallet/tests/test_generator_series_pass.py; not imported since that file's
-# fixtures aren't shared via a conftest) ---
-
-
-@pytest.fixture
-def google_event_series(organization: Organization) -> EventSeries:
-    """Event series for the Google Wallet series-pass test."""
-    return EventSeries.objects.create(organization=organization, name="Google Wallet Series", slug="gwallet-series")
-
-
-@pytest.fixture
-def google_series_pass(google_event_series: EventSeries) -> SeriesPass:
-    """Series pass product for the Google Wallet series-pass test."""
-    return SeriesPass.objects.create(
-        event_series=google_event_series,
-        name="Google Wallet Season Pass",
-        price=Decimal("60.00"),
-        pro_rata_discount=Decimal("10.00"),
-        currency="EUR",
-        payment_method=TicketTier.PaymentMethod.FREE,
-    )
-
-
-def _covered_event(
-    organization: Organization,
-    event_series: EventSeries,
-    series_pass: SeriesPass,
-    name: str,
-    slug: str,
-    start_delta: timedelta,
-) -> Event:
-    """Create an OPEN covered event with a linked tier."""
-    now = timezone.now()
-    covered = Event.objects.create(
-        organization=organization,
-        event_series=event_series,
-        name=name,
-        slug=slug,
-        start=now + start_delta,
-        end=now + start_delta + timedelta(hours=2),
-        requires_ticket=True,
-        status=Event.EventStatus.OPEN,
-    )
-    tier = TicketTier.objects.create(
-        event=covered, name=f"{name} Tier", price=10, currency="EUR", payment_method=TicketTier.PaymentMethod.FREE
-    )
-    SeriesPassTierLink.objects.create(series_pass=series_pass, event=covered, tier=tier)
-    return covered
-
-
-@pytest.fixture
-def google_covered_events(
-    organization: Organization, google_event_series: EventSeries, google_series_pass: SeriesPass
-) -> list[Event]:
-    """Two future covered events (7 and 14 days out)."""
-    return [
-        _covered_event(
-            organization, google_event_series, google_series_pass, "GW Covered One", "gw-covered-one", timedelta(days=7)
-        ),
-        _covered_event(
-            organization,
-            google_event_series,
-            google_series_pass,
-            "GW Covered Two",
-            "gw-covered-two",
-            timedelta(days=14),
-        ),
-    ]
-
-
-@pytest.fixture
-def held_series_pass(
-    google_series_pass: SeriesPass, member_user: RevelUser, google_covered_events: list[Event]
-) -> HeldSeriesPass:
-    """An active held series pass covering two future events."""
-    return HeldSeriesPass.objects.create(
-        series_pass=google_series_pass,
-        user=member_user,
-        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
-        price_paid=Decimal("50.00"),
-    )
-
-
 def test_series_pass_payload(
-    google_wallet_configured_settings: None, held_series_pass: t.Any, google_covered_events: list[Event]
+    google_wallet_configured_settings: None, held_pass: t.Any, covered_events: list[Event]
 ) -> None:
     from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD
     from wallet.google.builder import build_series_pass_payload
 
-    payload = build_series_pass_payload(held_series_pass)
+    payload = build_series_pass_payload(held_pass)
     cls = payload["eventTicketClasses"][0]
     obj = payload["eventTicketObjects"][0]
 
-    series_pass = held_series_pass.series_pass
+    series_pass = held_pass.series_pass
     assert cls["id"] == f"3388000000012345678.test.series.{series_pass.id}"
     assert cls["eventName"]["defaultValue"]["value"] == series_pass.name
-    assert obj["id"] == f"3388000000012345678.test.pass.{held_series_pass.id}"
-    assert obj["barcode"] == {"type": "QR_CODE", "value": held_series_pass.qr_payload}
+    assert obj["id"] == f"3388000000012345678.test.pass.{held_pass.id}"
+    assert obj["barcode"] == {"type": "QR_CODE", "value": held_pass.qr_payload}
     assert obj["ticketType"]["defaultValue"]["value"] == "Series Pass"
 
     # Latest-ending covered event (the 14-days-out one) plus the grace period.
-    latest_end = max(event.end for event in google_covered_events)
+    latest_end = max(event.end for event in covered_events)
     end = obj["validTimeInterval"]["end"]["date"]
     assert end.startswith(str((latest_end + PASS_EXPIRATION_GRACE_PERIOD).year))
 
     price_modules = [m for m in obj["textModulesData"] if m["id"] == "price"]
     assert len(price_modules) == 1
-    assert price_modules[0]["body"] == "EUR 50.00"  # held_series_pass fixture price_paid
+    assert price_modules[0]["body"] == "EUR 50.00"  # held_pass fixture price_paid
 
 
 def test_series_pass_falls_back_to_latest_past_event(
     google_wallet_configured_settings: None,
     organization: Organization,
-    google_event_series: EventSeries,
-    google_series_pass: SeriesPass,
+    event_series: EventSeries,
+    series_pass: SeriesPass,
     member_user: RevelUser,
 ) -> None:
     """Once every covered event has ended, the representative is the latest-starting past one."""
@@ -310,14 +175,10 @@ def test_series_pass_falls_back_to_latest_past_event(
     from wallet.apple.formatting import format_iso_date
     from wallet.google.builder import build_series_pass_payload
 
-    _covered_event(
-        organization, google_event_series, google_series_pass, "GW Old One", "gw-old-one", timedelta(days=-14)
-    )
-    latest = _covered_event(
-        organization, google_event_series, google_series_pass, "GW Old Two", "gw-old-two", timedelta(days=-7)
-    )
+    make_covered_event(organization, event_series, series_pass, "GW Old One", "gw-old-one", timedelta(days=-14))
+    latest = make_covered_event(organization, event_series, series_pass, "GW Old Two", "gw-old-two", timedelta(days=-7))
     held = HeldSeriesPass.objects.create(
-        series_pass=google_series_pass,
+        series_pass=series_pass,
         user=member_user,
         status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         price_paid=Decimal("30"),
@@ -334,14 +195,14 @@ def test_series_pass_falls_back_to_latest_past_event(
 
 def test_series_pass_no_covered_events_falls_back_to_created_at(
     google_wallet_configured_settings: None,
-    google_series_pass: SeriesPass,
+    series_pass: SeriesPass,
     member_user: RevelUser,
 ) -> None:
     """Defensive: a pass with no tier links still builds a valid payload from held_pass.created_at."""
     from wallet.google.builder import build_series_pass_payload
 
     held = HeldSeriesPass.objects.create(
-        series_pass=google_series_pass,
+        series_pass=series_pass,
         user=member_user,
         status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         price_paid=Decimal("0"),
@@ -357,12 +218,12 @@ def test_series_pass_no_covered_events_falls_back_to_created_at(
 def test_payload_objects_carry_powered_by_link(
     google_wallet_configured_settings: None,
     ticket: Ticket,
-    held_series_pass: t.Any,
-    google_covered_events: list[Event],
+    held_pass: t.Any,
+    covered_events: list[Event],
 ) -> None:
     """Ticket and series-pass objects carry the platform attribution link (mirrors the Apple back field)."""
     from wallet.google.builder import build_series_pass_payload
 
     expected = {"uris": [{"id": "powered_by", "uri": "https://letsrevel.io", "description": "Powered by Revel"}]}
     assert build_ticket_payload(ticket)["eventTicketObjects"][0]["linksModuleData"] == expected
-    assert build_series_pass_payload(held_series_pass)["eventTicketObjects"][0]["linksModuleData"] == expected
+    assert build_series_pass_payload(held_pass)["eventTicketObjects"][0]["linksModuleData"] == expected

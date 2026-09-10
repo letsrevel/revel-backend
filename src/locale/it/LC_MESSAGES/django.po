@@ -19,6 +19,27 @@ msgstr ""
 msgid "Impersonate"
 msgstr "Impersona"
 
+msgid "Impersonation Details"
+msgstr "Dettagli impersonificazione"
+
+msgid "Request Information"
+msgstr "Informazioni sulla richiesta"
+
+msgid "Admin"
+msgstr "Amministratore"
+
+msgid "Target User"
+msgstr "Utente target"
+
+msgid "Status"
+msgstr "Stato"
+
+msgid "Redeemed"
+msgstr "Riscattato"
+
+msgid "Pending"
+msgstr "In sospeso"
+
 msgid "Requeue failed payouts"
 msgstr "Rimetti in coda i pagamenti falliti"
 
@@ -78,27 +99,6 @@ msgstr[1] "%d utenti saltati (staff/superuser o già bloccati)."
 
 msgid "Impersonate User"
 msgstr "Impersona utente"
-
-msgid "Impersonation Details"
-msgstr "Dettagli impersonificazione"
-
-msgid "Request Information"
-msgstr "Informazioni sulla richiesta"
-
-msgid "Admin"
-msgstr "Amministratore"
-
-msgid "Target User"
-msgstr "Utente target"
-
-msgid "Status"
-msgstr "Stato"
-
-msgid "Redeemed"
-msgstr "Riscattato"
-
-msgid "Pending"
-msgstr "In sospeso"
 
 msgid "organization owner"
 msgstr "proprietario dell'organizzazione"
@@ -1108,6 +1108,16 @@ msgstr ""
 "I rimborsi dei biglietti per questo evento sono già iniziati; non è più "
 "possibile annullare la cancellazione."
 
+msgid "An account with this email already exists. Please log in."
+msgstr "Esiste già un account con questa email. Effettua l'accesso."
+
+msgid ""
+"Your cart is too large for guest checkout. Please log in or split your "
+"purchase."
+msgstr ""
+"Il tuo carrello è troppo grande per il checkout come ospite. Accedi oppure "
+"dividi il tuo acquisto."
+
 msgid "Draft"
 msgstr "Bozza"
 
@@ -1909,9 +1919,6 @@ msgstr "Hai già inviato un feedback per questo evento."
 msgid "Feedback questionnaires cannot be evaluated."
 msgstr "I questionari di feedback non possono essere valutati."
 
-msgid "An account with this email already exists. Please log in."
-msgstr "Esiste già un account con questa email. Effettua l'accesso."
-
 msgid "Invalid token."
 msgstr "Token non valido."
 
@@ -1926,13 +1933,6 @@ msgstr "Controlla la tua email per confermare la tua partecipazione"
 
 msgid "This event requires login to purchase tickets."
 msgstr "Questo evento richiede l'accesso per acquistare i biglietti."
-
-msgid ""
-"Your cart is too large for guest checkout. Please log in or split your "
-"purchase."
-msgstr ""
-"Il tuo carrello è troppo grande per il checkout come ospite. Accedi oppure "
-"dividi il tuo acquisto."
 
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Controlla la tua email per confermare l'acquisto del biglietto"
@@ -5469,3 +5469,9 @@ msgstr "Account Telegram bloccato collegato"
 
 msgid "Django site admin"
 msgstr "Amministrazione del sito Django"
+
+msgid ""
+"Wallet pass generation is temporarily unavailable. Please try again later."
+msgstr ""
+"La generazione del pass per il Wallet non è temporaneamente disponibile. Per "
+"favore riprova più tardi."

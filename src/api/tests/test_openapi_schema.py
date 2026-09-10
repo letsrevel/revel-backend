@@ -230,6 +230,31 @@ def test_guest_endpoints_declare_the_coded_error_shape() -> None:
         assert declared[(path, "post")] == {"EventUserEligibility", "ErrorDetail", "GuestActionErrorSchema"}, path
 
 
+def test_wallet_endpoints_declare_both_503_shapes() -> None:
+    """Wallet 503s come in two flavours and the client must narrow on ``code``.
+
+    "Wallet is not configured" is a bare ``HttpError`` (``ErrorDetail``); a
+    signer/generator failure is rendered by ``wallet/exception_handlers.py`` with
+    a ``code`` (``WalletPassErrorSchema``). Both are declared so the generated
+    client sees the union instead of an untyped 503.
+    """
+    declared = {
+        (path, method): names
+        for (path, method, _status), names in _declared_error_schemas(lambda s: s == "503").items()
+    }
+    for path in (
+        "/api/tickets/{ticket_id}/wallet/apple",
+        "/api/tickets/{ticket_id}/wallet/google",
+        "/api/tickets/{ticket_id}/wallet/apple/signed",
+        "/api/me/organizations/{slug}/membership/wallet/apple",
+        "/api/me/organizations/{slug}/membership/wallet/google",
+        "/api/memberships/{member_id}/wallet/apple/signed",
+        "/api/series-passes/me/{held_pass_id}/pkpass",
+        "/api/series-passes/me/{held_pass_id}/wallet/google",
+    ):
+        assert declared[(path, "get")] == {"WalletPassErrorSchema", "ErrorDetail"}, path
+
+
 def _operations() -> dict[tuple[str, str], dict[str, t.Any]]:
     """Map each ``(path, method)`` to its raw OpenAPI operation object."""
     api._schema_cache = {}

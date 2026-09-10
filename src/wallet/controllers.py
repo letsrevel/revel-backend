@@ -19,7 +19,7 @@ from events.service import ticket_file_service
 from events.service.ticket_file_service import get_apple_pass_generator
 from events.utils import create_membership_pdf
 from wallet.google import service as google_wallet_service
-from wallet.schema import GoogleWalletSaveUrlSchema
+from wallet.schema import GoogleWalletSaveUrlSchema, WalletPassErrorSchema
 
 
 @api_controller("/tickets", tags=["Tickets - Wallet"], auth=I18nJWTAuth())
@@ -38,7 +38,7 @@ class TicketWalletController(UserAwareController):
         url_name="ticket_apple_wallet_pass",
         summary="Download Apple Wallet pass",
         description="Generate and download an Apple Wallet pass (.pkpass) for a ticket.",
-        response={200: None, 404: None, 503: None},
+        response={200: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
     )
     def download_apple_pass(self, ticket_id: UUID) -> HttpResponse:
         """Download an Apple Wallet pass for a ticket.
@@ -68,7 +68,7 @@ class TicketWalletController(UserAwareController):
         description="Redirects to a signed 'save to Google Wallet' link for a ticket. "
         "Pass ?format=json to receive the link as JSON instead — browser clients cannot "
         "follow the cross-origin redirect.",
-        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: None},
+        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
     )
     def google_wallet_save_link(
         self,
@@ -96,7 +96,7 @@ class TicketWalletController(UserAwareController):
         summary="Download Apple Wallet pass via signed link",
         description="Auth-free pkpass download guarded by an HMAC signature and expiry; "
         "used by the Add to Apple Wallet badge in ticket emails.",
-        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: None},
+        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: WalletPassErrorSchema | ErrorDetail},
         auth=None,
     )
     def download_apple_pass_signed(
@@ -192,7 +192,7 @@ class MembershipWalletController(UserAwareController):
         "/wallet/apple",
         url_name="me_membership_apple_wallet_pass",
         summary="Download Apple Wallet membership card",
-        response={200: None, 404: None, 503: None},
+        response={200: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
     )
     def download_apple_pass(self, slug: str) -> HttpResponse:
         """Generate and download the caller's membership card (.pkpass)."""
@@ -209,7 +209,7 @@ class MembershipWalletController(UserAwareController):
         "/wallet/google",
         url_name="me_membership_google_wallet_pass",
         summary="Add membership card to Google Wallet",
-        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: None},
+        response={200: GoogleWalletSaveUrlSchema, 302: None, 404: None, 503: WalletPassErrorSchema | ErrorDetail},
     )
     def google_wallet_save_link(
         self,
@@ -253,7 +253,7 @@ class MembershipWalletSignedController(UserAwareController):
         summary="Download Apple Wallet membership card via signed link",
         description="Auth-free pkpass download guarded by an HMAC signature and expiry; "
         "used by the Add to Apple Wallet badge in membership emails.",
-        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: None},
+        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: WalletPassErrorSchema | ErrorDetail},
         auth=None,
     )
     def download_apple_pass_signed(

@@ -14,13 +14,13 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.urls import reverse
-from django.utils import timezone
 
 from events.models import Event, HeldSeriesPass, Organization, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import format_iso_date, format_price, get_theme_hex_background
 from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD, POWERED_BY_URL
 from wallet.pricing import resolve_ticket_price
+from wallet.resolution import resolve_series_window, resolve_ticket_location
 
 
 def _pass_id(kind: str, entity_id: t.Any) -> str:
@@ -111,8 +111,10 @@ def _build_class(
 def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
     """Build the fat-JWT payload for a ticket.
 
-    Field resolution (venue, sector, seat, price) mirrors
-    ``ApplePassGenerator._build_pass_data`` so both rails show the same data.
+    Venue, sector and seat come from :func:`wallet.resolution.resolve_ticket_location`
+    and the price from :func:`wallet.pricing.resolve_ticket_price` — the same
+    helpers ``ApplePassGenerator._build_pass_data`` uses, so both rails show the
+    same data (pinned by ``wallet/tests/test_cross_rail_parity.py``).
 
     Args:
         ticket: The ticket to build a payload for.
@@ -124,23 +126,7 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
     org = event.organization
     tz = get_event_timezone(event)
 
-    venue = None
-    if ticket.tier.venue:
-        venue = ticket.tier.venue
-    elif ticket.venue:
-        venue = ticket.venue
-    elif event.venue:
-        venue = event.venue
-    venue_name = venue.name if venue else None
-    address = (venue.full_address() if venue else None) or event.address or None
-
-    sector = None
-    if ticket.tier.sector:
-        sector = ticket.tier.sector
-    elif ticket.sector:
-        sector = ticket.sector
-    seat_label = ticket.seat.label if ticket.seat else None
-
+    location = resolve_ticket_location(ticket)
     price, currency = resolve_ticket_price(ticket)
 
     cls = _build_class(
@@ -150,8 +136,8 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
         start=event.start,
         end=event.end,
         tz=tz,
-        venue_name=venue_name,
-        address=address,
+        venue_name=location.venue_name,
+        address=location.address,
         logo_url=_org_logo_url(org),
         hero_url=_event_cover_url(event),
     )
@@ -169,10 +155,10 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
     if ticket.guest_name:
         obj["ticketHolderName"] = ticket.guest_name
     seat_info: dict[str, t.Any] = {}
-    if sector:
-        seat_info["section"] = _localized(sector.name)
-    if seat_label:
-        seat_info["seat"] = _localized(seat_label)
+    if location.sector:
+        seat_info["section"] = _localized(location.sector.name)
+    if location.seat_label:
+        seat_info["seat"] = _localized(location.seat_label)
     if seat_info:
         obj["seatInfo"] = seat_info
 
@@ -182,10 +168,12 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
 def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
     """Build the fat-JWT payload for a held series pass.
 
-    Event-shaped fields are derived from the covered events as a whole,
-    mirroring ``ApplePassGenerator._build_series_pass_data``: the soonest
-    upcoming covered event is the representative (falling back to the most
-    recent past one), and the pass stays valid until the latest covered end.
+    Event-shaped fields are derived from the covered events as a whole by
+    :func:`wallet.resolution.resolve_series_window`, shared with
+    ``ApplePassGenerator._build_series_pass_data``: the soonest upcoming covered
+    event is the representative (falling back to the most recent past one), and
+    the pass stays valid until the latest covered end. Only the hero image is
+    rail-specific (Google fetches a URL, Apple embeds bytes).
 
     Args:
         held_pass: The held series pass to build a payload for.
@@ -194,39 +182,20 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
         ``{"eventTicketClasses": [...], "eventTicketObjects": [...]}``
     """
     series_pass = held_pass.series_pass
-    event_series = series_pass.event_series
-    org = event_series.organization
+    org = series_pass.event_series.organization
 
-    events = [link.event for link in series_pass.tier_links.select_related("event").all()]
-    now = timezone.now()
-    upcoming = sorted((event for event in events if event.end >= now), key=lambda event: event.start)
-    representative = upcoming[0] if upcoming else (max(events, key=lambda event: event.start, default=None))
-
-    if representative is not None:
-        venue = representative.venue
-        venue_name = venue.name if venue else None
-        address = (venue.full_address() if venue else None) or representative.address or None
-        tz = get_event_timezone(representative)
-        event_start = representative.start
-        hero_url = _event_cover_url(representative)
-    else:
-        venue_name = None
-        address = None
-        tz = get_organization_timezone(org)
-        event_start = held_pass.created_at
-        hero_url = None
-
-    event_end = max((event.end for event in events), default=event_start)
+    window = resolve_series_window(held_pass)
+    hero_url = _event_cover_url(window.representative_event) if window.representative_event else None
 
     cls = _build_class(
         class_id=_pass_id("series", series_pass.id),
         issuer_name=org.name,
         event_name=series_pass.name,
-        start=event_start,
-        end=event_end,
-        tz=tz,
-        venue_name=venue_name,
-        address=address,
+        start=window.start,
+        end=window.end,
+        tz=window.tz,
+        venue_name=window.venue_name,
+        address=window.address,
         logo_url=_org_logo_url(org),
         hero_url=hero_url,
     )
@@ -237,7 +206,9 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
         "state": "ACTIVE",
         "barcode": {"type": "QR_CODE", "value": held_pass.qr_payload},
         "ticketType": _localized("Series Pass"),
-        "validTimeInterval": {"end": {"date": format_iso_date(event_end + PASS_EXPIRATION_GRACE_PERIOD, tz=tz)}},
+        "validTimeInterval": {
+            "end": {"date": format_iso_date(window.end + PASS_EXPIRATION_GRACE_PERIOD, tz=window.tz)}
+        },
         "textModulesData": [
             {"id": "price", "header": "Price", "body": format_price(held_pass.price_paid, series_pass.currency)}
         ],
