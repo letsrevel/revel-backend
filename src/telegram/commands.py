@@ -5,7 +5,6 @@ from aiogram.types import BotCommand, BotCommandScopeDefault
 DEFAULT_COMMANDS = [
     BotCommand(command="start", description="Start the bot / Show welcome message"),
     BotCommand(command="connect", description="🔗 Link your Revel account"),
-    BotCommand(command="preferences", description="⚙️ Manage your preferences"),
     BotCommand(command="unsubscribe", description="🔕 Turn off all Telegram notifications"),
     BotCommand(command="cancel", description="🔙 Cancel the current action"),
     # Add other commands like /help if you implement them

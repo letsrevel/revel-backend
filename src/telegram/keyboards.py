@@ -1,8 +1,8 @@
 # src/telegram/keyboards.py
 
 
-from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -11,37 +11,9 @@ from events.service.event_manager import EventUserEligibility, NextStep
 
 # --- Reply Keyboards ---
 
-
-def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Get main menu keyboard."""
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text="📚 Request New Story"))
-    builder.row(KeyboardButton(text="⚙️ My Preferences"))
-    # builder.row(KeyboardButton(text="📖 My Stories")) # Future feature
-    return builder.as_markup(resize_keyboard=True)
-
-
-def get_confirmation_keyboard() -> ReplyKeyboardMarkup:
-    """Get confirmation keyboard."""
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text="✅ Yes"), KeyboardButton(text="❌ No"))
-    builder.row(KeyboardButton(text="🔙 Cancel"))
-    return builder.as_markup(resize_keyboard=True, one_time_keyboard=True)
-
-
 remove_keyboard = ReplyKeyboardRemove()  # Convenience object
 
 # --- Inline Keyboards ---
-
-
-def get_confirm_save_preference_keyboard() -> InlineKeyboardMarkup:
-    """Creates an inline keyboard for confirming preference save/discard."""
-    builder = InlineKeyboardBuilder()
-    # Use distinct callback data for confirmation
-    builder.button(text="✅ Yes, Save", callback_data="pref_save_confirm")
-    builder.button(text="❌ No, Discard", callback_data="pref_save_cancel")
-    builder.adjust(2)
-    return builder.as_markup()
 
 
 def get_broadcast_confirmation_keyboard() -> InlineKeyboardMarkup:  # NEW

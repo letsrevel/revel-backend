@@ -71,7 +71,7 @@ Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 | **State management** | Minimal FSM via aiogram (broadcast flow) |
 | **Authentication** | Telegram user ID mapped to Revel accounts via `TelegramUser` model |
 | **Notifications** | Delivered via Celery tasks for async processing |
-| **Commands** | `/start`, `/connect`, `/preferences`, `/cancel`, `/unsubscribe` (plus hidden handlers: `/toc`, `/privacy`) |
+| **Commands** | `/start`, `/connect`, `/cancel`, `/unsubscribe` (plus hidden handlers: `/toc`, `/privacy`) |
 | **Management command** | `python src/manage.py run_telegram_bot` (or `make run-telegram`) |
 
 ### Bot Commands
@@ -80,7 +80,6 @@ Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 |---|---|
 | `/start` | Welcome message, shows linked status |
 | `/connect` | Link Telegram account to Revel via OTP |
-| `/preferences` | Manage notification preferences *(not yet implemented — the command, router, and FSM scaffolding are registered but the handler is empty, so the command currently no-ops)* |
 | `/cancel` | Cancel current FSM conversation |
 | `/toc` | Terms and conditions |
 | `/privacy` | Privacy policy |
@@ -92,9 +91,13 @@ Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 |---|---|---|
 | `FEATURE_TELEGRAM` | `True` (on) | Master switch for the integration. When off, the OTP-linking endpoints (`/telegram/connect`, `/disconnect`, `/status`, `/botname`) return **404** and the notification dispatcher strips the Telegram channel platform-wide, so **no Telegram notifications are sent**. Key self-hosting toggle for instances running without a bot. |
 | `TELEGRAM_BOT_TOKEN` | `0000000000:AABBCCDD` (placeholder) | Bot token from [@BotFather](https://t.me/BotFather) |
-| `TELEGRAM_SUPERUSER_IDS` | `""` | Comma-separated Telegram user IDs with superuser access |
-| `TELEGRAM_STAFF_IDS` | `""` | Comma-separated Telegram user IDs with staff access |
 | `TELEGRAM_OTP_EXPIRATION_MINUTES` | `15` | How long an OTP code is valid for account linking |
+| `AIOGRAM_REDIS_DB` | `1` | Redis database index used for aiogram FSM state |
+| `AIOGRAM_FSM_TTL_SECONDS` | `86400` (24h) | TTL on FSM state/data keys. Redis runs with `maxmemory-policy volatile-lru`, which can only evict keys that carry a TTL. A user whose state expires mid-flow simply restarts it. |
+
+Access control is **not** configured via environment variables: broadcast powers come from
+`RevelUser.is_superuser`, and organizer actions from the acting user's `OrganizationStaff`
+permissions on the target organization (see `src/telegram/middleware.py`).
 
 !!! note "Active Development"
     The Telegram bot is an active area of development. Features and conversation flows are being expanded. Refer to the [GitHub issues](https://github.com/letsrevel/revel-backend/issues) for planned work. Check the source code in `src/telegram/` for the most current implementation details.

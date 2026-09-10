@@ -15,7 +15,7 @@ from telegram import commands
 from telegram.middleware import TelegramUserMiddleware
 
 # Import handlers and middlewares
-from telegram.routers import admin, common, events, preferences
+from telegram.routers import admin, common, events
 
 logger = structlog.get_logger(__name__)
 
@@ -38,7 +38,6 @@ def get_dispatcher(storage: RedisStorage | MemoryStorage) -> Dispatcher:
     # --- Routers ---
     # Note: AuthorizationMiddleware is registered at router level to access handler flags
     dp.include_router(common.router)
-    dp.include_router(preferences.router)
     dp.include_router(admin.router)
     dp.include_router(events.router)
 
@@ -56,7 +55,12 @@ def get_storage(storage: t.Literal["memory", "redis"] | None = None) -> RedisSto
 
 def _get_redis_storage() -> RedisStorage:
     redis = Redis.from_url(settings.AIOGRAM_REDIS_URL)
-    return RedisStorage(redis=redis)
+    # TTLs are mandatory: Redis evicts with volatile-lru, which cannot reclaim TTL-less keys.
+    return RedisStorage(
+        redis=redis,
+        state_ttl=settings.AIOGRAM_FSM_TTL_SECONDS,
+        data_ttl=settings.AIOGRAM_FSM_TTL_SECONDS,
+    )
 
 
 def run_bot(bot: Bot, dispatcher: Dispatcher) -> None:
