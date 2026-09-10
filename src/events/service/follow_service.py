@@ -12,8 +12,7 @@ from common.models import SiteSettings
 from events.models import EventSeries, Organization, OrganizationMember
 from events.models.follow import EventSeriesFollow, OrganizationFollow
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_staff_for_notification
-from notifications.signals import notification_requested
+from notifications.service.notification_helpers import notify_org_staff
 
 # Type variable for follow models
 FollowT = t.TypeVar("FollowT", OrganizationFollow, EventSeriesFollow)
@@ -139,23 +138,21 @@ def _send_org_follow_notification(user: RevelUser, organization: Organization) -
     """Send notification to org admins about a new follower."""
 
     def send() -> None:
-        staff_users = get_staff_for_notification(organization.id, NotificationType.ORGANIZATION_FOLLOWED)
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
-        for staff_user in staff_users:
-            notification_requested.send(
-                sender=OrganizationFollow,
-                user=staff_user,
-                notification_type=NotificationType.ORGANIZATION_FOLLOWED,
-                context={
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "follower_id": str(user.id),
-                    "follower_name": user.display_name,
-                    "follower_email": user.email,
-                    "frontend_url": f"{frontend_base_url}/org/{organization.slug}",
-                },
-            )
+        notify_org_staff(
+            organization_id=organization.id,
+            notification_type=NotificationType.ORGANIZATION_FOLLOWED,
+            context={
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "follower_id": str(user.id),
+                "follower_name": user.display_name,
+                "follower_email": user.email,
+                "frontend_url": f"{frontend_base_url}/org/{organization.slug}",
+            },
+            sender=OrganizationFollow,
+        )
 
     transaction.on_commit(send)
 
@@ -270,25 +267,23 @@ def _send_series_follow_notification(user: RevelUser, event_series: EventSeries)
 
     def send() -> None:
         organization = event_series.organization
-        staff_users = get_staff_for_notification(organization.id, NotificationType.EVENT_SERIES_FOLLOWED)
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
-        for staff_user in staff_users:
-            notification_requested.send(
-                sender=EventSeriesFollow,
-                user=staff_user,
-                notification_type=NotificationType.EVENT_SERIES_FOLLOWED,
-                context={
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "event_series_id": str(event_series.id),
-                    "event_series_name": event_series.name,
-                    "follower_id": str(user.id),
-                    "follower_name": user.display_name,
-                    "follower_email": user.email,
-                    "frontend_url": f"{frontend_base_url}/events/{organization.slug}/series/{event_series.slug}",
-                },
-            )
+        notify_org_staff(
+            organization_id=organization.id,
+            notification_type=NotificationType.EVENT_SERIES_FOLLOWED,
+            context={
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "event_series_id": str(event_series.id),
+                "event_series_name": event_series.name,
+                "follower_id": str(user.id),
+                "follower_name": user.display_name,
+                "follower_email": user.email,
+                "frontend_url": f"{frontend_base_url}/events/{organization.slug}/series/{event_series.slug}",
+            },
+            sender=EventSeriesFollow,
+        )
 
     transaction.on_commit(send)
 

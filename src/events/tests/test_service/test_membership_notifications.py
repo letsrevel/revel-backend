@@ -52,7 +52,7 @@ def test_apply_fires_request_created_notification_for_staff(
         ]
     )
 
-    with patch("notifications.signals.membership.notification_requested.send") as mock_send:
+    with patch("notifications.signals.notification_requested.send") as mock_send:
         client = _client(nonmember_user)
         url = reverse("api:apply_for_membership", kwargs={"slug": organization.slug})
         response = client.post(url, data={"tier_id": str(tier.id)}, content_type="application/json")

@@ -157,7 +157,7 @@ class TestEventSeriesFollowEndpoints:
 
             # Act
             url = reverse("api:follow_event_series", kwargs={"series_id": event_series.id})
-            with patch("events.service.follow_service.notification_requested.send"):
+            with patch("notifications.signals.notification_requested.send"):
                 with django_capture_on_commit_callbacks(execute=True):
                     response = client.post(url, data=payload, content_type="application/json")
 
@@ -191,7 +191,7 @@ class TestEventSeriesFollowEndpoints:
 
             # Act
             url = reverse("api:follow_event_series", kwargs={"series_id": event_series.id})
-            with patch("events.service.follow_service.notification_requested.send"):
+            with patch("notifications.signals.notification_requested.send"):
                 response = client.post(url, data=payload, content_type="application/json")
 
             # Assert
