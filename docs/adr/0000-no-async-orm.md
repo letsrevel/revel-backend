@@ -108,5 +108,5 @@ The concurrency strategy remains:
 - This decision should be **revisited** if Django merges async `transaction.atomic`
   support and the project's I/O profile shifts toward more external service calls in the
   request path
-- The `uvicorn` and `uvloop` dependencies can be removed from `pyproject.toml` since
+- The `uvicorn` and `uvloop` dependencies were removed from `pyproject.toml` since
   they are unused
