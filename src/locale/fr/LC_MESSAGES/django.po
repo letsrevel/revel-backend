@@ -19,6 +19,27 @@ msgstr ""
 msgid "Impersonate"
 msgstr "Emprunter l'identité"
 
+msgid "Impersonation Details"
+msgstr "Détails de l'emprunt d'identité"
+
+msgid "Request Information"
+msgstr "Informations sur la demande"
+
+msgid "Admin"
+msgstr "Admin"
+
+msgid "Target User"
+msgstr "Utilisateur·rice cible"
+
+msgid "Status"
+msgstr "Statut"
+
+msgid "Redeemed"
+msgstr "Utilisé"
+
+msgid "Pending"
+msgstr "En attente"
+
 msgid "Requeue failed payouts"
 msgstr "Remettre en file les versements échoués"
 
@@ -85,27 +106,6 @@ msgstr[1] ""
 
 msgid "Impersonate User"
 msgstr "Emprunter l'identité de l'utilisateur·rice"
-
-msgid "Impersonation Details"
-msgstr "Détails de l'emprunt d'identité"
-
-msgid "Request Information"
-msgstr "Informations sur la demande"
-
-msgid "Admin"
-msgstr "Admin"
-
-msgid "Target User"
-msgstr "Utilisateur·rice cible"
-
-msgid "Status"
-msgstr "Statut"
-
-msgid "Redeemed"
-msgstr "Utilisé"
-
-msgid "Pending"
-msgstr "En attente"
 
 msgid "organization owner"
 msgstr "propriétaire de l'organisation"
@@ -1128,6 +1128,16 @@ msgstr ""
 "Les remboursements des billets pour cet événement ont déjà commencé ; il ne "
 "peut plus être décommandé."
 
+msgid "An account with this email already exists. Please log in."
+msgstr "Un compte avec cette adresse e-mail existe déjà. Connecte-toi."
+
+msgid ""
+"Your cart is too large for guest checkout. Please log in or split your "
+"purchase."
+msgstr ""
+"Ton panier est trop volumineux pour l'achat en tant qu'invité. Connecte-toi "
+"ou divise ton achat."
+
 msgid "Draft"
 msgstr "Brouillon"
 
@@ -1941,9 +1951,6 @@ msgstr "Tu as déjà soumis un retour d'expérience pour cet événement."
 msgid "Feedback questionnaires cannot be evaluated."
 msgstr "Les questionnaires de retour d'expérience ne peuvent pas être évalués."
 
-msgid "An account with this email already exists. Please log in."
-msgstr "Un compte avec cette adresse e-mail existe déjà. Connecte-toi."
-
 msgid "Invalid token."
 msgstr "Jeton invalide."
 
@@ -1958,13 +1965,6 @@ msgstr "Consulte tes e-mails pour confirmer ta réponse à l'invitation"
 
 msgid "This event requires login to purchase tickets."
 msgstr "Cet événement nécessite de se connecter pour acheter des tickets."
-
-msgid ""
-"Your cart is too large for guest checkout. Please log in or split your "
-"purchase."
-msgstr ""
-"Ton panier est trop volumineux pour l'achat en tant qu'invité. Connecte-toi "
-"ou divise ton achat."
 
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Consulte tes e-mails pour confirmer ton achat de ticket"
@@ -5496,3 +5496,9 @@ msgstr "Compte Telegram banni connecté"
 
 msgid "Django site admin"
 msgstr "Administration du site Django"
+
+msgid ""
+"Wallet pass generation is temporarily unavailable. Please try again later."
+msgstr ""
+"La génération du pass Wallet est temporairement indisponible. Réessaie plus "
+"tard."
