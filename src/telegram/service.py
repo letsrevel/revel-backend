@@ -32,7 +32,7 @@ def connect_accounts(user: RevelUser, otp: str) -> None:
     """
     # Check if user already has a linked Telegram account
     if TelegramUser.objects.filter(user=user).exists():
-        raise HttpError(400, "Your account is already connected to Telegram.")
+        raise HttpError(400, str(_("Your account is already connected to Telegram.")))
 
     # Find TelegramUser with matching valid OTP
     tg_user = (
@@ -44,7 +44,7 @@ def connect_accounts(user: RevelUser, otp: str) -> None:
     )
 
     if not tg_user:
-        raise HttpError(400, "Invalid or expired OTP code.")
+        raise HttpError(400, str(_("Invalid or expired OTP code.")))
 
     # Check if the Telegram account is globally banned
     if tg_user.telegram_username and is_telegram_globally_banned(tg_user.telegram_username):
@@ -89,7 +89,7 @@ def disconnect_account(user: RevelUser) -> None:
     tg_user = TelegramUser.objects.filter(user=user).first()
 
     if not tg_user:
-        raise HttpError(400, "No Telegram account is linked to your account.")
+        raise HttpError(400, str(_("No Telegram account is linked to your account.")))
 
     # Capture `user` before clearing tg_user.user, since the on_commit lambda
     # will see tg_user.user as None by the time it fires.

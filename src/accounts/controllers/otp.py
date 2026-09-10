@@ -3,6 +3,7 @@
 import pyotp
 import structlog
 from django.conf import settings
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
@@ -39,7 +40,7 @@ class OtpController(UserAwareController):
         """
         user = self.user()
         if user.totp_active:
-            raise HttpError(400, "OTP is already enabled.")
+            raise HttpError(400, str(_("OTP is already enabled.")))
         provisioning_uri = pyotp.totp.TOTP(user.totp_secret).provisioning_uri(
             name=user.email,
             issuer_name=settings.TOTP_ISSUER_NAME,
@@ -61,7 +62,7 @@ class OtpController(UserAwareController):
         user = self.user()
         totp = pyotp.TOTP(user.totp_secret)
         if not totp.verify(payload.otp):
-            raise HttpError(status.HTTP_403_FORBIDDEN, "Invalid OTP")
+            raise HttpError(status.HTTP_403_FORBIDDEN, str(_("Invalid OTP")))
         user.totp_active = True
         user.save()
         return user
@@ -81,7 +82,7 @@ class OtpController(UserAwareController):
         user = self.user()
         totp = pyotp.TOTP(user.totp_secret)
         if not totp.verify(payload.otp):
-            raise HttpError(status.HTTP_403_FORBIDDEN, "Invalid OTP")
+            raise HttpError(status.HTTP_403_FORBIDDEN, str(_("Invalid OTP")))
         user.totp_active = False
         user.save()
         return user

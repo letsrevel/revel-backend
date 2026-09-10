@@ -15,6 +15,8 @@ from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from django.utils.translation import gettext_lazy as _
+
 if t.TYPE_CHECKING:
     from events.models import Event
 
@@ -150,7 +152,7 @@ def resolve_period(
     from events.exceptions import InvalidPeriodError
 
     if month is not None and quarter is not None:
-        raise InvalidPeriodError("Specify either month or quarter, not both.")
+        raise InvalidPeriodError(str(_("Specify either month or quarter, not both.")))
     today = datetime.now(tz).date()
     if year is None and month is None and quarter is None and default_all_time:
         return date.min, today

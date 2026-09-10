@@ -12,6 +12,7 @@ from uuid import UUID
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from common.exception_handlers import format_validation_error
 from events.models.event import Event
@@ -101,7 +102,7 @@ def _resolve_event_or_raise(
     event = Event.objects.filter(pk=event_id, organization=organization).first()
     if event is None:
         raise PollValidationError(
-            f"Unknown event {event_id} or it does not belong to this organization.",
+            str(_("Unknown event {} or it does not belong to this organization.").format(event_id)),
         )
     return event
 
@@ -136,7 +137,7 @@ def _resolve_membership_tiers_or_raise(
         resolved_ids = {tier.id for tier in tiers}
         missing = sorted(str(tid) for tid in unique_ids - resolved_ids)
         raise PollValidationError(
-            f"Unknown or cross-organization membership_tier ids: {', '.join(missing)}",
+            str(_("Unknown or cross-organization membership_tier ids: {}").format(", ".join(missing))),
         )
     return tiers
 
@@ -449,7 +450,7 @@ def open_poll(poll: Poll) -> Poll:
     with transaction.atomic():
         locked = Poll.objects.select_for_update().get(pk=poll.pk)
         if locked.status != Poll.PollStatus.DRAFT:
-            raise PollLifecycleError("Only DRAFT polls can be opened directly. Use reopen for CLOSED polls.")
+            raise PollLifecycleError(str(_("Only DRAFT polls can be opened directly. Use reopen for CLOSED polls.")))
         locked.status = Poll.PollStatus.OPEN
         locked.opened_at = timezone.now()
         locked.save(update_fields=["status", "opened_at", "updated_at"])
@@ -471,7 +472,7 @@ def close_poll(poll: Poll) -> Poll:
     with transaction.atomic():
         locked = Poll.objects.select_for_update().get(pk=poll.pk)
         if locked.status != Poll.PollStatus.OPEN:
-            raise PollLifecycleError("Only OPEN polls can be closed.")
+            raise PollLifecycleError(str(_("Only OPEN polls can be closed.")))
         locked.status = Poll.PollStatus.CLOSED
         locked.closed_at = timezone.now()
         locked.save(update_fields=["status", "closed_at", "updated_at"])
@@ -502,19 +503,21 @@ def reopen_poll(poll: Poll, payload: PollReopenSchema) -> Poll:
     with transaction.atomic():
         locked = Poll.objects.select_for_update().get(pk=poll.pk)
         if locked.status != Poll.PollStatus.CLOSED:
-            raise PollLifecycleError("Only CLOSED polls can be reopened.")
+            raise PollLifecycleError(str(_("Only CLOSED polls can be reopened.")))
 
         if payload.clear_closes_at:
             locked.closes_at = None
         elif payload.closes_at is not None:
             if payload.closes_at <= timezone.now():
-                raise PollLifecycleError("closes_at must be in the future.")
+                raise PollLifecycleError(str(_("closes_at must be in the future.")))
             locked.closes_at = payload.closes_at
         else:
             # Neither override given: the existing closes_at must be a
             # meaningful future deadline.
             if locked.closes_at is None or locked.closes_at <= timezone.now():
-                raise PollLifecycleError("Cannot reopen: provide a future closes_at or set clear_closes_at=True.")
+                raise PollLifecycleError(
+                    str(_("Cannot reopen: provide a future closes_at or set clear_closes_at=True."))
+                )
 
         locked.status = Poll.PollStatus.OPEN
         locked.closed_at = None
@@ -670,12 +673,12 @@ def _write_mc_answer(submission: QuestionnaireSubmission, mc: McAnswerInput) -> 
     try:
         mc_question = MultipleChoiceQuestion.objects.get(id=mc.question_id, questionnaire=submission.questionnaire)
     except MultipleChoiceQuestion.DoesNotExist as exc:
-        raise PollValidationError(f"Unknown multiple-choice question id: {mc.question_id}") from exc
+        raise PollValidationError(str(_("Unknown multiple-choice question id: {}").format(mc.question_id))) from exc
     for opt_id in mc.option_ids:
         try:
             option = MultipleChoiceOption.objects.get(id=opt_id, question=mc_question)
         except MultipleChoiceOption.DoesNotExist as exc:
-            raise PollValidationError(f"Unknown multiple-choice option id: {opt_id}") from exc
+            raise PollValidationError(str(_("Unknown multiple-choice option id: {}").format(opt_id))) from exc
         MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=option)
 
 
@@ -686,7 +689,7 @@ def _write_free_text_answer(submission: QuestionnaireSubmission, ft: FreeTextAns
     try:
         ft_question = FreeTextQuestion.objects.get(id=ft.question_id, questionnaire=submission.questionnaire)
     except FreeTextQuestion.DoesNotExist as exc:
-        raise PollValidationError(f"Unknown free-text question id: {ft.question_id}") from exc
+        raise PollValidationError(str(_("Unknown free-text question id: {}").format(ft.question_id))) from exc
     FreeTextAnswer.objects.create(submission=submission, question=ft_question, answer=ft.answer)
 
 
@@ -697,7 +700,7 @@ def _write_file_upload_answer(submission: QuestionnaireSubmission, fu: FileUploa
     try:
         fu_question = FileUploadQuestion.objects.get(id=fu.question_id, questionnaire=submission.questionnaire)
     except FileUploadQuestion.DoesNotExist as exc:
-        raise PollValidationError(f"Unknown file-upload question id: {fu.question_id}") from exc
+        raise PollValidationError(str(_("Unknown file-upload question id: {}").format(fu.question_id))) from exc
     ans = FileUploadAnswer.objects.create(submission=submission, question=fu_question)
     unique_file_ids = set(fu.file_ids)
     if not unique_file_ids:
@@ -707,6 +710,6 @@ def _write_file_upload_answer(submission: QuestionnaireSubmission, fu: FileUploa
         resolved = {f.id for f in files}
         missing = sorted(str(fid) for fid in unique_file_ids - resolved)
         raise PollValidationError(
-            f"Unknown or other-user file_upload ids: {', '.join(missing)}",
+            str(_("Unknown or other-user file_upload ids: {}").format(", ".join(missing))),
         )
     ans.files.set(files)

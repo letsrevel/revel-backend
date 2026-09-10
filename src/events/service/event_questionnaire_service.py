@@ -441,7 +441,7 @@ def update_organization_questionnaire(
         if not has_free_text:
             has_free_text = any(section.freetextquestion_questions.exists() for section in questionnaire.sections.all())
         if has_free_text:
-            raise HttpError(400, "LLM evaluation is not available.")
+            raise HttpError(400, str(_("LLM evaluation is not available.")))
 
     # Extract questionnaire-specific fields with type conversions
     questionnaire_kwargs = {}

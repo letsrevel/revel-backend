@@ -11,6 +11,7 @@ import structlog
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
@@ -45,16 +46,16 @@ def validate_invoicing_prerequisites(org: Organization) -> None:
     missing: list[str] = []
 
     if not org.vat_country_code or org.vat_country_code not in EU_MEMBER_STATES:
-        missing.append("Organization must be EU-based (valid EU VAT country code required)")
+        missing.append(str(_("Organization must be EU-based (valid EU VAT country code required)")))
 
     if not org.vat_id_validated:
-        missing.append("VAT ID must be validated via VIES")
+        missing.append(str(_("VAT ID must be validated via VIES")))
 
     if not org.billing_name:
-        missing.append("Billing name (legal entity name) is required")
+        missing.append(str(_("Billing name (legal entity name) is required")))
 
     if not org.billing_address:
-        missing.append("Billing address is required")
+        missing.append(str(_("Billing address is required")))
 
     if missing:
         raise HttpError(422, "; ".join(missing))

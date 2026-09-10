@@ -7,6 +7,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -135,12 +136,12 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             models.WaitlistOffer.WaitlistOfferStatus.EXPIRED,
             models.WaitlistOffer.WaitlistOfferStatus.REVOKED,
         }:
-            raise HttpError(404, "Offer not found.")
+            raise HttpError(404, str(_("Offer not found.")))
         payload_expires_at = payload.expires_at if payload else None
         if event.waitlist_time_window is None and payload_expires_at is None:
             raise HttpError(
                 400,
-                "Waitlist time window is not configured for this event. Provide expires_at in the payload.",
+                str(_("Waitlist time window is not configured for this event. Provide expires_at in the payload.")),
             )
         conflict = (
             models.WaitlistOffer.objects.filter(
@@ -152,7 +153,7 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             .exists()
         )
         if conflict:
-            raise HttpError(409, "User already has a pending offer for this event.")
+            raise HttpError(409, str(_("User already has a pending offer for this event.")))
 
         if payload_expires_at is not None:
             expires_at = payload_expires_at
@@ -165,13 +166,13 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             if str(exc) == "capacity":
                 raise HttpError(
                     409,
-                    "Event is at capacity. Revoke an existing pending offer to make room.",
+                    str(_("Event is at capacity. Revoke an existing pending offer to make room.")),
                 ) from exc
             raise
         except IntegrityError as exc:
             # Lost the race: another writer landed a PENDING offer for this
             # (event, user) between the conflict check above and the save.
-            raise HttpError(409, "User already has a pending offer for this event.") from exc
+            raise HttpError(409, str(_("User already has a pending offer for this event."))) from exc
         offer_id_str = str(offer.id)
         transaction.on_commit(lambda: send_waitlist_offer_notification_task.delay(offer_id_str))
         return offer
@@ -203,7 +204,7 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         if event.waitlist_time_window is None and payload.expires_at is None:
             raise HttpError(
                 400,
-                "Waitlist time window is not configured for this event. Provide expires_at in the payload.",
+                str(_("Waitlist time window is not configured for this event. Provide expires_at in the payload.")),
             )
         entry = get_object_or_404(models.EventWaitList, pk=payload.waitlist_entry_id, event=event)
         already_pending = models.WaitlistOffer.objects.filter(
@@ -212,7 +213,7 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
         ).exists()
         if already_pending:
-            raise HttpError(409, "User already has a pending offer for this event.")
+            raise HttpError(409, str(_("User already has a pending offer for this event.")))
 
         if payload.expires_at is not None:
             expires_at = payload.expires_at
@@ -225,13 +226,13 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             if str(exc) == "capacity":
                 raise HttpError(
                     409,
-                    "Event is at capacity. Revoke an existing pending offer to make room.",
+                    str(_("Event is at capacity. Revoke an existing pending offer to make room.")),
                 ) from exc
             raise
         except IntegrityError as exc:
             # Lost the race: another writer (manual create, periodic processor)
             # landed a PENDING offer between the existence check and our create.
-            raise HttpError(409, "User already has a pending offer for this event.") from exc
+            raise HttpError(409, str(_("User already has a pending offer for this event."))) from exc
         offer_id_str = str(offer.id)
         transaction.on_commit(lambda: send_waitlist_offer_notification_task.delay(offer_id_str))
         return 201, offer

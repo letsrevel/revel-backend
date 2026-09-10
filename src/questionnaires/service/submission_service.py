@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
 from questionnaires.models import (
@@ -419,9 +420,9 @@ class SubmissionService:
             uploader=user,
         )
         if files.count() != len(fu_answer_schema.file_ids):
-            raise FileOwnershipError("Some files do not exist or do not belong to you.")
+            raise FileOwnershipError(str(_("Some files do not exist or do not belong to you.")))
         if files.count() > question.max_files:
-            raise FileLimitExceededError(f"Too many files. Maximum allowed: {question.max_files}.")
+            raise FileLimitExceededError(str(_("Too many files. Maximum allowed: {}.").format(question.max_files)))
         # Validate MIME types if restricted
         if question.allowed_mime_types:
             # Build an expanded set that includes equivalent MIME types:
@@ -435,15 +436,28 @@ class SubmissionService:
             for f in files:
                 if f.mime_type not in expanded:
                     raise InvalidFileMimeTypeError(
-                        f"File '{f.original_filename}' has type '{f.mime_type}' which is not allowed. "
-                        f"Allowed types: {', '.join(question.allowed_mime_types)}."
+                        str(
+                            _(
+                                "File '{filename}' has type '{mime_type}' which is not allowed. "
+                                "Allowed types: {allowed_types}."
+                            ).format(
+                                filename=f.original_filename,
+                                mime_type=f.mime_type,
+                                allowed_types=", ".join(question.allowed_mime_types),
+                            )
+                        )
                     )
         # Validate file sizes
         for f in files:
             if f.file_size > question.max_file_size:
                 raise FileSizeExceededError(
-                    f"File '{f.original_filename}' ({f.file_size} bytes) exceeds maximum size "
-                    f"of {question.max_file_size} bytes."
+                    str(
+                        _("File '{filename}' ({size} bytes) exceeds maximum size of {max_size} bytes.").format(
+                            filename=f.original_filename,
+                            size=f.file_size,
+                            max_size=question.max_file_size,
+                        )
+                    )
                 )
         return files
 

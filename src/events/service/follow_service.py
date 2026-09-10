@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import Model, QuerySet
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -116,7 +117,7 @@ def follow_organization(
         HttpError: If the organization is not visible to the user
     """
     if not Organization.objects.for_user(user).filter(pk=organization.pk).exists():
-        raise HttpError(404, "Organization not found")
+        raise HttpError(404, str(_("Organization not found")))
 
     follow = _get_or_reactivate_follow(
         model=OrganizationFollow,
@@ -124,7 +125,7 @@ def follow_organization(
         target_field="organization",
         target=organization,
         defaults={"notify_new_events": notify_new_events, "notify_announcements": notify_announcements},
-        already_following_message="Already following this organization",
+        already_following_message=str(_("Already following this organization")),
     )
 
     # Ensure organization is attached for schema serialization
@@ -172,7 +173,7 @@ def unfollow_organization(user: RevelUser, organization: Organization) -> None:
         user=user,
         target_field="organization",
         target=organization,
-        not_following_message="Not following this organization",
+        not_following_message=str(_("Not following this organization")),
     )
 
 
@@ -205,7 +206,7 @@ def update_organization_follow_preferences(
     try:
         follow = OrganizationFollow.objects.get(user=user, organization=organization, is_archived=False)
     except OrganizationFollow.DoesNotExist:
-        raise HttpError(400, "Not following this organization")
+        raise HttpError(400, str(_("Not following this organization")))
 
     update_fields: list[str] = []
     if notify_new_events is not None:
@@ -244,7 +245,7 @@ def follow_event_series(
         HttpError: If the event series is not visible to the user
     """
     if not EventSeries.objects.for_user(user).filter(pk=event_series.pk).exists():
-        raise HttpError(404, "Event series not found")
+        raise HttpError(404, str(_("Event series not found")))
 
     follow = _get_or_reactivate_follow(
         model=EventSeriesFollow,
@@ -252,7 +253,7 @@ def follow_event_series(
         target_field="event_series",
         target=event_series,
         defaults={"notify_new_events": notify_new_events},
-        already_following_message="Already following this series",
+        already_following_message=str(_("Already following this series")),
     )
 
     # Ensure event_series is attached for schema serialization
@@ -303,7 +304,7 @@ def unfollow_event_series(user: RevelUser, event_series: EventSeries) -> None:
         user=user,
         target_field="event_series",
         target=event_series,
-        not_following_message="Not following this series",
+        not_following_message=str(_("Not following this series")),
     )
 
 
@@ -334,7 +335,7 @@ def update_event_series_follow_preferences(
     try:
         follow = EventSeriesFollow.objects.get(user=user, event_series=event_series, is_archived=False)
     except EventSeriesFollow.DoesNotExist:
-        raise HttpError(400, "Not following this series")
+        raise HttpError(400, str(_("Not following this series")))
 
     if notify_new_events is not None:
         follow.notify_new_events = notify_new_events

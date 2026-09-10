@@ -2,6 +2,7 @@ from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Prefetch
+from django.utils.translation import gettext_lazy as _
 
 from questionnaires.models import (
     FileUploadQuestion,
@@ -143,14 +144,14 @@ class QuestionnaireService:
         """
         # Validate section consistency if both provided
         if payload.section_id and section and payload.section_id != section.id:
-            raise SectionIntegrityError("Section ID in payload does not match the provided section.")
+            raise SectionIntegrityError(str(_("Section ID in payload does not match the provided section.")))
 
         # Resolve section from payload if not provided as parameter
         if payload.section_id and section is None:
             try:
                 section = QuestionnaireSection.objects.get(id=payload.section_id, questionnaire=self.questionnaire)
             except QuestionnaireSection.DoesNotExist:
-                raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
+                raise SectionIntegrityError(str(_("Section does not exist or does not belong to this questionnaire.")))
 
         # Resolve depends_on_option from payload if not provided as parameter
         if depends_on_option is None and payload.depends_on_option_id:
@@ -160,7 +161,7 @@ class QuestionnaireService:
                     question__questionnaire=self.questionnaire,
                 )
             except MultipleChoiceOption.DoesNotExist:
-                raise QuestionIntegrityError("Option does not exist or does not belong to this questionnaire.")
+                raise QuestionIntegrityError(str(_("Option does not exist or does not belong to this questionnaire.")))
 
         return section, depends_on_option
 
@@ -208,7 +209,7 @@ class QuestionnaireService:
                     question__questionnaire=self.questionnaire,
                 )
             except MultipleChoiceOption.DoesNotExist:
-                raise SectionIntegrityError("Option does not exist or does not belong to this questionnaire.")
+                raise SectionIntegrityError(str(_("Option does not exist or does not belong to this questionnaire.")))
 
         section_data = payload.model_dump(
             exclude={
@@ -317,7 +318,7 @@ class QuestionnaireService:
                 section = QuestionnaireSection.objects.get(id=payload.section_id, questionnaire=self.questionnaire)
                 mc_question.section = section
             except QuestionnaireSection.DoesNotExist:
-                raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
+                raise SectionIntegrityError(str(_("Section does not exist or does not belong to this questionnaire.")))
 
         self._validate_depends_on_option_id(payload.depends_on_option_id)
         for key, value in payload.model_dump(exclude={"section_id"}).items():
@@ -335,7 +336,7 @@ class QuestionnaireService:
         use the nested structure in create_mc_question's payload.
         """
         if question.questionnaire_id != self.questionnaire.id:
-            raise QuestionIntegrityError("Question does not belong to this questionnaire.")
+            raise QuestionIntegrityError(str(_("Question does not belong to this questionnaire.")))
         option = MultipleChoiceOption.objects.create(
             question=question,
             option=payload.option,
@@ -391,7 +392,7 @@ class QuestionnaireService:
                 section = QuestionnaireSection.objects.get(id=payload.section_id, questionnaire=self.questionnaire)
                 ft_question.section = section
             except QuestionnaireSection.DoesNotExist:
-                raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
+                raise SectionIntegrityError(str(_("Section does not exist or does not belong to this questionnaire.")))
 
         self._validate_depends_on_option_id(payload.depends_on_option_id)
         for key, value in payload.model_dump(exclude={"section_id"}).items():
@@ -435,7 +436,7 @@ class QuestionnaireService:
                 section = QuestionnaireSection.objects.get(id=payload.section_id, questionnaire=self.questionnaire)
                 fu_question.section = section
             except QuestionnaireSection.DoesNotExist:
-                raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
+                raise SectionIntegrityError(str(_("Section does not exist or does not belong to this questionnaire.")))
 
         self._validate_depends_on_option_id(payload.depends_on_option_id)
         for key, value in payload.model_dump(exclude={"section_id"}).items():

@@ -238,7 +238,7 @@ class SeriesPassController(UserAwareController):
         )
 
         if not apple_wallet_configured():
-            raise HttpError(503, "Apple Wallet is not configured")
+            raise HttpError(503, str(_("Apple Wallet is not configured")))
 
         pkpass_bytes = series_pass_file_service.get_or_generate_pass_pkpass(held_pass)
 
@@ -272,7 +272,7 @@ class SeriesPassController(UserAwareController):
         )
 
         if not google_wallet_configured():
-            raise HttpError(503, "Google Wallet is not configured")
+            raise HttpError(503, str(_("Google Wallet is not configured")))
 
         save_url = google_wallet_service.series_pass_save_url(held_pass)
         if format == "json":

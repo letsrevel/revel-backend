@@ -7,6 +7,7 @@ import jwt
 import structlog
 from django.conf import settings
 from django.db import transaction
+from django.utils.translation import gettext_lazy as _
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from ninja.errors import HttpError
 from ninja_extra.exceptions import AuthenticationFailed
@@ -15,6 +16,10 @@ from ninja_jwt.utils import datetime_from_epoch
 from pydantic import UUID4, BaseModel, ConfigDict, TypeAdapter, field_serializer
 
 logger = structlog.get_logger(__file__)
+
+# Module constant: the raise site in ``consume_one_shot_token`` shadows ``_``
+# with a throwaway unpack target, so the message cannot be marked inline.
+_TOKEN_BLACKLISTED_MESSAGE: str = _("Token is blacklisted.")  # type: ignore[assignment]
 
 
 class _BaseJWTPayload(BaseModel):
@@ -141,7 +146,7 @@ def create_token(payload: dict[str, t.Any], secret: str, algorithm: str) -> str:
 def check_blacklist(jti: str) -> None:
     """Checks if this token is present in the token blacklist.  Raises `HttpError` if so."""
     if BlacklistedToken.objects.filter(token__jti=jti).exists():
-        raise HttpError(401, "Token is blacklisted.")
+        raise HttpError(401, str(_TOKEN_BLACKLISTED_MESSAGE))
 
 
 def blacklist_user_tokens(user: t.Any) -> int:
@@ -192,7 +197,7 @@ def consume_one_shot_token(token: str) -> None:
     _, created = _blacklist(token)
     if not created:
         logger.warning("one_shot_token_already_consumed")
-        raise HttpError(401, "Token is blacklisted.")
+        raise HttpError(401, str(_TOKEN_BLACKLISTED_MESSAGE))
 
 
 @transaction.atomic
