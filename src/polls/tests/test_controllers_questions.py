@@ -117,7 +117,9 @@ def test_create_mc_option(owner_client: Client, draft_poll: Poll) -> None:
         content_type="application/json",
     )
     assert response.status_code == 200, response.content
-    assert MultipleChoiceOption.objects.filter(question_id=question_id, option="c").exists()
+    option = MultipleChoiceOption.objects.get(question_id=question_id, option="c")
+    # The frontend reads ``id`` off this response to wire conditional questions (#956).
+    assert response.json()["id"] == str(option.id)
 
 
 def test_create_ft_question(owner_client: Client, draft_poll: Poll) -> None:

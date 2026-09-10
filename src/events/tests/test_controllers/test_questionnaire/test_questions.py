@@ -214,6 +214,8 @@ def test_create_mc_option_success(organization: Organization, organization_owner
     # Verify option was created
     option = MultipleChoiceOption.objects.get(question=question, option="New Option")
     assert option.is_correct is True
+    # The frontend reads ``id`` off this response to wire conditional questions (#956).
+    assert data["id"] == str(option.id)
 
 
 def test_create_mc_option_cross_questionnaire_404(

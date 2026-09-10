@@ -30,6 +30,7 @@ from events.schema.questionnaire import (
     ScoreStatsSchema,
     StatusBreakdownSchema,
 )
+from events.service.membership_questionnaire_service import approval_is_stale
 from questionnaires.models import (
     MultipleChoiceOption,
     Questionnaire,
@@ -113,6 +114,9 @@ def _validate_admission_resubmission(
 
     # Case 2: Already approved
     if evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED:
+        if approval_is_stale(org_questionnaire, evaluation):
+            # max_submission_age elapsed: the gate asks for a fresh submission again.
+            return
         raise HttpError(400, str(_("Your questionnaire has already been approved.")))
 
     # Case 3: Rejected - check retake eligibility

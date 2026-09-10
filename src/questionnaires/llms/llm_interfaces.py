@@ -12,7 +12,7 @@ class AnswerToEvaluate(BaseModel):
     question_id: UUID = Field(..., description="The unique ID of the question being answered.")
     question_text: str
     answer_text: str
-    guidelines: str
+    guidelines: str | None = None
 
 
 class EvaluationResult(BaseModel):

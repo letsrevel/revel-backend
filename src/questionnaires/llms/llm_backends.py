@@ -155,7 +155,7 @@ class BaseLLMEvaluator(FreeTextEvaluator):
                 question_id=item.question_id,
                 question_text=self._escape_jinja2(item.question_text),
                 answer_text=self._escape_jinja2(item.answer_text),
-                guidelines=self._escape_jinja2(item.guidelines),
+                guidelines=self._escape_jinja2(item.guidelines) if item.guidelines else None,
             )
             for item in questions_to_evaluate
         ]

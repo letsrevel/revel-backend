@@ -55,7 +55,12 @@ def _strip_parent_param(path: str, parent_param: str) -> str | None:
 
 
 def _collect_question_crud_routes(prefix: str, parent_param: str) -> set[tuple[str, str]]:
-    """Walk the registered API and return ``{(normalised_path, method), ...}``.
+    """Walk the registered API and return ``{(normalised_path, method), ...}``."""
+    return {(tail, method) for tail, method, _ in _collect_question_crud_operations(prefix, parent_param)}
+
+
+def _collect_question_crud_operations(prefix: str, parent_param: str) -> set[tuple[str, str, str]]:
+    """Walk the registered API and return ``{(normalised_path, method, response_schema), ...}``.
 
     ``parent_param`` is the path parameter name immediately under ``prefix``
     (e.g. ``poll_id`` or ``org_questionnaire_id``). It's stripped so the
@@ -63,7 +68,7 @@ def _collect_question_crud_routes(prefix: str, parent_param: str) -> set[tuple[s
     """
     from api.api import api
 
-    found: set[tuple[str, str]] = set()
+    found: set[tuple[str, str, str]] = set()
     for router_prefix, router in api._routers:
         if router_prefix != prefix:
             continue
@@ -74,8 +79,10 @@ def _collect_question_crud_routes(prefix: str, parent_param: str) -> set[tuple[s
             if not any(pattern.match(tail) for pattern in _SHARED_PATH_SHAPES):
                 continue
             for operation in path_view.operations:
+                response = operation.response_models.get(200)
+                response_name = response.__name__ if response is not None else "None"
                 for method in operation.methods:
-                    found.add((tail, method.upper()))
+                    found.add((tail, method.upper(), response_name))
     return found
 
 
@@ -108,6 +115,22 @@ def test_polls_and_org_questionnaire_question_crud_in_sync() -> None:
             + "\n  ".join(f"{method:6} {path}" for path, method in sorted(only_in_questionnaires))
         )
     assert not sections, "Question-CRUD endpoints drifted between controllers:\n\n" + "\n\n".join(sections)
+
+
+def test_polls_and_org_questionnaire_response_schemas_in_sync() -> None:
+    """Each shared route must declare the same ``response=`` schema on both controllers.
+
+    Path/method parity alone let both sides ship the option endpoints with a
+    response schema that dropped ``id`` (#956); comparing the declared 200
+    response catches a fix landing on one side only.
+    """
+    poll_ops = _collect_question_crud_operations(prefix="/polls", parent_param="poll_id")
+    org_ops = _collect_question_crud_operations(prefix="/questionnaires", parent_param="org_questionnaire_id")
+    assert poll_ops == org_ops, (
+        "Response schemas drifted between controllers:\n"
+        f"  only in polls: {sorted(poll_ops - org_ops)}\n"
+        f"  only in questionnaires: {sorted(org_ops - poll_ops)}"
+    )
 
 
 def test_drift_test_actually_finds_routes() -> None:
