@@ -1,6 +1,6 @@
 """Tests for attendee credit note generation (generate_attendee_credit_note).
 
-Split out of test_attendee_invoice_service.py to keep both files under the
+Split out of the attendee-invoice tests to keep both files under the
 1000-line limit; shares the invoice test helpers from that module.
 """
 
@@ -17,7 +17,7 @@ from events.service.attendee_invoice_service import (
     generate_attendee_credit_note,
     generate_attendee_invoice,
 )
-from events.tests.test_attendee_invoice_service import (
+from events.tests.test_attendee_invoice._helpers import (
     MOCK_RENDER_PDF,
     MOCK_SEND_EMAIL,
     _create_payment,
