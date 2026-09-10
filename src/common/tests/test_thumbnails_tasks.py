@@ -373,7 +373,7 @@ class TestSafeSaveUploadedFileIntegration:
         """Test that safe_save_uploaded_file schedules thumbnail generation task."""
         from django.core.files.uploadedfile import SimpleUploadedFile
 
-        from common.utils import safe_save_uploaded_file
+        from common.service.upload_service import safe_save_uploaded_file
 
         owner = revel_user_factory()
         org = Organization.objects.create(name="Test Org", owner=owner)
@@ -412,7 +412,7 @@ class TestSafeSaveUploadedFileIntegration:
         """Test that safe_save_uploaded_file clears old thumbnails when replacing file."""
         from django.core.files.uploadedfile import SimpleUploadedFile
 
-        from common.utils import safe_save_uploaded_file
+        from common.service.upload_service import safe_save_uploaded_file
 
         owner = revel_user_factory()
         org = Organization.objects.create(name="Test Org", owner=owner)

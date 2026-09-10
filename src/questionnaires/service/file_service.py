@@ -7,7 +7,8 @@ from django.db import IntegrityError, transaction
 from ninja.files import UploadedFile
 
 from accounts.models import RevelUser
-from common.utils import create_file_audit_and_scan, strip_exif
+from common.service.upload_service import create_file_audit_and_scan
+from common.utils import strip_exif
 
 from ..exceptions import DisallowedMimeTypeError, FileSizeExceededError
 from ..models import QuestionnaireFile
