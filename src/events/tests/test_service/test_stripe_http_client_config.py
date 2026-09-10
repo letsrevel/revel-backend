@@ -34,6 +34,8 @@ STRIPE_CONFIGURING_MODULES = [
     "events.service.subscription.stripe.base",
     "events.service.subscription.stripe.payloads",
     "events.service.subscription.stripe.checkout",
+    "events.service.subscription.stripe.fees",
+    "events.service.subscription.stripe.plan_change",
     "events.service.subscription.stripe.sync",
 ]
 

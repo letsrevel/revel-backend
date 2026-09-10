@@ -456,3 +456,4 @@ class TestIsExport:
 
     def test_eu_buyer_zero_vat_invoice_is_not_export(self) -> None:
         """A zero-VAT invoice for an EU buyer (e.g. 0% org rate) is not an export."""
+        assert _is_export(self._invoice(buyer_vat_country="DE")) is False

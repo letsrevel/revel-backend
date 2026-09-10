@@ -16,6 +16,7 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from common.service.stripe_config import configure_stripe
 from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -25,6 +26,8 @@ from events.service.subscription.stripe.base import ensure_stripe_price
 from events.service.subscription.stripe.payloads import is_subscription_gone, stripe_account_kwargs, stripe_interval
 
 logger = structlog.get_logger(__name__)
+
+configure_stripe()
 
 
 # ---- Internal helpers --------------------------------------------------------
