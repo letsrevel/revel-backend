@@ -21,6 +21,7 @@ from questionnaires.models import (
     QuestionnaireSubmission,
     SubmissionSourceEventMetadata,
 )
+from questionnaires.utils.applicability import compute_applicable_ids
 
 from ..exceptions import (
     CrossQuestionnaireSubmissionError,
@@ -168,54 +169,6 @@ class SubmissionService:
             evaluation_mode=q.evaluation_mode,  # type: ignore[arg-type]
         )
 
-    def _get_applicable_question_ids(
-        self,
-        mc_questions: dict[UUID, MultipleChoiceQuestion],
-        ft_questions: dict[UUID, FreeTextQuestion],
-        fu_questions: dict[UUID, FileUploadQuestion],
-        selected_option_ids: set[UUID],
-    ) -> tuple[set[UUID], set[UUID], set[UUID]]:
-        """Compute which questions are applicable based on conditional dependencies.
-
-        A question is applicable if:
-        1. It has no depends_on_option, OR its depends_on_option was selected
-        2. Its section (if any) is also applicable
-
-        A section is applicable if:
-        1. It has no depends_on_option, OR its depends_on_option was selected
-
-        Args:
-            mc_questions: Dictionary of all multiple choice questions by ID.
-            ft_questions: Dictionary of all free text questions by ID.
-            fu_questions: Dictionary of all file upload questions by ID.
-            selected_option_ids: Set of option IDs that were selected in the submission.
-
-        Returns:
-            Tuple of (applicable_mcq_ids, applicable_ftq_ids, applicable_fuq_ids).
-        """
-        # Determine applicable sections
-        applicable_section_ids: set[UUID] = set()
-        for section in self.questionnaire.sections.all():
-            if section.depends_on_option_id is None or section.depends_on_option_id in selected_option_ids:
-                applicable_section_ids.add(section.id)
-
-        def is_question_applicable(
-            question: MultipleChoiceQuestion | FreeTextQuestion | FileUploadQuestion,
-        ) -> bool:
-            # Check section applicability
-            if question.section_id is not None and question.section_id not in applicable_section_ids:
-                return False
-            # Check direct option dependency
-            if question.depends_on_option_id is not None and question.depends_on_option_id not in selected_option_ids:
-                return False
-            return True
-
-        applicable_mcq_ids = {qid for qid, q in mc_questions.items() if is_question_applicable(q)}
-        applicable_ftq_ids = {qid for qid, q in ft_questions.items() if is_question_applicable(q)}
-        applicable_fuq_ids = {qid for qid, q in fu_questions.items() if is_question_applicable(q)}
-
-        return applicable_mcq_ids, applicable_ftq_ids, applicable_fuq_ids
-
     def _collect_all_questions(
         self,
     ) -> tuple[
@@ -306,14 +259,18 @@ class SubmissionService:
         for mc_answer in submission_schema.multiple_choice_answers:
             selected_option_ids.update(mc_answer.options_id)
 
-        applicable_mcq_ids, applicable_ftq_ids, applicable_fuq_ids = self._get_applicable_question_ids(
-            mc_questions, ft_questions, fu_questions, selected_option_ids
+        applicable = compute_applicable_ids(
+            sections=self.questionnaire.sections.all(),
+            mc_questions=mc_questions.values(),
+            ft_questions=ft_questions.values(),
+            fu_questions=fu_questions.values(),
+            selected_option_ids=selected_option_ids,
         )
 
         mandatory_ids = (
-            {qid for qid, q in mc_questions.items() if q.is_mandatory and qid in applicable_mcq_ids}
-            | {qid for qid, q in ft_questions.items() if q.is_mandatory and qid in applicable_ftq_ids}
-            | {qid for qid, q in fu_questions.items() if q.is_mandatory and qid in applicable_fuq_ids}
+            {qid for qid, q in mc_questions.items() if q.is_mandatory and qid in applicable.multiple_choice}
+            | {qid for qid, q in ft_questions.items() if q.is_mandatory and qid in applicable.free_text}
+            | {qid for qid, q in fu_questions.items() if q.is_mandatory and qid in applicable.file_upload}
         )
 
         # A multiple-choice answer with no selected options does not *answer* its question:

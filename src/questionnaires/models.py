@@ -230,7 +230,15 @@ class Questionnaire(TimeStampedModel):
     evaluation_mode = models.CharField(
         choices=QuestionnaireEvaluationMode.choices, max_length=20, default=QuestionnaireEvaluationMode.AUTOMATIC
     )
-    can_retake_after = models.DurationField(null=True, blank=True, help_text="How long to wait to be able to retake.")
+    can_retake_after = models.DurationField(
+        null=True,
+        blank=True,
+        help_text=(
+            "How long to wait to be able to retake. Empty means no cooldown (retake immediately) "
+            "for admission questionnaires, but no retake at all (terminal failure) for membership "
+            "questionnaires."
+        ),
+    )
     max_attempts = models.IntegerField(default=0, help_text="Max number of attempts to answer. 0 means unlimited.")
 
     objects = QuestionnaireManager()

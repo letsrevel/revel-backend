@@ -16,7 +16,6 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Q
 from django.http import Http404
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -26,6 +25,7 @@ from questionnaires.models import Questionnaire, QuestionnaireEvaluation, Questi
 from questionnaires.schema import QuestionnaireSubmissionSchema
 from questionnaires.service.submission_service import SubmissionService
 from questionnaires.tasks import evaluate_questionnaire_submission
+from questionnaires.utils.retake_policy import RetakeVerdict, approval_is_stale, evaluate_retake_policy
 
 if t.TYPE_CHECKING:
     from datetime import datetime
@@ -112,37 +112,31 @@ def _validate_resubmission(*, user: RevelUser, org_questionnaire: OrganizationQu
         raise HttpError(400, str(_("You have a submission pending evaluation.")))
 
     if evaluation.status == statuses.APPROVED:
-        if approval_is_stale(org_questionnaire, evaluation):
+        if approval_is_stale(org_questionnaire.max_submission_age, evaluation.updated_at):
             # max_submission_age elapsed: the gate asks for a fresh submission again.
             return
         raise HttpError(400, str(_("Your questionnaire has already been approved.")))
 
-    # Rejected: apply the retake policy.
+    # Rejected: apply the shared retake policy.
     # MembershipQuestionnaireGate blocks the cap ahead of the retake policy with
     # MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED, so a user at the cap is never told to
     # submit. Enforcing it here too is still required — the gate is advisory, and without
     # this an AUTOMATIC-mode membership questionnaire could be brute-forced.
-    if 0 < questionnaire.max_attempts <= len(submissions):
+    decision = evaluate_retake_policy(
+        questionnaire,
+        # submitted_at is guaranteed to be set for READY submissions (see QuestionnaireSubmission.save())
+        last_submitted_at=t.cast("datetime", latest.submitted_at),
+        attempts=len(submissions),
+        # Membership reads a NULL cooldown as "no retake at all" — matches the gate's
+        # terminal MEMBERSHIP_QUESTIONNAIRE_FAILED verdict.
+        null_cooldown_is_terminal=True,
+    )
+    if decision.verdict is RetakeVerdict.ATTEMPTS_EXHAUSTED:
         raise HttpError(400, str(_("You have reached the maximum number of attempts.")))
-
-    if questionnaire.can_retake_after is None:
-        # Matches the gate's terminal MEMBERSHIP_QUESTIONNAIRE_FAILED verdict.
+    if decision.verdict is RetakeVerdict.NO_RETAKE:
         raise HttpError(400, str(_("This questionnaire cannot be retaken.")))
-
-    # submitted_at is guaranteed to be set for READY submissions (see QuestionnaireSubmission.save())
-    retry_on = t.cast("datetime", latest.submitted_at) + questionnaire.can_retake_after
-    if retry_on > timezone.now():
-        raise HttpError(400, str(_("You can retry after %(retry_on)s.") % {"retry_on": retry_on}))
-
-
-def approval_is_stale(
-    org_questionnaire: OrganizationQuestionnaire,
-    evaluation: QuestionnaireEvaluation,
-) -> bool:
-    """Whether an APPROVED evaluation has aged out of ``max_submission_age``."""
-    if not org_questionnaire.max_submission_age:
-        return False
-    return bool((evaluation.updated_at + org_questionnaire.max_submission_age) < timezone.now())
+    if decision.verdict is RetakeVerdict.COOLDOWN:
+        raise HttpError(400, str(_("You can retry after %(retry_on)s.") % {"retry_on": decision.retry_on}))
 
 
 @transaction.atomic

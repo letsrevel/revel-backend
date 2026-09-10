@@ -10,7 +10,6 @@ import abc
 import typing as t
 import uuid
 
-from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from events.models import (
@@ -21,12 +20,15 @@ from events.models import (
     WhitelistRequest,
 )
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
+from questionnaires.utils.retake_policy import RetakeVerdict, approval_is_stale, evaluate_retake_policy
 
 from .enums import TERMINAL_REJECTION_CODES, MembershipNextStep, MembershipReasonCode, Reasons
 from .resolvers import resolve_requires_membership_approval
 from .types import MembershipEligibility
 
 if t.TYPE_CHECKING:
+    import datetime
+
     from accounts.models import RevelUser
     from events.models import MembershipTier, OrganizationQuestionnaire
     from questionnaires.models import Questionnaire
@@ -333,10 +335,7 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
             return self._block_pending(questionnaire.pk)
 
         if status == approved:
-            if (
-                questionnaire_oq.max_submission_age
-                and (evaluation.updated_at + questionnaire_oq.max_submission_age) < timezone.now()
-            ):
+            if approval_is_stale(questionnaire_oq.max_submission_age, evaluation.updated_at):
                 return self._block_submit(questionnaire.pk)
             return None
 
@@ -348,27 +347,34 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
     ) -> MembershipEligibility:
         """Apply the attempts cap, then the retake cooldown, for a rejected evaluation.
 
-        Order mirrors ``_validate_resubmission`` in
-        :mod:`events.service.membership_questionnaire_service` exactly: the cap
-        outranks the retake policy there, so it must outrank it here too — a
-        gate that promised SUBMIT_QUESTIONNAIRE (or a cooldown that expires into
-        one) to a user at the cap would send them to a guaranteed 400.
+        The policy itself lives in :mod:`questionnaires.utils.retake_policy`, shared
+        with ``_validate_resubmission`` in
+        :mod:`events.service.membership_questionnaire_service` — the cap outranks the
+        retake policy in both, because a gate that promised SUBMIT_QUESTIONNAIRE (or a
+        cooldown that expires into one) to a user at the cap would send them to a
+        guaranteed 400.
         """
-        if 0 < questionnaire.max_attempts <= self.handler.questionnaire_attempt_count:
+        decision = evaluate_retake_policy(
+            questionnaire,
+            # submitted_at is guaranteed to be set for READY submissions (see QuestionnaireSubmission.save())
+            last_submitted_at=t.cast("datetime.datetime", submission.submitted_at),
+            attempts=self.handler.questionnaire_attempt_count,
+            # Membership reads a NULL cooldown as "no retake at all".
+            null_cooldown_is_terminal=True,
+        )
+        if decision.verdict is RetakeVerdict.ATTEMPTS_EXHAUSTED:
             return self._block(
                 Reasons.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,
                 questionnaire_id=questionnaire.pk,
             )
-
-        if questionnaire.can_retake_after is not None and submission.submitted_at is not None:
-            retry_on = submission.submitted_at + questionnaire.can_retake_after
-            if retry_on > timezone.now():
-                return self._block(
-                    Reasons.MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN,
-                    next_step=MembershipNextStep.WAIT_TO_RETAKE_QUESTIONNAIRE,
-                    questionnaire_id=questionnaire.pk,
-                    retry_on=retry_on,
-                )
+        if decision.verdict is RetakeVerdict.COOLDOWN:
+            return self._block(
+                Reasons.MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN,
+                next_step=MembershipNextStep.WAIT_TO_RETAKE_QUESTIONNAIRE,
+                questionnaire_id=questionnaire.pk,
+                retry_on=decision.retry_on,
+            )
+        if decision.verdict is RetakeVerdict.RETAKE_NOW:
             return self._block_submit(questionnaire.pk)
 
         # No retake → terminal failure.

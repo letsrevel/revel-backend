@@ -239,9 +239,14 @@ Questionnaires support configurable retry behavior:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `max_attempts` | Integer | `0` | Maximum number of submissions allowed. `0` means unlimited |
-| `can_retake_after` | DurationField | `null` | Cooldown period before retake. `null` or zero means immediate retake (no cooldown) |
+| `can_retake_after` | DurationField | `null` | Cooldown period before retake. Zero means immediate retake; `null` is read differently per questionnaire type (see below) |
 
-`max_attempts` alone controls **whether** retakes are possible; `can_retake_after` only controls the **cooldown duration** between attempts. For example, `max_attempts=3` with `can_retake_after=null` allows up to 3 attempts with no waiting period between failures.
+For **admission** questionnaires, `max_attempts` alone controls **whether** retakes are possible; `can_retake_after` only controls the **cooldown duration** between attempts. For example, `max_attempts=3` with `can_retake_after=null` allows up to 3 attempts with no waiting period between failures.
+
+!!! warning "`null` means the opposite for membership questionnaires"
+    On the **membership** path a `null` `can_retake_after` is a *terminal* verdict — the rejected applicant may never retake (`MEMBERSHIP_QUESTIONNAIRE_FAILED`). See [Membership eligibility → MembershipQuestionnaireGate](membership-eligibility.md#8-membershipquestionnairegate). Since `OrganizationQuestionnaire.questionnaire` is a `OneToOneField`, no questionnaire row is ever read both ways.
+
+Both readings live in one place — `questionnaires/utils/retake_policy.py` — selected by the `null_cooldown_is_terminal` flag. The eligibility gates and the submit endpoints share it, so a gate can never promise a submission the endpoint would reject. The cooldown blocks only while `retry_on` is still in the future: at exactly `retry_on` the retake is allowed.
 
 ## Evaluation Modes
 
