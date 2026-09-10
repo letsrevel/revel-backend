@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.template.loader import render_to_string
 
+from common.tests.branding import LEGACY_BRAND_HEXES
+
 pytestmark = pytest.mark.django_db
 
 HTML_TEMPLATES = [
@@ -17,8 +19,6 @@ HTML_TEMPLATES = [
     "events/emails/platform_fee_invoice_email.html",
     "accounts/emails/referral_payout_email.html",
 ]
-
-LEGACY_HEX = ("#667eea", "#764ba2", "#28a745", "#2196F3")
 
 
 @pytest.mark.parametrize("tpl", HTML_TEMPLATES)
@@ -35,7 +35,7 @@ def test_branded_body_email(tpl: str) -> None:
     }
     html = render_to_string(tpl, ctx)
     assert "revel-email-logo.png" in html, f"{tpl}: logo missing"
-    for legacy in LEGACY_HEX:
+    for legacy in LEGACY_BRAND_HEXES:
         assert legacy not in html, f"{tpl}: legacy hex {legacy} found"
 
 

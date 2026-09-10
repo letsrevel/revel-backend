@@ -3,6 +3,8 @@ import typing as t
 import pytest
 from django.template.loader import render_to_string
 
+from common.tests.branding import LEGACY_BRAND_HEXES
+
 pytestmark = pytest.mark.django_db
 
 TEMPLATES = [
@@ -11,7 +13,6 @@ TEMPLATES = [
     "events/emails/organization_contact_message_body.html",
     "events/emails/organization_contact_email_verification_body.html",
 ]
-LEGACY = ("#667eea", "#764ba2", "#28a745", "#2196F3", "#3498db")
 
 
 @pytest.mark.parametrize("tpl", TEMPLATES)
@@ -28,5 +29,5 @@ def test_standalone_email_branded(tpl: str) -> None:
     }
     html = render_to_string(tpl, ctx)
     assert "revel-email-logo.png" in html, f"{tpl} not on branded base"
-    for legacy in LEGACY:
+    for legacy in LEGACY_BRAND_HEXES:
         assert legacy not in html, f"{tpl} still has {legacy}"
