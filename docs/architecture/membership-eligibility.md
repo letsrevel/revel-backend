@@ -185,12 +185,12 @@ Evaluation against the user's most recent `READY` submission:
 - **Rejected** → retake policy branches:
     - `can_retake_after` set and cooldown still running → `MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN` with `next_step=WAIT_TO_RETAKE_QUESTIONNAIRE` and `retry_on`.
     - Cooldown elapsed → treated as missing (resubmit).
-    - No retake configured → **terminal failure** `MEMBERSHIP_QUESTIONNAIRE_FAILED`, no `next_step`.
+    - No retake configured (`can_retake_after` is `NULL`) → **terminal failure** `MEMBERSHIP_QUESTIONNAIRE_FAILED`, no `next_step`. Note this is the **opposite** of the admission path, where a `NULL` cooldown means "retake immediately" — see [Questionnaires → Retry mechanics](questionnaires.md#retry-mechanics).
     - Attempts cap reached → **terminal failure** `MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED`, no `next_step`: whatever the retake policy says, the user can never satisfy the gate again.
 
 Those last two — `MEMBERSHIP_QUESTIONNAIRE_FAILED` and `MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED` — are the two reason codes in `TERMINAL_REJECTION_CODES` (see [State machine](#application-state-machine)).
 
-**Source:** `events/service/membership_manager/gates.py`: `MembershipQuestionnaireGate`
+**Source:** `events/service/membership_manager/gates.py`: `MembershipQuestionnaireGate`; the retake/staleness rules themselves in `questionnaires/utils/retake_policy.py` (shared with the submit endpoint).
 
 ---
 
