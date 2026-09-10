@@ -4,7 +4,7 @@ import typing as t
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import AwareDatetime, EmailStr, Field
+from pydantic import AwareDatetime, EmailStr, Field, StringConstraints
 
 from accounts.schema import MinimalRevelUserSchema
 from common.schema import OneToOneFiftyString, StrippedString
@@ -121,7 +121,7 @@ class EventJWTInvitationTier(Schema):
 
 
 class EventInvitationRequestCreateSchema(Schema):
-    message: StrippedString | None = None
+    message: t.Annotated[str, StringConstraints(max_length=500, strip_whitespace=True)] | None = None
 
 
 class EventInvitationRequestSchema(ModelSchema):

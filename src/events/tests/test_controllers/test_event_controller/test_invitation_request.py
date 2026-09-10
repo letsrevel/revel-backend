@@ -1,5 +1,7 @@
 """Tests for invitation request endpoints."""
 
+import random
+import string
 from datetime import timedelta
 
 import orjson
@@ -71,6 +73,33 @@ def test_request_invitation_succeeds_before_deadline(nonmember_client: Client, p
 
     assert response.status_code == 201
     assert models.EventInvitationRequest.objects.count() == 1
+
+
+def test_request_invitation_rejects_oversized_message(nonmember_client: Client, public_event: Event) -> None:
+    """Test that an oversized invitation-request message is rejected by schema validation."""
+    url = reverse("api:create_invitation_request", kwargs={"event_id": public_event.pk})
+    payload = {"message": "x" * 5000}
+    response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 422
+    assert models.EventInvitationRequest.objects.count() == 0
+
+
+def test_invitation_request_accepts_long_message_at_model_level(nonmember_user: RevelUser, public_event: Event) -> None:
+    """Pins the absence of a btree index on ``UserRequestMixin.message``.
+
+    With ``db_index=True`` this insert fails with "index row size exceeds btree maximum 2704".
+    The message is seeded random text because Postgres compresses index entries: a repetitive
+    string would slip under the limit and the assertion would pass even with the index in place.
+    The column is free-text, so the database must accept arbitrary lengths; length limits belong
+    to the API schema, not the storage layer.
+    """
+    message = "".join(random.Random(17).choices(string.ascii_letters + string.digits, k=5000))
+
+    request = models.EventInvitationRequest.objects.create(event=public_event, user=nonmember_user, message=message)
+
+    request.refresh_from_db()
+    assert request.message == message
 
 
 # --- Tests for GET /events/invitation-requests ---
