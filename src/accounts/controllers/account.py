@@ -20,9 +20,9 @@ from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
 from common.schema import EmailSchema, ErrorDetail, ResponseMessage
+from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
-from common.utils import safe_save_uploaded_file
 from revel.oidc_config import KEY_PATTERN
 
 
