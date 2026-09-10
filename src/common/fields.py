@@ -43,7 +43,7 @@ MAX_IMAGE_SIZE_BYTES: int = 10 * 1024 * 1024  # 10MB
 MAX_IMAGE_PIXELS: int = 50_000_000  # 50 megapixels — bound on decoded raster size (memory-DoS guard)
 
 
-def validate_image_file(file: UploadedFile) -> None:
+def validate_image_file(file: UploadedFile[bytes]) -> None:
     """Validate an uploaded image file size, dimensions, and format.
 
     Args:
@@ -244,9 +244,11 @@ def get_markdown_field_registry() -> dict[type[models.Model], list[str]]:
 
 
 if t.TYPE_CHECKING:
+    _ST = t.TypeVar("_ST", contravariant=True)
+    _GT = t.TypeVar("_GT", covariant=True)
 
-    class MarkdownField(models.TextField[str | None, str | None]):
-        """Type stub for MarkdownField."""
+    class MarkdownField(models.TextField[_ST, _GT]):
+        """Type stub for MarkdownField (``null=`` decides ``str`` vs ``str | None``, like TextField)."""
 
         ...
 

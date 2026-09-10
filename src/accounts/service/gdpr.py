@@ -527,7 +527,7 @@ def get_user_reverse_relations() -> dict[str, OneToOneRel | ManyToOneRel | ManyT
         if not (isinstance(field, (OneToOneRel, ManyToOneRel, ManyToManyRel)) and field.related_model):
             continue
         if field.hidden:
-            related_model = t.cast(type[Model], field.related_model)
+            related_model = field.related_model
             relations[f"{related_model._meta.label_lower}.{field.field.name}"] = field
             continue
         accessor = field.get_accessor_name()

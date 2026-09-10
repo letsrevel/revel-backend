@@ -474,7 +474,7 @@ class Referral(TimeStampedModel):
         ordering = ["-created_at"]
         constraints = [
             models.CheckConstraint(
-                check=~models.Q(referrer=models.F("referred_user")),
+                condition=~models.Q(referrer=models.F("referred_user")),
                 name="referral_no_self_referral",
             )
         ]

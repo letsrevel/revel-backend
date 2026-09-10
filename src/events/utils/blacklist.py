@@ -11,13 +11,15 @@ import typing as t
 from django.db.models import Q
 
 if t.TYPE_CHECKING:
+    from uuid import UUID
+
     from django.db.models import QuerySet
 
     from accounts.models import RevelUser
     from events.models import Blacklist
 
 
-def get_hard_blacklisted_org_ids(user: "RevelUser") -> "QuerySet[Blacklist]":
+def get_hard_blacklisted_org_ids(user: "RevelUser") -> "QuerySet[Blacklist, UUID]":
     """Get organization IDs where user is hard-blacklisted.
 
     Used by for_user() managers to exclude blacklisted organizations.
@@ -42,4 +44,4 @@ def get_hard_blacklisted_org_ids(user: "RevelUser") -> "QuerySet[Blacklist]":
     if telegram_usernames := list(user.telegram_users.values_list("telegram_username", flat=True)):
         q |= Q(telegram_username__in=[u.lower() for u in telegram_usernames if u])
 
-    return Blacklist.objects.filter(q).values_list("organization_id", flat=True)  # type: ignore[return-value]
+    return Blacklist.objects.filter(q).values_list("organization_id", flat=True)

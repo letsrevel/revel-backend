@@ -17,6 +17,6 @@ class FileExportSchema(ModelSchema):
     @staticmethod
     def resolve_download_url(obj: FileExport) -> str | None:
         """Return a signed download URL when the export is ready."""
-        if obj.status == FileExport.ExportStatus.READY and obj.file:
+        if obj.status == FileExport.ExportStatus.READY and obj.file.name:
             return generate_signed_url(obj.file.name, expires_in=EXPORT_URL_EXPIRES_IN)
         return None

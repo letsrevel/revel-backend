@@ -429,15 +429,15 @@ def generate_invoices_for_period(
         # quantity (issue: a subscription-only org read "Tickets: 0 | 14.20").
         slot["ticket_fee_net"] += net
 
-    for agg in membership_aggregates:
-        slot = _slot(agg["subscription__organization_id"], agg["currency"])
-        gross = agg["total_platform_fee"] or Decimal("0.00")
+    for m_agg in membership_aggregates:
+        slot = _slot(m_agg["subscription__organization_id"], m_agg["currency"])
+        gross = m_agg["total_platform_fee"] or Decimal("0.00")
         slot["fee_gross"] += gross
-        net = agg["total_platform_fee_net"] or gross
+        net = m_agg["total_platform_fee_net"] or gross
         slot["fee_net"] += net
-        slot["fee_vat"] += agg["total_platform_fee_vat"] or Decimal("0.00")
-        slot["subscription_count"] += agg["payment_count"]
-        slot["subscription_revenue"] += agg["total_amount"] or Decimal("0.00")
+        slot["fee_vat"] += m_agg["total_platform_fee_vat"] or Decimal("0.00")
+        slot["subscription_count"] += m_agg["payment_count"]
+        slot["subscription_revenue"] += m_agg["total_amount"] or Decimal("0.00")
         slot["subscription_fee_net"] += net
 
     # Prefetch all orgs that have payments to avoid N+1 queries in the loop
@@ -508,7 +508,8 @@ def _determine_vat_rate_and_reverse_charge(
             .values("platform_fee_vat_rate")
             .annotate(cnt=Count("id"))
         ):
-            rate_counts[row["platform_fee_vat_rate"]] += row["cnt"]
+            if (rate := row["platform_fee_vat_rate"]) is not None:  # filtered above; narrows the stub type
+                rate_counts[rate] += row["cnt"]
 
     if not rate_counts:
         # Fallback for pre-VAT payments

@@ -56,6 +56,21 @@ def test_cleanup_expired_data_exports_ignores_recent_exports(user: RevelUser) ->
     assert result == {"files_deleted": 0}
 
 
+@pytest.mark.django_db
+def test_generate_user_data_export_fails_loudly_when_export_has_no_file(user: RevelUser) -> None:
+    """A READY export with no stored file must raise, not sign a download URL for ``None``."""
+    export = UserDataExport.objects.create(user=user, status=UserDataExport.UserDataExportStatus.READY)
+
+    with (
+        patch("accounts.service.gdpr.generate_user_data_export", return_value=export),
+        patch("accounts.tasks.gdpr.send_email") as send_email_mock,
+        pytest.raises(ValueError, match="has no file"),
+    ):
+        generate_user_data_export(str(user.id))
+
+    send_email_mock.assert_not_called()
+
+
 @pytest.mark.django_db(transaction=True)
 def test_generate_user_data_export_sends_failure_email(
     user: RevelUser, staff_user: RevelUser, mailoutbox: list[MagicMock]
