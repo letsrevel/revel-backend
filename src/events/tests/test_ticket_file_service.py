@@ -405,7 +405,7 @@ class TestPersistAndUpdate:
         ticket_file_service._persist_and_update(ticket_with_tier, pdf_bytes=b"%PDF-persist")
 
         ticket_with_tier.refresh_from_db()
-        assert ticket_with_tier.pdf_file
+        assert ticket_with_tier.pdf_file.name
         assert "ticket_" in ticket_with_tier.pdf_file.name
         assert ticket_with_tier.file_content_hash is not None
 
@@ -414,7 +414,7 @@ class TestPersistAndUpdate:
         ticket_file_service._persist_and_update(ticket_with_tier, pkpass_bytes=b"PK-persist")
 
         ticket_with_tier.refresh_from_db()
-        assert ticket_with_tier.pkpass_file
+        assert ticket_with_tier.pkpass_file.name
         assert "ticket_" in ticket_with_tier.pkpass_file.name
         assert ticket_with_tier.file_content_hash is not None
 

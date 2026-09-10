@@ -63,7 +63,7 @@ class TestGenerateThumbnailsTask:
         finally:
             if default_storage.exists(saved_path):
                 default_storage.delete(saved_path)
-            if org.logo_thumbnail and default_storage.exists(org.logo_thumbnail.name):
+            if org.logo_thumbnail.name and default_storage.exists(org.logo_thumbnail.name):
                 default_storage.delete(org.logo_thumbnail.name)
 
     def test_raises_config_error_for_missing_config(
@@ -325,6 +325,7 @@ class TestThumbnailIntegration:
         qfile.save()
 
         saved_path = qfile.file.name
+        assert saved_path
 
         try:
             result = generate_thumbnails_task(

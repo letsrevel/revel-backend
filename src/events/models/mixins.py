@@ -198,7 +198,7 @@ class LogoCoverValidationMixin(ExifStripMixin):
     class Meta:
         abstract = True
 
-    image_validators: list[t.Callable[[UploadedFile], None]] = [
+    image_validators: list[t.Callable[[UploadedFile[bytes]], None]] = [
         FileExtensionValidator(allowed_extensions=ALLOWED_IMAGE_EXTENSIONS),
         validate_image_file,
     ]

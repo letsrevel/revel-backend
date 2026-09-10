@@ -412,7 +412,7 @@ def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
     from common.models import SiteSettings
 
     ensure_pdf_exists(invoice)
-    if not invoice.pdf_file:
+    if not invoice.pdf_file.name:
         logger.warning("attendee_invoice_no_pdf", invoice_number=invoice.invoice_number)
         return
 
@@ -685,7 +685,7 @@ def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
 
     ensure_credit_note_pdf_exists(credit_note)
     invoice = credit_note.invoice
-    if not credit_note.pdf_file:
+    if not credit_note.pdf_file.name:
         logger.warning("attendee_credit_note_no_pdf", credit_note_number=credit_note.credit_note_number)
         return
 

@@ -478,7 +478,7 @@ class TestCleanupTicketFileCache:
                 raise OSError("disk error")
 
         with patch.object(
-            Ticket.pdf_file.field.attr_class,  # type: ignore[attr-defined]
+            Ticket.pdf_file.field.attr_class,
             "delete",
             side_effect=delete_side_effect,
         ):
@@ -645,7 +645,7 @@ class TestCleanupSeriesPassFileCacheSweep:
                 raise OSError("disk error")
 
         with patch.object(
-            HeldSeriesPass.pdf_file.field.attr_class,  # type: ignore[attr-defined]
+            HeldSeriesPass.pdf_file.field.attr_class,
             "delete",
             side_effect=delete_side_effect,
         ):

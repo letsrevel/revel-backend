@@ -30,7 +30,7 @@ class OrganizationQuestionnaireQueryset(models.QuerySet["OrganizationQuestionnai
                     output_field=models.BooleanField(),
                 ),
                 time_diff=models.ExpressionWrapper(
-                    models.F("start") - current_time,  # type: ignore[operator]
+                    models.F("start") - current_time,
                     output_field=models.DurationField(),
                 ),
             )

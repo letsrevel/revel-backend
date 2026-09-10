@@ -107,7 +107,7 @@ def test_returning_identity_does_not_fetch(user: RevelUser, django_capture_on_co
 def test_fetch_saves_image_as_profile_picture(user: RevelUser, image_server: list[httpx.Request]) -> None:
     oidc.fetch_profile_picture(user, PICTURE_URL)
     user.refresh_from_db()
-    assert user.profile_picture
+    assert user.profile_picture.name
     assert user.profile_picture.name.endswith(".png")
 
 
@@ -238,6 +238,7 @@ def test_fetch_does_not_overwrite_upload_that_landed_during_download(
     monkeypatch.setattr(oidc, "_resolve_addresses", lambda host: [PUBLIC_IP])
     oidc.fetch_profile_picture(user, PICTURE_URL)
     user.refresh_from_db()
+    assert user.profile_picture.name
     assert user.profile_picture.name.endswith("mine.png")
 
 

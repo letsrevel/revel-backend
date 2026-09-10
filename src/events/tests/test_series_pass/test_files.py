@@ -489,7 +489,7 @@ class TestPersistAndUpdate:
         series_pass_file_service._persist_and_update(held_pass, pdf_bytes=b"%PDF-persist")
 
         held_pass.refresh_from_db()
-        assert held_pass.pdf_file
+        assert held_pass.pdf_file.name
         assert "series_pass_" in held_pass.pdf_file.name
         assert held_pass.file_content_hash is not None
 
@@ -497,7 +497,7 @@ class TestPersistAndUpdate:
         series_pass_file_service._persist_and_update(held_pass, pkpass_bytes=b"PK-persist")
 
         held_pass.refresh_from_db()
-        assert held_pass.pkpass_file
+        assert held_pass.pkpass_file.name
         assert "series_pass_" in held_pass.pkpass_file.name
         assert held_pass.file_content_hash is not None
 

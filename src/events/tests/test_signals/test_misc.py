@@ -741,7 +741,7 @@ class TestBlacklistUserLinkedSignal:
             reason="Blacklisted before registration",
             created_by=organization.owner,
         )
-        assert entry.user is None
+        assert entry.user_id is None
 
         # Create user with matching email - signal will auto-link
         new_user = django_user_model.objects.create_user(

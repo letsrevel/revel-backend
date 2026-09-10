@@ -468,6 +468,7 @@ class TestSnapshotsAndPDF:
         statement = generate_payout_statement(payout)
 
         # Django storage may add a dedup suffix (e.g. _3AJjiBH) before .pdf
+        assert statement.pdf_file.name
         assert statement.document_number in statement.pdf_file.name
         assert statement.pdf_file.name.endswith(".pdf")
 

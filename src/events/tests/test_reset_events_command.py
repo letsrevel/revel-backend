@@ -268,7 +268,7 @@ def test_no_unhandled_protected_edges_into_reset_cascade() -> None:
         model = queue.pop()
         for rel in model._meta.related_objects:
             on_delete = getattr(rel, "on_delete", None) or getattr(rel.field, "on_delete", None)
-            related_model = t.cast(type[Model], rel.related_model)
+            related_model = rel.related_model
             if on_delete is CASCADE and related_model not in closure:
                 closure.add(related_model)
                 queue.append(related_model)
@@ -278,7 +278,7 @@ def test_no_unhandled_protected_edges_into_reset_cascade() -> None:
         for rel in model._meta.related_objects:
             on_delete = getattr(rel, "on_delete", None) or getattr(rel.field, "on_delete", None)
             if on_delete is PROTECT or on_delete is RESTRICT:
-                source = t.cast(type[Model], rel.related_model)
+                source = rel.related_model
                 hazard_edges.add((source._meta.label, rel.field.name, model._meta.label))
 
     unhandled = hazard_edges - HANDLED_PROTECTED_EDGES

@@ -182,7 +182,7 @@ class TestUploadProfilePicture:
         assert data["profile_picture_url"] is not None
         # Verify the file was actually saved
         user.refresh_from_db()
-        assert user.profile_picture
+        assert user.profile_picture.name
         assert user.profile_picture.name.endswith(".png")
 
     def test_upload_valid_jpeg_returns_200(
@@ -201,7 +201,7 @@ class TestUploadProfilePicture:
         # Assert
         assert response.status_code == 200
         user.refresh_from_db()
-        assert user.profile_picture
+        assert user.profile_picture.name
         assert "profile" in user.profile_picture.name.lower()
 
     def test_upload_valid_webp_returns_200(
@@ -299,8 +299,9 @@ class TestUploadProfilePicture:
         # Assert
         assert response.status_code == 200
         user.refresh_from_db()
-        assert user.profile_picture.name != old_picture_name
-        assert "second" in user.profile_picture.name.lower() or user.profile_picture.name.endswith(".jpg")
+        new_picture_name = user.profile_picture.name
+        assert new_picture_name and new_picture_name != old_picture_name
+        assert "second" in new_picture_name.lower() or new_picture_name.endswith(".jpg")
 
     def test_upload_too_large_returns_400(
         self,
@@ -486,6 +487,7 @@ class TestUploadProfilePicture:
         assert response.status_code == 200
         user.refresh_from_db()
         # Check the path contains user ID and is in protected directory
+        assert user.profile_picture.name
         assert str(user.pk) in user.profile_picture.name
         assert "profile-pictures" in user.profile_picture.name
 
@@ -586,6 +588,7 @@ class TestDeleteProfilePicture:
         auth_client.post(upload_url, data={"profile_picture": png_file}, format="multipart")
         user.refresh_from_db()
         file_name = user.profile_picture.name
+        assert file_name
         storage = user.profile_picture.storage
 
         # Act

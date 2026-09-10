@@ -80,7 +80,7 @@ def load_oidc_providers(get: t.Callable[..., t.Any], *, debug: bool) -> tuple[OI
                 client_id=required["CLIENT_ID"],
                 client_secret=required["CLIENT_SECRET"],
                 scopes=str(get(prefix + "SCOPES", default=DEFAULT_SCOPES) or DEFAULT_SCOPES),
-                token_auth=t.cast(TokenAuth, token_auth),
+                token_auth=token_auth,
             )
         )
     return tuple(providers)

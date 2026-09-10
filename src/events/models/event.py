@@ -319,7 +319,7 @@ class Event(
         default=False,
         help_text="If True, randomly sample batch members instead of FIFO.",
     )
-    waitlist = models.ManyToManyField(  # type: ignore[var-annotated]
+    waitlist = models.ManyToManyField(
         settings.AUTH_USER_MODEL, related_name="waitlist", blank=True, through="EventWaitList"
     )
     start = models.DateTimeField(db_index=True)

@@ -363,7 +363,9 @@ def update_poll(poll: Poll, payload: PollUpdateSchema) -> Poll:
         tier_ids_vote = update_data.pop("vote_membership_tier_ids", None)
         tier_ids_result = update_data.pop("result_membership_tier_ids", None)
         # Pull questionnaire-owned fields out before applying poll-owned ones.
-        questionnaire_updates = {key: update_data.pop(key) for key in ("name", "description") if key in update_data}
+        questionnaire_updates: dict[str, t.Any] = {
+            key: update_data.pop(key) for key in ("name", "description") if key in update_data
+        }
 
         # ``event_id`` needs cross-org validation BEFORE the setattr loop so a
         # caller can't move a poll to an event owned by a different org.

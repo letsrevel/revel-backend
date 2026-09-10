@@ -80,6 +80,6 @@ def order_by_distance(point: Point | None, queryset: QuerySet[T]) -> QuerySet[T]
     if point is None:
         return queryset
 
-    return queryset.annotate(  # type: ignore[no-any-return]
+    return queryset.annotate(  # type: ignore[return-value]
         distance=Distance("location", point),
     ).order_by("distance")

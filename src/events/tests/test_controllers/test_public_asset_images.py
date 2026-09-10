@@ -59,6 +59,7 @@ class TestOrganizationLogo:
     ) -> None:
         """A DB-referenced file deleted from storage degrades to the placeholder."""
         organization.logo.save("logo.png", ContentFile(png_bytes), save=True)
+        assert organization.logo.name
         organization.logo.storage.delete(organization.logo.name)
         url = reverse("api:organization_logo", kwargs={"organization_id": organization.id})
 
@@ -73,6 +74,7 @@ class TestOrganizationLogo:
         """A broken thumbnail file falls back to the original logo, not the placeholder."""
         organization.logo.save("logo.png", ContentFile(png_bytes), save=True)
         organization.logo_thumbnail.save("logo_thumb.png", ContentFile(b"thumb-bytes"), save=True)
+        assert organization.logo_thumbnail.name
         organization.logo_thumbnail.storage.delete(organization.logo_thumbnail.name)
         url = reverse("api:organization_logo", kwargs={"organization_id": organization.id})
 
