@@ -23,7 +23,7 @@ class TestStripeEventHandler:
         Creates a generic, robust mock of a Stripe webhook event
         that can be correctly converted to a dict.
         """
-        event_data = {"id": "evt_generic", "type": "test.event", "data": {"object": {}}}
+        event_data: dict[str, t.Any] = {"id": "evt_generic", "type": "test.event", "data": {"object": {}}}
         # Use MagicMock for more flexibility and to mock magic methods
         mock_event = MagicMock(spec=stripe.Event)
 
@@ -33,7 +33,7 @@ class TestStripeEventHandler:
         # Also configure attributes for other tests to pass
         mock_event.type = event_data["type"]
         mock_event.data = MagicMock()
-        mock_event.data.object = event_data["data"]["object"]  # type: ignore[index]
+        mock_event.data.object = event_data["data"]["object"]
 
         return mock_event
 
@@ -94,7 +94,7 @@ class TestStripeEventHandler:
     ) -> None:
         """Test that unknown events are handled gracefully."""
         # Arrange
-        handler.event.type = "unknown.event.type"
+        handler.event.type = "unknown.event.type"  # type: ignore[assignment]
 
         with patch.object(handler, "handle_unknown_event") as mock_handler:
             # Act
@@ -110,7 +110,7 @@ class TestStripeEventHandler:
     ) -> None:
         """Test that unknown events are logged but don't raise exceptions."""
         # Arrange
-        handler.event.type = "unknown.event.type"
+        handler.event.type = "unknown.event.type"  # type: ignore[assignment]
         handler.event.id = "evt_test123"
 
         # Act
@@ -137,11 +137,14 @@ class TestStripeEventHandler:
         }
 
         # Create a dictionary representing the full event for the test
-        event_dict_data = {"type": "checkout.session.completed", "data": {"object": mock_session_data}}
+        event_dict_data: dict[str, t.Any] = {
+            "type": "checkout.session.completed",
+            "data": {"object": mock_session_data},
+        }
 
         # Configure the mock event to be iterable and have the correct attributes
         handler.event.type = event_dict_data["type"]
-        handler.event.data.object = event_dict_data["data"]["object"]  # type: ignore[index]
+        handler.event.data.object = event_dict_data["data"]["object"]
         handler.event.__iter__.return_value = iter(event_dict_data.items())  # type: ignore[attr-defined]
 
         # Act
@@ -265,9 +268,9 @@ class TestStripeEventHandler:
             "refunds": {"data": [{"id": "re_test", "amount": refund_amount_cents, "metadata": {}}]},
         }
 
-        event_dict_data = {"type": "charge.refunded", "data": {"object": mock_charge_data}}
+        event_dict_data: dict[str, t.Any] = {"type": "charge.refunded", "data": {"object": mock_charge_data}}
         handler.event.type = event_dict_data["type"]
-        handler.event.data.object = event_dict_data["data"]["object"]  # type: ignore[index]
+        handler.event.data.object = event_dict_data["data"]["object"]
         handler.event.__iter__.return_value = iter(event_dict_data.items())  # type: ignore[attr-defined]
 
         # Act - capture on_commit callbacks from signal handlers
@@ -400,9 +403,12 @@ class TestStripeEventHandler:
             "status": "canceled",
         }
 
-        event_dict_data = {"type": "payment_intent.canceled", "data": {"object": mock_payment_intent_data}}
+        event_dict_data: dict[str, t.Any] = {
+            "type": "payment_intent.canceled",
+            "data": {"object": mock_payment_intent_data},
+        }
         handler.event.type = event_dict_data["type"]
-        handler.event.data.object = event_dict_data["data"]["object"]  # type: ignore[index]
+        handler.event.data.object = event_dict_data["data"]["object"]
         handler.event.__iter__.return_value = iter(event_dict_data.items())  # type: ignore[attr-defined]
 
         # Act

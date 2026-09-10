@@ -54,6 +54,7 @@ from events.models import (
     Organization,
 )
 from events.service import subscription_stripe_plan_change
+from events.service.subscription_stripe_payloads import StripeAccountKwargs
 
 pytestmark = [
     pytest.mark.integration,
@@ -86,7 +87,7 @@ class _Sandbox(t.NamedTuple):
     subscription_id: str
 
 
-def _account_kwargs() -> dict[str, str]:
+def _account_kwargs() -> StripeAccountKwargs:
     """Return the ``stripe_account=`` header kwargs for the connected test account."""
     return {"stripe_account": t.cast(str, settings.CONNECTED_TEST_STRIPE_ID)}
 
@@ -122,7 +123,7 @@ def _teardown(sandbox: _Sandbox) -> None:
             stripe.SubscriptionSchedule.release(schedule_id, **kwargs)
 
     _safely("release schedule", _release_any_schedule)
-    _safely("cancel subscription", lambda: stripe.Subscription.cancel(sandbox.subscription_id, **kwargs))  # type: ignore[attr-defined]
+    _safely("cancel subscription", lambda: stripe.Subscription.cancel(sandbox.subscription_id, **kwargs))
     _safely("delete customer", lambda: stripe.Customer.delete(sandbox.customer_id, **kwargs))
     _safely("deactivate current price", lambda: stripe.Price.modify(sandbox.current_price_id, active=False, **kwargs))
     _safely("deactivate cheaper price", lambda: stripe.Price.modify(sandbox.cheaper_price_id, active=False, **kwargs))
@@ -164,10 +165,7 @@ def stripe_sandbox() -> t.Iterator[_Sandbox]:
     )
     # Attaching a shared test payment method returns a customer-scoped clone, so
     # the default must be set from the *returned* id, not the "pm_card_visa" alias.
-    # The stub only exposes the instance overload of ``attach`` (the static one is
-    # hidden behind ``@class_method_variant``); the runtime API takes the id string.
-    attached = stripe.PaymentMethod.attach("pm_card_visa", customer=customer.id, **kwargs)  # type: ignore[type-var]
-    payment_method = t.cast(stripe.PaymentMethod, attached)
+    payment_method = stripe.PaymentMethod.attach("pm_card_visa", customer=customer.id, **kwargs)
     stripe.Customer.modify(
         customer.id,
         invoice_settings={"default_payment_method": payment_method.id},

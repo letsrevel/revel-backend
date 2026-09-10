@@ -23,9 +23,7 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe.api_version = settings.STRIPE_API_VERSION
 # Same reasoning for the HTTP timeout (see stripe_service): don't rely on
 # another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined]
-    timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS
-)
+stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
 
 
 def _reclaim_stale_payouts() -> None:
@@ -185,7 +183,8 @@ def process_referral_payouts() -> dict[str, int]:
             transfer = stripe.Transfer.create(
                 amount=to_stripe_amount(payout.payout_amount, payout.currency),
                 currency=payout.currency.lower(),
-                destination=referrer.stripe_account_id,
+                # Non-null: ``_validate_payout_eligibility`` skips referrers without an account.
+                destination=t.cast(str, referrer.stripe_account_id),
                 transfer_group=f"referral-payout-{payout.id}",
                 idempotency_key=f"referral-payout-{payout.id}",
             )

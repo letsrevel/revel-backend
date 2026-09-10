@@ -17,6 +17,7 @@ from pydantic import ValidationError as PydanticValidationError
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
+from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
 from .mixins import (
     LocationMixin,
@@ -80,16 +81,7 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
 
         # --- Check if user is banned or blacklisted from any organization ---
         # If a user is banned/blacklisted, they cannot see the organization at all, even if it's public
-        from events.utils.blacklist import get_hard_blacklisted_org_ids
-
-        banned_org_ids = OrganizationMember.objects.filter(
-            user=user, status=OrganizationMember.MembershipStatus.BANNED
-        ).values_list("organization_id", flat=True)
-
-        blacklisted_org_ids = get_hard_blacklisted_org_ids(user)
-
-        # Combine banned and blacklisted org IDs
-        excluded_org_ids = set(banned_org_ids) | set(blacklisted_org_ids)
+        excluded_org_ids = get_excluded_org_ids(user)
 
         # --- "Gather-then-filter" strategy for standard users ---
 
@@ -111,19 +103,10 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         staff_orgs_qs = self.filter(staff_members=user).values("id")
 
         # D) Restricted organizations where the user is a valid member (not cancelled, not banned)
-        member_orgs_qs = (
-            self.filter(
-                visibility__in=[Organization.Visibility.MEMBERS_ONLY, Organization.Visibility.PRIVATE],
-                memberships__user=user,
-            )
-            .exclude(
-                memberships__status__in=[
-                    OrganizationMember.MembershipStatus.CANCELLED,
-                    OrganizationMember.MembershipStatus.BANNED,
-                ]
-            )
-            .values("id")
-        )
+        member_orgs_qs = self.filter(
+            visibility__in=[Organization.Visibility.MEMBERS_ONLY, Organization.Visibility.PRIVATE],
+            id__in=get_valid_member_org_ids(user),
+        ).values("id")
 
         # 2. Combine the querysets of IDs using UNION.
         # This is extremely fast and efficiently handled by the database.

@@ -113,18 +113,11 @@ class PollQuerySet(models.QuerySet["Poll"]):
             ).exclude(status=Poll.PollStatus.DRAFT)
 
         # Authenticated, non-Django-staff user.
-        # --- Get banned and blacklisted organization IDs ---
         # Users banned/blacklisted from an organization cannot see its polls, even if public
         # (mirrors EventQuerySet.for_user).
-        from events.utils.blacklist import get_hard_blacklisted_org_ids
+        from events.utils.visibility import get_excluded_org_ids
 
-        banned_org_ids = OrganizationMember.objects.filter(
-            user=user, status=OrganizationMember.MembershipStatus.BANNED
-        ).values_list("organization_id", flat=True)
-
-        blacklisted_org_ids = get_hard_blacklisted_org_ids(user)
-
-        excluded_org_ids = set(banned_org_ids) | set(blacklisted_org_ids)
+        excluded_org_ids = get_excluded_org_ids(user)
 
         org_owner_q = Q(organization__owner=user)
         org_staff_q = Exists(OrganizationStaff.objects.filter(organization=OuterRef("organization"), user=user))

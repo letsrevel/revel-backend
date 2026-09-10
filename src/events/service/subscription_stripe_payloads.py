@@ -28,12 +28,20 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe.api_version = settings.STRIPE_API_VERSION
 # Same reasoning for the HTTP timeout (see stripe_service): don't rely on
 # another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined]
-    timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS
-)
+stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
 
 
-def _stripe_account_kwargs(organization: Organization) -> dict[str, str]:
+class StripeAccountKwargs(t.TypedDict, total=False):
+    """``stripe_account=`` header kwargs, spreadable into any SDK call's ``**params``.
+
+    Narrower than ``stripe.RequestOptions`` on purpose: callers also pass
+    ``idempotency_key=`` explicitly, and mypy rejects a spread that *could* repeat it.
+    """
+
+    stripe_account: str
+
+
+def _stripe_account_kwargs(organization: Organization) -> StripeAccountKwargs:
     """Return ``stripe_account=...`` kwargs for a Connect API call.
 
     When the organization happens to share the platform's own Stripe account,
@@ -42,6 +50,18 @@ def _stripe_account_kwargs(organization: Organization) -> dict[str, str]:
     if organization.stripe_account_id and organization.stripe_account_id != settings.STRIPE_ACCOUNT:
         return {"stripe_account": organization.stripe_account_id}
     return {}
+
+
+StripeInterval = t.Literal["day", "week", "month", "year"]
+
+
+def stripe_interval(period_unit: str) -> StripeInterval:
+    """Narrow a plan's ``period_unit`` to Stripe's recurring-interval literal.
+
+    Only ONLINE plans reach Stripe, and ``ensure_stripe_price`` / the downgrade
+    schedule only ever bill ``month`` or ``year``; the values are identical strings.
+    """
+    return t.cast(StripeInterval, period_unit)
 
 
 # Stripe has no error code for "this subscription is already canceled" — only

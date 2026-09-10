@@ -22,7 +22,7 @@ from events.models import (
     Organization,
 )
 from events.service.subscription_stripe_base import ensure_stripe_price
-from events.service.subscription_stripe_payloads import _is_subscription_gone, _stripe_account_kwargs
+from events.service.subscription_stripe_payloads import _is_subscription_gone, _stripe_account_kwargs, stripe_interval
 
 logger = structlog.get_logger(__name__)
 
@@ -83,9 +83,7 @@ def release_online_schedule(subscription: MembershipSubscription) -> None:
         return
     kwargs = _stripe_account_kwargs(subscription.organization)
     try:
-        # The stub types the first arg as a SubscriptionSchedule; the runtime API
-        # accepts the schedule id string (as elsewhere in this module).
-        stripe.SubscriptionSchedule.release(subscription.stripe_schedule_id, **kwargs)  # type: ignore[arg-type]
+        stripe.SubscriptionSchedule.release(subscription.stripe_schedule_id, **kwargs)
     except stripe.error.InvalidRequestError as exc:
         # Already released/completed on Stripe — nothing to undo; proceed to
         # clear local state so the subscription is no longer schedule-managed.
@@ -164,8 +162,9 @@ def resolve_refused_cancel(
 
     try:
         release_online_schedule(subscription)
-        stripe.Subscription.cancel(  # type: ignore[attr-defined]
-            subscription.stripe_subscription_id,
+        stripe.Subscription.cancel(
+            # Non-null: the caller's ``Subscription.cancel`` on this id is what raised ``exc``.
+            t.cast(str, subscription.stripe_subscription_id),
             **_stripe_account_kwargs(subscription.organization),
         )
     except stripe.error.InvalidRequestError as retry_exc:
@@ -281,7 +280,7 @@ def _downgrade_online_subscription(
     kwargs = _stripe_account_kwargs(org)
     try:
         schedule = stripe.SubscriptionSchedule.create(
-            from_subscription=subscription.stripe_subscription_id,
+            from_subscription=t.cast(str, subscription.stripe_subscription_id),
             **kwargs,
         )
     except stripe.error.StripeError as exc:
@@ -298,7 +297,7 @@ def _downgrade_online_subscription(
         if not current_phase:
             raise HttpError(502, str(_("Stripe did not return a schedule phase to extend.")))
         existing_price = ((current_phase.get("items") or [{}])[0].get("price")) or subscription.plan.stripe_price_id
-        new_phases: list[dict[str, t.Any]] = [
+        new_phases: list[stripe.params.SubscriptionScheduleModifyParamsPhase] = [
             {
                 "items": [{"price": existing_price, "quantity": 1}],
                 "start_date": current_phase.get("start_date"),
@@ -311,7 +310,10 @@ def _downgrade_online_subscription(
                 # (>= 2025-07-30.basil rejects it with parameter_unknown); a
                 # ``duration`` of one new-plan period is the replacement. It is
                 # mutually exclusive with ``end_date``, which phase 2 has none of.
-                "duration": {"interval": new_plan.period_unit, "interval_count": new_plan.period_count},
+                "duration": {
+                    "interval": stripe_interval(new_plan.period_unit),
+                    "interval_count": new_plan.period_count,
+                },
                 "proration_behavior": "none",
             },
         ]
@@ -345,7 +347,7 @@ def _downgrade_online_subscription(
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
 
     subscription.pending_plan = new_plan
-    subscription.stripe_schedule_id = t.cast(str, schedule.id)
+    subscription.stripe_schedule_id = schedule.id
     subscription.save(update_fields=["pending_plan", "stripe_schedule_id", "updated_at"])
     return subscription
 

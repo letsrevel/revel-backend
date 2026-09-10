@@ -56,9 +56,7 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe.api_version = settings.STRIPE_API_VERSION
 # Same reasoning for the HTTP timeout (see stripe_service): don't rely on
 # another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined]
-    timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS
-)
+stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
 
 
 # ---- Customer profile --------------------------------------------------------
@@ -96,7 +94,7 @@ def ensure_customer_profile(user: RevelUser, organization: Organization) -> Cust
         {
             "user": user,
             "organization": organization,
-            "stripe_customer_id": t.cast(str, customer.id),
+            "stripe_customer_id": customer.id,
         },
     )
     return profile
@@ -136,7 +134,12 @@ def archive_stripe_price(plan: MembershipSubscriptionPlan) -> None:
 # ---- Subscribe / cancel -----------------------------------------------------
 
 
-def _checkout_session_urls(organization: Organization) -> dict[str, str]:
+class _CheckoutSessionUrls(t.TypedDict):
+    success_url: str
+    cancel_url: str
+
+
+def _checkout_session_urls(organization: Organization) -> _CheckoutSessionUrls:
     """Success/cancel redirect URLs for a membership Checkout Session.
 
     Mirrors the ticket checkout convention (``stripe_service._create_stripe_session``):
@@ -285,7 +288,7 @@ def _create_subscription_checkout_session(
     plan = subscription.plan
     org = subscription.organization
     metadata = {"membership_subscription_id": str(subscription.pk)}
-    subscription_data: dict[str, t.Any] = {"metadata": metadata}
+    subscription_data: stripe.params.checkout.SessionCreateParamsSubscriptionData = {"metadata": metadata}
     effective_percent = effective_application_fee_percent(org)
     if effective_percent is not None:
         subscription_data["application_fee_percent"] = float(effective_percent)
@@ -398,9 +401,9 @@ def start_online_subscription(
         subscription.delete()
         raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
 
-    subscription.stripe_checkout_session_id = t.cast(str, session.id)
+    subscription.stripe_checkout_session_id = session.id
     subscription.save(update_fields=["stripe_checkout_session_id", "updated_at"])
-    return subscription, t.cast(str, session.url)
+    return subscription, session.url
 
 
 def _maybe_resume_pending_checkout(
@@ -479,7 +482,7 @@ def _maybe_resume_pending_checkout(
             subscription_id=str(pending.pk),
             stripe_checkout_session_id=pending.stripe_checkout_session_id,
         )
-        return pending, t.cast(str, session.url)
+        return pending, session.url
 
     # Different plan, or the session expired: expire the old session, then clear
     # the local row.
@@ -612,7 +615,7 @@ def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription,
     if not subscription.stripe_subscription_id:
         return False
     try:
-        stripe.Subscription.cancel(  # type: ignore[attr-defined]
+        stripe.Subscription.cancel(
             subscription.stripe_subscription_id,
             **_stripe_account_kwargs(subscription.organization),
         )
@@ -712,7 +715,7 @@ def create_revival_checkout(subscription: MembershipSubscription) -> str:
         raise HttpError(502, str(_("Could not initialize the payment. Please try again later.")))
 
     subscription.stripe_subscription_id = None
-    subscription.stripe_checkout_session_id = t.cast(str, session.id)
+    subscription.stripe_checkout_session_id = session.id
     subscription.status = MembershipSubscription.SubscriptionStatus.PENDING
     # Reset period — Stripe populates it via the first invoice.paid webhook.
     subscription.current_period_start = None
@@ -727,7 +730,7 @@ def create_revival_checkout(subscription: MembershipSubscription) -> str:
             "updated_at",
         ]
     )
-    return t.cast(str, session.url)
+    return session.url
 
 
 def _tolerate_gone_or_raise(subscription: MembershipSubscription, exc: stripe.error.InvalidRequestError) -> None:
@@ -783,7 +786,7 @@ def cancel_online_subscription(
         try:
             # ``Subscription.cancel`` is the documented runtime API; the type stubs
             # don't expose it as a classmethod, hence the ignore.
-            stripe.Subscription.cancel(subscription.stripe_subscription_id, **kwargs)  # type: ignore[attr-defined]
+            stripe.Subscription.cancel(subscription.stripe_subscription_id, **kwargs)
         except stripe.error.InvalidRequestError as exc:
             _tolerate_gone_or_raise(subscription, exc)
         except stripe.error.StripeError as exc:
@@ -981,4 +984,4 @@ def create_billing_portal_session(
             error=str(exc),
         )
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
-    return t.cast(str, session.url)
+    return session.url

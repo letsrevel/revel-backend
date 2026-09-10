@@ -44,9 +44,7 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe.api_version = settings.STRIPE_API_VERSION
 # Same reasoning for the HTTP timeout (see stripe_service): don't rely on
 # another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined]
-    timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS
-)
+stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
 
 # Placeholder values that must never be treated as real signing secrets.
 _PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})
@@ -70,7 +68,7 @@ def verify_webhook(payload: bytes, signature_header: str) -> stripe.Event:
     last_error: stripe.error.SignatureVerificationError | None = None
     for secret in secrets:
         try:
-            return stripe.Webhook.construct_event(payload, signature_header, secret)
+            return t.cast(stripe.Event, stripe.Webhook.construct_event(payload, signature_header, secret))
         except stripe.error.SignatureVerificationError as exc:
             last_error = exc
             continue

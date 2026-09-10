@@ -24,15 +24,13 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
 
 from events.models import MembershipSubscriptionPlan, Organization
-from events.service.subscription_stripe_payloads import _stripe_account_kwargs
+from events.service.subscription_stripe_payloads import StripeAccountKwargs, _stripe_account_kwargs
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe.api_version = settings.STRIPE_API_VERSION
 # Same reasoning for the HTTP timeout (see stripe_service): don't rely on
 # another module's import to configure stripe.default_http_client.
-stripe.default_http_client = stripe.RequestsClient(  # type: ignore[attr-defined]
-    timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS
-)
+stripe.default_http_client = stripe.RequestsClient(timeout=settings.STRIPE_HTTP_TIMEOUT_SECONDS)
 
 # Prefixes of the legacy organizer-authored product names → generic replacement.
 _PREFIX_TO_GENERIC: dict[str, str] = {
@@ -90,7 +88,11 @@ class Command(BaseCommand):
         # row references anymore. The set dedupes it against org-held ids.
         account_ids = {settings.STRIPE_ACCOUNT, *(t.cast(str, aid) for aid in org_account_ids)}
         for account_id in sorted(account_ids):
-            account_kwargs = {} if account_id == settings.STRIPE_ACCOUNT else {"stripe_account": account_id}
+            account_kwargs = (
+                StripeAccountKwargs()
+                if account_id == settings.STRIPE_ACCOUNT
+                else StripeAccountKwargs(stripe_account=account_id)
+            )
             try:
                 for product in stripe.Product.list(limit=100, **account_kwargs).auto_paging_iter():
                     generic = next(
