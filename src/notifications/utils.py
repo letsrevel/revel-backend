@@ -9,6 +9,10 @@ from django.utils import timezone, translation
 
 ChannelType = t.Literal["email", "markdown", "telegram"]
 
+# Brand primary (docs/brand-style-guide.md); mirrors the `a { color: … }` rule in
+# common/templates/emails/base.html so inline styles don't override the brand token.
+_HEARTY_PURPLE = "#8C3CDD"
+
 _MARKDOWN_SPECIAL_CHARS = re.compile(r"([\[\]()\\`*_{}##+\-!|~>])")
 
 
@@ -90,7 +94,7 @@ def format_org_signature(
             logo_style = "height: 32px; margin-right: 8px; vertical-align: middle;"
             logo_html = f'<img src="{html.escape(logo_url)}" alt="{safe_name}" style="{logo_style}">'
 
-        link_style = "color: #2196F3; text-decoration: none;"
+        link_style = f"color: {_HEARTY_PURPLE}; text-decoration: none;"
         escaped_url = html.escape(org_url)
         return f'<p style="margin: 0;">{logo_html}<a href="{escaped_url}" style="{link_style}">{safe_name}</a></p>'
 
@@ -127,12 +131,14 @@ def format_event_link(
 
     if channel == "email":
         if button:
+            # Solid-purple fallback for clients that strip <style>; the .button class in
+            # emails/base.html upgrades this to the vertical brand gradient where supported.
             button_style = (
-                "display: inline-block; padding: 12px 24px; background: #2196F3; "
+                f"display: inline-block; padding: 12px 24px; background: {_HEARTY_PURPLE}; "
                 "color: white; text-decoration: none; border-radius: 4px; margin: 10px 0;"
             )
             return f'<a href="{event_url}" class="button" style="{button_style}">View Event Details</a>'
-        link_style = "color: #2196F3; text-decoration: none;"
+        link_style = f"color: {_HEARTY_PURPLE}; text-decoration: none;"
         safe_name = html.escape(event_name)
         return f'<a href="{event_url}" style="{link_style}">{safe_name}</a>'
 

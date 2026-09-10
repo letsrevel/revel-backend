@@ -14,6 +14,8 @@ import pytest
 from django.conf import settings
 from django.template.loader import render_to_string
 
+from common.tests.branding import LEGACY_BRAND_HEXES
+
 # ---------------------------------------------------------------------------
 # Helpers — minimal context stubs
 # ---------------------------------------------------------------------------
@@ -63,8 +65,6 @@ _CTX: dict[str, t.Any] = {
     "org": _SCOPE.org,
 }
 
-_LEGACY_ACCENTS = ("#667eea", "#2196F3")
-
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -105,5 +105,5 @@ def test_revenue_report_logo_in_body() -> None:
 def test_revenue_report_no_legacy_accents() -> None:
     """Rendered HTML must not contain any legacy accent hex values."""
     html = render_to_string("reports/revenue_vat_report.html", _CTX)
-    for legacy in _LEGACY_ACCENTS:
+    for legacy in LEGACY_BRAND_HEXES:
         assert legacy not in html, f"Still contains legacy accent {legacy}"
