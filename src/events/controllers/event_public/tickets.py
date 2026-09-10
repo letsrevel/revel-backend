@@ -512,7 +512,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.get(
         "/tickets/{ticket_id}/cancellation-preview",
         url_name="ticket_cancellation_preview",
-        response={200: schema.CancellationPreviewSchema, 403: ErrorDetail},
+        response={200: schema.CancellationPreviewSchema},
         auth=I18nJWTAuth(),
     )
     def cancellation_preview(self, ticket_id: UUID) -> schema.CancellationPreviewSchema:
@@ -560,7 +560,6 @@ class EventPublicTicketsController(EventPublicBaseController):
         url_name="cancel_my_ticket",
         response={
             200: schema.TicketCancellationResponseSchema,
-            403: ErrorDetail,
             409: schema.CancellationBlockedErrorSchema,
             502: ErrorDetail,
         },

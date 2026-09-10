@@ -289,7 +289,6 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             201: schema.SubscriptionSchema,
             400: ValidationErrorResponse | ErrorDetail,
-            403: ErrorDetail,
             404: ErrorDetail,
         },
     )
@@ -455,7 +454,6 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             200: schema.SubscriptionSchema,
             400: ErrorDetail,
-            403: ErrorDetail,
             404: ErrorDetail,
             502: ErrorDetail,
         },
@@ -506,7 +504,6 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         response={
             200: schema.StaffRevivalResponseSchema,
             400: ValidationErrorResponse | ErrorDetail,
-            403: ErrorDetail,
             404: ErrorDetail,
             502: ErrorDetail,
         },

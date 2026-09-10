@@ -216,8 +216,7 @@ class MeSubscriptionsController(UserAwareController):
         response={
             200: schema.MySubscriptionSchema,
             400: ErrorDetail,
-            # Refused while the membership is PAUSED / BANNED by the organizers.
-            403: ErrorDetail,
+            # 403 (declared API-wide) is also refused while the membership is PAUSED / BANNED.
             404: ErrorDetail,
             502: ErrorDetail,
         },
@@ -298,8 +297,7 @@ class MeSubscriptionsController(UserAwareController):
         response={
             200: schema.RevivalResponseSchema,
             400: ErrorDetail,
-            # ``_validate_revivable`` refuses BANNED / blacklisted members here.
-            403: ErrorDetail,
+            # 403 (declared API-wide): ``_validate_revivable`` refuses BANNED / blacklisted members.
             404: ErrorDetail,
             502: ErrorDetail,
         },

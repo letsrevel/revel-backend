@@ -246,7 +246,6 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         response={
             200: schema.EventRSVPSchema | schema.BatchCheckoutResponse,
             400: EventUserEligibility | ErrorDetail,
-            403: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
