@@ -12,7 +12,7 @@ from ninja_extra import (
 )
 
 from common.authentication import I18nJWTAuth, OptionalAuth
-from common.schema import ErrorDetail, ResponseMessage
+from common.schema import ErrorDetail
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import CanPurchaseTicket
@@ -84,7 +84,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.get(
         "/{uuid:event_id}/tickets/{tier_id}/seats",
         url_name="tier_seat_availability",
-        response={200: schema.SectorAvailabilitySchema, 404: ResponseMessage},
+        response={200: schema.SectorAvailabilitySchema, 404: ErrorDetail},
     )
     def get_tier_seat_availability(self, event_id: UUID, tier_id: UUID) -> schema.SectorAvailabilitySchema:
         """Get available seats for a ticket tier with seat assignment.
@@ -512,7 +512,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.get(
         "/tickets/{ticket_id}/cancellation-preview",
         url_name="ticket_cancellation_preview",
-        response={200: schema.CancellationPreviewSchema, 403: ResponseMessage},
+        response={200: schema.CancellationPreviewSchema, 403: ErrorDetail},
         auth=I18nJWTAuth(),
     )
     def cancellation_preview(self, ticket_id: UUID) -> schema.CancellationPreviewSchema:
@@ -560,9 +560,9 @@ class EventPublicTicketsController(EventPublicBaseController):
         url_name="cancel_my_ticket",
         response={
             200: schema.TicketCancellationResponseSchema,
-            403: ResponseMessage,
+            403: ErrorDetail,
             409: schema.CancellationBlockedErrorSchema,
-            502: ResponseMessage,
+            502: ErrorDetail,
         },
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),

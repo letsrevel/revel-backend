@@ -107,6 +107,13 @@ RESPONSE_MESSAGE_400_ALLOWLIST = {
     "/api/organizations/claim-invitation/{token}",
 }
 
+#: Every ``(path, status)`` at which a view genuinely returns ``ResponseMessage`` as
+#: an *error* body. Anything else declaring it at >= 400 is a mis-declaration (#826).
+RESPONSE_MESSAGE_ERROR_ALLOWLIST = {(path, "400") for path in RESPONSE_MESSAGE_400_ALLOWLIST} | {
+    ("/api/events/tokens/{token_id}", "404"),
+    ("/api/organizations/tokens/{token_id}", "404"),
+}
+
 #: Every component a 400 is allowed to resolve to.
 KNOWN_400_COMPONENTS = {
     "ErrorDetail",
@@ -116,18 +123,6 @@ KNOWN_400_COMPONENTS = {
     "ResponseMessage",
     "ValidationErrorResponse",
 }
-
-
-#: Path prefixes of the two subscription controllers, whose every error status was
-#: audited in #712. ``ResponseMessage`` must never reappear on them.
-SUBSCRIPTION_PATH_MARKERS = (
-    "/api/me/organizations/{org_id}/sub",
-    "/api/me/organizations/{org_id}/billing-portal",
-    "/api/organization-admin/{slug}/plans",
-    "/api/organization-admin/{slug}/subscriptions",
-    "/api/organization-admin/{slug}/tiers/{tier_id}/plans",
-    "/api/organization-admin/{slug}/payments",
-)
 
 
 def _declared_error_schemas(status_filter: t.Callable[[str], bool]) -> dict[tuple[str, str, str], set[str]]:
@@ -161,25 +156,22 @@ def _declared_400_schemas() -> dict[tuple[str, str], set[str]]:
     }
 
 
-def test_subscription_controllers_never_declare_response_message() -> None:
-    """Every error status on the two subscription controllers emits ``{detail}``.
+def test_response_message_never_declared_on_error_responses_outside_allowlist() -> None:
+    """Every error status repo-wide emits ``{detail}`` unless a view really returns ``{message}``.
 
-    #712 fixed the 400s; the same mis-declaration covered 403/404/422/502 on
-    these two controllers (21 sites), where no view returns a ``message`` key
-    at any status.
+    #712 fixed the 400s and the two subscription controllers; #826 widens the rule
+    to every operation, since 403/404/422/502 were declared as ``ResponseMessage``
+    on routes whose only producers are ``HttpError``/``get_object_or_404``.
     """
     declared = _declared_error_schemas(lambda s: s.isdigit() and int(s) >= 400)
-    covered = [key for key in declared if any(key[0].startswith(marker) for marker in SUBSCRIPTION_PATH_MARKERS)]
-    # Guard against the markers silently drifting off the real paths, which would
-    # make this test pass vacuously.
-    assert len(covered) > 40, f"expected the subscription controllers' error responses, matched {len(covered)}"
+    assert len(declared) > 400, f"expected the whole API's error responses, matched {len(declared)}"
 
     offenders = sorted(
         f"{method.upper()} {path} -> {status}"
-        for (path, method, status) in covered
-        if "ResponseMessage" in declared[(path, method, status)]
+        for (path, method, status), names in declared.items()
+        if "ResponseMessage" in names and (path, status) not in RESPONSE_MESSAGE_ERROR_ALLOWLIST
     )
-    assert not offenders, f"ResponseMessage declared on subscription error responses: {offenders}"
+    assert not offenders, f"ResponseMessage declared on error responses that never return it: {offenders}"
 
 
 def test_response_message_declared_at_400_only_where_it_is_returned() -> None:
@@ -236,3 +228,68 @@ def test_guest_endpoints_declare_the_coded_error_shape() -> None:
         "/api/events/{event_id}/checkout/public",
     ):
         assert declared[(path, "post")] == {"EventUserEligibility", "ErrorDetail", "GuestActionErrorSchema"}, path
+
+
+def _operations() -> dict[tuple[str, str], dict[str, t.Any]]:
+    """Map each ``(path, method)`` to its raw OpenAPI operation object."""
+    api._schema_cache = {}
+    with schema_name_collision_guard():
+        spec = api.get_openapi_schema()
+    return {
+        (path, method): operation
+        for path, operations in spec["paths"].items()
+        for method, operation in operations.items()
+        if isinstance(operation, dict)
+    }
+
+
+def test_secured_operations_declare_401_and_403_as_error_detail() -> None:
+    """Every operation behind an auth class can fail auth (401) or a permission check (403).
+
+    ``RootPermission.has_permission`` is unconditionally ``True`` and the real check is
+    object-level inside ``get_one()``, so 403 is reachable on effectively every
+    permissioned route while only a handful declared it (#826). Declared globally.
+    """
+    declared = _declared_error_schemas(lambda s: s in {"401", "403"})
+    secured = [key for key, op in _operations().items() if "security" in op]
+    assert len(secured) > 400, f"expected most operations to be secured, matched {len(secured)}"
+
+    missing = sorted(
+        f"{method.upper()} {path} -> {status}"
+        for (path, method) in secured
+        for status in ("401", "403")
+        if declared.get((path, method, status)) != {"ErrorDetail"}
+    )
+    assert not missing, f"secured operations without an ErrorDetail 401/403: {missing}"
+
+
+def test_parameterised_operations_declare_the_request_validation_422() -> None:
+    """Every operation that parses a path/query/body param can answer ninja's 422.
+
+    Its body is ``{"detail": [ {type, loc, msg, ctx?}, ... ]}`` — a *list*, so it must
+    resolve to ``RequestValidationError`` rather than ``ErrorDetail`` (#826).
+    """
+    declared = _declared_error_schemas(lambda s: s == "422")
+    parameterised = [key for key, op in _operations().items() if op.get("parameters") or op.get("requestBody")]
+    assert len(parameterised) > 400, f"expected most operations to take params, matched {len(parameterised)}"
+
+    missing = sorted(
+        f"{method.upper()} {path}"
+        for (path, method) in parameterised
+        if "RequestValidationError" not in declared.get((path, method, "422"), set())
+    )
+    assert not missing, f"parameterised operations without the RequestValidationError 422: {missing}"
+
+
+def test_domain_422s_keep_their_detail_shape_alongside_the_validation_one() -> None:
+    """A route with its own ``HttpError(422)``/static-handler 422 declares both shapes."""
+    declared = _declared_error_schemas(lambda s: s == "422")
+    for path, method in (
+        ("/api/organization-admin/{slug}/tiers/{tier_id}/plans", "post"),
+        ("/api/organization-admin/{slug}/plans/{plan_id}", "patch"),
+        # ``BillingInfoRequiredError`` renders ``{detail}`` via a static handler; these
+        # two declared the ``{errors}`` shape that nothing at 422 produces.
+        ("/api/event-admin/{event_id}/ticket-tier", "post"),
+        ("/api/event-admin/{event_id}/ticket-tier/{tier_id}", "put"),
+    ):
+        assert declared[(path, method, "422")] == {"ErrorDetail", "RequestValidationError"}, path

@@ -122,7 +122,9 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         response={
             200: schema.EventTokenSchema,
             410: schema.EventTokenRejectionSchema,
-            404: ResponseMessage,
+            # ``{message}`` for an unknown token; ``{detail}`` when the rejected
+            # token's event has since been deleted (``get_object_or_404``).
+            404: ResponseMessage | ErrorDetail,
         },
     )
     def get_event_token_details(
@@ -271,7 +273,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
     @route.get(
         "/checkout/{payment_id}/resume",
         url_name="resume_checkout",
-        response={200: schema.StripeCheckoutSessionSchema, 404: ResponseMessage},
+        response={200: schema.StripeCheckoutSessionSchema, 404: ErrorDetail},
         auth=I18nJWTAuth(),
     )
     def resume_checkout(

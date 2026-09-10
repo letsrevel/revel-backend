@@ -49,6 +49,7 @@ from telegram.controllers import TelegramController
 from wallet.controllers import MembershipWalletController, MembershipWalletSignedController, TicketWalletController
 
 from .exception_handlers import handle_django_validation_error, handle_general_exception
+from .openapi import RevelOpenAPISchema
 
 
 class CachedSchemaNinjaExtraAPI(NinjaExtraAPI):
@@ -58,6 +59,9 @@ class CachedSchemaNinjaExtraAPI(NinjaExtraAPI):
     ``/openapi.json`` request — seconds of CPU per hit, on a public, unthrottled
     view (#880). The schema depends only on the registered routes and the mount
     ``path_prefix``, both fixed after startup, so it is safe to memoize.
+
+    Builds the spec with :class:`~api.openapi.RevelOpenAPISchema`, which layers the
+    API-wide 401/403/422 declarations onto every operation (#826).
     """
 
     _schema_cache: dict[str, OpenAPISchema]
@@ -76,7 +80,7 @@ class CachedSchemaNinjaExtraAPI(NinjaExtraAPI):
             cache = self._schema_cache = {}
         if path_prefix not in cache:
             # Racing threads both build; the result is identical and idempotent.
-            cache[path_prefix] = super().get_openapi_schema(path_prefix=path_prefix)
+            cache[path_prefix] = RevelOpenAPISchema(self, path_prefix)
         return cache[path_prefix]
 
 

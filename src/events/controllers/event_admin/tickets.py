@@ -127,12 +127,13 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/ticket-tier",
         url_name="create_ticket_tier",
         # ONLINE tiers are gated on the online-payment prerequisites: 400 when the
-        # organization has no Stripe Connect, 422 when platform fees apply but its
+        # organization has no Stripe Connect, 422 (``{detail}``, via the static
+        # ``BillingInfoRequiredError`` handler) when platform fees apply but its
         # billing info is incomplete.
         response={
             200: schema.TicketTierDetailSchema,
             400: ValidationErrorResponse | ErrorDetail,
-            422: ValidationErrorResponse,
+            422: ErrorDetail,
         },
     )
     def create_ticket_tier(self, event_id: UUID, payload: schema.TicketTierCreateSchema) -> models.TicketTier:
@@ -147,7 +148,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         response={
             200: schema.TicketTierDetailSchema,
             400: ValidationErrorResponse | ErrorDetail,
-            422: ValidationErrorResponse,
+            422: ErrorDetail,
         },
     )
     def update_ticket_tier(
