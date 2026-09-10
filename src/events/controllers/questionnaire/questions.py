@@ -83,7 +83,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
     @route.post(
         "/{org_questionnaire_id}/multiple-choice-questions/{question_id}/options",
         url_name="create_mc_option",
-        response=questionnaire_schema.MultipleChoiceOptionUpdateSchema,
+        response=questionnaire_schema.MultipleChoiceOptionResponseSchema,
         permissions=[QuestionnairePermission("edit_questionnaire")],
     )
     def create_mc_option(
@@ -107,7 +107,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
     @route.put(
         "/{org_questionnaire_id}/multiple-choice-options/{option_id}",
         url_name="update_mc_option",
-        response=questionnaire_schema.MultipleChoiceOptionUpdateSchema,
+        response=questionnaire_schema.MultipleChoiceOptionResponseSchema,
         permissions=[QuestionnairePermission("edit_questionnaire")],
     )
     def update_mc_option(

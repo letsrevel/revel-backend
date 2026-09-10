@@ -584,3 +584,76 @@ class TestAdmissionResubmissionValidation:
             ).count()
             == 2
         )
+
+
+class TestAdmissionStaleApproval:
+    """An APPROVED evaluation older than ``max_submission_age`` must be resubmittable (#956).
+
+    The eligibility gate already reports such a submission as missing and asks the
+    user to complete the questionnaire again; refusing the resubmission here would
+    trap the user in an unrecoverable loop.
+    """
+
+    def test_allows_resubmission_when_approval_is_stale(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+    ) -> None:
+        admission_org_questionnaire.max_submission_age = timedelta(days=30)
+        admission_org_questionnaire.save()
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now() - timedelta(days=60),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+        evaluation = QuestionnaireEvaluation.objects.create(
+            submission=first_submission,
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        )
+        # updated_at is auto_now; push it past the age window the way the gate measures it.
+        QuestionnaireEvaluation.objects.filter(pk=evaluation.pk).update(updated_at=timezone.now() - timedelta(days=60))
+
+        event_questionnaire_service._validate_admission_resubmission(
+            user=eq_user, event=eq_event, org_questionnaire=admission_org_questionnaire
+        )
+
+    def test_blocks_resubmission_when_approval_is_fresh(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+    ) -> None:
+        admission_org_questionnaire.max_submission_age = timedelta(days=30)
+        admission_org_questionnaire.save()
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+        QuestionnaireEvaluation.objects.create(
+            submission=first_submission,
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            event_questionnaire_service._validate_admission_resubmission(
+                user=eq_user, event=eq_event, org_questionnaire=admission_org_questionnaire
+            )
+        assert "already been approved" in str(exc_info.value.message)

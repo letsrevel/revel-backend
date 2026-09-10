@@ -173,7 +173,7 @@ class PollQuestionController(UserAwareController):
     @route.post(
         "/{poll_id}/multiple-choice-questions/{question_id}/options",
         url_name="poll_create_mc_option",
-        response=questionnaire_schema.MultipleChoiceOptionUpdateSchema,
+        response=questionnaire_schema.MultipleChoiceOptionResponseSchema,
     )
     def create_mc_option(
         self,
@@ -194,7 +194,7 @@ class PollQuestionController(UserAwareController):
     @route.put(
         "/{poll_id}/multiple-choice-options/{option_id}",
         url_name="poll_update_mc_option",
-        response=questionnaire_schema.MultipleChoiceOptionUpdateSchema,
+        response=questionnaire_schema.MultipleChoiceOptionResponseSchema,
     )
     def update_mc_option(
         self,

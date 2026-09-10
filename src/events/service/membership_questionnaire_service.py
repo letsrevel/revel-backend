@@ -112,7 +112,7 @@ def _validate_resubmission(*, user: RevelUser, org_questionnaire: OrganizationQu
         raise HttpError(400, str(_("You have a submission pending evaluation.")))
 
     if evaluation.status == statuses.APPROVED:
-        if _approval_is_stale(org_questionnaire, evaluation):
+        if approval_is_stale(org_questionnaire, evaluation):
             # max_submission_age elapsed: the gate asks for a fresh submission again.
             return
         raise HttpError(400, str(_("Your questionnaire has already been approved.")))
@@ -135,7 +135,7 @@ def _validate_resubmission(*, user: RevelUser, org_questionnaire: OrganizationQu
         raise HttpError(400, str(_("You can retry after %(retry_on)s.") % {"retry_on": retry_on}))
 
 
-def _approval_is_stale(
+def approval_is_stale(
     org_questionnaire: OrganizationQuestionnaire,
     evaluation: QuestionnaireEvaluation,
 ) -> bool:
