@@ -34,7 +34,6 @@ class EventPublicGuestController(EventPublicBaseController):
         response={
             200: schema.GuestActionResponseSchema,
             400: EventUserEligibility | ErrorDetail | schema.GuestActionErrorSchema,
-            403: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -72,7 +71,6 @@ class EventPublicGuestController(EventPublicBaseController):
         response={
             200: schema.GuestCheckoutResponseSchema,
             400: EventUserEligibility | ErrorDetail | schema.GuestActionErrorSchema,
-            403: ErrorDetail,
         },
         throttle=WriteThrottle(),
         deprecated=True,
@@ -145,7 +143,6 @@ class EventPublicGuestController(EventPublicBaseController):
         response={
             200: schema.GuestCheckoutResponseSchema,
             400: EventUserEligibility | ErrorDetail | schema.GuestActionErrorSchema,
-            403: ErrorDetail,
         },
         throttle=WriteThrottle(),
         deprecated=True,
@@ -217,7 +214,6 @@ class EventPublicGuestController(EventPublicBaseController):
         response={
             200: schema.GuestCheckoutResponseSchema,
             400: EventUserEligibility | ErrorDetail | schema.GuestActionErrorSchema,
-            403: ErrorDetail,
             404: ErrorDetail,
         },
         throttle=WriteThrottle(),

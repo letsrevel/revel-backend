@@ -185,6 +185,27 @@ class ValidationErrorResponse(Schema):
     errors: dict[str, str | list[str]]
 
 
+class RequestValidationErrorItem(Schema):
+    """One entry of django-ninja's request-validation 422 body (a pydantic error, minus ``input``)."""
+
+    type: str
+    loc: list[str | int]
+    msg: str
+    ctx: dict[str, t.Any] | None = None
+
+
+class RequestValidationError(Schema):
+    """The body django-ninja renders when a path/query/body param fails validation.
+
+    ``detail`` is a *list* of error items — structurally incompatible with
+    :class:`ErrorDetail`, which is why the two are distinct schemas even though
+    they share the key. Declared API-wide on every parameterised operation
+    (see ``api.openapi``, #826).
+    """
+
+    detail: list[RequestValidationErrorItem]
+
+
 class TagSchema(ModelSchema):
     class Meta:
         model = Tag

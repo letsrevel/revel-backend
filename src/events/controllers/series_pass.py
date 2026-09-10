@@ -14,7 +14,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import UserAwareController
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail
 from common.signing import get_file_url
 from common.throttling import WriteThrottle
 from events import models, schema
@@ -159,7 +159,7 @@ class SeriesPassController(UserAwareController):
     @route.post(
         "/reservations/{uuid:reservation_id}/checkout-session",
         url_name="series_pass_checkout_session",
-        response={200: schema.CheckoutSessionResponse, 404: ResponseMessage},
+        response={200: schema.CheckoutSessionResponse, 404: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )

@@ -12,6 +12,7 @@ from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
+from common.schema import ErrorDetail
 from common.signing import get_file_url, verify_signature
 from events.models import OrganizationMember, Ticket
 from events.service import ticket_file_service
@@ -95,7 +96,7 @@ class TicketWalletController(UserAwareController):
         summary="Download Apple Wallet pass via signed link",
         description="Auth-free pkpass download guarded by an HMAC signature and expiry; "
         "used by the Add to Apple Wallet badge in ticket emails.",
-        response={200: None, 403: None, 404: None, 410: None, 503: None},
+        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: None},
         auth=None,
     )
     def download_apple_pass_signed(
@@ -252,7 +253,7 @@ class MembershipWalletSignedController(UserAwareController):
         summary="Download Apple Wallet membership card via signed link",
         description="Auth-free pkpass download guarded by an HMAC signature and expiry; "
         "used by the Add to Apple Wallet badge in membership emails.",
-        response={200: None, 403: None, 404: None, 410: None, 503: None},
+        response={200: None, 403: ErrorDetail, 404: None, 410: None, 503: None},
         auth=None,
     )
     def download_apple_pass_signed(

@@ -37,6 +37,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from common.schema import RequestValidationError
 from events.exception_handlers import HANDLERS
 from events.exceptions import (
     EventRefundsStartedError,
@@ -584,9 +585,13 @@ class TestRevivalAmountBound:
         body = response.json()
         assert "message" not in body, body
         # ninja's request-validation 422 carries a *list* under ``detail`` — a
-        # different shape from ``ErrorDetail``'s ``{detail: str}``. Pinned here
-        # because that distinction is systemically under-declared repo-wide.
+        # different shape from ``ErrorDetail``'s ``{detail: str}``. The spec
+        # declares it as ``RequestValidationError`` API-wide (#826); pin that the
+        # schema really matches the wire body so the generated client can trust it.
         assert isinstance(body.get("detail"), list), body
+        parsed = RequestValidationError.model_validate(body)
+        assert parsed.detail, body
+        assert parsed.detail[0].loc[0] == "body", body
 
 
 class TestOrganizerRefundExceptionContracts:

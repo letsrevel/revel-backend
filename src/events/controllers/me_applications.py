@@ -82,7 +82,6 @@ class MeMembershipApplicationsController(UserAwareController):
         response={
             201: schema.ApplyResponseSchema,
             400: schema.MembershipEligibilitySchema | ErrorDetail,
-            403: ErrorDetail,
             404: ErrorDetail,
             409: ErrorDetail,
         },
