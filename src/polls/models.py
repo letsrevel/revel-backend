@@ -169,10 +169,11 @@ class PollQuerySet(models.QuerySet["Poll"]):
         # Owners/org staff: everything in their org including DRAFT.
         # Other authenticated users: passes visibility OR has voted; DRAFT hidden.
         # Banned/blacklisted users do not see any poll from those orgs.
-        return (
-            self.filter(is_org_owner_or_staff | ((passes_vis | voted_q) & ~Q(status=Poll.PollStatus.DRAFT)))
-            .exclude(organization_id__in=excluded_org_ids)
-            .distinct()
+        # No DISTINCT: every predicate is an Exists() subquery or the single-valued
+        # organization FK, so rows cannot duplicate (and DISTINCT over the wide select
+        # list is pure planner cost, see #880).
+        return self.filter(is_org_owner_or_staff | ((passes_vis | voted_q) & ~Q(status=Poll.PollStatus.DRAFT))).exclude(
+            organization_id__in=excluded_org_ids
         )
 
 

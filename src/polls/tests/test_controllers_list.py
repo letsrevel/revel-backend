@@ -396,3 +396,50 @@ def test_detail_query_count_does_not_grow_with_voters(
         f"Detail GET scaled with voter count: {len(ctx_few.captured_queries)} queries "
         f"for 2 voters, {len(ctx_many.captured_queries)} for 10 (delta={delta})."
     )
+
+
+def test_list_poll_matching_several_predicates_appears_once_without_distinct(
+    organization: Organization,
+    questionnaire: Questionnaire,
+    event: t.Any,
+    revel_user_factory: t.Any,
+) -> None:
+    """A poll visible through ticket AND vote at once is listed exactly once, with no DISTINCT.
+
+    ``Poll.objects.for_user`` is built from ``Exists()`` subqueries and a forward FK
+    only, so the list query must not pay for DISTINCT over the wide select list (#880).
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+    from django.utils import timezone
+    from ninja_jwt.tokens import RefreshToken
+
+    from events.models.ticket import Ticket, TicketTier
+    from questionnaires.models import QuestionnaireSubmission
+
+    user = revel_user_factory()
+    tier = TicketTier.objects.create(event=event, name="General")
+    Ticket.objects.create(event=event, tier=tier, user=user, status=Ticket.TicketStatus.ACTIVE)
+    QuestionnaireSubmission.objects.create(
+        user=user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now(),
+    )
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        event=event,
+        vote_visibility=ResourceVisibility.ATTENDEES_ONLY,
+        status=Poll.PollStatus.OPEN,
+    )
+    client = Client(HTTP_AUTHORIZATION=f"Bearer {str(RefreshToken.for_user(user).access_token)}")  # type: ignore[attr-defined]
+
+    with CaptureQueriesContext(connection) as ctx:
+        response = client.get("/api/polls/")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["results"]] == [str(poll.id)]
+    poll_queries = [q["sql"] for q in ctx.captured_queries if 'FROM "polls_poll"' in q["sql"]]
+    assert poll_queries
+    assert not any("DISTINCT" in sql for sql in poll_queries)

@@ -32,7 +32,7 @@ class CityController(ControllerBase):
         for autocomplete functionality. Useful for setting user location preferences or
         filtering events by location.
         """
-        return filters.filter(self.get_queryset()).distinct()
+        return filters.filter(self.get_queryset())
 
     @route.get("/countries", response=list[str], url_name="list_countries")
     def list_countries(self) -> list[str]:
@@ -50,4 +50,4 @@ class CityController(ControllerBase):
         Returns city details including name, coordinates, and country. Use this to
         get full city information after selecting from a search result.
         """
-        return t.cast(City, self.get_object_or_exception(self.get_queryset(), city_id=city_id))
+        return t.cast(City, self.get_object_or_exception(self.get_queryset(), pk=city_id))
