@@ -370,7 +370,7 @@ def test_event_token_grants_visibility_via_header(client: Client, private_event:
 
 
 def test_organization_token_grants_visibility_via_header(client: Client, organization_owner_user: RevelUser) -> None:
-    """Test that X-Organization-Token header grants visibility to private organizations."""
+    """Test that X-Org-Token header grants visibility to private organizations."""
     # Arrange - create a private organization
     from events.models import MembershipTier
 

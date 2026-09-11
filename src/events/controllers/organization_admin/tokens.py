@@ -84,7 +84,7 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
 
         3. **Shareable Link Format:**
            - For visibility: `https://yourapp.com/organizations/{slug}?ot={token_id}`
-             (Frontend extracts `?ot=` and sends as `X-Organization-Token` header to API)
+             (Frontend extracts `?ot=` and sends as `X-Org-Token` header to API)
            - For claiming: `https://yourapp.com/join/org/{token_id}`
              -> POST `/organizations/claim-invitation/{token_id}`
 
