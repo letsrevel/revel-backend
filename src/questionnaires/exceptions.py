@@ -35,20 +35,8 @@ class SubmissionInDraftError(QuestionnaireException):
     """Raised when a submission is in draft mode and an evaluation is triggered."""
 
 
-class SubmissionDoesNotExistError(QuestionnaireException):
-    """Raised when a submission does not exist."""
-
-
-class PromptInjectionDetectedError(QuestionnaireException):
-    """Raised when prompt injection is detected by the sentinel model."""
-
-
 class CrossQuestionnaireOptionDependencyError(ValidationError):
     """Raised when depends_on_option references an option from a different questionnaire."""
-
-
-class InvalidOptionDependencyOrderError(ValidationError):
-    """Raised when depends_on_option references an option from a question with higher order."""
 
 
 class FileValidationError(QuestionnaireException):

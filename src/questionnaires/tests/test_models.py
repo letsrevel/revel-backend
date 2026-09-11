@@ -20,7 +20,7 @@ def test_questionnaire_creation_and_manager(questionnaire: Questionnaire) -> Non
     """Test that a Questionnaire can be created successfully."""
     assert questionnaire.pk is not None
     assert questionnaire.name == "Test Questionnaire"
-    assert Questionnaire.objects.with_questions().count() == 1
+    assert Questionnaire.objects.count() == 1
 
 
 @pytest.mark.django_db

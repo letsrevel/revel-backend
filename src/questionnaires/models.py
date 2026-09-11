@@ -10,7 +10,6 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import Prefetch
 from django.utils import timezone
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field as PydanticField
@@ -168,25 +167,11 @@ class SubmissionSourceEventMetadata(t.TypedDict):
 class QuestionnaireQueryset(models.QuerySet["Questionnaire"]):
     """Questionnaire queryset."""
 
-    def with_questions(self) -> t.Self:
-        """With questions."""
-        return self.prefetch_related(
-            Prefetch(
-                "multiplechoicequestion_questions", queryset=MultipleChoiceQuestion.objects.prefetch_related("options")
-            ),
-            "freetextquestion_questions",
-            "fileuploadquestion_questions",
-        )
-
 
 class QuestionnaireManager(models.Manager["Questionnaire"]):
     def get_queryset(self) -> QuestionnaireQueryset:
         """Get questionnaire queryset."""
         return QuestionnaireQueryset(self.model)
-
-    def with_questions(self) -> QuestionnaireQueryset:
-        """With questions."""
-        return self.get_queryset().with_questions()
 
 
 class Questionnaire(TimeStampedModel):
@@ -478,11 +463,6 @@ class BaseQuestion(TimeStampedModel):
                 raise exceptions.CrossQuestionnaireOptionDependencyError(
                     {"depends_on_option": "The selected option does not belong to this questionnaire."}
                 )
-            # Ensure the dependency is on a question with lower order
-            # if self.depends_on_option.question.order >= self.order:
-            #     raise exceptions.InvalidOptionDependencyOrderError(
-            #         {"depends_on_option": "Cannot depend on an option from a question with equal or higher order."}
-            #     )
 
     class Meta:
         abstract = True
