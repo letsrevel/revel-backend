@@ -157,3 +157,40 @@ def test_for_user_banned_member_does_not_see_voted_poll(
         submitted_at=timezone.now(),
     )
     assert Poll.objects.for_user(user).count() == 0
+
+
+def test_for_user_no_distinct_and_no_duplicates_across_predicates(
+    organization: t.Any, questionnaire: t.Any, event: t.Any, revel_user_factory: t.Any
+) -> None:
+    """Every predicate is an Exists() or the forward organization FK, so DISTINCT is not needed.
+
+    A user matching several predicates at once (ticket holder, YES RSVP, invitee
+    and voter) must still yield the poll exactly once without DISTINCT.
+    """
+    from events.models.invitation import EventInvitation
+    from events.models.rsvp import EventRSVP
+    from events.models.ticket import Ticket, TicketTier
+
+    user = revel_user_factory()
+    tier = TicketTier.objects.create(event=event, name="General")
+    Ticket.objects.create(event=event, tier=tier, user=user, status=Ticket.TicketStatus.ACTIVE)
+    EventRSVP.objects.create(event=event, user=user, status=EventRSVP.RsvpStatus.YES)
+    EventInvitation.objects.create(event=event, user=user)
+    QuestionnaireSubmission.objects.create(
+        user=user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now(),
+    )
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        event=event,
+        vote_visibility=ResourceVisibility.PRIVATE,
+        result_visibility=ResourceVisibility.ATTENDEES_ONLY,
+        status=Poll.PollStatus.OPEN,
+    )
+
+    qs = Poll.objects.for_user(user)
+    assert qs.query.distinct is False
+    assert list(qs.values_list("pk", flat=True)) == [poll.pk]
