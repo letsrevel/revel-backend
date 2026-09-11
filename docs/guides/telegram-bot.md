@@ -92,7 +92,7 @@ Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 | `FEATURE_TELEGRAM` | `True` (on) | Master switch for the integration. When off, the OTP-linking endpoints (`/telegram/connect`, `/disconnect`, `/status`, `/botname`) return **404** and the notification dispatcher strips the Telegram channel platform-wide, so **no Telegram notifications are sent**. Key self-hosting toggle for instances running without a bot. |
 | `TELEGRAM_BOT_TOKEN` | `0000000000:AABBCCDD` (placeholder) | Bot token from [@BotFather](https://t.me/BotFather) |
 | `TELEGRAM_OTP_EXPIRATION_MINUTES` | `15` | How long an OTP code is valid for account linking |
-| `AIOGRAM_REDIS_DB` | `1` | Redis database index used for aiogram FSM state |
+| `AIOGRAM_REDIS_DB` | `1` | Redis database index used for aiogram FSM state. The one Redis instance is split by index — `0` Celery broker (`CELERY_REDIS_DB`), `1` aiogram FSM, `2` Django cache (`CACHE_REDIS_DB`). Keep them disjoint: a `FLUSHDB` on one index (which is what `cache.clear()` compiles to) takes out everything sharing it. |
 | `AIOGRAM_FSM_TTL_SECONDS` | `86400` (24h) | TTL on FSM state/data keys. Redis runs with `maxmemory-policy volatile-lru`, which can only evict keys that carry a TTL. A user whose state expires mid-flow simply restarts it. |
 
 Access control is **not** configured via environment variables: broadcast powers come from
