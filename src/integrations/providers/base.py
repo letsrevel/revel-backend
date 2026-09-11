@@ -1,8 +1,8 @@
 """The provider seam: one Protocol, neutral shapes, no provider JSON above this line.
 
-Spec §3.1–3.2. Phase 1 declares the connection and webhook half of the protocol; Phase 2
-adds the read/write half. The read/write/count methods arrive with phase 2/3 and extend
-this Protocol in place.
+Spec §3.1–3.2. The Protocol covers the whole provider surface: connection/OAuth and
+account discovery, webhook registration and intake, and the read/write/count operations on
+remote events and ticket classes that the sync and reconcile services drive.
 """
 
 import typing as t

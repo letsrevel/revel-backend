@@ -108,7 +108,7 @@ class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
         ]
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Override save method to call clean()."""
+        """Normalize the phone number and strip whitespace from name fields before saving."""
         if self.phone_number:
             self.phone_number = normalize_phone_number(self.phone_number)
         for field in ("first_name", "last_name", "preferred_name"):

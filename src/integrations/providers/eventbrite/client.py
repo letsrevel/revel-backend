@@ -91,12 +91,14 @@ def _raise_for(response: httpx.Response) -> None:
 
 
 class EventbriteClient:
-    """Opens a fresh httpx client per call, by design in phase 1.
+    """Opens a fresh httpx client per call.
 
-    One API call per operation; the client is opened and closed around each request rather
-    than pooled across the object's lifetime. Pooling can come with the phase-3 reconcile if
-    call volume justifies it.
+    One API call per operation, so there is nothing to amortise: the client is opened and
+    closed around each request rather than pooled across the object's lifetime.
     """
+
+    # ponytail: no connection pooling. Pool the client (one ``httpx.Client`` per instance or a
+    # module-level pool) if reconcile/sync call volume ever justifies it.
 
     def __init__(self, access_token: str | None = None, *, transport: httpx.BaseTransport | None = None) -> None:
         """Store the credentials for opening a client on each call; ``transport`` swaps in a fake for tests."""

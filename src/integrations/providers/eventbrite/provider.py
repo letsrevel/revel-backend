@@ -1,4 +1,4 @@
-"""Eventbrite implementation of ``ListingProvider`` (connection + webhook half; sync arrives in phase 2)."""
+"""Eventbrite implementation of ``ListingProvider``."""
 
 import re
 import typing as t
