@@ -8,7 +8,6 @@ DEFAULT_CURRENCY = config("DEFAULT_CURRENCY", "EUR")
 DEFAULT_PLATFORM_FEE_PERCENT = config("DEFAULT_PLATFORM_FEE_PERCENT", cast=Decimal, default="1.50")
 DEFAULT_PLATFORM_FEE_FIXED = config("DEFAULT_PLATFORM_FEE_FIXED", cast=Decimal, default="0.25")
 STRIPE_SECRET_KEY = config("STRIPE_SECRET_KEY", default="sk_test_...")
-STRIPE_PUBLISHABLE_KEY = config("STRIPE_PUBLISHABLE_KEY", default="pk_test_...")
 STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="whsec_...")
 # CSV of whsec_* signing secrets — one per Stripe webhook endpoint pointing at
 # /api/stripe/webhook. A two-endpoint setup (platform "Your account" + Connect

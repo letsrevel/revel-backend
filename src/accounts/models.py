@@ -325,11 +325,6 @@ def get_otp_expiration_time() -> datetime:
     return timezone.now() + timedelta(minutes=settings.ACCOUNT_OTP_EXPIRATION_MINUTES)
 
 
-def get_12h_otp_expiration_time() -> datetime:
-    """Returns the expiration time for story OTPs (12 hours)."""
-    return timezone.now() + timedelta(hours=12)
-
-
 class ImpersonationLog(models.Model):
     """Audit trail for admin impersonation events.
 
