@@ -190,12 +190,6 @@ class UserTicketSchema(ModelSchema):
     resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
 
 
-class CheckInRequestSchema(Schema):
-    """Schema for ticket check-in requests."""
-
-    ticket_id: UUID
-
-
 class CheckInResponseSchema(ModelSchema):
     """Schema for ticket check-in response."""
 

@@ -248,12 +248,6 @@ class VenueDetailSchema(VenueSchema):
     sectors: list[VenueSectorSchema] = Field(default_factory=list)
 
 
-class VenueWithSeatsSchema(VenueSchema):
-    """Schema for venue with all sectors and seats."""
-
-    sectors: list[VenueSectorWithSeatsSchema] = Field(default_factory=list)
-
-
 # ---- Venue Availability Schemas (for ticket purchase flow) ----
 
 
@@ -276,16 +270,6 @@ class SectorAvailabilitySchema(Schema):
     seats: list[VenueSeatSchema] = Field(default_factory=list)
     available_count: int = 0  # Number of available seats
     total_count: int = 0  # Total active seats
-
-
-class VenueAvailabilitySchema(Schema):
-    """Venue layout with seat availability for ticket purchase."""
-
-    id: UUID
-    name: str
-    sectors: list[SectorAvailabilitySchema] = Field(default_factory=list)
-    total_available: int = 0  # Total available seats across all sectors
-    total_capacity: int = 0  # Total seats across all sectors
 
 
 class VenueCreateSchema(CityEditMixin):

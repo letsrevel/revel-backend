@@ -4,19 +4,17 @@ import re
 import typing as t
 
 from django.contrib.auth.models import AnonymousUser
-from ninja import Field, ModelSchema, Schema
+from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, EmailStr, StringConstraints, field_validator, model_validator
 
 from common.constants import is_valid_country_code
 
-from .models import SiteSettings, Tag, TagAssignment
+from .models import SiteSettings, Tag
 from .signing import get_file_url
 
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
 
-
-UserIdType = t.Annotated[str, Field(..., description="The user ID", max_length=128)]
 
 StrippedString = t.Annotated[str, StringConstraints(strip_whitespace=True)]
 OneToSixtyFourString = t.Annotated[str, StringConstraints(min_length=1, max_length=64, strip_whitespace=True)]
@@ -210,14 +208,6 @@ class TagSchema(ModelSchema):
     class Meta:
         model = Tag
         fields = ("name", "description", "color", "icon")
-
-
-class TagAssignmentSchema(ModelSchema):
-    tag: TagSchema
-
-    class Meta:
-        model = TagAssignment
-        fields = ("tag",)
 
 
 # --- Stripe Connect Schemas (shared across bounded contexts) ---

@@ -7,7 +7,7 @@ from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, EmailStr, Field, StringConstraints
 
 from accounts.schema import MinimalRevelUserSchema
-from common.schema import OneToOneFiftyString, StrippedString
+from common.schema import OneToOneFiftyString
 from events import models
 
 from .event import EventInListSchema
@@ -23,12 +23,6 @@ class InvitationBaseSchema(Schema):
     waives_rsvp_deadline: bool = False
     waives_apply_deadline: bool = False
     custom_message: str | None = None
-
-
-class InvitationSchema(InvitationBaseSchema):
-    event: EventInListSchema
-    tiers: list[TicketTierSchema] = Field(default_factory=list)
-    user_id: UUID
 
 
 class DirectInvitationCreateSchema(InvitationBaseSchema):
@@ -95,29 +89,6 @@ class PendingEventInvitationListSchema(Schema):
     waives_apply_deadline: bool
     custom_message: str | None = None
     created_at: AwareDatetime
-
-
-class CombinedInvitationListSchema(Schema):
-    """Schema combining both EventInvitation and PendingEventInvitation for listing."""
-
-    id: UUID
-    type: str = Field(..., description="'registered' for EventInvitation, 'pending' for PendingEventInvitation")
-    user: MinimalRevelUserSchema | None = Field(None, description="User for registered invitations")
-    email: str | None = Field(None, description="Email for pending invitations")
-    tiers: list[TicketTierSchema] = Field(default_factory=list)
-    waives_questionnaire: bool
-    waives_purchase: bool
-    overrides_max_attendees: bool
-    waives_membership_required: bool
-    waives_rsvp_deadline: bool
-    waives_apply_deadline: bool
-    custom_message: str | None = None
-    created_at: AwareDatetime
-
-
-class EventJWTInvitationTier(Schema):
-    name: OneToOneFiftyString
-    description: StrippedString | None = None
 
 
 class EventInvitationRequestCreateSchema(Schema):

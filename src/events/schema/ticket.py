@@ -27,7 +27,6 @@ from .guest_checkout import (
     GuestCheckoutGroupPayload,
     GuestCheckoutResponseSchema,
     GuestMultiTierCheckoutPayload,
-    GuestPWYCCheckoutSchema,
     GuestRSVPJWTPayloadSchema,
     GuestTicketItemPayload,
     GuestTicketJWTPayloadSchema,
@@ -49,7 +48,6 @@ from .ticket_cancellation import (
 )
 from .ticket_detail import (
     AdminTicketSchema,
-    CheckInRequestSchema,
     CheckInResponseSchema,
     ConfirmPaymentSchema,
     MemberScanResponseSchema,
@@ -96,7 +94,6 @@ __all__ = [
     "CancellationBlockedErrorSchema",
     "CancellationPreviewSchema",
     "CategoryPriceMap",
-    "CheckInRequestSchema",
     "CheckInResponseSchema",
     "CheckoutSessionResponse",
     "ConfirmPaymentSchema",
@@ -112,7 +109,6 @@ __all__ = [
     "GuestCheckoutGroupPayload",
     "GuestCheckoutResponseSchema",
     "GuestMultiTierCheckoutPayload",
-    "GuestPWYCCheckoutSchema",
     "GuestRSVPJWTPayloadSchema",
     "GuestTicketItemPayload",
     "GuestTicketJWTPayloadSchema",
