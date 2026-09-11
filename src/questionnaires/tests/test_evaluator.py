@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from questionnaires.evaluator import SubmissionEvaluator
+from questionnaires.evaluator import HARD_FAIL_SCORE, SubmissionEvaluator
 from questionnaires.llms.llm_backends import MockEvaluator
 from questionnaires.models import (
     FreeTextAnswer,
@@ -179,7 +179,7 @@ def test_evaluation_with_fatal_question_failure_overrides_high_score(
     assert (
         evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
     )  # Assuming AUTOMATIC mode
-    assert evaluation.score == Decimal("-100.0")  # Final score is set to -100 on fatal failure
+    assert evaluation.score == HARD_FAIL_SCORE  # Final score is the hard-fail sentinel
 
     # Also check the audit data to ensure points were calculated correctly before the override
     assert evaluation.evaluation_data.max_mc_points == Decimal("31.0")  # 20 + 10 + 1
@@ -255,7 +255,7 @@ def test_evaluation_fails_if_mandatory_question_is_unanswered(
     evaluation = evaluator.evaluate()
 
     # Assertions
-    assert evaluation.score == Decimal("-100.0")
+    assert evaluation.score == HARD_FAIL_SCORE
     assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
     assert (
         evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
@@ -343,7 +343,7 @@ def test_conditional_question_applicable_when_option_selected(
 
     # Assertions: Q2 is applicable and mandatory but not answered - should fail
     assert evaluation.evaluation_data.missing_mandatory == [q2.id]
-    assert evaluation.score == Decimal("-100.0")
+    assert evaluation.score == HARD_FAIL_SCORE
     assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
 
 

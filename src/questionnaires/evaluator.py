@@ -1,5 +1,6 @@
 """This module contains the business logic for evaluating questionnaire submissions."""
 
+import typing as t
 from decimal import Decimal
 from uuid import UUID
 
@@ -22,6 +23,13 @@ from .models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Sentinel score written when a submission hard-fails (a fatal evaluation error, or a
+# mandatory question left unanswered). It is NOT a percentage: it sits below the 0-100 band
+# so it can never be mistaken for a genuine result, and the manual ``EvaluationCreateSchema.score``
+# is bounded 0-100 so a human evaluator cannot produce it. The cause of the hard fail is recorded
+# separately in the audit fields (``missing_mandatory`` / the fatal-error flag).
+HARD_FAIL_SCORE: t.Final = Decimal("-100.0")
 
 # ---- The Evaluation Service Class ----
 
@@ -292,7 +300,7 @@ class SubmissionEvaluator:
 
         # Calculate final score and proposed pass/fail status
         if self.fatal_error or self.missing_mandatory:
-            score_percent = Decimal("-100.0")
+            score_percent = HARD_FAIL_SCORE
         else:
             score_percent = (
                 ((total_points_scored / total_max_points) * Decimal("100.0"))

@@ -6,6 +6,7 @@ from django.utils.translation import gettext as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.utils import update_or_create_with_race_protection
 from events import models
 from events.models import (
     EventRSVP,
@@ -101,10 +102,10 @@ class EventManager:
         if claims_seat:
             self._assert_capacity(use_tickets=False, tier=None)
 
-        rsvp, _created = EventRSVP.objects.update_or_create(
-            user=self.user,
-            event=self.event,
-            defaults={"status": answer, "note": note},
+        rsvp, _created = update_or_create_with_race_protection(
+            EventRSVP,
+            {"user": self.user, "event": self.event},
+            {"status": answer, "note": note},
         )
         if answer == EventRSVP.RsvpStatus.YES:
             self._claim_active_offer()

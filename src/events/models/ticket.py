@@ -582,9 +582,6 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         ordering = ["event", "display_order", "name"]
         constraints = [models.UniqueConstraint(fields=["event", "name"], name="unique_event_name")]
         indexes = [
-            models.Index(
-                fields=["id", "event", "payment_method"],
-            ),
             models.Index(fields=["event", "display_order"]),
         ]
 

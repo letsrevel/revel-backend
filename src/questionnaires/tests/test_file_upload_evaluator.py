@@ -14,7 +14,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
-from questionnaires.evaluator import SubmissionEvaluator
+from questionnaires.evaluator import HARD_FAIL_SCORE, SubmissionEvaluator
 from questionnaires.llms.llm_backends import MockEvaluator
 from questionnaires.models import (
     FileUploadAnswer,
@@ -104,7 +104,7 @@ class TestMissingMandatoryFileUploadQuestions:
         evaluation = evaluator.evaluate()
 
         # Assert
-        assert evaluation.score == Decimal("-100.0")
+        assert evaluation.score == HARD_FAIL_SCORE
         assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
         assert evaluation.evaluation_data.missing_mandatory == [fu_question.id]
 
@@ -184,7 +184,7 @@ class TestMissingMandatoryFileUploadQuestions:
         evaluation = evaluator.evaluate()
 
         # Assert
-        assert evaluation.score == Decimal("-100.0")
+        assert evaluation.score == HARD_FAIL_SCORE
         assert fu_question.id in evaluation.evaluation_data.missing_mandatory  # type: ignore[operator]
 
 
@@ -290,7 +290,7 @@ class TestConditionalFileUploadQuestions:
 
         # Assert - FU question is applicable and mandatory but not answered - should fail
         assert evaluation.evaluation_data.missing_mandatory == [fu_question.id]
-        assert evaluation.score == Decimal("-100.0")
+        assert evaluation.score == HARD_FAIL_SCORE
         assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
 
     def test_conditional_section_makes_fu_questions_not_applicable(

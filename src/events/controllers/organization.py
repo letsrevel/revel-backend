@@ -73,9 +73,9 @@ class OrganizationController(UserAwareController):
         raise HttpError(410, str(_ORG_TOKEN_GONE_MESSAGES[self._token_rejection.reason]))
 
     def get_organization_token(self) -> models.OrganizationToken | None:
-        """Get an organization token from X-Organization-Token header or ot query param (legacy).
+        """Get an organization token from X-Org-Token header or ot query param (legacy).
 
-        Preferred: X-Organization-Token header
+        Preferred: X-Org-Token header
         Legacy: ?ot= query parameter (for backwards compatibility)
 
         Side effect: if the token exists but is expired/used up, stores
@@ -347,7 +347,7 @@ class OrganizationController(UserAwareController):
         **Primary Use Case: Visibility via Token Header**
         The main purpose of organization tokens is to grant temporary visibility to organizations.
         Frontend extracts tokens from shareable URLs like `/organizations/{slug}?ot={token_id}`
-        and passes them to the API via the `X-Organization-Token` header.
+        and passes them to the API via the `X-Org-Token` header.
 
         **Returns:**
         - `id`: The token code (for use in URLs as `?ot=` query param)
@@ -370,7 +370,7 @@ class OrganizationController(UserAwareController):
 
         // Then access the organization with token in header
         const org = await fetch(`/api/organizations/${token.organization.slug}`, {
-          headers: { 'X-Organization-Token': orgToken }
+          headers: { 'X-Org-Token': orgToken }
         }).then(r => r.json());
 
         if (token.grants_membership || token.grants_staff_status) {

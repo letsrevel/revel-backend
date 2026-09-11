@@ -295,6 +295,14 @@ class QuestionnaireSubmissionResponseSchema(ModelSchema):
 
 
 class QuestionnaireEvaluationForUserSchema(ModelSchema):
+    """Evaluation as shown to the submitting user.
+
+    Note:
+        ``score`` is a 0-100 percentage except on an automatic hard fail (fatal
+        evaluation error or an unanswered mandatory question), which carries the
+        out-of-band sentinel ``questionnaires.evaluator.HARD_FAIL_SCORE`` (-100).
+    """
+
     submission: QuestionnaireSubmissionResponseSchema
     score: Decimal
     status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus
@@ -384,7 +392,13 @@ class QuestionAnswerDetailSchema(Schema):
 
 
 class EvaluationCreateSchema(Schema):
-    """Schema for creating/updating an evaluation."""
+    """Schema for creating/updating an evaluation.
+
+    Note:
+        A manual ``score`` is bounded to 0-100, so a human evaluator can never write the
+        ``questionnaires.evaluator.HARD_FAIL_SCORE`` (-100) sentinel that automatic hard
+        fails carry.
+    """
 
     status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus
     score: Decimal | None = Field(None, ge=0, le=100)
