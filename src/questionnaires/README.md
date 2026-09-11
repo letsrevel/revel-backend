@@ -265,7 +265,6 @@ Downloads the prompt injection detection model to `questionnaires/llms/sentinel/
 - `MissingMandatoryAnswerError`: Unanswered required questions
 - `SectionIntegrityError`: Invalid section references
 - `QuestionIntegrityError`: Invalid question references
-- `PromptInjectionDetectedError`: ML-detected injection attempts
 
 ### Validation Rules
 - Mandatory question enforcement
