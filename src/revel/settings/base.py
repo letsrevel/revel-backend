@@ -316,7 +316,7 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
     # Custom headers for token-based access
     "x-event-token",
-    "x-organization-token",
+    "x-org-token",
 ]
 
 # Expose headers that clients can read from responses

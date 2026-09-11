@@ -298,9 +298,11 @@ class QuestionnaireEvaluationForUserSchema(ModelSchema):
     """Evaluation as shown to the submitting user.
 
     Note:
-        ``score`` is a 0-100 percentage except on an automatic hard fail (fatal
-        evaluation error or an unanswered mandatory question), which carries the
-        out-of-band sentinel ``questionnaires.evaluator.HARD_FAIL_SCORE`` (-100).
+        ``score`` is a percentage capped at 100. It is normally 0-100, but automatic
+        evaluation can drive it below zero when negative-weight answers outweigh the
+        points awarded, and an automatic hard fail (fatal evaluation error or an
+        unanswered mandatory question) carries the out-of-band sentinel
+        ``questionnaires.evaluator.HARD_FAIL_SCORE`` (-100).
     """
 
     submission: QuestionnaireSubmissionResponseSchema
