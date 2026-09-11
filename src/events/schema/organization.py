@@ -15,7 +15,6 @@ from events import models
 from events.models import (
     MembershipRequestStatus,
     Organization,
-    OrganizationContactMessage,
     OrganizationMember,
     OrganizationMembershipRequest,
     PermissionsSchema,
@@ -274,16 +273,6 @@ class OrganizationContactMessageCreateSchema(Schema):
     message: t.Annotated[str, StringConstraints(min_length=1, max_length=2000, strip_whitespace=True)]
 
 
-class OrganizationContactMessageSchema(ModelSchema):
-    """Read schema for OrganizationContactMessage (admin/audit usage)."""
-
-    sender: MinimalRevelUserSchema | None = None
-
-    class Meta:
-        model = OrganizationContactMessage
-        fields = ["id", "sender_email_snapshot", "subject", "message", "created_at"]
-
-
 class MembershipApplicationSubmissionInfo(Schema):
     """Pointer to the submission that satisfied the questionnaire gate."""
 
@@ -442,11 +431,6 @@ class OrganizationStaffSchema(Schema):
 
 class MemberAddSchema(Schema):
     tier_id: UUID
-
-
-class StaffAddSchema(Schema):
-    user_id: UUID
-    permissions: PermissionsSchema | None = None
 
 
 class OrganizationTokenSchema(ModelSchema):

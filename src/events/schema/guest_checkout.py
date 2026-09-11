@@ -27,12 +27,6 @@ class GuestUserDataSchema(Schema):
     last_name: StrippedString = Field(default="", max_length=150, description="Guest user's last name (optional)")
 
 
-class GuestPWYCCheckoutSchema(GuestUserDataSchema):
-    """Schema for guest PWYC ticket checkout."""
-
-    pwyc: Decimal = Field(..., ge=1, description="Pay what you can amount, minimum 1")
-
-
 class GuestBatchCheckoutPayload(GuestUserDataSchema, AttributionPayloadMixin):
     """Payload for batch checkout by guest (unauthenticated) users."""
 

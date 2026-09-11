@@ -3,7 +3,7 @@
 import typing as t
 from uuid import UUID
 
-from ninja import ModelSchema, Schema
+from ninja import Schema
 from pydantic import AwareDatetime
 
 from events.models.follow import EventSeriesFollow, OrganizationFollow
@@ -96,13 +96,6 @@ class EventSeriesFollowUpdateSchema(Schema):
     notify_new_events: bool | None = None
 
 
-class FollowStatusSchema(Schema):
-    """Schema for checking follow status."""
-
-    is_following: bool
-    follow: OrganizationFollowSchema | EventSeriesFollowSchema | None = None
-
-
 class OrganizationFollowStatusSchema(Schema):
     """Schema for organization follow status."""
 
@@ -115,19 +108,3 @@ class EventSeriesFollowStatusSchema(Schema):
 
     is_following: bool
     follow: EventSeriesFollowSchema | None = None
-
-
-class MinimalOrganizationFollowSchema(ModelSchema):
-    """Lightweight follow schema without nested organization."""
-
-    class Meta:
-        model = OrganizationFollow
-        fields = ["id", "notify_new_events", "notify_announcements", "is_public", "created_at"]
-
-
-class MinimalEventSeriesFollowSchema(ModelSchema):
-    """Lightweight follow schema without nested event series."""
-
-    class Meta:
-        model = EventSeriesFollow
-        fields = ["id", "notify_new_events", "is_public", "created_at"]

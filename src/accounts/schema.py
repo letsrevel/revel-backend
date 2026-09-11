@@ -118,32 +118,6 @@ class ExternalIdentitySchema(Schema):
     created_at: AwareDatetime
 
 
-class WebAuthnRegisterOptionsSchema(Schema):
-    options: dict[str, t.Any]
-
-
-class WebAuthnRegisterResponseSchema(Schema):
-    status: str
-
-
-class WebAuthnLoginOptionsSchema(Schema):
-    options: dict[str, t.Any]
-
-
-class WebAuthnLoginResponseSchema(Schema):
-    status: str
-    message: str | None = None
-    token: str | None = None
-
-
-class WebAuthnVerifyRegisterSchema(Schema):
-    credential: dict[str, t.Any]
-
-
-class WebAuthnVerifyLoginSchema(Schema):
-    credential: dict[str, t.Any]
-
-
 class PasswordMixin(Schema):
     password1: str = Field(..., description="Password", min_length=8, max_length=150)
     password2: str = Field(..., description="Password confirmation", min_length=8, max_length=150)
@@ -314,18 +288,6 @@ class EmailChangeConfirmSchema(Schema):
 class EmailChangeResponseSchema(Schema):
     user: RevelUserSchema
     token: TokenObtainPairOutputSchema
-
-
-class DemoLoginSchema(Schema):
-    username: EmailStr
-    password: str
-
-    @model_validator(mode="after")
-    def validate_example_email(self) -> t.Self:
-        """Validate the email is an example email."""
-        if not self.username.endswith("@example.com"):
-            raise ValueError("Email must end with '@example.com'")
-        return self
 
 
 # Dietary Models Schemas
