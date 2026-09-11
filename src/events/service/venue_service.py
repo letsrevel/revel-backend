@@ -317,18 +317,6 @@ def create_sector(
     return sector
 
 
-def _get_shape_coords(
-    payload_shape: list[schema.Coordinate2D] | None,
-    db_shape: list[dict[str, float]] | None,
-) -> list[schema.Coordinate2D] | None:
-    """Get shape coordinates from payload or DB."""
-    if payload_shape is not None:
-        return payload_shape
-    if db_shape is not None:
-        return _convert_shape_to_coordinates(db_shape)
-    return None
-
-
 def _validate_seats_in_shape(
     seats: list[schema.VenueSeatInputSchema],
     shape: list[schema.Coordinate2D],
