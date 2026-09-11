@@ -256,11 +256,18 @@ ACCOUNT_OTP_EXPIRATION_MINUTES = config("ACCOUNT_OTP_EXPIRATION_MINUTES", cast=i
 
 REDIS_HOST = config("REDIS_HOST", default="localhost")
 REDIS_PORT = config("REDIS_PORT", cast=int, default=6379)
+# One Redis instance, partitioned by logical DB index. Keep these disjoint — the
+# indices are a namespace, not an isolation boundary, and `cache.clear()` issues a
+# FLUSHDB that would take out whatever else shares the index.
+#   0 → Celery broker (CELERY_REDIS_DB, settings/celery.py)
+#   1 → aiogram FSM state (AIOGRAM_REDIS_DB, settings/telegram.py)
+#   2 → Django cache (below)
+CACHE_REDIS_DB = config("CACHE_REDIS_DB", cast=int, default=2)
 
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": f"redis://{REDIS_HOST}:{REDIS_PORT}",
+        "LOCATION": f"redis://{REDIS_HOST}:{REDIS_PORT}/{CACHE_REDIS_DB}",
         # Bound every cache op: the default redis-py client has NO timeouts, so a hung
         # (vs refused) Redis would block indefinitely — and the cache sits on every
         # request's hot path via the global throttles (#880). A refused/timed-out op
