@@ -1,8 +1,9 @@
 """Inbound webhook intake and dispatch (spec §8).
 
-Phase 1 authenticated by path secret, parsed, and recorded. Phase 3 adds the dispatch: every
-recorded delivery is picked up by a Celery task after commit, resolved against the provider's
-own host, and routed to a counts refresh or the remote-status transition matrix.
+A delivery is authenticated by the connection's path secret, parsed via the provider, and
+recorded as an audit row. After commit a Celery task picks it up, resolves it against the
+provider's own host with the connection's token, and routes it to a debounced counts refresh
+or the remote-status transition matrix.
 """
 
 from uuid import UUID

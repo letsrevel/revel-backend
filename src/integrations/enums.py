@@ -19,7 +19,7 @@ class IntegrationErrorCode(StrEnum):
     STATE_INVALID = "state_invalid"
     ACCOUNT_UNKNOWN = "account_unknown"
     WEBHOOK_REGISTRATION_FAILED = "webhook_registration_failed"
-    # Sync-time codes (spec §9) — declared now so the contract is complete; used from phase 2.
+    # Sync-time codes (spec §9).
     EVENT_PRIVATE = "event_private"
     EVENT_OPEN_ENDED = "event_open_ended"
     EVENT_NO_TICKETS = "event_no_tickets"
