@@ -5,14 +5,16 @@ import typing as t
 
 from django.conf import settings
 from django.contrib import admin, messages
-from django.db.models import Count, OuterRef, QuerySet, Subquery
+from django.db.models import Count, Exists, OuterRef, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
-from unfold.contrib.filters.admin import AutocompleteSelectFilter
+from unfold.contrib.filters.admin import AutocompleteSelectFilter, RangeDateFilter
 
+from common.models import STRIPE_CONNECTED_Q
 from events import models
 from events.admin.base import (
     EventSeriesInline,
@@ -24,6 +26,64 @@ from events.admin.base import (
     UserLinkMixin,
     VenueInline,
 )
+
+
+class StripeConnectedFilter(admin.SimpleListFilter):
+    """Filter organizations by whether Stripe Connect onboarding is complete."""
+
+    title = "Stripe connected"
+    parameter_name = "stripe_connected"
+
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:  # type: ignore[type-arg]
+        return [("yes", "Yes"), ("no", "No")]
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> QuerySet[models.Organization]:
+        if self.value() == "yes":
+            return queryset.filter(STRIPE_CONNECTED_Q)
+        if self.value() == "no":
+            return queryset.exclude(STRIPE_CONNECTED_Q)
+        return queryset
+
+
+class HasEventsFilter(admin.SimpleListFilter):
+    """Filter organizations by whether they have at least one non-template event."""
+
+    title = "has events"
+    parameter_name = "has_events"
+
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:  # type: ignore[type-arg]
+        return [("yes", "Yes"), ("no", "No")]
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> QuerySet[models.Organization]:
+        has_events = Exists(models.Event.objects.exclude_templates().filter(organization=OuterRef("pk")))
+        if self.value() == "yes":
+            return queryset.filter(has_events)
+        if self.value() == "no":
+            return queryset.filter(~has_events)
+        return queryset
+
+
+class VatStatusFilter(admin.SimpleListFilter):
+    """Filter organizations by VAT ID presence and VIES validation state."""
+
+    title = "VAT status"
+    parameter_name = "vat_status"
+
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:  # type: ignore[type-arg]
+        return [
+            ("none", "No VAT ID"),
+            ("unvalidated", "VAT ID, not validated"),
+            ("validated", "VAT ID validated"),
+        ]
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> QuerySet[models.Organization]:
+        if self.value() == "none":
+            return queryset.filter(vat_id="")
+        if self.value() == "unvalidated":
+            return queryset.exclude(vat_id="").filter(vat_id_validated=False)
+        if self.value() == "validated":
+            return queryset.exclude(vat_id="").filter(vat_id_validated=True)
+        return queryset
 
 
 @admin.register(models.Organization)
@@ -55,11 +115,20 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         "owner_link",
         "members_count",
         "events_count",
+        "payments_count",
         "stripe_connected",
         "vat_status",
         "visibility",
         "created_at",
     ]
+    list_filter = [
+        StripeConnectedFilter,
+        HasEventsFilter,
+        VatStatusFilter,
+        "visibility",
+        ("created_at", RangeDateFilter),
+    ]
+    list_filter_submit = True
     list_select_related = ["owner"]
     search_fields = ["name", "slug", "owner__username"]
     autocomplete_fields = ["owner", "city", "staff_members", "members"]
@@ -232,9 +301,23 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
             .annotate(cnt=Count("id"))
             .values("cnt")
         )
+        # Successful ticket sales, reached through ticket -> event -> organization.
+        # Series-pass and membership payments live in separate tables and are not
+        # counted here; this column is "tickets sold online", not total revenue.
+        payments_subquery = (
+            models.Payment.objects.filter(
+                ticket__event__organization=OuterRef("pk"),
+                status=models.Payment.PaymentStatus.SUCCEEDED,
+            )
+            .values("ticket__event__organization")
+            .annotate(cnt=Count("id"))
+            .values("cnt")
+        )
         return qs.annotate(
             _members_count=Subquery(members_subquery),
             _events_count=Subquery(events_subquery),
+            # Coalesced so orgs with no sales sort as 0 rather than clumping with NULLs.
+            _payments_count=Coalesce(Subquery(payments_subquery), 0),
         )
 
     def owner_link(self, obj: models.Organization) -> str:
@@ -249,6 +332,10 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     @admin.display(description="Events", ordering="_events_count")
     def events_count(self, obj: models.Organization) -> int:
         return t.cast(int, getattr(obj, "_events_count", 0))
+
+    @admin.display(description="Payments", ordering="_payments_count")
+    def payments_count(self, obj: models.Organization) -> int:
+        return t.cast(int, getattr(obj, "_payments_count", 0))
 
     @admin.display(description="Stripe", boolean=True)
     def stripe_connected(self, obj: models.Organization) -> bool:
