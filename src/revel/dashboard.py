@@ -5,14 +5,14 @@ from datetime import date, datetime, timedelta
 
 from dateutil.relativedelta import relativedelta
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from common.models import SiteSettings
-from events.models import Event, Organization
+from common.models import STRIPE_CONNECTED_Q, SiteSettings
+from events.models import Event, Organization, TicketTier
 from notifications.enums import DeliveryStatus
 from notifications.models import NotificationDelivery
 from telegram.models import TelegramUser
@@ -399,7 +399,18 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
     total_users = RevelUser.objects.count()
     connected_telegram = TelegramUser.objects.filter(user__isnull=False).count()
     total_organizations = Organization.objects.count()
+    connected_stripe = Organization.objects.filter(STRIPE_CONNECTED_Q).count()
     total_events = Event.objects.count()
+    # Exists() rather than a join + .distinct(): a semi-join needs no dedup pass,
+    # and an event with several online tiers must still count once.
+    events_with_online_payment = Event.objects.filter(
+        Exists(
+            TicketTier.objects.filter(
+                event=OuterRef("pk"),
+                payment_method=TicketTier.PaymentMethod.ONLINE,
+            )
+        )
+    ).count()
 
     # User growth data
     user_growth = _get_user_growth_data(days=30)
@@ -456,7 +467,9 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
                     "total_users": total_users,
                     "connected_telegram": connected_telegram,
                     "total_organizations": total_organizations,
+                    "connected_stripe": connected_stripe,
                     "total_events": total_events,
+                    "events_with_online_payment": events_with_online_payment,
                 },
                 "user_growth": user_growth,
                 "pronoun_distribution": pronoun_distribution,

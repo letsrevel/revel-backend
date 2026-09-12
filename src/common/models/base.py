@@ -4,6 +4,7 @@ import typing as t
 import uuid
 
 from django.db import models
+from django.db.models import Q
 
 
 class TimeStampedModel(models.Model):
@@ -145,6 +146,16 @@ class EmailDeliverableMixin(models.Model):
         self.email_delivery_error = ""
         if hasattr(self, "updated_at"):
             self.updated_at = now
+
+
+# ORM equivalent of ``StripeConnectMixin.is_stripe_connected``, for filtering and
+# counting across a queryset (the property itself is unreachable from the ORM).
+# Keep the two in lockstep.
+STRIPE_CONNECTED_Q = Q(
+    stripe_account_id__isnull=False,
+    stripe_charges_enabled=True,
+    stripe_details_submitted=True,
+)
 
 
 class StripeConnectMixin(models.Model):
