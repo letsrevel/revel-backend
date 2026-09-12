@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-09-12
+
 ### Added
 
 - Admin: the Organizations changelist gained filters — Stripe connected, has events, VAT status, visibility and a created-date range — plus a sortable **Payments** column counting succeeded ticket sales, so a long organization list can be narrowed and ranked by processing volume
