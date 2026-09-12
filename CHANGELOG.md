@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-09-12
+
+### Added
+
+- **Machine-readable error codes on guest checkout**: the two guest-specific 400s now carry a `code` next to the translated `detail` — `guest_account_exists` when the email already belongs to a real account, `guest_cart_too_large` when the cart is bigger than a guest checkout can carry — so a client can branch on the refusal instead of matching message text. Declared on all four guest routes (RSVP, single-tier, pay-what-you-can and multi-tier)
+- Wallet pass routes now declare their `503` with a code: a transient generation failure returns `wallet_pass_unavailable`, while "wallet passes are not configured on this deployment" stays code-less, so a client can tell "retry in a moment" from "this will never work here"
+- Self-hosters: `CACHE_REDIS_DB` (default `2`) gives the Django cache its own Redis logical database. Celery keeps `0` and the Telegram bot's conversation state `1`, so clearing the cache can no longer take the other two with it — `.env.example` documents the assignment
+- Self-hosters: `AIOGRAM_FSM_TTL_SECONDS` (default `86400`) expires Telegram conversation state, which previously accumulated in Redis with no TTL. Deploy this before switching Redis to a `volatile-lru` eviction policy, so the keys carry a TTL first
+
+### Changed
+
+- **Error responses are now declared across the whole API**: `401` and `403` on every authenticated operation (1 and 15 operations before, 467 and 468 now) and `422` on every operation that parses parameters (4 → 463), plus a new `RequestValidationError` schema for the `{"detail": [...]}` body request validation actually returns. Schema only — no runtime behaviour changed — but generated clients can finally narrow these bodies instead of guessing, so regenerate the frontend client
+- 76 more user-facing error messages are translated rather than always answering in English, and the build now fails when a new untranslated one is added
+- The message on a join request (`EventInvitationRequestCreateSchema`) and on a membership request (`OrganizationMembershipRequestCreateSchema`) is capped at 500 characters. It was unbounded and backed by an index Postgres could not use, which has been dropped
+- Seven more staff notification types honour each staff member's notification preferences instead of always fanning out
+- Questionnaire retake and staleness rules are now explicit: a retake is allowed at exactly `retry_on`, and a `max_submission_age` of zero means an approval never goes stale
+- The Telegram bot no longer answers unknown commands with "administrators only" — they fall through silently — and `/start` clears the stale keyboard left over from earlier versions. The privacy policy and terms it serves now come from the Site Settings singleton instead of settings that were never populated
+- The polls list and the city autocomplete dropped a needless `DISTINCT`. Neither query can return a duplicate row, and de-duplicating forced Postgres to sort the entire wide select list — including the city `location` geography column — before applying the limit
+
+### Fixed
+
+- Checkout no longer stalls for up to 10 seconds on a cold VAT-number lookup. The live VIES call on the payment path is bounded to 2 seconds and still falls back to "no zero-rating" on a timeout; the VAT preview and the "validate my VAT" settings flows keep the 10-second budget, where waiting for an authoritative answer is worth it
+- Automatic evaluation of a free-text question that carries no per-question LLM guidelines crashed instead of evaluating
+- An admission questionnaire whose approval had gone stale could not be resubmitted. The membership path had the stale-approval branch and the admission path did not, so an applicant was left holding an approval the organizer no longer honoured with no way to reapply
+- Creating or updating a multiple-choice option, on both polls and questionnaires, returned a body without the new option's `id`, so clients had to re-fetch to learn what they had just created
+- `GET /api/cities/{city_id}` looked the city up by its external dataset id while the list endpoint returns primary keys, so the detail route answered 404 for essentially every id a client could hold
+- Notification emails use the brand colour instead of a leftover Material-blue `#2196F3`
+- Two RSVPs arriving at once for the same user and event could surface as a 500 instead of a plain upsert: the unique-constraint violation reached the caller as a `ValidationError` from the model's `full_clean()`, which Django's `update_or_create` does not recover from
+
+### Removed
+
+- The `STRIPE_PUBLISHABLE_KEY`, `TELEGRAM_SUPERUSER_IDS` and `TELEGRAM_STAFF_IDS` settings — nothing in the backend read any of them. Self-hosters can drop all three from their environment
+- The Telegram bot's `/preferences` command, which had no working surface behind it
+
 ## [2.12.1] - 2026-09-09
 
 ### Fixed
