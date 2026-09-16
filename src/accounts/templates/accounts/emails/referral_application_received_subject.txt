@@ -1,0 +1,1 @@
+{% load i18n %}{% trans "We received your referral program application" %}

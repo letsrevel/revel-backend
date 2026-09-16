@@ -18,9 +18,15 @@ from django.http import HttpRequest, HttpResponseRedirect
 from django.utils.translation import gettext as _
 from ninja.responses import Response
 
-from accounts.exceptions import OIDCLoginError, ReferralForfeitureConfirmationRequiredError
+from accounts.exceptions import (
+    OIDCLoginError,
+    ReferralAlreadyActiveError,
+    ReferralApplicationConflictError,
+    ReferralApplicationsDisabledError,
+    ReferralForfeitureConfirmationRequiredError,
+)
 from accounts.service import oidc as oidc_service
-from common.exception_handlers import ExceptionHandler, register_handlers
+from common.exception_handlers import ExceptionHandler, make_simple_handler, register_handlers
 
 logger = structlog.get_logger(__name__)
 
@@ -79,6 +85,9 @@ def handle_oidc_login_error(request: HttpRequest, exc: Exception | t.Type[Except
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     ReferralForfeitureConfirmationRequiredError: handle_referral_forfeiture_confirmation_required,
     OIDCLoginError: handle_oidc_login_error,
+    ReferralApplicationsDisabledError: make_simple_handler(404),
+    ReferralApplicationConflictError: make_simple_handler(409),
+    ReferralAlreadyActiveError: make_simple_handler(409),
 }
 
 

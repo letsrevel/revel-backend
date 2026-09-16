@@ -1,0 +1,11 @@
+{% load i18n %}{% blocktrans %}You have been invited to join the Revel referral program. Your referral code is "{{ code }}" and you will earn {{ revenue_share_percent }}% of the platform fees from organizations you bring to Revel.{% endblocktrans %}
+{% if admin_note %}
+{% trans "Note from the team:" %}
+{{ admin_note }}
+{% endif %}
+{% blocktrans %}Create your account with this email address to activate it:{% endblocktrans %}
+
+{{ action_link }}
+
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}

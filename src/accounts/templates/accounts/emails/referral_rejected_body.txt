@@ -1,0 +1,7 @@
+{% load i18n %}{% blocktrans %}Thank you for your interest in the Revel referral program. We are not able to accept your application at this time.{% endblocktrans %}
+{% if admin_note %}
+{% trans "Note from the team:" %}
+{{ admin_note }}
+{% endif %}
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}

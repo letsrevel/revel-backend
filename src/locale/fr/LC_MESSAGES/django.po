@@ -182,7 +182,9 @@ msgid "Token is blacklisted."
 msgstr "Le jeton est sur la liste noire."
 
 msgid "Referral codes use 3 to 20 letters, digits, dashes or underscores."
-msgstr "Les codes de parrainage utilisent 3 à 20 lettres, chiffres, tirets ou underscores."
+msgstr ""
+"Les codes de parrainage utilisent 3 à 20 lettres, chiffres, tirets ou "
+"underscores."
 
 msgid "A note is required."
 msgstr "Une note est requise."
@@ -725,6 +727,40 @@ msgstr "Demande de réinitialisation de mot de passe."
 msgid "Password reset request"
 msgstr "Demande de réinitialisation de mot de passe"
 
+msgid "Application received"
+msgstr "Candidature reçue"
+
+#, python-format
+msgid ""
+"Thanks for applying to the Revel referral program with the code \"%(code)s\"."
+msgstr "Merci d’avoir postulé au programme de parrainage Revel avec le code « %(code)s »."
+
+msgid ""
+"We review every application by hand and will email you once we have decided."
+msgstr "Nous examinons chaque candidature manuellement et vous écrirons dès que nous aurons décidé."
+
+msgid "We received your referral program application"
+msgstr "Nous avons bien reçu votre candidature au programme de parrainage"
+
+msgid "Welcome aboard"
+msgstr "Bienvenue à bord"
+
+#, python-format
+msgid ""
+"You are now part of the Revel referral program. Your referral code is "
+"\"%(code)s\" and you earn %(revenue_share_percent)s%% of the platform fees "
+"from organizations you bring to Revel."
+msgstr "Vous faites désormais partie du programme de parrainage Revel. Votre code de parrainage est « %(code)s » et vous gagnez %(revenue_share_percent)s%% des frais de plateforme des organisations que vous apportez à Revel."
+
+msgid "Open my referral page"
+msgstr "Ouvrir ma page de parrainage"
+
+msgid "Manage your code and payouts here:"
+msgstr "Gérez votre code et vos versements ici :"
+
+msgid "Welcome to the Revel referral program"
+msgstr "Bienvenue dans le programme de parrainage Revel"
+
 msgid "Referral Payouts Forfeited — Admin Notice"
 msgstr "Versements de parrainage perdus — Avis aux administrateur·rice·s"
 
@@ -764,6 +800,28 @@ msgid "Referral payouts forfeited by an account deletion"
 msgstr ""
 "Versements de parrainage perdus à la suite de la suppression d'un compte"
 
+msgid "You're invited"
+msgstr "Vous êtes invité(e)"
+
+#, python-format
+msgid ""
+"You have been invited to join the Revel referral program. Your referral code "
+"is \"%(code)s\" and you will earn %(revenue_share_percent)s%% of the "
+"platform fees from organizations you bring to Revel."
+msgstr "Vous avez été invité(e) à rejoindre le programme de parrainage Revel. Votre code de parrainage est « %(code)s » et vous gagnerez %(revenue_share_percent)s%% des frais de plateforme des organisations que vous apportez à Revel."
+
+msgid "Note from the team:"
+msgstr "Message de l’équipe :"
+
+msgid "Create your account with this email address to activate it:"
+msgstr "Créez votre compte avec cette adresse e-mail pour l’activer :"
+
+msgid "Create my account"
+msgstr "Créer mon compte"
+
+msgid "You're invited to the Revel referral program"
+msgstr "Vous êtes invité(e) au programme de parrainage Revel"
+
 #, python-format
 msgid "Referral payout statement %(document_number)s"
 msgstr "Relevé de versement de parrainage %(document_number)s"
@@ -785,6 +843,17 @@ msgid ""
 msgstr ""
 "Ceci est un document de paiement automatisé. Veuillez le conserver pour vos "
 "dossiers."
+
+msgid "Your application"
+msgstr "Votre candidature"
+
+msgid ""
+"Thank you for your interest in the Revel referral program. We are not able "
+"to accept your application at this time."
+msgstr "Merci de votre intérêt pour le programme de parrainage Revel. Nous ne pouvons pas accepter votre candidature pour le moment."
+
+msgid "About your referral program application"
+msgstr "À propos de votre candidature au programme de parrainage"
 
 msgid "Home"
 msgstr "Accueil"

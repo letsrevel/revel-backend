@@ -161,3 +161,43 @@ def notify_admin_new_user_joined_discord(self: t.Any, is_guest: bool = False) ->
             raise self.retry(exc=e, countdown=countdown)
         logger.exception("discord_exception", channel="user_joined", error=str(e))
         raise
+
+
+@shared_task(bind=True, max_retries=3, name="accounts.tasks.notify_admin_new_referral_application")
+def notify_admin_new_referral_application(self: t.Any, application_id: str) -> dict[str, t.Any]:
+    """Send a Pushover notification to admin when someone applies to the referral program.
+
+    Skips with a warning when Pushover is not configured.
+    """
+    if not settings.PUSHOVER_USER_KEY or not settings.PUSHOVER_APP_TOKEN:
+        logger.warning(
+            "pushover_not_configured",
+            message="PUSHOVER_USER_KEY or PUSHOVER_APP_TOKEN not set in settings",
+        )
+        return {"status": "skipped", "reason": "pushover_not_configured"}
+
+    from accounts.models import ReferralApplication
+
+    application = ReferralApplication.objects.get(id=application_id)
+    message = f"{application.email} wants code '{application.code}'\n\n{application.note[:500]}"
+    payload = {
+        "token": settings.PUSHOVER_APP_TOKEN,
+        "user": settings.PUSHOVER_USER_KEY,
+        "message": message,
+        "title": "New referral application",
+        "priority": 0,
+    }
+
+    try:
+        response = httpx.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10.0)
+        response.raise_for_status()
+    except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as e:
+        logger.error("pushover_error", application_id=application_id, error=str(e))
+        if self.request.retries < self.max_retries:
+            countdown = 2**self.request.retries * 60  # 1min, 2min, 4min
+            raise self.retry(exc=e, countdown=countdown)
+        logger.exception("pushover_exception", application_id=application_id, error=str(e))
+        raise
+
+    logger.info("pushover_notification_sent", application_id=application_id, response_status=response.status_code)
+    return {"status": "sent", "application_id": application_id}

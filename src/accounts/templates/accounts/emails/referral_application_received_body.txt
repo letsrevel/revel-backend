@@ -1,0 +1,6 @@
+{% load i18n %}{% blocktrans %}Thanks for applying to the Revel referral program with the code "{{ code }}".{% endblocktrans %}
+
+{% blocktrans %}We review every application by hand and will email you once we have decided.{% endblocktrans %}
+
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}

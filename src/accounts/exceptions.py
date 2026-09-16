@@ -47,3 +47,19 @@ class OIDCLoginError(Exception):
         """Store the machine-readable error code."""
         super().__init__(code)
         self.code: OIDCErrorCode = code
+
+
+class ReferralApplicationError(Exception):
+    """Base for referral application / invite failures. Raised with a translated message."""
+
+
+class ReferralApplicationsDisabledError(ReferralApplicationError):
+    """Public applications are switched off in ``SiteSettings`` (404)."""
+
+
+class ReferralApplicationConflictError(ReferralApplicationError):
+    """Pending duplicate, taken code, or an invalid status transition (409)."""
+
+
+class ReferralAlreadyActiveError(ReferralApplicationError):
+    """The invitee already has an active referral code (409)."""

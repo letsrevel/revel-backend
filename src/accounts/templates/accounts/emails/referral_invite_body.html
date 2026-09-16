@@ -1,0 +1,12 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "You're invited" %}</h2>
+<p>{% blocktrans %}You have been invited to join the Revel referral program. Your referral code is "{{ code }}" and you will earn {{ revenue_share_percent }}% of the platform fees from organizations you bring to Revel.{% endblocktrans %}</p>
+{% if admin_note %}<p><strong>{% trans "Note from the team:" %}</strong><br>{{ admin_note|linebreaksbr }}</p>{% endif %}
+<p>{% blocktrans %}Create your account with this email address to activate it:{% endblocktrans %}</p>
+<div class="card">
+  <a href="{{ action_link }}" class="button">{% trans "Create my account" %}</a>
+</div>
+<p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+{% endblock %}
