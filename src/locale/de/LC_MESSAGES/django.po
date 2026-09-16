@@ -55,6 +55,14 @@ msgid_plural "Skipped %d payouts (not in failed status)."
 msgstr[0] "%d Auszahlung übersprungen (Status nicht fehlgeschlagen)."
 msgstr[1] "%d Auszahlungen übersprungen (Status nicht fehlgeschlagen)."
 
+msgid "3 to 20 letters, digits, dashes or underscores. Case-insensitive."
+msgstr ""
+"3 bis 20 Buchstaben, Ziffern, Bindestriche oder Unterstriche. Groß- und "
+"Kleinschreibung wird nicht unterschieden."
+
+msgid "Optional. Included in the invite email."
+msgstr "Optional. Wird in der Einladungs-E-Mail angezeigt."
+
 msgid "enrolled"
 msgstr "eingeschrieben"
 
@@ -96,6 +104,15 @@ msgstr "Endgültig ablehnen"
 
 msgid "Rejected permanently"
 msgstr "Endgültig abgelehnt"
+
+msgid "Invite by email"
+msgstr "Per E-Mail einladen"
+
+msgid "invite email sent."
+msgstr "Einladungs-E-Mail gesendet."
+
+msgid "Invite to the referral program"
+msgstr "Zum Empfehlungsprogramm einladen"
 
 #, python-format
 msgid "Verification email sent to %d user."
@@ -971,6 +988,25 @@ msgstr "Abbrechen"
 
 msgid "Confirm Impersonation"
 msgstr "Identitätsübernahme bestätigen"
+
+msgid "Referral Applications"
+msgstr "Empfehlungsbewerbungen"
+
+msgid "Invite"
+msgstr "Einladen"
+
+msgid ""
+"If an account with this email exists it is enrolled immediately and told by "
+"email. Otherwise an invite email with a sign-up link goes out, and the code "
+"is activated when they register with this address."
+msgstr ""
+"Falls bereits ein Konto mit dieser E-Mail-Adresse existiert, wird es sofort "
+"eingeschrieben und per E-Mail benachrichtigt. Andernfalls wird eine "
+"Einladungs-E-Mail mit einem Registrierungslink verschickt, und der Code wird "
+"aktiviert, sobald sich die Person mit dieser Adresse registriert."
+
+msgid "Send invite"
+msgstr "Einladung senden"
 
 msgid "Email already verified."
 msgstr "E-Mail bereits verifiziert."
@@ -5620,9 +5656,6 @@ msgstr "Anwender:innen & Konten"
 
 msgid "User Data Exports"
 msgstr "Anwender:innen-Datenexporte"
-
-msgid "Referral Applications"
-msgstr "Empfehlungsbewerbungen"
 
 msgid "Referral Codes"
 msgstr "Empfehlungscodes"

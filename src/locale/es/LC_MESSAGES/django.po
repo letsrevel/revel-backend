@@ -55,6 +55,14 @@ msgid_plural "Skipped %d payouts (not in failed status)."
 msgstr[0] "%d pago omitido (no está en estado fallido)."
 msgstr[1] "%d pagos omitidos (no están en estado fallido)."
 
+msgid "3 to 20 letters, digits, dashes or underscores. Case-insensitive."
+msgstr ""
+"De 3 a 20 letras, dígitos, guiones o guiones bajos. No distingue mayúsculas "
+"de minúsculas."
+
+msgid "Optional. Included in the invite email."
+msgstr "Opcional. Se incluye en el correo de invitación."
+
 msgid "enrolled"
 msgstr "inscrito"
 
@@ -96,6 +104,15 @@ msgstr "Rechazar permanentemente"
 
 msgid "Rejected permanently"
 msgstr "Rechazado permanentemente"
+
+msgid "Invite by email"
+msgstr "Invitar por correo electrónico"
+
+msgid "invite email sent."
+msgstr "correo de invitación enviado."
+
+msgid "Invite to the referral program"
+msgstr "Invitar al programa de referidos"
 
 #, python-format
 msgid "Verification email sent to %d user."
@@ -958,6 +975,25 @@ msgstr "Cancelar"
 
 msgid "Confirm Impersonation"
 msgstr "Confirmar la suplantación"
+
+msgid "Referral Applications"
+msgstr "Solicitudes de referido"
+
+msgid "Invite"
+msgstr "Invitar"
+
+msgid ""
+"If an account with this email exists it is enrolled immediately and told by "
+"email. Otherwise an invite email with a sign-up link goes out, and the code "
+"is activated when they register with this address."
+msgstr ""
+"Si ya existe una cuenta con este correo, se inscribe de inmediato y se le "
+"notifica por correo. De lo contrario, se envía un correo de invitación con "
+"un enlace de registro, y el código se activa cuando esa persona se registre "
+"con esta dirección."
+
+msgid "Send invite"
+msgstr "Enviar invitación"
 
 msgid "Email already verified."
 msgstr "El correo electrónico ya está verificado."
@@ -5543,9 +5579,6 @@ msgstr "Usuarios y cuentas"
 
 msgid "User Data Exports"
 msgstr "Exportaciones de datos de usuario"
-
-msgid "Referral Applications"
-msgstr "Solicitudes de referido"
 
 msgid "Referral Codes"
 msgstr "Códigos de referido"

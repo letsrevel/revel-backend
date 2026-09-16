@@ -55,6 +55,14 @@ msgid_plural "Skipped %d payouts (not in failed status)."
 msgstr[0] "%d pagamento ignorado (não está no estado falhado)."
 msgstr[1] "%d pagamentos ignorados (não estão no estado falhado)."
 
+msgid "3 to 20 letters, digits, dashes or underscores. Case-insensitive."
+msgstr ""
+"De 3 a 20 letras, dígitos, hífens ou sublinhados. Não diferencia "
+"maiúsculas de minúsculas."
+
+msgid "Optional. Included in the invite email."
+msgstr "Opcional. Incluído no e-mail de convite."
+
 msgid "enrolled"
 msgstr "inscrito"
 
@@ -96,6 +104,15 @@ msgstr "Rejeitar permanentemente"
 
 msgid "Rejected permanently"
 msgstr "Rejeitado permanentemente"
+
+msgid "Invite by email"
+msgstr "Convidar por e-mail"
+
+msgid "invite email sent."
+msgstr "e-mail de convite enviado."
+
+msgid "Invite to the referral program"
+msgstr "Convidar para o programa de indicação"
 
 #, python-format
 msgid "Verification email sent to %d user."
@@ -953,6 +970,25 @@ msgstr "Cancelar"
 
 msgid "Confirm Impersonation"
 msgstr "Confirmar personificação"
+
+msgid "Referral Applications"
+msgstr "Candidaturas de indicação"
+
+msgid "Invite"
+msgstr "Convidar"
+
+msgid ""
+"If an account with this email exists it is enrolled immediately and told by "
+"email. Otherwise an invite email with a sign-up link goes out, and the code "
+"is activated when they register with this address."
+msgstr ""
+"Se já existir uma conta com este e-mail, ela é inscrita imediatamente e "
+"avisada por e-mail. Caso contrário, um e-mail de convite com um link de "
+"cadastro é enviado, e o código é ativado quando a pessoa se cadastrar com "
+"este endereço."
+
+msgid "Send invite"
+msgstr "Enviar convite"
 
 msgid "Email already verified."
 msgstr "E-mail já verificado."
@@ -5484,9 +5520,6 @@ msgstr "Utilizadores e contas"
 
 msgid "User Data Exports"
 msgstr "Exportações de dados de utilizadores"
-
-msgid "Referral Applications"
-msgstr "Candidaturas de indicação"
 
 msgid "Referral Codes"
 msgstr "Códigos de indicação"

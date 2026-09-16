@@ -6,18 +6,28 @@ what the service uses. Rows are created by the public endpoint or the Invite pag
 """
 
 import typing as t
+from decimal import Decimal
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import Case, IntegerField, QuerySet, Value, When
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.template.response import TemplateResponse
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 from unfold.decorators import action
 from unfold.enums import ActionVariant
+from unfold.widgets import (
+    UnfoldAdminDecimalFieldWidget,
+    UnfoldAdminEmailInputWidget,
+    UnfoldAdminTextareaWidget,
+    UnfoldAdminTextInputWidget,
+)
 
 from accounts.exceptions import ReferralApplicationConflictError, ReferralApplicationError
-from accounts.models import ReferralApplication, RevelUser
+from accounts.models import REFERRAL_CODE_VALIDATOR, ReferralApplication, RevelUser
 from accounts.service import referral_application_service
 
 PENDING = ReferralApplication.Status.PENDING
@@ -37,6 +47,32 @@ class ReferralApplicationForm(forms.ModelForm):  # type: ignore[type-arg]
         except ReferralApplicationConflictError as exc:
             raise forms.ValidationError(str(exc)) from exc
         return code
+
+
+class ReferralInviteForm(forms.Form):
+    """Admin invite: email, code, percent (default from settings), optional personal note."""
+
+    email = forms.EmailField(widget=UnfoldAdminEmailInputWidget())
+    code = forms.CharField(
+        max_length=20,
+        validators=[REFERRAL_CODE_VALIDATOR],
+        widget=UnfoldAdminTextInputWidget(),
+        help_text=_("3 to 20 letters, digits, dashes or underscores. Case-insensitive."),
+    )
+    revenue_share_percent = forms.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        min_value=Decimal("0"),
+        max_value=Decimal("100"),
+        initial=settings.DEFAULT_REFERRAL_SHARE_PERCENT,
+        widget=UnfoldAdminDecimalFieldWidget(),
+    )
+    note = forms.CharField(
+        required=False,
+        max_length=2000,
+        widget=UnfoldAdminTextareaWidget(),
+        help_text=_("Optional. Included in the invite email."),
+    )
 
 
 class EnrolledFilter(admin.SimpleListFilter):
@@ -75,6 +111,7 @@ class ReferralApplicationAdmin(ModelAdmin):  # type: ignore[misc]
     search_fields = ["email", "code", "note"]
     list_select_related = ["user", "decided_by"]
     actions_submit_line = ["approve", "reject", "block"]
+    actions_list = ["invite"]
     readonly_fields = ["email", "note", "source", "status", "decided_by", "decided_at", "user", "created_at"]
     fieldsets = [
         (None, {"fields": ("email", "status", "source", "user")}),
@@ -167,3 +204,35 @@ class ReferralApplicationAdmin(ModelAdmin):  # type: ignore[misc]
             str(_("Rejected permanently")),
             lambda: referral_application_service.block(obj, actor=actor, admin_note=obj.admin_note),
         )
+
+    @action(description=_("Invite by email"), url_path="invite", permissions=["add_invite"], icon="person_add")
+    def invite(self, request: HttpRequest) -> HttpResponse:
+        """GET: render the invite form. POST: create the invite (or enroll) and open the row."""
+        form = ReferralInviteForm(request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            try:
+                application = referral_application_service.create_invite(
+                    email=form.cleaned_data["email"],
+                    code=form.cleaned_data["code"],
+                    revenue_share_percent=form.cleaned_data["revenue_share_percent"],
+                    note=form.cleaned_data["note"],
+                    actor=t.cast(RevelUser, request.user),
+                )
+            except ReferralApplicationError as exc:
+                form.add_error(None, str(exc))
+            else:
+                sent = _("enrolled immediately (account exists).") if application.user_id else _("invite email sent.")
+                self.message_user(request, f"{application.email}: {sent}", messages.SUCCESS)
+                return HttpResponseRedirect(reverse("admin:accounts_referralapplication_change", args=[application.pk]))
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": _("Invite to the referral program"),
+            "opts": self.model._meta,
+            "form": form,
+        }
+        return TemplateResponse(request, "admin/accounts/referral_invite.html", context)
+
+    def has_add_invite_permission(self, request: HttpRequest) -> bool:
+        """Invites reuse the model's change permission (add is disabled for the plain form)."""
+        return request.user.has_perm("accounts.change_referralapplication")

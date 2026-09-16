@@ -141,3 +141,64 @@ class TestChangelist:
         response = admin_client.get(reverse("admin:accounts_referralapplication_changelist"))
         result_list = list(response.context["cl"].result_list)
         assert [obj.pk for obj in result_list] == [older_pending.pk, newer_decided.pk]
+
+
+INVITE_URL = reverse("admin:accounts_referralapplication_invite")
+
+
+class TestInvitePage:
+    @NO_MANIFEST_STORAGE
+    def test_get_renders_form(self, admin_client: Client) -> None:
+        response = admin_client.get(INVITE_URL)
+        assert response.status_code == 200
+        assert 'name="email"' in response.content.decode()
+
+    @NO_MANIFEST_STORAGE
+    def test_changelist_links_to_invite(self, admin_client: Client) -> None:
+        html = admin_client.get(reverse("admin:accounts_referralapplication_changelist")).content.decode()
+        assert INVITE_URL in html
+
+    def test_post_creates_invite_and_redirects_to_row(
+        self, admin_client: Client, mock_email: MagicMock, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        data = {"email": "New@Example.com", "code": "fresh", "revenue_share_percent": "20.00", "note": "Hi there"}
+        with django_capture_on_commit_callbacks(execute=True):
+            response = admin_client.post(INVITE_URL, data)
+        app = ReferralApplication.objects.get()
+        assert response.status_code == 302 and response["Location"] == _change_url(app)
+        assert app.source == ReferralApplication.Source.INVITE
+        assert app.status == ReferralApplication.Status.APPROVED and app.admin_note == "Hi there"
+        assert mock_email.call_args.args == ("referral_invite", "new@example.com")
+
+    def test_post_for_existing_user_enrolls(self, admin_client: Client, revel_user_factory: t.Any) -> None:
+        user = revel_user_factory(email="here@example.com")
+        data = {"email": "here@example.com", "code": "fresh", "revenue_share_percent": "15.00", "note": ""}
+        admin_client.post(INVITE_URL, data)
+        assert ReferralCode.objects.get(user=user).code == "fresh"
+
+    @NO_MANIFEST_STORAGE
+    @pytest.mark.parametrize(
+        "code, expected",
+        [("bad code", "letters, digits"), ("taken", "already taken")],
+    )
+    def test_form_errors(self, admin_client: Client, revel_user_factory: t.Any, code: str, expected: str) -> None:
+        ReferralCode.objects.create(user=revel_user_factory(), code="taken")
+        data = {"email": "x@example.com", "code": code, "revenue_share_percent": "15.00", "note": ""}
+        response = admin_client.post(INVITE_URL, data)
+        assert response.status_code == 200
+        assert expected in response.content.decode()
+        assert not ReferralApplication.objects.exists()
+
+    @NO_MANIFEST_STORAGE
+    def test_active_referrer_is_a_form_error(self, admin_client: Client, revel_user_factory: t.Any) -> None:
+        user = revel_user_factory(email="active@example.com")
+        ReferralCode.objects.create(user=user, code="have")
+        data = {"email": "active@example.com", "code": "fresh", "revenue_share_percent": "15.00", "note": ""}
+        response = admin_client.post(INVITE_URL, data)
+        assert response.status_code == 200
+        assert "already has an active referral code" in response.content.decode()
+        assert not ReferralApplication.objects.exists()
+
+    def test_non_staff_cannot_open(self, client: Client, user: RevelUser) -> None:
+        client.force_login(user)
+        assert client.get(INVITE_URL).status_code in (302, 403)
