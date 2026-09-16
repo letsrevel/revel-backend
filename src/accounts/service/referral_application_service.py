@@ -10,7 +10,8 @@ from decimal import Decimal
 
 import structlog
 from django.conf import settings
-from django.db import transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.html import strip_tags
@@ -21,6 +22,7 @@ from accounts import tasks
 from accounts.exceptions import (
     ReferralAlreadyActiveError,
     ReferralApplicationConflictError,
+    ReferralApplicationError,
     ReferralApplicationsDisabledError,
 )
 from accounts.models import ReferralApplication, ReferralCode, RevelUser
@@ -157,6 +159,11 @@ def _enroll(application: ReferralApplication, user: RevelUser) -> ReferralCode:
         existing.save(update_fields=["is_active", "revenue_share_percent", "updated_at"])
         code = existing
     else:
+        # ``assert_code_available`` is an unlocked check and nothing stops two live applications
+        # from wanting the same code, so re-check against real codes right before minting one.
+        # Raising the mapped conflict here keeps the admin on a "taken" message instead of a 500.
+        if ReferralCode.objects.filter(code__iexact=application.code).exists():
+            raise ReferralApplicationConflictError(str(_("This referral code is already taken.")))
         code = ReferralCode.objects.create(
             user=user, code=application.code, revenue_share_percent=application.revenue_share_percent
         )
@@ -169,11 +176,16 @@ def _enroll(application: ReferralApplication, user: RevelUser) -> ReferralCode:
 
 @transaction.atomic
 def approve(application: ReferralApplication, *, actor: RevelUser) -> ReferralApplication:
-    """Approve a PENDING application: enroll now if the account exists, else email an invite."""
+    """Approve a PENDING application: enroll now if a full account exists, else email an invite.
+
+    A guest account (unverified, no password, possibly created by somebody else's checkout)
+    does not count as "exists": the invite email goes out and enrollment happens when the
+    guest becomes a full user (see :func:`try_enroll_invitee`).
+    """
     application = _require_pending(application)
     _mark_decided(application, ReferralApplication.Status.APPROVED, actor, None)
 
-    user = RevelUser.objects.filter(email__iexact=application.email).first()
+    user = RevelUser.objects.filter(email__iexact=application.email, guest=False).first()
     if user is not None:
         _enroll(application, user)
         return application
@@ -231,25 +243,42 @@ def create_invite(
         normalized_email=normalized, status=ReferralApplication.Status.BLOCKED
     ).exists():
         raise ReferralApplicationConflictError(str(_("This email is permanently blocked from the referral program.")))
-    if ReferralApplication.objects.filter(
-        normalized_email=normalized, status=ReferralApplication.Status.PENDING
-    ).exists():
+    open_invite = (
+        ReferralApplication.objects.filter(
+            normalized_email=normalized, status=ReferralApplication.Status.APPROVED, user__isnull=True
+        )
+        .only("code")
+        .first()
+    )
+    if open_invite is not None:
+        raise ReferralApplicationConflictError(
+            str(_("This email already has an approved invite awaiting signup (code {}).").format(open_invite.code))
+        )
+    assert_code_available(code)
+    application, created = get_or_create_with_race_protection(
+        ReferralApplication,
+        Q(normalized_email=normalized, status=ReferralApplication.Status.PENDING),
+        {
+            "email": email,
+            "code": code,
+            "revenue_share_percent": revenue_share_percent,
+            "admin_note": sanitize_note(note),
+            "source": ReferralApplication.Source.INVITE,
+        },
+    )
+    if not created:
         raise ReferralApplicationConflictError(
             str(_("This email already has a pending application; decide it instead."))
         )
-    assert_code_available(code)
-    application = ReferralApplication.objects.create(
-        email=email,
-        code=code,
-        revenue_share_percent=revenue_share_percent,
-        admin_note=sanitize_note(note),
-        source=ReferralApplication.Source.INVITE,
-    )
     return approve(application, actor=actor)
 
 
 def enroll_on_signup(user: RevelUser) -> ReferralCode | None:
-    """Enroll a freshly created user who holds an APPROVED, not-yet-enrolled application."""
+    """Enroll a user who holds an APPROVED, not-yet-enrolled application.
+
+    Called from the ``post_save`` receiver for non-guest account creation and from the two
+    guest-to-full-user conversions (password reset, OIDC login). Needs an open transaction.
+    """
     application = (
         ReferralApplication.objects.select_for_update()
         .filter(
@@ -263,3 +292,22 @@ def enroll_on_signup(user: RevelUser) -> ReferralCode | None:
     if application is None:
         return None
     return _enroll(application, user)
+
+
+def try_enroll_invitee(user: RevelUser) -> ReferralCode | None:
+    """Enroll ``user`` if invited, never raising: a referral perk must not block signup or login.
+
+    Runs :func:`enroll_on_signup` in its own ``atomic()`` block — a savepoint inside the calling
+    request transaction, or a real transaction for ORM-only callers — so a failure rolls back
+    only the enrollment (and discards the enrolled email queued on commit) while the account
+    change commits. Failures are logged; the application stays APPROVED and un-enrolled for an
+    admin to follow up. Typical causes: the desired code was taken since the invite was
+    approved (``ReferralApplicationConflictError`` from the pre-check, or the ``Lower(code)``
+    constraint). This is a deliberate exception to "don't catch exceptions for the sake of it".
+    """
+    try:
+        with transaction.atomic():
+            return enroll_on_signup(user)
+    except ReferralApplicationError, ValidationError, IntegrityError:
+        logger.exception("referral_enrollment_failed", user_id=str(user.id), email=user.email)
+        return None

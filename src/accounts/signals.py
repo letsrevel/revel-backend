@@ -1,8 +1,7 @@
 """Signal handlers for account-related operations."""
 
 import structlog
-from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -66,28 +65,19 @@ def notify_admin_on_user_creation(
 def enroll_referral_invitee_on_creation(
     sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: object
 ) -> None:
-    """Turn an approved referral invite into a ReferralCode when the invitee's account is created.
+    """Turn an approved referral invite into a ReferralCode when the invitee signs up.
 
-    Wrapped in its own ``atomic()`` block: nests as a savepoint inside the creating transaction
-    (register, OIDC, guest checkout alike, all under ``ATOMIC_REQUESTS``) so the code is atomic
-    with the account, but also works standalone (e.g. ORM-only scripts/tests) where
-    ``enroll_on_signup``'s ``select_for_update()`` would otherwise need an existing transaction.
-    The enrolled email is deferred to commit.
+    Only real signups count: guest accounts (created by guest checkout, possibly by somebody
+    else typing the invitee's email, and never verified) are skipped — the same line the admin
+    signup notification draws. A guest is enrolled later, when they become a full user through
+    a password reset or an OIDC login (see ``account._apply_password_reset`` / ``oidc``).
 
-    A referral perk must never block signup, so a failure to enroll (typically the desired code
-    having been taken since the invite was approved, which trips the ``Lower(code)`` constraint)
-    is logged and swallowed rather than propagated — otherwise ``/register``, the OIDC callback
-    and guest checkout would all fail. This is a deliberate exception to "don't catch exceptions
-    for the sake of it". The savepoint rolls back, which also discards the enrolled email queued
-    on commit; the application stays APPROVED and un-enrolled for an admin to follow up.
+    Delegates to :func:`try_enroll_invitee`, which never raises: a referral perk must not block
+    account creation.
     """
-    if not created:
+    if not created or instance.guest:
         return
-    try:
-        with transaction.atomic():
-            referral_application_service.enroll_on_signup(instance)
-    except ValidationError, IntegrityError:
-        logger.exception("referral_enrollment_failed", user_id=str(instance.id), email=instance.email)
+    referral_application_service.try_enroll_invitee(instance)
 
 
 @receiver(post_save, sender=GlobalBan)

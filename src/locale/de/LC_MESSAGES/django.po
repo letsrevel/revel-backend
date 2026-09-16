@@ -365,6 +365,9 @@ msgid "This email is permanently blocked from the referral program."
 msgstr ""
 "Diese E-Mail-Adresse ist dauerhaft vom Empfehlungsprogramm ausgeschlossen."
 
+msgid "This email already has an approved invite awaiting signup (code {})."
+msgstr "Für diese E-Mail-Adresse gibt es bereits eine genehmigte Einladung, die auf die Registrierung wartet (Code {})."
+
 msgid "This email already has a pending application; decide it instead."
 msgstr ""
 "Für diese E-Mail-Adresse gibt es bereits einen ausstehenden Antrag; "

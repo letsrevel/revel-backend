@@ -503,6 +503,10 @@ class Referral(TimeStampedModel):
         non-default value passed by the caller wins. Existing rows are never rewritten.
         """
         self.referrer = self.referral_code.user
+        # ponytail: "untouched" is detected by value, so a caller that explicitly passes exactly
+        # the global default for a code with an override gets the override. Only the admin's
+        # manual Referral form can do that today; a None default with a save-time fill would
+        # distinguish the two if it ever matters.
         if self._state.adding and self.revenue_share_percent == settings.DEFAULT_REFERRAL_SHARE_PERCENT:
             override = self.referral_code.revenue_share_percent
             if override is not None:

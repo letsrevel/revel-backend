@@ -571,3 +571,28 @@ def test_reset_password_for_banned_user_is_blocked_and_token_stays_consumed(user
     with pytest.raises(HttpError) as exc:
         account_service.reset_password(token, "a-new-valid-Password-123!")
     assert exc.value.status_code == 401  # blacklisted, not redeemable
+
+
+@patch("accounts.tasks.send_account_email.delay")
+def test_reset_password_enrolls_a_converted_guest_with_an_approved_invite(
+    mock_send_email: MagicMock, guest_user: RevelUser, superuser: RevelUser
+) -> None:
+    """A guest with an approved referral invite is enrolled when they become a full user."""
+    from accounts.models import ReferralApplication, ReferralCode
+    from accounts.service import referral_application_service
+
+    application = ReferralApplication.objects.create(
+        email=guest_user.email, code="guestcode", source=ReferralApplication.Source.INVITE
+    )
+    referral_application_service.approve(application, actor=superuser)
+    assert not ReferralCode.objects.filter(user=guest_user).exists()
+
+    payload = schema.PasswordResetJWTPayloadSchema(
+        user_id=guest_user.id, email=guest_user.email, exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME
+    )
+    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    account_service.reset_password(token, "a-new-valid-Password-123!")
+
+    assert ReferralCode.objects.get(user=guest_user).code == "guestcode"
+    application.refresh_from_db()
+    assert application.user == guest_user

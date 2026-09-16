@@ -248,3 +248,20 @@ def test_linking_existing_account_does_not_notify(user: RevelUser, django_captur
         oidc._resolve_user(GOOGLE, claims(email=user.email))
     pushover.assert_not_called()
     discord.assert_not_called()
+
+
+def test_guest_upgrade_enrolls_an_approved_referral_invite(guest_user: RevelUser, superuser: RevelUser) -> None:
+    from accounts.models import ReferralApplication, ReferralCode
+    from accounts.service import referral_application_service
+
+    application = ReferralApplication.objects.create(
+        email=guest_user.email, code="oidccode", source=ReferralApplication.Source.INVITE
+    )
+    with patch("accounts.tasks.send_account_email.delay"):
+        referral_application_service.approve(application, actor=superuser)
+        assert not ReferralCode.objects.filter(user=guest_user).exists()
+
+        result = oidc._resolve_user(GOOGLE, claims(email=guest_user.email))
+
+    assert result == guest_user and result.guest is False
+    assert ReferralCode.objects.get(user=guest_user).code == "oidccode"

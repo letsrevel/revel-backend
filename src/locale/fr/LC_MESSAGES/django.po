@@ -370,6 +370,9 @@ msgstr "{} a déjà un code de parrainage actif."
 msgid "This email is permanently blocked from the referral program."
 msgstr "Cet e-mail est bloqué définitivement du programme de parrainage."
 
+msgid "This email already has an approved invite awaiting signup (code {})."
+msgstr "Cette adresse e-mail a déjà une invitation approuvée en attente d'inscription (code {})."
+
 msgid "This email already has a pending application; decide it instead."
 msgstr ""
 "Cet e-mail a déjà une candidature en attente ; décide de celle-ci à la place."

@@ -351,3 +351,104 @@ class TestEnrollOnSignup:
         assert not ReferralCode.objects.filter(user=user).exists()
         pending.refresh_from_db()
         assert pending.status == APPROVED and pending.user is None
+
+
+class TestCreateInviteGuards:
+    """Follow-ups from the PR #987 review: invites are race-safe and never stack."""
+
+    def test_pending_application_for_email_is_refused(self, admin: RevelUser, mock_email: MagicMock) -> None:
+        ReferralApplication.objects.create(email="p@example.com", code="pcode", note="hi")
+        with pytest.raises(ReferralApplicationConflictError, match="pending application"):
+            svc.create_invite(
+                email="P@example.com", code="other", revenue_share_percent=Decimal("15.00"), note="", actor=admin
+            )
+
+    def test_open_invite_for_email_is_refused_and_names_its_code(self, admin: RevelUser, mock_email: MagicMock) -> None:
+        svc.create_invite(
+            email="x@example.com", code="first", revenue_share_percent=Decimal("15.00"), note="", actor=admin
+        )
+        with pytest.raises(ReferralApplicationConflictError, match="first"):
+            svc.create_invite(
+                email="x+alias@example.com", code="second", revenue_share_percent=Decimal("15.00"), note="", actor=admin
+            )
+        assert ReferralApplication.objects.filter(status=APPROVED).count() == 1
+
+    def test_reinvite_after_enrollment_is_a_silent_enrolled_conflict(
+        self, admin: RevelUser, revel_user_factory: t.Any, mock_email: MagicMock
+    ) -> None:
+        user = revel_user_factory(email="done@example.com")
+        svc.create_invite(
+            email="done@example.com", code="mine", revenue_share_percent=Decimal("15.00"), note="", actor=admin
+        )
+        assert ReferralCode.objects.get(user=user).code == "mine"
+        with pytest.raises(ReferralAlreadyActiveError):
+            svc.create_invite(
+                email="done@example.com", code="again", revenue_share_percent=Decimal("15.00"), note="", actor=admin
+            )
+        assert not ReferralApplication.objects.filter(code="again").exists()
+
+
+class TestApproveCodeClash:
+    def test_code_taken_since_approval_is_a_conflict_and_row_stays_pending(
+        self, pending: ReferralApplication, admin: RevelUser, revel_user_factory: t.Any, mock_email: MagicMock
+    ) -> None:
+        """Two live applications may hold one code; minting the second must not 500 the admin."""
+        user = revel_user_factory(email="new@example.com")
+        ReferralCode.objects.create(user=revel_user_factory(), code="NEWCODE")
+
+        with pytest.raises(ReferralApplicationConflictError, match="already taken"):
+            svc.approve(pending, actor=admin)
+
+        pending.refresh_from_db()
+        assert pending.status == PENDING and pending.user is None
+        assert not ReferralCode.objects.filter(user=user).exists()
+        mock_email.assert_not_called()
+
+
+class TestGuestEnrollment:
+    @pytest.fixture
+    def approved(self, pending: ReferralApplication, admin: RevelUser, mock_email: MagicMock) -> ReferralApplication:
+        svc.approve(pending, actor=admin)
+        mock_email.reset_mock()
+        return pending
+
+    def test_guest_account_creation_does_not_enroll(
+        self, approved: ReferralApplication, revel_user_factory: t.Any, mock_email: MagicMock
+    ) -> None:
+        guest = revel_user_factory(email="new@example.com", guest=True)
+        assert not ReferralCode.objects.filter(user=guest).exists()
+        approved.refresh_from_db()
+        assert approved.user is None
+        mock_email.assert_not_called()
+
+    def test_try_enroll_invitee_enrolls_a_converted_guest(
+        self,
+        approved: ReferralApplication,
+        revel_user_factory: t.Any,
+        mock_email: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        guest = revel_user_factory(email="new@example.com", guest=True)
+        guest.guest = False
+        guest.save(update_fields=["guest"])
+
+        with django_capture_on_commit_callbacks(execute=True):
+            code = svc.try_enroll_invitee(guest)
+
+        assert code is not None and code.code == "newcode"
+        approved.refresh_from_db()
+        assert approved.user == guest
+        assert mock_email.call_args.args == ("referral_enrolled", guest.email)
+
+    def test_try_enroll_invitee_swallows_a_code_clash(
+        self, approved: ReferralApplication, revel_user_factory: t.Any, mock_email: MagicMock
+    ) -> None:
+        ReferralCode.objects.create(user=revel_user_factory(), code="newcode")
+        user = revel_user_factory(email="other@example.com")
+        user.email = "new@example.com"
+        user.save(update_fields=["email"])
+
+        assert svc.try_enroll_invitee(user) is None
+        approved.refresh_from_db()
+        assert approved.status == APPROVED and approved.user is None
+        mock_email.assert_not_called()

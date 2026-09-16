@@ -18,6 +18,7 @@ from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import blacklist_user_tokens, check_blacklist, create_token
 from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.password_validation import validate_password
+from accounts.service import referral_application_service
 from accounts.service.referral_cleanup import assess_referral_forfeiture
 from common.testing import (
     TOKEN_TYPE_DELETION,
@@ -351,6 +352,7 @@ def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> Rev
         user.email_verified = True
         user.save(update_fields=["password", "guest", "email_verified"])
         logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
+        referral_application_service.try_enroll_invitee(user)
     else:
         user.save(update_fields=["password"])
 

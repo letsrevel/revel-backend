@@ -163,8 +163,16 @@ def notify_admin_new_user_joined_discord(self: t.Any, is_guest: bool = False) ->
         raise
 
 
+class PushoverNotificationResult(t.TypedDict, total=False):
+    """Outcome of a Pushover admin-notification task: ``status`` plus a reason or the subject id."""
+
+    status: t.Literal["sent", "skipped"]
+    reason: str
+    application_id: str
+
+
 @shared_task(bind=True, max_retries=3, name="accounts.tasks.notify_admin_new_referral_application")
-def notify_admin_new_referral_application(self: t.Any, application_id: str) -> dict[str, t.Any]:
+def notify_admin_new_referral_application(self: t.Any, application_id: str) -> PushoverNotificationResult:
     """Send a Pushover notification to admin when someone applies to the referral program.
 
     Skips with a warning when Pushover is not configured.

@@ -362,6 +362,9 @@ msgstr "{} já tem um código de referência ativo."
 msgid "This email is permanently blocked from the referral program."
 msgstr "Este email está bloqueado permanentemente do programa de referência."
 
+msgid "This email already has an approved invite awaiting signup (code {})."
+msgstr "Este e-mail já tem um convite aprovado à espera de registo (código {})."
+
 msgid "This email already has a pending application; decide it instead."
 msgstr "Este email já tem uma candidatura pendente; decide sobre essa."
 
