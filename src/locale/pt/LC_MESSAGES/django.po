@@ -297,6 +297,18 @@ msgstr "As candidaturas ao programa de indicação não estão abertas."
 msgid "You already have a pending application."
 msgstr "Já tens uma candidatura pendente."
 
+msgid "This application has already been decided."
+msgstr "Já foi tomada uma decisão sobre esta candidatura."
+
+msgid "{} already has an active referral code."
+msgstr "{} já tem um código de referência ativo."
+
+msgid "This email is permanently blocked from the referral program."
+msgstr "Este email está bloqueado permanentemente do programa de referência."
+
+msgid "This email already has a pending application; decide it instead."
+msgstr "Este email já tem uma candidatura pendente; decide sobre essa."
+
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
 msgstr "Extrato de pagamento de referência %(document_number)s (%(currency)s)"

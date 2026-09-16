@@ -306,6 +306,18 @@ msgstr "Les candidatures au programme de parrainage ne sont pas ouvertes."
 msgid "You already have a pending application."
 msgstr "Tu as déjà une candidature en attente."
 
+msgid "This application has already been decided."
+msgstr "Une décision a déjà été prise pour cette candidature."
+
+msgid "{} already has an active referral code."
+msgstr "{} a déjà un code de parrainage actif."
+
+msgid "This email is permanently blocked from the referral program."
+msgstr "Cet e-mail est bloqué définitivement du programme de parrainage."
+
+msgid "This email already has a pending application; decide it instead."
+msgstr "Cet e-mail a déjà une candidature en attente ; décide de celle-ci à la place."
+
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
 msgstr "Relevé de versement de parrainage %(document_number)s (%(currency)s)"

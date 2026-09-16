@@ -297,6 +297,18 @@ msgstr "Le candidature al programma referral non sono aperte."
 msgid "You already have a pending application."
 msgstr "Hai già una candidatura in sospeso."
 
+msgid "This application has already been decided."
+msgstr "È già stata presa una decisione su questa candidatura."
+
+msgid "{} already has an active referral code."
+msgstr "{} ha già un codice referral attivo."
+
+msgid "This email is permanently blocked from the referral program."
+msgstr "Questa email è bloccata permanentemente dal programma referral."
+
+msgid "This email already has a pending application; decide it instead."
+msgstr "Questa email ha già una candidatura in sospeso; decidi su quella."
+
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
 msgstr "Rendiconto referral %(document_number)s (%(currency)s)"

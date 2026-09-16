@@ -299,6 +299,18 @@ msgstr "Bewerbungen für das Empfehlungsprogramm sind derzeit nicht möglich."
 msgid "You already have a pending application."
 msgstr "Du hast bereits einen ausstehenden Antrag."
 
+msgid "This application has already been decided."
+msgstr "Über diesen Antrag wurde bereits entschieden."
+
+msgid "{} already has an active referral code."
+msgstr "{} hat bereits einen aktiven Empfehlungs-Code."
+
+msgid "This email is permanently blocked from the referral program."
+msgstr "Diese E-Mail-Adresse ist dauerhaft vom Empfehlungsprogramm ausgeschlossen."
+
+msgid "This email already has a pending application; decide it instead."
+msgstr "Für diese E-Mail-Adresse gibt es bereits einen ausstehenden Antrag; entscheide stattdessen über diesen."
+
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
 msgstr "Empfehlungsvergütung %(document_number)s (%(currency)s)"

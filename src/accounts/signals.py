@@ -6,6 +6,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from accounts.models import GlobalBan, RevelUser
+from accounts.service import referral_application_service
 from accounts.tasks import notify_admin_new_user_joined, notify_admin_new_user_joined_discord
 from common.models import SiteSettings
 
@@ -58,6 +59,24 @@ def notify_admin_on_user_creation(
         user_email=user_email,
         is_guest=is_guest,
     )
+
+
+@receiver(post_save, sender=RevelUser)
+def enroll_referral_invitee_on_creation(
+    sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: object
+) -> None:
+    """Turn an approved referral invite into a ReferralCode when the invitee's account is created.
+
+    Wrapped in its own ``atomic()`` block: nests as a savepoint inside the creating transaction
+    (register, OIDC, guest checkout alike, all under ``ATOMIC_REQUESTS``) so the code is atomic
+    with the account, but also works standalone (e.g. ORM-only scripts/tests) where
+    ``enroll_on_signup``'s ``select_for_update()`` would otherwise need an existing transaction.
+    The enrolled email is deferred to commit.
+    """
+    if not created:
+        return
+    with transaction.atomic():
+        referral_application_service.enroll_on_signup(instance)
 
 
 @receiver(post_save, sender=GlobalBan)
