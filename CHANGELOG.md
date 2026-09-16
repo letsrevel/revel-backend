@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Referral program applications: public `POST /referral/apply` (rate limited, gated by the new
+  "Referral applications enabled" site setting exposed as `features.referral_applications` in `/version`),
+  admin approve / reject / permanently-reject with optional note, and an admin "Invite by email" page
+  that enrolls existing accounts immediately or enrolls new accounts at signup by email match.
+- Per-referrer revenue share override on referral codes.
+
+### Changed
+
+- Referral codes are case-insensitive and keep the case they were typed in.
+
 ## [2.14.0] - 2026-09-12
 
 ### Added

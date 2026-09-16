@@ -57,8 +57,8 @@ msgstr[1] "%d pagamentos ignorados (não estão no estado falhado)."
 
 msgid "3 to 20 letters, digits, dashes or underscores. Case-insensitive."
 msgstr ""
-"De 3 a 20 letras, dígitos, hífens ou sublinhados. Não diferencia "
-"maiúsculas de minúsculas."
+"De 3 a 20 letras, dígitos, hífens ou sublinhados. Não diferencia maiúsculas "
+"de minúsculas."
 
 msgid "Optional. Included in the invite email."
 msgstr "Opcional. Incluído no e-mail de convite."
