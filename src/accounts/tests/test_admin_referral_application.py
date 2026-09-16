@@ -128,3 +128,16 @@ class TestChangelist:
         assert admin_client.get(url).status_code == 200
         assert admin_client.get(url, {"status": "pending"}).status_code == 200
         assert admin_client.get(url, {"enrolled": "no"}).status_code == 200
+
+    @NO_MANIFEST_STORAGE
+    def test_pending_row_sorts_before_a_newer_decided_row(
+        self, admin_client: Client, pending: ReferralApplication
+    ) -> None:
+        """An older PENDING row must outrank a newer decided one (get_ordering, not plain -created_at)."""
+        older_pending = pending
+        newer_decided = ReferralApplication.objects.create(
+            email="d@example.com", code="dcode", note="please", status=ReferralApplication.Status.REJECTED
+        )
+        response = admin_client.get(reverse("admin:accounts_referralapplication_changelist"))
+        result_list = list(response.context["cl"].result_list)
+        assert [obj.pk for obj in result_list] == [older_pending.pk, newer_decided.pk]

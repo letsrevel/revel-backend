@@ -74,7 +74,6 @@ class ReferralApplicationAdmin(ModelAdmin):  # type: ignore[misc]
     list_filter = ["status", "source", EnrolledFilter]
     search_fields = ["email", "code", "note"]
     list_select_related = ["user", "decided_by"]
-    ordering = ["-created_at"]
     actions_submit_line = ["approve", "reject", "block"]
     readonly_fields = ["email", "note", "source", "status", "decided_by", "decided_at", "user", "created_at"]
     fieldsets = [
@@ -84,15 +83,30 @@ class ReferralApplicationAdmin(ModelAdmin):  # type: ignore[misc]
     ]
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[ReferralApplication]:
-        """Pending rows first, then newest."""
+        """Pending rows first, then newest.
+
+        Built from the default manager rather than ``super().get_queryset(request)``:
+        the base ``ModelAdmin.get_queryset`` eagerly applies ``self.get_ordering(request)``
+        to the *unannotated* queryset, which would raise ``FieldError`` on ``_pending_first``
+        before the annotation below exists.
+        """
         return (
-            super()
-            .get_queryset(request)
+            self.model._default_manager.get_queryset()
             .annotate(
                 _pending_first=Case(When(status=PENDING, then=Value(0)), default=Value(1), output_field=IntegerField())
             )
             .order_by("_pending_first", "-created_at")
         )
+
+    def get_ordering(self, request: HttpRequest) -> list[str]:
+        """Pending rows first, then newest (the annotation comes from get_queryset).
+
+        ``ChangeList.get_ordering`` starts from this and *appends* the queryset's own
+        ``order_by``, so a class-level ``ordering = ["-created_at"]`` would run first and
+        make ``_pending_first`` merely break ties on a microsecond timestamp. Returning the
+        annotation-based ordering here instead is what actually drives the changelist sort.
+        """
+        return ["_pending_first", "-created_at"]
 
     @admin.display(description=_("Enrolled"), boolean=True)
     def enrolled(self, obj: ReferralApplication) -> bool:
