@@ -55,6 +55,48 @@ msgid_plural "Skipped %d payouts (not in failed status)."
 msgstr[0] "%d pagamento saltato (non in stato fallito)."
 msgstr[1] "%d pagamenti saltati (non in stato fallito)."
 
+msgid "enrolled"
+msgstr "iscritto"
+
+msgid "Yes"
+msgstr "Sì"
+
+msgid "No"
+msgstr "No"
+
+msgid "Decision"
+msgstr "Decisione"
+
+msgid "Application"
+msgstr "Candidatura"
+
+msgid "Enrolled"
+msgstr "Iscritto"
+
+msgid "enrolled immediately (account exists)."
+msgstr "iscritto immediatamente (l'account esiste già)."
+
+msgid "email sent."
+msgstr "email inviata."
+
+msgid "Approve"
+msgstr "Approva"
+
+msgid "Approved"
+msgstr "Approvato"
+
+msgid "Reject"
+msgstr "Rifiuta"
+
+msgid "Rejected"
+msgstr "Rifiutato"
+
+msgid "Reject permanently"
+msgstr "Rifiuta permanentemente"
+
+msgid "Rejected permanently"
+msgstr "Rifiutato permanentemente"
+
 #, python-format
 msgid "Verification email sent to %d user."
 msgid_plural "Verification emails sent to %d users."
@@ -102,12 +144,6 @@ msgstr "Impersona utente"
 
 msgid "organization owner"
 msgstr "proprietario dell'organizzazione"
-
-msgid "Yes"
-msgstr "Sì"
-
-msgid "No"
-msgstr "No"
 
 msgid "Your data export has been initiated."
 msgstr "L'esportazione dei tuoi dati è stata avviata."
@@ -4395,9 +4431,6 @@ msgstr ""
 msgid "Questionnaire:"
 msgstr "Questionario:"
 
-msgid "Approved"
-msgstr "Approvato"
-
 msgid "Not Approved"
 msgstr "Non approvato"
 
@@ -5535,6 +5568,9 @@ msgstr "Utenti e account"
 
 msgid "User Data Exports"
 msgstr "Esportazioni dati utente"
+
+msgid "Referral Applications"
+msgstr "Candidature referral"
 
 msgid "Referral Codes"
 msgstr "Codici referral"

@@ -55,6 +55,48 @@ msgid_plural "Skipped %d payouts (not in failed status)."
 msgstr[0] "%d pago omitido (no está en estado fallido)."
 msgstr[1] "%d pagos omitidos (no están en estado fallido)."
 
+msgid "enrolled"
+msgstr "inscrito"
+
+msgid "Yes"
+msgstr "Sí"
+
+msgid "No"
+msgstr "No"
+
+msgid "Decision"
+msgstr "Decisión"
+
+msgid "Application"
+msgstr "Solicitud"
+
+msgid "Enrolled"
+msgstr "Inscrito"
+
+msgid "enrolled immediately (account exists)."
+msgstr "inscrito de inmediato (la cuenta ya existe)."
+
+msgid "email sent."
+msgstr "correo enviado."
+
+msgid "Approve"
+msgstr "Aprobar"
+
+msgid "Approved"
+msgstr "Aprobado"
+
+msgid "Reject"
+msgstr "Rechazar"
+
+msgid "Rejected"
+msgstr "Rechazado"
+
+msgid "Reject permanently"
+msgstr "Rechazar permanentemente"
+
+msgid "Rejected permanently"
+msgstr "Rechazado permanentemente"
+
 #, python-format
 msgid "Verification email sent to %d user."
 msgid_plural "Verification emails sent to %d users."
@@ -103,12 +145,6 @@ msgstr "Suplantar usuario"
 
 msgid "organization owner"
 msgstr "propietario de la organización"
-
-msgid "Yes"
-msgstr "Sí"
-
-msgid "No"
-msgstr "No"
 
 msgid "Your data export has been initiated."
 msgstr "Se ha iniciado la exportación de tus datos."
@@ -310,7 +346,8 @@ msgid "This email is permanently blocked from the referral program."
 msgstr "Este correo está bloqueado permanentemente del programa de referidos."
 
 msgid "This email already has a pending application; decide it instead."
-msgstr "Este correo ya tiene una solicitud pendiente; decide sobre ella en su lugar."
+msgstr ""
+"Este correo ya tiene una solicitud pendiente; decide sobre ella en su lugar."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
@@ -4386,9 +4423,6 @@ msgstr ""
 msgid "Questionnaire:"
 msgstr "Cuestionario:"
 
-msgid "Approved"
-msgstr "Aprobado"
-
 msgid "Not Approved"
 msgstr "No aprobado"
 
@@ -5509,6 +5543,9 @@ msgstr "Usuarios y cuentas"
 
 msgid "User Data Exports"
 msgstr "Exportaciones de datos de usuario"
+
+msgid "Referral Applications"
+msgstr "Solicitudes de referido"
 
 msgid "Referral Codes"
 msgstr "Códigos de referido"

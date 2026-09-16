@@ -21,6 +21,7 @@ from accounts.admin.referral import (
     ReferralPayoutAdmin as ReferralPayoutAdmin,
     ReferralPayoutStatementAdmin as ReferralPayoutStatementAdmin,
 )
+from accounts.admin.referral_application import ReferralApplicationAdmin as ReferralApplicationAdmin
 from accounts.admin.tracking import (
     EmailVerificationReminderTrackingAdmin as EmailVerificationReminderTrackingAdmin,
 )

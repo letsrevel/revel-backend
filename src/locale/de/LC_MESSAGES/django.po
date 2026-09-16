@@ -55,6 +55,48 @@ msgid_plural "Skipped %d payouts (not in failed status)."
 msgstr[0] "%d Auszahlung übersprungen (Status nicht fehlgeschlagen)."
 msgstr[1] "%d Auszahlungen übersprungen (Status nicht fehlgeschlagen)."
 
+msgid "enrolled"
+msgstr "eingeschrieben"
+
+msgid "Yes"
+msgstr "Ja"
+
+msgid "No"
+msgstr "Nein"
+
+msgid "Decision"
+msgstr "Entscheidung"
+
+msgid "Application"
+msgstr "Antrag"
+
+msgid "Enrolled"
+msgstr "Eingeschrieben"
+
+msgid "enrolled immediately (account exists)."
+msgstr "sofort eingeschrieben (Konto existiert bereits)."
+
+msgid "email sent."
+msgstr "E-Mail gesendet."
+
+msgid "Approve"
+msgstr "Genehmigen"
+
+msgid "Approved"
+msgstr "Genehmigt"
+
+msgid "Reject"
+msgstr "Ablehnen"
+
+msgid "Rejected"
+msgstr "Abgelehnt"
+
+msgid "Reject permanently"
+msgstr "Endgültig ablehnen"
+
+msgid "Rejected permanently"
+msgstr "Endgültig abgelehnt"
+
 #, python-format
 msgid "Verification email sent to %d user."
 msgid_plural "Verification emails sent to %d users."
@@ -104,12 +146,6 @@ msgstr "Als Anwender:in anmelden"
 
 msgid "organization owner"
 msgstr "Organisationsinhaber:in"
-
-msgid "Yes"
-msgstr "Ja"
-
-msgid "No"
-msgstr "Nein"
 
 msgid "Your data export has been initiated."
 msgstr "Dein Datenexport wurde gestartet."
@@ -306,10 +342,13 @@ msgid "{} already has an active referral code."
 msgstr "{} hat bereits einen aktiven Empfehlungs-Code."
 
 msgid "This email is permanently blocked from the referral program."
-msgstr "Diese E-Mail-Adresse ist dauerhaft vom Empfehlungsprogramm ausgeschlossen."
+msgstr ""
+"Diese E-Mail-Adresse ist dauerhaft vom Empfehlungsprogramm ausgeschlossen."
 
 msgid "This email already has a pending application; decide it instead."
-msgstr "Für diese E-Mail-Adresse gibt es bereits einen ausstehenden Antrag; entscheide stattdessen über diesen."
+msgstr ""
+"Für diese E-Mail-Adresse gibt es bereits einen ausstehenden Antrag; "
+"entscheide stattdessen über diesen."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
@@ -4448,9 +4487,6 @@ msgstr ""
 msgid "Questionnaire:"
 msgstr "Fragebogen:"
 
-msgid "Approved"
-msgstr "Genehmigt"
-
 msgid "Not Approved"
 msgstr "Nicht genehmigt"
 
@@ -5584,6 +5620,9 @@ msgstr "Anwender:innen & Konten"
 
 msgid "User Data Exports"
 msgstr "Anwender:innen-Datenexporte"
+
+msgid "Referral Applications"
+msgstr "Empfehlungsbewerbungen"
 
 msgid "Referral Codes"
 msgstr "Empfehlungscodes"

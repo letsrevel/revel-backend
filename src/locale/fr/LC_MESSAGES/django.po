@@ -55,6 +55,48 @@ msgid_plural "Skipped %d payouts (not in failed status)."
 msgstr[0] "%d versement ignoré (pas au statut échoué)."
 msgstr[1] "%d versements ignorés (pas au statut échoué)."
 
+msgid "enrolled"
+msgstr "inscrit"
+
+msgid "Yes"
+msgstr "Oui"
+
+msgid "No"
+msgstr "Non"
+
+msgid "Decision"
+msgstr "Décision"
+
+msgid "Application"
+msgstr "Candidature"
+
+msgid "Enrolled"
+msgstr "Inscrit"
+
+msgid "enrolled immediately (account exists)."
+msgstr "inscrit immédiatement (le compte existe déjà)."
+
+msgid "email sent."
+msgstr "e-mail envoyé."
+
+msgid "Approve"
+msgstr "Approuver"
+
+msgid "Approved"
+msgstr "Approuvé"
+
+msgid "Reject"
+msgstr "Rejeter"
+
+msgid "Rejected"
+msgstr "Rejeté"
+
+msgid "Reject permanently"
+msgstr "Rejeter définitivement"
+
+msgid "Rejected permanently"
+msgstr "Rejeté définitivement"
+
 #, python-format
 msgid "Verification email sent to %d user."
 msgid_plural "Verification emails sent to %d users."
@@ -109,12 +151,6 @@ msgstr "Emprunter l'identité de l'utilisateur·rice"
 
 msgid "organization owner"
 msgstr "propriétaire de l'organisation"
-
-msgid "Yes"
-msgstr "Oui"
-
-msgid "No"
-msgstr "Non"
 
 msgid "Your data export has been initiated."
 msgstr "L'exportation de tes données a été lancée."
@@ -316,7 +352,8 @@ msgid "This email is permanently blocked from the referral program."
 msgstr "Cet e-mail est bloqué définitivement du programme de parrainage."
 
 msgid "This email already has a pending application; decide it instead."
-msgstr "Cet e-mail a déjà une candidature en attente ; décide de celle-ci à la place."
+msgstr ""
+"Cet e-mail a déjà une candidature en attente ; décide de celle-ci à la place."
 
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
@@ -4435,9 +4472,6 @@ msgstr ""
 msgid "Questionnaire:"
 msgstr "Questionnaire :"
 
-msgid "Approved"
-msgstr "Approuvé"
-
 msgid "Not Approved"
 msgstr "Non approuvé"
 
@@ -5562,6 +5596,9 @@ msgstr "Utilisateur·rice·s & comptes"
 
 msgid "User Data Exports"
 msgstr "Exports de données d'utilisateur·rice·s"
+
+msgid "Referral Applications"
+msgstr "Candidatures de parrainage"
 
 msgid "Referral Codes"
 msgstr "Codes de parrainage"

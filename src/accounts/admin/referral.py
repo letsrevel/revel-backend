@@ -19,7 +19,7 @@ from common.signing import get_file_url
 class ReferralCodeAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for ReferralCode model (admin-managed, codes are immutable)."""
 
-    list_display = ["user", "code", "is_active", "created_at"]
+    list_display = ["user", "code", "is_active", "revenue_share_percent", "created_at"]
     list_select_related = ["user"]
     list_filter = ["is_active", "created_at"]
     search_fields = ["user__username", "user__email", "code"]
@@ -34,6 +34,7 @@ class ReferralCodeAdmin(ModelAdmin):  # type: ignore[misc]
                     "user",
                     "code",
                     "is_active",
+                    "revenue_share_percent",
                 )
             },
         ),
