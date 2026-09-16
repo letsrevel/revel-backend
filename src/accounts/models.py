@@ -548,7 +548,8 @@ class ReferralApplication(TimeStampedModel):
     )
     note = models.TextField(blank=True, help_text="Applicant's note (plain text). Required for public applications.")
     admin_note = models.TextField(
-        blank=True, help_text="Included in the rejection email, or in the invite email for invites, when present."
+        blank=True,
+        help_text="Included in the rejection email, or in the invite email of any approved application, when present.",
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True)
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.APPLICATION)

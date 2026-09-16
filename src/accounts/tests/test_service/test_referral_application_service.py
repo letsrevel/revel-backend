@@ -135,6 +135,16 @@ class TestSubmitApplication:
         mock_email.assert_not_called()
         assert not ReferralApplication.objects.exists()
 
+    def test_enrolled_email_asking_for_a_taken_code_gets_the_same_409_as_anyone(
+        self, applications_enabled: None, revel_user_factory: t.Any, mock_email: MagicMock
+    ) -> None:
+        """The code check runs first, so the response cannot reveal that the email is enrolled."""
+        ReferralCode.objects.create(user=revel_user_factory(email="other@example.com"), code="taken")
+        ReferralCode.objects.create(user=revel_user_factory(email="a@example.com"), code="have")
+        with pytest.raises(ReferralApplicationConflictError) as exc:
+            svc.submit_application(email="a@example.com", code="TAKEN", note="hi")
+        assert str(exc.value) == "This referral code is already taken."
+
 
 @pytest.fixture
 def admin(revel_user_factory: t.Any) -> RevelUser:
@@ -324,3 +334,20 @@ class TestEnrollOnSignup:
     def test_pending_application_does_not_enroll(self, pending: ReferralApplication, revel_user_factory: t.Any) -> None:
         user = revel_user_factory(email="new@example.com")
         assert not ReferralCode.objects.filter(user=user).exists()
+
+    def test_code_clash_does_not_block_account_creation(
+        self,
+        pending: ReferralApplication,
+        admin: RevelUser,
+        revel_user_factory: t.Any,
+        mock_email: MagicMock,
+    ) -> None:
+        """A referral perk must never break signup: the account is created, enrollment is skipped."""
+        svc.approve(pending, actor=admin)
+        ReferralCode.objects.create(user=revel_user_factory(email="squatter@example.com"), code="NEWCODE")
+
+        user = revel_user_factory(email="new@example.com")
+
+        assert not ReferralCode.objects.filter(user=user).exists()
+        pending.refresh_from_db()
+        assert pending.status == APPROVED and pending.user is None

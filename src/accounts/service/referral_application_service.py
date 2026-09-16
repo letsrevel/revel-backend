@@ -59,6 +59,11 @@ def submit_application(*, email: str, code: str, note: str) -> ReferralApplicati
     Returns ``None`` (silently, with a log line) for blocked or already-enrolled emails so the
     endpoint cannot be used to probe enrollment state. Raises a 409 for a pending duplicate or a
     taken code, a 404 when applications are switched off.
+
+    Order matters: the pending-duplicate and code-availability checks run *before* the silent
+    ones, so the response only ever depends on facts the caller can already establish (is there
+    a pending application for my own email, is this code taken). Checking enrollment first would
+    turn a taken code into an oracle — 202 for an enrolled email, 409 for everyone else.
     """
     if not SiteSettings.get_solo().referral_applications_enabled:
         raise ReferralApplicationsDisabledError(str(_("Referral applications are not open.")))
@@ -70,6 +75,13 @@ def submit_application(*, email: str, code: str, note: str) -> ReferralApplicati
         raise HttpError(422, str(_("A note is required.")))
 
     if ReferralApplication.objects.filter(
+        normalized_email=normalized, status=ReferralApplication.Status.PENDING
+    ).exists():
+        raise ReferralApplicationConflictError(str(_("You already have a pending application.")))
+
+    assert_code_available(code)
+
+    if ReferralApplication.objects.filter(
         normalized_email=normalized, status=ReferralApplication.Status.BLOCKED
     ).exists():
         logger.info("referral_application_blocked", email=email)
@@ -77,13 +89,6 @@ def submit_application(*, email: str, code: str, note: str) -> ReferralApplicati
     if _is_enrolled(email):
         logger.info("referral_application_already_enrolled", email=email)
         return None
-
-    if ReferralApplication.objects.filter(
-        normalized_email=normalized, status=ReferralApplication.Status.PENDING
-    ).exists():
-        raise ReferralApplicationConflictError(str(_("You already have a pending application.")))
-
-    assert_code_available(code)
 
     application, created = get_or_create_with_race_protection(
         ReferralApplication,
@@ -144,6 +149,9 @@ def _enroll(application: ReferralApplication, user: RevelUser) -> ReferralCode:
     if existing is not None and existing.is_active:
         raise ReferralAlreadyActiveError(str(_("{} already has an active referral code.").format(user.email)))
     if existing is not None:
+        # ponytail: the user keeps their existing code, so ``application.code`` stays reserved by
+        # an APPROVED row nobody owns (``assert_code_available`` will keep refusing it). Freeing or
+        # reconciling it — rewriting the row's code to the kept one — is the upgrade path.
         existing.is_active = True
         existing.revenue_share_percent = application.revenue_share_percent
         existing.save(update_fields=["is_active", "revenue_share_percent", "updated_at"])

@@ -81,11 +81,14 @@ msgstr "Antrag"
 msgid "Enrolled"
 msgstr "Eingeschrieben"
 
+msgid "email sent."
+msgstr "E-Mail gesendet."
+
 msgid "enrolled immediately (account exists)."
 msgstr "sofort eingeschrieben (Konto existiert bereits)."
 
-msgid "email sent."
-msgstr "E-Mail gesendet."
+msgid "existing code {} kept; the typed code was ignored."
+msgstr "vorhandener Code {} beibehalten; der eingegebene Code wurde ignoriert."
 
 msgid "Approve"
 msgstr "Genehmigen"

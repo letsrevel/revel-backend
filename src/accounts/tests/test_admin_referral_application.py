@@ -117,6 +117,21 @@ class TestChangeForm:
         pending.refresh_from_db()
         assert pending.code == "pcode"
 
+    @NO_MANIFEST_STORAGE
+    def test_approve_reactivating_a_code_reports_the_kept_code(
+        self, admin_client: Client, pending: ReferralApplication, revel_user_factory: t.Any
+    ) -> None:
+        """The row still shows the typed code, so the message must say which code actually won."""
+        user = revel_user_factory(email="p@example.com")
+        ReferralCode.objects.create(user=user, code="oldcode", is_active=False)
+
+        data = _form_data(pending, code="newcode", accounts_referralapplication_approve="1")
+        html = admin_client.post(_change_url(pending), data, follow=True).content.decode()
+
+        assert "oldcode" in html and "ignored" in html
+        code = ReferralCode.objects.get(user=user)
+        assert code.code == "oldcode" and code.is_active
+
     def test_add_is_disabled(self, admin_client: Client) -> None:
         assert admin_client.get(reverse("admin:accounts_referralapplication_add")).status_code == 403
 
@@ -202,3 +217,24 @@ class TestInvitePage:
     def test_non_staff_cannot_open(self, client: Client, user: RevelUser) -> None:
         client.force_login(user)
         assert client.get(INVITE_URL).status_code in (302, 403)
+
+
+class TestReferralCodeAdd:
+    """The add form must not hand out a code that a live application has reserved."""
+
+    @NO_MANIFEST_STORAGE
+    @pytest.mark.parametrize("status", [ReferralApplication.Status.PENDING, ReferralApplication.Status.APPROVED])
+    def test_code_reserved_by_a_live_application_is_a_form_error(
+        self, admin_client: Client, revel_user_factory: t.Any, status: str
+    ) -> None:
+        ReferralApplication.objects.create(email="r@example.com", code="reserved", note="hi", status=status)
+        data = {
+            "user": str(revel_user_factory().pk),
+            "code": "RESERVED",
+            "is_active": "on",
+            "revenue_share_percent": "",
+        }
+        response = admin_client.post(reverse("admin:accounts_referralcode_add"), data)
+        assert response.status_code == 200
+        assert "already taken" in response.content.decode()
+        assert not ReferralCode.objects.exists()

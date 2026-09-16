@@ -80,11 +80,14 @@ msgstr "Candidature"
 msgid "Enrolled"
 msgstr "Inscrit"
 
+msgid "email sent."
+msgstr "e-mail envoyé."
+
 msgid "enrolled immediately (account exists)."
 msgstr "inscrit immédiatement (le compte existe déjà)."
 
-msgid "email sent."
-msgstr "e-mail envoyé."
+msgid "existing code {} kept; the typed code was ignored."
+msgstr "le code existant {} a été conservé ; le code saisi a été ignoré."
 
 msgid "Approve"
 msgstr "Approuver"

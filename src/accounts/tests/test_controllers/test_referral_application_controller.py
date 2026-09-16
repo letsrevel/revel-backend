@@ -84,6 +84,19 @@ class TestApply:
         assert _post(client, VALID).status_code == 202
         assert not ReferralApplication.objects.filter(status=ReferralApplication.Status.PENDING).exists()
 
+    def test_enrolled_email_with_taken_code_is_indistinguishable_from_a_fresh_one(
+        self, client: Client, applications_enabled: None, revel_user_factory: t.Any
+    ) -> None:
+        """Otherwise the endpoint is an oracle: 202 for enrolled emails, 409 for everyone else."""
+        ReferralCode.objects.create(user=revel_user_factory(email="holder@example.com"), code="MY-CODE")
+        ReferralCode.objects.create(user=revel_user_factory(email="someone@example.com"), code="enrolled")
+
+        enrolled = _post(client, VALID)
+        fresh = _post(client, {**VALID, "email": "fresh@example.com"})
+
+        assert enrolled.status_code == fresh.status_code == 409
+        assert enrolled.json() == fresh.json() == {"detail": "This referral code is already taken."}
+
 
 class TestApplyThrottle:
     @pytest.fixture(autouse=True)

@@ -27,7 +27,7 @@ from unfold.widgets import (
 )
 
 from accounts.exceptions import ReferralApplicationConflictError, ReferralApplicationError
-from accounts.models import REFERRAL_CODE_VALIDATOR, ReferralApplication, RevelUser
+from accounts.models import REFERRAL_CODE_VALIDATOR, ReferralApplication, ReferralCode, RevelUser
 from accounts.service import referral_application_service
 
 PENDING = ReferralApplication.Status.PENDING
@@ -172,11 +172,14 @@ class ReferralApplicationAdmin(ModelAdmin):  # type: ignore[misc]
         except ReferralApplicationError as exc:
             self.message_user(request, str(exc), messages.ERROR)
             return
-        suffix = (
-            _("enrolled immediately (account exists).")
-            if application.user_id is not None and application.status == ReferralApplication.Status.APPROVED
-            else _("email sent.")
-        )
+        if application.user_id is None or application.status != ReferralApplication.Status.APPROVED:
+            self.message_user(request, f"{label} — {_('email sent.')}", messages.SUCCESS)
+            return
+        suffix = str(_("enrolled immediately (account exists)."))
+        # The row keeps showing the typed code even when an existing one was reactivated instead.
+        kept = ReferralCode.objects.filter(user_id=application.user_id).values_list("code", flat=True).first()
+        if kept is not None and kept.casefold() != application.code.casefold():
+            suffix += " " + str(_("existing code {} kept; the typed code was ignored.").format(kept))
         self.message_user(request, f"{label} — {suffix}", messages.SUCCESS)
 
     @action(description=_("Approve"), permissions=["change"], icon="check", variant=ActionVariant.SUCCESS)  # type: ignore[untyped-decorator]
