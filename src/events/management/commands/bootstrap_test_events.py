@@ -1,5 +1,7 @@
 # src/events/management/commands/bootstrap_test_events.py
 
+import typing as t
+import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -7,8 +9,8 @@ import structlog
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from accounts.models import RevelUser
-from common.models import Tag
+from accounts.models import ReferralApplication, ReferralCode, RevelUser
+from common.models import SiteSettings, Tag
 from events import models as events_models
 from events.management.commands.bootstrap_helpers.logos import attach_logo
 from events.management.commands.seeder.tickets import ATTRIBUTION_CAMPAIGNS
@@ -20,6 +22,13 @@ logger = structlog.get_logger(__name__)
 # Org Alpha, seeded by ``bootstrap_events``: the Stripe-connected organization
 # (CONNECTED_TEST_STRIPE_ID), so revival checkouts against it reach real Stripe.
 ORG_ALPHA_SLUG = "revel-events-collective"
+
+# Referral-program fixtures for the frontend E2E suite (J21). Deterministic ids so the
+# specs can build ``/register?referral_invite=<id>`` without an API to look them up.
+REFERRAL_PENDING_APPLICATION_ID = uuid.UUID("aaaaaaaa-0000-4000-8000-000000000001")
+REFERRAL_OPEN_INVITE_ID = uuid.UUID("aaaaaaaa-0000-4000-8000-000000000002")
+REFERRAL_BLOCKED_APPLICATION_ID = uuid.UUID("aaaaaaaa-0000-4000-8000-000000000003")
+REFERRAL_REJECTED_APPLICATION_ID = uuid.UUID("aaaaaaaa-0000-4000-8000-000000000004")
 
 
 class Command(BaseCommand):
@@ -62,6 +71,9 @@ class Command(BaseCommand):
         # Seed subscription states no API can arrange (EXPIRED / PAST_DUE)
         self._create_subscription_fixtures()
 
+        # Referral program: a referrer, applications in every state, an open invite
+        self._create_referral_program_fixtures()
+
         logger.info("Eligibility test events bootstrap complete!")
         logger.info("\n=== Test Users Created ===")
         logger.info(f"Random User (no org): {self.random_user.email} / password123")
@@ -69,6 +81,13 @@ class Command(BaseCommand):
         logger.info(f"Staff User: {self.staff_user.email} / password123")
         logger.info(f"Member User: {self.member_user.email} / password123")
         logger.info("Subscription fixtures: test.revival.in@ / test.revival.out@ / test.pastdue@example.com")
+        logger.info("Referrer: test.referrer@example.com / password123 (code test-partner, 20% share)")
+        logger.info(
+            "Referral applications: pending test.applicant@ (%s), open invite test.invitee@ (%s), "
+            "blocked test.blocked@, rejected test.rejected@example.com",
+            REFERRAL_PENDING_APPLICATION_ID,
+            REFERRAL_OPEN_INVITE_ID,
+        )
         logger.info(f"\nOrganization: {self.org.name} (slug: {self.org.slug})")
 
     def _create_users(self) -> None:
@@ -792,3 +811,97 @@ This event has:
         subscription.stripe_schedule_id = ""
         subscription.save()
         return subscription
+
+    def _create_referral_program_fixtures(self) -> None:
+        """Seed the referral-program states the frontend E2E suite cannot arrange through the API.
+
+        Public applications go through ``POST /referral/apply`` but every admin decision
+        (approve / reject / block / invite) is Django-admin only, so the decided states are
+        written here directly. Idempotent: rows are keyed by fixed ids and the referrer by email.
+
+        Fixtures:
+        - ``SiteSettings.referral_applications_enabled`` switched on (``/version`` exposes it).
+        - ``test.referrer@example.com`` / password123: enrolled, code ``test-partner`` (stored
+          as typed, matched case-insensitively) with a 20% per-referrer share override.
+        - ``test.applicant@example.com``: PENDING application (id ``REFERRAL_PENDING_APPLICATION_ID``).
+        - ``test.invitee@example.com``: APPROVED admin invite with no account yet
+          (id ``REFERRAL_OPEN_INVITE_ID``) — registering with that email enrolls it.
+        - ``test.blocked@example.com``: BLOCKED — a new application from it is silently dropped (202).
+        - ``test.rejected@example.com``: REJECTED — may apply again.
+        """
+        logger.info("Creating referral program fixtures...")
+
+        site = SiteSettings.get_solo()
+        if not site.referral_applications_enabled:
+            site.referral_applications_enabled = True
+            site.save(update_fields=["referral_applications_enabled"])
+
+        referrer, created = RevelUser.objects.get_or_create(
+            username="test.referrer@example.com",
+            defaults={
+                "email": "test.referrer@example.com",
+                "first_name": "Test",
+                "last_name": "Referrer",
+                "email_verified": True,
+            },
+        )
+        if created:
+            referrer.set_password("password123")
+            referrer.save(update_fields=["password"])
+        ReferralCode.objects.update_or_create(
+            user=referrer, defaults={"code": "test-partner", "revenue_share_percent": Decimal("20.00")}
+        )
+
+        applications: list[tuple[uuid.UUID, dict[str, t.Any]]] = [
+            (
+                REFERRAL_PENDING_APPLICATION_ID,
+                {
+                    "email": "test.applicant@example.com",
+                    "code": "applicant-code",
+                    "note": "Seeded pending application: I run a monthly meetup and want to bring my organizers.",
+                    "status": ReferralApplication.Status.PENDING,
+                    "source": ReferralApplication.Source.APPLICATION,
+                },
+            ),
+            (
+                REFERRAL_OPEN_INVITE_ID,
+                {
+                    "email": "test.invitee@example.com",
+                    "code": "invitee-code",
+                    "admin_note": "Seeded invite awaiting signup.",
+                    "status": ReferralApplication.Status.APPROVED,
+                    "source": ReferralApplication.Source.INVITE,
+                    "decided_by": self.admin_user,
+                    "decided_at": self.now,
+                },
+            ),
+            (
+                REFERRAL_BLOCKED_APPLICATION_ID,
+                {
+                    "email": "test.blocked@example.com",
+                    "code": "blocked-code",
+                    "note": "Seeded application that was permanently rejected.",
+                    "status": ReferralApplication.Status.BLOCKED,
+                    "source": ReferralApplication.Source.APPLICATION,
+                    "decided_by": self.admin_user,
+                    "decided_at": self.now,
+                },
+            ),
+            (
+                REFERRAL_REJECTED_APPLICATION_ID,
+                {
+                    "email": "test.rejected@example.com",
+                    "code": "rejected-code",
+                    "note": "Seeded application that was rejected with a note.",
+                    "admin_note": "Not this year, please apply again once your events are public.",
+                    "status": ReferralApplication.Status.REJECTED,
+                    "source": ReferralApplication.Source.APPLICATION,
+                    "decided_by": self.admin_user,
+                    "decided_at": self.now,
+                },
+            ),
+        ]
+        for application_id, defaults in applications:
+            ReferralApplication.objects.update_or_create(id=application_id, defaults=defaults)
+
+        logger.info("Created referral program fixtures")

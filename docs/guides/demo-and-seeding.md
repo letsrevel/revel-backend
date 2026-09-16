@@ -151,6 +151,16 @@ Users are assigned random pronouns from a seeded list (`he/him`, `she/her`, `the
 | `test.revival.in@example.com` | Revival InWindow | EXPIRED subscription on Org Alpha's *E2E Revival Plan*, expired 5 days ago (inside the 30-day revival window) |
 | `test.revival.out@example.com` | Revival OutOfWindow | EXPIRED subscription on the same plan, expired 60 days ago (outside the revival window) |
 | `test.pastdue@example.com` | Past Due | PAST_DUE subscription on the same plan, grace deadline 5 days out |
+| `test.referrer@example.com` | Test Referrer | Enrolled referrer: code `test-partner` (stored as typed, matched case-insensitively), 20% per-referrer share override |
+| `test.applicant@example.com` | — (no account) | PENDING referral application, id `aaaaaaaa-0000-4000-8000-000000000001` |
+| `test.invitee@example.com` | — (no account) | APPROVED admin invite awaiting signup, id `aaaaaaaa-0000-4000-8000-000000000002` → `/register?referral_invite=<id>` enrolls on registration |
+| `test.blocked@example.com` | — (no account) | BLOCKED (permanently rejected): a new application is silently dropped with 202 |
+| `test.rejected@example.com` | — (no account) | REJECTED with an admin note; may apply again |
+
+The referral rows back the J21 referral-program E2E journeys: `bootstrap_test_events` also switches
+`SiteSettings.referral_applications_enabled` on (so `/version` reports `features.referral_applications: true`).
+Admin decisions (approve / reject / block / invite) exist only in the Django admin, so the decided states are
+written directly with fixed ids the specs can reference.
 
 The last three back the frontend revival / past-due E2E journeys: `EXPIRED` and `PAST_DUE` are only ever produced by Stripe webhooks and the daily
 `events.expire_subscriptions_past_grace` sweep, so no API can arrange them. They hang off **Org Alpha** (the Stripe-connected org) on a dedicated

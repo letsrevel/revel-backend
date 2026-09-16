@@ -130,7 +130,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
   - Org staff with `edit_organization` also receive an in-platform `ORG_CONTACT_MESSAGE_RECEIVED` notification
 
 ### 1.9 Feature-Flag-Aware UI
-- `GET /version` (anonymous) returns a `features` object: `organization_creation`, `telegram`, `llm_evaluation`
+- `GET /version` (anonymous) returns a `features` object: `organization_creation`, `telegram`, `llm_evaluation`, `referral_applications` (the last one comes from `SiteSettings`, not an env setting)
 - Frontend hides gated UI (e.g. Google SSO button, "Create organization" CTA, Telegram linking) instead of letting users hit a 403/404
 
 ---
@@ -164,6 +164,12 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - User registers with same email → activation link sent
 - On verification, guest account upgraded to full user
 - Previous guest tickets/RSVPs preserved
+- If the email holds an approved referral invite, the upgrade also enrolls them (see [21.10](#2110-enrollment))
+
+### 2.5 Registration via Referral Invite Link
+- Invitee opens `/register?referral_invite=<application id>` from the invite email
+- Frontend calls `GET /referral/invitations/{id}` → `{email, code}` for an approved, not-yet-enrolled invite (404 otherwise); prefills and locks the email, shows an "invited to the referral program" banner
+- Registration itself is unchanged; the id is not sent back — enrollment is by email match at account creation (any path: email, SSO), see [21.10](#2110-enrollment)
 
 ### 2.5 Registration Blocked by Global Ban
 - Email or domain is globally banned
@@ -1249,15 +1255,16 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ## Journey 21: Referral Program
 
 ### 21.1 Referral Code
-- Every authenticated user has a unique referral code (auto-generated, uppercase, immutable)
-- View referral code on `/account/profile` (included in `/me` API response)
-- Share code with potential new users
+- Referrers are enrolled through the program (application approved or admin invite, see 21.8–21.10); a referrer has exactly one code
+- Codes are 3–20 letters, digits, dashes or underscores; stored as typed (`biagio` stays `biagio`), matched case-insensitively, immutable after creation
+- Optional per-referrer revenue-share override on the code (default: platform setting)
+- View referral code on `/account/referral` (included in `/me` API response); share `?ref=<code>` links
 
 ### 21.2 Refer a New User
-- New user enters referral code during registration
-- Code validated (must be active, cannot self-refer)
+- New user enters referral code during registration (or arrives via `?ref=`)
+- Code validated case-insensitively (must be active, cannot self-refer)
 - `Referral` record created linking referrer → referred user
-- Revenue share percentage snapshotted from platform settings at creation time
+- Revenue share percentage snapshotted at creation: the referrer's override if set, else the platform setting
 
 ### 21.3 Earn Referral Payouts
 - When the referred user purchases tickets, the referrer earns a share of the net platform fees
@@ -1291,6 +1298,27 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ### 21.7 Manual Referral Recording (Platform Admin)
 - Referral admin supports full create / edit / delete, so staff can manually record a referral win when the referred user never used the referrer's link
 - `referrer` stays auto-derived from the referral code; double-referrals and referrals that already have payouts remain protected
+
+### 21.8 Apply to the Referral Program (Public)
+- Gated by `SiteSettings.referral_applications_enabled` (`features.referral_applications` in `/version`); when off, `POST /referral/apply` is 404 and the frontend hides the apply page and its links
+- Anonymous `POST /referral/apply` with `email`, desired `code`, mandatory `note` (plain text, tags stripped, max 2000 chars); 10 requests/day per IP
+- 409 when the email already has a pending application or the code is taken (by a referrer or a live application); 422 on validation errors
+- 202 otherwise, including for permanently rejected or already-enrolled emails (silently dropped so the endpoint cannot be used to probe who is enrolled)
+- Applicant receives an "application received" email; platform admin gets a Pushover ping
+- Rejected applicants may apply again; permanently rejected ones never reach the admin
+
+### 21.9 Review Applications & Invite (Platform Admin)
+- Django admin → Referral Applications: pending first; the code, share percent and admin note stay editable until decided
+- **Approve**: enrolls immediately when a full account with that email exists (an inactive existing code is reactivated and kept — the admin is told the typed code was ignored), otherwise emails an invite with a `/register?referral_invite=<id>` link
+- **Reject**: optional note, sent in the rejection email
+- **Reject permanently**: same email as reject, but future applications from that email are silently dropped
+- **Invite by email** page: email, code (typed by hand), share percent (default from settings), optional personal note — creates a pre-approved invite; refuses blocked emails, emails with a pending application or an invite still awaiting signup, and taken codes
+
+### 21.10 Enrollment
+- Existing full account → `ReferralCode` created on approval, "you're enrolled" email links to `/account/referral`
+- No account → enrolled at account creation by email match (email registration or SSO), atomically with the account
+- Guest account (guest checkout) is not a signup: the invite email goes out and enrollment happens when the guest becomes a full user (password set via activation/reset, or OIDC login)
+- Enrollment never blocks signup: if the desired code was taken in the meantime, the failure is logged and the invite stays approved for admin follow-up
 
 ---
 
