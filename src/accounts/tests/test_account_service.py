@@ -467,6 +467,22 @@ class TestRegisterWithReferralCode:
 
         assert Referral.objects.filter(referred_user=user, referral_code=active_code).exists()
 
+    @patch("accounts.tasks.send_account_email.delay")
+    def test_register_with_lowercase_stored_code_any_case(
+        self, mock_send_email: MagicMock, referrer: RevelUser
+    ) -> None:
+        """Registration matches codes case-insensitively regardless of stored case."""
+        code = ReferralCode.objects.create(user=referrer, code="mixed-Case")
+        payload = schema.RegisterUserSchema(
+            email="new@example.com",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            referral_code="MIXED-CASE",
+            accept_toc_and_privacy=True,
+        )
+        user, _ = account_service.register_user(payload)
+        assert Referral.objects.get(referred_user=user).referral_code == code
+
     def test_register_with_invalid_referral_code_fails(self) -> None:
         """Test that an invalid referral code raises 422."""
         payload = schema.RegisterUserSchema(

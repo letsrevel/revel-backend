@@ -27,6 +27,6 @@ class ReferralController(ControllerBase):
         Returns 200 if the code exists and is active, 404 otherwise.
         No referrer identity is leaked.
         """
-        if not ReferralCode.objects.filter(code=code.upper(), is_active=True).exists():
+        if not ReferralCode.objects.filter(code__iexact=code, is_active=True).exists():
             raise HttpError(404, str(_("Invalid or inactive referral code.")))
         return ReferralValidationResponse()
