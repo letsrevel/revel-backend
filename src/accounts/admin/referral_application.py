@@ -127,13 +127,10 @@ class ReferralApplicationAdmin(ModelAdmin):  # type: ignore[misc]
         to the *unannotated* queryset, which would raise ``FieldError`` on ``_pending_first``
         before the annotation below exists.
         """
-        return (
-            self.model._default_manager.get_queryset()
-            .annotate(
-                _pending_first=Case(When(status=PENDING, then=Value(0)), default=Value(1), output_field=IntegerField())
-            )
-            .order_by("_pending_first", "-created_at")
-        )
+        qs: QuerySet[ReferralApplication] = self.model._default_manager.get_queryset()
+        return qs.annotate(
+            _pending_first=Case(When(status=PENDING, then=Value(0)), default=Value(1), output_field=IntegerField())
+        ).order_by("_pending_first", "-created_at")
 
     def get_ordering(self, request: HttpRequest) -> list[str]:
         """Pending rows first, then newest (the annotation comes from get_queryset).
@@ -182,12 +179,12 @@ class ReferralApplicationAdmin(ModelAdmin):  # type: ignore[misc]
         )
         self.message_user(request, f"{label} — {suffix}", messages.SUCCESS)
 
-    @action(description=_("Approve"), permissions=["change"], icon="check", variant=ActionVariant.SUCCESS)
+    @action(description=_("Approve"), permissions=["change"], icon="check", variant=ActionVariant.SUCCESS)  # type: ignore[untyped-decorator]
     def approve(self, request: HttpRequest, obj: ReferralApplication) -> None:
         actor = t.cast(RevelUser, request.user)
         self._decide(request, str(_("Approved")), lambda: referral_application_service.approve(obj, actor=actor))
 
-    @action(description=_("Reject"), permissions=["change"], icon="close", variant=ActionVariant.WARNING)
+    @action(description=_("Reject"), permissions=["change"], icon="close", variant=ActionVariant.WARNING)  # type: ignore[untyped-decorator]
     def reject(self, request: HttpRequest, obj: ReferralApplication) -> None:
         actor = t.cast(RevelUser, request.user)
         self._decide(
@@ -196,7 +193,7 @@ class ReferralApplicationAdmin(ModelAdmin):  # type: ignore[misc]
             lambda: referral_application_service.reject(obj, actor=actor, admin_note=obj.admin_note),
         )
 
-    @action(description=_("Reject permanently"), permissions=["change"], icon="block", variant=ActionVariant.DANGER)
+    @action(description=_("Reject permanently"), permissions=["change"], icon="block", variant=ActionVariant.DANGER)  # type: ignore[untyped-decorator]
     def block(self, request: HttpRequest, obj: ReferralApplication) -> None:
         actor = t.cast(RevelUser, request.user)
         self._decide(
@@ -205,7 +202,7 @@ class ReferralApplicationAdmin(ModelAdmin):  # type: ignore[misc]
             lambda: referral_application_service.block(obj, actor=actor, admin_note=obj.admin_note),
         )
 
-    @action(description=_("Invite by email"), url_path="invite", permissions=["add_invite"], icon="person_add")
+    @action(description=_("Invite by email"), url_path="invite", permissions=["add_invite"], icon="person_add")  # type: ignore[untyped-decorator]
     def invite(self, request: HttpRequest) -> HttpResponse:
         """GET: render the invite form. POST: create the invite (or enroll) and open the row."""
         form = ReferralInviteForm(request.POST or None)
