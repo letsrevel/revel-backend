@@ -104,6 +104,12 @@ class SiteSettings(SingletonModel):
         help_text="Public link to book a product demo (e.g. a Cal.com/Calendly page). Leave blank to hide.",
     )
 
+    # Referral program
+    referral_applications_enabled = models.BooleanField(
+        default=False,
+        help_text="Accept public applications to the referral program. Admin invites work regardless.",
+    )
+
     # Maintenance banner
     maintenance_message = models.CharField(
         max_length=500,

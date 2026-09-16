@@ -115,17 +115,18 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
         demo=settings.DEMO_MODE,
         banner=_get_active_banner(site),
         demo_booking_url=site.demo_booking_url or None,
-        features=_get_features(),
+        features=_get_features(site),
         sso_providers=[SSOProviderSchema(key=p.key, name=p.name) for p in settings.OIDC_PROVIDERS],
     )
 
 
-def _get_features() -> FeaturesSchema:
+def _get_features(site: SiteSettings) -> FeaturesSchema:
     """Expose the user-facing feature flags so clients can hide gated UI."""
     return FeaturesSchema(
         organization_creation=settings.FEATURE_ORGANIZATION_CREATION,
         telegram=settings.FEATURE_TELEGRAM,
         llm_evaluation=settings.FEATURE_LLM_EVALUATION,
+        referral_applications=site.referral_applications_enabled,
     )
 
 
