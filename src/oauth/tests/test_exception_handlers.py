@@ -5,6 +5,7 @@ import typing as t
 
 from django.http import HttpRequest
 
+from common.authentication import InvalidBearerToken
 from oauth.exception_handlers import HANDLERS
 from oauth.exceptions import (
     AppLimitReachedError,
@@ -51,3 +52,21 @@ def test_app_limit_is_409() -> None:
     resp = _render(AppLimitReachedError())
     assert resp.status_code == 409
     assert _body(resp) == {"detail": "You have reached the maximum number of apps."}
+
+
+def test_invalid_bearer_token_is_401_with_challenge(settings: t.Any) -> None:
+    """The 401 body is generic; the challenge points at the resource metadata (RFC 9728)."""
+    settings.OAUTH_ISSUER = "http://testserver"
+    resp = _render(InvalidBearerToken())
+    assert resp.status_code == 401
+    assert _body(resp) == {"detail": "Invalid or expired token."}
+    assert resp["WWW-Authenticate"] == (
+        'Bearer error="invalid_token", resource_metadata="http://testserver/.well-known/oauth-protected-resource"'
+    )
+
+
+def test_invalid_bearer_token_omits_resource_metadata_when_unconfigured(settings: t.Any) -> None:
+    """With no issuer configured there is no absolute metadata URI to advertise."""
+    settings.OAUTH_ISSUER = ""
+    resp = _render(InvalidBearerToken())
+    assert resp["WWW-Authenticate"] == 'Bearer error="invalid_token"'
