@@ -1,0 +1,8 @@
+{% load i18n %}{% blocktrans %}You are now part of the Revel referral program. Your referral code is "{{ code }}" and you earn {{ revenue_share_percent }}% of the platform fees from organizations you bring to Revel.{% endblocktrans %}
+
+{% blocktrans %}Manage your code and payouts here:{% endblocktrans %}
+
+{{ frontend_base_url }}/account/referral
+
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}

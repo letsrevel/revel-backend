@@ -134,14 +134,16 @@ class BannerSchema(Schema):
 class FeaturesSchema(Schema):
     """User-facing feature flags so clients can hide gated UI instead of failing on click.
 
-    Reflects the server-side ``FEATURE_*`` settings. Operational flags
-    (``FEATURE_MALWARE_SCAN``, ``FEATURE_OBSERVABILITY``) are intentionally omitted —
-    they do not affect what an end user sees.
+    Reflects the server-side ``FEATURE_*`` settings plus the SiteSettings-driven
+    ``referral_applications`` switch. Operational flags (``FEATURE_MALWARE_SCAN``,
+    ``FEATURE_OBSERVABILITY``) are intentionally omitted — they do not affect what an
+    end user sees.
     """
 
     organization_creation: bool
     telegram: bool
     llm_evaluation: bool
+    referral_applications: bool
 
 
 class SSOProviderSchema(Schema):

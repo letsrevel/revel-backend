@@ -1,0 +1,10 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "Welcome aboard" %}</h2>
+<p>{% blocktrans %}You are now part of the Revel referral program. Your referral code is "{{ code }}" and you earn {{ revenue_share_percent }}% of the platform fees from organizations you bring to Revel.{% endblocktrans %}</p>
+<div class="card">
+  <a href="{{ frontend_base_url }}/account/referral" class="button">{% trans "Open my referral page" %}</a>
+</div>
+<p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+{% endblock %}

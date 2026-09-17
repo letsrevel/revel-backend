@@ -71,3 +71,17 @@ def test_validate_missing_code_param(client: Client) -> None:
     response = client.get(url)
 
     assert response.status_code == 422
+
+
+@pytest.fixture
+def lowercase_referral_code(referrer: RevelUser) -> ReferralCode:
+    return ReferralCode.objects.create(user=referrer, code="lower-code")
+
+
+def test_validate_lowercase_stored_code_with_uppercase_query(
+    client: Client, lowercase_referral_code: ReferralCode
+) -> None:
+    """A code stored lowercase must validate when queried in any case."""
+    url = reverse("api:validate-referral-code")
+    assert client.get(url, {"code": "LOWER-CODE"}).status_code == 200
+    assert client.get(url, {"code": "Lower-Code"}).status_code == 200

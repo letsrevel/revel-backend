@@ -190,3 +190,29 @@ def test_signal_handler_noop_on_update(user: RevelUser) -> None:
         notify_admin_on_user_creation(sender=RevelUser, instance=user, created=False)
     mock_pushover.assert_not_called()
     mock_discord.assert_not_called()
+
+
+@pytest.mark.django_db
+@override_settings(PUSHOVER_USER_KEY="key", PUSHOVER_APP_TOKEN="token")
+def test_referral_application_pushover_message() -> None:
+    from accounts.models import ReferralApplication
+    from accounts.tasks import notify_admin_new_referral_application
+
+    app = ReferralApplication.objects.create(email="a@example.com", code="wanted", note="I run a big club")
+    with patch("accounts.tasks.notifications.httpx.post", return_value=_make_response()) as mock_post:
+        result = notify_admin_new_referral_application(application_id=str(app.id))
+
+    assert result["status"] == "sent"
+    message = mock_post.call_args.kwargs["data"]["message"]
+    assert "a@example.com" in message and "wanted" in message and "I run a big club" in message
+
+
+@pytest.mark.django_db
+@override_settings(PUSHOVER_USER_KEY="", PUSHOVER_APP_TOKEN="")
+def test_referral_application_pushover_skipped_when_not_configured() -> None:
+    from accounts.tasks import notify_admin_new_referral_application
+
+    with patch("accounts.tasks.notifications.httpx.post") as mock_post:
+        result = notify_admin_new_referral_application(application_id="00000000-0000-0000-0000-000000000000")
+    assert result == {"status": "skipped", "reason": "pushover_not_configured"}
+    mock_post.assert_not_called()

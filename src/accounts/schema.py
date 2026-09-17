@@ -39,6 +39,38 @@ class ReferralCodeSchema(ModelSchema):
         fields = ["code", "is_active"]
 
 
+class ReferralApplicationSchema(Schema):
+    """Public application to the referral program."""
+
+    email: EmailStr
+    code: str = Field(..., pattern=r"^[A-Za-z0-9_-]{3,20}$")
+    note: StrippedString = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        """Normalize email to lowercase."""
+        return v.lower()
+
+
+class ReferralApplicationErrorSchema(Schema):
+    """404/409 body of the referral application endpoints: translated ``detail`` + stable ``code``.
+
+    ``code`` is one of ``referral_applications_disabled`` (404), ``pending_application``,
+    ``code_taken`` (409).
+    """
+
+    detail: str
+    code: str
+
+
+class ReferralInvitationSchema(Schema):
+    """What the register page needs to prefill an invite: nothing more."""
+
+    email: str
+    code: str
+
+
 class RevelUserSchema(ProfilePictureSchemaMixin, ModelSchema):
     id: UUID4
     email: str

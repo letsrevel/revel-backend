@@ -1,0 +1,64 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+    {{ block.super }}
+    {{ form.media }}
+{% endblock %}
+
+{% block bodyclass %}{{ block.super }} app-accounts model-referralapplication referral-invite{% endblock %}
+
+{% block breadcrumbs %}
+    <nav class="flex font-medium mb-4 text-sm" aria-label="Breadcrumb">
+        <ol class="inline-flex items-center">
+            <li class="inline-flex items-center">
+                <a href="{% url 'admin:index' %}" class="inline-flex items-center text-primary-600 hover:text-primary-700 dark:text-primary-500 dark:hover:text-primary-400">{% translate 'Home' %}</a>
+            </li>
+            <li><div class="flex items-center"><span class="mx-2 text-base-400">/</span>
+                <a href="{% url 'admin:accounts_referralapplication_changelist' %}" class="text-primary-600 hover:text-primary-700 dark:text-primary-500 dark:hover:text-primary-400">{% translate 'Referral Applications' %}</a>
+            </div></li>
+            <li><div class="flex items-center"><span class="mx-2 text-base-400">/</span>
+                <span class="text-base-500 dark:text-base-400">{% translate 'Invite' %}</span>
+            </div></li>
+        </ol>
+    </nav>
+{% endblock %}
+
+{% block content_title %}
+    <h1 class="font-semibold mb-6 text-xl text-font-important-light dark:text-font-important-dark">{% translate "Invite to the referral program" %}</h1>
+{% endblock %}
+
+{% block content %}
+    <div class="border border-base-200 rounded-default shadow-xs dark:border-base-800">
+        <form method="post" class="p-6 space-y-6">
+            {% csrf_token %}
+
+            <p class="text-sm text-base-600 dark:text-base-300">
+                {% translate "If an account with this email exists it is enrolled immediately and told by email. Otherwise an invite email with a sign-up link goes out, and the code is activated when they register with this address." %}
+            </p>
+
+
+            {% if form.non_field_errors %}
+                <div class="border border-red-300 bg-red-50 rounded-default p-4 dark:border-red-800 dark:bg-red-900/20">
+                    {{ form.non_field_errors }}
+                </div>
+            {% endif %}
+
+            {% for field in form %}
+                <div class="group">
+                    <label for="{{ field.id_for_label }}" class="block font-medium text-sm text-font-important-light dark:text-font-important-dark mb-1">
+                        {{ field.label }}{% if field.field.required %} <span class="text-red-500">*</span>{% endif %}
+                    </label>
+                    {{ field }}
+                    {% if field.help_text %}<p class="mt-1 text-xs text-base-500 dark:text-base-400">{{ field.help_text }}</p>{% endif %}
+                    {% if field.errors %}<p class="mt-1 text-xs text-red-600 dark:text-red-400">{{ field.errors|striptags }}</p>{% endif %}
+                </div>
+            {% endfor %}
+
+            <div class="flex items-center justify-end gap-3 border-t border-base-200 dark:border-base-800 pt-4">
+                <a href="{% url 'admin:accounts_referralapplication_changelist' %}" class="bg-base-100 border border-base-300 font-medium px-4 py-2 rounded-default text-sm text-base-700 hover:bg-base-200 dark:bg-base-800 dark:border-base-600 dark:text-base-200 dark:hover:bg-base-700">{% translate "Cancel" %}</a>
+                <button type="submit" class="bg-primary-600 border border-transparent font-medium px-4 py-2 rounded-default text-sm text-white hover:bg-primary-700">{% translate "Send invite" %}</button>
+            </div>
+        </form>
+    </div>
+{% endblock %}

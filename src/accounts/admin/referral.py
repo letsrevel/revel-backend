@@ -2,6 +2,7 @@
 
 import typing as t
 
+from django import forms
 from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.http import HttpRequest
@@ -10,16 +11,34 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 from unfold.admin import ModelAdmin
 
+from accounts.exceptions import ReferralApplicationConflictError
 from accounts.models import Referral, ReferralCode, ReferralPayout, ReferralPayoutStatement, RevelUser
-from accounts.service import referral_payout_service
+from accounts.service import referral_application_service, referral_payout_service
 from common.signing import get_file_url
+
+
+class ReferralCodeForm(forms.ModelForm):  # type: ignore[type-arg]
+    """Add form: refuse a code already held by another code or reserved by a live application."""
+
+    class Meta:
+        model = ReferralCode
+        fields = ["user", "code", "is_active", "revenue_share_percent"]
+
+    def clean_code(self) -> str:
+        code = t.cast(str, self.cleaned_data["code"])
+        try:
+            referral_application_service.assert_code_available(code)
+        except ReferralApplicationConflictError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+        return code
 
 
 @admin.register(ReferralCode)
 class ReferralCodeAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for ReferralCode model (admin-managed, codes are immutable)."""
 
-    list_display = ["user", "code", "is_active", "created_at"]
+    form = ReferralCodeForm
+    list_display = ["user", "code", "is_active", "revenue_share_percent", "created_at"]
     list_select_related = ["user"]
     list_filter = ["is_active", "created_at"]
     search_fields = ["user__username", "user__email", "code"]
@@ -34,6 +53,7 @@ class ReferralCodeAdmin(ModelAdmin):  # type: ignore[misc]
                     "user",
                     "code",
                     "is_active",
+                    "revenue_share_percent",
                 )
             },
         ),

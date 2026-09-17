@@ -128,3 +128,53 @@ def test_missing_required_context_raises(mock_send: MagicMock) -> None:
 def test_email_type_accepts_raw_string_value() -> None:
     """Celery serialises the StrEnum to its value; the task must accept the round-tripped string."""
     assert AccountEmail("verification") is AccountEmail.VERIFICATION
+
+
+@patch("accounts.tasks.email.send_email")
+def test_referral_invite_email_links_to_register_with_invite_id(mock_send: MagicMock) -> None:
+    site = SiteSettings.get_solo()
+    context = {"code": "biagio", "revenue_share_percent": "15.00", "admin_note": "Welcome aboard"}
+    send_account_email(AccountEmail.REFERRAL_INVITE, "invitee@example.com", token="abc-123", context=context)
+
+    expected = _render(
+        "referral_invite",
+        {
+            "frontend_base_url": site.frontend_base_url,
+            **context,
+            "action_link": f"{site.frontend_base_url}/register?referral_invite=abc-123",
+        },
+    )
+    mock_send.assert_called_once_with(
+        to="invitee@example.com", subject=expected[0], body=expected[1], html_body=expected[2]
+    )
+    assert "Welcome aboard" in expected[1]
+    assert "/register?referral_invite=abc-123" in expected[2]
+
+
+@patch("accounts.tasks.email.send_email")
+def test_referral_enrolled_email_links_to_account_referral_page(mock_send: MagicMock) -> None:
+    site = SiteSettings.get_solo()
+    context = {"code": "biagio", "revenue_share_percent": "20.00"}
+    send_account_email(AccountEmail.REFERRAL_ENROLLED, "u@example.com", context=context)
+
+    _, kwargs = mock_send.call_args
+    assert f"{site.frontend_base_url}/account/referral" in kwargs["html_body"]
+    assert "biagio" in kwargs["body"]
+
+
+@patch("accounts.tasks.email.send_email")
+def test_referral_rejected_email_includes_note_only_when_present(mock_send: MagicMock) -> None:
+    send_account_email(AccountEmail.REFERRAL_REJECTED, "u@example.com", context={"admin_note": ""})
+    assert "Note from the team" not in mock_send.call_args.kwargs["body"]
+
+    mock_send.reset_mock()
+    send_account_email(AccountEmail.REFERRAL_REJECTED, "u@example.com", context={"admin_note": "Try again next year"})
+    assert "Try again next year" in mock_send.call_args.kwargs["body"]
+
+
+@patch("accounts.tasks.email.send_email")
+def test_referral_application_received_requires_code(mock_send: MagicMock) -> None:
+    with pytest.raises(ValueError, match="code"):
+        send_account_email(AccountEmail.REFERRAL_APPLICATION_RECEIVED, "u@example.com")
+    send_account_email(AccountEmail.REFERRAL_APPLICATION_RECEIVED, "u@example.com", context={"code": "biagio"})
+    assert "biagio" in mock_send.call_args.kwargs["body"]

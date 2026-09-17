@@ -574,6 +574,51 @@ sequenceDiagram
     API-->>R: Email with statement PDF
 ```
 
+### Joining the Program
+
+Referrers are enrolled through an application (public, gated by
+`SiteSettings.referral_applications_enabled`) or an admin invite. Every decision is
+taken in the Django admin; the frontend only exposes the apply form and the invite
+prefill on the register page.
+
+```mermaid
+sequenceDiagram
+    participant A as Applicant
+    participant API as API
+    participant Adm as Platform admin (Django admin)
+
+    A->>API: POST /api/referral/apply {email, code, note}
+    API-->>A: 202 (also for blocked / already-enrolled emails)
+    API-->>A: "Application received" email
+    API-->>Adm: Pushover ping
+
+    alt Approve, account exists
+        Adm->>API: Approve
+        API->>API: Create ReferralCode, link application
+        API-->>A: "You're enrolled" email
+    else Approve, no account yet
+        Adm->>API: Approve (or Invite by email)
+        API-->>A: Invite email → /register?referral_invite=<id>
+        A->>API: Register / SSO login with that email
+        API->>API: post_save: enroll by email match
+        API-->>A: "You're enrolled" email
+    else Reject / Reject permanently
+        Adm->>API: Reject (+ optional note)
+        API-->>A: Rejection email (note included when present)
+    end
+```
+
+| Decision | Effect | Applicant sees |
+|---|---|---|
+| Approve | Enroll now, or invite email with a register link | Enrolled / invite email |
+| Reject | Row closed, may apply again | Rejection email (+ note) |
+| Reject permanently | Row closed, future applications from that email silently dropped | Same rejection email |
+| Invite by email | Pre-approved application created by the admin | Invite or enrolled email |
+
+Guest accounts created by guest checkout are not signups: they are enrolled when the
+guest becomes a full user (password set or OIDC login). Enrollment never blocks account
+creation — a code taken in the meantime is logged and left for the admin.
+
 ### Payout Documents
 
 The document type depends on the referrer's billing profile:

@@ -52,13 +52,27 @@ class TestVersionEndpointFeatures:
             "organization_creation": True,
             "telegram": False,
             "llm_evaluation": False,
+            "referral_applications": False,
         }
+
+    def test_referral_applications_flag_reflects_site_settings(self, client: Client) -> None:
+        """The referral-applications flag comes from SiteSettings, not Django settings."""
+        site = SiteSettings.get_solo()
+        site.referral_applications_enabled = True
+        site.save()
+
+        assert client.get(VERSION_URL).json()["features"]["referral_applications"] is True
 
     def test_operational_flags_are_not_exposed(self, client: Client) -> None:
         """Test that operational flags (malware scan, observability) are not leaked to clients."""
         data = client.get(VERSION_URL).json()
 
-        assert set(data["features"]) == {"organization_creation", "telegram", "llm_evaluation"}
+        assert set(data["features"]) == {
+            "organization_creation",
+            "telegram",
+            "llm_evaluation",
+            "referral_applications",
+        }
 
     def test_sso_providers_listed(self, client: Client, settings: t.Any) -> None:
         """Configured OIDC providers are exposed as key + display name, secrets excluded."""

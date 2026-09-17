@@ -1,0 +1,8 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "Your application" %}</h2>
+<p>{% blocktrans %}Thank you for your interest in the Revel referral program. We are not able to accept your application at this time.{% endblocktrans %}</p>
+{% if admin_note %}<p><strong>{% trans "Note from the team:" %}</strong><br>{{ admin_note|linebreaksbr }}</p>{% endif %}
+<p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+{% endblock %}

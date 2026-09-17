@@ -73,6 +73,13 @@ class UserRegistrationThrottle(DisableableThrottleMixin, AnonRateThrottle):
     rate = "100/day"
 
 
+class ReferralApplicationThrottle(DisableableThrottleMixin, AnonRateThrottle):
+    """Public referral-program applications (10 requests/day per IP)."""
+
+    scope = "referral_application"
+    rate = "10/day"
+
+
 class WriteThrottle(DisableableThrottleMixin, UserRateThrottle):
     """Write operation throttle (100 requests/min)."""
 

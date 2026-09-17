@@ -38,6 +38,10 @@ class AccountEmail(enum.StrEnum):
     CHANGE_COMPLETED_OLD = "change_completed_old"
     CHANGE_COMPLETED_NEW = "change_completed_new"
     DELETION = "deletion"
+    REFERRAL_APPLICATION_RECEIVED = "referral_application_received"
+    REFERRAL_INVITE = "referral_invite"
+    REFERRAL_ENROLLED = "referral_enrolled"
+    REFERRAL_REJECTED = "referral_rejected"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -91,6 +95,23 @@ _CONFIGS: dict[AccountEmail, _Config] = {
     AccountEmail.DELETION: _Config(
         template_base="account_delete",
         link_path="/account/confirm-deletion?token={token}",
+    ),
+    AccountEmail.REFERRAL_APPLICATION_RECEIVED: _Config(
+        template_base="referral_application_received",
+        required_context_keys=("code",),
+    ),
+    AccountEmail.REFERRAL_INVITE: _Config(
+        template_base="referral_invite",
+        link_path="/register?referral_invite={token}",
+        required_context_keys=("code", "revenue_share_percent", "admin_note"),
+    ),
+    AccountEmail.REFERRAL_ENROLLED: _Config(
+        template_base="referral_enrolled",
+        required_context_keys=("code", "revenue_share_percent"),
+    ),
+    AccountEmail.REFERRAL_REJECTED: _Config(
+        template_base="referral_rejected",
+        required_context_keys=("admin_note",),
     ),
 }
 

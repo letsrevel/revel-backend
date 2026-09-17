@@ -8,7 +8,14 @@ from decimal import Decimal
 import pyotp
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager
-from django.core.validators import FileExtensionValidator, MaxLengthValidator, MaxValueValidator, MinValueValidator
+from django.core.exceptions import ValidationError
+from django.core.validators import (
+    FileExtensionValidator,
+    MaxLengthValidator,
+    MaxValueValidator,
+    MinValueValidator,
+    RegexValidator,
+)
 from django.db import models
 from django.db.models.functions import Lower
 from django.utils import timezone
@@ -411,26 +418,41 @@ class ExternalIdentity(TimeStampedModel):
         return f"{self.provider}:{self.subject} → {self.user.email}"
 
 
+REFERRAL_CODE_VALIDATOR = RegexValidator(
+    regex=r"^[A-Za-z0-9_-]{3,20}$",
+    message=_("Referral codes use 3 to 20 letters, digits, dashes or underscores."),
+)
+
+
 class ReferralCode(TimeStampedModel):
     """Tracks a unique referral code assigned 1:1 to a user.
 
-    Codes are uppercase and immutable after creation. Management is admin-only.
+    Codes are case-insensitive (unique on ``Lower(code)``), stored as typed and immutable
+    after creation. Management is admin-only.
     """
 
     user = models.OneToOneField(RevelUser, on_delete=models.PROTECT, related_name="referral_code")
-    code = models.CharField(max_length=20, unique=True, help_text="Uppercase referral code (immutable)")
+    code = models.CharField(
+        max_length=20,
+        validators=[REFERRAL_CODE_VALIDATOR],
+        help_text="Referral code (case-insensitive, immutable)",
+    )
     is_active = models.BooleanField(default=True)
+    revenue_share_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Overrides settings.DEFAULT_REFERRAL_SHARE_PERCENT for referrals this code produces.",
+    )
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [models.UniqueConstraint(Lower("code"), name="unique_referral_code_ci")]
 
     def __str__(self) -> str:
         return f"{self.user.username} — {self.code}"
-
-    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Enforce uppercase on code before saving."""
-        self.code = self.code.upper()
-        super().save(*args, **kwargs)
 
 
 class Referral(TimeStampedModel):
@@ -475,14 +497,100 @@ class Referral(TimeStampedModel):
         ]
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Derive referrer from referral_code.user before persisting."""
+        """Derive referrer and snapshot the share percent before persisting.
+
+        On create, a code-level override replaces the field default; an explicit
+        non-default value passed by the caller wins. Existing rows are never rewritten.
+        """
         self.referrer = self.referral_code.user
+        # ponytail: "untouched" is detected by value, so a caller that explicitly passes exactly
+        # the global default for a code with an override gets the override. Only the admin's
+        # manual Referral form can do that today; a None default with a save-time fill would
+        # distinguish the two if it ever matters.
+        if self._state.adding and self.revenue_share_percent == settings.DEFAULT_REFERRAL_SHARE_PERCENT:
+            override = self.referral_code.revenue_share_percent
+            if override is not None:
+                self.revenue_share_percent = override
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         referred = self.referred_user
         referred_name = referred.username if referred is not None else "(deleted user)"
         return f"{self.referrer.username} → {referred_name} ({self.revenue_share_percent}%)"
+
+
+class ReferralApplication(TimeStampedModel):
+    """A request to join the referral program, or an admin invite into it.
+
+    Both flows share one lifecycle: a public application starts ``PENDING`` and an admin
+    decides; an admin invite is created ``PENDING`` and approved in the same step
+    (``source=INVITE``). ``user`` is set once a ``ReferralCode`` exists for the applicant —
+    at approval when the account exists, or at signup otherwise (email match).
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        BLOCKED = "blocked", "Blocked"
+
+    class Source(models.TextChoices):
+        APPLICATION = "application", "Application"
+        INVITE = "invite", "Invite"
+
+    email = models.EmailField(help_text="Applicant email, lowercased")
+    normalized_email = models.CharField(
+        max_length=255, db_index=True, editable=False, help_text="Normalized for matching (same rules as GlobalBan)"
+    )
+    code = models.CharField(max_length=20, validators=[REFERRAL_CODE_VALIDATOR], help_text="Desired referral code")
+    revenue_share_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=settings.DEFAULT_REFERRAL_SHARE_PERCENT,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Share percent the referral code will carry once approved",
+    )
+    note = models.TextField(blank=True, help_text="Applicant's note (plain text). Required for public applications.")
+    admin_note = models.TextField(
+        blank=True,
+        help_text="Included in the rejection email, or in the invite email of any approved application, when present.",
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True)
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.APPLICATION)
+    decided_by = models.ForeignKey(RevelUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    user = models.ForeignKey(
+        RevelUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="referral_applications",
+        help_text="Set once the applicant is enrolled (a ReferralCode exists)",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["normalized_email"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_referral_application_per_email",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.email} — {self.code} ({self.status})"
+
+    def clean(self) -> None:
+        """Public applications must carry a note; invites may leave it blank."""
+        if self.source == self.Source.APPLICATION and not self.note.strip():
+            raise ValidationError({"note": _("A note is required.")})
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Lowercase the email and derive ``normalized_email`` before validation runs."""
+        self.email = self.email.strip().lower()
+        self.normalized_email = normalize_email_for_matching(self.email)
+        super().save(*args, **kwargs)
 
 
 class ReferralPayout(TimeStampedModel):

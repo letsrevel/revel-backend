@@ -397,6 +397,9 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "referral": ExportRule(include=True, serializer=_serialize_referral),
     "referrals_made": ExportRule(include=True, serializer=_serialize_referrals_made),
     "referral_code": ExportRule(include=True),
+    # The user's own referral-program applications/invites; ``decided_by`` is the deciding
+    # staff member (third party), ``user`` is the subject themselves.
+    "referral_applications": ExportRule(include=True, exclude_fields=("decided_by", "user")),
     "billing_profile": ExportRule(include=True),
     "external_identities": ExportRule(include=True),
     "data_export": ExportRule(include=False, reason="export bookkeeping (self-referential)"),
@@ -486,6 +489,7 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "accounts.globalban.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "events.blacklist.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "events.whitelistrequest.decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "accounts.referralapplication.decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     # simple-history: ``history_user`` is the editor, ``user``/``recorded_by``
     # mirror the live row's own FKs.
     "common.historicallegal.history_user": ExportRule(include=False, reason=_EXCLUDED_HISTORY_ACTOR),
