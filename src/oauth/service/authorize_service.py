@@ -9,10 +9,12 @@ The authorization request itself is still validated by oauthlib through DOT's co
 redirect URI, PKCE and scope rules are exactly the ones the token endpoint will enforce later.
 """
 
+import hashlib
 import typing as t
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.http import HttpRequest
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -25,6 +27,15 @@ from accounts.models import RevelUser
 from oauth.exceptions import AuthorizationRequestError, OAuthProviderDisabledError
 from oauth.models import OAuthApplication
 from oauth.utils import oauth_provider_enabled
+
+# How long the consent screen stays answerable. It only has to cover the round trip from
+# rendering the screen to the user clicking a button, so it is deliberately minutes rather
+# than the hour ``common.signing`` defaults to for media URLs: a stale screen must be
+# re-fetched (and the scopes re-read) rather than silently answered.
+CONSENT_TICKET_TTL_SECONDS = 300
+
+# Domain separator, so a ticket cannot be replayed as any other signed value in the product.
+_CONSENT_TICKET_SALT = "revel:oauth-consent-ticket:v1"
 
 
 @dataclass(frozen=True)
@@ -42,6 +53,7 @@ class AuthorizeDescription:
     scopes: list[str]
     redirect_uri: str
     state: str | None
+    consent_ticket: str
 
 
 def _ensure_enabled() -> None:
@@ -156,8 +168,8 @@ def _error_redirect(redirect_uri: str, error: str, state: str | None) -> Authori
     return AuthorizeRedirect(urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), "")))
 
 
-def has_prior_grant(user: RevelUser, application: OAuthApplication, scopes: list[str]) -> bool:
-    """Whether ``user`` already granted ``application`` at least ``scopes``.
+def has_prior_grant(user: RevelUser, application: OAuthApplication, scopes: list[str], resources: list[str]) -> bool:
+    """Whether ``user`` already granted ``application`` at least this much authority.
 
     Widens DOT's own auto-approve rule (a live access token covering the request) with live
     refresh tokens, so a client holding ``offline_access`` is not re-prompted merely because
@@ -165,24 +177,125 @@ def has_prior_grant(user: RevelUser, application: OAuthApplication, scopes: list
     property, so the answer reflects what was granted at issue time — the same choice
     ``ScopedJWTAuth`` makes.
 
+    Coverage is over scopes **and** RFC 8707 resource indicators (R-75). An empty resource
+    set is the *universal* set — an unrestricted token is usable at every resource — so the
+    rule is not a plain subset test in both directions: an unrestricted grant covers any
+    request, while a request that asks for no resource is only covered by an equally
+    unrestricted grant. Without that asymmetry a grant obtained for ``resource=https://a``
+    would silently auto-approve a re-authorization with no ``resource`` at all, minting a
+    token with strictly more power than the user ever consented to.
+
     Args:
         user: The end user answering the consent screen.
         application: The client asking for authorization.
         scopes: The scopes this request asks for.
+        resources: The resource indicators this request asks for; empty means unrestricted.
 
     Returns:
-        True when some live grant covers every requested scope.
+        True when some live grant covers both the requested scopes and the requested audience.
     """
-    wanted = set(scopes)
+    wanted_scopes = set(scopes)
+    wanted_resources = set(resources)
     granted = list(
         AccessToken.objects.filter(user=user, application=application, expires__gt=timezone.now()).values_list(
-            "scope", flat=True
+            "scope", "resource"
         )
     )
     granted += RefreshToken.objects.filter(
         user=user, application=application, revoked__isnull=True, access_token__isnull=False
-    ).values_list("access_token__scope", flat=True)
-    return any(wanted <= set(granted_scope.split()) for granted_scope in granted)
+    ).values_list("access_token__scope", "access_token__resource")
+    for granted_scope, granted_resource in granted:
+        if not wanted_scopes <= set(granted_scope.split()):
+            continue
+        granted_resources = set(granted_resource or [])
+        if granted_resources and not (wanted_resources and wanted_resources <= granted_resources):
+            continue
+        return True
+    return False
+
+
+def _consent_fingerprint(user: RevelUser, scopes: list[str], credentials: dict[str, t.Any]) -> str:
+    """Canonical digest of everything the consent screen told the user it was granting.
+
+    Sorted, newline-joined and hashed so the ticket stays short and opaque while still
+    binding the decision to one user, one client, one redirect URI, one displayed scope set,
+    one PKCE challenge and one audience. ``state`` is deliberately absent: it is the client's
+    own CSRF value and not part of what the user is consenting to.
+
+    Args:
+        user: The end user the screen was rendered for.
+        scopes: The scopes the screen displayed.
+        credentials: The credentials ``_validate`` returned for the request.
+
+    Returns:
+        A hex digest.
+    """
+    parts = [
+        str(user.pk),
+        str(credentials["client_id"]),
+        str(credentials["redirect_uri"]),
+        " ".join(sorted(scopes)),
+        str(credentials.get("code_challenge") or ""),
+        " ".join(sorted(credentials.get("resource") or [])),
+    ]
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()
+
+
+def _sign_consent_ticket(user: RevelUser, scopes: list[str], credentials: dict[str, t.Any]) -> str:
+    """Mint the ticket that proves this user was shown exactly these scopes.
+
+    Args:
+        user: The end user the screen is being rendered for.
+        scopes: The scopes the screen displays.
+        credentials: The credentials ``_validate`` returned.
+
+    Returns:
+        The opaque ticket the frontend must echo back with the decision.
+    """
+    signer = TimestampSigner(salt=_CONSENT_TICKET_SALT)
+    return signer.sign(_consent_fingerprint(user, scopes, credentials))
+
+
+def _check_consent_ticket(
+    ticket: str | None, user: RevelUser, scopes: list[str], credentials: dict[str, t.Any]
+) -> None:
+    """Refuse an approval that is not backed by a consent screen this user was actually shown.
+
+    The session JWT travels in a header, so there is no cookie to ride and no classic CSRF
+    here — but without this check an XSS or a malicious extension on the frontend origin
+    could POST ``allow=True`` with wider scopes than the screen displayed, and the backend
+    would have no way to tell. The ticket is the backend's own proof, so "the user saw what
+    they granted" stops being a frontend-only guarantee (R-74).
+
+    Args:
+        ticket: The ticket the client echoed back, if any.
+        user: The end user approving.
+        scopes: The scopes this POST is asking to grant.
+        credentials: The credentials ``_validate`` returned for this POST.
+
+    Raises:
+        AuthorizationRequestError: The ticket is missing, expired, forged, or describes a
+            different grant than this request. ``consent_required`` means "show the screen
+            again"; ``invalid_request`` means the decision did not match the consent and
+            retrying it unchanged will not help.
+    """
+    if not ticket:
+        raise AuthorizationRequestError(
+            "consent_required", str(_("A consent ticket from the authorization screen is required."))
+        )
+    signer = TimestampSigner(salt=_CONSENT_TICKET_SALT)
+    try:
+        signed = signer.unsign(ticket, max_age=CONSENT_TICKET_TTL_SECONDS)
+    except SignatureExpired as exc:
+        raise AuthorizationRequestError(
+            "consent_required", str(_("The authorization screen expired. Please review the request again."))
+        ) from exc
+    except BadSignature as exc:
+        raise AuthorizationRequestError("invalid_request", str(_("Invalid consent ticket."))) from exc
+    if signed != _consent_fingerprint(user, scopes, credentials):
+        raise AuthorizationRequestError(
+            "invalid_request", str(_("This decision does not match the authorization that was shown."))
+        )
 
 
 def _issue(request: HttpRequest, scopes: list[str], credentials: dict[str, t.Any], *, allow: bool) -> AuthorizeRedirect:
@@ -229,7 +342,7 @@ def describe(request: HttpRequest, user: RevelUser) -> AuthorizeDescription | Au
     Returns:
         An ``AuthorizeRedirect`` when no interaction is needed (a trusted app, a prior grant,
         or a ``prompt=none`` request that cannot be satisfied silently), otherwise the
-        description the consent screen renders.
+        description the consent screen renders, carrying the ticket the decision must echo.
     """
     _ensure_enabled()
     scopes, credentials = _validate(request)
@@ -240,24 +353,44 @@ def describe(request: HttpRequest, user: RevelUser) -> AuthorizeDescription | Au
     # authenticated by the time the frontend can call this, and re-authentication is a
     # frontend concern (it owns the session), so it is treated as a plain consent request.
     prompt = set(request.GET.get("prompt", "").split())
-    if "consent" not in prompt and (application.skip_authorization or has_prior_grant(user, application, scopes)):
+    auto = application.skip_authorization or has_prior_grant(
+        user, application, scopes, t.cast(list[str], credentials.get("resource") or [])
+    )
+    # No consent ticket on this branch, and none is needed: no screen is rendered, so there is
+    # nothing to bind a decision to. The authority comes from elsewhere entirely —
+    # ``skip_authorization`` is an operator-set flag on the app, and ``has_prior_grant``
+    # requires a live grant from this same user to this same app already covering these
+    # scopes and this audience. Neither can be influenced by whoever made the call.
+    if "consent" not in prompt and auto:
         return _issue(request, scopes, credentials, allow=True)
     if "none" in prompt:
         return _error_redirect(redirect_uri, "interaction_required", state)
-    return AuthorizeDescription(application=application, scopes=scopes, redirect_uri=redirect_uri, state=state)
+    return AuthorizeDescription(
+        application=application,
+        scopes=scopes,
+        redirect_uri=redirect_uri,
+        state=state,
+        consent_ticket=_sign_consent_ticket(user, scopes, credentials),
+    )
 
 
-def decide(request: HttpRequest, *, allow: bool) -> AuthorizeRedirect:
+def decide(request: HttpRequest, user: RevelUser, *, allow: bool, consent_ticket: str | None) -> AuthorizeRedirect:
     """Apply the user's answer; a refusal yields the client's ``access_denied`` redirect.
 
     Args:
         request: The authorization request, replayed in the query string of the decision POST.
+        user: The signed-in end user, whose identity the consent ticket is bound to.
         allow: The user's answer. There is no default — no branch of this module issues a code
             without either an explicit ``True`` here or a genuine prior grant in ``describe``.
+        consent_ticket: The ticket ``describe`` handed the screen. Required to approve;
+            ignored for a refusal, which issues no code and can therefore be honoured from a
+            screen that has since expired.
 
     Returns:
         The redirect the browser must follow.
     """
     _ensure_enabled()
     scopes, credentials = _validate(request)
+    if allow:
+        _check_consent_ticket(consent_ticket, user, scopes, credentials)
     return _issue(request, scopes, credentials, allow=allow)

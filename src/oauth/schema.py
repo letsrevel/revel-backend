@@ -99,6 +99,10 @@ class AuthorizeDescribeResponse(Schema):
     scopes: list[AuthorizeScopeSchema]
     redirect_uri: str
     state: str | None = None
+    #: Opaque, short-lived proof that this user was shown exactly these scopes. The consent
+    #: page must echo it back as ``consent_ticket`` when the user approves; see
+    #: ``oauth.service.authorize_service.CONSENT_TICKET_TTL_SECONDS``.
+    consent_ticket: str
 
 
 class AuthorizeRedirectResponse(Schema):
@@ -111,6 +115,10 @@ class AuthorizeDecisionPayload(Schema):
     """The user's answer to the consent screen. Required: there is no implicit approval."""
 
     allow: bool
+    #: The ticket from ``AuthorizeDescribeResponse``. Required when ``allow`` is true and
+    #: ignored otherwise — a refusal issues no code, so it is still honoured from a screen
+    #: that has expired in the meantime.
+    consent_ticket: str | None = None
 
 
 AuthorizeResponse: t.TypeAlias = AuthorizeDescribeResponse | AuthorizeRedirectResponse

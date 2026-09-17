@@ -32,8 +32,12 @@ def pkce() -> tuple[str, str]:
 
 
 def authorize_query(app: OAuthApplication, challenge: str, scope: str, **extra: str) -> dict[str, str]:
-    """The query parameters the frontend consent page forwards to the backend."""
-    return {
+    """The query parameters the frontend consent page forwards to the backend.
+
+    An override with an empty value omits the parameter, which is how a client that sends no
+    ``resource`` at all is expressed.
+    """
+    query = {
         "client_id": app.client_id,
         "response_type": "code",
         "redirect_uri": REDIRECT_URI,
@@ -44,6 +48,7 @@ def authorize_query(app: OAuthApplication, challenge: str, scope: str, **extra: 
         "resource": "http://testserver",
         **extra,
     }
+    return {key: value for key, value in query.items() if value != ""}
 
 
 def authorize_url(app: OAuthApplication, challenge: str, scope: str, **extra: str) -> str:
@@ -56,11 +61,29 @@ def authorize_url(app: OAuthApplication, challenge: str, scope: str, **extra: st
     return "/api/oauth/authorize?" + urlencode(authorize_query(app, challenge, scope, **extra))
 
 
-def decide(session_client: Client, app: OAuthApplication, challenge: str, scope: str, *, allow: bool) -> str:
-    """POST the consent decision and return the ``redirect_to`` the backend answers with."""
+def describe_consent(
+    session_client: Client, app: OAuthApplication, challenge: str, scope: str, **extra: str
+) -> dict[str, t.Any]:
+    """GET the consent screen's contents (or its auto-approval redirect)."""
+    response = session_client.get("/api/oauth/authorize", authorize_query(app, challenge, scope, **extra))
+    assert response.status_code == 200, response.content
+    return t.cast(dict[str, t.Any], response.json())
+
+
+def decide(
+    session_client: Client, app: OAuthApplication, challenge: str, scope: str, *, allow: bool, **extra: str
+) -> str:
+    """POST the consent decision and return the ``redirect_to`` the backend answers with.
+
+    Approving fetches the consent ticket from ``describe`` first, exactly as the consent page
+    does; the tests that probe the ticket itself build their POST inline instead.
+    """
+    body: dict[str, t.Any] = {"allow": allow}
+    if allow:
+        body["consent_ticket"] = describe_consent(session_client, app, challenge, scope, **extra)["consent_ticket"]
     response = session_client.post(
-        authorize_url(app, challenge, scope),
-        data={"allow": allow},
+        authorize_url(app, challenge, scope, **extra),
+        data=body,
         content_type="application/json",
     )
     assert response.status_code == 200, response.content
@@ -80,12 +103,11 @@ def run_code_flow(
     scope: str,
     *,
     secret: str | None = None,
+    **extra: str,
 ) -> dict[str, t.Any]:
     """Drive consent → code → token exchange and return the token response body."""
     verifier, challenge = pkce()
-    describe = session_client.get("/api/oauth/authorize", authorize_query(app, challenge, scope))
-    assert describe.status_code == 200, describe.content
-    code = code_from(decide(session_client, app, challenge, scope, allow=True))
+    code = code_from(decide(session_client, app, challenge, scope, allow=True, **extra))
     form = {
         "grant_type": "authorization_code",
         "code": code,
@@ -142,7 +164,20 @@ def test_no_offline_access_no_refresh_token(
 def test_confidential_client_needs_secret(
     session_client: Client, client: Client, confidential_secret: tuple[OAuthApplication, str]
 ) -> None:
+    """R-76: prove the secret is actually *required*, not merely accepted."""
     app, secret = confidential_secret
+    verifier, challenge = pkce()
+    code = code_from(decide(session_client, app, challenge, "org:read", allow=True))
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": REDIRECT_URI,
+        "client_id": app.client_id,
+        "code_verifier": verifier,
+    }
+    without_secret = client.post("/o/token", form)
+    assert without_secret.status_code in (400, 401), without_secret.content
+    assert without_secret.json()["error"] == "invalid_client"
     tokens = run_code_flow(session_client, client, app, "org:read", secret=secret)
     assert tokens["access_token"]
 
@@ -195,11 +230,9 @@ def test_foreign_resource_token_fails_audience(
 ) -> None:
     """R-63: ``OptionalAuth`` routes never 401 on an unknown bearer, so this needs a switched one."""
     verifier, challenge = pkce()
-    redirect_to = session_client.post(
-        authorize_url(public_oauth_app, challenge, "org:read", resource="https://other.example"),
-        data={"allow": True},
-        content_type="application/json",
-    ).json()["redirect_to"]
+    redirect_to = decide(
+        session_client, public_oauth_app, challenge, "org:read", allow=True, resource="https://other.example"
+    )
     tokens = client.post(
         "/o/token",
         {
@@ -236,9 +269,13 @@ def test_access_token_inherits_the_granted_resource(
 
 
 def test_deny_redirects_with_access_denied(session_client: Client, public_oauth_app: OAuthApplication) -> None:
+    """R-77: pin the target, so a malformed base URI cannot pass on substrings alone."""
     _, challenge = pkce()
     redirect_to = decide(session_client, public_oauth_app, challenge, "org:read", allow=False)
-    assert "error=access_denied" in redirect_to and "state=xyz" in redirect_to
+    assert redirect_to.startswith(REDIRECT_URI + "?"), redirect_to
+    query = parse_qs(urlparse(redirect_to).query)
+    assert query["error"] == ["access_denied"] and query["state"] == ["xyz"]
+    assert "code" not in query
     assert not Grant.objects.exists()
 
 
@@ -302,6 +339,27 @@ def test_prompt_none_with_prior_grant_issues_a_code(
     )
     assert resp.status_code == 200, resp.content
     assert "code=" in resp.json()["redirect_to"]
+
+
+def test_prior_grant_does_not_auto_approve_an_unrestricted_request(
+    session_client: Client, client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    """R-75: an audience-bound grant must not silently mint an unrestricted token."""
+    run_code_flow(session_client, client, public_oauth_app, "org:read offline_access")
+    _, challenge = pkce()
+    data = describe_consent(session_client, public_oauth_app, challenge, "org:read", resource="")
+    assert "redirect_to" not in data, data
+    assert [s["name"] for s in data["scopes"]] == ["org:read"]
+
+
+def test_unrestricted_prior_grant_auto_approves_a_narrower_request(
+    session_client: Client, client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    """The converse of R-75: no resource is the universal set, so it covers any audience."""
+    run_code_flow(session_client, client, public_oauth_app, "org:read offline_access", resource="")
+    _, challenge = pkce()
+    data = describe_consent(session_client, public_oauth_app, challenge, "org:read")
+    assert "code=" in data["redirect_to"]
 
 
 def test_widening_scope_after_a_grant_needs_consent_again(

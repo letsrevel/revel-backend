@@ -28,6 +28,7 @@ def _render(
         scopes=schema.AuthorizeScopeSchema.rows(result.scopes),
         redirect_uri=result.redirect_uri,
         state=result.state,
+        consent_ticket=result.consent_ticket,
     )
 
 
@@ -77,5 +78,7 @@ class OAuthAuthorizeController(UserAwareController):
         A decision always ends in a redirect — a refusal becomes the client's
         ``access_denied`` response — so this route never returns a consent description.
         """
-        result = authorize_service.decide(self._request(), allow=payload.allow)
+        result = authorize_service.decide(
+            self._request(), self.user(), allow=payload.allow, consent_ticket=payload.consent_ticket
+        )
         return schema.AuthorizeRedirectResponse(redirect_to=result.redirect_to)

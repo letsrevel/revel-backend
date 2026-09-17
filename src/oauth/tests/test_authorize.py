@@ -1,16 +1,17 @@
 """Unit-level coverage of the headless consent endpoints (no token endpoint involved)."""
 
 import typing as t
-from urllib.parse import urlencode
 
 import pytest
 from django.test.client import Client
+from ninja_jwt.tokens import RefreshToken
 from oauth2_provider.models import Grant
 
 from accounts.models import RevelUser
 from oauth.models import OAuthApplication
 from oauth.scopes import SCOPES
-from oauth.tests.test_flow import authorize_query, authorize_url, pkce
+from oauth.service import authorize_service
+from oauth.tests.test_flow import authorize_query, authorize_url, decide, describe_consent, pkce
 
 pytestmark = pytest.mark.django_db
 
@@ -27,6 +28,7 @@ def test_describe_lists_app_and_scopes(session_client: Client, public_oauth_app:
     assert data["scopes"][1]["group"] == "org" and data["scopes"][1]["label"]
     assert data["scopes"][0]["group"] == "identity"
     assert data["redirect_uri"] == "https://app.example/cb" and data["state"] == "xyz"
+    assert data["consent_ticket"]
 
 
 def test_describe_renders_an_absolute_signed_logo_url(
@@ -39,6 +41,115 @@ def test_describe_renders_an_absolute_signed_logo_url(
     data = session_client.get("/api/oauth/authorize", authorize_query(public_oauth_app, challenge, "org:read")).json()
     logo_url = data["application"]["logo_url"]
     assert logo_url.startswith("http://testserver/") and "sig=" in logo_url
+
+
+def _post_decision(
+    session_client: Client, app: OAuthApplication, challenge: str, scope: str, body: dict[str, t.Any]
+) -> t.Any:
+    """POST a decision body verbatim, without the helper's ticket plumbing."""
+    return session_client.post(authorize_url(app, challenge, scope), data=body, content_type="application/json")
+
+
+def test_approval_without_a_consent_ticket_is_refused(
+    session_client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    """R-74: the backend must hold its own proof that the user saw these scopes."""
+    _, challenge = pkce()
+    resp = _post_decision(session_client, public_oauth_app, challenge, "org:read", {"allow": True})
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"] == "consent_required"
+    assert not Grant.objects.exists()
+
+
+def test_tampered_consent_ticket_is_refused(session_client: Client, public_oauth_app: OAuthApplication) -> None:
+    _, challenge = pkce()
+    ticket = describe_consent(session_client, public_oauth_app, challenge, "org:read")["consent_ticket"]
+    forged = ticket[:-1] + ("A" if ticket[-1] != "A" else "B")
+    resp = _post_decision(
+        session_client, public_oauth_app, challenge, "org:read", {"allow": True, "consent_ticket": forged}
+    )
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"] == "invalid_request"
+    assert not Grant.objects.exists()
+
+
+def test_expired_consent_ticket_is_refused_distinguishably(
+    monkeypatch: pytest.MonkeyPatch, session_client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    """An expired screen asks for ``consent_required`` (re-show it), not ``invalid_request``."""
+    _, challenge = pkce()
+    ticket = describe_consent(session_client, public_oauth_app, challenge, "org:read")["consent_ticket"]
+    monkeypatch.setattr(authorize_service, "CONSENT_TICKET_TTL_SECONDS", -1)
+    resp = _post_decision(
+        session_client, public_oauth_app, challenge, "org:read", {"allow": True, "consent_ticket": ticket}
+    )
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"] == "consent_required"
+    assert not Grant.objects.exists()
+
+
+def test_widening_scope_between_screen_and_decision_is_refused(
+    session_client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    """The point of the ticket: a ticket for narrower scopes cannot approve wider ones."""
+    _, challenge = pkce()
+    ticket = describe_consent(session_client, public_oauth_app, challenge, "org:read")["consent_ticket"]
+    resp = _post_decision(
+        session_client,
+        public_oauth_app,
+        challenge,
+        "org:read org:events",
+        {"allow": True, "consent_ticket": ticket},
+    )
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"] == "invalid_request"
+    assert not Grant.objects.exists()
+
+
+def test_widening_the_resource_between_screen_and_decision_is_refused(
+    session_client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    """The ticket binds the audience too, not just the scopes."""
+    _, challenge = pkce()
+    ticket = describe_consent(session_client, public_oauth_app, challenge, "org:read")["consent_ticket"]
+    resp = session_client.post(
+        authorize_url(public_oauth_app, challenge, "org:read", resource=""),
+        data={"allow": True, "consent_ticket": ticket},
+        content_type="application/json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"] == "invalid_request"
+    assert not Grant.objects.exists()
+
+
+def test_refusal_needs_no_consent_ticket(session_client: Client, public_oauth_app: OAuthApplication) -> None:
+    """A refusal issues no code, so a screen that has since expired can still be answered."""
+    _, challenge = pkce()
+    resp = _post_decision(session_client, public_oauth_app, challenge, "org:read", {"allow": False})
+    assert resp.status_code == 200, resp.content
+    assert "error=access_denied" in resp.json()["redirect_to"]
+    assert not Grant.objects.exists()
+
+
+def test_consent_ticket_is_bound_to_one_user(
+    session_client: Client, public_oauth_app: OAuthApplication, revel_user_factory: t.Any
+) -> None:
+    """Another signed-in user cannot spend a ticket minted for someone else."""
+    _, challenge = pkce()
+    ticket = describe_consent(session_client, public_oauth_app, challenge, "org:read")["consent_ticket"]
+    other = revel_user_factory(email="other@example.com")
+    other.email_verified = True
+    other.save(update_fields=["email_verified"])
+    refresh = RefreshToken.for_user(other)
+    other_client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+    resp = other_client.post(
+        authorize_url(public_oauth_app, challenge, "org:read"),
+        data={"allow": True, "consent_ticket": ticket},
+        content_type="application/json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"] == "invalid_request"
+    assert not Grant.objects.exists()
 
 
 def test_scope_outside_allowed_is_invalid_scope(session_client: Client, public_oauth_app: OAuthApplication) -> None:
@@ -72,12 +183,7 @@ def test_no_resource_indicator_leaves_the_grant_unrestricted(
 ) -> None:
     """A plain OAuth client sends no ``resource``; the grant must then carry no audience."""
     _, challenge = pkce()
-    query = authorize_query(public_oauth_app, challenge, "org:read")
-    del query["resource"]
-    resp = session_client.post(
-        "/api/oauth/authorize?" + urlencode(query), data={"allow": True}, content_type="application/json"
-    )
-    assert resp.status_code == 200, resp.content
+    decide(session_client, public_oauth_app, challenge, "org:read", allow=True, resource="")
     assert not Grant.objects.get().resource
 
 
