@@ -11,7 +11,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
-from common.authentication import ScopedJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.models import Tag
 from common.schema import ErrorDetail, TagSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -287,7 +287,11 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}",
         url_name="remove_organization_staff",
         response={204: None},
-        permissions=[RequireScope("org:read"), IsOrganizationOwner()],
+        # Owner-gated: ``org:read``'s label ("See your organizations, events and settings")
+        # does not promise this, and no scope in the registry honestly covers it, so the route
+        # stays session-only rather than being gated by a scope that understates it (R-93).
+        auth=I18nJWTAuth(),
+        permissions=[IsOrganizationOwner()],
     )
     def remove_staff(self, slug: str, user_id: UUID) -> tuple[int, None]:
         """Remove a staff member from an organization."""

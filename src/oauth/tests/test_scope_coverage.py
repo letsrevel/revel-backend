@@ -31,10 +31,20 @@ from events.controllers.permissions import PermissionMapPermission, RootPermissi
 from events.models import PermissionKey
 from oauth.permissions import RequireScope
 
-# The app-token allow-list (R-89), by controller class name. Everything else stays on
-# ``I18nJWTAuth``/``OptionalAuth`` and refuses app tokens by construction.
+# Org-admin controllers deliberately held back from the app-token surface (R-93). Both are
+# controller-level ``IsOrganizationOwner()`` and neither is honestly covered by any scope in the
+# registry: ``org:read``'s consent label is "See your organizations, events and settings", which
+# promises neither financial reporting nor changing a VAT identity. A scope must never grant more
+# than its label says (R-39), so these wait for a dedicated ``org:financials`` scope rather than
+# riding in on ``org:read``.
+SESSION_ONLY_ORGANIZATION_ADMIN: frozenset[str] = frozenset(
+    {"OrganizationAdminRevenueController", "OrganizationAdminVATController"}
+)
+
+# The app-token allow-list (R-89 as corrected by R-93), by controller class name. Everything else
+# stays on ``I18nJWTAuth``/``OptionalAuth`` and refuses app tokens by construction.
 APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
-    {c.__name__ for c in ORGANIZATION_ADMIN_CONTROLLERS}
+    ({c.__name__ for c in ORGANIZATION_ADMIN_CONTROLLERS} - SESSION_ONLY_ORGANIZATION_ADMIN)
     | {c.__name__ for c in EVENT_ADMIN_CONTROLLERS}
     | {
         # Organizer surfaces.
@@ -55,8 +65,8 @@ APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
 )
 
 # A floor, not an exact count: it fails loudly if a whole surface is un-switched by a later
-# refactor, rather than silently asserting nothing (R-15). 294 routes are switched today.
-MINIMUM_SCOPED_ROUTES = 250
+# refactor, rather than silently asserting nothing (R-15). 273 routes are switched today.
+MINIMUM_SCOPED_ROUTES = 230
 
 # Calls on ``self`` that run ninja-extra's object-level permission hook.
 _OBJECT_CHECK_CALLS: frozenset[str] = frozenset(

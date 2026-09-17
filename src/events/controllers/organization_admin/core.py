@@ -5,7 +5,7 @@ from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
 
 from accounts.schema import VerifyEmailSchema
-from common.authentication import ScopedJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.schema import EmailSchema, ErrorDetail, ValidationErrorResponse
 from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -135,7 +135,11 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/stripe/connect",
         url_name="stripe_connect",
         response=schema.StripeOnboardingLinkSchema,
-        permissions=[RequireScope("org:read"), IsOrganizationOwner()],
+        # Owner-gated: ``org:read``'s label ("See your organizations, events and settings")
+        # does not promise this, and no scope in the registry honestly covers it, so the route
+        # stays session-only rather than being gated by a scope that understates it (R-93).
+        auth=I18nJWTAuth(),
+        permissions=[IsOrganizationOwner()],
     )
     def stripe_connect(self, slug: str, payload: EmailSchema) -> schema.StripeOnboardingLinkSchema:
         """Get a link to onboard the organization to Stripe.
@@ -160,7 +164,9 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/stripe/account/verify",
         url_name="stripe_account_verify",
         response=schema.StripeAccountStatusSchema,
-        permissions=[RequireScope("org:read"), IsOrganizationOwner()],
+        # Session-only for the same reason as ``stripe_connect`` above.
+        auth=I18nJWTAuth(),
+        permissions=[IsOrganizationOwner()],
     )
     def stripe_account_verify(self, slug: str) -> schema.StripeAccountStatusSchema:
         """Get the organization's Stripe account status."""

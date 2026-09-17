@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja import Query
 from ninja_extra import api_controller, route
 
-from common.authentication import ScopedJWTAuth
+from common.authentication import I18nJWTAuth
 from common.models import FileExport
 from common.throttling import ExportThrottle, UserDefaultThrottle
 from events import schema
@@ -18,16 +18,15 @@ from events.exceptions import InvalidPeriodError
 from events.schema.export import FileExportSchema
 from events.schema.financials import OrganizationFinancialsSchema
 from events.service import revenue_aggregation, revenue_report_service
-from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=ScopedJWTAuth(),
+    auth=I18nJWTAuth(),
     tags=["Organization Admin"],
-    permissions=[RequireScope("org:read"), IsOrganizationOwner()],
+    permissions=[IsOrganizationOwner()],
 )
 class OrganizationAdminRevenueController(OrganizationAdminBaseController):
     """Generate and poll downloadable revenue & VAT report bundles."""

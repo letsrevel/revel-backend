@@ -7,7 +7,6 @@ from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import searching
 
-from common.authentication import I18nJWTAuth
 from common.controllers import DistinctSearching
 from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -54,7 +53,6 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
         "/{organization_id}/create-questionnaire",
         url_name="create_questionnaire",
         response={200: event_schema.OrganizationQuestionnaireSchema, 400: ValidationErrorResponse | ErrorDetail},
-        auth=I18nJWTAuth(),
         permissions=[RequireScope("org:read"), OrganizationPermission("create_questionnaire")],
     )
     def create_org_questionnaire(
