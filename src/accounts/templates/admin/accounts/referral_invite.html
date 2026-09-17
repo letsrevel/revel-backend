@@ -33,6 +33,11 @@
         <form method="post" class="p-6 space-y-6">
             {% csrf_token %}
 
+            <p class="text-sm text-base-600 dark:text-base-300">
+                {% translate "If an account with this email exists it is enrolled immediately and told by email. Otherwise an invite email with a sign-up link goes out, and the code is activated when they register with this address." %}
+            </p>
+
+
             {% if form.non_field_errors %}
                 <div class="border border-red-300 bg-red-50 rounded-default p-4 dark:border-red-800 dark:bg-red-900/20">
                     {{ form.non_field_errors }}
@@ -49,12 +54,6 @@
                     {% if field.errors %}<p class="mt-1 text-xs text-red-600 dark:text-red-400">{{ field.errors|striptags }}</p>{% endif %}
                 </div>
             {% endfor %}
-
-            <div class="bg-amber-50 border border-amber-200 rounded-default p-4 dark:bg-amber-900/20 dark:border-amber-800">
-                <p class="text-sm text-amber-800 dark:text-amber-200">
-                    {% translate "If an account with this email exists it is enrolled immediately and told by email. Otherwise an invite email with a sign-up link goes out, and the code is activated when they register with this address." %}
-                </p>
-            </div>
 
             <div class="flex items-center justify-end gap-3 border-t border-base-200 dark:border-base-800 pt-4">
                 <a href="{% url 'admin:accounts_referralapplication_changelist' %}" class="bg-base-100 border border-base-300 font-medium px-4 py-2 rounded-default text-sm text-base-700 hover:bg-base-200 dark:bg-base-800 dark:border-base-600 dark:text-base-200 dark:hover:bg-base-700">{% translate "Cancel" %}</a>
