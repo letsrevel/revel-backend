@@ -33,7 +33,9 @@ OAUTH2_PROVIDER = {
     "OIDC_ISS_ENDPOINT": OAUTH_ISSUER,
     # OAUTH2_VALIDATOR_CLASS is added by Task 6, together with oauth/validator.py.
     "SCOPES_BACKEND_CLASS": "oauth.scopes.RegistryScopes",
-    "DEFAULT_SCOPES": [],
+    # No SCOPES/DEFAULT_SCOPES keys here on purpose: only DOT's SettingsScopes reads them, and
+    # we replace it above. The vocabulary and the (empty) defaults both live in oauth/scopes.py
+    # — setting them here would be silently ignored.
     "PKCE_REQUIRED": True,
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
     "ALLOW_LOCALHOST_LOOPBACK": True,
