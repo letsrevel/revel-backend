@@ -106,3 +106,22 @@ def session_client(user: RevelUser) -> Client:
     user.save(update_fields=["email_verified"])
     refresh = RefreshToken.for_user(user)
     return Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+
+
+@pytest.fixture
+def oauth_event(organization: t.Any) -> t.Any:
+    """A minimal event owned by the root ``organization`` (whose owner is ``user``).
+
+    The ``events`` app's own ``event`` fixture is not visible from this package and
+    hangs off a differently shaped ``organization``; see R-47. Keep this minimal.
+    """
+    from django.utils import timezone
+
+    from events.models import Event
+
+    return Event.objects.create(
+        organization=organization,
+        name="OAuth Event",
+        slug="oauth-event",
+        start=timezone.now(),
+    )
