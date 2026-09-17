@@ -125,6 +125,13 @@ class AuthorizeDecisionPayload(Schema):
 AuthorizeResponse: t.TypeAlias = AuthorizeDescribeResponse | AuthorizeRedirectResponse
 
 
+#: Long enough for a real "about this app" paragraph, short enough that it cannot be used to
+#: push anything else onto the consent card.
+DESCRIPTION_MAX_LENGTH = 2000
+#: See ``OAuthAppCreatePayload.redirect_uris``.
+REDIRECT_URIS_MAX_COUNT = 10
+
+
 class OAuthAppCreatePayload(Schema):
     """What a developer supplies to register a client (spec §8.3).
 
@@ -135,9 +142,14 @@ class OAuthAppCreatePayload(Schema):
     """
 
     name: str = Field(max_length=255)
-    description: str = ""
+    #: Bounded even though a developer can only spoil their own app: this text renders on the
+    #: consent card *other* users are asked to trust, and the column behind it is a ``TextField``.
+    description: str = Field(default="", max_length=DESCRIPTION_MAX_LENGTH)
     client_type: t.Literal["confidential", "public"]
-    redirect_uris: list[str] = Field(min_length=1)
+    #: The upper bound is DOT's own notion of a legitimate client: its redirect-URI matcher caps
+    #: the candidates it will even log at ``_MAX_LOGGED_CANDIDATES = 10`` ("past any legitimate
+    #: client", oauth2_provider/models.py:1258).
+    redirect_uris: list[str] = Field(min_length=1, max_length=REDIRECT_URIS_MAX_COUNT)
     allowed_scopes: list[str] = Field(default_factory=list)
     homepage_url: str = ""
     privacy_policy_url: str = ""
@@ -147,8 +159,8 @@ class OAuthAppUpdatePayload(Schema):
     """A partial update. ``client_type`` is absent: switching it would invalidate the secret."""
 
     name: str | None = Field(default=None, max_length=255)
-    description: str | None = None
-    redirect_uris: list[str] | None = None
+    description: str | None = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
+    redirect_uris: list[str] | None = Field(default=None, min_length=1, max_length=REDIRECT_URIS_MAX_COUNT)
     allowed_scopes: list[str] | None = None
     homepage_url: str | None = None
     privacy_policy_url: str | None = None

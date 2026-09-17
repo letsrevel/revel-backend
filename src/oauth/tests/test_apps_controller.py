@@ -15,6 +15,7 @@ from oauth2_provider.models import AccessToken, RefreshToken
 
 from accounts.models import RevelUser
 from common.models import FileUploadAudit
+from oauth import schema
 from oauth.models import OAuthApplication
 from oauth.tests.test_auth_class import make_access_token
 from oauth.tests.test_token_service import make_token_pair
@@ -99,6 +100,24 @@ def test_plain_http_redirect_uri_rejected(session_client: Client) -> None:
     assert response.status_code == 400, response.content
 
 
+def test_oversized_description_rejected(session_client: Client) -> None:
+    """The bound is at the trust boundary, so ninja refuses it before any service runs."""
+    response = session_client.post(
+        "/api/oauth/apps/",
+        data={**CREATE, "description": "x" * (schema.DESCRIPTION_MAX_LENGTH + 1)},
+        content_type="application/json",
+    )
+    assert response.status_code == 422, response.content
+
+
+def test_too_many_redirect_uris_rejected(session_client: Client) -> None:
+    uris = [f"https://x.example/cb{n}" for n in range(schema.REDIRECT_URIS_MAX_COUNT + 1)]
+    response = session_client.post(
+        "/api/oauth/apps/", data={**CREATE, "redirect_uris": uris}, content_type="application/json"
+    )
+    assert response.status_code == 422, response.content
+
+
 def test_cap(settings: t.Any, session_client: Client) -> None:
     settings.OAUTH_MAX_APPS_PER_USER = 1
     assert session_client.post("/api/oauth/apps/", data=CREATE, content_type="application/json").status_code == 201
@@ -126,7 +145,9 @@ def test_list_only_mine(session_client: Client, revel_user_factory: t.Any) -> No
     assert names == ["My App"]
 
 
-def test_another_users_app_is_not_reachable(session_client: Client, revel_user_factory: t.Any) -> None:
+def test_another_users_app_is_not_reachable(
+    session_client: Client, revel_user_factory: t.Any, png_bytes: bytes
+) -> None:
     theirs = OAuthApplication.objects.create(
         user=revel_user_factory(),
         name="Theirs",
@@ -143,8 +164,15 @@ def test_another_users_app_is_not_reachable(session_client: Client, revel_user_f
     )
     assert session_client.delete(f"/api/oauth/apps/{theirs.pk}").status_code == 404
     assert session_client.post(f"/api/oauth/apps/{theirs.pk}/rotate-secret").status_code == 404
+    assert session_client.post(f"/api/oauth/apps/{theirs.pk}/deactivate").status_code == 404
+    assert session_client.post(f"/api/oauth/apps/{theirs.pk}/activate").status_code == 404
+    # A real file: an empty one is refused by ninja's own validation (422) before the route runs,
+    # which would leave the ownership check untested.
+    logo = SimpleUploadedFile(name="logo.png", content=png_bytes, content_type="image/png")
+    assert session_client.post(f"/api/oauth/apps/{theirs.pk}/logo", data={"logo": logo}).status_code == 404
     theirs.refresh_from_db()
     assert theirs.name == "Theirs"
+    assert theirs.is_active is True
 
 
 def test_update_fields(session_client: Client) -> None:
@@ -165,6 +193,46 @@ def test_empty_update_is_a_no_op(session_client: Client) -> None:
     response = session_client.patch(f"/api/oauth/apps/{data['id']}", data={}, content_type="application/json")
     assert response.status_code == 200, response.content
     assert response.json()["name"] == "My App"
+
+
+def test_null_redirect_uris_is_rejected(session_client: Client) -> None:
+    """An explicit JSON ``null`` validates against ``list[str] | None`` and survives exclude_unset."""
+    data = create_app(session_client)
+    response = session_client.patch(
+        f"/api/oauth/apps/{data['id']}", data={"redirect_uris": None}, content_type="application/json"
+    )
+    assert response.status_code == 400, response.content
+    assert "redirect_uris" in response.json()["errors"]
+    assert OAuthApplication.objects.get(pk=data["id"]).redirect_uris == "https://x.example/cb"
+
+
+def test_null_allowed_scopes_is_rejected(session_client: Client) -> None:
+    data = create_app(session_client)
+    response = session_client.patch(
+        f"/api/oauth/apps/{data['id']}", data={"allowed_scopes": None}, content_type="application/json"
+    )
+    assert response.status_code == 400, response.content
+    assert "allowed_scopes" in response.json()["errors"]
+    assert OAuthApplication.objects.get(pk=data["id"]).allowed_scopes == ["openid", "org:read"]
+
+
+def test_null_scalar_field_is_rejected(session_client: Client) -> None:
+    """Uniform with the list fields: ``None`` is pydantic's "unset" marker, never a value."""
+    data = create_app(session_client)
+    response = session_client.patch(
+        f"/api/oauth/apps/{data['id']}", data={"name": None}, content_type="application/json"
+    )
+    assert response.status_code == 400, response.content
+    assert OAuthApplication.objects.get(pk=data["id"]).name == "My App"
+
+
+def test_clearing_scopes_uses_an_empty_list_not_null(session_client: Client) -> None:
+    data = create_app(session_client)
+    response = session_client.patch(
+        f"/api/oauth/apps/{data['id']}", data={"allowed_scopes": []}, content_type="application/json"
+    )
+    assert response.status_code == 200, response.content
+    assert OAuthApplication.objects.get(pk=data["id"]).allowed_scopes == []
 
 
 def test_scope_shrink_revokes_tokens(session_client: Client, user: RevelUser) -> None:

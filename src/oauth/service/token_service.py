@@ -141,6 +141,13 @@ def revoke_scoped_tokens(application: OAuthApplication, scopes: set[str]) -> int
     A token that holds none of the removed scopes is untouched: narrowing an app's
     ``allowed_scopes`` withdraws that authority, it does not disconnect every user.
 
+    One knock-on effect, deliberately accepted: ``AccessToken.id_token`` cascades, so deleting an
+    ID token whose ``scope`` holds a removed scope also deletes its paired access token even when
+    that token's own scope string does not — over-revocation, not under-revocation. It leaves an
+    orphaned refresh row, which both ``connections_for`` and ``has_prior_grant`` ignore and DOT's
+    ``validate_refresh_token`` refuses, so it fails in the only direction that is safe: the user
+    re-consents, and nothing keeps authority it should have lost.
+
     Args:
         application: The app whose scopes were narrowed.
         scopes: The scopes that were removed.
@@ -199,8 +206,14 @@ def connections_for(user: RevelUser) -> list[Connection]:
     # Idle expiry (``REFRESH_TOKEN_EXPIRE_SECONDS`` past the access token's expiry) is deliberately
     # NOT applied: ``has_prior_grant`` does not apply it either, so a token that old still
     # auto-approves, and hiding it here would reopen the gap this function exists to close.
-    live_refresh = RefreshToken.objects.filter(user=user, revoked__isnull=True, access_token__isnull=False).values_list(
-        "application", "access_token__scope", "created", "updated"
+    live_refresh = (
+        RefreshToken.objects.filter(user=user, revoked__isnull=True, access_token__isnull=False)
+        # Symmetrical with the access pass above, and for the same reason: a registration
+        # credential is not a user grant. Unreachable today twice over (a registration token has
+        # no refresh token, and the RFC 7592 path cannot give it a user), but an exclusion that
+        # only guards one of two passes is not the defence the comment above claims it is.
+        .exclude(access_token__scope__contains=oauth2_settings.DCR_REGISTRATION_SCOPE)
+        .values_list("application", "access_token__scope", "created", "updated")
     )
     folded: dict[uuid.UUID, tuple[set[str], datetime, datetime]] = {}
     for app_id, scope, created, updated in [*live_access, *live_refresh]:

@@ -185,6 +185,21 @@ def has_prior_grant(user: RevelUser, application: OAuthApplication, scopes: list
     would silently auto-approve a re-authorization with no ``resource`` at all, minting a
     token with strictly more power than the user ever consented to.
 
+    **The refresh-token clause deliberately ignores idle expiry — do not "fix" it** (R-85).
+    DOT's ``validate_refresh_token`` additionally refuses a token whose access token expired
+    more than ``REFRESH_TOKEN_EXPIRE_SECONDS`` ago, so a long-idle refresh row auto-approves
+    here while being unredeemable there. That is intended: an *unrevoked* row is the record of
+    a consent the user gave and never withdrew, and whether the credential it carries is still
+    redeemable is a separate question. Withdrawal is the user's act (revoke, or the app being
+    deactivated or deleted), and only withdrawal should force the consent screen back up —
+    DOT offers nowhere else to store that fact, since its ``Grant`` is the 60-second
+    authorization code, not a durable grant. Auto-approving also mints a *fresh* code rather
+    than resurrecting the dead token, and it is what the large providers do. The invariant that
+    makes it safe is the one to preserve: **the connected-apps list must never under-report what
+    auto-approval will honour.** ``token_service.connections_for`` therefore mirrors the
+    predicate below exactly (R-83), so anything auto-approved here is visible and revocable
+    there; narrowing either side without the other is what would turn this into a real bug.
+
     Args:
         user: The end user answering the consent screen.
         application: The client asking for authorization.

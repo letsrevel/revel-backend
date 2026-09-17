@@ -77,9 +77,22 @@ def update_app(app: OAuthApplication, data: dict[str, t.Any]) -> OAuthApplicatio
         The saved app.
 
     Raises:
-        ValidationError: ``OAuthApplication.clean()`` refused the new values.
+        ValidationError: A field was sent as an explicit ``null``, or
+            ``OAuthApplication.clean()`` refused the new values.
     """
     fields = dict(data)
+    # An explicit JSON ``null`` validates against every ``X | None`` field on the payload and
+    # survives ``exclude_unset``, so it has to be refused here: ``None`` is only pydantic's
+    # "unset" marker in this schema, and no field is nullable by request — clearing scopes is
+    # ``[]`` and a client must always keep at least one redirect URI. Left unchecked it is a 500
+    # in two different ways. The two list fields raise ``TypeError`` immediately below
+    # (``" ".join(None)``, ``set(None)``). The four text fields are ``blank=True``, so
+    # ``Model.clean_fields()`` *skips* them (Django treats None as an empty value for a blank
+    # field) and ``full_clean()`` passes — then Postgres refuses the NULL at ``save()`` with an
+    # ``IntegrityError``. Neither is mapped to a status code, so both fell through to a 500.
+    nulled = sorted(field for field, value in fields.items() if value is None)
+    if nulled:
+        raise ValidationError({field: [str(_("This field may not be null."))] for field in nulled})
     if "redirect_uris" in fields:
         fields["redirect_uris"] = " ".join(fields["redirect_uris"])
     removed = set(app.allowed_scopes) - set(fields.get("allowed_scopes", app.allowed_scopes))
