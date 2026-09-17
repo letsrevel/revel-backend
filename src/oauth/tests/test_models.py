@@ -88,3 +88,75 @@ def test_unknown_scope_rejected(user: RevelUser) -> None:
     with pytest.raises(ValidationError) as exc:
         _app(user, allowed_scopes=["org:nope"]).full_clean()
     assert "allowed_scopes" in exc.value.message_dict
+
+
+def test_non_authorization_code_grant_rejected(user: RevelUser) -> None:
+    """R-57: v1 ships only the authorization-code grant, enforced at the model boundary.
+
+    A client-credentials token has no user, which makes the OIDC claim builder fail at
+    ``/userinfo``; admin and dynamic registration both go through ``full_clean()``.
+    """
+    for grant in (
+        OAuthApplication.GRANT_CLIENT_CREDENTIALS,
+        OAuthApplication.GRANT_PASSWORD,
+        OAuthApplication.GRANT_IMPLICIT,
+        OAuthApplication.GRANT_DEVICE_CODE,
+    ):
+        with pytest.raises(ValidationError) as exc:
+            _app(user, authorization_grant_type=grant).full_clean()
+        assert "authorization_grant_type" in exc.value.message_dict, grant
+
+
+def test_refresh_token_is_not_a_separate_grant_type() -> None:
+    """The R-57 rule cannot break refresh: DOT has no ``refresh_token`` grant choice."""
+    assert "refresh_token" not in dict(OAuthApplication.GRANT_TYPES)
+
+
+def test_dynamic_app_gets_the_whole_scope_vocabulary(user: RevelUser) -> None:
+    """spec §6.1: ``allowed_scopes`` = every registry scope for a dynamic client."""
+    from oauth.scopes import SCOPES
+
+    app = _app(None, registration_source=OAuthApplication.RegistrationSource.DCR, allowed_scopes=[])
+    app.save()
+    app.refresh_from_db()
+    assert set(app.allowed_scopes) == set(SCOPES)
+
+    manual = _app(user, allowed_scopes=[])
+    manual.save()
+    manual.refresh_from_db()
+    assert manual.allowed_scopes == []
+
+
+def test_revoking_a_dynamic_apps_scopes_is_not_re_seeded() -> None:
+    """The seed is INSERT-only: on update, empty means revoked, not "not set yet".
+
+    Re-seeding on every save would invert the scope-shrink path (and the admin) from a full
+    revocation into the widest possible grant.
+    """
+    app = _app(None, registration_source=OAuthApplication.RegistrationSource.DCR, allowed_scopes=[])
+    app.save()
+    assert app.allowed_scopes  # seeded on insert
+
+    app.allowed_scopes = []
+    app.save()
+    app.refresh_from_db()
+    assert app.allowed_scopes == []
+
+    app.allowed_scopes = []
+    app.save(update_fields=["allowed_scopes"])
+    app.refresh_from_db()
+    assert app.allowed_scopes == []
+
+
+def test_save_does_not_write_fields_update_fields_did_not_name() -> None:
+    """A save that names only ``name`` must not also write ``allowed_scopes``."""
+    app = _app(None, registration_source=OAuthApplication.RegistrationSource.DCR, allowed_scopes=[])
+    app.save()
+    OAuthApplication.objects.filter(pk=app.pk).update(allowed_scopes=[])
+
+    app.name = "Renamed"
+    app.allowed_scopes = []
+    app.save(update_fields=["name"])
+    app.refresh_from_db()
+    assert app.name == "Renamed"
+    assert app.allowed_scopes == []

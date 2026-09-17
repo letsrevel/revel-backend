@@ -33,7 +33,7 @@ def _picture_url(user: RevelUser) -> str | None:
     # past the hour must re-read userinfo. Coupling them means either teaching
     # ``get_file_url`` an ``expires_in`` passthrough or inlining its protected-path branch
     # here; a permanently fetchable avatar would need an unprotected, immutable thumbnail copy.
-    return f"{settings.OAUTH_ISSUER.rstrip('/')}{path}"
+    return f"{settings.OAUTH_ISSUER}{path}"
 
 
 class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]

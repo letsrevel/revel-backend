@@ -11,8 +11,10 @@ from decouple import Csv, config
 
 OIDC_SIGNING_KEY_PATH: str = config("OIDC_SIGNING_KEY_PATH", default="")
 OIDC_SIGNING_KEYS_INACTIVE_PATHS: list[str] = config("OIDC_SIGNING_KEYS_INACTIVE_PATHS", default="", cast=Csv())
-# The API origin, e.g. https://api.letsrevel.io — the OIDC issuer and the RFC 9728 resource identifier.
-OAUTH_ISSUER: str = config("OAUTH_ISSUER", default="")
+# The API origin, e.g. https://api.letsrevel.io — the OIDC issuer and the RFC 9728 resource
+# identifier. Normalised HERE and nowhere else: every consumer concatenates a rooted path
+# onto it, so a configured trailing slash would otherwise emit "https://host//.well-known/…".
+OAUTH_ISSUER: str = config("OAUTH_ISSUER", default="").rstrip("/")
 OAUTH_MAX_APPS_PER_USER: int = config("OAUTH_MAX_APPS_PER_USER", default=10, cast=int)
 OAUTH_DCR_DAILY_CAP: int = config("OAUTH_DCR_DAILY_CAP", default=500, cast=int)
 OAUTH_DCR_UNUSED_TTL_HOURS: int = config("OAUTH_DCR_UNUSED_TTL_HOURS", default=24, cast=int)

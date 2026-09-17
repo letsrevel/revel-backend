@@ -1,7 +1,8 @@
+import functools
 import typing as t
 
 from django.conf import settings
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from ninja_extra.throttling import AnonRateThrottle, UserRateThrottle
 
 # Every throttle below MUST declare its own ``scope``. ninja's throttles key their
@@ -135,3 +136,83 @@ class SendAnnouncementThrottle(DisableableThrottleMixin, UserRateThrottle):
 
     scope = "send_announcement"
     rate = "25/day"
+
+
+class _IPRateThrottle(DisableableThrottleMixin, AnonRateThrottle):
+    """Throttle every caller by client IP, authenticated or not.
+
+    ``AnonRateThrottle.get_cache_key`` returns ``None`` — and ninja's
+    ``SimpleRateThrottle.allow_request`` then allows the request unconditionally — as soon as
+    ``request.user.is_authenticated``. That is correct for a ninja controller, where the auth
+    class runs and a ``UserRateThrottle`` takes over. It is NOT correct for DOT's protocol
+    views: those are plain Django views sitting behind ``SessionMiddleware`` and
+    ``AuthenticationMiddleware``, so a mere session cookie makes ``request.user``
+    authenticated and would switch their rate limiting off entirely. Anyone can obtain such a
+    cookie on the API origin (``GOOGLE_SSO_ALLOWABLE_DOMAINS = ["*"]`` with auto-created
+    users), so the exemption is self-service.
+
+    Unauthenticated OAuth clients are the norm on these endpoints and there is no per-user
+    identity to key on before the token is issued, so the client IP is the only honest key.
+    ``get_ident`` trusts exactly the last ``X-Forwarded-For`` entry (``NUM_PROXIES = 1``, the
+    one Caddy appends), so the bucket cannot be evaded with a forged header.
+
+    Deliberately a new base rather than a change to the classes above: every other endpoint in
+    this module wants the stock anonymous-only semantics.
+    """
+
+    def get_cache_key(self, request: HttpRequest) -> str | None:
+        """Key on the client IP, skipping the authenticated-user short-circuit."""
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class OAuthTokenThrottle(_IPRateThrottle):
+    """OAuth token, revocation, userinfo and registration-management endpoints (60/min per IP)."""
+
+    scope = "oauth_token"
+    rate = "60/min"
+
+
+class OAuthRegistrationThrottle(_IPRateThrottle):
+    """RFC 7591 dynamic client registration (10/hour per IP)."""
+
+    scope = "oauth_register"
+    rate = "10/hour"
+
+
+# ``BaseThrottle.wait()`` returns None when it cannot compute a delay (no recorded history,
+# or ``rate`` unset). One minute is the shortest window any OAuth throttle above uses, so it
+# is a safe floor for the RFC 6585 ``Retry-After`` hint rather than omitting the header.
+# Only ``None`` falls back: a computed 0.0 is a legitimate "retry now".
+_RETRY_AFTER_FALLBACK_SECONDS = 60
+
+
+def throttled(
+    throttle_cls: type[AnonRateThrottle],
+) -> t.Callable[[t.Callable[..., HttpResponse]], t.Callable[..., HttpResponse]]:
+    """Apply a ninja throttle to a plain Django view.
+
+    DOT's protocol views live outside ninja, so ninja-extra's ``throttle=`` plumbing never
+    sees them. The 429 body uses OAuth's own ``slow_down`` error code (RFC 8628 §3.5) rather
+    than ninja's ``detail`` shape, because the callers are OAuth clients.
+
+    Args:
+        throttle_cls: The throttle class to instantiate per request.
+
+    Returns:
+        A view decorator.
+    """
+
+    def decorator(view: t.Callable[..., HttpResponse]) -> t.Callable[..., HttpResponse]:
+        @functools.wraps(view)
+        def wrapped(request: HttpRequest, *args: t.Any, **kwargs: t.Any) -> HttpResponse:
+            throttle = throttle_cls()
+            if not throttle.allow_request(request):
+                wait = throttle.wait()
+                response = JsonResponse({"error": "slow_down"}, status=429)
+                response["Retry-After"] = str(int(_RETRY_AFTER_FALLBACK_SECONDS if wait is None else wait))
+                return response
+            return view(request, *args, **kwargs)
+
+        return wrapped
+
+    return decorator

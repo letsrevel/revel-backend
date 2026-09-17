@@ -36,6 +36,9 @@ def redirect_to_docs(request: HttpRequest) -> HttpResponseRedirect:
 
 urlpatterns = [
     path("api/", api.urls),
+    # Always mounted; every route inside gates itself on the signing key (ADR-0008), so the
+    # provider being off is a 404 rather than an absent URLconf.
+    path("", include("oauth.urls")),
     path("google_sso/", include("django_google_sso.urls", namespace="django_google_sso")),
     path("", include("django_prometheus.urls")),  # Prometheus metrics endpoint at /metrics Caddy will return 404
 ]

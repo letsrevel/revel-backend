@@ -6,7 +6,9 @@ class OauthConfig(AppConfig):
     name = "oauth"
 
     def ready(self) -> None:
-        """Install the per-app exception handlers (Task 3 adds them)."""
+        """Install the per-app exception handlers and the settings system checks."""
         from oauth.exception_handlers import register as register_exception_handlers
 
         register_exception_handlers()
+        # Importing the module runs its @register() decorators.
+        import oauth.checks  # noqa: F401

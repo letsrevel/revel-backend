@@ -77,6 +77,16 @@ class OAuthApplication(ExifStripMixin, AbstractApplication):  # type: ignore[mis
             errors["user"] = [str(_("Dynamically registered apps have no owner."))]
         if not is_dynamic and self.user_id is None:
             errors["user"] = [str(_("An owner is required."))]
+        # v1 ships only the authorization-code grant (spec, "out of scope"), but the field still
+        # offers DOT's full GRANT_TYPES choice set, so admin and dynamic registration could both
+        # pick another one. A client-credentials token in particular has no user, which makes the
+        # OIDC claim builder raise at /userinfo. Note ``refresh_token`` is NOT a separate
+        # authorization_grant_type in DOT (see ``test_refresh_token_is_not_a_separate_grant_type``),
+        # so this does not disable refresh.
+        if self.authorization_grant_type != self.GRANT_AUTHORIZATION_CODE:
+            errors["authorization_grant_type"] = [
+                str(_("Only the authorization-code grant is supported: {}").format(self.authorization_grant_type))
+            ]
         # Only the plain-http/loopback rule below is genuinely ours: DOT allows http for every
         # client type once it is in ALLOWED_REDIRECT_URI_SCHEMES. The fragment and unknown-scheme
         # branches are unreachable while that setting stays ["https", "http"], because
@@ -104,6 +114,24 @@ class OAuthApplication(ExifStripMixin, AbstractApplication):  # type: ignore[mis
             errors["allowed_scopes"] = [str(_("Unknown scopes: {}").format(", ".join(unknown)))]
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Seed a dynamically registered app with the whole scope vocabulary (spec §6.1).
+
+        RFC 7591 carries no per-app scope allowlist, so a dynamic client may *request* any
+        registry scope and the consent screen is the real gate. Manual apps keep whatever
+        their owner picked, including nothing.
+
+        INSERT ONLY. On an update, an empty ``allowed_scopes`` means the scopes were
+        deliberately revoked (the scope-shrink path, and the admin), and re-seeding there
+        would invert a revocation into the widest possible grant. It would also have to write
+        a field the caller's ``update_fields`` never named.
+        """
+        if self._state.adding and self.registration_source == self.RegistrationSource.DCR and not self.allowed_scopes:
+            from oauth.scopes import SCOPES
+
+            self.allowed_scopes = sorted(SCOPES)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return str(self.name or self.client_id)
