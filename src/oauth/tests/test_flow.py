@@ -140,11 +140,14 @@ def confidential_secret(user: RevelUser) -> tuple[OAuthApplication, str]:
     return app, raw
 
 
-@pytest.mark.xfail(strict=True, reason="until Task 10")
 def test_happy_path_public_client(
     session_client: Client, client: Client, public_oauth_app: OAuthApplication, user: RevelUser
 ) -> None:
-    """R-63: the smoke target is ``/api/dashboard/organizations``, which Task 10 switches."""
+    """R-63: the smoke target is ``/api/dashboard/organizations``, switched by Task 10.
+
+    ``DashboardController`` is ``ScopedJWTAuth`` and its ``/organizations`` route carries
+    ``RequireScope("org:read")``, so this is a real app-token request, not an anonymous one.
+    """
     tokens = run_code_flow(session_client, client, public_oauth_app, "openid profile org:read offline_access")
     assert set(tokens) >= {"access_token", "refresh_token", "id_token", "expires_in", "scope"}
     claims = jwt.decode(tokens["id_token"], options={"verify_signature": False})
@@ -224,11 +227,14 @@ def test_refresh_rotation_and_reuse_detection(
     assert family_dead.status_code == 400
 
 
-@pytest.mark.xfail(strict=True, reason="until Task 10")
 def test_foreign_resource_token_fails_audience(
     session_client: Client, client: Client, public_oauth_app: OAuthApplication
 ) -> None:
-    """R-63: ``OptionalAuth`` routes never 401 on an unknown bearer, so this needs a switched one."""
+    """R-63: the only end-to-end proof that RFC 8707 resource restriction actually binds.
+
+    A switched route is required: ``OptionalAuth`` never 401s on an unknown bearer, it falls
+    through to anonymous — so this assertion would be unreachable on a public route.
+    """
     verifier, challenge = pkce()
     redirect_to = decide(
         session_client, public_oauth_app, challenge, "org:read", allow=True, resource="https://other.example"

@@ -125,3 +125,60 @@ def oauth_event(organization: t.Any) -> t.Any:
         slug="oauth-event",
         start=timezone.now(),
     )
+
+
+@pytest.fixture
+def oauth_org_member(organization: t.Any, revel_user_factory: t.Any) -> t.Any:
+    """An active membership of the root ``organization``, for the check-in scan route."""
+    from events.models import OrganizationMember
+
+    return OrganizationMember.objects.create(organization=organization, user=revel_user_factory())
+
+
+@pytest.fixture
+def oauth_org_questionnaire(organization: t.Any) -> t.Any:
+    """An organization questionnaire owned by the root ``organization``."""
+    from events.models import OrganizationQuestionnaire
+    from questionnaires.models import Questionnaire
+
+    return OrganizationQuestionnaire.objects.create(
+        organization=organization,
+        questionnaire=Questionnaire.objects.create(name="OAuth Questionnaire"),
+    )
+
+
+@pytest.fixture
+def oauth_poll(organization: t.Any) -> t.Any:
+    """A DRAFT poll of the root ``organization`` (question CRUD is locked outside DRAFT)."""
+    from events.models import ResourceVisibility
+    from polls.models import Poll
+    from questionnaires.models import Questionnaire
+
+    return Poll.objects.create(
+        organization=organization,
+        questionnaire=Questionnaire.objects.create(name="OAuth Poll"),
+        status=Poll.PollStatus.DRAFT,
+        vote_visibility=ResourceVisibility.STAFF_ONLY,
+    )
+
+
+@pytest.fixture
+def oauth_potluck(user: RevelUser, oauth_event: t.Any) -> t.Any:
+    """A potluck item on ``oauth_event``, created by the organization owner."""
+    from events.models import PotluckItem
+
+    return PotluckItem.objects.create(
+        event=oauth_event, name="Salad", created_by=user, item_type=PotluckItem.ItemTypes.FOOD
+    )
+
+
+@pytest.fixture
+def oauth_staff_member(organization: t.Any, revel_user_factory: t.Any) -> t.Any:
+    """A staff row on the root ``organization``, carrying the default permission map.
+
+    Tests that need a *missing* org permission narrow ``permissions`` themselves, so the
+    fixture stays a plain staff member rather than encoding one test's permission map.
+    """
+    from events.models import OrganizationStaff
+
+    return OrganizationStaff.objects.create(organization=organization, user=revel_user_factory())

@@ -16,7 +16,8 @@ inside ``submissions.py``.
 
 from ninja_extra import api_controller
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
+from oauth.permissions import RequireScope
 from common.throttling import WriteThrottle
 
 from .assignments import QuestionnaireAssignmentsMixin
@@ -26,7 +27,13 @@ from .sections import QuestionnaireSectionsMixin
 from .submissions import QuestionnaireSubmissionsMixin
 
 
-@api_controller("/questionnaires", auth=I18nJWTAuth(), tags=["Questionnaires"], throttle=WriteThrottle())
+@api_controller(
+    "/questionnaires",
+    auth=ScopedJWTAuth(),
+    tags=["Questionnaires"],
+    throttle=WriteThrottle(),
+    permissions=[RequireScope("org:read")],
+)
 class QuestionnaireController(
     QuestionnaireCoreMixin,
     QuestionnaireSectionsMixin,

@@ -15,16 +15,17 @@ from ninja_extra import (
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.controllers import DistinctSearching, UserAwareController
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.service import dashboard_service, event_service, ticket_guest_name_service
 from events.service.attendee_invoice_service import ensure_pdf_exists
+from oauth.permissions import RequireScope
 
 
-@api_controller("/dashboard", auth=I18nJWTAuth())
+@api_controller("/dashboard", auth=ScopedJWTAuth(), permissions=[RequireScope("me:read")])
 class DashboardController(UserAwareController):
     def get_event_queryset(self, *, include_past: bool = False) -> QuerySet[models.Event]:
         """Get the event queryset."""
@@ -48,6 +49,9 @@ class DashboardController(UserAwareController):
         "/organizations",
         url_name="dashboard_organizations",
         response=PaginatedResponseSchema[schema.OrganizationRetrieveSchema],
+        # "My Organizations" is organizer data, not personal data, so it answers to
+        # ``org:read`` rather than the controller's ``me:read`` (R-89).
+        permissions=[RequireScope("org:read")],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(DistinctSearching, search_fields=["name", "description", "tags__tag__name"])

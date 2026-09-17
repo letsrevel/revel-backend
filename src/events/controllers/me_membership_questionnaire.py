@@ -5,12 +5,13 @@ from uuid import UUID
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail
 from common.throttling import QuestionnaireSubmissionThrottle, UserDefaultThrottle
 from events.models import Organization, OrganizationQuestionnaire
 from events.service import membership_questionnaire_service
+from oauth.permissions import RequireScope
 from questionnaires.schema import (
     QuestionnaireSchema,
     QuestionnaireSubmissionOrEvaluationSchema,
@@ -20,7 +21,13 @@ from questionnaires.schema import (
 from questionnaires.service import SubmissionService
 
 
-@api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Applications"], throttle=UserDefaultThrottle())
+@api_controller(
+    "/me",
+    auth=ScopedJWTAuth(),
+    tags=["Me - Applications"],
+    throttle=UserDefaultThrottle(),
+    permissions=[RequireScope("me:read")],
+)
 class MeMembershipQuestionnaireController(UserAwareController):
     """Fetch and submit the membership questionnaire surfaced by join eligibility."""
 

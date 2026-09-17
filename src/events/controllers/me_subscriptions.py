@@ -11,7 +11,7 @@ from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -27,9 +27,16 @@ from events.service.subscription import eligibility as subscription_eligibility
 from events.service.subscription import lifecycle as subscription_lifecycle
 from events.service.subscription import uncancel as subscription_uncancel
 from events.service.subscription.stripe import checkout as subscription_stripe_checkout
+from oauth.permissions import RequireScope
 
 
-@api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Subscriptions"], throttle=UserDefaultThrottle())
+@api_controller(
+    "/me",
+    auth=ScopedJWTAuth(),
+    tags=["Me - Subscriptions"],
+    throttle=UserDefaultThrottle(),
+    permissions=[RequireScope("me:read")],
+)
 class MeSubscriptionsController(UserAwareController):
     """Member-facing access to the current user's own membership subscriptions."""
 

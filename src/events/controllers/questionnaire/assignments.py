@@ -7,6 +7,7 @@ from ninja_extra import route
 from events import models as event_models
 from events import schema as event_schema
 from events.service import event_questionnaire_service
+from oauth.permissions import RequireScope
 
 from ..permissions import QuestionnairePermission
 from .base import QuestionnaireControllerBase
@@ -19,7 +20,7 @@ class QuestionnaireAssignmentsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/events",
         url_name="replace_questionnaire_events",
         response=event_schema.OrganizationQuestionnaireSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def replace_events(
         self, org_questionnaire_id: UUID, payload: event_schema.EventAssignmentSchema
@@ -39,7 +40,7 @@ class QuestionnaireAssignmentsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/events/{event_id}",
         url_name="assign_questionnaire_event",
         response=event_schema.OrganizationQuestionnaireSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def assign_event(self, org_questionnaire_id: UUID, event_id: UUID) -> event_models.OrganizationQuestionnaire:
         """Assign a single event to this questionnaire (admin only).
@@ -56,7 +57,7 @@ class QuestionnaireAssignmentsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/events/{event_id}",
         url_name="unassign_questionnaire_event",
         response={204: None},
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def unassign_event(self, org_questionnaire_id: UUID, event_id: UUID) -> tuple[int, None]:
         """Unassign a single event from this questionnaire (admin only).
@@ -73,7 +74,7 @@ class QuestionnaireAssignmentsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/event-series",
         url_name="replace_questionnaire_event_series",
         response=event_schema.OrganizationQuestionnaireSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def replace_event_series(
         self, org_questionnaire_id: UUID, payload: event_schema.EventSeriesAssignmentSchema
@@ -93,7 +94,7 @@ class QuestionnaireAssignmentsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/event-series/{series_id}",
         url_name="assign_questionnaire_event_series",
         response=event_schema.OrganizationQuestionnaireSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def assign_event_series(
         self, org_questionnaire_id: UUID, series_id: UUID
@@ -112,7 +113,7 @@ class QuestionnaireAssignmentsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/event-series/{series_id}",
         url_name="unassign_questionnaire_event_series",
         response={204: None},
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def unassign_event_series(self, org_questionnaire_id: UUID, series_id: UUID) -> tuple[int, None]:
         """Unassign a single event series from this questionnaire (admin only).

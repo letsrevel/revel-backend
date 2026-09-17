@@ -10,7 +10,7 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
@@ -24,6 +24,7 @@ from events.service import (
     ticket_guest_name_service,
     ticket_service,
 )
+from oauth.permissions import RequireScope
 
 from .base import EventAdminBaseController
 
@@ -94,8 +95,8 @@ TICKET_ORDER_FIELDS: dict[TicketOrdering, str] = {
 
 @api_controller(
     "/event-admin/{event_id}",
-    auth=I18nJWTAuth(),
-    permissions=[EventPermission("manage_tickets")],
+    auth=ScopedJWTAuth(),
+    permissions=[RequireScope("org:read"), EventPermission("manage_tickets")],
     tags=["Event Admin"],
     throttle=WriteThrottle(),
 )
@@ -108,7 +109,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/ticket-tiers",
         url_name="list_ticket_tiers",
         response=PaginatedResponseSchema[schema.TicketTierDetailSchema],
-        permissions=[EventPermission("invite_to_event")],
+        permissions=[RequireScope("org:read"), EventPermission("invite_to_event")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -472,7 +473,7 @@ class EventAdminTicketsController(EventAdminBaseController):
             200: schema.CheckInResponseSchema | schema.MemberScanResponseSchema,
             400: ValidationErrorResponse | ErrorDetail,
         },
-        permissions=[EventPermission("check_in_attendees")],
+        permissions=[RequireScope("org:read"), EventPermission("check_in_attendees")],
     )
     def check_in_ticket(
         self,
@@ -526,7 +527,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/export-attendees",
         url_name="export_attendees",
         response={202: schema.FileExportSchema},
-        permissions=[EventPermission("manage_event")],
+        permissions=[RequireScope("org:read"), EventPermission("manage_event")],
         throttle=ExportThrottle(),
     )
     def export_attendees(self, event_id: UUID) -> tuple[int, "FileExport"]:

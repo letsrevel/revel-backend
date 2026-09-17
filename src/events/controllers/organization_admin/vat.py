@@ -10,22 +10,23 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner
 from events.service import vies_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin - VAT"],
     throttle=UserDefaultThrottle(),
-    permissions=[IsOrganizationOwner()],
+    permissions=[RequireScope("org:read"), IsOrganizationOwner()],
 )
 class OrganizationAdminVATController(OrganizationAdminBaseController):
     """VAT settings and platform fee invoice management."""

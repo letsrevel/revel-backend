@@ -11,13 +11,14 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.models import Tag
 from common.schema import ErrorDetail, TagSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 from events.service import organization_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
@@ -28,10 +29,10 @@ MEMBER_VERIFY_CODE_PATTERN = r"^(member:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),
-    permissions=[OrganizationPermission("manage_members")],
+    permissions=[RequireScope("org:read"), OrganizationPermission("manage_members")],
 )
 class OrganizationAdminMembersController(OrganizationAdminBaseController):
     """Organization membership management endpoints.
@@ -45,7 +46,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members",
         url_name="list_organization_members",
         response=PaginatedResponseSchema[schema.OrganizationMemberSchema],
-        permissions=[IsOrganizationStaff()],
+        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -108,7 +109,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members/verify/{code}",
         url_name="verify_organization_member",
         response=schema.MemberVerificationSchema,
-        permissions=[OrganizationPermission("check_in_attendees")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("check_in_attendees")],
         throttle=UserDefaultThrottle(),
     )
     def verify_member(
@@ -205,7 +206,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/membership-tiers",
         url_name="list_membership_tiers",
         response=list[schema.MembershipTierAdminSchema],
-        permissions=[IsOrganizationStaff()],
+        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     def list_membership_tiers(self, slug: str) -> QuerySet[models.MembershipTier]:
@@ -286,7 +287,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}",
         url_name="remove_organization_staff",
         response={204: None},
-        permissions=[IsOrganizationOwner()],
+        permissions=[RequireScope("org:read"), IsOrganizationOwner()],
     )
     def remove_staff(self, slug: str, user_id: UUID) -> tuple[int, None]:
         """Remove a staff member from an organization."""
@@ -314,7 +315,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}/permissions",
         url_name="update_staff_permissions",
         response=schema.OrganizationStaffSchema,
-        permissions=[OrganizationPermission("edit_organization")],  # Only owners can do this
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],  # Only owners can do this
     )
     def update_staff_permissions(
         self, slug: str, user_id: UUID, payload: models.PermissionsSchema
@@ -334,7 +335,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/tags",
         url_name="add_organization_tags",
         response=list[TagSchema],
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def add_tags(self, slug: str, payload: schema.TagUpdateSchema) -> list[Tag]:
         """Add one or more tags to the organization."""
@@ -346,7 +347,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/tags",
         url_name="clear_organization_tags",
         response={204: None},
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def clear_tags(self, slug: str) -> tuple[int, None]:
         """Clear all tags from the organization."""
@@ -358,7 +359,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/tags/remove",
         url_name="remove_organization_tags",
         response=list[TagSchema],
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def remove_tags(self, slug: str, payload: schema.TagUpdateSchema) -> list[Tag]:
         """Remove one or more tags from the organization."""

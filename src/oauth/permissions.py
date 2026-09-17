@@ -12,7 +12,20 @@ class RequireScope(BasePermission):
     """Pass session principals; require ``scope`` for app tokens."""
 
     def __init__(self, scope: str) -> None:
-        """Store the scope this route requires of an app token."""
+        """Store the scope this route requires of an app token.
+
+        Args:
+            scope: A member of :data:`oauth.scopes.SCOPES`.
+
+        Raises:
+            ValueError: ``scope`` is not a known scope. The comparison below is a plain
+                ``not in``, so a typo would silently deny every app token on this route
+                with no signal; failing at import time is the only way to notice (R-51).
+        """
+        from oauth.scopes import SCOPES
+
+        if scope not in SCOPES:
+            raise ValueError(f"Unknown scope {scope!r}; expected one of {sorted(SCOPES)}.")
         self.scope = scope
 
     def has_permission(self, request: HttpRequest, controller: ControllerBase) -> bool:

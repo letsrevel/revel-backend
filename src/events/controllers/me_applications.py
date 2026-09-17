@@ -11,7 +11,7 @@ from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -29,9 +29,16 @@ from events.service.membership_manager import (
     cancel_application,
 )
 from events.service.membership_manager.enums import MembershipNextStep, Reasons
+from oauth.permissions import RequireScope
 
 
-@api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Applications"], throttle=UserDefaultThrottle())
+@api_controller(
+    "/me",
+    auth=ScopedJWTAuth(),
+    tags=["Me - Applications"],
+    throttle=UserDefaultThrottle(),
+    permissions=[RequireScope("me:read")],
+)
 class MeMembershipApplicationsController(UserAwareController):
     """Membership application flow: join eligibility, apply, cancel, list/detail."""
 

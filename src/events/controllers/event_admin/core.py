@@ -6,7 +6,7 @@ from ninja.errors import HttpError
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.models import Tag
 from common.schema import ErrorDetail, TagSchema, ValidationErrorResponse
 from common.service.upload_service import safe_save_uploaded_file
@@ -15,14 +15,15 @@ from common.thumbnails.service import delete_image_with_derivatives
 from events import models, schema
 from events.controllers.permissions import CanDuplicateEvent, EventPermission
 from events.service import event_service, refund_service
+from oauth.permissions import RequireScope
 
 from .base import EventAdminBaseController
 
 
 @api_controller(
     "/event-admin/{event_id}",
-    auth=I18nJWTAuth(),
-    permissions=[EventPermission("invite_to_event")],
+    auth=ScopedJWTAuth(),
+    permissions=[RequireScope("org:read"), EventPermission("invite_to_event")],
     tags=["Event Admin"],
     throttle=WriteThrottle(),
 )
@@ -36,7 +37,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "",
         url_name="edit_event",
         response={200: schema.EventDetailSchema, 400: ValidationErrorResponse | ErrorDetail},
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def update_event(self, event_id: UUID, payload: schema.EventEditSchema) -> models.Event:
         """Update event by ID.
@@ -57,7 +58,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "",
         url_name="delete_event",
         response={204: None},
-        permissions=[EventPermission("delete_event")],
+        permissions=[RequireScope("org:read"), EventPermission("delete_event")],
     )
     def delete_event(self, event_id: UUID) -> tuple[int, None]:
         """Delete event by ID."""
@@ -69,7 +70,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/slug",
         url_name="edit_event_slug",
         response={200: schema.EventDetailSchema},
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def edit_slug(self, event_id: UUID, payload: schema.EventEditSlugSchema) -> models.Event:
         """Update the event's slug (URL-friendly identifier).
@@ -87,7 +88,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/schedule",
         url_name="update_event_schedule",
         response={200: schema.EventDetailSchema},
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def update_event_schedule(self, event_id: UUID, payload: schema.EventScheduleUpdateSchema) -> models.Event:
         """Replace this event's schedule (timeline) with the provided sessions.
@@ -102,7 +103,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/duplicate",
         url_name="duplicate_event",
         response={200: schema.EventDetailSchema},
-        permissions=[CanDuplicateEvent()],
+        permissions=[RequireScope("org:read"), CanDuplicateEvent()],
     )
     def duplicate_event(self, event_id: UUID, payload: schema.EventDuplicateSchema) -> models.Event:
         """Create a copy of this event with a new name and start date.
@@ -124,7 +125,7 @@ class EventAdminCoreController(EventAdminBaseController):
     @route.post(
         "/actions/update-status/{status}",
         url_name="update_event_status",
-        permissions=[EventPermission("manage_event")],
+        permissions=[RequireScope("org:read"), EventPermission("manage_event")],
         response={200: schema.EventDetailSchema, 400: ErrorDetail, 409: ErrorDetail},
     )
     def update_event_status(
@@ -165,7 +166,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/cancellation-refund-preview",
         url_name="event_cancellation_refund_preview",
         response=schema.EventRefundPreviewSchema,
-        permissions=[EventPermission("manage_event")],
+        permissions=[RequireScope("org:read"), EventPermission("manage_event")],
         throttle=UserDefaultThrottle(),  # read-only — don't burn the class-level WriteThrottle budget
     )
     def cancellation_refund_preview(self, event_id: UUID) -> schema.EventRefundPreviewSchema:
@@ -196,7 +197,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/upload-logo",
         url_name="event_upload_logo",
         response=schema.EventDetailSchema,
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def upload_logo(self, event_id: UUID, logo: File[UploadedFile]) -> models.Event:
         """Upload logo to event."""
@@ -208,7 +209,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/upload-cover-art",
         url_name="event_upload_cover_art",
         response=schema.EventDetailSchema,
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def upload_cover_art(self, event_id: UUID, cover_art: File[UploadedFile]) -> models.Event:
         """Upload cover art to event."""
@@ -220,7 +221,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/delete-logo",
         url_name="event_delete_logo",
         response={204: None},
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def delete_logo(self, event_id: UUID) -> tuple[int, None]:
         """Delete logo and its derivatives from event."""
@@ -232,7 +233,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/delete-cover-art",
         url_name="event_delete_cover_art",
         response={204: None},
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def delete_cover_art(self, event_id: UUID) -> tuple[int, None]:
         """Delete cover art and its derivatives from event."""
@@ -244,7 +245,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/tags",
         url_name="add_event_tags",
         response=list[TagSchema],
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def add_tags(self, event_id: UUID, payload: schema.TagUpdateSchema) -> list[Tag]:
         """Add one or more tags to the organization."""
@@ -256,7 +257,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/tags",
         url_name="clear_event_tags",
         response={204: None},
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def clear_tags(self, event_id: UUID) -> tuple[int, None]:
         """Remove one or more tags from the organization."""
@@ -268,7 +269,7 @@ class EventAdminCoreController(EventAdminBaseController):
         "/tags/remove",
         url_name="remove_event_tags",
         response=list[TagSchema],
-        permissions=[EventPermission("edit_event")],
+        permissions=[RequireScope("org:read"), EventPermission("edit_event")],
     )
     def remove_tags(self, event_id: UUID, payload: schema.TagUpdateSchema) -> list[Tag]:
         """Remove one or more tags from the organization."""
