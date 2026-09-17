@@ -43,6 +43,7 @@ from geo.controllers.cities import CityController
 from integrations.controllers import INTEGRATION_CONTROLLERS
 from notifications.controllers.notification_controller import NotificationController
 from notifications.controllers.preference_controller import NotificationPreferenceController
+from oauth.controllers import OAUTH_CONTROLLERS
 from polls.controllers import POLL_CONTROLLERS
 from questionnaires.controllers import QuestionnaireFileController
 from telegram.controllers import TelegramController
@@ -210,6 +211,8 @@ api.register_controllers(
     MembershipWalletSignedController,
     # Integration controllers
     *INTEGRATION_CONTROLLERS,
+    # OAuth provider controllers
+    *OAUTH_CONTROLLERS,
 )
 
 # Only truly global handlers live here. App-specific exceptions self-register

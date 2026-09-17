@@ -55,6 +55,38 @@ class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         "email_verified": "email",
     }
 
+    # oauthlib's OIDC grant calls both of these as soon as a request carries ``prompt=none``
+    # (openid/connect/core/grant_types/base.py), and both raise ``NotImplementedError`` in
+    # oauthlib's base validator, which DOT never overrides — so a bare ``prompt=none`` request
+    # 500s instead of answering. They are answered True here because at this point in DOT's
+    # architecture the validator cannot decide: ``OAuthLibCore._extract_params`` hands oauthlib
+    # the URI, method, body and headers only, so there is no Django session, no end user and no
+    # prior-grant state to consult. The real ``prompt=none`` decision therefore lives one layer
+    # up, in ``oauth.service.authorize_service.describe``, which has all three and which never
+    # issues a code without either an explicit ``allow=True`` or a genuine prior grant.
+
+    def validate_silent_login(self, request: t.Any) -> bool:
+        """Defer the silent-login decision to the consent service (see the note above).
+
+        Args:
+            request: The oauthlib request.
+
+        Returns:
+            True, always.
+        """
+        return True
+
+    def validate_silent_authorization(self, request: t.Any) -> bool:
+        """Defer the silent-authorization decision to the consent service (see the note above).
+
+        Args:
+            request: The oauthlib request.
+
+        Returns:
+            True, always.
+        """
+        return True
+
     def get_additional_claims(self, request: t.Any) -> dict[str, t.Any]:
         """Build the claims granted by ``request``'s scopes.
 

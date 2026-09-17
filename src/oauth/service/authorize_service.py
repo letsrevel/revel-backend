@@ -1,0 +1,263 @@
+"""Headless consent (spec §8.2): validate with DOT's ``OAuthLibCore``, decide, return a redirect.
+
+DOT's session-based ``AuthorizationView`` is never mounted, so this module is its headless
+equivalent: the SvelteKit page at ``FRONTEND_BASE_URL/oauth/authorize`` (which both discovery
+documents advertise as the ``authorization_endpoint``) calls ``describe`` to render the screen
+and ``decide`` to act on the answer.
+
+The authorization request itself is still validated by oauthlib through DOT's core, so client,
+redirect URI, PKCE and scope rules are exactly the ones the token endpoint will enforce later.
+"""
+
+import typing as t
+from dataclasses import dataclass
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from django.http import HttpRequest
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from oauth2_provider.exceptions import OAuthToolkitError
+from oauth2_provider.models import AccessToken, RefreshToken
+from oauth2_provider.oauth2_backends import get_oauthlib_core
+from oauth2_provider.oauth2_validators import is_valid_resource_uri
+
+from accounts.models import RevelUser
+from oauth.exceptions import AuthorizationRequestError, OAuthProviderDisabledError
+from oauth.models import OAuthApplication
+from oauth.utils import oauth_provider_enabled
+
+
+@dataclass(frozen=True)
+class AuthorizeRedirect:
+    """A ready-made URL for the browser: a success redirect or a client-visible error."""
+
+    redirect_to: str
+
+
+@dataclass(frozen=True)
+class AuthorizeDescription:
+    """Everything the consent screen has to show before the user can answer."""
+
+    application: OAuthApplication
+    scopes: list[str]
+    redirect_uri: str
+    state: str | None
+
+
+def _ensure_enabled() -> None:
+    """Refuse every consent call while the provider is switched off (ADR-0008).
+
+    Raises:
+        OAuthProviderDisabledError: No signing key is configured; rendered as a 404.
+    """
+    if not oauth_provider_enabled():
+        raise OAuthProviderDisabledError()
+
+
+def _as_error(exc: OAuthToolkitError) -> AuthorizationRequestError:
+    """Convert DOT's wrapper into the app exception ``oauth.exception_handlers`` renders.
+
+    ``err.description`` is passed through untranslated on purpose (R-66): it is authored by
+    oauthlib at runtime, so ``gettext`` could never see it, and RFC 6749 §4.1.2.1 defines
+    ``error_description`` as developer-facing text "used to assist the client developer in
+    understanding the error". oauthlib leaves some errors (``invalid_scope``) with no
+    description at all, hence the error code as the last resort.
+
+    Args:
+        exc: The error DOT's core raised.
+
+    Returns:
+        The equivalent ``AuthorizationRequestError``.
+    """
+    err = exc.oauthlib_error
+    return AuthorizationRequestError(err.error, err.description or err.error)
+
+
+def _resource_indicators(request: HttpRequest) -> list[str]:
+    """The validated RFC 8707 ``resource`` values from the authorization request.
+
+    oauthlib knows nothing about resource indicators, so the raw query value survives on the
+    oauthlib request as a *string* and DOT's ``ResourceJSONField`` then refuses to store it
+    ("Resource must be a list of URI strings"), which 500s the whole flow. DOT's own
+    ``AuthorizationView`` normalises and validates the parameter before it reaches the grant;
+    this is that step, headless. RFC 8707 allows the parameter to repeat.
+
+    Args:
+        request: The authorization request.
+
+    Returns:
+        The resource indicators, or an empty list when the client sent none.
+
+    Raises:
+        AuthorizationRequestError: A value is not an absolute URI with a scheme and host.
+    """
+    resources = request.GET.getlist("resource")
+    invalid = [uri for uri in resources if not is_valid_resource_uri(uri)]
+    if invalid:
+        raise AuthorizationRequestError(
+            "invalid_target",
+            str(_("Not a valid resource indicator: {}").format(invalid[0])),
+        )
+    return resources
+
+
+def _validate(request: HttpRequest) -> tuple[list[str], dict[str, t.Any]]:
+    """Run oauthlib's authorization-request validation and return its credentials.
+
+    Args:
+        request: The authorization request.
+
+    Returns:
+        The requested scopes and the credentials oauthlib built from the request.
+
+    Raises:
+        AuthorizationRequestError: The request is invalid. Both fatal errors (unknown client,
+            bad redirect URI) and redirectable ones (``invalid_scope``, missing PKCE) are
+            reported to the *frontend* as a 400 carrying the RFC 6749 code, rather than
+            redirected to the client.
+            # ponytail: RFC 6749 §4.1.2.1 says a non-fatal error SHOULD be redirected to the
+            # client instead. Doing that needs a fatal/non-fatal split here
+            # (``FatalClientError`` is a subclass of ``OAuthToolkitError``) plus a frontend
+            # that follows a redirect it did not ask for; until the consent page needs it,
+            # the error stays visible to the user who is standing in front of it.
+    """
+    try:
+        scopes, credentials = get_oauthlib_core().validate_authorization_request(request)
+    except OAuthToolkitError as exc:
+        raise _as_error(exc) from exc
+    credentials = dict(credentials)
+    resources = _resource_indicators(request)
+    if resources:
+        credentials["resource"] = resources
+    return list(scopes), credentials
+
+
+def _error_redirect(redirect_uri: str, error: str, state: str | None) -> AuthorizeRedirect:
+    """Add an RFC 6749 error (and the client's ``state``) to an already-validated redirect URI.
+
+    Round-tripped through ``parse_qsl``/``urlencode`` rather than a hand-rolled split (R-67):
+    a registered redirect URI may carry a query string of its own (RFC 6749 §3.1.2, which
+    ``OAuthApplication.clean`` deliberately permits), and splitting on ``=`` would
+    double-encode its values and mangle any containing ``=`` or ``&``.
+
+    Args:
+        redirect_uri: The redirect URI oauthlib has already validated for this client.
+        error: The RFC 6749 / OIDC error code.
+        state: The client's CSRF value, echoed back when it sent one.
+
+    Returns:
+        The redirect the browser must follow.
+    """
+    parts = urlsplit(redirect_uri)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    query.append(("error", error))
+    if state:
+        query.append(("state", state))
+    return AuthorizeRedirect(urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), "")))
+
+
+def has_prior_grant(user: RevelUser, application: OAuthApplication, scopes: list[str]) -> bool:
+    """Whether ``user`` already granted ``application`` at least ``scopes``.
+
+    Widens DOT's own auto-approve rule (a live access token covering the request) with live
+    refresh tokens, so a client holding ``offline_access`` is not re-prompted merely because
+    its access token expired. Scopes come from the raw ``scope`` string, not the ``scopes``
+    property, so the answer reflects what was granted at issue time — the same choice
+    ``ScopedJWTAuth`` makes.
+
+    Args:
+        user: The end user answering the consent screen.
+        application: The client asking for authorization.
+        scopes: The scopes this request asks for.
+
+    Returns:
+        True when some live grant covers every requested scope.
+    """
+    wanted = set(scopes)
+    granted = list(
+        AccessToken.objects.filter(user=user, application=application, expires__gt=timezone.now()).values_list(
+            "scope", flat=True
+        )
+    )
+    granted += RefreshToken.objects.filter(
+        user=user, application=application, revoked__isnull=True, access_token__isnull=False
+    ).values_list("access_token__scope", flat=True)
+    return any(wanted <= set(granted_scope.split()) for granted_scope in granted)
+
+
+def _issue(request: HttpRequest, scopes: list[str], credentials: dict[str, t.Any], *, allow: bool) -> AuthorizeRedirect:
+    """Hand the decision to oauthlib and return wherever the browser has to go.
+
+    DOT reads the consenting end user off ``request.user``, which the auth class has set.
+
+    Args:
+        request: The authorization request.
+        scopes: The scopes being granted.
+        credentials: The credentials ``_validate`` returned.
+        allow: The user's decision.
+
+    Returns:
+        The client's redirect URI carrying either a code or an error (a refusal becomes
+        ``access_denied``, which belongs in the redirect rather than in our response body).
+    """
+    try:
+        uri, _headers, _body, _status = get_oauthlib_core().create_authorization_response(
+            request, scopes, credentials, allow
+        )
+    except OAuthToolkitError as exc:
+        # DOT copies ``credentials["redirect_uri"]`` onto every error raised here
+        # (``oauth2_backends.create_authorization_response``), and ``_validate`` has already
+        # proved that URI belongs to this client, so there is always somewhere to send it.
+        # ponytail: a *fatal* error (``FatalClientError``, e.g. the app is deleted in the
+        # window between validation and issuance) is redirected too, where RFC 6749 §4.1.2.1
+        # says it should not be. Splitting the two costs an ``except FatalClientError`` clause
+        # above this one; it is not done yet because the only way to reach it is that race,
+        # nothing is disclosed (the URI was validated microseconds earlier), and a redirect is
+        # the better answer for the user either way.
+        err = exc.oauthlib_error
+        return AuthorizeRedirect(t.cast(str, err.in_uri(err.redirect_uri)))
+    return AuthorizeRedirect(t.cast(str, uri))
+
+
+def describe(request: HttpRequest, user: RevelUser) -> AuthorizeDescription | AuthorizeRedirect:
+    """Validate the authorization request, then auto-approve it or describe the consent screen.
+
+    Args:
+        request: The authorization request, with its parameters in the query string.
+        user: The signed-in end user.
+
+    Returns:
+        An ``AuthorizeRedirect`` when no interaction is needed (a trusted app, a prior grant,
+        or a ``prompt=none`` request that cannot be satisfied silently), otherwise the
+        description the consent screen renders.
+    """
+    _ensure_enabled()
+    scopes, credentials = _validate(request)
+    application = t.cast(OAuthApplication, credentials["request"].client)
+    redirect_uri = t.cast(str, credentials["redirect_uri"])
+    state = t.cast("str | None", credentials.get("state"))
+    # OIDC Core §3.1.2.1. ``prompt=login`` is not honoured: the end user is already
+    # authenticated by the time the frontend can call this, and re-authentication is a
+    # frontend concern (it owns the session), so it is treated as a plain consent request.
+    prompt = set(request.GET.get("prompt", "").split())
+    if "consent" not in prompt and (application.skip_authorization or has_prior_grant(user, application, scopes)):
+        return _issue(request, scopes, credentials, allow=True)
+    if "none" in prompt:
+        return _error_redirect(redirect_uri, "interaction_required", state)
+    return AuthorizeDescription(application=application, scopes=scopes, redirect_uri=redirect_uri, state=state)
+
+
+def decide(request: HttpRequest, *, allow: bool) -> AuthorizeRedirect:
+    """Apply the user's answer; a refusal yields the client's ``access_denied`` redirect.
+
+    Args:
+        request: The authorization request, replayed in the query string of the decision POST.
+        allow: The user's answer. There is no default — no branch of this module issues a code
+            without either an explicit ``True`` here or a genuine prior grant in ``describe``.
+
+    Returns:
+        The redirect the browser must follow.
+    """
+    _ensure_enabled()
+    scopes, credentials = _validate(request)
+    return _issue(request, scopes, credentials, allow=allow)
