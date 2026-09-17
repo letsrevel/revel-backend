@@ -8,10 +8,12 @@ end-to-end test at the bottom of this module is that contract; it drives the rea
 than counting rows.
 """
 
+import datetime as dt
 import typing as t
 
 import pytest
 from django.test.client import Client
+from django.utils import timezone
 from oauth2_provider.models import AccessToken, RefreshToken
 
 from accounts.models import RevelUser
@@ -132,3 +134,34 @@ def test_revoking_a_connection_stops_auto_approval_and_refresh(
     )
     assert refreshed.status_code == 400, refreshed.content
     assert not RefreshToken.objects.filter(application=public_oauth_app, revoked__isnull=True).exists()
+
+
+def test_a_refresh_only_connection_is_listed_and_revocable(
+    session_client: Client, client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    """R-83, end to end: an idle ``offline_access`` client is still a connection the user can cut off.
+
+    Expiring the access token is the state a real client reaches within the hour:
+    ``ACCESS_TOKEN_EXPIRE_SECONDS`` is 3600 while the refresh token behind it stays good for
+    ``REFRESH_TOKEN_EXPIRE_SECONDS`` (30 days), and ``has_prior_grant`` keeps auto-approving on
+    it the whole time — so the connection has to remain visible and revocable.
+    """
+    scope = "openid org:read offline_access"
+    tokens = run_code_flow(session_client, client, public_oauth_app, scope)
+    AccessToken.objects.filter(application=public_oauth_app).update(expires=timezone.now() - dt.timedelta(hours=1))
+
+    [conn] = session_client.get("/api/oauth/connections/").json()
+    assert conn["application"]["name"] == "Public App"
+    assert "offline_access" in conn["scopes"]
+
+    assert session_client.delete(f"/api/oauth/connections/{public_oauth_app.client_id}").status_code == 204
+    assert session_client.get("/api/oauth/connections/").json() == []
+    refreshed = client.post(
+        "/o/token",
+        {
+            "grant_type": "refresh_token",
+            "refresh_token": tokens["refresh_token"],
+            "client_id": public_oauth_app.client_id,
+        },
+    )
+    assert refreshed.status_code == 400, refreshed.content

@@ -1,6 +1,7 @@
 """Swapped django-oauth-toolkit Application model (spec §6.1). Token models stay DOT's."""
 
 import typing as t
+import uuid
 from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
@@ -30,6 +31,15 @@ class OAuthApplication(ExifStripMixin, AbstractApplication):  # type: ignore[mis
     #: mistake impossible rather than merely unlikely.
     plaintext_client_secret: str | None = None
 
+    # Overrides DOT's ``BigAutoField`` (oauth2_provider/models.py:194). Django permits
+    # overriding a field inherited from an abstract parent, and a UUID key is the house style
+    # (``TimeStampedModel.id``, common/models/base.py:11) — which is why
+    # ``FileUploadAudit.instance_pk`` is a ``UUIDField`` and why an integer key made the shared
+    # upload service (and therefore logo thumbnails, R-35) unusable here. It also takes
+    # sequential-ID enumeration off ``/api/oauth/apps/{app_id}``. DOT's own token tables pick the
+    # column type up from this field through the swappable FK; ``test_migrations.py`` asserts they
+    # are generated as ``uuid`` so a regeneration cannot silently revert it (R-82).
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     algorithm = models.CharField(
         max_length=5, choices=AbstractApplication.ALGORITHM_TYPES, default=AbstractApplication.RS256_ALGORITHM
     )

@@ -177,6 +177,38 @@ def test_connections_for_skips_expired_tokens(user: RevelUser, oauth_app: OAuthA
     assert token_service.connections_for(user) == []
 
 
+def test_connections_for_includes_a_refresh_only_grant(user: RevelUser, oauth_app: OAuthApplication) -> None:
+    """R-83 / spec §8.4: a live access token OR an unrevoked refresh token is a connection.
+
+    An ``offline_access`` client spends most of its life here — access token expired, refresh
+    token good for 30 days — and ``has_prior_grant`` still auto-approves it, so the list that
+    feeds revocation must show it.
+    """
+    make_token_pair(user, oauth_app, "org:read offline_access", expires_in=-1)
+    [conn] = token_service.connections_for(user)
+    assert conn.application == oauth_app
+    assert conn.scopes == {"org:read", "offline_access"}
+
+
+def test_connections_for_skips_revoked_refresh_tokens(user: RevelUser, oauth_app: OAuthApplication) -> None:
+    _access, refresh = make_token_pair(user, oauth_app, "org:read offline_access", expires_in=-1)
+    refresh.revoked = timezone.now()
+    refresh.save(update_fields=["revoked"])
+    assert token_service.connections_for(user) == []
+
+
+def test_connections_for_skips_orphaned_refresh_tokens(user: RevelUser, oauth_app: OAuthApplication) -> None:
+    """A refresh token with no access token is already unusable — DOT rejects it — so it is dead."""
+    access, _refresh = make_token_pair(user, oauth_app, "org:read offline_access", expires_in=-1)
+    access.delete()
+    assert token_service.connections_for(user) == []
+
+
+def test_connections_for_does_not_double_count_a_live_pair(user: RevelUser, oauth_app: OAuthApplication) -> None:
+    make_token_pair(user, oauth_app, "org:read offline_access")
+    assert len(token_service.connections_for(user)) == 1
+
+
 def test_connections_for_skips_other_users(
     user: RevelUser, revel_user_factory: t.Any, oauth_app: OAuthApplication
 ) -> None:
@@ -200,7 +232,7 @@ def test_connections_for_orders_by_last_used_first(
 def test_connections_for_query_count_is_flat(
     user: RevelUser, oauth_app: OAuthApplication, public_oauth_app: OAuthApplication, django_assert_num_queries: t.Any
 ) -> None:
-    """R-28: no query per application — one scan of the live tokens plus one ``in_bulk``."""
+    """R-28: no query per application — one scan per token table plus one ``in_bulk``."""
     third = OAuthApplication(
         user=user,
         name="Third App",
@@ -213,5 +245,5 @@ def test_connections_for_query_count_is_flat(
     third.save()
     for app in (oauth_app, public_oauth_app, third):
         make_access_token(user, app, "org:read")
-    with django_assert_num_queries(2):
+    with django_assert_num_queries(3):
         assert len(token_service.connections_for(user)) == 3

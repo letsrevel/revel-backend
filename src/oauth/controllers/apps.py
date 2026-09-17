@@ -3,27 +3,19 @@
 ``requires_verified_email=True`` on the whole controller: registering a client that other people
 will be asked to trust is the higher-trust half of this feature, while *seeing and cutting off*
 your own grants is not — that lives on plain JWT auth in ``connections.py`` (R-73).
-
-There is deliberately no logo-upload route yet. R-35 requires it to go through
-``common.service.upload_service.safe_save_uploaded_file`` (the only dispatch site for
-``THUMBNAIL_CONFIGS``, so the only way ``logo_thumbnail`` is ever generated), and that service
-records every upload in ``FileUploadAudit``, whose ``instance_pk`` is a ``UUIDField``. This
-model's primary key is DOT's ``BigAutoField``, so the audit insert raises and the upload 500s.
-Fixing it means either widening that shared audit column (an ``ALTER TYPE`` table rewrite on a
-production audit table) or giving the swapped application model a UUID primary key — both
-cross-cutting calls that belong to whoever owns the branch, not to this route. Until then an
-operator sets the logo in the admin and ``manage.py generate_thumbnails`` builds the thumbnail,
-which is R-35's other documented dispatch site.
 """
 
 import typing as t
+import uuid
 
 from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
+from ninja import File, UploadedFile
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
+from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from oauth import schema
 from oauth.models import OAuthApplication
@@ -43,7 +35,15 @@ class OAuthAppController(UserAwareController):
         Ownership is a filter rather than a check, so every route below is scoped to the caller
         by construction and a foreign app is a 404 instead of a 403. Only *live* tokens count:
         expired rows linger until ``cleartokens`` runs, and counting them would overstate an
-        app's reach by up to a day, disagreeing with the Connected Apps screen (spec §8.4).
+        app's reach by up to a day.
+
+        # ponytail: this counts holders of a live access token, while ``token_service.
+        # connections_for`` counts a live access token OR an unrevoked refresh token (R-83), so an
+        # idle ``offline_access`` user is missing from the developer's number. Nothing a user or a
+        # developer *does* depends on it, and matching exactly means counting distinct users across
+        # a union of two joins — two annotations would double-count whoever holds both. The upgrade
+        # is a ``connection_counts_for(apps)`` helper in ``token_service`` (two set-based queries
+        # for a whole page) that the admin in Task 11 could share.
 
         Returns:
             The queryset every route resolves against.
@@ -56,7 +56,7 @@ class OAuthAppController(UserAwareController):
             )
         )
 
-    def get_one(self, app_id: int) -> OAuthApplication:
+    def get_one(self, app_id: uuid.UUID) -> OAuthApplication:
         """One of the caller's apps, or a 404.
 
         Args:
@@ -82,19 +82,19 @@ class OAuthAppController(UserAwareController):
         return 201, app
 
     @route.get("/{app_id}", url_name="oauth_apps_get", response=schema.OAuthAppSchema)
-    def get_app(self, app_id: int) -> OAuthApplication:
+    def get_app(self, app_id: uuid.UUID) -> OAuthApplication:
         """Retrieve one of your apps."""
         return self.get_one(app_id)
 
     @route.patch("/{app_id}", url_name="oauth_apps_update", response=schema.OAuthAppSchema, throttle=WriteThrottle())
-    def update_app(self, app_id: int, payload: schema.OAuthAppUpdatePayload) -> OAuthApplication:
+    def update_app(self, app_id: uuid.UUID, payload: schema.OAuthAppUpdatePayload) -> OAuthApplication:
         """Update one of your apps; removing a scope revokes the tokens that carry it."""
         data = payload.model_dump(exclude_unset=True)
         app = self.get_one(app_id)
         return app_service.update_app(app, data) if data else app
 
     @route.delete("/{app_id}", url_name="oauth_apps_delete", response={204: None}, throttle=WriteThrottle())
-    def delete_app(self, app_id: int) -> tuple[int, None]:
+    def delete_app(self, app_id: uuid.UUID) -> tuple[int, None]:
         """Delete one of your apps, along with every token it was issued."""
         app_service.delete_app(self.get_one(app_id))
         return 204, None
@@ -105,7 +105,7 @@ class OAuthAppController(UserAwareController):
         response=schema.OAuthAppCreatedSchema,
         throttle=WriteThrottle(),
     )
-    def rotate_secret(self, app_id: int) -> OAuthApplication:
+    def rotate_secret(self, app_id: uuid.UUID) -> OAuthApplication:
         """Issue a new client secret. Existing tokens keep working; the old secret stops."""
         app = self.get_one(app_id)
         app.plaintext_client_secret = app_service.rotate_secret(app)
@@ -117,13 +117,24 @@ class OAuthAppController(UserAwareController):
         response=schema.OAuthAppSchema,
         throttle=WriteThrottle(),
     )
-    def deactivate(self, app_id: int) -> OAuthApplication:
+    def deactivate(self, app_id: uuid.UUID) -> OAuthApplication:
         """Switch an app off and revoke everything it holds."""
         return app_service.set_active(self.get_one(app_id), False)
 
     @route.post(
         "/{app_id}/activate", url_name="oauth_apps_activate", response=schema.OAuthAppSchema, throttle=WriteThrottle()
     )
-    def activate(self, app_id: int) -> OAuthApplication:
+    def activate(self, app_id: uuid.UUID) -> OAuthApplication:
         """Switch an app back on. Its users have to authorize it again."""
         return app_service.set_active(self.get_one(app_id), True)
+
+    @route.post("/{app_id}/logo", url_name="oauth_apps_logo", response=schema.OAuthAppSchema, throttle=WriteThrottle())
+    def upload_logo(self, app_id: uuid.UUID, logo: File[UploadedFile]) -> OAuthApplication:
+        """Upload the logo the consent screen shows.
+
+        Through ``safe_save_uploaded_file`` and never a bare ``save()``: that service is the only
+        dispatch site for ``THUMBNAIL_CONFIGS`` (R-35), so it is what makes ``logo_thumbnail``
+        — the field the consent card and the connections list both render — exist at all. It also
+        carries the malware scan, the field validators and the old-file cleanup.
+        """
+        return safe_save_uploaded_file(instance=self.get_one(app_id), field="logo", file=logo, uploader=self.user())

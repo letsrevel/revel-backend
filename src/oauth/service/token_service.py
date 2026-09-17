@@ -16,6 +16,7 @@ four statements no matter how many tokens the pair has accumulated.
 """
 
 import typing as t
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -162,12 +163,22 @@ def revoke_scoped_tokens(application: OAuthApplication, scopes: set[str]) -> int
 
 
 def connections_for(user: RevelUser) -> list[Connection]:
-    """The apps holding a live access token for ``user``, most recently used first (spec §8.4).
+    """The apps holding live authority for ``user``, most recently used first (spec §8.4).
 
-    Two queries regardless of how many apps the user has authorized (R-28): one pass over the
-    live tokens, folded in Python, then one ``in_bulk`` for the applications. Only live tokens
-    count — an expired one is not a connection, and expired rows linger until ``cleartokens``
-    runs.
+    A connection is a live access token **OR** an unrevoked refresh token (R-83), which is
+    exactly what ``authorize_service.has_prior_grant`` treats as a prior grant. The two must
+    agree: with a one-hour access token and a thirty-day refresh token, an idle
+    ``offline_access`` client spends most of its life with no live access token, and listing only
+    those would hide a grant that auto-approval still honours — leaving the user unable to revoke
+    what they cannot see. A refresh token with no access token is excluded: DOT's
+    ``validate_refresh_token`` rejects that orphan, so it is already dead.
+
+    Three queries regardless of how many apps the user has authorized (R-28): one pass per token
+    table, folded in Python, then one ``in_bulk`` for the applications.
+
+    ``first_authorized_at`` is the oldest *surviving* credential, not necessarily the original
+    grant: rotation replaces both tokens on every refresh, so the trail of the first authorization
+    is gone once the access token it minted has been superseded.
 
     Args:
         user: The resource owner.
@@ -175,7 +186,7 @@ def connections_for(user: RevelUser) -> list[Connection]:
     Returns:
         One ``Connection`` per app, newest use first.
     """
-    rows = (
+    live_access = (
         AccessToken.objects.filter(user=user, application__isnull=False, expires__gt=timezone.now())
         # A dynamic client's registration credential is not a user grant. It is issued with no
         # user today (``oauth.views`` forces an anonymous registrant), so this is defence for
@@ -184,8 +195,15 @@ def connections_for(user: RevelUser) -> list[Connection]:
         .exclude(scope__contains=oauth2_settings.DCR_REGISTRATION_SCOPE)
         .values_list("application", "scope", "created", "updated")
     )
-    folded: dict[int, tuple[set[str], datetime, datetime]] = {}
-    for app_id, scope, created, updated in rows:
+    # The scope comes off the paired access token because a refresh token stores none of its own.
+    # Idle expiry (``REFRESH_TOKEN_EXPIRE_SECONDS`` past the access token's expiry) is deliberately
+    # NOT applied: ``has_prior_grant`` does not apply it either, so a token that old still
+    # auto-approves, and hiding it here would reopen the gap this function exists to close.
+    live_refresh = RefreshToken.objects.filter(user=user, revoked__isnull=True, access_token__isnull=False).values_list(
+        "application", "access_token__scope", "created", "updated"
+    )
+    folded: dict[uuid.UUID, tuple[set[str], datetime, datetime]] = {}
+    for app_id, scope, created, updated in [*live_access, *live_refresh]:
         held, first, last = folded.get(app_id, (set(), created, updated))
         held.update(scope.split())
         folded[app_id] = (held, min(first, created), max(last, updated))

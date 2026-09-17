@@ -9,10 +9,12 @@ import typing as t
 
 import pytest
 from django.contrib.auth.hashers import check_password
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from oauth2_provider.models import AccessToken, RefreshToken
 
 from accounts.models import RevelUser
+from common.models import FileUploadAudit
 from oauth.models import OAuthApplication
 from oauth.tests.test_auth_class import make_access_token
 from oauth.tests.test_token_service import make_token_pair
@@ -261,6 +263,35 @@ def test_connections_count_ignores_expired_tokens(session_client: Client, user: 
     app = OAuthApplication.objects.get(pk=data["id"])
     make_access_token(user, app, "openid", expires_in=-1)
     assert session_client.get(f"/api/oauth/apps/{app.pk}").json()["connections_count"] == 0
+
+
+def test_logo_upload_generates_a_thumbnail(
+    session_client: Client, png_bytes: bytes, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """R-35: ``safe_save_uploaded_file`` is the only dispatch site for ``THUMBNAIL_CONFIGS``.
+
+    A bare ``save()`` would store the logo and leave ``logo_thumbnail`` empty forever, so the
+    thumbnail is the assertion: it exists only if the upload went through the shared service —
+    which also means it went through the malware scan and the field validators. Reaching this at
+    all needed the UUID primary key (R-82): the service audits every upload in
+    ``FileUploadAudit``, whose ``instance_pk`` is a ``UUIDField``.
+    """
+    data = create_app(session_client)
+    logo = SimpleUploadedFile(name="logo.png", content=png_bytes, content_type="image/png")
+    with django_capture_on_commit_callbacks(execute=True):
+        response = session_client.post(f"/api/oauth/apps/{data['id']}/logo", data={"logo": logo})
+    assert response.status_code == 200, response.content
+    app = OAuthApplication.objects.get(pk=data["id"])
+    assert app.logo
+    assert app.logo_thumbnail
+    audit = FileUploadAudit.objects.get(app="oauth", model="oauthapplication", field="logo")
+    assert audit.instance_pk == app.pk
+
+
+def test_logo_upload_rejects_a_non_image(session_client: Client) -> None:
+    data = create_app(session_client)
+    junk = SimpleUploadedFile(name="logo.png", content=b"not an image", content_type="image/png")
+    assert session_client.post(f"/api/oauth/apps/{data['id']}/logo", data={"logo": junk}).status_code == 400
 
 
 def test_logo_url_is_absolute(settings: t.Any, session_client: Client) -> None:
