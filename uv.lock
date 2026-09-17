@@ -970,6 +970,22 @@ crypto = [
 ]
 
 [[package]]
+name = "django-oauth-toolkit"
+version = "3.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "jwcrypto" },
+    { name = "oauthlib" },
+    { name = "requests" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/42/b3c6a5d7e204011a702cc02ababb756d10538645dfd188ea441e4c65a082/django_oauth_toolkit-3.4.1.tar.gz", hash = "sha256:c4de73c0765eed55a99ea0fa8433b20664dcc1f43930149cff569abed166c5c2", size = 256139, upload-time = "2026-08-21T03:45:36.538Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/16/11cf2eacd7ac1c32908288b6d56fadef5676071a4ac0af7e626fd1abd3ef/django_oauth_toolkit-3.4.1-py3-none-any.whl", hash = "sha256:c47f2a70e83bade0a47a5e9b20e86030d8ed9c0a8f10ec4ed30446cad7291f2d", size = 163957, upload-time = "2026-08-21T03:45:34.904Z" },
+]
+
+[[package]]
 name = "django-prometheus"
 version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1734,6 +1750,19 @@ name = "jsmin"
 version = "3.0.1"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5e/73/e01e4c5e11ad0494f4407a3f623ad4d87714909f50b17a06ed121034ff6e/jsmin-3.0.1.tar.gz", hash = "sha256:c0959a121ef94542e807a674142606f7e90214a2b3d1eb17300244bbb5cc2bfc", size = 13925, upload-time = "2022-01-16T20:35:59.13Z" }
+
+[[package]]
+name = "jwcrypto"
+version = "1.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/13/8f/e802d77957903483129813ce6fa01a72a906f9cdd454039d1ec1e6d1e44a/jwcrypto-1.6.1.tar.gz", hash = "sha256:a1e1570da5c2e35dbcd375ec1d2891a24de8eb35ee2c1fe8e91978efb72cfe90", size = 116287, upload-time = "2026-09-15T21:22:33.286Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/31/a4/ee780473e42a3edaf65da1ad37f5c601a9c740e215c1e09db36bf90f3f59/jwcrypto-1.6.1-py3-none-any.whl", hash = "sha256:77e856818e514cb3d64a1043b6885a7d52f5cc37773f5e944de02103c8d3a54f", size = 121267, upload-time = "2026-09-15T21:22:32.27Z" },
+]
 
 [[package]]
 name = "kombu"
@@ -3620,6 +3649,7 @@ dependencies = [
     { name = "django-ninja" },
     { name = "django-ninja-extra" },
     { name = "django-ninja-jwt", extra = ["crypto"] },
+    { name = "django-oauth-toolkit" },
     { name = "django-prometheus" },
     { name = "django-simple-history" },
     { name = "django-solo" },
@@ -3720,6 +3750,7 @@ requires-dist = [
     { name = "django-ninja", specifier = ">=1.6.2" },
     { name = "django-ninja-extra", specifier = ">=0.31.6" },
     { name = "django-ninja-jwt", extras = ["crypto"], specifier = ">=5.4.4,<5.4.5" },
+    { name = "django-oauth-toolkit", specifier = ">=3.4.1,<4" },
     { name = "django-prometheus", specifier = ">=2.5.0" },
     { name = "django-simple-history", specifier = ">=3.13.0" },
     { name = "django-solo", specifier = ">=2.5.1" },
