@@ -1,7 +1,7 @@
 """Tests for ``ScopedJWTAuth``: session JWT first, then a django-oauth-toolkit app token.
 
-These run against DOT's *stock* ``OAuth2Validator`` — ``OAUTH2_VALIDATOR_CLASS`` is
-added in Task 6, which re-runs this module against ours.
+These run against ``oauth.validator.RevelOAuth2Validator`` (``OAUTH2_VALIDATOR_CLASS``);
+only ``verify_request`` is exercised, which our subclass does not touch.
 """
 
 import datetime as dt

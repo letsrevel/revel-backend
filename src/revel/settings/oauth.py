@@ -31,7 +31,7 @@ OAUTH2_PROVIDER = {
     "OIDC_RSA_PRIVATE_KEY": _read_pem(OIDC_SIGNING_KEY_PATH),
     "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [_read_pem(p) for p in OIDC_SIGNING_KEYS_INACTIVE_PATHS],
     "OIDC_ISS_ENDPOINT": OAUTH_ISSUER,
-    # OAUTH2_VALIDATOR_CLASS is added by Task 6, together with oauth/validator.py.
+    "OAUTH2_VALIDATOR_CLASS": "oauth.validator.RevelOAuth2Validator",
     "SCOPES_BACKEND_CLASS": "oauth.scopes.RegistryScopes",
     # No SCOPES/DEFAULT_SCOPES keys here on purpose: only DOT's SettingsScopes reads them, and
     # we replace it above. The vocabulary and the (empty) defaults both live in oauth/scopes.py
