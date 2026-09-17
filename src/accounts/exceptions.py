@@ -49,17 +49,48 @@ class OIDCLoginError(Exception):
         self.code: OIDCErrorCode = code
 
 
+ReferralApplicationErrorCode = t.Literal[
+    "referral_applications_disabled",
+    "pending_application",
+    "code_taken",
+    "already_decided",
+    "blocked_email",
+    "open_invite",
+    "already_active",
+]
+
+
 class ReferralApplicationError(Exception):
-    """Base for referral application / invite failures. Raised with a translated message."""
+    """Base for referral application / invite failures.
+
+    Raised with a translated ``detail`` message and a stable machine-readable ``code`` that
+    the accounts exception handler renders as ``{"detail", "code"}`` (same shape as the
+    referral-forfeiture 409), so clients branch on the code rather than on translated text.
+    """
+
+    code: ReferralApplicationErrorCode
+
+    def __init__(self, message: str, *, code: ReferralApplicationErrorCode | None = None) -> None:
+        """Store the message; ``code`` overrides the subclass default when given."""
+        super().__init__(message)
+        if code is not None:
+            self.code = code
 
 
 class ReferralApplicationsDisabledError(ReferralApplicationError):
     """Public applications are switched off in ``SiteSettings`` (404)."""
 
+    code = "referral_applications_disabled"
+
 
 class ReferralApplicationConflictError(ReferralApplicationError):
-    """Pending duplicate, taken code, or an invalid status transition (409)."""
+    """Pending duplicate, taken code, blocked email, open invite or invalid transition (409).
+
+    Always raised with an explicit ``code``.
+    """
 
 
 class ReferralAlreadyActiveError(ReferralApplicationError):
     """The invitee already has an active referral code (409)."""
+
+    code = "already_active"

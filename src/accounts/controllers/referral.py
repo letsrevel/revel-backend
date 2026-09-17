@@ -39,7 +39,11 @@ class ReferralController(ControllerBase):
 
     @route.post(
         "/apply",
-        response={202: ResponseOk},
+        response={
+            202: ResponseOk,
+            404: schema.ReferralApplicationErrorSchema,
+            409: schema.ReferralApplicationErrorSchema,
+        },
         url_name="referral-apply",
         throttle=ReferralApplicationThrottle(),
     )

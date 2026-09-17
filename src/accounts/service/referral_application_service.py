@@ -43,12 +43,12 @@ def sanitize_note(note: str) -> str:
 def assert_code_available(code: str, *, exclude_pk: uuid.UUID | None = None) -> None:
     """Raise a 409 conflict if ``code`` is held by a referral code or a live application (case-insensitive)."""
     if ReferralCode.objects.filter(code__iexact=code).exists():
-        raise ReferralApplicationConflictError(str(_("This referral code is already taken.")))
+        raise ReferralApplicationConflictError(str(_("This referral code is already taken.")), code="code_taken")
     live = ReferralApplication.objects.filter(code__iexact=code, status__in=_LIVE_STATUSES)
     if exclude_pk is not None:
         live = live.exclude(pk=exclude_pk)
     if live.exists():
-        raise ReferralApplicationConflictError(str(_("This referral code is already taken.")))
+        raise ReferralApplicationConflictError(str(_("This referral code is already taken.")), code="code_taken")
 
 
 def _is_enrolled(email: str) -> bool:
@@ -79,7 +79,9 @@ def submit_application(*, email: str, code: str, note: str) -> ReferralApplicati
     if ReferralApplication.objects.filter(
         normalized_email=normalized, status=ReferralApplication.Status.PENDING
     ).exists():
-        raise ReferralApplicationConflictError(str(_("You already have a pending application.")))
+        raise ReferralApplicationConflictError(
+            str(_("You already have a pending application.")), code="pending_application"
+        )
 
     assert_code_available(code)
 
@@ -98,7 +100,9 @@ def submit_application(*, email: str, code: str, note: str) -> ReferralApplicati
         {"email": email, "code": code, "note": clean_note, "source": ReferralApplication.Source.APPLICATION},
     )
     if not created:
-        raise ReferralApplicationConflictError(str(_("You already have a pending application.")))
+        raise ReferralApplicationConflictError(
+            str(_("You already have a pending application.")), code="pending_application"
+        )
 
     application_id = str(application.id)
 
@@ -117,7 +121,9 @@ def _require_pending(application: ReferralApplication) -> ReferralApplication:
     """Re-read the row under lock and insist it is still PENDING."""
     locked = ReferralApplication.objects.select_for_update().get(pk=application.pk)
     if locked.status != ReferralApplication.Status.PENDING:
-        raise ReferralApplicationConflictError(str(_("This application has already been decided.")))
+        raise ReferralApplicationConflictError(
+            str(_("This application has already been decided.")), code="already_decided"
+        )
     return locked
 
 
@@ -163,7 +169,7 @@ def _enroll(application: ReferralApplication, user: RevelUser) -> ReferralCode:
         # from wanting the same code, so re-check against real codes right before minting one.
         # Raising the mapped conflict here keeps the admin on a "taken" message instead of a 500.
         if ReferralCode.objects.filter(code__iexact=application.code).exists():
-            raise ReferralApplicationConflictError(str(_("This referral code is already taken.")))
+            raise ReferralApplicationConflictError(str(_("This referral code is already taken.")), code="code_taken")
         code = ReferralCode.objects.create(
             user=user, code=application.code, revenue_share_percent=application.revenue_share_percent
         )
@@ -242,7 +248,9 @@ def create_invite(
     if ReferralApplication.objects.filter(
         normalized_email=normalized, status=ReferralApplication.Status.BLOCKED
     ).exists():
-        raise ReferralApplicationConflictError(str(_("This email is permanently blocked from the referral program.")))
+        raise ReferralApplicationConflictError(
+            str(_("This email is permanently blocked from the referral program.")), code="blocked_email"
+        )
     open_invite = (
         ReferralApplication.objects.filter(
             normalized_email=normalized, status=ReferralApplication.Status.APPROVED, user__isnull=True
@@ -252,7 +260,8 @@ def create_invite(
     )
     if open_invite is not None:
         raise ReferralApplicationConflictError(
-            str(_("This email already has an approved invite awaiting signup (code {}).").format(open_invite.code))
+            str(_("This email already has an approved invite awaiting signup (code {}).").format(open_invite.code)),
+            code="open_invite",
         )
     assert_code_available(code)
     application, created = get_or_create_with_race_protection(
@@ -268,7 +277,7 @@ def create_invite(
     )
     if not created:
         raise ReferralApplicationConflictError(
-            str(_("This email already has a pending application; decide it instead."))
+            str(_("This email already has a pending application; decide it instead.")), code="pending_application"
         )
     return approve(application, actor=actor)
 

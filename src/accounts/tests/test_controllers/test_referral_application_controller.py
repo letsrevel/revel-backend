@@ -43,7 +43,10 @@ class TestApply:
     def test_disabled_returns_404(self, client: Client) -> None:
         response = _post(client, VALID)
         assert response.status_code == 404
-        assert response.json() == {"detail": "Referral applications are not open."}
+        assert response.json() == {
+            "detail": "Referral applications are not open.",
+            "code": "referral_applications_disabled",
+        }
 
     def test_success_returns_202_and_creates_pending(self, client: Client, applications_enabled: None) -> None:
         response = _post(client, VALID)
@@ -69,13 +72,13 @@ class TestApply:
         assert _post(client, VALID).status_code == 202
         response = _post(client, {**VALID, "code": "other"})
         assert response.status_code == 409
-        assert response.json() == {"detail": "You already have a pending application."}
+        assert response.json() == {"detail": "You already have a pending application.", "code": "pending_application"}
 
     def test_taken_code_is_409(self, client: Client, applications_enabled: None, revel_user_factory: t.Any) -> None:
         ReferralCode.objects.create(user=revel_user_factory(), code="MY-CODE")
         response = _post(client, VALID)
         assert response.status_code == 409
-        assert response.json() == {"detail": "This referral code is already taken."}
+        assert response.json() == {"detail": "This referral code is already taken.", "code": "code_taken"}
 
     def test_blocked_email_returns_202_without_creating(self, client: Client, applications_enabled: None) -> None:
         ReferralApplication.objects.create(
@@ -95,7 +98,9 @@ class TestApply:
         fresh = _post(client, {**VALID, "email": "fresh@example.com"})
 
         assert enrolled.status_code == fresh.status_code == 409
-        assert enrolled.json() == fresh.json() == {"detail": "This referral code is already taken."}
+        assert (
+            enrolled.json() == fresh.json() == {"detail": "This referral code is already taken.", "code": "code_taken"}
+        )
 
 
 class TestApplyThrottle:

@@ -53,6 +53,17 @@ class ReferralApplicationSchema(Schema):
         return v.lower()
 
 
+class ReferralApplicationErrorSchema(Schema):
+    """404/409 body of the referral application endpoints: translated ``detail`` + stable ``code``.
+
+    ``code`` is one of ``referral_applications_disabled`` (404), ``pending_application``,
+    ``code_taken`` (409).
+    """
+
+    detail: str
+    code: str
+
+
 class ReferralInvitationSchema(Schema):
     """What the register page needs to prefill an invite: nothing more."""
 

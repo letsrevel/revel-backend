@@ -22,11 +22,12 @@ from accounts.exceptions import (
     OIDCLoginError,
     ReferralAlreadyActiveError,
     ReferralApplicationConflictError,
+    ReferralApplicationError,
     ReferralApplicationsDisabledError,
     ReferralForfeitureConfirmationRequiredError,
 )
 from accounts.service import oidc as oidc_service
-from common.exception_handlers import ExceptionHandler, make_simple_handler, register_handlers
+from common.exception_handlers import ExceptionHandler, register_handlers
 
 logger = structlog.get_logger(__name__)
 
@@ -81,13 +82,27 @@ def handle_oidc_login_error(request: HttpRequest, exc: Exception | t.Type[Except
     return response
 
 
+def make_referral_application_handler(status: int) -> ExceptionHandler:
+    """Render a :class:`ReferralApplicationError` as ``{"detail": <message>, "code": <code>}``.
+
+    Same shape as the referral-forfeiture 409 so the frontend can branch on ``code`` instead
+    of matching translated text.
+    """
+
+    def handler(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+        error = t.cast(ReferralApplicationError, exc)
+        return Response(status=status, data={"detail": str(error), "code": error.code})
+
+    return handler
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     ReferralForfeitureConfirmationRequiredError: handle_referral_forfeiture_confirmation_required,
     OIDCLoginError: handle_oidc_login_error,
-    ReferralApplicationsDisabledError: make_simple_handler(404),
-    ReferralApplicationConflictError: make_simple_handler(409),
-    ReferralAlreadyActiveError: make_simple_handler(409),
+    ReferralApplicationsDisabledError: make_referral_application_handler(404),
+    ReferralApplicationConflictError: make_referral_application_handler(409),
+    ReferralAlreadyActiveError: make_referral_application_handler(409),
 }
 
 
