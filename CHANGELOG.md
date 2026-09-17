@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-09-17
+
 ### Added
 
 - Referral program applications: public `POST /referral/apply` (rate limited, gated by the new
@@ -14,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   admin approve / reject / permanently-reject with optional note, and an admin "Invite by email" page
   that enrolls existing accounts immediately or enrolls new accounts at signup by email match.
 - Per-referrer revenue share override on referral codes.
+- Referral lifecycle emails: application received, invitation, enrolment and rejection (the rejection mail carries the admin's note).
+- Admins get a Pushover push for every new referral application.
+- GDPR data exports now include the user's own referral-program applications.
 
 ### Changed
 
