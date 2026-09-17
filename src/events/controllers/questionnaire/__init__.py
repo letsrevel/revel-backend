@@ -17,8 +17,8 @@ inside ``submissions.py``.
 from ninja_extra import api_controller
 
 from common.authentication import ScopedJWTAuth
-from oauth.permissions import RequireScope
 from common.throttling import WriteThrottle
+from oauth.permissions import RequireScope
 
 from .assignments import QuestionnaireAssignmentsMixin
 from .core import QuestionnaireCoreMixin

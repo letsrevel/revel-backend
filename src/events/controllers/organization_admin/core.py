@@ -34,8 +34,18 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     @route.get(
         "",
         url_name="get_organization_admin",
+        # ``OrganizationAdminDetailSchema`` carries the organization's financial identity —
+        # ``vat_id``/``vat_country_code``/``vat_rate``, ``billing_name``/``address``/``email``,
+        # ``invoicing_mode`` and ``stripe_account_id``/``stripe_account_email``. R-93 pulled the
+        # VAT and revenue controllers for exactly that data; this read walks straight through
+        # core, and ``IsOrganizationStaff`` binds ``is_staff`` (not a ``PermissionKey``), so
+        # ``scope_allows`` never runs and ``org:read`` would be the sole gate (R-101).
+        # Apps keep an org-details read via ``GET /api/dashboard/organizations``, whose
+        # ``OrganizationRetrieveSchema`` has no VAT identity, no billing address and no
+        # ``stripe_account_id`` — only ``is_stripe_connected`` and the fees #809 made public.
+        auth=I18nJWTAuth(),
         response=schema.OrganizationAdminDetailSchema,
-        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
+        permissions=[IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     def get_organization(self, slug: str) -> models.Organization:
@@ -106,6 +116,12 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/verify-contact-email",
         url_name="verify_contact_email",
         response={200: schema.OrganizationRetrieveSchema},
+        # An unsafe method whose only scope gate would be ``org:read`` (it declares no route-level
+        # permissions and resolves the organization from the emailed token, not from ``slug``, so
+        # no object check runs either). Confirming an email link is a browser/session flow, not an
+        # integration one, so it is session-only under the same rule as R-99. Found by the
+        # read-scope sweep, not named in R-99's list.
+        auth=I18nJWTAuth(),
     )
     def verify_contact_email(self, slug: str, payload: VerifyEmailSchema) -> models.Organization:
         """Verify organization contact email using token from email link.

@@ -513,4 +513,7 @@ def test_oauth_tokens_and_grants_are_never_exported(user: RevelUser) -> None:
         "oauth2_provider_devicegrant",
     ):
         assert accessor not in data, accessor
+    # Cheap insurance, NOT a guarantee: token storage keeps only a SHA-256 checksum, so the raw
+    # bearer never reaches the DB and could not appear here even without the exclusions above.
+    # The accessor loop is what actually proves the rules work (M2).
     assert token not in raw

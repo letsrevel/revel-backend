@@ -15,7 +15,7 @@ from ninja_extra import (
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import ScopedJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.controllers import DistinctSearching, UserAwareController
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -221,6 +221,11 @@ class DashboardController(UserAwareController):
     @route.patch(
         "/tickets/{ticket_id}/guest-name",
         url_name="dashboard_update_ticket_guest_name",
+        # ``me:read`` is a READ scope — its label promises only "See your profile, tickets,
+        # RSVPs and memberships". A read scope must never be the sole gate on an unsafe
+        # method (that is what ``me:rsvp`` exists to demonstrate), and no write scope in the
+        # registry covers this, so the route stays session-only (R-99).
+        auth=I18nJWTAuth(),
         response={200: schema.UserTicketSchema},
         throttle=WriteThrottle(),
     )

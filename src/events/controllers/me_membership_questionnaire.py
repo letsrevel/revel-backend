@@ -5,7 +5,7 @@ from uuid import UUID
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
-from common.authentication import ScopedJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail
 from common.throttling import QuestionnaireSubmissionThrottle, UserDefaultThrottle
@@ -60,6 +60,11 @@ class MeMembershipQuestionnaireController(UserAwareController):
     @route.post(
         "/organizations/{slug}/membership-questionnaire/{questionnaire_id}/submit",
         url_name="submit_membership_questionnaire",
+        # ``me:read`` is a READ scope — its label promises only "See your profile, tickets,
+        # RSVPs and memberships". A read scope must never be the sole gate on an unsafe
+        # method (that is what ``me:rsvp`` exists to demonstrate), and no write scope in the
+        # registry covers this, so the route stays session-only (R-99).
+        auth=I18nJWTAuth(),
         response={200: QuestionnaireSubmissionOrEvaluationSchema, 400: ErrorDetail},
         throttle=QuestionnaireSubmissionThrottle(),
     )

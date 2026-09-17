@@ -1,6 +1,9 @@
 """Default-deny convention guards for the app-token surface (spec §7.3.4).
 
-Four properties, all mechanical, none of them a list a reviewer has to trust:
+Six properties, all mechanical, none of them a list a reviewer has to trust. Properties 4-6 all
+exist because of the same recurring miss: a money-or-owner route sitting inside a controller of a
+different character, which per-controller reasoning cannot see. It escaped three separate careful
+passes in this task, which is why it is now CI's problem rather than a reader's.
 
 1. **The surface is exactly the reviewed set.** The controllers that accept app tokens ARE
    the attack surface (R-89), so widening it must be an explicit edit to
@@ -17,6 +20,14 @@ Four properties, all mechanical, none of them a list a reviewer has to trust:
    so it cannot see a wrongly-scoped route inside a correctly-switched controller — which is
    how ``POST stripe/connect``, ``POST stripe/account/verify`` and ``DELETE staff/{user_id}``
    stayed reachable on ``org:read`` through two careful passes. This guard is per route (R-96).
+5. **No read scope is the sole gate on a state-changing method.** ``me:read``'s label is "See
+   your profile, tickets, RSVPs and memberships", and it was authorizing a Stripe Customer
+   Portal URL and a subscription checkout. ``me:rsvp`` exists precisely because a write needs
+   its own scope (R-99).
+6. **No switched route hides an owner check in its handler body.** Properties 4 and 5 read the
+   ``permissions`` list, so neither can see ``if organization.owner != self.user(): raise
+   HttpError(403, ...)`` — which is how ``POST /staff/{user_id}`` stayed open while its
+   ``DELETE`` sibling was pinned (R-100).
 """
 
 import ast
@@ -25,38 +36,61 @@ import textwrap
 import typing as t
 
 import pytest
-from ninja_extra.permissions import BasePermission
 
 from api.api import api
 from common.authentication import ScopedJWTAuth
-from events.controllers.event_admin import EVENT_ADMIN_CONTROLLERS
-from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
 from events.controllers.permissions import PermissionMapPermission, RootPermission
 from events.models import PermissionKey
 from oauth.permissions import RequireScope
+from oauth.scopes import SCOPES, UNSCOPED_KEYS, scopes_for_key
 
-# Org-admin controllers deliberately held back from the app-token surface (R-93). Both are
-# controller-level ``IsOrganizationOwner()`` and neither is honestly covered by any scope in the
-# registry: ``org:read``'s consent label is "See your organizations, events and settings", which
-# promises neither financial reporting nor changing a VAT identity. A scope must never grant more
-# than its label says (R-39), so these wait for a dedicated ``org:financials`` scope rather than
-# riding in on ``org:read``.
-SESSION_ONLY_ORGANIZATION_ADMIN: frozenset[str] = frozenset(
-    {"OrganizationAdminRevenueController", "OrganizationAdminVATController"}
-)
-
-# The app-token allow-list (R-89 as corrected by R-93), by controller class name. Everything else
-# stays on ``I18nJWTAuth``/``OptionalAuth`` and refuses app tokens by construction.
+# The app-token allow-list (R-89 as corrected by R-93), enumerated LITERALLY by controller class
+# name. Deriving it from ``ORGANIZATION_ADMIN_CONTROLLERS``/``EVENT_ADMIN_CONTROLLERS`` would make
+# a newly added admin controller land in the allow-list automatically, and the guard would then
+# fail with "expected but not switched" — nudging the next editor to *switch* it. For a
+# default-deny allow-list the nudge has to point the other way: a new controller is absent here,
+# so it is simply not on the surface, and adding it is a deliberate edit (M3).
 APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
-    ({c.__name__ for c in ORGANIZATION_ADMIN_CONTROLLERS} - SESSION_ONLY_ORGANIZATION_ADMIN)
-    | {c.__name__ for c in EVENT_ADMIN_CONTROLLERS}
-    | {
-        # Organizer surfaces.
+    {
+        # --- organization admin (13 of the 15 in ORGANIZATION_ADMIN_CONTROLLERS) ---
+        # Absent on purpose: OrganizationAdminRevenueController and OrganizationAdminVATController.
+        # Both are controller-level ``IsOrganizationOwner()`` and neither is honestly covered by
+        # any scope in the registry: ``org:read``'s consent label is "See your organizations,
+        # events and settings", which promises neither financial reporting nor changing a VAT
+        # identity. A scope must never grant more than its label says (R-39), so they wait for a
+        # dedicated ``org:financials`` scope rather than riding in on ``org:read`` (R-93). Note
+        # that ``org:read`` still reaches *some* org settings — what it must not reach is the
+        # financial identity, which is why ``GET /organization-admin/{slug}`` is pinned
+        # session-only too (R-101).
+        "OrganizationAdminCoreController",
+        "OrganizationAdminTokensController",
+        "OrganizationAdminMembershipRequestsController",
+        "OrganizationAdminResourcesController",
+        "OrganizationAdminMembersController",
+        "OrganizationAdminVenuesController",
+        "OrganizationAdminBlacklistController",
+        "OrganizationAdminWhitelistController",
+        "OrganizationAdminAnnouncementsController",
+        "OrganizationAdminDiscountCodesController",
+        "OrganizationAdminRecurringEventsController",
+        "OrganizationAdminSubscriptionsController",
+        "OrganizationAdminTicketsController",
+        # --- event admin (all 9) ---
+        "EventAdminTokensController",
+        "EventAdminInvitationRequestsController",
+        "EventAdminCoreController",
+        "EventAdminTicketsController",
+        "EventAdminInvitationsController",
+        "EventAdminRSVPsController",
+        "EventAdminWaitlistController",
+        "EventAdminWaitlistOffersController",
+        "EventAdminSeatingController",
+        # --- other organizer surfaces ---
         "EventSeriesAdminController",
         "SeriesPassAdminController",
         "QuestionnaireController",
         "PollQuestionController",
-        # Attendee self-service.
+        # --- attendee self-service ---
         "DashboardController",
         "MeSubscriptionsController",
         "MeMembershipApplicationsController",
@@ -68,14 +102,28 @@ APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
     }
 )
 
-# A floor, not an exact count: it fails loudly if a whole surface is un-switched by a later
-# refactor, rather than silently asserting nothing (R-15). 273 routes are switched today.
-MINIMUM_SCOPED_ROUTES = 230
+# A floor, not an exact count, but a TIGHT one: 259 routes are switched today, and the smallest
+# switched controller has a single route, so slack here is slack in which a whole surface could
+# vanish silently (M4). It exists so the parametrized guards below can never assert nothing
+# (R-15); it is meant to be edited deliberately when routes are added or removed.
+MINIMUM_SCOPED_ROUTES = 250
 
 # The ``RootPermission.action`` both owner-only permission classes bind. It is not a
 # ``PermissionKey``, so no scope maps to it and none ever should — "owner of the organization"
 # is not something a third-party app can be granted (R-96).
 OWNER_ACTION = "is_owner"
+
+# HTTP methods that change state. A read scope must never be the sole gate on one of these:
+# ``me:rsvp`` exists precisely because a write needs a scope of its own, and a consent screen
+# that says "See your profile, tickets, RSVPs and memberships" must not also buy the right to
+# start a Stripe subscription (R-99).
+UNSAFE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Scopes whose NAME promises only reading. Derived from the ``:read`` naming convention rather
+# than listed, so a scope added later is covered the moment it is named — the name is the promise.
+# ``test_read_only_scopes_are_the_expected_two`` pins the result so a rename cannot quietly empty
+# this set and make the guard below vacuous.
+READ_ONLY_SCOPES: frozenset[str] = frozenset(name for name in SCOPES if name.endswith(":read"))
 
 # Calls on ``self`` that run ninja-extra's object-level permission hook.
 _OBJECT_CHECK_CALLS: frozenset[str] = frozenset(
@@ -94,6 +142,7 @@ class Route(t.NamedTuple):
     """One registered operation, flattened for assertion."""
 
     label: str
+    methods: frozenset[str]
     controller: type | None
     auth: t.Any
     permissions: list[t.Any]
@@ -126,6 +175,7 @@ def _routes() -> list[Route]:
                 routes.append(
                     Route(
                         label=f"{','.join(operation.methods)} {prefix}{path}",
+                        methods=frozenset(operation.methods),
                         controller=controller,
                         auth=operation.auth_callbacks[0] if operation.auth_callbacks else None,
                         permissions=permissions,
@@ -137,6 +187,7 @@ def _routes() -> list[Route]:
 
 ROUTES = _routes()
 SCOPED_ROUTES = [r for r in ROUTES if isinstance(r.auth, ScopedJWTAuth)]
+UNSAFE_SCOPED_ROUTES = [r for r in SCOPED_ROUTES if r.methods & UNSAFE_METHODS]
 
 
 def _self_call_names(func: t.Any) -> frozenset[str]:
@@ -175,6 +226,47 @@ def _triggers_object_check(controller: type | None, func: t.Any, depth: int = 3)
     )
 
 
+def _owner_comparison_sites(func: t.Any) -> list[str]:
+    """Comparisons in ``func``'s body where either side is an ``.owner``/``.owner_id`` attribute.
+
+    This is how an owner-only rule can hide from the permission list entirely: ``add_staff`` and
+    ``update_staff_permissions`` enforce owner-only with ``raise HttpError(403, ...)`` in the
+    handler rather than with ``IsOrganizationOwner()`` (R-100). Source inspection is crude, but
+    across the whole API it currently matches those two sites and nothing else — zero false
+    positives — so it is worth a guard rather than only a comment.
+    """
+    try:
+        source = textwrap.dedent(inspect.getsource(inspect.unwrap(func)))
+    except OSError, TypeError:  # pragma: no cover - C-level or dynamically built handler
+        return []
+    sites: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Compare):
+            continue
+        for side in [node.left, *node.comparators]:
+            if isinstance(side, ast.Attribute) and side.attr in ("owner", "owner_id"):
+                sites.append(ast.unparse(node))
+    return sites
+
+
+def _effective_scope_gate(route: Route) -> tuple[frozenset[str], bool]:
+    """The scopes an app token needs for ``route``, and whether it is closed to app tokens.
+
+    Returns:
+        ``(scopes, closed)``. ``closed`` is True when the route carries a keyed permission class
+        whose key is in ``UNSCOPED_KEYS`` — ``scope_allows`` then raises for *every* app token, so
+        the route is the safest case rather than a read-gated one. Getting this wrong is what made
+        my first sweep flag ~25 ``edit_organization`` routes that are in fact unreachable.
+    """
+    required = {p.scope for p in route.permissions if isinstance(p, RequireScope)}
+    keyed = tuple(KEYED_PERMISSION_CLASSES)
+    actions = [str(p.action) for p in route.permissions if isinstance(p, keyed)]
+    closed = any(action in UNSCOPED_KEYS for action in actions)
+    for action in actions:
+        required |= set(scopes_for_key(t.cast(PermissionKey, action)))
+    return frozenset(required), closed
+
+
 def _permission_hierarchy() -> list[type[RootPermission]]:
     """Every concrete ``RootPermission`` subclass, found recursively at runtime.
 
@@ -210,7 +302,7 @@ def _fixed_action(permission_class: type[RootPermission]) -> str | None:
         return None
 
 
-def _keyed_permission_classes() -> list[type[BasePermission]]:
+def _keyed_permission_classes() -> list[type[RootPermission]]:
     """Every permission class whose ``action`` is a ``PermissionKey``, found by introspection.
 
     Two families:
@@ -227,7 +319,7 @@ def _keyed_permission_classes() -> list[type[BasePermission]]:
     action-taking ``RootPermission`` whose actions are not keys either) — see R-46.
     """
     keys = set(t.get_args(PermissionKey))
-    keyed: list[type[BasePermission]] = []
+    keyed: list[type[RootPermission]] = []
     for cls in _permission_hierarchy():
         if issubclass(cls, PermissionMapPermission):
             keyed.append(cls)
@@ -238,7 +330,7 @@ def _keyed_permission_classes() -> list[type[BasePermission]]:
     return keyed
 
 
-def _owner_only_permission_classes() -> list[type[BasePermission]]:
+def _owner_only_permission_classes() -> list[type[RootPermission]]:
     """Permission classes that restrict a route to the organization *owner*.
 
     Discovered by the action they bind — ``is_owner`` — rather than by name, so that
@@ -307,7 +399,7 @@ def test_keyed_permission_classes_are_discovered_by_introspection() -> None:
 
 
 @pytest.mark.parametrize("permission_class", KEYED_PERMISSION_CLASSES, ids=lambda c: c.__name__)
-def test_every_keyed_permission_class_invokes_the_scope_gate(permission_class: type[BasePermission]) -> None:
+def test_every_keyed_permission_class_invokes_the_scope_gate(permission_class: type[RootPermission]) -> None:
     """``has_object_permission`` must call ``scope_allows`` — R-49, checked for real subclasses.
 
     Source inspection rather than a call, because the seven classes take different object
@@ -355,4 +447,58 @@ def test_no_owner_only_route_accepts_an_app_token(route: Route) -> None:
         f"{route.label} is gated by {[type(p).__name__ for p in owner_only]} but accepts app "
         f"tokens. Owner-only routes are session-only: put auth=I18nJWTAuth() on the route "
         f"(or the controller) and drop any RequireScope from its permission list."
+    )
+
+
+def test_read_only_scopes_are_the_expected_two() -> None:
+    """Pin the ``:read`` derivation, so the guard below cannot become vacuous by a rename."""
+    assert READ_ONLY_SCOPES == {"me:read", "org:read"}, sorted(READ_ONLY_SCOPES)
+
+
+def test_there_are_unsafe_scoped_routes_to_check() -> None:
+    """The guard below is parametrized over a non-empty set (R-15)."""
+    assert len(UNSAFE_SCOPED_ROUTES) >= 100, len(UNSAFE_SCOPED_ROUTES)
+
+
+@pytest.mark.parametrize("route", UNSAFE_SCOPED_ROUTES, ids=lambda r: r.label)
+def test_no_unsafe_route_is_gated_only_by_a_read_scope(route: Route) -> None:
+    """A read scope must never be the sole gate on a state-changing method (R-99).
+
+    The registry already encodes this principle: ``me:rsvp`` exists as a separate scope precisely
+    because RSVPing is a write. So a route that changes state must require either a write scope,
+    or an ``UNSCOPED_KEYS`` key (which refuses every app token), or nothing at all because it is
+    session-only.
+
+    This is the mechanical form of the miss that recurred three times in this task: a
+    money-or-owner route sitting inside a controller of a different character, invisible to
+    per-controller reasoning. ``POST /api/me/organizations/{org_id}/billing-portal`` returned a
+    Stripe Customer Portal URL under a scope labelled "See your profile, tickets, RSVPs and
+    memberships".
+    """
+    scopes, closed = _effective_scope_gate(route)
+    if closed:
+        return
+    assert not (scopes and scopes <= READ_ONLY_SCOPES), (
+        f"{route.label} changes state but its only scope gate is {sorted(scopes)}, whose label "
+        f"promises only reading. Give it a write scope, or keep the route on auth=I18nJWTAuth()."
+    )
+
+
+@pytest.mark.parametrize("route", SCOPED_ROUTES, ids=lambda r: r.label)
+def test_no_switched_route_hides_an_owner_check_in_its_handler(route: Route) -> None:
+    """An owner-only rule enforced in the handler body is invisible to the permission list (R-100).
+
+    ``test_no_owner_only_route_accepts_an_app_token`` inspects ``permissions``, so it cannot see
+    ``if organization.owner != self.user(): raise HttpError(403, ...)``. That is exactly how
+    ``POST /staff/{user_id}`` stayed reachable on ``org:read org:members`` while its ``DELETE``
+    sibling was correctly pinned session-only.
+
+    If a route legitimately needs a body-level owner comparison *and* app-token access, this
+    assertion is where that has to be argued — not in the handler.
+    """
+    sites = _owner_comparison_sites(route.handler)
+    assert not sites, (
+        f"{route.label} accepts app tokens and compares an owner attribute in its handler body "
+        f"({sites}); the permission-list guards cannot see that. Pin the route session-only with "
+        f"auth=I18nJWTAuth(), or express the rule with IsOrganizationOwner()."
     )

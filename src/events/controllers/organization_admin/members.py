@@ -304,6 +304,11 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}",
         url_name="create_organization_staff",
         response={201: schema.OrganizationStaffSchema},
+        # Owner-only, enforced in the handler body rather than by ``IsOrganizationOwner()``, so
+        # the permission list alone does not show it. Granting staff powers with an arbitrary
+        # permission map is strictly more dangerous than the removal pinned above, so it is
+        # session-only too rather than reachable on ``org:read org:members`` (R-100).
+        auth=I18nJWTAuth(),
     )
     def add_staff(
         self, slug: str, user_id: UUID, payload: models.PermissionsSchema | None = None
@@ -319,7 +324,12 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}/permissions",
         url_name="update_staff_permissions",
         response=schema.OrganizationStaffSchema,
-        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],  # Only owners can do this
+        # Owner-only, enforced in the handler body (see ``add_staff``). ``edit_organization`` is
+        # in ``UNSCOPED_KEYS``, so app tokens were already refused here — but only *incidentally*,
+        # by a mapping in another file. Pin the auth so the protection is stated, not inherited
+        # from a coincidence (R-100).
+        auth=I18nJWTAuth(),
+        permissions=[OrganizationPermission("edit_organization")],  # Only owners can do this
     )
     def update_staff_permissions(
         self, slug: str, user_id: UUID, payload: models.PermissionsSchema

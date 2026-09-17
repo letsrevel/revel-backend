@@ -28,6 +28,11 @@ class PotluckController(UserAwareController):
         url_name="list_potluck_items",
         response=list[schema.PotluckItemRetrieveSchema],
         throttle=UserDefaultThrottle(),
+        # Deliberately inherits the controller's ``RequireScope("org:potluck")``, whose label is
+        # "Manage potluck items" — so an app token needs a *manage* scope to perform what is, for
+        # an attendee, a read. That is more restrictive than the label implies, not less, and the
+        # alternative (``me:read``) would put a second scope on one small controller for one
+        # route. Revisit if attendee-side potluck ever grows beyond this list (M5).
     )
     def list_potluck_items(self, event_id: UUID) -> QuerySet[PotluckItem]:
         """View all potluck items for this event.
