@@ -3,7 +3,8 @@
 import typing as t
 
 from django.conf import settings
-from ninja import Schema
+from ninja import Field, ModelSchema, Schema
+from pydantic import AwareDatetime
 
 from common.signing import get_file_url
 from oauth.models import OAuthApplication
@@ -122,3 +123,96 @@ class AuthorizeDecisionPayload(Schema):
 
 
 AuthorizeResponse: t.TypeAlias = AuthorizeDescribeResponse | AuthorizeRedirectResponse
+
+
+class OAuthAppCreatePayload(Schema):
+    """What a developer supplies to register a client (spec §8.3).
+
+    Deliberately NOT a ModelSchema and deliberately without ``skip_authorization``: the consent
+    tree in ``authorize_service.describe`` skips consent entirely for an app carrying that flag,
+    so it is operator-only (R-78). ``verified`` and ``registration_source`` are likewise absent —
+    both are claims about the app that only the platform may make.
+    """
+
+    name: str = Field(max_length=255)
+    description: str = ""
+    client_type: t.Literal["confidential", "public"]
+    redirect_uris: list[str] = Field(min_length=1)
+    allowed_scopes: list[str] = Field(default_factory=list)
+    homepage_url: str = ""
+    privacy_policy_url: str = ""
+
+
+class OAuthAppUpdatePayload(Schema):
+    """A partial update. ``client_type`` is absent: switching it would invalidate the secret."""
+
+    name: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+    redirect_uris: list[str] | None = None
+    allowed_scopes: list[str] | None = None
+    homepage_url: str | None = None
+    privacy_policy_url: str | None = None
+
+
+class OAuthAppSchema(ModelSchema):
+    """A client as its own developer sees it. Never carries ``client_secret``."""
+
+    # See ``AuthorizeAppSchema.registration_source`` for why the ignore is needed.
+    registration_source: OAuthApplication.RegistrationSource  # type: ignore[name-defined]
+    redirect_uris: list[str]
+    last_used_at: AwareDatetime | None = None
+    logo_url: str | None = None
+    #: How many distinct users hold a live token for this app. A count, never an identity
+    #: (spec §8.3): who authorized an app is the user's business, not the developer's.
+    connections_count: int = 0
+
+    class Meta:
+        model = OAuthApplication
+        fields = [
+            "id",
+            "client_id",
+            "name",
+            "description",
+            "client_type",
+            "allowed_scopes",
+            "homepage_url",
+            "privacy_policy_url",
+            "verified",
+            "is_active",
+            "last_used_at",
+        ]
+
+    @staticmethod
+    def resolve_redirect_uris(obj: OAuthApplication) -> list[str]:
+        """Split DOT's space-separated storage into the list the API speaks."""
+        return t.cast(list[str], obj.redirect_uris.split())
+
+    @staticmethod
+    def resolve_logo_url(obj: OAuthApplication) -> str | None:
+        """Absolute, signed-when-protected logo URL (R-72) — never the root-relative ``.url``."""
+        return app_logo_url(obj)
+
+
+class OAuthAppCreatedSchema(OAuthAppSchema):
+    """The create/rotate response: the only two places a plaintext secret is ever returned."""
+
+    client_secret: str | None = None
+
+    @staticmethod
+    def resolve_client_secret(obj: OAuthApplication) -> str | None:
+        """The one-time plaintext secret, or None for a public client.
+
+        Deliberately NOT ``obj.client_secret``: that column holds a hash (of the empty string
+        for a public client, R-33). The plaintext only ever exists on the transient the route
+        that generated it attaches, so this resolver cannot leak the stored value.
+        """
+        return obj.plaintext_client_secret
+
+
+class ConnectionSchema(Schema):
+    """One entry of the Connected Apps screen (spec §8.4)."""
+
+    application: AuthorizeAppSchema
+    scopes: list[str]
+    first_authorized_at: AwareDatetime
+    last_used_at: AwareDatetime

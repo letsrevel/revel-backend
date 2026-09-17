@@ -23,6 +23,13 @@ class OAuthApplication(ExifStripMixin, AbstractApplication):  # type: ignore[mis
 
     IMAGE_FIELDS = ("logo",)
 
+    #: Transient and never persisted: the plaintext client secret, attached for the one response
+    #: that is allowed to show it (create and rotate-secret). It exists because ``client_secret``
+    #: stores a *hash* — of the empty string for a public client — so a response schema that
+    #: resolved that column would serialize the hash. Resolving a separate attribute makes that
+    #: mistake impossible rather than merely unlikely.
+    plaintext_client_secret: str | None = None
+
     algorithm = models.CharField(
         max_length=5, choices=AbstractApplication.ALGORITHM_TYPES, default=AbstractApplication.RS256_ALGORITHM
     )
