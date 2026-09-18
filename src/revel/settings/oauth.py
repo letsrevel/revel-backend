@@ -55,6 +55,13 @@ OAUTH2_PROVIDER = {
     "COMPLIANT_BCP_RFC9700_REFRESH_TOKEN": True,
     "COMPLIANT_BCP_RFC9700_REDIRECT_URI_MATCHING": True,
     "COMPLIANT_BCP_RFC9700_PKCE_REQUIRED": True,
+    # Two distinct keys, and only this one refuses the "plain" code_challenge_method
+    # (oauth2_validators._create_authorization_code); PKCE_REQUIRED above only requires PKCE
+    # to be *present*. RFC 9700 §2.1.1 and RFC 7636 §4.2 discourage "plain" — it makes the
+    # challenge its own verifier, so a leaked code is directly exchangeable — and OAuth 2.1
+    # expects S256. DOT defaults it False; leaving it there is what oauth2_provider.W003
+    # flags. See R-122.
+    "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
     # Deploy-check gate only; it flags any "http" in the schemes list, which loopback needs.
     "COMPLIANT_BCP_RFC9700_REDIRECT_URI_SCHEME": False,
     "DCR_ENABLED": _ENABLED,

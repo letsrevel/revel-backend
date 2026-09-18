@@ -234,8 +234,15 @@ def _consent_fingerprint(user: RevelUser, scopes: list[str], credentials: dict[s
 
     Sorted, newline-joined and hashed so the ticket stays short and opaque while still
     binding the decision to one user, one client, one redirect URI, one displayed scope set,
-    one PKCE challenge and one audience. ``state`` is deliberately absent: it is the client's
-    own CSRF value and not part of what the user is consenting to.
+    one PKCE challenge *and its method*, and one audience. ``state`` is deliberately absent:
+    it is the client's own CSRF value and not part of what the user is consenting to.
+
+    The method is bound alongside the challenge (R-80/R-122) because the two together are
+    what makes a code unexchangeable by whoever stole the ticket: re-POSTing an S256 ticket
+    with the same challenge but ``code_challenge_method=plain`` would make the challenge its
+    own verifier. DOT also refuses ``plain`` outright via
+    ``COMPLIANT_BCP_RFC9700_PKCE_METHOD``, but the consent binding must not depend on a
+    distant compliance flag staying true — that coupling is what broke silently once already.
 
     Args:
         user: The end user the screen was rendered for.
@@ -251,6 +258,7 @@ def _consent_fingerprint(user: RevelUser, scopes: list[str], credentials: dict[s
         str(credentials["redirect_uri"]),
         " ".join(sorted(scopes)),
         str(credentials.get("code_challenge") or ""),
+        str(credentials.get("code_challenge_method") or ""),
         " ".join(sorted(credentials.get("resource") or [])),
     ]
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()

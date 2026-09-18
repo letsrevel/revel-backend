@@ -106,6 +106,51 @@ def test_widening_scope_between_screen_and_decision_is_refused(
     assert not Grant.objects.exists()
 
 
+def test_swapping_the_pkce_method_between_screen_and_decision_is_refused(
+    session_client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    """R-80/R-122: the ticket binds the PKCE *method*, not only the challenge value.
+
+    Re-POSTing a stolen S256 ticket with ``code_challenge_method=plain`` and the same
+    challenge would otherwise make the challenge its own verifier, turning a read-only
+    frontend compromise into an exchangeable code. The refusal must come from the ticket,
+    independently of ``COMPLIANT_BCP_RFC9700_PKCE_METHOD``.
+    """
+    _, challenge = pkce()
+    ticket = describe_consent(session_client, public_oauth_app, challenge, "org:read")["consent_ticket"]
+    resp = session_client.post(
+        authorize_url(public_oauth_app, challenge, "org:read", code_challenge_method="plain"),
+        data={"allow": True, "consent_ticket": ticket},
+        content_type="application/json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"] == "invalid_request"
+    assert not Grant.objects.exists()
+
+
+def test_plain_code_challenge_method_mints_no_code(session_client: Client, public_oauth_app: OAuthApplication) -> None:
+    """R-122: ``COMPLIANT_BCP_RFC9700_PKCE_METHOD`` must refuse ``plain`` at code creation.
+
+    ``plain`` makes the challenge its own verifier, so a leaked code is directly
+    exchangeable (RFC 9700 §2.1.1, RFC 7636 §4.2). Asked for end-to-end rather than by
+    reading the setting: the ticket check is bypassed here by matching the screen exactly,
+    so the only thing that can refuse is DOT's own gate.
+    """
+    _, challenge = pkce()
+    query = authorize_query(public_oauth_app, challenge, "org:read", code_challenge_method="plain")
+    ticket = session_client.get("/api/oauth/authorize", query).json()["consent_ticket"]
+    resp = session_client.post(
+        authorize_url(public_oauth_app, challenge, "org:read", code_challenge_method="plain"),
+        data={"allow": True, "consent_ticket": ticket},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, resp.content
+    redirect_to = resp.json()["redirect_to"]
+    assert "code=" not in redirect_to, redirect_to
+    assert "error=invalid_request" in redirect_to, redirect_to
+    assert not Grant.objects.exists()
+
+
 def test_widening_the_resource_between_screen_and_decision_is_refused(
     session_client: Client, public_oauth_app: OAuthApplication
 ) -> None:
