@@ -19,6 +19,7 @@ from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from oauth import schema
 from oauth.models import OAuthApplication
+from oauth.permissions import ProviderEnabled
 from oauth.service import app_service
 
 
@@ -27,6 +28,9 @@ from oauth.service import app_service
     auth=I18nJWTAuth(requires_verified_email=True),
     tags=["OAuth - Developer Apps"],
     throttle=UserDefaultThrottle(),
+    # No route below overrides ``permissions``, so this covers the whole controller. Without it
+    # the portal was half-live with the provider off (R-124).
+    permissions=[ProviderEnabled()],
 )
 class OAuthAppController(UserAwareController):
     def get_queryset(self) -> QuerySet[OAuthApplication]:

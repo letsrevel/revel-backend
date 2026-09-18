@@ -7,6 +7,7 @@ from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from oauth import schema
+from oauth.permissions import ProviderEnabled
 from oauth.service import authorize_service
 
 
@@ -32,7 +33,16 @@ def _render(
     )
 
 
-@api_controller("/oauth", auth=I18nJWTAuth(), tags=["OAuth"], throttle=UserDefaultThrottle())
+@api_controller(
+    "/oauth",
+    auth=I18nJWTAuth(),
+    tags=["OAuth"],
+    throttle=UserDefaultThrottle(),
+    # Redundant with ``authorize_service._ensure_enabled`` and kept anyway, so the
+    # registry-derived guard in ``test_discovery`` is one uniform property over every
+    # provider route rather than one with an exception to remember (R-124).
+    permissions=[ProviderEnabled()],
+)
 class OAuthAuthorizeController(UserAwareController):
     def _request(self) -> HttpRequest:
         """The Django request behind this call.

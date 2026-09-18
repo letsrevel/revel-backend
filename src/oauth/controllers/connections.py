@@ -13,11 +13,16 @@ from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from oauth import schema
 from oauth.models import OAuthApplication
+from oauth.permissions import ProviderEnabled
 from oauth.service import token_service
 
 
 @api_controller(
-    "/oauth/connections", auth=I18nJWTAuth(), tags=["OAuth - Connected Apps"], throttle=UserDefaultThrottle()
+    "/oauth/connections",
+    auth=I18nJWTAuth(),
+    tags=["OAuth - Connected Apps"],
+    throttle=UserDefaultThrottle(),
+    permissions=[ProviderEnabled()],
 )
 class OAuthConnectionController(UserAwareController):
     @route.get("/", url_name="oauth_connections_list", response=list[schema.ConnectionSchema])

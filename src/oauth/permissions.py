@@ -1,11 +1,12 @@
-"""Explicit scope requirement for routes with no ``PermissionKey`` (spec §7.3.2)."""
+"""Route-level gates for the provider: the feature flag, and scopes for unkeyed routes."""
 
 from django.http import HttpRequest
 from ninja_extra import ControllerBase
 from ninja_extra.permissions import BasePermission
 
 from common.authentication import OAuthPrincipal
-from oauth.exceptions import InsufficientScopeError
+from oauth.exceptions import InsufficientScopeError, OAuthProviderDisabledError
+from oauth.utils import oauth_provider_enabled
 
 
 class RequireScope(BasePermission):
@@ -37,4 +38,34 @@ class RequireScope(BasePermission):
 
     def has_object_permission(self, request: HttpRequest, controller: ControllerBase, obj: object) -> bool:
         """Object-level check; the scope requirement does not depend on the object."""
+        return self.has_permission(request, controller)
+
+
+class ProviderEnabled(BasePermission):
+    """Make every route it guards indistinguishable from a route that does not exist.
+
+    The provider is enabled iff a signing key is configured (ADR-0008), and issue #986's
+    acceptance criterion is that with it unset *every* provider route answers 404. The
+    protocol views get that from the gating wrappers in ``oauth/urls.py``; the ninja
+    controllers are registered unconditionally (the flag is read at call time so tests can
+    flip it), so they need this (R-124). Without it the developer portal was half-live with
+    the provider off: the reads answered ``200 []`` and delete/activate/rotate-secret worked,
+    while create and update 400'd out of DOT's own RS256 validation.
+
+    ``OAuthProviderDisabledError`` is rendered as a static 404 by
+    ``oauth.exception_handlers``, so nothing distinguishes it from a missing route.
+    """
+
+    def has_permission(self, request: HttpRequest, controller: ControllerBase) -> bool:
+        """Return True, or raise ``OAuthProviderDisabledError`` while the provider is off.
+
+        Raises:
+            OAuthProviderDisabledError: No signing key is configured; rendered as a 404.
+        """
+        if not oauth_provider_enabled():
+            raise OAuthProviderDisabledError()
+        return True
+
+    def has_object_permission(self, request: HttpRequest, controller: ControllerBase, obj: object) -> bool:
+        """Object-level check; the feature flag does not depend on the object."""
         return self.has_permission(request, controller)
