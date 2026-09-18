@@ -46,7 +46,13 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members",
         url_name="list_organization_members",
         response=PaginatedResponseSchema[schema.OrganizationMemberSchema],
-        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
+        # ``org:members`` ("Manage members and subscriptions"), not the ``org:read`` baseline:
+        # ``IsOrganizationStaff`` binds ``is_staff``, which is not a ``PermissionKey``, so
+        # ``scope_allows`` never runs and ``RequireScope`` is the only scope gate on a response
+        # nesting every member's email, phone number, real name, pronouns and live subscription.
+        # ``GET /staff`` already resolves to ``org:members`` through ``manage_members`` (R-123).
+        # The ``org:read`` baseline stays alongside it, as on every other organizer route.
+        permissions=[RequireScope("org:read"), RequireScope("org:members"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -206,7 +212,9 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/membership-tiers",
         url_name="list_membership_tiers",
         response=list[schema.MembershipTierAdminSchema],
-        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
+        # Moved with the roster (R-123): every write on this path already requires
+        # ``org:members``, so leaving the read on the baseline alone buys nothing.
+        permissions=[RequireScope("org:read"), RequireScope("org:members"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     def list_membership_tiers(self, slug: str) -> QuerySet[models.MembershipTier]:

@@ -171,3 +171,26 @@ def test_scope_without_permission_is_permission_denied(
     response = _request(oauth_staff_member.user, oauth_app, "org:read org:tickets", case)
     assert response.status_code == 403, response.content
     assert "insufficient_scope" not in response.get("WWW-Authenticate", "")
+
+
+@pytest.mark.parametrize("path", ["members", "membership-tiers"])
+def test_the_member_roster_needs_org_members_not_org_read(
+    path: str, organization: Organization, oauth_app: OAuthApplication, session_client: Client
+) -> None:
+    """R-123: ``IsOrganizationStaff`` binds no ``PermissionKey``, so ``RequireScope`` is it.
+
+    The roster nests every member's email, phone number, real name, pronouns and live
+    subscription (plan, status, period, Stripe billing state), and the tier list sits on the
+    same path as writes that already require ``org:members`` — neither is the "settings"
+    ``org:read`` advertises. ``RequireScope`` constrains app tokens only, so the session
+    check in the same test is what proves staff in a browser are untouched.
+    """
+    case = Case("GET", f"/api/organization-admin/{organization.slug}/{path}", None, 200)
+    denied = _request(organization.owner, oauth_app, "org:read", case)
+    assert denied.status_code == 403, denied.content
+    assert 'scope="org:members"' in denied["WWW-Authenticate"], denied["WWW-Authenticate"]
+
+    granted = _request(organization.owner, oauth_app, "org:read org:members", case)
+    assert granted.status_code == 200, granted.content
+
+    assert session_client.get(case.path).status_code == 200
