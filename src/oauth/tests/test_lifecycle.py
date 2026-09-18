@@ -5,15 +5,18 @@ reach DOT's tables, and the sweeps must not reap a client that is merely idle.
 """
 
 import datetime as dt
+import typing as t
 
 import pytest
 from django.utils import timezone
+from ninja_jwt.tokens import RefreshToken as SessionRefreshToken
 from oauth2_provider.models import AccessToken, Grant, RefreshToken
 from oauth2_provider.settings import oauth2_settings
 from pytest_django.fixtures import Settings
 
 from accounts.jwt import blacklist_user_tokens
 from accounts.models import RevelUser
+from accounts.service.global_ban_service import deactivate_user_for_ban
 from oauth.models import OAuthApplication
 from oauth.tasks import clear_expired_tokens, prune_unused_dynamic_clients
 from oauth.tests.test_auth_class import make_access_token
@@ -37,9 +40,15 @@ def test_blacklist_user_tokens_revokes_refresh_tokens(user: RevelUser, oauth_app
 
 
 def test_blacklist_user_tokens_returns_session_token_count(user: RevelUser, oauth_app: OAuthApplication) -> None:
-    """The documented return value counts session JWTs; OAuth revocations are logged separately."""
+    """The documented return value counts session JWTs; OAuth revocations are logged separately.
+
+    One of each, so the answer distinguishes "sessions only" (1) from "everything folded in" (2)
+    — asserting 0 against an empty database would also pass for a function returning a constant.
+    """
+    SessionRefreshToken.for_user(user)
     make_access_token(user, oauth_app, "org:read")
-    assert blacklist_user_tokens(user) == 0
+    assert blacklist_user_tokens(user) == 1
+    assert not AccessToken.objects.filter(user=user).exists()
 
 
 def test_blacklist_user_tokens_revokes_even_when_provider_disabled(
@@ -114,6 +123,38 @@ def test_prune_keeps_an_app_with_a_pending_grant(user: RevelUser) -> None:
     )
     prune_unused_dynamic_clients()
     assert OAuthApplication.objects.filter(pk=pending.pk).exists()
+
+
+def test_prune_keeps_an_app_that_has_been_used(user: RevelUser) -> None:
+    """R-114: "unused" is a fact about the app's history, not about what it holds right now.
+
+    A user who authorizes a dynamic client and then disconnects it — or a grant whose only
+    access token ``cleartokens`` has since reaped — leaves the app with no artifact at all.
+    Deleting it there would break the ``client_id`` for every *other* user of that client, and
+    an MCP host that caches its registration gets ``invalid_client`` instead of re-registering.
+    """
+    used_once = _dynamic("used-once", 48)
+    OAuthApplication.objects.filter(pk=used_once.pk).update(last_used_at=timezone.now() - dt.timedelta(hours=30))
+    prune_unused_dynamic_clients()
+    assert OAuthApplication.objects.filter(pk=used_once.pk).exists()
+
+
+def test_ban_deactivates_and_revokes_apps_owned_by_the_banned_user(
+    user: RevelUser, oauth_app: OAuthApplication, revel_user_factory: t.Any
+) -> None:
+    """R-116: a ban must end the banned party's access, not just their own sessions.
+
+    ``revoke_user_tokens`` filters on the resource owner, so tokens *other* users granted to a
+    banned developer's app would otherwise stay live and the banned owner would keep operating
+    that client against those users' data. The blast radius is intended: every user of the app
+    loses access, and ``is_active`` is reversible if the ban is lifted.
+    """
+    granted_by_someone_else = revel_user_factory()
+    make_access_token(granted_by_someone_else, oauth_app, "org:read")
+    deactivate_user_for_ban(user, "spam")
+    oauth_app.refresh_from_db()
+    assert oauth_app.is_active is False
+    assert not AccessToken.objects.filter(application=oauth_app).exists()
 
 
 def test_prune_keeps_manual_apps(oauth_app: OAuthApplication) -> None:

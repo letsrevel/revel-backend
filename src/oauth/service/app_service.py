@@ -5,6 +5,7 @@ import typing as t
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from oauth2_provider.generators import generate_client_secret
 
@@ -148,6 +149,34 @@ def set_active(app: OAuthApplication, active: bool) -> OAuthApplication:
     if not active:
         token_service.revoke_app_tokens(app)
     return app
+
+
+def deactivate_apps_owned_by(user: RevelUser) -> tuple[int, int]:
+    """Switch off every app ``user`` owns and revoke what those apps hold, for every user.
+
+    The disarm half of a global ban (R-116). ``token_service.revoke_user_tokens`` filters on the
+    *resource owner*, so it clears what the banned user granted to other people's apps but
+    nothing that other people granted to theirs — leaving a banned developer operating their own
+    client against those users' data. The blast radius is intended and is the point: every user
+    of the app loses access, and ``is_active`` is reversible if the ban is lifted.
+
+    Dynamically registered apps have no owner (``user`` is NULL by ``clean()``), so they are
+    never caught here; a DCR client is nobody's to disarm.
+
+    Args:
+        user: The banned owner.
+
+    Returns:
+        ``(apps deactivated, credentials revoked)``.
+    """
+    apps = list(OAuthApplication.objects.filter(user=user, is_active=True))
+    if not apps:
+        return 0, 0
+    OAuthApplication.objects.filter(pk__in=[app.pk for app in apps]).update(is_active=False, updated=timezone.now())
+    # Per-app rather than one set-based sweep: ``OAUTH_MAX_APPS_PER_USER`` (10 by default) bounds
+    # the loop, and this runs once per ban.
+    revoked = sum(token_service.revoke_app_tokens(app) for app in apps)
+    return len(apps), revoked
 
 
 def delete_app(app: OAuthApplication) -> None:

@@ -37,9 +37,20 @@ def prune_unused_dynamic_clients() -> int:
     """Delete dynamically registered apps that never completed an authorization within the TTL.
 
     RFC 7591 registration is unauthenticated, so the table is a spam surface: an abandoned
-    client row is indistinguishable from a probe. "Used" is deliberately generous — any access
-    token that is not the registration credential, or any grant at all, including an expired one
-    whose code was redeemed long ago (the grant row survives until ``cleartokens`` reaps it).
+    client row is indistinguishable from a probe. But "unused" is a fact about the app's
+    *history*, not about what it happens to hold right now (R-114): a user who authorizes a
+    dynamic client and then disconnects it, or a grant whose only access token ``cleartokens``
+    has since reaped, leaves an app with no artifact at all. Deleting it there would break the
+    ``client_id`` for every *other* user of that client, and an MCP host that cached its
+    registration would get ``invalid_client`` instead of re-registering. So the primary signal
+    is ``last_used_at``, which Task 4 writes only on genuine app-token API use (a
+    registration-scope token is refused before the bump) and which nothing ever clears.
+
+    The two artifact checks stay as belt and braces for a client that registered and authorized
+    inside the TTL without an API call yet. A grant only protects a code that is mid-flight or
+    expired-unredeemed — DOT deletes the grant row at code exchange
+    (``oauth2_validators.py:493``), so a redeemed one is already gone and it is ``last_used_at``
+    that carries the history.
 
     The registration credential DOT mints for every dynamic client (its scope is exactly
     ``DCR_REGISTRATION_SCOPE``, ``oauth2_provider/views/dynamic_client_registration.py:239``) is
@@ -66,6 +77,7 @@ def prune_unused_dynamic_clients() -> int:
             ~Exists(real_tokens),
             ~Exists(grants),
             registration_source=OAuthApplication.RegistrationSource.DCR,
+            last_used_at__isnull=True,
             created__lt=cutoff,
         )
     ).delete()
