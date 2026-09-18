@@ -67,7 +67,7 @@ The table is the contract; the wording is what the user reads before approving.
 | `org:events` | Create, edit and delete events and event series, send invitations, and see attendee lists |
 | `org:tickets` | Manage ticket tiers, tickets, discount codes and seating, issue refunds, and see attendee details and revenue |
 | `org:checkin` | Check attendees in |
-| `org:members` | Manage members and subscriptions |
+| `org:members` | Manage members, subscriptions and membership payments, including refunds, and see membership revenue |
 | `org:announcements` | Send announcements |
 | `org:questionnaires` | Manage and evaluate questionnaires |
 | `org:polls` | Manage polls |
@@ -91,7 +91,13 @@ Five things to know:
   surface at all.
 - **`org:tickets` really does include money.** Beyond tiers and attendee lists it covers
   discount codes, seating, box-office sales, per-event revenue and **real Stripe refunds**,
-  because they share one staff permission key. Request it only if you need it.
+  because they share one staff permission key. Request it only if you need it. It is also
+  required *alongside* `org:events` for the two event-cancellation routes that touch money:
+  `POST .../actions/update-status/cancelled` with `refund_tickets=true`, and
+  `GET .../cancellation-refund-preview` (which reads the connected Stripe balance).
+- **`org:members` includes membership money too.** `manage_subscriptions` gates the
+  subscription plans, but also the organization's MRR/churn metrics, the membership payment
+  ledger and recording or refunding a payment — which is why the label says so.
 - **A scope is a ceiling, not a grant.** A token's power is *the scopes the user approved* ∩
   *what that user may do right now*. An app holding `org:tickets` gets `403` in an organization
   where the user lacks `manage_tickets`, and loses access the moment that permission is
@@ -162,9 +168,10 @@ Identify users by `sub` (a stable UUID). Email addresses change.
 
 Point the host at the API origin (`https://api.letsrevel.io`) and it does the rest:
 
-1. It calls an API route, gets `401` with
-   `WWW-Authenticate: Bearer error="invalid_token", resource_metadata="…"`, and follows that
-   to `/.well-known/oauth-protected-resource` and then the AS metadata.
+1. It calls an API route without a token, gets `401` with
+   `WWW-Authenticate: Bearer resource_metadata="…"` (no `error` attribute, per RFC 6750 §3.1;
+   a rejected token gets `error="invalid_token"` as well), and follows that to
+   `/.well-known/oauth-protected-resource` and then the AS metadata.
 2. It registers itself at `/o/register` (RFC 7591) and receives a `client_id` plus a
    registration access token for RFC 7592 read/update/delete at `/o/register/{client_id}`.
    Dynamically registered clients have no owner and are never auto-`verified`; an
@@ -200,6 +207,7 @@ evaluations. `org:read`'s label covers the first and not the second.
 |---|---|---|
 | `400` | `{"detail", "error": "invalid_scope" \| "invalid_request" \| …}` | The authorization request was refused; the consent page renders it. |
 | `400` | `{"detail", "error": "consent_required"}` | The consent screen expired — show it again. |
+| `401` | `WWW-Authenticate: Bearer resource_metadata="…"` | No credentials were sent. Follow `resource_metadata` to discover the authorization server. |
 | `401` | `WWW-Authenticate: Bearer error="invalid_token", resource_metadata="…"` | Token unknown, expired, revoked, bound elsewhere, or its app or user was deactivated. Re-acquire it. |
 | `403` | `WWW-Authenticate: Bearer error="insufficient_scope", scope="org:read"` | The user must re-consent with that scope. Without a `scope=` parameter, the route is unreachable by any app token. |
 | `403` | `{"detail"}`, no challenge header | The scope is fine; the *user* lacks the organization permission. |

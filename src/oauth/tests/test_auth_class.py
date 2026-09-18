@@ -10,6 +10,7 @@ import uuid
 
 import pytest
 from django.test import RequestFactory
+from django.test.client import Client
 from django.utils import timezone
 from ninja_jwt.exceptions import InvalidToken
 from ninja_jwt.tokens import RefreshToken
@@ -173,3 +174,27 @@ def test_last_used_at_is_bumped_once_per_window(user: RevelUser, oauth_app: OAut
 
     _auth(raw)
     assert _last_used(oauth_app) == first
+
+
+def test_missing_bearer_is_challenged_without_an_error_code(settings: Settings) -> None:
+    """RFC 6750 §3.1: no credentials → the bare challenge, still carrying ``resource_metadata``.
+
+    This is an MCP host's first contact (developer guide, "Connecting an MCP host"), so the
+    pointer has to be there even though no token was presented.
+    """
+    settings.OAUTH_ISSUER = "http://testserver"
+    response = Client().get("/api/dashboard/organizations")
+    assert response.status_code == 401, response.content
+    assert response["WWW-Authenticate"] == (
+        'Bearer resource_metadata="http://testserver/.well-known/oauth-protected-resource"'
+    )
+    assert response.json() == {"detail": "Authentication credentials were not provided."}
+
+
+def test_missing_bearer_is_ninjas_plain_401_while_the_provider_is_off(settings: Settings) -> None:
+    """With no provider there is nothing to discover, so the session-only 401 is unchanged."""
+    settings.OIDC_SIGNING_KEY_PATH = ""
+    response = Client().get("/api/dashboard/organizations")
+    assert response.status_code == 401, response.content
+    assert not response.get("WWW-Authenticate")
+    assert response.json() == {"detail": "Unauthorized"}

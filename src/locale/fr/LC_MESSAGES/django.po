@@ -1046,6 +1046,9 @@ msgstr "Accès superutilisateur·rice requis."
 msgid "Invalid or expired token."
 msgstr "Jeton invalide ou expiré."
 
+msgid "Authentication credentials were not provided."
+msgstr "Aucun identifiant d'authentification n'a été fourni."
+
 msgid "You cannot use this endpoint while authenticated."
 msgstr "Tu ne peux pas utiliser cet accès en étant authentifié·e."
 
@@ -5580,8 +5583,12 @@ msgstr ""
 msgid "Check attendees in"
 msgstr "Enregistrer l'arrivée des participants"
 
-msgid "Manage members and subscriptions"
-msgstr "Gérer les membres et les abonnements"
+msgid ""
+"Manage members, subscriptions and membership payments, including refunds, "
+"and see membership revenue"
+msgstr ""
+"Gérer les membres, les abonnements et les paiements d'adhésion, y compris "
+"les remboursements, et voir les revenus d'adhésion"
 
 msgid "Send announcements"
 msgstr "Envoyer des annonces"
@@ -6050,6 +6057,12 @@ msgstr "Jetons d'accès OAuth"
 
 msgid "OAuth Refresh Tokens"
 msgstr "Jetons de rafraîchissement OAuth"
+
+msgid "OAuth ID Tokens"
+msgstr "Jetons d'identité OAuth"
+
+msgid "OAuth Authorization Codes"
+msgstr "Codes d'autorisation OAuth"
 
 msgid "Authentication"
 msgstr "Authentification"

@@ -29,4 +29,9 @@ class Command(BaseCommand):
             )
         )
         out.chmod(0o600)
-        self.stdout.write(f"Wrote {out}")
+        self.stdout.write(f"Wrote {out} (mode 0600).")
+        self.stdout.write(
+            "If it is mounted into a container that runs as another uid (the Docker image uses 997), "
+            "make it readable there — e.g. `chmod 644` — or the provider stays disabled and "
+            "`manage.py check` reports oauth.E002."
+        )

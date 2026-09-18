@@ -66,7 +66,7 @@ class OAuthAuthorizeController(UserAwareController):
     @route.get(
         "/authorize",
         url_name="oauth_authorize_describe",
-        response=schema.AuthorizeResponse,
+        response={200: schema.AuthorizeResponse, 400: schema.AuthorizationErrorResponse},
     )
     def describe(self) -> schema.AuthorizeResponse:
         """Validate the client's authorization request and say what happens next.
@@ -79,7 +79,7 @@ class OAuthAuthorizeController(UserAwareController):
     @route.post(
         "/authorize",
         url_name="oauth_authorize_decide",
-        response=schema.AuthorizeRedirectResponse,
+        response={200: schema.AuthorizeRedirectResponse, 400: schema.AuthorizationErrorResponse},
         throttle=WriteThrottle(),
     )
     def decide(self, payload: schema.AuthorizeDecisionPayload) -> schema.AuthorizeRedirectResponse:

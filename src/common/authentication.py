@@ -128,17 +128,33 @@ class InvalidBearerToken(APIException):
 
     status_code = status.HTTP_401_UNAUTHORIZED
     default_detail = _("Invalid or expired token.")
+    #: The RFC 6750 §3.1 ``error`` attribute of the challenge; ``None`` omits it.
+    error: str | None = "invalid_token"
 
     def __init__(self) -> None:
         """Build the challenge from the configured issuer."""
         super().__init__(str(self.default_detail))
-        self.www_authenticate = 'Bearer error="invalid_token"'
+        params: list[str] = []
+        if self.error:
+            params.append(f'error="{self.error}"')
         # RFC 9728 §5.1: the parameter must be an absolute URI, so it is omitted rather
         # than emitted relative when no issuer is configured.
         if settings.OAUTH_ISSUER:
-            self.www_authenticate += (
-                f', resource_metadata="{settings.OAUTH_ISSUER}/.well-known/oauth-protected-resource"'
-            )
+            params.append(f'resource_metadata="{settings.OAUTH_ISSUER}/.well-known/oauth-protected-resource"')
+        self.www_authenticate = "Bearer" + (" " + ", ".join(params) if params else "")
+
+
+class MissingBearerToken(InvalidBearerToken):
+    """401 for a request that carried no credentials at all.
+
+    RFC 6750 §3.1 says such a response "SHOULD NOT include an error code", so the challenge is
+    the bare scheme plus the RFC 9728 ``resource_metadata`` pointer. That pointer is the whole
+    point: an MCP host's very first call carries no token, and the pointer is how it discovers
+    where to obtain one (developer guide, "Connecting an MCP host", step 1).
+    """
+
+    default_detail = _("Authentication credentials were not provided.")
+    error = None
 
 
 # An app's ``last_used_at`` powers the Connected Apps screen, not billing, so it is
@@ -154,6 +170,31 @@ class ScopedJWTAuth(I18nJWTAuth):
     safety argument: reaching a new surface with an app token requires an explicit,
     reviewable change of auth class.
     """
+
+    def __call__(self, request: HttpRequest) -> t.Any:
+        """Challenge a credential-less request while the provider is on; otherwise defer to ninja.
+
+        ninja's ``HttpBearer`` returns ``None`` for a missing header and the API then renders a
+        bare 401 with no ``WWW-Authenticate`` at all. RFC 6750 §3 requires the challenge on
+        every 401 a protected resource sends, and the RFC 9728 ``resource_metadata`` parameter
+        it carries is what an MCP host follows on first contact. With the provider off the
+        metadata URL is a 404, so the session-only 401 stays exactly what it was.
+
+        Args:
+            request: The HTTP request object.
+
+        Returns:
+            Whatever ``authenticate`` returns for a request that does carry a bearer.
+
+        Raises:
+            MissingBearerToken: No ``Authorization`` header and the provider is enabled.
+        """
+        if not request.headers.get(self.header):
+            from oauth.utils import oauth_provider_enabled
+
+            if oauth_provider_enabled():
+                raise MissingBearerToken()
+        return super().__call__(request)
 
     def authenticate(self, request: HttpRequest, token: str) -> t.Any:
         """Authenticate a session JWT, else a DOT app token.

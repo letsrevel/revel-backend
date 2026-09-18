@@ -71,6 +71,10 @@ class PermissionMapPermission(RootPermission):
     be granted, so it would silently deny all non-owner staff (see #683).
     """
 
+    #: Narrowed from ``RootPermission``'s ``str`` so ``scope_allows`` and the permission map
+    #: take ``self.action`` as-is; the constructor below is what keeps the narrowing honest.
+    action: models.PermissionKey
+
     def __init__(self, action: models.PermissionKey) -> None:
         """Store the map-backed action."""
         super().__init__(action=action)
@@ -84,7 +88,7 @@ class EventSeriesPermission(PermissionMapPermission):
         obj: models.EventSeries,
     ) -> bool:
         """Check if the user has permission to perform an action on a specific EventSeries."""
-        scope_allows(request, t.cast(models.PermissionKey, self.action))
+        scope_allows(request, self.action)
         return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
@@ -96,7 +100,7 @@ class EventPermission(PermissionMapPermission):
         obj: models.Event,
     ) -> bool:
         """Can edit event."""
-        scope_allows(request, t.cast(models.PermissionKey, self.action))
+        scope_allows(request, self.action)
         return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
@@ -108,7 +112,7 @@ class OrganizationPermission(PermissionMapPermission):
         obj: models.Organization,
     ) -> bool:
         """Can edit organization."""
-        scope_allows(request, t.cast(models.PermissionKey, self.action))
+        scope_allows(request, self.action)
         return obj.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
@@ -120,10 +124,8 @@ class QuestionnairePermission(PermissionMapPermission):
         obj: models.OrganizationQuestionnaire,
     ) -> bool:
         """Can edit organization."""
-        # self.action is a PermissionKey by construction, but stored as str on the base.
-        action = t.cast(models.PermissionKey, self.action)
-        scope_allows(request, action)
-        return OrganizationPermission(action).has_object_permission(request, controller, obj.organization)
+        scope_allows(request, self.action)
+        return OrganizationPermission(self.action).has_object_permission(request, controller, obj.organization)
 
 
 class IsOrganizationOwner(RootPermission):
@@ -167,6 +169,8 @@ class CanDuplicateEvent(RootPermission):
     This ensures the user can create new events in the same organization.
     """
 
+    action: models.PermissionKey
+
     def __init__(self) -> None:
         """Initialize with create_event action."""
         super().__init__(action="create_event")
@@ -178,11 +182,13 @@ class CanDuplicateEvent(RootPermission):
         obj: models.Event,
     ) -> bool:
         """Check if user can duplicate this event (create new event in same org)."""
-        scope_allows(request, t.cast(models.PermissionKey, self.action))
+        scope_allows(request, self.action)
         return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
 class ManagePotluckPermission(RootPermission):
+    action: models.PermissionKey
+
     def __init__(self) -> None:
         """Init PotluckPermission."""
         super().__init__(action="manage_potluck")
@@ -194,7 +200,7 @@ class ManagePotluckPermission(RootPermission):
         obj: models.PotluckItem,
     ) -> bool:
         """Can edit organization."""
-        scope_allows(request, t.cast(models.PermissionKey, self.action))
+        scope_allows(request, self.action)
         if obj.created_by_id == request.user.id:
             return True
         return obj.event.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)

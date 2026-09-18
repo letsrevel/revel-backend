@@ -112,7 +112,10 @@ bugs are silent.
   `oauth/tests/test_error_response_contracts.py` so changing it stays a decision.
 - **`org:tickets` grants real Stripe refunds and per-event revenue**, because `manage_tickets`
   gates them and v1 keeps the coarse scope with an honest label rather than splitting the
-  permission key mid-flight. Splitting `manage_tickets` is the recommended follow-up.
+  permission key mid-flight. Splitting `manage_tickets` is the recommended follow-up. The two
+  `manage_event` routes that reach the same money (cancel-with-refunds, refund preview) require
+  `org:tickets` in addition, and `org:members`' label names the membership payment ledger,
+  MRR and refunds that `manage_subscriptions` unlocks — the same honest-label rule.
 - An MCP server built later must be served from the same origin as `OAUTH_ISSUER`: DOT's
   audience check is a prefix match on the request URI, so a different origin would need
   introspection or unrestricted tokens.

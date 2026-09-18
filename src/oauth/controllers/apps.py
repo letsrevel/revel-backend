@@ -15,6 +15,7 @@ from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
+from common.schema import ErrorDetail, ValidationErrorResponse
 from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from oauth import schema
@@ -77,7 +78,11 @@ class OAuthAppController(UserAwareController):
         return self.get_queryset().order_by("-created")
 
     @route.post(
-        "/", url_name="oauth_apps_create", response={201: schema.OAuthAppCreatedSchema}, throttle=WriteThrottle()
+        "/",
+        url_name="oauth_apps_create",
+        # 400: ``OAuthApplication.clean()`` (redirect URIs, scopes); 409: the per-user app cap.
+        response={201: schema.OAuthAppCreatedSchema, 400: ValidationErrorResponse, 409: ErrorDetail},
+        throttle=WriteThrottle(),
     )
     def create_app(self, payload: schema.OAuthAppCreatePayload) -> tuple[int, OAuthApplication]:
         """Register an app. A confidential client's secret is returned here and never again."""
@@ -90,7 +95,12 @@ class OAuthAppController(UserAwareController):
         """Retrieve one of your apps."""
         return self.get_one(app_id)
 
-    @route.patch("/{app_id}", url_name="oauth_apps_update", response=schema.OAuthAppSchema, throttle=WriteThrottle())
+    @route.patch(
+        "/{app_id}",
+        url_name="oauth_apps_update",
+        response={200: schema.OAuthAppSchema, 400: ValidationErrorResponse},
+        throttle=WriteThrottle(),
+    )
     def update_app(self, app_id: uuid.UUID, payload: schema.OAuthAppUpdatePayload) -> OAuthApplication:
         """Update one of your apps; removing a scope revokes the tokens that carry it."""
         data = payload.model_dump(exclude_unset=True)
@@ -106,7 +116,8 @@ class OAuthAppController(UserAwareController):
     @route.post(
         "/{app_id}/rotate-secret",
         url_name="oauth_apps_rotate_secret",
-        response=schema.OAuthAppCreatedSchema,
+        # 400: a public client has no secret to rotate.
+        response={200: schema.OAuthAppCreatedSchema, 400: ValidationErrorResponse},
         throttle=WriteThrottle(),
     )
     def rotate_secret(self, app_id: uuid.UUID) -> OAuthApplication:

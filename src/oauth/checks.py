@@ -12,6 +12,7 @@ from django.core.checks import CheckMessage, Error, register
 from oauth.utils import oauth_provider_enabled
 
 ISSUER_CHECK_ID = "oauth.E001"
+SIGNING_KEY_CHECK_ID = "oauth.E002"
 
 
 @register()
@@ -39,4 +40,34 @@ def check_oauth_issuer_configured(app_configs: t.Any, **kwargs: t.Any) -> list[C
             ),
             id=ISSUER_CHECK_ID,
         )
+    ]
+
+
+@register()
+def check_oidc_signing_key_readable(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]:
+    """A configured signing key must be readable by the process, or the provider is silently off.
+
+    ``revel.settings.oauth`` records (rather than raises) a key it could not read, so that a
+    permissions mistake on the mounted PEM degrades to "provider disabled" instead of crashing
+    every process at import. This is where that mistake becomes loud.
+
+    Args:
+        app_configs: Django's app filter (unused; the check is global).
+        **kwargs: Django's check kwargs (unused).
+
+    Returns:
+        One error per unreadable key path, otherwise nothing.
+    """
+    errors: list[str] = getattr(settings, "OIDC_SIGNING_KEY_ERRORS", [])
+    return [
+        Error(
+            f"OIDC signing key could not be read: {problem}",
+            hint=(
+                "Check the path, and that the file is readable by the uid the app runs as — in the "
+                "Docker image that is uid 997, so a key generated on the host needs `chmod 644` "
+                "(or a matching owner). The OAuth provider stays disabled until it can be read."
+            ),
+            id=SIGNING_KEY_CHECK_ID,
+        )
+        for problem in errors
     ]

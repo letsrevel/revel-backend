@@ -20,18 +20,37 @@ OAUTH_DCR_DAILY_CAP: int = config("OAUTH_DCR_DAILY_CAP", default=500, cast=int)
 OAUTH_DCR_UNUSED_TTL_HOURS: int = config("OAUTH_DCR_UNUSED_TTL_HOURS", default=24, cast=int)
 
 
-def _read_pem(path: str) -> str:
-    return Path(path).read_text() if path.strip() else ""
+#: Configured key paths that could not be read (missing, or not readable by this uid), as
+#: ``"<path>: <reason>"``. Reported by ``oauth.checks`` as ``oauth.E002`` and consulted by
+#: ``oauth.utils.oauth_provider_enabled`` — deliberately NOT raised here. A settings-import
+#: crash takes every process down (web, celery, beat, telegram) for what is one optional
+#: feature, and the failure is an ordinary deploy mistake: a PEM generated on the host is
+#: ``0600`` to the host user while the container runs as uid 997 (the Google Wallet cert
+#: precedent). The provider stays off until the file is readable.
+OIDC_SIGNING_KEY_ERRORS: list[str] = []
 
 
-_ENABLED = bool(OIDC_SIGNING_KEY_PATH.strip())
+def read_pem(path: str, errors: list[str]) -> str:
+    """Read a PEM, or record why it could not be read in ``errors`` and return ``""``."""
+    if not path.strip():
+        return ""
+    try:
+        return Path(path).read_text()
+    except OSError as exc:
+        errors.append(f"{path}: {exc.strerror or exc}")
+        return ""
+
+
+_PRIVATE_KEY = read_pem(OIDC_SIGNING_KEY_PATH, OIDC_SIGNING_KEY_ERRORS)
+_INACTIVE_KEYS = [read_pem(p, OIDC_SIGNING_KEY_ERRORS) for p in OIDC_SIGNING_KEYS_INACTIVE_PATHS]
+_ENABLED = bool(OIDC_SIGNING_KEY_PATH.strip()) and not OIDC_SIGNING_KEY_ERRORS
 
 OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth.OAuthApplication"
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": _ENABLED,
-    "OIDC_RSA_PRIVATE_KEY": _read_pem(OIDC_SIGNING_KEY_PATH),
-    "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [_read_pem(p) for p in OIDC_SIGNING_KEYS_INACTIVE_PATHS],
+    "OIDC_RSA_PRIVATE_KEY": _PRIVATE_KEY,
+    "OIDC_RSA_PRIVATE_KEYS_INACTIVE": _INACTIVE_KEYS,
     "OIDC_ISS_ENDPOINT": OAUTH_ISSUER,
     "OAUTH2_VALIDATOR_CLASS": "oauth.validator.RevelOAuth2Validator",
     "SCOPES_BACKEND_CLASS": "oauth.scopes.RegistryScopes",

@@ -210,3 +210,50 @@ def test_the_org_read_baseline_reaches_the_potluck_controller(
     assert denied.status_code == 403, denied.content
     assert 'scope="org:read"' in denied["WWW-Authenticate"], denied["WWW-Authenticate"]
     assert _request(organization.owner, oauth_app, "org:read org:potluck", case).status_code == 200
+
+
+def test_cancelling_with_refunds_needs_org_tickets_as_well(
+    oauth_event: t.Any, organization: Organization, oauth_app: OAuthApplication
+) -> None:
+    """Cancelling is ``manage_event``/``org:events``; refunding the tickets is money.
+
+    ``refund_tickets=true`` runs the same Stripe sweep the per-ticket refund route gates behind
+    ``manage_tickets``, and ``org:tickets`` is the only scope whose label names refunds — so the
+    flag needs it in addition. A plain cancel stays reachable on ``org:events`` alone.
+    """
+    path = f"/api/event-admin/{oauth_event.id}/actions/update-status/cancelled"
+    owner = organization.owner
+
+    denied = _request(owner, oauth_app, "org:read org:events", Case("POST", path, {"refund_tickets": True}, 200))
+    assert denied.status_code == 403, denied.content
+    assert 'scope="org:tickets"' in denied["WWW-Authenticate"], denied["WWW-Authenticate"]
+    oauth_event.refresh_from_db()
+    assert oauth_event.status != oauth_event.EventStatus.CANCELLED
+
+    plain = _request(owner, oauth_app, "org:read org:events", Case("POST", path, {}, 200))
+    assert plain.status_code == 200, plain.content
+    oauth_event.refresh_from_db()
+    assert oauth_event.status == oauth_event.EventStatus.CANCELLED
+    assert oauth_event.tickets_refund_started_at is None
+
+    # Re-POSTing with the flag is the documented resume path, so it is a valid second call.
+    granted = _request(
+        owner, oauth_app, "org:read org:events org:tickets", Case("POST", path, {"refund_tickets": True}, 200)
+    )
+    assert granted.status_code == 200, granted.content
+    oauth_event.refresh_from_db()
+    assert oauth_event.tickets_refund_started_at is not None
+
+
+def test_refund_preview_needs_org_tickets_as_well(
+    oauth_event: t.Any, organization: Organization, oauth_app: OAuthApplication, session_client: Client
+) -> None:
+    """The preview carries the connected Stripe balance and refundable revenue: ``org:tickets`` data."""
+    case = Case("GET", f"/api/event-admin/{oauth_event.id}/cancellation-refund-preview", None, 200)
+    owner = organization.owner
+    denied = _request(owner, oauth_app, "org:read org:events", case)
+    assert denied.status_code == 403, denied.content
+    assert 'scope="org:tickets"' in denied["WWW-Authenticate"], denied["WWW-Authenticate"]
+
+    assert _request(owner, oauth_app, "org:read org:events org:tickets", case).status_code == 200
+    assert session_client.get(case.path).status_code == 200

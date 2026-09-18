@@ -1,5 +1,7 @@
+import typing as t
 from uuid import UUID
 
+from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja import File
 from ninja.errors import HttpError
@@ -13,7 +15,7 @@ from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from events import models, schema
-from events.controllers.permissions import CanDuplicateEvent, EventPermission
+from events.controllers.permissions import CanDuplicateEvent, EventPermission, scope_allows
 from events.service import event_service, refund_service
 from oauth.permissions import RequireScope
 
@@ -154,6 +156,15 @@ class EventAdminCoreController(EventAdminBaseController):
         refund_tickets = payload.refund_tickets if payload else False
         if refund_tickets and status != models.Event.EventStatus.CANCELLED:
             raise HttpError(400, str(_("refund_tickets is only valid when cancelling the event.")))
+        if refund_tickets:
+            # Cancelling is ``manage_event``, but ``refund_tickets`` runs the same Stripe sweep
+            # the per-ticket refund route gates behind ``manage_tickets`` — and ``org:tickets``
+            # is the only scope whose consent label names refunds. An app token therefore needs
+            # it as well; ``scope_allows`` is a no-op for session principals, so staff in a
+            # browser are untouched. Checked in the handler because the requirement is
+            # conditional on the body, which a declarative ``permissions=`` entry cannot see.
+            request = t.cast(HttpRequest, self.context.request)  # type: ignore[union-attr]
+            scope_allows(request, "manage_tickets")
         return event_service.update_status(
             event,
             status,
@@ -166,7 +177,11 @@ class EventAdminCoreController(EventAdminBaseController):
         "/cancellation-refund-preview",
         url_name="event_cancellation_refund_preview",
         response=schema.EventRefundPreviewSchema,
-        permissions=[RequireScope("org:read"), EventPermission("manage_event")],
+        # ``org:tickets`` alongside the baseline: the response carries the connected account's
+        # live Stripe balance and the event's refundable revenue, which ``org:events``'s label
+        # never promises and ``org:tickets``'s ("see ... revenue") does. Same pattern as the
+        # member roster (R-123): ``RequireScope`` constrains app tokens only.
+        permissions=[RequireScope("org:read"), RequireScope("org:tickets"), EventPermission("manage_event")],
         throttle=UserDefaultThrottle(),  # read-only — don't burn the class-level WriteThrottle budget
     )
     def cancellation_refund_preview(self, event_id: UUID) -> schema.EventRefundPreviewSchema:

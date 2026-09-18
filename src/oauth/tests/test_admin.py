@@ -115,8 +115,17 @@ def test_changelists_reverse_and_render(admin_client: Client, viewname: str) -> 
 def test_sidebar_links_reverse(settings: Settings) -> None:
     """``show_all_applications`` is False, so a missing sidebar entry means an invisible admin."""
     groups = settings.UNFOLD["SIDEBAR"]["navigation"]
-    titles = {str(item["title"]) for group in groups for item in group["items"]}
-    assert {"OAuth Apps", "OAuth Access Tokens", "OAuth Refresh Tokens"} <= titles
+    links = {str(item["link"]) for group in groups for item in group["items"] if "link" in item}
+    # All five, not the three that happened to be added first: a registered admin without a
+    # sidebar entry is reachable only by typing its URL (repo precedent: integrations/tests).
+    for viewname in (
+        "admin:oauth_oauthapplication_changelist",
+        "admin:oauth2_provider_accesstoken_changelist",
+        "admin:oauth2_provider_refreshtoken_changelist",
+        "admin:oauth2_provider_idtoken_changelist",
+        "admin:oauth2_provider_grant_changelist",
+    ):
+        assert reverse(viewname) in links, viewname
     # ``reverse_lazy`` defers resolution, so force every link to prove none of them is broken.
     for group in groups:
         for item in group["items"]:

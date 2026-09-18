@@ -1027,6 +1027,9 @@ msgstr "É necessário acesso de superuser."
 msgid "Invalid or expired token."
 msgstr "Token inválido ou expirado."
 
+msgid "Authentication credentials were not provided."
+msgstr "Não foram fornecidas credenciais de autenticação."
+
 msgid "You cannot use this endpoint while authenticated."
 msgstr "Não podes usar este endpoint enquanto estiveres autenticado."
 
@@ -5470,8 +5473,12 @@ msgstr ""
 msgid "Check attendees in"
 msgstr "Registar a entrada dos participantes"
 
-msgid "Manage members and subscriptions"
-msgstr "Gerir membros e subscrições"
+msgid ""
+"Manage members, subscriptions and membership payments, including refunds, "
+"and see membership revenue"
+msgstr ""
+"Gerir membros, subscrições e pagamentos de adesão, incluindo reembolsos, e "
+"ver as receitas de adesão"
 
 msgid "Send announcements"
 msgstr "Enviar anúncios"
@@ -5937,6 +5944,12 @@ msgstr "Tokens de acesso OAuth"
 
 msgid "OAuth Refresh Tokens"
 msgstr "Tokens de atualização OAuth"
+
+msgid "OAuth ID Tokens"
+msgstr "Tokens de ID OAuth"
+
+msgid "OAuth Authorization Codes"
+msgstr "Códigos de autorização OAuth"
 
 msgid "Authentication"
 msgstr "Autenticação"

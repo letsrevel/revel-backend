@@ -5,7 +5,7 @@ import typing as t
 
 from django.http import HttpRequest
 
-from common.authentication import InvalidBearerToken
+from common.authentication import InvalidBearerToken, MissingBearerToken
 from oauth.exception_handlers import HANDLERS
 from oauth.exceptions import (
     AppLimitReachedError,
@@ -70,3 +70,20 @@ def test_invalid_bearer_token_omits_resource_metadata_when_unconfigured(settings
     settings.OAUTH_ISSUER = ""
     resp = _render(InvalidBearerToken())
     assert resp["WWW-Authenticate"] == 'Bearer error="invalid_token"'
+
+
+def test_missing_bearer_token_challenge_has_no_error_attribute(settings: t.Any) -> None:
+    """RFC 6750 §3.1: a credential-less 401 carries the scheme and the metadata pointer only."""
+    settings.OAUTH_ISSUER = "http://testserver"
+    # No handler of its own: the API dispatches by MRO, so the base class's handler renders it.
+    resp = HANDLERS[InvalidBearerToken](HttpRequest(), MissingBearerToken())
+    assert resp.status_code == 401
+    assert _body(resp) == {"detail": "Authentication credentials were not provided."}
+    assert resp["WWW-Authenticate"] == (
+        'Bearer resource_metadata="http://testserver/.well-known/oauth-protected-resource"'
+    )
+
+
+def test_missing_bearer_token_challenge_is_bare_without_an_issuer(settings: t.Any) -> None:
+    settings.OAUTH_ISSUER = ""
+    assert HANDLERS[InvalidBearerToken](HttpRequest(), MissingBearerToken())["WWW-Authenticate"] == "Bearer"

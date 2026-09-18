@@ -116,14 +116,16 @@ class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
             claims["email_verified"] = user.email_verified
         return {k: v for k, v in claims.items() if v is not None}
 
-    def save_bearer_token(self, token: dict[str, t.Any], request: t.Any, *args: t.Any, **kwargs: t.Any) -> None:
+    def _save_bearer_token(self, token: dict[str, t.Any], request: t.Any, *args: t.Any, **kwargs: t.Any) -> None:
         """Drop the refresh token unless ``offline_access`` was granted.
 
-        The pop happens *before* ``super()`` on purpose: oauthlib hands us the very dict it
-        serialises into the token response (``create_token`` → ``save_token`` → ``json.dumps``),
-        and DOT's ``_save_bearer_token`` persists a ``RefreshToken`` row only when the key is
-        present. Popping afterwards would store a refresh token and merely hide it from the
-        response, which is worse than either alternative.
+        This is the inner hook DOT's ``save_bearer_token`` docstring tells subclasses to
+        override ("and not this function"), so the outer method keeps sole ownership of the
+        transaction. The pop happens *before* ``super()`` on purpose: oauthlib hands us the very
+        dict it serialises into the token response (``create_token`` → ``save_token`` →
+        ``json.dumps``), and DOT's ``_save_bearer_token`` persists a ``RefreshToken`` row only
+        when the key is present. Popping afterwards would store a refresh token and merely hide
+        it from the response, which is worse than either alternative.
 
         One documented side effect, deliberately left alone: if a client holding
         ``offline_access`` refreshes while *narrowing* the scope (e.g. ``scope=openid``), the
@@ -140,4 +142,4 @@ class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         """
         if "offline_access" not in (request.scopes or []):
             token.pop("refresh_token", None)
-        super().save_bearer_token(token, request, *args, **kwargs)
+        super()._save_bearer_token(token, request, *args, **kwargs)

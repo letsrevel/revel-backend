@@ -1046,6 +1046,9 @@ msgstr "Superuser-Zugang erforderlich."
 msgid "Invalid or expired token."
 msgstr "Ungültiger oder abgelaufener Token."
 
+msgid "Authentication credentials were not provided."
+msgstr "Es wurden keine Anmeldedaten übermittelt."
+
 msgid "You cannot use this endpoint while authenticated."
 msgstr "Du kannst diesen Endpunkt nicht verwenden, während du angemeldet bist."
 
@@ -5603,8 +5606,12 @@ msgstr ""
 msgid "Check attendees in"
 msgstr "Teilnehmer einchecken"
 
-msgid "Manage members and subscriptions"
-msgstr "Mitglieder und Abonnements verwalten"
+msgid ""
+"Manage members, subscriptions and membership payments, including refunds, "
+"and see membership revenue"
+msgstr ""
+"Mitglieder, Abonnements und Mitgliedschaftszahlungen verwalten, "
+"einschließlich Rückerstattungen, und Mitgliedschaftseinnahmen einsehen"
 
 msgid "Send announcements"
 msgstr "Ankündigungen senden"
@@ -6075,6 +6082,12 @@ msgstr "OAuth-Access-Tokens"
 
 msgid "OAuth Refresh Tokens"
 msgstr "OAuth-Refresh-Tokens"
+
+msgid "OAuth ID Tokens"
+msgstr "OAuth-ID-Tokens"
+
+msgid "OAuth Authorization Codes"
+msgstr "OAuth-Autorisierungscodes"
 
 msgid "Authentication"
 msgstr "Authentifizierung"

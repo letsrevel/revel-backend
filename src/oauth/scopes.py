@@ -71,7 +71,10 @@ SCOPES: dict[str, Scope] = dict(
         # gates discount codes (organization_admin/discount_codes.py), seating and box-office
         # selling (event_admin/seating.py), and — with no route-level override —
         # Stripe refunds and per-event revenue (event_admin/tickets.py). The label names all of
-        # it because consent is the only thing the end user sees.
+        # it because consent is the only thing the end user sees. Two routes keyed on
+        # ``manage_event`` reach the same money — cancel-with-refunds and the refund preview in
+        # event_admin/core.py — and require this scope *in addition* to ``org:events`` for
+        # exactly that reason.
         _s(
             "org:tickets",
             _(
@@ -82,7 +85,17 @@ SCOPES: dict[str, Scope] = dict(
             "manage_tickets",
         ),
         _s("org:checkin", _("Check attendees in"), "org", "check_in_attendees"),
-        _s("org:members", _("Manage members and subscriptions"), "org", "manage_members", "manage_subscriptions"),
+        # ``manage_subscriptions`` gates the whole subscriptions controller: plans, but also the
+        # organization's MRR/churn metrics, the membership payment ledger (amounts, member
+        # emails, Stripe ids) and recording or refunding a payment. The label names the money
+        # for the same reason ``org:tickets`` does above.
+        _s(
+            "org:members",
+            _("Manage members, subscriptions and membership payments, including refunds, and see membership revenue"),
+            "org",
+            "manage_members",
+            "manage_subscriptions",
+        ),
         _s("org:announcements", _("Send announcements"), "org", "send_announcements"),
         _s(
             "org:questionnaires",

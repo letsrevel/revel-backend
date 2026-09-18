@@ -627,6 +627,16 @@ UNFOLD = {
                         "icon": "autorenew",
                         "link": reverse_lazy("admin:oauth2_provider_refreshtoken_changelist"),
                     },
+                    {
+                        "title": _("OAuth ID Tokens"),
+                        "icon": "badge",
+                        "link": reverse_lazy("admin:oauth2_provider_idtoken_changelist"),
+                    },
+                    {
+                        "title": _("OAuth Authorization Codes"),
+                        "icon": "pin",
+                        "link": reverse_lazy("admin:oauth2_provider_grant_changelist"),
+                    },
                 ],
             },
             {

@@ -159,7 +159,7 @@ def test_each_scope_emits_exactly_the_claims_it_advertises(user: RevelUser, scop
 def test_refresh_token_dropped_without_offline_access(user: RevelUser, monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, t.Any] = {}
     monkeypatch.setattr(
-        "oauth2_provider.oauth2_validators.OAuth2Validator.save_bearer_token",
+        "oauth2_provider.oauth2_validators.OAuth2Validator._save_bearer_token",
         lambda self, token, request, *a, **k: captured.update(token),
     )
     token = {"access_token": "a", "refresh_token": "r", "scope": "openid"}
@@ -169,7 +169,7 @@ def test_refresh_token_dropped_without_offline_access(user: RevelUser, monkeypat
 
 def test_refresh_token_kept_with_offline_access(user: RevelUser, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "oauth2_provider.oauth2_validators.OAuth2Validator.save_bearer_token",
+        "oauth2_provider.oauth2_validators.OAuth2Validator._save_bearer_token",
         lambda self, token, request, *a, **k: None,
     )
     token = {"access_token": "a", "refresh_token": "r", "scope": "openid offline_access"}

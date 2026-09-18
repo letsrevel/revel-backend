@@ -112,6 +112,19 @@ class AuthorizeRedirectResponse(Schema):
     redirect_to: str
 
 
+class AuthorizationErrorResponse(Schema):
+    """The 400 body of both consent endpoints (``oauth.exception_handlers``).
+
+    ``error`` is the RFC 6749 code the consent page branches on — ``consent_required`` means
+    "show the screen again", ``invalid_request`` means retrying unchanged will not help — and
+    ``detail`` is the human-readable description. Declared on the routes so the generated
+    client models it; ``test_error_response_contracts`` pins the runtime shape.
+    """
+
+    detail: str
+    error: str
+
+
 class AuthorizeDecisionPayload(Schema):
     """The user's answer to the consent screen. Required: there is no implicit approval."""
 
@@ -148,7 +161,7 @@ class OAuthAppCreatePayload(Schema):
     client_type: t.Literal["confidential", "public"]
     #: The upper bound is DOT's own notion of a legitimate client: its redirect-URI matcher caps
     #: the candidates it will even log at ``_MAX_LOGGED_CANDIDATES = 10`` ("past any legitimate
-    #: client", oauth2_provider/models.py:1258).
+    #: client", oauth2_provider/models.py:1316).
     redirect_uris: list[str] = Field(min_length=1, max_length=REDIRECT_URIS_MAX_COUNT)
     allowed_scopes: list[str] = Field(default_factory=list)
     homepage_url: str = ""

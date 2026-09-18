@@ -16,7 +16,6 @@ from ninja_extra import ControllerBase
 from ninja_extra.exceptions import PermissionDenied
 
 from events.controllers.permissions import PermissionMapPermission, RootPermission, scope_allows
-from events.models import PermissionKey
 from polls.models import Poll
 
 
@@ -35,7 +34,7 @@ class PollPermission(PermissionMapPermission):
         obj: Poll,
     ) -> bool:
         """Return True iff ``request.user`` has ``self.action`` on the poll's organization."""
-        scope_allows(request, t.cast(PermissionKey, self.action))
+        scope_allows(request, self.action)
         return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
