@@ -103,6 +103,9 @@ Five things to know:
 PKCE is mandatory and there is no implicit and no password grant. `S256` is the only
 supported method: `code_challenge_method=plain` is refused (RFC 9700 §2.1.1, RFC 7636 §4.2 —
 it makes the challenge its own verifier, so a leaked code is directly exchangeable).
+**Send `code_challenge_method=S256` explicitly.** RFC 7636 §4.3 defines the parameter's
+default as `plain`, so omitting it is treated as `plain` and refused with
+`error=invalid_request` — the same as sending it.
 
 ```bash
 # 1. Verifier and challenge
