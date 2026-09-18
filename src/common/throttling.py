@@ -138,8 +138,16 @@ class SendAnnouncementThrottle(DisableableThrottleMixin, UserRateThrottle):
     rate = "25/day"
 
 
-class _IPRateThrottle(DisableableThrottleMixin, AnonRateThrottle):
-    """Throttle every caller by client IP, authenticated or not.
+class _IPRateThrottle:
+    """Key every caller by client IP, authenticated or not.
+
+    A **plain keying mixin**: it deliberately inherits neither ``DisableableThrottleMixin`` nor
+    a throttle base, so ``issubclass(cls, DisableableThrottleMixin)`` is False for it and
+    ``common/tests/test_throttling.py``'s collector skips it without needing a name-based
+    filter. That matters because such a filter is purely lexical: a future *concrete* throttle
+    whose name happened to start with an underscore would be dropped from all three #936
+    convention tests while inheriting ``scope = "anon"``, i.e. sharing the
+    ``AnonDefaultThrottle`` bucket (R-60/R-129). The subclasses below supply the real bases.
 
     ``AnonRateThrottle.get_cache_key`` returns ``None`` — and ninja's
     ``SimpleRateThrottle.allow_request`` then allows the request unconditionally — as soon as
@@ -160,19 +168,27 @@ class _IPRateThrottle(DisableableThrottleMixin, AnonRateThrottle):
     this module wants the stock anonymous-only semantics.
     """
 
+    if t.TYPE_CHECKING:
+        # Supplied by the ``SimpleRateThrottle`` each subclass mixes in. Declared for mypy
+        # only — a real base class here is exactly what this mixin must not have.
+        cache_format: str
+        scope: str
+
+        def get_ident(self, request: HttpRequest) -> str | None: ...
+
     def get_cache_key(self, request: HttpRequest) -> str | None:
         """Key on the client IP, skipping the authenticated-user short-circuit."""
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
-class OAuthTokenThrottle(_IPRateThrottle):
+class OAuthTokenThrottle(_IPRateThrottle, DisableableThrottleMixin, AnonRateThrottle):
     """OAuth token, revocation, userinfo and registration-management endpoints (60/min per IP)."""
 
     scope = "oauth_token"
     rate = "60/min"
 
 
-class OAuthRegistrationThrottle(_IPRateThrottle):
+class OAuthRegistrationThrottle(_IPRateThrottle, DisableableThrottleMixin, AnonRateThrottle):
     """RFC 7591 dynamic client registration (10/hour per IP)."""
 
     scope = "oauth_register"

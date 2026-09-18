@@ -22,8 +22,8 @@ passes in this task, which is why it is now CI's problem rather than a reader's.
    stayed reachable on ``org:read`` through two careful passes. This guard is per route (R-96).
 5. **No read scope is the sole gate on a state-changing method.** ``me:read``'s label is "See
    your profile, tickets, RSVPs and memberships", and it was authorizing a Stripe Customer
-   Portal URL and a subscription checkout. ``me:rsvp`` exists precisely because a write needs
-   its own scope (R-99).
+   Portal URL and a subscription checkout. A write needs a scope of its own, and until one
+   exists the route stays session-only (R-99).
 6. **No switched route hides an owner check in its handler body.** Properties 4 and 5 read the
    ``permissions`` list, so neither can see ``if organization.owner != self.user(): raise
    HttpError(403, ...)`` — which is how ``POST /staff/{user_id}`` stayed open while its
@@ -113,10 +113,11 @@ MINIMUM_SCOPED_ROUTES = 250
 # is not something a third-party app can be granted (R-96).
 OWNER_ACTION = "is_owner"
 
-# HTTP methods that change state. A read scope must never be the sole gate on one of these:
-# ``me:rsvp`` exists precisely because a write needs a scope of its own, and a consent screen
-# that says "See your profile, tickets, RSVPs and memberships" must not also buy the right to
-# start a Stripe subscription (R-99).
+# HTTP methods that change state. A read scope must never be the sole gate on one of these: a
+# consent screen that says "See your profile, tickets, RSVPs and memberships" must not also buy
+# the right to start a Stripe subscription (R-99). The registry has no attendee write scope
+# (``me:rsvp`` was dropped in v1 for gating nothing — R-125), so an attendee write that needs
+# one stays session-only until FOLLOWUPS #5's ``me:write`` lands.
 UNSAFE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Scopes whose NAME promises only reading. Derived from the ``:read`` naming convention rather
@@ -464,10 +465,10 @@ def test_there_are_unsafe_scoped_routes_to_check() -> None:
 def test_no_unsafe_route_is_gated_only_by_a_read_scope(route: Route) -> None:
     """A read scope must never be the sole gate on a state-changing method (R-99).
 
-    The registry already encodes this principle: ``me:rsvp`` exists as a separate scope precisely
-    because RSVPing is a write. So a route that changes state must require either a write scope,
-    or an ``UNSCOPED_KEYS`` key (which refuses every app token), or nothing at all because it is
-    session-only.
+    A route that changes state must require either a write scope, or an ``UNSCOPED_KEYS`` key
+    (which refuses every app token), or nothing at all because it is session-only. The registry
+    has no attendee write scope at all in v1 (R-125), so every attendee write is in the third
+    category.
 
     This is the mechanical form of the miss that recurred three times in this task: a
     money-or-owner route sitting inside a controller of a different character, invisible to
@@ -502,3 +503,136 @@ def test_no_switched_route_hides_an_owner_check_in_its_handler(route: Route) -> 
         f"({sites}); the permission-list guards cannot see that. Pin the route session-only with "
         f"auth=I18nJWTAuth(), or express the rule with IsOrganizationOwner()."
     )
+
+
+class _DetectorFixture:
+    """A stand-in controller for the AST detectors, with object resolution at known depths.
+
+    The detectors are unit-tested against this rather than only through property 2 (R-106,
+    R-126): property 2 early-returns for every route carrying a ``RequireScope``, and all of
+    them do today, so ``_triggers_object_check``, ``_self_call_names`` and
+    ``_OBJECT_CHECK_CALLS`` were ~40 lines that no test ever called. If the detector silently
+    started returning True unconditionally, property 2 would keep passing and the R-50
+    protection would be gone. The machinery is kept rather than deleted because a future
+    keyed-permission-only route makes property 2's second half load-bearing again.
+    """
+
+    def resolves_directly(self) -> None:
+        """Hop 0: the handler itself triggers the hook."""
+        self.get_object_or_exception(object())
+
+    def resolves_nothing(self) -> None:
+        """No hop reaches the hook, so this handler needs an explicit ``RequireScope``."""
+        self.plain_helper()
+
+    def resolves_via_one_helper(self) -> None:
+        """Hop 1."""
+        self.level_1()
+
+    def level_1(self) -> None:
+        """Resolve the object one hop from the handler."""
+        self.get_object_or_exception(object())
+
+    def resolves_via_two_helpers(self) -> None:
+        """Hop 2 — the ``get_one`` → ``get_object_or_exception`` shape the real controllers use."""
+        self.level_2a()
+
+    def level_2a(self) -> None:
+        """Delegate one hop further."""
+        self.level_2b()
+
+    def level_2b(self) -> None:
+        """Resolve the object two hops from the handler."""
+        self.get_object_or_exception(object())
+
+    def resolves_too_deep(self) -> None:
+        """Hop 4 — past the ``depth=3`` budget, so the detector must fail closed."""
+        self.deep_1()
+
+    def deep_1(self) -> None:
+        """Hop 1 of 4."""
+        self.deep_2()
+
+    def deep_2(self) -> None:
+        """Hop 2 of 4."""
+        self.deep_3()
+
+    def deep_3(self) -> None:
+        """Hop 3 of 4."""
+        self.deep_4()
+
+    def deep_4(self) -> None:
+        """Hop 4 of 4: reachable in principle, out of budget in practice."""
+        self.get_object_or_exception(object())
+
+    def plain_helper(self) -> None:
+        """A helper that resolves nothing."""
+
+    def get_object_or_exception(self, obj: object) -> None:
+        """Stand in for ninja-extra's object hook; only its *name* matters to the detector."""
+
+    def compares_an_owner(self) -> None:
+        """The handler-body owner check property 6 hunts for."""
+        organization = object()
+        if organization.owner != self:  # type: ignore[attr-defined]
+            raise PermissionError
+
+    def compares_no_owner(self) -> None:
+        """A comparison whose attribute operand is not ``owner``, so property 6 must not match."""
+        event = object()
+        if event.organizer != self:  # type: ignore[attr-defined]
+            raise PermissionError
+
+
+def test_self_call_names_reads_only_calls_on_self() -> None:
+    """The walk finds ``self.<name>(...)`` and nothing else (R-126)."""
+    assert _self_call_names(_DetectorFixture.resolves_via_two_helpers) == {"level_2a"}
+    assert _self_call_names(_DetectorFixture.plain_helper) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("handler_name", "expected"),
+    [
+        ("resolves_directly", True),
+        ("resolves_via_one_helper", True),
+        ("resolves_via_two_helpers", True),
+        ("resolves_nothing", False),
+        ("resolves_too_deep", False),
+    ],
+)
+def test_triggers_object_check_finds_resolution_within_its_depth_budget(handler_name: str, expected: bool) -> None:
+    """Property 2's second half, exercised directly — including that it fails closed (R-126).
+
+    ``resolves_too_deep`` is the fail-closed case: the object *is* resolved, four hops away,
+    and the detector still answers False, so such a route would be required to carry an
+    explicit ``RequireScope`` rather than be trusted to the hook.
+    """
+    handler = getattr(_DetectorFixture, handler_name)
+    assert _triggers_object_check(_DetectorFixture, handler) is expected
+
+
+def test_triggers_object_check_fails_closed_without_a_controller() -> None:
+    """No controller means no helper to follow, so only the handler's own body can say True."""
+    assert _triggers_object_check(None, _DetectorFixture.resolves_directly) is True
+    assert _triggers_object_check(None, _DetectorFixture.resolves_via_one_helper) is False
+
+
+def test_owner_comparison_sites_matches_the_real_handler_it_was_written_for() -> None:
+    """Property 6's teeth, made permanent rather than historical (R-106).
+
+    ``add_staff`` is pinned session-only, so it has left ``SCOPED_ROUTES`` and property 6
+    matches nothing in CI. Asserting the detector against the handler it was written for is
+    what keeps a silently broken detector from passing.
+
+    The false-negative surface is narrow and deliberate: the pass does not recurse into
+    helpers and matches only when an ``ast.Compare`` operand is directly an attribute named
+    ``owner``/``owner_id``. It misses ``org.owner.pk != user.pk``, a local alias, a membership
+    test, a helper predicate like ``org.is_owner(user)`` and any service-level assertion. Zero
+    false positives is not zero false negatives — this is a tripwire for one idiom.
+    """
+    from events.controllers.organization_admin.members import OrganizationAdminMembersController
+
+    sites = _owner_comparison_sites(OrganizationAdminMembersController.add_staff)
+    assert sites == ["organization.owner != self.user()"], sites
+    assert _owner_comparison_sites(_DetectorFixture.compares_an_owner) == ["organization.owner != self"]
+    assert _owner_comparison_sites(_DetectorFixture.compares_no_owner) == []

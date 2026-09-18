@@ -46,7 +46,6 @@ SCOPES: dict[str, Scope] = dict(
         _s("email", _("See your email address"), "identity"),
         _s("offline_access", _("Stay connected"), "identity"),
         _s("me:read", _("See your profile, tickets, RSVPs and memberships"), "me"),
-        _s("me:rsvp", _("RSVP to events on your behalf"), "me"),
         # ``view_organization_details`` is keyed by no permission class and no route (it is only
         # the Literal member, the ``PermissionMap`` default ``True`` and the seeder), so the
         # mapping exists to satisfy the "every key mapped or explicitly unscoped" contract.

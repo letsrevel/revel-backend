@@ -5583,9 +5583,6 @@ msgstr "Verbunden bleiben"
 msgid "See your profile, tickets, RSVPs and memberships"
 msgstr "Dein Profil, deine Tickets, Zusagen und Mitgliedschaften sehen"
 
-msgid "RSVP to events on your behalf"
-msgstr "In deinem Namen für Events zu- oder absagen"
-
 msgid "See your organizations, events and settings"
 msgstr "Deine Organisationen, Events und Einstellungen sehen"
 

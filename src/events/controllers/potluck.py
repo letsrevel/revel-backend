@@ -20,7 +20,9 @@ from .permissions import ManagePotluckPermission, PotluckItemPermission
     auth=ScopedJWTAuth(),
     tags=["Potluck"],
     throttle=WriteThrottle(),
-    permissions=[RequireScope("org:potluck")],
+    # ``org:read`` is the admission baseline every other organizer route carries and the
+    # developer guide states as a rule; this controller was the one exception (R-128).
+    permissions=[RequireScope("org:read"), RequireScope("org:potluck")],
 )
 class PotluckController(UserAwareController):
     @route.get(
@@ -85,7 +87,7 @@ class PotluckController(UserAwareController):
         "/{item_id}",
         url_name="update_potluck_item",
         response=schema.PotluckItemRetrieveSchema,
-        permissions=[RequireScope("org:potluck"), ManagePotluckPermission()],
+        permissions=[RequireScope("org:read"), RequireScope("org:potluck"), ManagePotluckPermission()],
     )
     def update_potluck_item(
         self, event_id: UUID, item_id: UUID, payload: schema.PotluckItemCreateSchema
@@ -102,7 +104,7 @@ class PotluckController(UserAwareController):
     @route.delete(
         "/{item_id}",
         url_name="delete_potluck_item",
-        permissions=[RequireScope("org:potluck"), ManagePotluckPermission()],
+        permissions=[RequireScope("org:read"), RequireScope("org:potluck"), ManagePotluckPermission()],
         response={204: None},
     )
     def delete_potluck_item(self, event_id: UUID, item_id: UUID) -> None:

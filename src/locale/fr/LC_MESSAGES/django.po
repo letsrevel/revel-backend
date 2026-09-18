@@ -5559,9 +5559,6 @@ msgstr "Rester connecté·e"
 msgid "See your profile, tickets, RSVPs and memberships"
 msgstr "Voir ton profil, tes tickets, tes réponses et tes adhésions"
 
-msgid "RSVP to events on your behalf"
-msgstr "Répondre aux invitations aux événements en ton nom"
-
 msgid "See your organizations, events and settings"
 msgstr "Voir tes organisations, tes événements et tes paramètres"
 

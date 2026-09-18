@@ -194,3 +194,19 @@ def test_the_member_roster_needs_org_members_not_org_read(
     assert granted.status_code == 200, granted.content
 
     assert session_client.get(case.path).status_code == 200
+
+
+def test_the_org_read_baseline_reaches_the_potluck_controller(
+    oauth_event: t.Any, oauth_potluck: t.Any, organization: Organization, oauth_app: OAuthApplication
+) -> None:
+    """R-128: ``PotluckController`` was the one organizer surface without the baseline.
+
+    The developer guide states ``org:read`` as a rule on every organizer route ("the scope that
+    lets an app onto the organizer surface at all"), so an exception here is an exception a
+    third-party developer has to discover by trial.
+    """
+    case = Case("GET", f"/api/events/{oauth_event.id}/potluck/", None, 200)
+    denied = _request(organization.owner, oauth_app, "org:potluck", case)
+    assert denied.status_code == 403, denied.content
+    assert 'scope="org:read"' in denied["WWW-Authenticate"], denied["WWW-Authenticate"]
+    assert _request(organization.owner, oauth_app, "org:read org:potluck", case).status_code == 200

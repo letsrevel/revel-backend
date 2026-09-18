@@ -112,12 +112,10 @@ class OAuthPrincipal:
     Attributes:
         client_id: The ``OAuthApplication.client_id`` the token was issued to.
         scopes: The scopes granted at issue time (see ``ScopedJWTAuth``).
-        token_id: Primary key of the DOT ``AccessToken`` row, for audit logging.
     """
 
     client_id: str
     scopes: frozenset[str]
-    token_id: int
 
 
 class InvalidBearerToken(APIException):
@@ -249,7 +247,7 @@ class ScopedJWTAuth(I18nJWTAuth):
         now = timezone.now()
         if app.last_used_at is None or (now - app.last_used_at).total_seconds() > _LAST_USED_BUMP_SECONDS:
             type(app).objects.filter(pk=app.pk).update(last_used_at=now)
-        return OAuthPrincipal(client_id=app.client_id, scopes=scopes, token_id=access_token.pk)
+        return OAuthPrincipal(client_id=app.client_id, scopes=scopes)
 
 
 @functools.lru_cache(maxsize=1)

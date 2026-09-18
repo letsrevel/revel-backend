@@ -247,3 +247,83 @@ def test_connections_for_query_count_is_flat(
         make_access_token(user, app, "org:read")
     with django_assert_num_queries(3):
         assert len(token_service.connections_for(user)) == 3
+
+
+SCOPES = "org:read org:events"
+
+
+def _live_access(user: RevelUser, app: OAuthApplication) -> None:
+    """A client with no ``offline_access``, still inside its access token's hour."""
+    make_token_pair(user, app, SCOPES)[1].delete()
+
+
+def _expired_access_only(user: RevelUser, app: OAuthApplication) -> None:
+    """The same client an hour later: nothing live is left."""
+    make_token_pair(user, app, SCOPES, expires_in=-60)[1].delete()
+
+
+def _live_pair(user: RevelUser, app: OAuthApplication) -> None:
+    """An ``offline_access`` client that has just refreshed."""
+    make_token_pair(user, app, SCOPES)
+
+
+def _idle_pair(user: RevelUser, app: OAuthApplication) -> None:
+    """An ``offline_access`` client whose access token expired but whose grant stands.
+
+    The case the whole invariant exists for: most of an offline client's life looks like this.
+    """
+    make_token_pair(user, app, SCOPES, expires_in=-60)
+
+
+def _revoked_refresh(user: RevelUser, app: OAuthApplication) -> None:
+    """The user disconnected the app (or a reuse was detected)."""
+    _access, refresh = make_token_pair(user, app, SCOPES, expires_in=-60)
+    refresh.revoked = timezone.now()
+    refresh.save(update_fields=["revoked"])
+
+
+def _orphaned_refresh(user: RevelUser, app: OAuthApplication) -> None:
+    """A refresh row whose access token is gone: unusable, and both sides must ignore it."""
+    access, refresh = make_token_pair(user, app, SCOPES, expires_in=-60)
+    access.delete()
+    refresh.refresh_from_db()
+    assert refresh.access_token_id is None
+
+
+TOKEN_STATES: list[tuple[str, t.Callable[[RevelUser, OAuthApplication], None], bool]] = [
+    ("live access token, no refresh", _live_access, True),
+    ("expired access token, no refresh", _expired_access_only, False),
+    ("live access token with refresh", _live_pair, True),
+    ("expired access token with unrevoked refresh", _idle_pair, True),
+    ("expired access token with revoked refresh", _revoked_refresh, False),
+    ("orphaned unrevoked refresh", _orphaned_refresh, False),
+]
+
+
+@pytest.mark.parametrize(("state", "setup", "expected"), TOKEN_STATES, ids=[s[0] for s in TOKEN_STATES])
+def test_connections_and_auto_approval_agree_on_every_token_state(
+    state: str,
+    setup: t.Callable[[RevelUser, OAuthApplication], None],
+    expected: bool,
+    user: RevelUser,
+    oauth_app: OAuthApplication,
+) -> None:
+    """``app in connections_for(user)`` ⟺ ``has_prior_grant(user, app, scopes, [])`` (R-128).
+
+    The invariant: **the connected-apps list must never under-report what auto-approval will
+    honour.** Anything ``has_prior_grant`` silently auto-approves must be visible — and
+    revocable — in *Settings → Connected apps*, or a user cannot withdraw a grant they cannot
+    see. It has been ruled on four times (R-83, R-85, R-115, R-128) and the two predicates live
+    in different modules, mirroring each other by docstring only. This makes it self-enforcing:
+    narrowing either side without the other fails here.
+
+    Out of the enumeration on purpose: a DCR registration credential bound to a user.
+    ``connections_for`` excludes it and ``has_prior_grant`` does not, but ``oauth.views`` forces
+    an anonymous registrant, so no such row can exist.
+    """
+    from oauth.service.authorize_service import has_prior_grant
+
+    setup(user, oauth_app)
+    connected = {connection.application.pk for connection in token_service.connections_for(user)}
+    assert (oauth_app.pk in connected) is expected, (state, connected)
+    assert has_prior_grant(user, oauth_app, SCOPES.split(), []) is expected, state

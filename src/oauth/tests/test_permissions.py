@@ -84,19 +84,19 @@ def test_session_principal_passes_scope_check(user: RevelUser) -> None:
 
 
 def test_missing_scope_raises(user: RevelUser) -> None:
-    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:read"}), token_id=1)
+    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:read"}))
     with pytest.raises(InsufficientScopeError) as exc:
         scope_allows(_req(user, principal), "manage_tickets")
     assert exc.value.scope == "org:tickets"
 
 
 def test_granted_scope_passes(user: RevelUser) -> None:
-    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:tickets"}), token_id=1)
+    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:tickets"}))
     scope_allows(_req(user, principal), "manage_tickets")  # no raise
 
 
 def test_unscoped_key_always_raises_for_app_tokens(user: RevelUser) -> None:
-    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:events", "org:read"}), token_id=1)
+    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:events", "org:read"}))
     with pytest.raises(InsufficientScopeError) as exc:
         scope_allows(_req(user, principal), "edit_organization")
     # R-45: an unscoped key names no scope in the challenge header — never the PermissionKey.
@@ -104,13 +104,13 @@ def test_unscoped_key_always_raises_for_app_tokens(user: RevelUser) -> None:
 
 
 def test_owner_short_circuit_does_not_bypass_scope(organization: Organization, oauth_event: Event) -> None:
-    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:read"}), token_id=1)
+    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:read"}))
     with pytest.raises(InsufficientScopeError):
         EventPermission("edit_event").has_object_permission(_req(organization.owner, principal), None, oauth_event)  # type: ignore[arg-type]
 
 
 def test_potluck_creator_short_circuit_does_not_bypass_scope(user: RevelUser, oauth_potluck_item: PotluckItem) -> None:
-    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:read"}), token_id=1)
+    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"org:read"}))
     with pytest.raises(InsufficientScopeError):
         ManagePotluckPermission().has_object_permission(_req(user, principal), None, oauth_potluck_item)  # type: ignore[arg-type]
 
@@ -121,7 +121,7 @@ def test_every_gate_site_refuses_an_unscoped_app_token(
 ) -> None:
     """Each of the seven keyed permission classes refuses a token lacking its scope."""
     permission, obj = _gate_site(site, organization, oauth_event, oauth_potluck_item)
-    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"openid"}), token_id=1)
+    principal = OAuthPrincipal(client_id="c", scopes=frozenset({"openid"}))
     with pytest.raises(InsufficientScopeError):
         permission.has_object_permission(_req(organization.owner, principal), None, obj)  # type: ignore[arg-type]
 
@@ -139,9 +139,9 @@ def test_every_gate_site_is_a_no_op_for_session_principals(
 def test_require_scope(user: RevelUser) -> None:
     perm = RequireScope("me:read")
     assert perm.has_permission(_req(user, user), None) is True  # type: ignore[arg-type]
-    assert perm.has_permission(_req(user, OAuthPrincipal("c", frozenset({"me:read"}), 1)), None) is True  # type: ignore[arg-type]
+    assert perm.has_permission(_req(user, OAuthPrincipal("c", frozenset({"me:read"}))), None) is True  # type: ignore[arg-type]
     with pytest.raises(InsufficientScopeError) as exc:
-        perm.has_permission(_req(user, OAuthPrincipal("c", frozenset({"org:read"}), 1)), None)  # type: ignore[arg-type]
+        perm.has_permission(_req(user, OAuthPrincipal("c", frozenset({"org:read"}))), None)  # type: ignore[arg-type]
     assert exc.value.scope == "me:read"
 
 
@@ -149,4 +149,4 @@ def test_require_scope_object_permission_delegates(user: RevelUser) -> None:
     perm = RequireScope("me:read")
     assert perm.has_object_permission(_req(user, user), None, object()) is True  # type: ignore[arg-type]
     with pytest.raises(InsufficientScopeError):
-        perm.has_object_permission(_req(user, OAuthPrincipal("c", frozenset(), 1)), None, object())  # type: ignore[arg-type]
+        perm.has_object_permission(_req(user, OAuthPrincipal("c", frozenset())), None, object())  # type: ignore[arg-type]

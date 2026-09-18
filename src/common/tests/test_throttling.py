@@ -27,19 +27,10 @@ CLIENT_IP = "203.0.113.7"
 
 
 def _all_throttles() -> list[type[t.Any]]:
-    """Every concrete throttle class in the module.
-
-    Underscore-prefixed classes are abstract bases that only change *keying* (e.g.
-    ``_IPRateThrottle``); they declare no ``scope`` or ``rate`` of their own and are never
-    instantiated, so the scope-uniqueness and bucket-isolation rules below apply to their
-    concrete subclasses, which are all still collected here.
-    """
     return [
         cls
         for _, cls in inspect.getmembers(throttling, inspect.isclass)
-        if issubclass(cls, DisableableThrottleMixin)
-        and cls is not DisableableThrottleMixin
-        and not cls.__name__.startswith("_")
+        if issubclass(cls, DisableableThrottleMixin) and cls is not DisableableThrottleMixin
     ]
 
 

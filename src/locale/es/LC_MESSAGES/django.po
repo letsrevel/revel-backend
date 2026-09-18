@@ -5510,9 +5510,6 @@ msgstr ""
 "Ver tu perfil, tus entradas, tus confirmaciones de asistencia y tus "
 "membresías"
 
-msgid "RSVP to events on your behalf"
-msgstr "Confirmar tu asistencia a eventos en tu nombre"
-
 msgid "See your organizations, events and settings"
 msgstr "Ver tus organizaciones, eventos y ajustes"
 

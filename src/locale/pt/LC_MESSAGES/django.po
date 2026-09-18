@@ -5450,9 +5450,6 @@ msgstr ""
 "Ver o teu perfil, os teus bilhetes, as tuas confirmações de presença e as "
 "tuas adesões"
 
-msgid "RSVP to events on your behalf"
-msgstr "Confirmar a tua presença em eventos em teu nome"
-
 msgid "See your organizations, events and settings"
 msgstr "Ver as tuas organizações, eventos e configurações"
 

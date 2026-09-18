@@ -223,7 +223,7 @@ class DashboardController(UserAwareController):
         url_name="dashboard_update_ticket_guest_name",
         # ``me:read`` is a READ scope — its label promises only "See your profile, tickets,
         # RSVPs and memberships". A read scope must never be the sole gate on an unsafe
-        # method (that is what ``me:rsvp`` exists to demonstrate), and no write scope in the
+        # method (a write needs a scope of its own), and no write scope in the
         # registry covers this, so the route stays session-only (R-99).
         auth=I18nJWTAuth(),
         response={200: schema.UserTicketSchema},

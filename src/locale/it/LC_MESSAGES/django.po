@@ -5534,9 +5534,6 @@ msgid "See your profile, tickets, RSVPs and memberships"
 msgstr ""
 "Vedere il tuo profilo, i tuoi biglietti, le tue risposte e le tue iscrizioni"
 
-msgid "RSVP to events on your behalf"
-msgstr "Rispondere agli inviti agli eventi a tuo nome"
-
 msgid "See your organizations, events and settings"
 msgstr "Vedere le tue organizzazioni, i tuoi eventi e le tue impostazioni"
 

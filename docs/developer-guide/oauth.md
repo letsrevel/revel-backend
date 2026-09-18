@@ -63,7 +63,6 @@ The table is the contract; the wording is what the user reads before approving.
 | `email` | See your email address |
 | `offline_access` | Stay connected |
 | `me:read` | See your profile, tickets, RSVPs and memberships |
-| `me:rsvp` | RSVP to events on your behalf |
 | `org:read` | See your organizations, events and settings |
 | `org:events` | Create, edit and delete events and event series, send invitations, and see attendee lists |
 | `org:tickets` | Manage ticket tiers, tickets, discount codes and seating, issue refunds, and see attendee details and revenue |
@@ -74,8 +73,18 @@ The table is the contract; the wording is what the user reads before approving.
 | `org:polls` | Manage polls |
 | `org:potluck` | Manage potluck items |
 
-Three things to know:
+Five things to know:
 
+- **There is no attendee *write* scope.** `me:read` is the only `me:` scope beyond the OIDC
+  four, so RSVPing, buying a ticket, editing a guest name or starting a subscription cannot be
+  done with an app token at all — those routes stay session-only. An earlier draft advertised a
+  `me:rsvp` scope that enforced nothing; it is gone rather than left on the consent screen
+  promising a capability no app received.
+- **`me:read` reaches your email address.** `GET /api/account/me` is a `me:read` route and its
+  response carries `email`, `email_verified`, `totp_active` and `referral_code`. The OIDC
+  `email` scope gates the `email` *claim* in the ID token and at `/o/userinfo` — it is not the
+  only path to the address, so do not read `me:read` as "no contact details". It is the user's
+  own profile, which is what "See your profile" says, but it is worth stating plainly.
 - **`org:read` is a hard baseline on every organizer route.** An app that wants `org:events`
   must request `org:read` alongside it, or every organizer call fails with
   `insufficient_scope` naming `org:read`. It is the scope that lets an app onto the organizer
@@ -91,8 +100,9 @@ Three things to know:
 
 ## Authorization code + PKCE
 
-PKCE is mandatory and there is no implicit and no password grant. Use `S256`: `plain` is
-still accepted by the server today, but it protects nothing.
+PKCE is mandatory and there is no implicit and no password grant. `S256` is the only
+supported method: `code_challenge_method=plain` is refused (RFC 9700 §2.1.1, RFC 7636 §4.2 —
+it makes the challenge its own verifier, so a leaked code is directly exchangeable).
 
 ```bash
 # 1. Verifier and challenge
@@ -163,6 +173,12 @@ Point the host at the API origin (`https://api.letsrevel.io`) and it does the re
 Only a subset of the API accepts app tokens — organizer admin, dashboard, polls,
 questionnaires and the attendee-side routes behind `me:` scopes. Anything else refuses an app
 token by construction, whatever scopes it holds.
+
+One asymmetry worth knowing: `GET /api/questionnaires/` needs only the `org:read` baseline,
+while `GET /api/questionnaires/{id}` needs `org:questionnaires`. The list is a picker — names
+and a pending-evaluation count, nothing a respondent wrote — whereas the detail route returns
+the questionnaire's sections and questions and is the entry point to submissions and
+evaluations. `org:read`'s label covers the first and not the second.
 
 ## Revoking access
 
