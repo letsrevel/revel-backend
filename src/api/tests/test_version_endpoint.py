@@ -53,6 +53,9 @@ class TestVersionEndpointFeatures:
             "telegram": False,
             "llm_evaluation": False,
             "referral_applications": False,
+            # Credential presence is the flag (ADR-0008) and the test settings ship no signing
+            # key; oauth/tests/test_admin.py covers the enabled case.
+            "oauth_provider": False,
         }
 
     def test_referral_applications_flag_reflects_site_settings(self, client: Client) -> None:
@@ -72,6 +75,7 @@ class TestVersionEndpointFeatures:
             "telegram",
             "llm_evaluation",
             "referral_applications",
+            "oauth_provider",
         }
 
     def test_sso_providers_listed(self, client: Client, settings: t.Any) -> None:

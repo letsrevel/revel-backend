@@ -62,5 +62,14 @@ OAUTH2_PROVIDER = {
     "OAUTH2_PROTECTED_RESOURCE_IDENTIFIER": OAUTH_ISSUER,
     "OAUTH2_PROTECTED_RESOURCE_AUTHORIZATION_SERVERS": [OAUTH_ISSUER] if OAUTH_ISSUER else [],
     "OIDC_RP_INITIATED_LOGOUT_ENABLED": False,
-    # The five *_ADMIN_CLASS keys are added by Task 11, together with oauth/admin.py.
+    # DOT's own ``oauth2_provider/admin.py`` registers all five models from these import
+    # strings, which it resolves during admin autodiscovery — so they must not be set before
+    # ``oauth/admin.py`` exists or every ``manage.py`` invocation breaks (ADR-0018). Without
+    # them the Unfold subclasses are dead code and the curated sidebar links 404;
+    # ``oauth/tests/test_admin.py`` asserts the registry holds our classes, not DOT's.
+    "APPLICATION_ADMIN_CLASS": "oauth.admin.OAuthApplicationAdmin",
+    "ACCESS_TOKEN_ADMIN_CLASS": "oauth.admin.OAuthAccessTokenAdmin",
+    "GRANT_ADMIN_CLASS": "oauth.admin.OAuthGrantAdmin",
+    "ID_TOKEN_ADMIN_CLASS": "oauth.admin.OAuthIDTokenAdmin",
+    "REFRESH_TOKEN_ADMIN_CLASS": "oauth.admin.OAuthRefreshTokenAdmin",
 }

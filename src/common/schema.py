@@ -144,6 +144,10 @@ class FeaturesSchema(Schema):
     telegram: bool
     llm_evaluation: bool
     referral_applications: bool
+    #: Whether the OAuth 2.1 / OIDC provider is mounted, so clients can hide the developer
+    #: portal and the connected-apps screen instead of linking them at 404s. Credential
+    #: presence is the flag (ADR-0008), not a boolean setting.
+    oauth_provider: bool
 
 
 class SSOProviderSchema(Schema):
