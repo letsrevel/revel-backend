@@ -8,16 +8,23 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationStaff, OrganizationPermission
 from events.service import resource_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=ScopedJWTAuth(),
+    tags=["Organization Admin"],
+    throttle=WriteThrottle(),
+    permissions=[RequireScope("org:read")],
+)
 class OrganizationAdminResourcesController(OrganizationAdminBaseController):
     """Organization additional resources management endpoints."""
 
@@ -25,7 +32,7 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
         "/resources",
         url_name="list_organization_resources_admin",
         response=PaginatedResponseSchema[schema.AdditionalResourceSchema],
-        permissions=[IsOrganizationStaff()],
+        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -43,7 +50,7 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
         "/resources",
         url_name="create_organization_resource",
         response=schema.AdditionalResourceSchema,
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def create_resource(
         self, slug: str, payload: Form[schema.AdditionalResourceCreateSchema]
@@ -65,7 +72,7 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
         "/resources/{resource_id}",
         url_name="get_organization_resource",
         response=schema.AdditionalResourceSchema,
-        permissions=[IsOrganizationStaff()],
+        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     def get_resource(self, slug: str, resource_id: UUID) -> models.AdditionalResource:
@@ -81,7 +88,7 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
         "/resources/{resource_id}",
         url_name="update_organization_resource",
         response=schema.AdditionalResourceSchema,
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def update_resource(
         self, slug: str, resource_id: UUID, payload: schema.AdditionalResourceUpdateSchema
@@ -95,7 +102,7 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
         "/resources/{resource_id}",
         url_name="delete_organization_resource",
         response={204: None},
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def delete_resource(self, slug: str, resource_id: UUID) -> tuple[int, None]:
         """Delete a resource from the organization."""

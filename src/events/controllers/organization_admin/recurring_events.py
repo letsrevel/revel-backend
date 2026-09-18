@@ -9,23 +9,24 @@ from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
 from events.service import recurrence_service
 from events.service.recurrence_service import PropagateScope
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),
-    permissions=[OrganizationPermission("edit_event_series")],
+    permissions=[RequireScope("org:read"), OrganizationPermission("edit_event_series")],
 )
 class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController):
     """Recurring event management endpoints.
@@ -52,7 +53,7 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/create-recurring-event",
         url_name="create_recurring_event",
         response={201: schema.EventSeriesRecurrenceDetailSchema, 400: ValidationErrorResponse},
-        permissions=[OrganizationPermission("create_event")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("create_event")],
     )
     def create_recurring_event(
         self, slug: str, payload: schema.RecurringEventCreateSchema

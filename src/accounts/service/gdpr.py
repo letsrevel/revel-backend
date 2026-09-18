@@ -381,6 +381,15 @@ _EXCLUDED_MODERATION = "moderation/fraud-prevention record — excluded pending 
 # Erasure still has to reach them — see purge_user_history().
 _EXCLUDED_HISTORY_MIRROR = "simple-history mirror of a live row that is exported in its current form"
 _EXCLUDED_HISTORY_ACTOR = "simple-history actor column — audit of edits made to other subjects' rows"
+# OAuth credential material: access/refresh/ID tokens and authorization grants are bearer
+# secrets, and a downloadable zip is the wrong place for anything that can be replayed. The
+# user-facing record of *which* apps hold access to their account is the Connected Apps screen
+# (``GET /api/oauth/connections``), which lists app identity and granted scopes and lets the user
+# revoke — so excluding the rows removes no transparency the user cannot get elsewhere.
+_EXCLUDED_OAUTH_CREDENTIAL = (
+    "OAuth credential material (bearer token / authorization grant) — see Connected Apps "
+    "for the record of which applications hold access"
+)
 
 EXPORT_RULES: dict[str, ExportRule] = {
     # --- accounts ---
@@ -407,6 +416,18 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "logentry_set": ExportRule(include=False, reason="admin audit log about arbitrary records"),
     "outstandingtoken_set": ExportRule(include=False, reason="JWT session secrets"),
     "googlessouser": ExportRule(include=True),
+    # --- oauth provider (django-oauth-toolkit + our swapped Application model) ---
+    # The user's own third-party app registrations are their data: name, description, logo,
+    # redirect URIs, allowed scopes. ``client_secret`` is excluded — it is only a hash, but
+    # shipping credential material in a user-downloadable archive is indefensible either way.
+    "oauth_oauthapplication": ExportRule(include=True, exclude_fields=("client_secret",)),
+    "oauth2_provider_accesstoken": ExportRule(include=False, reason=_EXCLUDED_OAUTH_CREDENTIAL),
+    "oauth2_provider_refreshtoken": ExportRule(include=False, reason=_EXCLUDED_OAUTH_CREDENTIAL),
+    "oauth2_provider_idtoken": ExportRule(include=False, reason=_EXCLUDED_OAUTH_CREDENTIAL),
+    "oauth2_provider_grant": ExportRule(include=False, reason=_EXCLUDED_OAUTH_CREDENTIAL),
+    # Device-code grant is out of scope (spec), but DOT ships the model, so it still needs a
+    # decision on record rather than an absence.
+    "oauth2_provider_devicegrant": ExportRule(include=False, reason=_EXCLUDED_OAUTH_CREDENTIAL),
     # --- common ---
     "file_exports": ExportRule(include=False, reason="internal operational record"),
     # --- events: data-subject rows ---

@@ -11,7 +11,7 @@ from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
-from common.authentication import I18nJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -29,9 +29,16 @@ from events.service.membership_manager import (
     cancel_application,
 )
 from events.service.membership_manager.enums import MembershipNextStep, Reasons
+from oauth.permissions import RequireScope
 
 
-@api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Applications"], throttle=UserDefaultThrottle())
+@api_controller(
+    "/me",
+    auth=ScopedJWTAuth(),
+    tags=["Me - Applications"],
+    throttle=UserDefaultThrottle(),
+    permissions=[RequireScope("me:read")],
+)
 class MeMembershipApplicationsController(UserAwareController):
     """Membership application flow: join eligibility, apply, cancel, list/detail."""
 
@@ -75,6 +82,11 @@ class MeMembershipApplicationsController(UserAwareController):
     @route.post(
         "/organizations/{slug}/apply",
         url_name="apply_for_membership",
+        # ``me:read`` is a READ scope — its label promises only "See your profile, tickets,
+        # RSVPs and memberships". A read scope must never be the sole gate on an unsafe
+        # method (a write needs a scope of its own), and no write scope in the
+        # registry covers this, so the route stays session-only (R-99).
+        auth=I18nJWTAuth(),
         # 400 has two shapes: a plain ``{detail}`` for the plan_id refusal, and
         # the serialized eligibility payload when a gate refuses the application
         # (``MembershipApplicationIneligibleError`` — see events/exception_handlers).
@@ -162,6 +174,8 @@ class MeMembershipApplicationsController(UserAwareController):
     @route.post(
         "/applications/{application_id}/cancel",
         url_name="cancel_membership_application",
+        # Session-only for the same reason as the first write on this controller (R-99).
+        auth=I18nJWTAuth(),
         response=schema.MembershipApplicationSchema,
         throttle=WriteThrottle(),
     )

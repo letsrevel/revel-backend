@@ -2,6 +2,7 @@
 
 import typing as t
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from django.conf import settings
@@ -53,7 +54,28 @@ class TestVersionEndpointFeatures:
             "telegram": False,
             "llm_evaluation": False,
             "referral_applications": False,
+            # Credential presence is the flag (ADR-0008) and the test settings ship no signing
+            # key; the enabled half is next door in
+            # ``test_oauth_provider_flag_reflects_credential_presence``.
+            "oauth_provider": False,
         }
+
+    def test_oauth_provider_flag_reflects_credential_presence(
+        self, client: Client, settings: t.Any, tmp_path: Path
+    ) -> None:
+        """Credential presence is the flag (ADR-0008): a configured signing key, not a boolean.
+
+        Lives here rather than in ``src/oauth/tests`` because it is about ``/version``; the
+        oauth package's autouse fixture switches the provider on for every test in it, which
+        would make the disabled half unreachable.
+        """
+        assert client.get(VERSION_URL).json()["features"]["oauth_provider"] is False
+
+        key = tmp_path / "oidc.pem"
+        key.write_text("not a real key, and the flag never parses it")
+        settings.OIDC_SIGNING_KEY_PATH = str(key)
+
+        assert client.get(VERSION_URL).json()["features"]["oauth_provider"] is True
 
     def test_referral_applications_flag_reflects_site_settings(self, client: Client) -> None:
         """The referral-applications flag comes from SiteSettings, not Django settings."""
@@ -72,6 +94,7 @@ class TestVersionEndpointFeatures:
             "telegram",
             "llm_evaluation",
             "referral_applications",
+            "oauth_provider",
         }
 
     def test_sso_providers_listed(self, client: Client, settings: t.Any) -> None:

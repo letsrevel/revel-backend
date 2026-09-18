@@ -5,12 +5,13 @@ from uuid import UUID
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
-from common.authentication import I18nJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail
 from common.throttling import QuestionnaireSubmissionThrottle, UserDefaultThrottle
 from events.models import Organization, OrganizationQuestionnaire
 from events.service import membership_questionnaire_service
+from oauth.permissions import RequireScope
 from questionnaires.schema import (
     QuestionnaireSchema,
     QuestionnaireSubmissionOrEvaluationSchema,
@@ -20,7 +21,13 @@ from questionnaires.schema import (
 from questionnaires.service import SubmissionService
 
 
-@api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Applications"], throttle=UserDefaultThrottle())
+@api_controller(
+    "/me",
+    auth=ScopedJWTAuth(),
+    tags=["Me - Applications"],
+    throttle=UserDefaultThrottle(),
+    permissions=[RequireScope("me:read")],
+)
 class MeMembershipQuestionnaireController(UserAwareController):
     """Fetch and submit the membership questionnaire surfaced by join eligibility."""
 
@@ -53,6 +60,11 @@ class MeMembershipQuestionnaireController(UserAwareController):
     @route.post(
         "/organizations/{slug}/membership-questionnaire/{questionnaire_id}/submit",
         url_name="submit_membership_questionnaire",
+        # ``me:read`` is a READ scope — its label promises only "See your profile, tickets,
+        # RSVPs and memberships". A read scope must never be the sole gate on an unsafe
+        # method (a write needs a scope of its own), and no write scope in the
+        # registry covers this, so the route stays session-only (R-99).
+        auth=I18nJWTAuth(),
         response={200: QuestionnaireSubmissionOrEvaluationSchema, 400: ErrorDetail},
         throttle=QuestionnaireSubmissionThrottle(),
     )

@@ -363,7 +363,9 @@ msgid "This email is permanently blocked from the referral program."
 msgstr "Questa email è bloccata permanentemente dal programma referral."
 
 msgid "This email already has an approved invite awaiting signup (code {})."
-msgstr "Questa email ha già un invito approvato in attesa di registrazione (codice {})."
+msgstr ""
+"Questa email ha già un invito approvato in attesa di registrazione (codice "
+"{})."
 
 msgid "This email already has a pending application; decide it instead."
 msgstr "Questa email ha già una candidatura in sospeso; decidi su quella."
@@ -1026,6 +1028,12 @@ msgstr "Accesso staff richiesto."
 
 msgid "Superuser access required."
 msgstr "Accesso superuser richiesto."
+
+msgid "Invalid or expired token."
+msgstr "Token non valido o scaduto."
+
+msgid "Authentication credentials were not provided."
+msgstr "Non sono state fornite credenziali di autenticazione."
 
 msgid "You cannot use this endpoint while authenticated."
 msgstr "Non puoi usare questo endpoint mentre sei autenticato."
@@ -5469,6 +5477,130 @@ msgstr "Il tuo riepilogo notifiche"
 msgid "View all notifications:"
 msgstr "Visualizza tutte le notifiche:"
 
+msgid ""
+"The OAuth provider has no signing key configured, so no application can be "
+"saved: RS256 requires OIDC_SIGNING_KEY_PATH to point at an RSA private key "
+"PEM, and the \"no algorithm\" option is not accepted for this field. "
+"Configure the key first."
+msgstr ""
+"Il provider OAuth non ha una chiave di firma configurata, quindi non è "
+"possibile salvare alcuna applicazione: RS256 richiede che "
+"OIDC_SIGNING_KEY_PATH punti a un PEM con una chiave privata RSA, e l'opzione "
+"\"nessun algoritmo\" non è accettata per questo campo. Configura prima la "
+"chiave."
+
+msgid "token checksum"
+msgstr "checksum del token"
+
+msgid "This app was not granted the required scope."
+msgstr "Questa app non ha ricevuto lo scope richiesto."
+
+msgid "You have reached the maximum number of apps."
+msgstr "Hai raggiunto il numero massimo di app."
+
+msgid "Dynamically registered apps have no owner."
+msgstr "Le app registrate dinamicamente non hanno un proprietario."
+
+msgid "An owner is required."
+msgstr "È richiesto un proprietario."
+
+msgid "Only the authorization-code grant is supported: {}"
+msgstr "È supportato solo il flusso authorization code: {}"
+
+msgid "Redirect URIs must not contain a fragment: {}"
+msgstr "Le redirect URI non devono contenere un frammento: {}"
+
+msgid "Plain http is only allowed for loopback addresses of public clients: {}"
+msgstr ""
+"L'http non cifrato è consentito solo per gli indirizzi di loopback dei "
+"client pubblici: {}"
+
+msgid "Unsupported redirect URI scheme: {}"
+msgstr "Schema di redirect URI non supportato: {}"
+
+msgid "Unknown scopes: {}"
+msgstr "Scope sconosciuti: {}"
+
+msgid "Sign you in"
+msgstr "Farti accedere"
+
+msgid "See your name and picture"
+msgstr "Vedere il tuo nome e la tua immagine"
+
+msgid "See your email address"
+msgstr "Vedere il tuo indirizzo email"
+
+msgid "Stay connected"
+msgstr "Restare collegato"
+
+msgid "See your profile, tickets, RSVPs and memberships"
+msgstr ""
+"Vedere il tuo profilo, i tuoi biglietti, le tue risposte e le tue iscrizioni"
+
+msgid "See your organizations, events and settings"
+msgstr "Vedere le tue organizzazioni, i tuoi eventi e le tue impostazioni"
+
+msgid ""
+"Create, edit and delete events and event series, send invitations, and see "
+"attendee lists"
+msgstr ""
+"Creare, modificare ed eliminare eventi e serie di eventi, inviare inviti e "
+"vedere gli elenchi dei partecipanti"
+
+msgid ""
+"Manage ticket tiers, tickets, discount codes and seating, issue refunds, and "
+"see attendee details and revenue"
+msgstr ""
+"Gestire livelli biglietto, biglietti, codici sconto e posti, emettere "
+"rimborsi e vedere i dati dei partecipanti e gli incassi"
+
+msgid "Check attendees in"
+msgstr "Registrare l'ingresso dei partecipanti"
+
+msgid ""
+"Manage members, subscriptions and membership payments, including refunds, "
+"and see membership revenue"
+msgstr ""
+"Gestire membri, abbonamenti e pagamenti delle iscrizioni, inclusi i "
+"rimborsi, e vedere le entrate delle iscrizioni"
+
+msgid "Send announcements"
+msgstr "Inviare annunci"
+
+msgid "Manage and evaluate questionnaires"
+msgstr "Gestire e valutare i questionari"
+
+msgid "Manage polls"
+msgstr "Gestire i sondaggi"
+
+msgid "Manage potluck items"
+msgstr "Gestire gli articoli potluck"
+
+msgid "This field may not be null."
+msgstr "Questo campo non può essere nullo."
+
+msgid "A public client has no client secret to rotate."
+msgstr "Un client pubblico non ha un client secret da rigenerare."
+
+msgid "Not a valid resource indicator: {}"
+msgstr "Resource indicator non valido: {}"
+
+msgid "A consent ticket from the authorization screen is required."
+msgstr "È richiesto un ticket di consenso dalla schermata di autorizzazione."
+
+msgid "The authorization screen expired. Please review the request again."
+msgstr ""
+"La schermata di autorizzazione è scaduta. Controlla di nuovo la richiesta."
+
+msgid "Invalid consent ticket."
+msgstr "Ticket di consenso non valido."
+
+msgid "This decision does not match the authorization that was shown."
+msgstr "Questa decisione non corrisponde all'autorizzazione mostrata."
+
+msgid "Registration cap reached."
+msgstr "Limite di registrazioni raggiunto."
+
 msgid "You are not allowed to see this poll."
 msgstr "Non puoi visualizzare questo sondaggio."
 
@@ -5886,6 +6018,24 @@ msgstr "Task periodici"
 
 msgid "Task Results"
 msgstr "Risultati task"
+
+msgid "Developer"
+msgstr "Sviluppatori"
+
+msgid "OAuth Apps"
+msgstr "App OAuth"
+
+msgid "OAuth Access Tokens"
+msgstr "Token di accesso OAuth"
+
+msgid "OAuth Refresh Tokens"
+msgstr "Token di refresh OAuth"
+
+msgid "OAuth ID Tokens"
+msgstr "Token ID OAuth"
+
+msgid "OAuth Authorization Codes"
+msgstr "Codici di autorizzazione OAuth"
 
 msgid "Authentication"
 msgstr "Autenticazione"

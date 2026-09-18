@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404
 from ninja_extra import route
 
 from events import models as event_models
+from oauth.permissions import RequireScope
 from questionnaires import models as questionnaires_models
 from questionnaires import schema as questionnaire_schema
 from questionnaires.service import QuestionnaireService
@@ -19,7 +20,7 @@ class QuestionnaireSectionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/sections",
         url_name="create_section",
         response=questionnaire_schema.SectionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def create_section(
         self, org_questionnaire_id: UUID, payload: questionnaire_schema.SectionCreateSchema
@@ -39,7 +40,7 @@ class QuestionnaireSectionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/sections/{section_id}",
         url_name="update_section",
         response=questionnaire_schema.SectionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def update_section(
         self, org_questionnaire_id: UUID, section_id: UUID, payload: questionnaire_schema.SectionUpdateSchema
@@ -63,7 +64,7 @@ class QuestionnaireSectionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/sections/{section_id}",
         url_name="delete_section",
         response={204: None},
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def delete_section(self, org_questionnaire_id: UUID, section_id: UUID) -> tuple[int, None]:
         """Delete a questionnaire section (admin only).

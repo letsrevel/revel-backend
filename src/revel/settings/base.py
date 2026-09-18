@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "ninja_jwt",
     "ninja_jwt.token_blacklist",
     "ninja_extra",
+    "oauth2_provider",
     "django_extensions",
     # custom
     "api",
@@ -85,6 +86,7 @@ INSTALLED_APPS = [
     "notifications",
     "wallet",
     "integrations",
+    "oauth",
 ]
 
 if SILK_PROFILER:

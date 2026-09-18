@@ -11,3 +11,4 @@ from .telegram import *  # noqa: F403, F401
 from .unfold import *  # noqa: F403, F401
 from .wallet import *  # noqa: F403, F401
 from .integrations import *  # noqa: F403, F401
+from .oauth import *  # noqa: F403, F401

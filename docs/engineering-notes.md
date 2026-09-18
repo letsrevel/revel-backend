@@ -301,3 +301,86 @@ deleting and regenerating:
    `django_migrations` rows for the now-deleted files with
    `manage.py migrate <app> --prune`. Any other machine that had applied them does the
    same after pulling.
+
+## `oauth.0001` `run_before` (a documented hand edit)
+
+`src/oauth/migrations/0001_initial.py` carries a line the autodetector did not write:
+
+```python
+# Documented exception to "never hand-edit schema migrations" (spec §6.4): DOT's
+# 0001_initial has no dependency on the swapped Application model. Re-add after any
+# regeneration (make nuke-db / make restart). Guarded by oauth/tests/test_migrations.py.
+run_before = [("oauth2_provider", "0001_initial")]
+```
+
+`oauth.OAuthApplication` is the swapped `OAUTH2_PROVIDER_APPLICATION_MODEL`, and
+django-oauth-toolkit's own `0001_initial` creates `AccessToken`, `RefreshToken`, `IDToken` and
+`Grant` with FKs pointing at it — but it declares **no dependency** on the swapped app, because
+DOT cannot know which app that will be. On a from-scratch `migrate` the planner is then free to
+run DOT's initial first, and the FK columns come out typed from Django's fallback rather than
+from our model's **UUID** primary key. `run_before` is what forces the order.
+
+Two consequences:
+
+- **Re-add it after any regeneration.** `make nuke-db` and `make restart` delete and regenerate
+  migrations; the line is not reproduced. So does a squash (delete the files, then
+  `makemigrations oauth --name initial` so `0002_add_oauth_periodic_tasks.py`'s
+  `("oauth", "0001_initial")` dependency still resolves).
+- **Two tests guard it**, and both must pass against a database migrated from scratch
+  (`pytest --create-db`), never an incremental one:
+  `oauth/tests/test_migrations.py::test_oauth_initial_runs_before_dot_initial` reads the
+  forwards plan, and `test_dot_token_tables_take_the_uuid_application_key` asks
+  `information_schema` whether `application_id` is `uuid` on all four DOT token tables — which is the property the ordering exists to produce.
+
+## Two token worlds: `blacklist_user_tokens` also revokes DOT tokens
+
+There are two independent credential systems: ninja-jwt session tokens
+(`OutstandingToken`/`BlacklistedToken`) and django-oauth-toolkit app tokens (`AccessToken`,
+`RefreshToken`). `accounts.jwt.blacklist_user_tokens` invalidates **both**, and the OAuth half
+is deliberately *not* gated on `oauth.utils.oauth_provider_enabled()`: the credential-presence
+feature flag (ADR-0008) governs whether app tokens can be *issued*, not whether a ban is
+honoured. Gating it would leave stale rows alive across a disable → ban → re-enable window, and
+would make `ScopedJWTAuth`'s `user.is_active` check the only guard instead of a backstop.
+
+Two things follow that are easy to miss:
+
+- **The import is lazy** (`from oauth.service import token_service` inside the function) because
+  `oauth` imports `accounts` — a module-level import is a circular one. `oauth` is
+  unconditionally in `INSTALLED_APPS`, so the import itself is always safe.
+- **The blast radius is wider than "sessions".** `accounts.service.account` calls this on email
+  rotation, so changing an email address disconnects every connected app. A *global ban* goes
+  further still (`global_ban_service.deactivate_user_for_ban`, deliberately not here): it also
+  deactivates the OAuth applications the banned user *owns* and revokes their tokens, which cuts
+  off every other user of those apps. That placement matters — doing it in
+  `blacklist_user_tokens` would disconnect an app's whole user base because its developer
+  changed their email address.
+
+The return value counts session JWTs only; OAuth revocations are logged separately
+(`user_oauth_credentials_revoked`) because they are a different credential with a different
+lifetime and callers reading the number mean sessions.
+
+## Negative security tests: prove the request was *accepted* first
+
+A test that asserts "the admin could not change X" passes trivially whenever the attempt fails
+for a reason that has nothing to do with the control under test. On this branch, one such test
+passed against a **fully vulnerable** admin twice before anyone noticed:
+
+1. First because the POST body left a `SplitDateTimeField` unsplit, so the ModelForm rejected it
+   with "this field is required" — the row was never written, and "the value did not change"
+   was true for the wrong reason.
+2. Then because the forged row was re-read as a naive datetime in `TIME_ZONE`, which put it in
+   the past, so the token was expired by the time it was used — refused by expiry, not by the
+   readonly guard.
+
+The implementer's own summary is the rule: *a body the form rejects makes "the admin could not
+change X" pass for the wrong reason.*
+
+So a negative test must first assert that the request was **accepted** and only then assert the
+negative:
+
+- For a Django admin change view, assert `302` (a `200` is the form re-rendered with errors) and
+  only then re-read the row and assert the field is unchanged.
+- For an API route, assert the status you expect from the control being tested — `403`, not
+  "anything other than 200" — and never `!= 403`, which a `404` from a renamed path satisfies.
+- Construct the attack payload against the *vulnerable* code first and watch the test go RED. A
+  negative test that has never been red is a test of nothing.

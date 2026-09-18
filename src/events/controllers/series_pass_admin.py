@@ -10,20 +10,21 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.service import series_pass_service, update_db_instance
+from oauth.permissions import RequireScope
 
 from .permissions import EventSeriesPermission
 
 
 @api_controller(
     "/event-series-admin/{series_id}/passes",
-    auth=I18nJWTAuth(),
-    permissions=[EventSeriesPermission("edit_event_series")],
+    auth=ScopedJWTAuth(),
+    permissions=[RequireScope("org:read"), EventSeriesPermission("edit_event_series")],
     tags=["Event Series Admin"],
     throttle=WriteThrottle(),
 )
