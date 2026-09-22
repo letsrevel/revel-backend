@@ -4,7 +4,7 @@ setup:
 	cp .env.example .env; \
 	docker compose down -v; \
 	docker compose up -d; \
-	sleep 3; \
+	docker compose up -d --wait postgres redis; \
 	$(MAKE) bootstrap; \
 	$(MAKE) FEATURE_OBSERVABILITY=False run
 
@@ -292,7 +292,7 @@ restart:
 		docker volume rm revel-backend_postgres_data; \
 		docker volume rm revel-backend_minio_data; \
 		docker compose up -d; \
-		sleep 3; \
+		docker compose up -d --wait postgres redis; \
 		rm src/db.sqlite3; \
 		rm -rf src/**/migrations/0*.py; \
 		uv run python src/manage.py makemigrations; \
@@ -324,7 +324,7 @@ nuke-db:
 		mv src/events/migrations/0002_add_cleanup_expired_payments_periodic_task.tmp src/events/migrations/0002_add_cleanup_expired_payments_periodic_task.py; \
 		docker compose down; \
 		docker compose up -d; \
-		sleep 3; \
+		docker compose up -d --wait postgres redis; \
 		uv run python src/manage.py migrate; \
 	else \
 		echo "Nuke database aborted."; \

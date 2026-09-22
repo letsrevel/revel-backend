@@ -276,7 +276,7 @@ All users have the password: `password123`
 - **User Relationships:**
   - 3 RSVPs (attendee_2, attendee_3, org_alpha_member)
 
-### 9. New Year's Eve Gala 2024 (Past Event)
+### 9. Annual Charity Gala (Past Event)
 - **Organization:** Revel Events Collective
 - **Type:** Public
 - **Status:** Closed
@@ -421,7 +421,7 @@ All users have the password: `password123`
 ## Payment & Ticket States
 
 ### Payment States Demonstrated
-- **Succeeded:** Past event ticket (attendee_1 - NYE Gala)
+- **Succeeded:** Past event ticket (attendee_1 - Annual Charity Gala)
 - **Pending:** Summer festival ticket (attendee_4 - $65, expires in 30 min)
 - **Refunded:** Cancelled summer festival ticket (pending_user)
 
@@ -533,7 +533,7 @@ Organizations (2)
 │   ├── Owner: alice.owner@example.com
 │   ├── Staff: bob.staff@example.com
 │   ├── Members: charlie.member@example.com, karen.multiorg@example.com
-│   ├── Events: Summer Festival, Wine Tasting, Potluck, Wellness Retreat, Art Opening, NYE Gala
+│   ├── Events: Summer Festival, Wine Tasting, Potluck, Wellness Retreat, Art Opening, Annual Charity Gala
 │   └── Event Series: Seasonal Community Gatherings
 │
 └── Tech Innovators Network
@@ -593,7 +593,7 @@ Relationships
 - **Waitlist:** Try ML Workshop (sold out, waitlist active)
 - **Invitation:** Check wine tasting invitations for multi_org_user
 - **Potluck:** Manage potluck items for Spring Potluck
-- **Past Event:** View NYE Gala 2024 for historical data
+- **Past Event:** View Annual Charity Gala for historical data
 - **Draft Event:** Login as org owner to see draft events
 
 ### Testing Edge Cases

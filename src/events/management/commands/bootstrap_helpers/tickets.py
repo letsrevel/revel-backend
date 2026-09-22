@@ -15,20 +15,17 @@ from .base import BootstrapState
 
 logger = structlog.get_logger(__name__)
 
-_OFFLINE_INSTRUCTIONS = """## Payment Instructions
-
-Please transfer **{price} {currency}** to the following account:
+_OFFLINE_INSTRUCTIONS = """Please transfer **{price} {currency}** to the following account:
 
 - **Bank**: Revel Events Bank
 - **IBAN**: AT12 3456 7890 1234 5678
 - **BIC**: REVELAT2X
 - **Reference**: Your ticket confirmation number
 
-Once your payment is received, your ticket will be activated within 24 hours.
-You will receive an email confirmation when your ticket is ready.
+Once your payment is received, your ticket will be activated within 24 hours. You will receive an email confirmation when your ticket is ready.
 
 **Questions?** Contact us at tickets@revelcollective.example.com
-"""
+"""  # noqa: E501
 
 _EVENT_CURRENCIES: dict[str, str] = {
     "summer_festival": "USD",

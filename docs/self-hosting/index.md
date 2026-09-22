@@ -14,10 +14,10 @@ that, use the hosted instance.
 
 Revel scales down a long way. There are two reference sizings:
 
-- **Slim** — roughly **2 vCPU / 4 GB RAM (~5 €/mo)** on a small VPS. Runs the core services
+- **Slim** — roughly **2 vCPU / 4 GB RAM**, about €20/month (Hetzner CPX22, September 2026). Runs the core services
   only, with conservative resource limits. ClamAV, Telegram, and the observability stack are
   switched off. This is the recommended starting point for a single-org instance.
-- **Full** — **8 vCPU / 32 GB RAM**. Runs every optional profile: antivirus scanning, the LGTM
+- **Full** — **8 vCPU / 32 GB RAM**. Can run every optional profile: antivirus scanning, the LGTM
   observability stack (Grafana/Loki/Tempo/etc.), the Telegram bot, and the canary.
   This mirrors a production deployment.
 

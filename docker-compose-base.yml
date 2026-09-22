@@ -53,10 +53,13 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${DB_NAME}
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -p 5432" ]
+      # TCP, not the default unix socket: during first-boot init the entrypoint runs a
+      # socket-only temporary server, which a socket probe would report as ready.
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432" ]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 60s
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
