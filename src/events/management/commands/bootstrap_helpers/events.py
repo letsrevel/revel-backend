@@ -1,17 +1,27 @@
 # src/events/management/commands/bootstrap_helpers/events.py
+# Seed descriptions keep each markdown paragraph on one line: hard wraps render as line breaks in the web app.
+# ruff: noqa: E501
 """Event and event series creation for bootstrap process."""
 
 import datetime
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 import structlog
 from django.utils import timezone
 
 from events import models as events_models
+from geo.models import City
 
 from .base import BootstrapState
 
 logger = structlog.get_logger(__name__)
+
+
+def _at(now: datetime.datetime, city: City, days: int, hour: int, minute: int = 0) -> datetime.datetime:
+    """``days`` from ``now`` at ``hour``:``minute`` in the event city, so seeded events start on the hour."""
+    tz = ZoneInfo(city.timezone) if city.timezone else timezone.get_current_timezone()
+    return (now.astimezone(tz) + timedelta(days=days)).replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 
 def create_event_series(state: BootstrapState) -> None:
@@ -25,8 +35,7 @@ def create_event_series(state: BootstrapState) -> None:
         slug="monthly-tech-talks",
         description="""# Monthly Tech Talks
 
-Join us every month for inspiring talks from industry leaders, hands-on workshops,
-and networking with fellow tech enthusiasts.
+Join us every month for inspiring talks from industry leaders, hands-on workshops, and networking with fellow tech enthusiasts.
 
 Each session features:
 - 1-2 keynote presentations
@@ -44,8 +53,7 @@ Each session features:
         slug="seasonal-community-gatherings",
         description="""# Seasonal Community Gatherings
 
-Celebrating the seasons together with potluck dinners, music, and community bonding.
-Bring a dish to share and join us for an evening of connection and celebration!
+Celebrating the seasons together with potluck dinners, music, and community bonding. Bring a dish to share and join us for an evening of connection and celebration!
 """,
     )
     potluck_series.add_tags("food", "community", "casual")
@@ -83,6 +91,7 @@ def create_events(state: BootstrapState) -> None:
 
 def _create_summer_festival(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 1: Summer Music Festival (Public, Ticketed, Open, Future)."""
+    start = _at(now, state.cities["vienna"], 45, 17)
     summer_festival = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
         name="Summer Sunset Music Festival",
@@ -92,8 +101,8 @@ def _create_summer_festival(state: BootstrapState, now: "datetime.datetime") -> 
         status=events_models.Event.EventStatus.OPEN,
         city=state.cities["vienna"],
         requires_ticket=True,
-        start=now + timedelta(days=45),
-        end=now + timedelta(days=45, hours=8),
+        start=start,
+        end=start + timedelta(hours=8),
         max_attendees=500,
         waitlist_open=True,
         schedule=[
@@ -134,8 +143,7 @@ def _create_summer_festival(state: BootstrapState, now: "datetime.datetime") -> 
         ],
         description="""# Summer Sunset Music Festival
 
-Join us for an unforgettable evening of music under the stars! Experience the magic of live
-performances from local and touring artists as the sun sets over the city.
+Join us for an unforgettable evening of music under the stars! Experience the magic of live performances from local and touring artists as the sun sets over the city.
 
 ## Featured Artists
 - **The Midnight Riders** - Indie Rock
@@ -165,14 +173,13 @@ performances from local and touring artists as the sun sets over the city.
 - Good vibes and dancing shoes!
 
 ## Venue Info
-Donauinsel - Stunning views along the Danube, accessible via U1 (Donauinsel station).
-Limited parking available at Copa Cagrana.
+Donauinsel - Stunning views along the Danube, accessible via U1 (Donauinsel station). Limited parking available at Copa Cagrana.
 
 **Rain or Shine Event** - Event will proceed in light rain. Covered areas available.
 """,
         address="Donauinsel, 1220 Vienna, Austria",
-        check_in_starts_at=now + timedelta(days=45, hours=-1),
-        check_in_ends_at=now + timedelta(days=45, hours=7),
+        check_in_starts_at=start - timedelta(hours=1),
+        check_in_ends_at=start + timedelta(hours=7),
     )
     summer_festival.add_tags("music", "casual", "community")
     state.events["summer_festival"] = summer_festival
@@ -180,6 +187,7 @@ Limited parking available at Copa Cagrana.
 
 def _create_wine_tasting(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 2: Exclusive Wine Tasting (Public, Ticketed, Open, Future)."""
+    start = _at(now, state.cities["vienna"], 30, 19)
     wine_tasting = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
         name="Exclusive Wine Tasting & Pairing Dinner",
@@ -189,15 +197,14 @@ def _create_wine_tasting(state: BootstrapState, now: "datetime.datetime") -> Non
         status=events_models.Event.EventStatus.OPEN,
         city=state.cities["vienna"],
         requires_ticket=True,
-        start=now + timedelta(days=30),
-        end=now + timedelta(days=30, hours=4),
+        start=start,
+        end=start + timedelta(hours=4),
         max_attendees=40,
         accept_invitation_requests=True,
-        apply_before=now + timedelta(days=27),
+        apply_before=start - timedelta(days=3),
         description="""# Exclusive Wine Tasting & Pairing Dinner
 
-An intimate evening curated for wine enthusiasts. Join acclaimed sommelier Marcus Rodriguez
-for a journey through rare vintages paired with a five-course tasting menu by Chef Elena Martinez.
+An intimate evening curated for wine enthusiasts. Join acclaimed sommelier Marcus Rodriguez for a journey through rare vintages paired with a five-course tasting menu by Chef Elena Martinez.
 
 ## Wine Selection
 **Featured Regions:** Bordeaux, Tuscany, Wachau Valley, Burgenland
@@ -211,8 +218,7 @@ Each course features carefully selected wines paired with seasonal ingredients:
 5. **Dessert** - Eiswein with Chocolate Torte
 
 ## Your Sommelier
-Marcus Rodriguez brings 20 years of experience from Michelin-starred restaurants. His passion
-for storytelling brings each wine's journey from vineyard to glass to life.
+Marcus Rodriguez brings 20 years of experience from Michelin-starred restaurants. His passion for storytelling brings each wine's journey from vineyard to glass to life.
 
 ## Dress Code
 Smart casual to business casual
@@ -233,6 +239,7 @@ Smart casual to business casual
 
 def _create_tech_workshop(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 3: Tech Workshop (Members-only, Free, Open, Future)."""
+    start = _at(now, state.cities["berlin"], 20, 10)
     tech_workshop = events_models.Event.objects.create(
         organization=state.orgs["beta"],
         name="Hands-on Workshop: Building with AI APIs",
@@ -242,10 +249,10 @@ def _create_tech_workshop(state: BootstrapState, now: "datetime.datetime") -> No
         status=events_models.Event.EventStatus.OPEN,
         city=state.cities["berlin"],
         requires_ticket=False,
-        start=now + timedelta(days=20),
-        end=now + timedelta(days=20, hours=3),
+        start=start,
+        end=start + timedelta(hours=3),
         max_attendees=30,
-        rsvp_before=now + timedelta(days=18),
+        rsvp_before=start - timedelta(days=2),
         schedule=[
             {
                 "title": "Introduction & Setup",
@@ -276,8 +283,7 @@ def _create_tech_workshop(state: BootstrapState, now: "datetime.datetime") -> No
         ],
         description="""# Hands-on Workshop: Building with AI APIs
 
-Learn to integrate cutting-edge AI capabilities into your applications. This practical workshop
-covers modern AI APIs including OpenAI, Anthropic Claude, and open-source alternatives.
+Learn to integrate cutting-edge AI capabilities into your applications. This practical workshop covers modern AI APIs including OpenAI, Anthropic Claude, and open-source alternatives.
 
 ## What You'll Learn
 - **API Integration Basics** - Authentication, rate limiting, error handling
@@ -299,8 +305,7 @@ covers modern AI APIs including OpenAI, Anthropic Claude, and open-source altern
 - **2:30 PM** - Show & Tell + Q&A
 
 ## Your Instructor
-**Dr. Sarah Chen** - AI Research Lead with 10+ years in ML/AI. Published researcher and
-consultant for Fortune 500 companies.
+**Dr. Sarah Chen** - AI Research Lead with 10+ years in ML/AI. Published researcher and consultant for Fortune 500 companies.
 
 ## What We Provide
 - Lunch and refreshments
@@ -318,6 +323,7 @@ consultant for Fortune 500 companies.
 
 def _create_spring_potluck(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 4: Community Potluck (Public, No ticket, RSVP, Open, Future)."""
+    start = _at(now, state.cities["vienna"], 15, 13)
     spring_potluck = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
         name="Spring Community Potluck & Garden Party",
@@ -330,9 +336,9 @@ def _create_spring_potluck(state: BootstrapState, now: "datetime.datetime") -> N
         requires_ticket=False,
         potluck_open=True,
         accept_rsvp_notes=True,
-        start=now + timedelta(days=15),
-        end=now + timedelta(days=15, hours=5),
-        rsvp_before=now + timedelta(days=13),
+        start=start,
+        end=start + timedelta(hours=5),
+        rsvp_before=start - timedelta(days=2),
         max_attendees=80,
         schedule=[
             {
@@ -372,8 +378,7 @@ def _create_spring_potluck(state: BootstrapState, now: "datetime.datetime") -> N
         ],
         description="""# Spring Community Potluck & Garden Party
 
-Celebrate the arrival of spring with neighbors, friends, and community members! Bring a dish
-to share and enjoy an afternoon of food, games, and connection in the garden.
+Celebrate the arrival of spring with neighbors, friends, and community members! Bring a dish to share and enjoy an afternoon of food, games, and connection in the garden.
 
 ## Event Activities
 - **Potluck Feast** - International dishes from our diverse community
@@ -399,8 +404,7 @@ Sign up for what you'll bring using the potluck signup below.
 - Outdoor games welcome!
 
 ## Accessibility
-The park is wheelchair accessible. Restrooms and covered seating available.
-Service animals welcome.
+The park is wheelchair accessible. Restrooms and covered seating available. Service animals welcome.
 
 **Family-Friendly** - All ages welcome! Alcohol-free event.
 
@@ -421,6 +425,7 @@ Service animals welcome.
 
 def _create_tech_conference(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 5: Tech Conference (Public, Ticketed, Open, Future)."""
+    start = _at(now, state.cities["berlin"], 60, 9)
     tech_conference = events_models.Event.objects.create(
         organization=state.orgs["beta"],
         name="FutureStack 2025: AI & Web3 Conference",
@@ -430,15 +435,14 @@ def _create_tech_conference(state: BootstrapState, now: "datetime.datetime") -> 
         status=events_models.Event.EventStatus.OPEN,
         city=state.cities["berlin"],
         requires_ticket=True,
-        start=now + timedelta(days=60),
-        end=now + timedelta(days=62),
+        start=start,
+        end=start + timedelta(days=2, hours=9),
         max_attendees=1000,
         waitlist_open=True,
-        apply_before=now + timedelta(days=57),
+        apply_before=start - timedelta(days=3),
         description="""# FutureStack 2025: AI & Web3 Conference
 
-Three days of cutting-edge tech insights, hands-on workshops, and networking with 1000+
-developers, founders, and tech leaders from around the world.
+Three days of cutting-edge tech insights, hands-on workshops, and networking with 1000+ developers, founders, and tech leaders from around the world.
 
 ## Conference Themes
 - **Artificial Intelligence** - LLMs, ML Ops, AI Safety
@@ -486,8 +490,8 @@ developers, founders, and tech leaders from around the world.
 **Early Bird pricing ends in 2 weeks!**
 """,
         address="Berlin Congress Center, Alexanderplatz 5, 10178 Berlin, Germany",
-        check_in_starts_at=now + timedelta(days=60, hours=-2),
-        check_in_ends_at=now + timedelta(days=62, hours=10),
+        check_in_starts_at=start - timedelta(hours=2),
+        check_in_ends_at=start + timedelta(days=2, hours=10),
     )
     tech_conference.add_tags("tech", "conference", "professional", "networking")
     state.events["tech_conference"] = tech_conference
@@ -495,6 +499,8 @@ developers, founders, and tech leaders from around the world.
 
 def _create_wellness_retreat(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 6: Yoga & Wellness (Public, Ticketed, Open, Future)."""
+    start = _at(now, state.cities["vienna"], 35, 18)
+    start += timedelta(days=(4 - start.weekday()) % 7)  # retreat runs Friday evening to Sunday
     wellness_retreat = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
         name="Weekend Wellness Retreat",
@@ -504,8 +510,8 @@ def _create_wellness_retreat(state: BootstrapState, now: "datetime.datetime") ->
         status=events_models.Event.EventStatus.OPEN,
         city=state.cities["vienna"],
         requires_ticket=True,
-        start=now + timedelta(days=35),
-        end=now + timedelta(days=37),
+        start=start,
+        end=start + timedelta(days=1, hours=17),
         max_attendees=25,
         schedule=[
             {
@@ -561,8 +567,7 @@ def _create_wellness_retreat(state: BootstrapState, now: "datetime.datetime") ->
         ],
         description="""# Weekend Wellness Retreat
 
-Escape the city for a transformative weekend of yoga, meditation, nourishing food,
-and deep relaxation in the beautiful Austrian countryside.
+Escape the city for a transformative weekend of yoga, meditation, nourishing food, and deep relaxation in the beautiful Austrian countryside.
 
 ## Daily Schedule
 
@@ -618,6 +623,7 @@ and deep relaxation in the beautiful Austrian countryside.
 
 def _create_networking_event(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 7: Networking Happy Hour (Members-only, Free, Open, Future)."""
+    start = _at(now, state.cities["berlin"], 10, 18)
     networking_event = events_models.Event.objects.create(
         organization=state.orgs["beta"],
         name="Tech Founders Networking Happy Hour",
@@ -627,14 +633,13 @@ def _create_networking_event(state: BootstrapState, now: "datetime.datetime") ->
         status=events_models.Event.EventStatus.OPEN,
         city=state.cities["berlin"],
         requires_ticket=False,
-        start=now + timedelta(days=10),
-        end=now + timedelta(days=10, hours=3),
-        rsvp_before=now + timedelta(days=9),
+        start=start,
+        end=start + timedelta(hours=3),
+        rsvp_before=start - timedelta(days=1),
         max_attendees=50,
         description="""# Tech Founders Networking Happy Hour
 
-Connect with fellow founders, share challenges, celebrate wins, and build meaningful
-relationships over drinks and appetizers.
+Connect with fellow founders, share challenges, celebrate wins, and build meaningful relationships over drinks and appetizers.
 
 ## Who Should Attend
 - Startup founders (pre-seed to Series B)
@@ -658,8 +663,7 @@ relationships over drinks and appetizers.
 - Technical challenges
 
 ## Format
-This is a casual, supportive environment. No sales pitches, just genuine connection and
-knowledge sharing among peers who understand the founder journey.
+This is a casual, supportive environment. No sales pitches, just genuine connection and knowledge sharing among peers who understand the founder journey.
 
 **Complimentary drinks and appetizers provided.**
 
@@ -673,6 +677,7 @@ knowledge sharing among peers who understand the founder journey.
 
 def _create_art_opening(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 8: Art Gallery Opening (Public, Free, Open, Future)."""
+    start = _at(now, state.cities["london"], 25, 18)
     art_opening = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
         name="Contemporary Art Exhibition Opening",
@@ -682,15 +687,14 @@ def _create_art_opening(state: BootstrapState, now: "datetime.datetime") -> None
         status=events_models.Event.EventStatus.OPEN,
         city=state.cities["london"],
         requires_ticket=False,
-        start=now + timedelta(days=25),
-        end=now + timedelta(days=25, hours=4),
-        rsvp_before=now + timedelta(days=23),
+        start=start,
+        end=start + timedelta(hours=4),
+        rsvp_before=start - timedelta(days=2),
         description="""# Contemporary Art Exhibition Opening
 
 **"Metamorphosis: Digital Meets Traditional"**
 
-Celebrate the opening of our latest exhibition featuring emerging artists who blend digital
-technology with classical techniques.
+Celebrate the opening of our latest exhibition featuring emerging artists who blend digital technology with classical techniques.
 
 ## Featured Artists
 - **Amara Johnson** - Interactive light installations
@@ -712,8 +716,7 @@ The exhibition runs for 6 weeks following the opening. Gallery hours: Tue-Sun, 1
 Wine, beer, and canapes served throughout the evening.
 
 ## Accessibility
-The gallery is fully wheelchair accessible. ASL interpreter available upon request
-(please email 48hrs in advance).
+The gallery is fully wheelchair accessible. ASL interpreter available upon request (please email 48hrs in advance).
 
 **Free admission - RSVP appreciated for catering purposes**
 """,
@@ -725,21 +728,22 @@ The gallery is fully wheelchair accessible. ASL interpreter available upon reque
 
 def _create_past_event(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 9: Past event (for testing)."""
+    start = _at(now, state.cities["vienna"], -90, 19)
     past_event = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
-        name="New Year's Eve Gala 2024",
-        slug="nye-gala-2024",
+        name="Annual Charity Gala",
+        slug="annual-charity-gala",
         event_type=events_models.Event.EventType.PUBLIC,
         visibility=events_models.Event.Visibility.PUBLIC,
         status=events_models.Event.EventStatus.CLOSED,
         city=state.cities["vienna"],
         requires_ticket=True,
-        start=now - timedelta(days=90),
-        end=now - timedelta(days=89),
+        start=start,
+        end=start + timedelta(hours=6),
         max_attendees=200,
-        description="""# New Year's Eve Gala 2024
+        description="""# Annual Charity Gala
 
-A magical night to remember! Ring in the new year with elegance, entertainment, and celebration.
+A magical night to remember! An evening of elegance, entertainment, and celebration.
 
 Thank you to everyone who joined us for this unforgettable evening!
 """,
@@ -751,6 +755,7 @@ Thank you to everyone who joined us for this unforgettable evening!
 
 def _create_draft_event(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 10: Draft event (for testing staff/owner views)."""
+    start = _at(now, state.cities["tokyo"], 180, 9)
     draft_event = events_models.Event.objects.create(
         organization=state.orgs["beta"],
         name="Future Tech Summit (Planning Phase)",
@@ -760,8 +765,8 @@ def _create_draft_event(state: BootstrapState, now: "datetime.datetime") -> None
         status=events_models.Event.EventStatus.DRAFT,
         city=state.cities["tokyo"],
         requires_ticket=True,
-        start=now + timedelta(days=180),
-        end=now + timedelta(days=182),
+        start=start,
+        end=start + timedelta(days=2, hours=9),
         description="""# Future Tech Summit - Coming Soon!
 
 We're planning something big. Stay tuned for details!
@@ -776,6 +781,7 @@ We're planning something big. Stay tuned for details!
 
 def _create_tech_talk_may(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 11: Monthly tech talk (part of series)."""
+    start = _at(now, state.cities["berlin"], 40, 19)
     tech_talk_may = events_models.Event.objects.create(
         organization=state.orgs["beta"],
         name="Tech Talk May: Scaling Microservices",
@@ -786,18 +792,16 @@ def _create_tech_talk_may(state: BootstrapState, now: "datetime.datetime") -> No
         event_series=state.event_series["tech_talks"],
         city=state.cities["berlin"],
         requires_ticket=False,
-        start=now + timedelta(days=40),
-        end=now + timedelta(days=40, hours=2),
-        rsvp_before=now + timedelta(days=38),
+        start=start,
+        end=start + timedelta(hours=2),
+        rsvp_before=start - timedelta(days=2),
         max_attendees=60,
         description="""# Tech Talk May: Scaling Microservices
 
 **Speaker:** James Chen, Senior Architect at CloudScale Inc.
 
 ## Talk Overview
-Learn practical strategies for scaling microservices architectures from someone who's been
-there. James will share lessons learned from scaling systems that handle millions of
-requests per second.
+Learn practical strategies for scaling microservices architectures from someone who's been there. James will share lessons learned from scaling systems that handle millions of requests per second.
 
 ## Topics Covered
 - Service mesh architecture
@@ -821,6 +825,7 @@ requests per second.
 
 def _create_sold_out_workshop(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 12: Sold out event with waitlist."""
+    start = _at(now, state.cities["berlin"], 28, 9)
     sold_out_workshop = events_models.Event.objects.create(
         organization=state.orgs["beta"],
         name="Advanced Machine Learning Workshop",
@@ -830,8 +835,8 @@ def _create_sold_out_workshop(state: BootstrapState, now: "datetime.datetime") -
         status=events_models.Event.EventStatus.OPEN,
         city=state.cities["berlin"],
         requires_ticket=True,
-        start=now + timedelta(days=28),
-        end=now + timedelta(days=28, hours=6),
+        start=start,
+        end=start + timedelta(hours=6),
         max_attendees=20,
         attendee_count=20,
         waitlist_open=True,
@@ -839,8 +844,7 @@ def _create_sold_out_workshop(state: BootstrapState, now: "datetime.datetime") -
 
 **SOLD OUT - Join Waitlist**
 
-An intensive hands-on workshop covering advanced ML techniques including neural networks,
-ensemble methods, and model optimization.
+An intensive hands-on workshop covering advanced ML techniques including neural networks, ensemble methods, and model optimization.
 
 ## Prerequisites
 - Strong Python programming skills
@@ -860,6 +864,7 @@ A complete ML pipeline from data preprocessing to model deployment.
 
 def _create_seated_concert(state: BootstrapState, now: "datetime.datetime") -> None:
     """Event 13: Seated concert event (with venue and reserved seating)."""
+    start = _at(now, state.cities["vienna"], 50, 19, 30)
     seated_concert = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
         name="Classical Music Evening",
@@ -870,14 +875,12 @@ def _create_seated_concert(state: BootstrapState, now: "datetime.datetime") -> N
         city=state.cities["vienna"],
         venue=state.venues["concert_hall"],
         requires_ticket=True,
-        start=now + timedelta(days=50),
-        end=now + timedelta(days=50, hours=3),
+        start=start,
+        end=start + timedelta(hours=3),
         max_attendees=176,
         description="""# Classical Music Evening
 
-Join us for an enchanting evening of classical music at the Revel Concert Hall.
-Experience masterpieces from Mozart, Beethoven, and Strauss performed by the
-Vienna Chamber Orchestra.
+Join us for an enchanting evening of classical music at the Revel Concert Hall. Experience masterpieces from Mozart, Beethoven, and Strauss performed by the Vienna Chamber Orchestra.
 
 ## Program
 - **Mozart** - Eine kleine Nachtmusik
@@ -885,9 +888,7 @@ Vienna Chamber Orchestra.
 - **Strauss** - The Blue Danube Waltz
 
 ## Venue
-The Revel Concert Hall features reserved seating across two sections: the
-Orchestra (premium front rows and standard rear rows) and the Balcony.
-Choose your preferred seat during checkout for the best viewing experience.
+The Revel Concert Hall features reserved seating across two sections: the Orchestra (premium front rows and standard rear rows) and the Balcony. Choose your preferred seat during checkout for the best viewing experience.
 
 ## Dress Code
 Smart casual to formal attire recommended.
@@ -898,8 +899,8 @@ Wine and refreshments available during the 20-minute intermission.
 *All seats are reserved - select your seat when purchasing tickets*
 """,
         address="Musikvereinsplatz 1, 1010 Vienna, Austria",
-        check_in_starts_at=now + timedelta(days=50, hours=-1),
-        check_in_ends_at=now + timedelta(days=50, hours=1),
+        check_in_starts_at=start - timedelta(hours=1),
+        check_in_ends_at=start + timedelta(hours=1),
     )
     seated_concert.add_tags("music", "arts", "formal")
     state.events["seated_concert"] = seated_concert

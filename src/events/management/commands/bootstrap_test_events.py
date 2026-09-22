@@ -143,17 +143,14 @@ class Command(BaseCommand):
             slug="eligibility-test-org",
             owner=self.admin_user,
             visibility=events_models.Organization.Visibility.PUBLIC,
-            description="""# Eligibility Test Organization
-
-This organization contains test events designed to showcase every eligibility gate
-and access control scenario in the Revel platform. Perfect for frontend testing!
+            description="""This organization contains test events designed to showcase every eligibility gate and access control scenario in the Revel platform. Perfect for frontend testing!
 
 ## Purpose
 - Test all NextStep scenarios
 - Validate eligibility checks
 - Test user experience flows
 - Frontend development and QA
-""",
+""",  # noqa: E501
             city=self.city,
         )
 

@@ -247,7 +247,7 @@ The last three back the frontend revival / past-due E2E journeys: `EXPIRED` and 
 | 6 | **Weekend Wellness Retreat** | Alpha | Public | Open | Ticketed (incl. PWYC tier), 25 cap |
 | 7 | **Tech Founders Networking Happy Hour** | Beta | Members-only | Open | Free RSVP, 50 cap, RSVP deadline |
 | 8 | **Contemporary Art Exhibition Opening** | Alpha | Public | Open | Free RSVP, London |
-| 9 | **New Year's Eve Gala 2024** | Alpha | Public | Closed | Past event, ticketed, feedback questionnaire |
+| 9 | **Annual Charity Gala** | Alpha | Public | Closed | Past event, ticketed, feedback questionnaire |
 | 10 | **Future Tech Summit (Planning Phase)** | Beta | Private | Draft | Draft event, Tokyo |
 | 11 | **Tech Talk May: Scaling Microservices** | Beta | Members-only | Open | Free RSVP, part of Monthly Tech Talks series |
 | 12 | **Advanced Machine Learning Workshop** | Beta | Public | Open | Ticketed (sold out), 20 cap, waitlist |
@@ -303,7 +303,7 @@ These events are all in the **Eligibility Test Organization** and are designed t
 | Shared Room | 250.00 EUR | 20 (14 sold) | Online | Standard |
 | Community Support Rate | 150.00 EUR (PWYC: 100-250) | 5 (3 sold) | Online | Pay What You Can |
 
-#### New Year's Eve Gala 2024
+#### Annual Charity Gala
 
 | Tier | Price | Quantity | Payment | Notes |
 |---|---|---|---|---|
@@ -385,7 +385,7 @@ This verifies the full billing pipeline end-to-end: VAT calculation → payment 
 | **Code of Conduct Agreement** | Automatic | FutureStack 2025 (event) | Admission |
 | **Wine Tasting Dinner Application** | Manual | Wine Tasting (event) | Admission |
 | **Tech Innovators Network Membership Application** | Hybrid (AI + human) | Tech Innovators Network (org-level) | Admission |
-| **Event Feedback** | Manual | NYE Gala 2024 (event) | Feedback |
+| **Event Feedback** | Manual | Annual Charity Gala (event) | Feedback |
 
 **Code of Conduct Agreement.** Simple yes/no agreement. Fatal question (wrong answer = automatic fail). Max 3 attempts, requires 100% score.
 
@@ -451,7 +451,7 @@ For the **Spring Community Potluck & Garden Party**:
 ### Tickets
 
 - **Summer Festival**: 4 Early Bird (active), 1 VIP (active), 1 General (pending payment), 1 Early Bird (cancelled/refunded)
-- **NYE Gala 2024**: 2 checked-in tickets (George, Charlie) with succeeded payments
+- **Annual Charity Gala**: 2 checked-in tickets (George, Charlie) with succeeded payments
 - **Wellness Retreat**: 1 Shared Room (active, Hannah)
 - **FutureStack 2025**: 1 Member Discount (active, Frank)
 - **Classical Music Evening**: 3 Standing Room (active), 5 Standing Room (pending payment)
@@ -517,8 +517,8 @@ Every bootstrap user has dietary preferences and/or food restrictions configured
 | PWYC ticket | Log in as any user, purchase the Community Support Rate tier for **Weekend Wellness Retreat** |
 | RSVP with potluck | Log in as a member, RSVP to **Spring Community Potluck & Garden Party** |
 | Waitlist behavior | Try to get a ticket for **Advanced Machine Learning Workshop** (sold out) |
-| Past event data | View **New Year's Eve Gala 2024** for historical event information |
-| Event feedback | Log in as `charlie.member@example.com` (checked-in at NYE Gala) and submit feedback |
+| Past event data | View **Annual Charity Gala** for historical event information |
+| Event feedback | Log in as `charlie.member@example.com` (checked-in at Annual Charity Gala) and submit feedback |
 | Questionnaire flow (simple) | Attend **FutureStack 2025**: complete the Code of Conduct Agreement |
 | Questionnaire flow (complex) | Apply to **Wine Tasting**: conditional questions based on wine experience level |
 | Membership application | Apply to join **Tech Innovators Network** via the membership questionnaire |
