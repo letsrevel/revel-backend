@@ -10,7 +10,7 @@
 [![codecov](https://codecov.io/gh/letsrevel/revel-backend/graph/badge.svg)](https://codecov.io/gh/letsrevel/revel-backend)
 
 <p align="center">
-  <img src="docs/screenshots/event-detail-page.png" alt="A Revel event page with cover art, ticket availability and a buy button" width="800"/>
+  <img src="docs/screenshots/event-detail-page.png" alt="A Revel event page for a gig, with date, venue, running order and a Get Tickets button" width="800"/>
 </p>
 
 For gyms, yoga studios, choirs, comedy clubs, supper clubs and theaters, Revel runs recurring memberships, series passes, seat maps and the box office. Musicians, DJs and bands selling their own shows get ticketing with no promoter in between, and they keep the attendee list. Revel was first built for queer collectives, kink clubs and activist groups, which is why attendee vetting, private guest lists and invitation-only events are part of the core.
@@ -146,38 +146,50 @@ Potluck coordination with dietary restrictions, polls and event discovery with d
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/screenshots/ticket-tiers.png" alt="Ticket tier selection" width="400"/>
+      <img src="docs/screenshots/ticket-tiers.png" alt="Ticket options for a gig" width="400"/>
       <br/>
-      <em>Ticket tiers: fixed price, free and pay at the door</em>
+      <em>Fixed-price and pay-what-you-can tiers in one cart</em>
     </td>
     <td align="center" width="50%">
-      <img src="docs/screenshots/seat-selection.png" alt="Seat selection on a seat map" width="400"/>
+      <img src="docs/screenshots/membership-plans.png" alt="Membership plans" width="400"/>
       <br/>
-      <em>Seat selection with accessible-seat markers</em>
+      <em>Monthly and yearly membership plans</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/membership-card.png" alt="Membership card" width="400"/>
+      <br/>
+      <em>A membership card with Apple Wallet and Google Wallet buttons</em>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/series-pass.png" alt="Season pass" width="400"/>
+      <br/>
+      <em>A season pass for an event series</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/seat-selection.png" alt="Seat selection on a venue map" width="400"/>
+      <br/>
+      <em>Seat selection on a venue map</em>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/org-admin-memberships.png" alt="Subscriptions in the organization admin" width="400"/>
+      <br/>
+      <em>Subscriptions and recurring revenue in the organization admin</em>
     </td>
   </tr>
   <tr>
     <td align="center">
       <img src="docs/screenshots/questionnaire-screening.png" alt="Screening questionnaire" width="400"/>
       <br/>
-      <em>A screening questionnaire</em>
+      <em>A screening questionnaire before RSVP</em>
     </td>
     <td align="center">
       <img src="docs/screenshots/financials.png" alt="Revenue and VAT reporting" width="400"/>
       <br/>
-      <em>Revenue and VAT, per event and organization-wide</em>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="docs/screenshots/event-discovery.png" alt="Event discovery" width="400"/>
-      <br/>
-      <em>Event discovery with filters, tags and a calendar view</em>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/org-admin-dashboard.png" alt="Organization admin" width="400"/>
-      <br/>
-      <em>Organization admin</em>
+      <em>Ticket revenue and VAT per event, plus membership revenue</em>
     </td>
   </tr>
 </table>
