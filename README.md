@@ -182,9 +182,9 @@ Potluck coordination with dietary restrictions, polls and event discovery with d
   </tr>
   <tr>
     <td align="center">
-      <img src="docs/screenshots/questionnaire-screening.png" alt="Screening questionnaire" width="400"/>
+      <img src="docs/screenshots/questionnaire-screening.png" alt="Application questionnaire for a rope workshop" width="400"/>
       <br/>
-      <em>A screening questionnaire before RSVP</em>
+      <em>An application questionnaire for a rope workshop</em>
     </td>
     <td align="center">
       <img src="docs/screenshots/financials.png" alt="Revenue and VAT reporting" width="400"/>
