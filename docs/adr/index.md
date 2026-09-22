@@ -47,7 +47,7 @@ What becomes easier or harder because of this change?
 | [ADR-0005](0005-django-lts-policy.md) | Django 5.2 LTS Policy | Accepted |
 | [ADR-0006](0006-mo-files-in-git.md) | Compiled Translation Files (.mo) in Git | Superseded by [ADR-0011](0011-mo-files-built-not-committed.md) |
 | [ADR-0007](0007-celery-exception-propagation.md) | Let Celery Exceptions Propagate | Accepted |
-| [ADR-0008](0008-environment-feature-flags.md) | Environment-Based Feature Flags | Accepted |
+| [ADR-0008](0008-environment-feature-flags.md) | Environment-Based Feature Flags | Accepted (`FEATURE_GOOGLE_SSO` superseded by [ADR-0016](0016-oidc-relying-party.md)) |
 | [ADR-0009](0009-referral-payout-bounded-contexts.md) | Referral Payout Bounded Contexts | Accepted |
 | [ADR-0010](0010-dependency-compliance.md) | Dependency License & Vulnerability Checks | Accepted |
 | [ADR-0011](0011-mo-files-built-not-committed.md) | Build Compiled Translations (.mo), Don't Commit Them | Accepted |
