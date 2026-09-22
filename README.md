@@ -33,7 +33,7 @@ The wizard offers to install Docker if it is missing, asks for your domains, ema
 
 ## Fees and data
 
-**On letsrevel.io**, free events, RSVPs and offline payments cost nothing. Online card payments cost the organizer 3% + €0.50 per order in total for standard EEA cards: Stripe's processing fee (1.5% + €0.25) plus Revel's platform fee (1.5% + €0.25, plus VAT where Revel has to charge it). Cards issued outside the EEA carry higher Stripe fees. Buyers pay the ticket price and nothing more. Membership subscriptions pay Revel 1.5% with no fixed part, plus Stripe's fees.
+**On letsrevel.io**, free events, RSVPs and offline payments cost nothing. Online card payments cost the organizer 3% + €0.50 per order in total for standard EEA cards: Stripe's processing fee (1.5% + €0.25) plus Revel's platform fee (1.5% + €0.25, plus VAT where Revel has to charge it). The fixed part is charged once per order, not once per ticket: four €20 tickets bought together cost €2.90 in total fees (3% of €80 plus €0.50), not 3% plus 4 × €0.50. Cards issued outside the EEA carry higher Stripe fees. Buyers pay the ticket price and nothing more. Membership subscriptions pay Revel 1.5% with no fixed part, plus Stripe's fees.
 
 **Self-hosted**, you pay nothing to Revel. The code is MIT-licensed.
 
@@ -58,9 +58,9 @@ Both are open source and self-hostable. Checked against each project's default b
 | Seat maps in the free edition | Yes | Paid proprietary plugin | No |
 | Apple Wallet | Built in | Official open-source plugin | No |
 | Google Wallet | Built in | No (announced as in progress) | No |
-| Hosted platform fee | 1.5% + €0.25 per order, paid by the organizer | 2.5% of the net ticket price (max €15 per ticket) | 1.25% + $0.60 per ticket, added to the buyer's price by default |
+| Hosted platform fee | 1.5% + €0.25 **per order**, paid by the organizer | 2.5% of the net ticket price (max €15) **per ticket** | 1.25% + $0.60 **per ticket**, added to the buyer's price by default |
 
-Platform fees are as each vendor publishes them. Payment processing (Stripe or another provider) comes on top for all three.
+Platform fees are as each vendor publishes them. Payment processing (Stripe or another provider) comes on top for all three. Revel's fixed €0.25 is charged once per order however many tickets it holds; a per-ticket fixed fee grows with the order, so Hi.Events' $0.60 becomes $2.40 on four tickets.
 
 ## Features
 
