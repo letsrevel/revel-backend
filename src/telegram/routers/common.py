@@ -16,10 +16,16 @@ from asgiref.sync import sync_to_async
 from accounts.models import RevelUser
 from common.models import Legal, SiteSettings
 from telegram import keyboards
+from telegram.middleware import AuthorizationMiddleware
 from telegram.models import AccountOTP, TelegramUser
 
 logger = structlog.get_logger(__name__)
 router = Router()
+
+# Register middleware at router level to access handler flags (e.g. requires_linked_user on /unsubscribe).
+# Unflagged handlers pass straight through.
+router.message.middleware(AuthorizationMiddleware())
+router.callback_query.middleware(AuthorizationMiddleware())
 
 
 @router.message(CommandStart())
