@@ -58,9 +58,9 @@ Both are open source and self-hostable. Checked against each project's default b
 | Seat maps in the free edition | Yes | Paid proprietary plugin | No |
 | Apple Wallet | Built in | Official open-source plugin | No |
 | Google Wallet | Built in | No (announced as in progress) | No |
-| Hosted fee | 3% + €0.50 per order for standard EEA cards, Stripe included, plus VAT on Revel's share where it applies; paid by the organizer | 2.5% of the net ticket price (max €15 per ticket), plus payment provider fees | 1.25% + $0.60 per ticket, added to the buyer's price by default, plus Stripe fees |
+| Hosted platform fee | 1.5% + €0.25 per order, paid by the organizer | 2.5% of the net ticket price (max €15 per ticket) | 1.25% + $0.60 per ticket, added to the buyer's price by default |
 
-Where they are ahead: Hi.Events lets the organizer choose whether its fee is added to the buyer's price or absorbed, while Revel always charges the organizer. pretix has a plugin marketplace, a point-of-sale app and reseller support (the last two are proprietary plugins).
+Platform fees are as each vendor publishes them. Payment processing (Stripe or another provider) comes on top for all three.
 
 ## Features
 
