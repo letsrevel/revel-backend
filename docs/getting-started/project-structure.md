@@ -13,7 +13,7 @@ revel-backend/
 │   ├── questionnaires/     # Dynamic questionnaires app
 │   ├── notifications/      # Multi-channel notifications app
 │   ├── polls/              # Organization-managed polls (1.58.0)
-│   ├── wallet/             # Apple Wallet pass generation
+│   ├── wallet/             # Apple Wallet and Google Wallet passes
 │   ├── geo/                # Geolocation app
 │   ├── telegram/           # Telegram bot app
 │   ├── moderation/         # Content moderation / blocklists (1.64.0)
@@ -111,9 +111,9 @@ Key responsibilities:
 
 ---
 
-### `wallet/`: Apple Wallet Integration
+### `wallet/`: Apple Wallet and Google Wallet
 
-Generates Apple Wallet passes (`.pkpass` files) for event tickets, allowing attendees to add their tickets to the iOS Wallet app.
+Generates Apple Wallet passes (`.pkpass` files) and Google Wallet save links for tickets, series passes and membership cards. Each rail is enabled only when its credentials are configured.
 
 ---
 

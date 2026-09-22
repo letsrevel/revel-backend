@@ -12,19 +12,19 @@ This document provides guidelines for contributing to the project to ensure a sm
 
 There are several ways you can contribute to the project:
 
-*   **Reporting Bugs:** If you find a bug, please check our [GitHub Issues](https://github.com/biagiodistefano/revel/issues) to see if it has already been reported. If not, please open a new issue. **Found a security vulnerability? Do not open a public issue** — see [Reporting Security Vulnerabilities](#reporting-security-vulnerabilities) below.
+*   **Reporting Bugs:** If you find a bug, please check our [GitHub Issues](https://github.com/letsrevel/revel-backend/issues) to see if it has already been reported. If not, please open a new issue. **Found a security vulnerability? Do not open a public issue** — see [Reporting Security Vulnerabilities](#reporting-security-vulnerabilities) below.
 *   **Suggesting Enhancements:** If you have an idea for a new feature or an improvement to an existing one, open an issue to start a discussion.
 *   **Writing Code:** If you're ready to contribute code, you can pick an existing issue or propose a new one.
 
 ## Setting Up Your Development Environment
 
-Our goal is to make setup as easy as possible. You'll need `make`, `Docker`, and Python 3.12+.
+Our goal is to make setup as easy as possible. You'll need `make`, Docker, Python 3.14+, [uv](https://docs.astral.sh/uv/), and the native libraries listed in the [README](README.md#local-development).
 
 1.  **Fork** the repository on GitHub.
 2.  **Clone** your fork locally:
     ```bash
-    git clone https://github.com/your-username/revel.git
-    cd revel
+    git clone https://github.com/your-username/revel-backend.git
+    cd revel-backend
     ```
 3.  **Run the setup command:**
     ```bash
@@ -60,7 +60,7 @@ Consistency is key. We follow these standards to maintain a clean and readable c
 *   **Style Guide:** [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html).
 *   **Service Layer:** We use a hybrid approach - function-based services for stateless operations (CRUD, queries), class-based for stateful workflows (checkout, eligibility). See `CLAUDE.md` for detailed patterns.
 *   **Formatting & Linting:** We use `ruff` for both. Run `make format` to automatically format your code before committing. `make lint` will check for style issues.
-*   **Type Hinting:** All new code must be fully type-hinted using Python 3.12+ syntax. We use `mypy` for static analysis. Run `make mypy` to check your types.
+*   **Type Hinting:** All new code must be fully type-hinted using Python 3.14+ syntax. We use `mypy` for static analysis. Run `make mypy` to check your types.
     *   Always use `import typing as t` (never `from typing import ...`).
     *   Do not use `# type: ignore[no-untyped-def]`. All function signatures must be typed.
     *   Use string forward references for type hints where necessary (e.g., `-> 'MyModel'`).
