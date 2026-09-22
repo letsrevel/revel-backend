@@ -4,10 +4,18 @@
 
 [![Release](https://img.shields.io/github/v/release/letsrevel/revel-backend?style=for-the-badge)](https://github.com/letsrevel/revel-backend/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](./LICENSE)
-[![Docs](https://img.shields.io/badge/docs-docs.letsrevel.io-blue?style=for-the-badge)](https://docs.letsrevel.io)
+[![Docs](https://img.shields.io/badge/docs-docs.letsrevel.io-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.letsrevel.io)
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/Rnwbzuvxvn)
+[![Django](https://img.shields.io/badge/django-5.2_LTS-092E20.svg?logo=django&logoColor=white&style=for-the-badge)](https://docs.djangoproject.com/en/5.2/)
+
+[![Python](https://img.shields.io/badge/python-3.14%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-46aef7?logo=ruff&logoColor=white)](https://docs.astral.sh/ruff/)
+[![mypy strict](https://img.shields.io/badge/types-mypy-informational.svg)](https://mypy-lang.org/)
 [![Test](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml)
 [![codecov](https://codecov.io/gh/letsrevel/revel-backend/graph/badge.svg)](https://codecov.io/gh/letsrevel/revel-backend)
+[![Build](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml)
+[![Docs build](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml)
+[![Bandit](https://github.com/letsrevel/revel-backend/actions/workflows/bandit.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/bandit.yaml)
 
 <p align="center">
   <img src="docs/screenshots/event-detail-page.png" alt="A Revel event page for a gig, with date, venue, running order and a Get Tickets button" width="800"/>
@@ -43,7 +51,7 @@ For comparison, from each vendor's published pricing (September 2026): Eventbrit
 
 ### Selling your own shows
 
-The attendee export gives you every buyer's name and email. Tiers can be pay-what-you-can, and presales can go to members or to holders of an invitation link before general sale. A run of dates can be one event series. Merch and add-ons are not supported yet.
+The attendee export gives you every buyer's name and email. Tiers can be pay-what-you-can, and presales can go to members or to holders of an invitation link before general sale. A run of dates can be one event series.
 
 ### Compared with pretix and Hi.Events
 
