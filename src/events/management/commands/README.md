@@ -136,7 +136,7 @@ All users have the password: `password123`
 
 ## Events
 
-### 1. Summer Sunset Music Festival
+### 1. Sunset Music Festival
 - **Organization:** Revel Events Collective
 - **Type:** Public
 - **Status:** Open
@@ -192,7 +192,7 @@ All users have the password: `password123`
 - **User Relationships:**
   - 3 RSVPs (org_beta_member, org_beta_staff, multi_org_user)
 
-### 4. Spring Community Potluck & Garden Party
+### 4. Community Potluck & Garden Party
 - **Organization:** Revel Events Collective
 - **Type:** Public
 - **Status:** Open
@@ -211,7 +211,7 @@ All users have the password: `password123`
   - 1 NO RSVP
   - 12 potluck items (6 suggested, 6 claimed)
 
-### 5. FutureStack 2025: AI & Web3 Conference
+### 5. FutureStack: AI & Web3 Conference
 - **Organization:** Tech Innovators Network
 - **Type:** Public
 - **Status:** Open
@@ -303,7 +303,7 @@ All users have the password: `password123`
 - **Tags:** tech, conference
 - **Purpose:** Testing draft event visibility (only visible to org owners/staff)
 
-### 11. Tech Talk May: Scaling Microservices
+### 11. Tech Talk: Scaling Microservices
 - **Organization:** Tech Innovators Network
 - **Type:** Members Only
 - **Status:** Open
@@ -367,7 +367,7 @@ All users have the password: `password123`
 - **Max Attempts:** 3
 - **Min Score:** 100%
 - **Questions:** 1 multiple choice (fatal)
-- **Linked to:** FutureStack 2025 Conference
+- **Linked to:** FutureStack Conference
 - **Purpose:** Simple mandatory agreement
 
 ### 2. Wine Tasting Dinner Application
@@ -398,7 +398,7 @@ All users have the password: `password123`
 
 ---
 
-## Potluck Items (Spring Community Potluck)
+## Potluck Items (Community Potluck)
 
 ### Host-Suggested Items (Unassigned)
 1. Main Course (pasta, casserole, etc) - Serves 8-10
@@ -422,14 +422,14 @@ All users have the password: `password123`
 
 ### Payment States Demonstrated
 - **Succeeded:** Past event ticket (attendee_1 - Annual Charity Gala)
-- **Pending:** Summer festival ticket (attendee_4 - $65, expires in 30 min)
-- **Refunded:** Cancelled summer festival ticket (pending_user)
+- **Pending:** Sunset festival ticket (attendee_4 - $65, expires in 30 min)
+- **Refunded:** Cancelled sunset festival ticket (pending_user)
 
 ### Ticket States Demonstrated
 - **Active:** Multiple tickets across events
-- **Pending:** Summer festival (attendee_4) - awaiting payment
+- **Pending:** Sunset festival (attendee_4) - awaiting payment
 - **Checked In:** Past event (attendee_1) - checked in by org_alpha_staff
-- **Cancelled:** Summer festival (pending_user) - with refund
+- **Cancelled:** Sunset festival (pending_user) - with refund
 
 ---
 
@@ -533,7 +533,7 @@ Organizations (2)
 │   ├── Owner: alice.owner@example.com
 │   ├── Staff: bob.staff@example.com
 │   ├── Members: charlie.member@example.com, karen.multiorg@example.com
-│   ├── Events: Summer Festival, Wine Tasting, Potluck, Wellness Retreat, Art Opening, Annual Charity Gala
+│   ├── Events: Sunset Festival, Wine Tasting, Potluck, Wellness Retreat, Art Opening, Annual Charity Gala
 │   └── Event Series: Seasonal Community Gatherings
 │
 └── Tech Innovators Network
@@ -588,17 +588,17 @@ Relationships
 5. Log out to test anonymous user views
 
 ### Testing Event Flows
-- **Ticket Purchase:** Try FutureStack 2025 (multiple tiers available)
-- **RSVP:** Try Spring Potluck (public, no ticket required)
+- **Ticket Purchase:** Try FutureStack (multiple tiers available)
+- **RSVP:** Try Community Potluck (public, no ticket required)
 - **Waitlist:** Try ML Workshop (sold out, waitlist active)
 - **Invitation:** Check wine tasting invitations for multi_org_user
-- **Potluck:** Manage potluck items for Spring Potluck
+- **Potluck:** Manage potluck items for Community Potluck
 - **Past Event:** View Annual Charity Gala for historical data
 - **Draft Event:** Login as org owner to see draft events
 
 ### Testing Edge Cases
-- **Nearly sold out:** Summer Festival early bird tier (180/200 sold)
-- **Just opened tier:** Summer Festival general admission (sales start in future)
+- **Nearly sold out:** Sunset Festival early bird tier (180/200 sold)
+- **Just opened tier:** Sunset Festival general admission (sales start in future)
 - **PWYC pricing:** Wellness Retreat community support rate
 - **Expired payment:** Check pending_user's cancelled ticket
 - **Check-in flow:** Past event has checked-in ticket
