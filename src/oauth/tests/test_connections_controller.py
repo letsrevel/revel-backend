@@ -30,7 +30,9 @@ def test_list_and_revoke(session_client: Client, user: RevelUser, oauth_app: OAu
     [conn] = session_client.get("/api/oauth/connections/").json()
     assert conn["application"]["name"] == "Test App"
     assert sorted(conn["scopes"]) == ["org:read", "profile"]
-    assert session_client.delete(f"/api/oauth/connections/{oauth_app.client_id}").status_code == 204
+    # The revoke URL is built from the listing itself, as the Connected Apps screen must: the
+    # listing once omitted ``client_id``, which only a fixture-driven test could not notice.
+    assert session_client.delete(f"/api/oauth/connections/{conn['client_id']}").status_code == 204
     assert not AccessToken.objects.filter(user=user, application=oauth_app).exists()
     assert session_client.get("/api/oauth/connections/").json() == []
 
@@ -42,7 +44,7 @@ def test_listing_never_exposes_another_identity(
     make_access_token(user, oauth_app, "org:read")
     make_access_token(revel_user_factory(), oauth_app, "org:read")
     [conn] = session_client.get("/api/oauth/connections/").json()
-    assert set(conn) == {"application", "scopes", "first_authorized_at", "last_used_at"}
+    assert set(conn) == {"client_id", "application", "scopes", "first_authorized_at", "last_used_at"}
     assert set(conn["application"]) == {
         "name",
         "description",

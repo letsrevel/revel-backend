@@ -40,12 +40,13 @@ sequenceDiagram
     Content-Type: application/json
 
     {
-      "email": "user@example.com",
+      "username": "user@example.com",
       "password": "secret"
     }
     ```
 
-    Returns an access/refresh JWT token pair.
+    Returns an access/refresh JWT token pair. The field is `username` (it holds the email
+    address: every account's username is its email).
 
 === "With 2FA (TOTP)"
 
@@ -540,6 +541,58 @@ Users can change their own email address:
 - `POST /account/email-change-confirm` — swaps `email` + `username`, **blacklists every outstanding JWT** for the user, and returns a fresh token pair so the confirming device stays signed in
 
 Both addresses receive completion emails; the old address also gets an in-flight notice with a masked rendering of the new address. The flow rejects Google-SSO accounts and same-email / already-taken targets with clear `400`s, and silently no-ops for globally-banned targets.
+
+---
+
+## Third-Party Apps (OAuth)
+
+Revel is an OAuth 2.1 authorization server and OpenID Provider: a third-party app, script or MCP
+host can act on a user's behalf with a token limited to the scopes that user approved. The whole
+surface is hidden unless `GET /version` reports `features.oauth_provider`. Full developer
+reference: [Third-Party Apps (OAuth)](../developer-guide/oauth.md). Persona-level journeys for
+E2E: Journey 28 in `USER_JOURNEYS.md`.
+
+```mermaid
+sequenceDiagram
+    participant App as Third-party app
+    participant FE as Revel frontend<br/>/oauth/authorize
+    participant API as Revel API
+    App->>FE: redirect with client_id, scope, state, PKCE challenge
+    FE->>API: GET /api/oauth/authorize?(verbatim query)
+    API-->>FE: consent description + consent_ticket<br/>(or redirect_to if already granted)
+    FE->>API: POST /api/oauth/authorize?(same query)<br/>{allow, consent_ticket}
+    API-->>FE: {redirect_to}
+    FE->>App: redirect with ?code=…&state=…
+    App->>API: POST /o/token (code + PKCE verifier)
+    API-->>App: access token (+ refresh token with offline_access)
+```
+
+### Connecting an App
+
+The user reviews the app (name, logo, homepage, privacy policy, and a warning when Revel has not
+verified it) and the scopes it asks for, then allows or denies. The consent ticket expires after
+five minutes; an expired screen is simply shown again. An app the user already approved for the
+same scopes skips the screen.
+
+### Managing Connected Apps
+
+*Settings → Connected apps* (`GET /api/oauth/connections/`) lists each app with the scopes it
+holds and when it was last used; **Remove** (`DELETE /api/oauth/connections/{client_id}`) kills
+every token it holds. Changing the account email and a global ban also disconnect apps.
+
+### Registering an App (Developers)
+
+*Settings → Developer apps* (`/api/oauth/apps/`, verified email required): public (PKCE-only) or
+confidential clients, redirect URIs, and an `allowed_scopes` ceiling. A confidential client's
+secret is shown once and can only be rotated. The list shows how many users are connected, never
+who.
+
+!!! warning "What an app can never do"
+    An app token's power is *granted scopes ∩ the user's current permissions*, and some routes
+    accept only the user's own login whatever the scopes: buying, RSVPing and other attendee
+    writes, account and security settings, billing, organization finances, Stripe onboarding,
+    staff management and organization invitation links. See
+    [What app tokens cannot reach](../developer-guide/oauth.md#what-app-tokens-cannot-reach).
 
 ---
 

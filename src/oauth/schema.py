@@ -237,6 +237,10 @@ class OAuthAppCreatedSchema(OAuthAppSchema):
 class ConnectionSchema(Schema):
     """One entry of the Connected Apps screen (spec §8.4)."""
 
+    #: The key ``DELETE /oauth/connections/{client_id}`` takes. Public by design (it rides in
+    #: every authorization URL), so it is safe to list; ``AuthorizeAppSchema`` omits it only
+    #: because the consent screen has no use for it.
+    client_id: str
     application: AuthorizeAppSchema
     scopes: list[str]
     first_authorized_at: AwareDatetime

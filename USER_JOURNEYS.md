@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Last updated**: 2026-07-25 (merged seating phase 1 + subscriptions integration)
+> **Last updated**: 2026-09-24 (OAuth 2.1 / OpenID Connect provider: Journey 28)
 
 ---
 
@@ -37,6 +37,7 @@ This document maps every user journey through the Revel platform, organized by p
 - [Journey 25: Revenue & VAT Reporting](#journey-25-revenue--vat-reporting)
 - [Journey 26: Series Passes (Season Tickets)](#journey-26-series-passes-season-tickets)
 - [Journey 27: Membership Applications (Join Eligibility & Apply)](#journey-27-membership-applications-join-eligibility--apply)
+- [Journey 28: Third-Party Apps (OAuth 2.1 / OpenID Connect)](#journey-28-third-party-apps-oauth-21--openid-connect)
 - [Cross-Cutting Concerns](#cross-cutting-concerns)
 - [Gap-Fill Interview Questions](#gap-fill-interview-questions)
 
@@ -75,6 +76,8 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 | **Waitlisted User** | Joined waitlist for a full event; may hold a time-limited waitlist offer | Fully authenticated |
 | **Referrer** | Has a referral code and earns payouts from referred users' ticket purchases | Fully authenticated |
 | **Subscriber** | Member with an active recurring membership subscription (ONLINE/Stripe self-service or OFFLINE/staff-managed) tied to a plan/tier | Fully authenticated |
+| **App Developer** | Registers third-party apps (scripts, integrations, MCP hosts) that call the API on other users' behalf | Fully authenticated, verified email |
+| **Connected App** | A third-party client acting for a user with a scoped app token — not a person, but every organizer and dashboard journey must behave correctly for it | App token (OAuth) |
 
 ---
 
@@ -130,7 +133,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
   - Org staff with `edit_organization` also receive an in-platform `ORG_CONTACT_MESSAGE_RECEIVED` notification
 
 ### 1.9 Feature-Flag-Aware UI
-- `GET /version` (anonymous) returns a `features` object: `organization_creation`, `telegram`, `llm_evaluation`, `referral_applications` (the last one comes from `SiteSettings`, not an env setting)
+- `GET /version` (anonymous) returns a `features` object: `organization_creation`, `telegram`, `llm_evaluation`, `referral_applications` (the last one comes from `SiteSettings`, not an env setting), `oauth_provider` (gates the consent page, Connected apps and Developer apps — see [Journey 28](#journey-28-third-party-apps-oauth-21--openid-connect))
 - Frontend hides gated UI (e.g. Google SSO button, "Create organization" CTA, Telegram linking) instead of letting users hit a 403/404
 
 ---
@@ -547,6 +550,7 @@ Opt-in per tier via `allow_user_cancellation`, `cancellation_deadline_hours`, an
 - Set: max_uses, expiration
 - Share link → anyone with link can claim
 - View token usage
+- First-party only: a connected app cannot create, list or edit these links whatever scopes it holds, because a link can grant staff status ([Journey 28.6](#286-what-an-app-can-never-do))
 
 ### 8.9 Blacklist Management
 - Navigate to `/org/[slug]/admin/blacklist`
@@ -1079,6 +1083,7 @@ See [Journey 25: Revenue & VAT Reporting](#journey-25-revenue--vat-reporting) fo
 - `POST /account/email-change-confirm` — swaps `email` + `username`, **blacklists every outstanding JWT** for the user, and returns a fresh token pair so the confirming device stays signed in
 - Both addresses receive completion emails; the old address also gets an in-flight notice with a masked rendering of the new address
 - Rejected with clear `400`s for Google-SSO accounts and same-email / already-taken targets; globally-banned targets silently no-op
+- **Disconnects every connected app**: an app token is a live session, so it is revoked with the rest ([Journey 28.4](#284-connections-ending-without-the-user-acting))
 
 ---
 
@@ -1595,6 +1600,63 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 
 ---
 
+## Journey 28: Third-Party Apps (OAuth 2.1 / OpenID Connect)
+
+> Revel is an OAuth 2.1 authorization server and OpenID Provider (ADR-0018). A third-party app, a script or an MCP host acts **on a user's behalf** with a token limited to the scopes that user approved. An app token's power is always *granted scopes ∩ what the user may do right now*: it never gains authority the user lacks, and loses it the moment the user does. Developer-facing detail: `docs/developer-guide/oauth.md`. Everything here is hidden when `GET /version` reports `features.oauth_provider: false`.
+
+### 28.1 Register an App (App Developer)
+- Settings → **Developer apps** (`/api/oauth/apps/`), verified email required (403 otherwise)
+- Create with name, description, `client_type` (`public` = PKCE-only for SPAs/CLIs/native apps; `confidential` = has a secret), 1–10 redirect URIs, `allowed_scopes` (the app's ceiling), homepage and privacy-policy URLs; optional logo upload
+- A confidential app's **`client_secret` is shown once** in the create response and never again (stored hashed); **Rotate secret** issues a new one, again shown once
+- Redirect URIs: `https`, or `http` on loopback for public clients; fragments rejected
+- Per-user cap (`OAUTH_MAX_APPS_PER_USER`, default 10): the next create is a **409**
+- The list shows `connections_count` (how many users hold a live token) — a count, **never who**
+- Edit: shrinking `allowed_scopes` **immediately revokes** live tokens holding a removed scope
+- **Deactivate** revokes every token for every user; **Activate** re-enables (users must re-consent); **Delete** removes the app
+- Apps start **unverified**; only Revel staff can mark one verified (removes the consent-screen warning)
+
+### 28.2 Connect an App — the Consent Screen (Authenticated User)
+- The app sends the browser to `{FRONTEND}/oauth/authorize?client_id=…&response_type=code&redirect_uri=…&scope=…&state=…&code_challenge=…&code_challenge_method=S256&resource=…`
+- Not logged in → login (or register), then **back to the same URL with the query string untouched**
+- The page calls `GET /api/oauth/authorize` with the **verbatim** query string and gets one of:
+  - **Consent description**: app name, description, logo, homepage and privacy links, **verified** flag, the requested scopes as `{name, label, group}` rows (groups: identity / you / your organizations) and a `consent_ticket`
+  - **`redirect_to`** (no screen): the user already granted this app these scopes, or the client sent `prompt=none` — follow it immediately
+  - **400 `{detail, error}`**: bad client, redirect URI, scope or PKCE — show the error on Revel's page; never redirect to an unvalidated URI
+- **Unverified app** → prominent "this app has not been reviewed by Revel" warning
+- **Allow** → `POST /api/oauth/authorize` (same query string) with `{allow: true, consent_ticket}` → `{redirect_to}` → browser goes back to the app with `?code=…&state=…`
+- **Deny** → `{allow: false}` → `redirect_to` carries `error=access_denied` back to the app
+- Ticket lives **5 minutes**: an expired one answers 400 `error=consent_required` → re-fetch and show the screen again; `invalid_request` means the decision did not match what was shown (do not retry unchanged)
+- `prompt=consent` always shows the screen even with a prior grant; `prompt=none` with no prior grant redirects with `error=interaction_required`
+- "Sign in with Revel" is this same flow with the `openid` scope: the app gets an ID token and `/o/userinfo` claims gated by `profile` / `email`
+
+### 28.3 Manage Connected Apps (Authenticated User)
+- Settings → **Connected apps** (`GET /api/oauth/connections/`): each app with its `client_id`, name/logo/verified, the scopes it holds, first authorized and last used; most recently used first
+- **Remove** → `DELETE /api/oauth/connections/{client_id}` → every token, ID token and pending code for that app dies; the next authorization request shows the consent screen again (no silent re-approval)
+- Empty state when no app is connected
+
+### 28.4 Connections Ending Without the User Acting
+- Changing the account email ([17.6](#176-self-served-email-change)) disconnects **every** app
+- A global ban revokes the user's tokens and deactivates every app the banned user **owns** (its other users lose access too)
+- The developer deactivating the app, or shrinking its `allowed_scopes`, revokes the affected tokens
+- Losing an organization permission (staff demoted, removed) makes the app's calls in that org fail with a plain **403** at once — the scope is a ceiling, not a grant
+- Tokens: access 1 hour; refresh tokens only with `offline_access`, rotating on **every** use (a scope-narrowing refresh included); replaying an old refresh token kills the whole family
+
+### 28.5 What the App Can Do (Connected App)
+- Scopes: `openid`, `profile`, `email`, `offline_access`, `me:read`, `org:read` (mandatory baseline on every organizer route), `org:events`, `org:tickets`, `org:checkin`, `org:members`, `org:announcements`, `org:questionnaires`, `org:polls`, `org:potluck`
+- Money is explicit: `org:tickets` covers refunds and revenue (and is needed **alongside** `org:events` for cancel-with-refunds, the refund preview and all series-pass admin); `org:members` covers membership payments and refunds; `me:read` reads the user's own invoices and payments
+- Refusals the app sees: **403 `insufficient_scope`** with the missing scope in `WWW-Authenticate` → ask the user to re-consent; **403 without it** → the *user* lacks the org permission; **401** → token invalid, or a first-party-only route (28.6)
+
+### 28.6 What an App Can Never Do
+- First-party only (the user's own login JWT), whatever scopes are granted: buying, RSVPing, joining and every other attendee write; account, security and personal settings; billing, referrals, wallet passes; organization finances (revenue, VAT, invoices); Stripe onboarding; granting or changing staff; **organization invitation links**; platform integrations; poll lifecycle; managing OAuth apps or approving consent
+- Public routes answer an app token with **401** — an app browses public pages with no `Authorization` header
+- The exhaustive route list is in `docs/developer-guide/oauth.md` ("What app tokens cannot reach"); CI checks its single-route table against the code
+
+### 28.7 MCP Hosts & Dynamic Registration (Connected App)
+- A host pointed at the API origin gets a 401 with `resource_metadata`, discovers the authorization server (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`), self-registers at `/o/register`, then runs 28.2
+- Dynamically registered apps have no owner, are never verified (the consent screen always warns), and are pruned after `OAUTH_DCR_UNUSED_TTL_HOURS` (default 24) if never used; registration is IP-throttled with a daily instance-wide cap (429)
+
+---
+
 ## Cross-Cutting Concerns
 
 ### Internationalization
@@ -1629,6 +1691,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - Telegram ban: blocks Telegram-linked accounts
 - Auto-linking: new registrations and Telegram connections checked against global ban list
 - Banned users receive `ACCOUNT_BANNED` notification before deactivation
+- A ban also revokes the banned user's app tokens **and deactivates the OAuth apps they own**, so every other user of those apps loses access too ([Journey 28.4](#284-connections-ending-without-the-user-acting))
 
 ### Feature Flags
 Configured via environment variables. The anonymous `GET /version` returns a `features` object so clients can hide gated UI instead of letting users hit a 403/404.
@@ -1638,7 +1701,8 @@ Configured via environment variables. The anonymous `GET /version` returns a `fe
 - `FEATURE_TELEGRAM` (default on): when off, Telegram delivery is dropped and the linking endpoints 404
 - `FEATURE_ORGANIZATION_CREATION` (default on): when off, `POST /organizations/` returns 403 for non-staff (single-org instances); staff/superusers bypass
 - `FEATURE_OBSERVABILITY` (renamed from `ENABLE_OBSERVABILITY`, which still works as a deprecated alias for one release)
-- `/version` exposes a subset to clients: `organization_creation`, `telegram`, `llm_evaluation`
+- `OIDC_SIGNING_KEY_PATH` + `OAUTH_ISSUER` (credential presence, not a `FEATURE_*` flag): switch the OAuth/OIDC provider on. With no key every provider route is a 404; a key without an issuer fails the `oauth.E001` system check
+- `/version` exposes a subset to clients: `organization_creation`, `telegram`, `llm_evaluation`, `referral_applications`, `oauth_provider`
 
 ### Self-Hosting
 - The backend boots and runs on a self-hosted box **without** ClamAV, Telegram, or the full geo dataset, tailored via the feature flags above

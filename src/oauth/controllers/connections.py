@@ -30,6 +30,7 @@ class OAuthConnectionController(UserAwareController):
         """List the apps you have authorized, most recently used first."""
         return [
             schema.ConnectionSchema(
+                client_id=connection.application.client_id,
                 application=schema.AuthorizeAppSchema.from_app(connection.application),
                 scopes=sorted(connection.scopes),
                 first_authorized_at=connection.first_authorized_at,

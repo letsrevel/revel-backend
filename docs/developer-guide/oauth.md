@@ -292,7 +292,8 @@ evaluations. `org:read`'s label covers the first and not the second.
 
 - **Users**: *Settings → Connected apps* lists every app with live access, the scopes it holds,
   and when it was last used; removing one deletes its tokens immediately
-  (`GET`/`DELETE /api/oauth/connections/{client_id}`).
+  (`GET /api/oauth/connections/` lists them with each app's `client_id`;
+  `DELETE /api/oauth/connections/{client_id}` removes one).
 - **Apps**: `POST /o/revoke` (RFC 7009) with an access or refresh token.
 - **Developers**: deactivating your own app in the developer portal revokes every token issued
   for it, for all its users.
