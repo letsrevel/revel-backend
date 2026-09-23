@@ -50,7 +50,8 @@ just wastes RAM.
 
 - `FRONTEND_DOMAIN` — public hostname of the web app.
 - `API_DOMAIN` — public hostname of the API.
-- Additional `*_DOMAIN` vars (`grafana`, `docs`) for the Full-tier management UIs.
+- `GRAFANA_DOMAIN` — public hostname of Grafana, needed whenever the `observability` profile is
+  enabled, on either tier.
 
 ### Feature flags
 
