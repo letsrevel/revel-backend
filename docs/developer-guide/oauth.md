@@ -171,19 +171,23 @@ Paths are relative to `/api`.
 
 ### Single routes inside app-token controllers
 
-These controllers otherwise accept app tokens, which is why the exceptions are worth listing:
+These controllers otherwise accept app tokens, which is why the exceptions are worth listing.
+Paths are relative to `/api`. This table is exhaustive, and CI checks it against the code in
+both directions (`src/oauth/tests/test_scope_docs.py`).
 
 | Route | Why |
 |---|---|
 | `GET /organization-admin/{slug}` | Returns the organization's financial identity (Stripe, VAT), which `org:read` does not promise |
 | `POST /organization-admin/{slug}/verify-contact-email` | Changes a verified identity |
-| `POST /organization-admin/{slug}/stripe/connect`, `POST .../stripe/account/verify` | Owner-only Stripe onboarding |
-| `POST /organization-admin/{slug}/staff/{user_id}`, `DELETE .../staff/{user_id}`, `PUT .../staff/{user_id}/permissions` | Owner-only; granting or changing staff powers |
-| `PATCH /api/dashboard/tickets/{ticket_id}/guest-name` | Attendee write |
-| `POST /api/me/organizations/{slug}/apply`, `POST /api/me/applications/{id}/cancel` | Attendee write |
-| `POST /api/me/organizations/{slug}/membership-questionnaire/{id}/submit` | Attendee write |
-| `POST /api/me/organizations/{org_id}/subscribe`, `…/subscription/cancel`, `…/uncancel`, `…/change-plan`, `…/revive`, `…/billing-portal` | Starting, changing or paying for a subscription; `me:read` only reads |
-| `POST /api/events/{event_id}/potluck/`, `…/{item_id}/claim`, `…/{item_id}/unclaim` | Attendee write (`org:potluck` covers *managing* the list, not bringing a dish) |
+| `POST /organization-admin/{slug}/stripe/connect`, `POST /organization-admin/{slug}/stripe/account/verify` | Owner-only Stripe onboarding |
+| `POST /organization-admin/{slug}/staff/{user_id}`, `DELETE /organization-admin/{slug}/staff/{user_id}`, `PUT /organization-admin/{slug}/staff/{user_id}/permissions` | Owner-only; granting or changing staff powers |
+| `PUT /account/me`, `PUT /account/language`, `POST /account/me/upload-profile-picture`, `DELETE /account/me/delete-profile-picture` | Account writes; `me:read` only reads your profile |
+| `POST /account/email-change-request`, `GET /account/identities`, `DELETE /account/identities/{provider}`, `POST /account/delete-request`, `POST /account/export-data` | Identity, linked logins, deletion and data export are not delegable |
+| `PATCH /dashboard/tickets/{ticket_id}/guest-name` | Attendee write |
+| `POST /me/organizations/{slug}/apply`, `POST /me/applications/{application_id}/cancel` | Attendee write |
+| `POST /me/organizations/{slug}/membership-questionnaire/{questionnaire_id}/submit` | Attendee write |
+| `POST /me/organizations/{org_id}/subscribe`, `POST /me/organizations/{org_id}/subscription/cancel`, `POST /me/organizations/{org_id}/subscription/uncancel`, `POST /me/organizations/{org_id}/subscription/change-plan`, `POST /me/organizations/{org_id}/subscription/revive`, `POST /me/organizations/{org_id}/billing-portal` | Starting, changing or paying for a subscription; `me:read` only reads |
+| `POST /events/{event_id}/potluck/`, `POST /events/{event_id}/potluck/{item_id}/claim`, `POST /events/{event_id}/potluck/{item_id}/unclaim` | Attendee write (`org:potluck` covers *managing* the list, not bringing a dish) |
 
 !!! note "Why invitation links are first-party only"
 

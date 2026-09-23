@@ -262,8 +262,9 @@ def test_foreign_resource_token_fails_audience(
 ) -> None:
     """R-63: the only end-to-end proof that RFC 8707 resource restriction actually binds.
 
-    A switched route is required: ``OptionalAuth`` never 401s on an unknown bearer, it falls
-    through to anonymous — so this assertion would be unreachable on a public route.
+    A switched route is required: ``OptionalAuth`` answers *every* app token with a bare 401
+    (it only knows session JWTs), so a public route would 401 a correctly bound token as well
+    and could not tell the audience check apart from that.
     """
     verifier, challenge = pkce()
     redirect_to = decide(
