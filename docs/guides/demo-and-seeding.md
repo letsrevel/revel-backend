@@ -239,17 +239,17 @@ The last three back the frontend revival / past-due E2E journeys: `EXPIRED` and 
 
 | # | Event Name | Org | Type | Status | Key Features |
 |---|---|---|---|---|---|
-| 1 | **Summer Sunset Music Festival** | Alpha | Public | Open | Ticketed (3 tiers), 500 cap, waitlist, check-in window |
+| 1 | **Sunset Music Festival** | Alpha | Public | Open | Ticketed (3 tiers), 500 cap, waitlist, check-in window |
 | 2 | **Exclusive Wine Tasting & Pairing Dinner** | Alpha | Public | Open | Ticketed (invite-only tier), 40 cap, questionnaire-gated, invitation requests |
 | 3 | **Hands-on Workshop: Building with AI APIs** | Beta | Members-only | Open | Free RSVP, 30 cap, RSVP deadline |
-| 4 | **Spring Community Potluck & Garden Party** | Alpha | Public | Open | Free RSVP, potluck enabled, 80 cap, part of Seasonal Gatherings series |
-| 5 | **FutureStack 2025: AI & Web3 Conference** | Beta | Public | Open | Ticketed (4 tiers incl. member discount), 1000 cap, waitlist, check-in window |
+| 4 | **Community Potluck & Garden Party** | Alpha | Public | Open | Free RSVP, potluck enabled, 80 cap, part of Seasonal Gatherings series |
+| 5 | **FutureStack: AI & Web3 Conference** | Beta | Public | Open | Ticketed (4 tiers incl. member discount), 1000 cap, waitlist, check-in window |
 | 6 | **Weekend Wellness Retreat** | Alpha | Public | Open | Ticketed (incl. PWYC tier), 25 cap |
 | 7 | **Tech Founders Networking Happy Hour** | Beta | Members-only | Open | Free RSVP, 50 cap, RSVP deadline |
 | 8 | **Contemporary Art Exhibition Opening** | Alpha | Public | Open | Free RSVP, London |
-| 9 | **New Year's Eve Gala 2024** | Alpha | Public | Closed | Past event, ticketed, feedback questionnaire |
+| 9 | **Annual Charity Gala** | Alpha | Public | Closed | Past event, ticketed, feedback questionnaire |
 | 10 | **Future Tech Summit (Planning Phase)** | Beta | Private | Draft | Draft event, Tokyo |
-| 11 | **Tech Talk May: Scaling Microservices** | Beta | Members-only | Open | Free RSVP, part of Monthly Tech Talks series |
+| 11 | **Tech Talk: Scaling Microservices** | Beta | Members-only | Open | Free RSVP, part of Monthly Tech Talks series |
 | 12 | **Advanced Machine Learning Workshop** | Beta | Public | Open | Ticketed (sold out), 20 cap, waitlist |
 | 13 | **Classical Music Evening** | Alpha | Public | Open | Ticketed (reserved seating + offline payment), venue: Revel Concert Hall, check-in window |
 
@@ -273,7 +273,7 @@ These events are all in the **Eligibility Test Organization** and are designed t
 
 ### Ticket Tiers
 
-#### Summer Sunset Music Festival
+#### Sunset Music Festival
 
 | Tier | Price | Quantity | Payment | Notes |
 |---|---|---|---|---|
@@ -287,7 +287,7 @@ These events are all in the **Eligibility Test Organization** and are designed t
 |---|---|---|---|---|
 | Exclusive Seating | $200.00 | 40 (8 sold) | Online | Invitation-only, private visibility |
 
-#### FutureStack 2025
+#### FutureStack
 
 | Tier | Price | Currency | Quantity | Payment | Notes |
 |---|---|---|---|---|---|
@@ -303,7 +303,7 @@ These events are all in the **Eligibility Test Organization** and are designed t
 | Shared Room | 250.00 EUR | 20 (14 sold) | Online | Standard |
 | Community Support Rate | 150.00 EUR (PWYC: 100-250) | 5 (3 sold) | Online | Pay What You Can |
 
-#### New Year's Eve Gala 2024
+#### Annual Charity Gala
 
 | Tier | Price | Quantity | Payment | Notes |
 |---|---|---|---|---|
@@ -382,10 +382,10 @@ This verifies the full billing pipeline end-to-end: VAT calculation → payment 
 
 | Questionnaire | Evaluation Mode | Linked To | Type |
 |---|---|---|---|
-| **Code of Conduct Agreement** | Automatic | FutureStack 2025 (event) | Admission |
+| **Code of Conduct Agreement** | Automatic | FutureStack (event) | Admission |
 | **Wine Tasting Dinner Application** | Manual | Wine Tasting (event) | Admission |
 | **Tech Innovators Network Membership Application** | Hybrid (AI + human) | Tech Innovators Network (org-level) | Admission |
-| **Event Feedback** | Manual | NYE Gala 2024 (event) | Feedback |
+| **Event Feedback** | Manual | Annual Charity Gala (event) | Feedback |
 
 **Code of Conduct Agreement.** Simple yes/no agreement. Fatal question (wrong answer = automatic fail). Max 3 attempts, requires 100% score.
 
@@ -405,7 +405,7 @@ Simple automatic questionnaire with a fatal yes/no question and a free-text ques
 
 ### Potluck Items (12)
 
-For the **Spring Community Potluck & Garden Party**:
+For the **Community Potluck & Garden Party**:
 
 **Host-suggested items (unassigned):**
 
@@ -442,18 +442,18 @@ For the **Spring Community Potluck & Garden Party**:
 
 | Event | Users (YES) | MAYBE | NO |
 |---|---|---|---|
-| Spring Potluck | George, Hannah, Ivan, Julia, Karen, Charlie | Bob Staff | Leo Pending |
+| Community Potluck | George, Hannah, Ivan, Julia, Karen, Charlie | Bob Staff | Leo Pending |
 | AI APIs Workshop | Frank, Eve, Karen | (none) | (none) |
-| Tech Talk May | Frank | (none) | (none) |
+| Tech Talk: Scaling Microservices | Frank | (none) | (none) |
 | Networking Happy Hour | Frank, Eve, Karen, George | (none) | (none) |
 | Art Exhibition | Hannah, Ivan, Charlie | (none) | (none) |
 
 ### Tickets
 
-- **Summer Festival**: 4 Early Bird (active), 1 VIP (active), 1 General (pending payment), 1 Early Bird (cancelled/refunded)
-- **NYE Gala 2024**: 2 checked-in tickets (George, Charlie) with succeeded payments
+- **Sunset Festival**: 4 Early Bird (active), 1 VIP (active), 1 General (pending payment), 1 Early Bird (cancelled/refunded)
+- **Annual Charity Gala**: 2 checked-in tickets (George, Charlie) with succeeded payments
 - **Wellness Retreat**: 1 Shared Room (active, Hannah)
-- **FutureStack 2025**: 1 Member Discount (active, Frank)
+- **FutureStack**: 1 Member Discount (active, Frank)
 - **Classical Music Evening**: 3 Standing Room (active), 5 Standing Room (pending payment)
 
 ### Waitlist Entries
@@ -461,7 +461,7 @@ For the **Spring Community Potluck & Garden Party**:
 | Event | Users |
 |---|---|
 | Advanced ML Workshop | Ivan, Julia, Maria |
-| Summer Festival | Maria |
+| Sunset Festival | Maria |
 
 ### Follow Relationships
 
@@ -513,13 +513,13 @@ Every bootstrap user has dietary preferences and/or food restrictions configured
 
 | Scenario | How to Test |
 |---|---|
-| Ticket purchase flow | Log in as any user, buy a ticket for **FutureStack 2025** |
+| Ticket purchase flow | Log in as any user, buy a ticket for **FutureStack** |
 | PWYC ticket | Log in as any user, purchase the Community Support Rate tier for **Weekend Wellness Retreat** |
-| RSVP with potluck | Log in as a member, RSVP to **Spring Community Potluck & Garden Party** |
+| RSVP with potluck | Log in as a member, RSVP to **Community Potluck & Garden Party** |
 | Waitlist behavior | Try to get a ticket for **Advanced Machine Learning Workshop** (sold out) |
-| Past event data | View **New Year's Eve Gala 2024** for historical event information |
-| Event feedback | Log in as `charlie.member@example.com` (checked-in at NYE Gala) and submit feedback |
-| Questionnaire flow (simple) | Attend **FutureStack 2025**: complete the Code of Conduct Agreement |
+| Past event data | View **Annual Charity Gala** for historical event information |
+| Event feedback | Log in as `charlie.member@example.com` (checked-in at Annual Charity Gala) and submit feedback |
+| Questionnaire flow (simple) | Attend **FutureStack**: complete the Code of Conduct Agreement |
 | Questionnaire flow (complex) | Apply to **Wine Tasting**: conditional questions based on wine experience level |
 | Membership application | Apply to join **Tech Innovators Network** via the membership questionnaire |
 | Members-only access | Try accessing **Hands-on Workshop: Building with AI APIs** as a non-member |

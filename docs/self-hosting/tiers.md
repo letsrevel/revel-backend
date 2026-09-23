@@ -11,14 +11,15 @@ limits are:
 
 | Setting | Slim (~2 vCPU / 4 GB) | Full (8 vCPU / 32 GB) |
 | --- | --- | --- |
-| `COMPOSE_PROFILES` | *(empty)* | `observability,antivirus,telegram,canary` |
+| `COMPOSE_PROFILES` (wizard default) | *(empty)* | `observability,antivirus` |
 | Postgres `shared_buffers` | `256MB` | `4GB` |
 | Gunicorn workers | `2` | `6` |
 | Celery concurrency | `2` | `4` |
 
 Slim runs only the core services (caddy, frontend, web, celery, beat, postgres, pgbouncer, redis).
-Full adds antivirus scanning, the LGTM observability stack, the Telegram bot, and the
-canary.
+Full adds antivirus scanning and the LGTM observability stack by default; the Telegram bot and the
+login canary stay optional. The tier is only a preset: either tier can run any of the profiles
+below, and the setup wizard asks about each one.
 
 ## Compose profiles
 
@@ -49,7 +50,8 @@ just wastes RAM.
 
 - `FRONTEND_DOMAIN` — public hostname of the web app.
 - `API_DOMAIN` — public hostname of the API.
-- Additional `*_DOMAIN` vars (`grafana`, `docs`) for the Full-tier management UIs.
+- `GRAFANA_DOMAIN` — public hostname of Grafana, needed whenever the `observability` profile is
+  enabled, on either tier.
 
 ### Feature flags
 

@@ -154,7 +154,7 @@ def _create_past_event_tickets(state: BootstrapState, now: "datetime.datetime") 
         user=state.users["attendee_1"],
         tier=past_tier,
         status=events_models.Ticket.TicketStatus.CHECKED_IN,
-        checked_in_at=now - timedelta(days=89, hours=2),
+        checked_in_at=state.events["past_event"].start + timedelta(minutes=15),
         checked_in_by=state.users["org_alpha_staff"],
     )
 
@@ -177,7 +177,7 @@ def _create_past_event_tickets(state: BootstrapState, now: "datetime.datetime") 
         user=state.users["org_alpha_member"],
         tier=past_tier,
         status=events_models.Ticket.TicketStatus.CHECKED_IN,
-        checked_in_at=now - timedelta(days=89, hours=1),
+        checked_in_at=state.events["past_event"].start + timedelta(minutes=45),
         checked_in_by=state.users["org_alpha_staff"],
     )
 

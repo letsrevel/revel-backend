@@ -1,4 +1,6 @@
 # src/events/management/commands/demo_video_helpers/scenarios.py
+# Seed descriptions keep each markdown paragraph on one line: hard wraps render as line breaks in the web app.
+# ruff: noqa: E501
 """The five demo-video scenarios.
 
 Each function seeds one self-contained organization — its own slug, its own
@@ -85,11 +87,7 @@ def seed_shibari_circle() -> ScenarioSummary:
         owner=owner,
         address="Brunnengasse 71, 1160 Vienna, Austria",
         contact_email="hello@shibaricircle.example.com",
-        description="""# Shibari Circle Vienna
-
-A small, consent-first rope community that has been meeting in Vienna since 2019. We run
-beginner-friendly workshops, slow practice evenings, and the occasional rope jam — always with
-more room for questions than anyone expects.
+        description="""A small, consent-first rope community that has been meeting in Vienna since 2019. We run beginner-friendly workshops, slow practice evenings, and the occasional rope jam — always with more room for questions than anyone expects.
 
 ## What to expect
 
@@ -99,8 +97,7 @@ more room for questions than anyone expects.
 
 ## Joining us
 
-Every workshop has a short application, so we can balance the room and make sure everyone
-arrives with the same expectations. We read every single one, usually within a day or two.
+Every workshop has a short application, so we can balance the room and make sure everyone arrives with the same expectations. We read every single one, usually within a day or two.
 """,
     )
 
@@ -114,8 +111,7 @@ arrives with the same expectations. We read every single one, usually within a d
         max_attendees=24,
         description="""# Intro to Shibari — Rope & Trust
 
-An evening for absolute beginners. No experience, no rope and no partner required — we bring
-the rope, and we will pair you up if you come on your own.
+An evening for absolute beginners. No experience, no rope and no partner required — we bring the rope, and we will pair you up if you come on your own.
 
 ## The evening
 
@@ -127,13 +123,11 @@ the rope, and we will pair you up if you come on your own.
 
 ## What to bring
 
-Comfortable clothes you can move in, a water bottle, and a pair of safety shears if you own
-them — we have spares. Trimmed nails, please.
+Comfortable clothes you can move in, a water bottle, and a pair of safety shears if you own them — we have spares. Trimmed nails, please.
 
 ## Access
 
-Ground floor, step-free entrance, accessible bathroom. This is a fragrance-free space, so
-please skip the perfume.
+Ground floor, step-free entrance, accessible bathroom. This is a fragrance-free space, so please skip the perfume.
 """,
     )
     drop_default_ticket_tier(event)
@@ -234,20 +228,15 @@ def seed_velvet_cellar() -> ScenarioSummary:
         owner=owner,
         address="Lerchenfelder Gürtel 29, 1080 Vienna, Austria",
         contact_email="door@velvetcellar.example.com",
-        description="""# The Velvet Cellar
-
-A ninety-capacity basement club under the Gürtel, run as a members' club since 2016. Loud
-guitars, cold soda, and a strict no-photos-on-the-floor policy.
+        description="""A ninety-capacity basement club under the Gürtel, run as a members' club since 2016. Loud guitars, cold soda, and a strict no-photos-on-the-floor policy.
 
 ## Membership
 
-Membership is free and takes about a minute. Members get in free to most shows, hear about new
-dates first, and can bring one guest on the door price.
+Membership is free and takes about a minute. Members get in free to most shows, hear about new dates first, and can bring one guest on the door price.
 
 ## House rules
 
-Look after each other. No photographs of anyone without asking them first. If anything feels
-off, talk to whoever is wearing the red lanyard.
+Look after each other. No photographs of anyone without asking them first. If anything feels off, talk to whoever is wearing the red lanyard.
 """,
     )
 
@@ -261,8 +250,7 @@ off, talk to whoever is wearing the red lanyard.
         max_attendees=90,
         description="""# Basement Sessions: Live & Loud
 
-Three bands, one basement, doors at 20:00. This month: a post-punk trio from Graz, a local
-noise-pop four-piece, and a headliner we are not allowed to announce until the day.
+Three bands, one basement, doors at 20:00. This month: a post-punk trio from Graz, a local noise-pop four-piece, and a headliner we are not allowed to announce until the day.
 
 ## Running order
 
@@ -274,8 +262,7 @@ noise-pop four-piece, and a headliner we are not allowed to announce until the d
 
 ## Getting in
 
-Members come in free — show your membership card at the door. Everyone else pays on the night,
-cash or card. We do not sell tickets online.
+Members come in free — show your membership card at the door. Everyone else pays on the night, cash or card. We do not sell tickets online.
 """,
     )
     upsert_ticket_tier(
@@ -333,11 +320,7 @@ def seed_picnic_club() -> ScenarioSummary:
         owner=owner,
         address="Obere Augartenstraße 1, 1020 Vienna, Austria",
         contact_email="hello@slowpicnic.example.com",
-        description="""# Sunday Slow Picnic Club
-
-We meet in a Viennese park roughly twice a month, spread out some blankets, and stay until the
-light goes. No programme, no tickets, and no phones out the whole time. Bring something to
-share if you can, and come anyway if you cannot.
+        description="""We meet in a Viennese park roughly twice a month, spread out some blankets, and stay until the light goes. No programme, no tickets, and no phones out the whole time. Bring something to share if you can, and come anyway if you cannot.
 """,
     )
 
@@ -357,8 +340,7 @@ The Augarten, near the big chestnut trees past the second gate. Look for the yel
 
 ## How it works
 
-This is a potluck. Have a look at the list below and claim whatever you fancy bringing — or add
-something of your own. Nobody keeps score, and there is always, always too much cake.
+This is a potluck. Have a look at the list below and claim whatever you fancy bringing — or add something of your own. Nobody keeps score, and there is always, always too much cake.
 
 ## Practical bits
 
@@ -487,17 +469,11 @@ def seed_photo_walks() -> ScenarioSummary:
         owner=owner,
         address="Karlsplatz 1, 1040 Vienna, Austria",
         contact_email="walks@analogphoto.example.com",
-        description="""# Analog Photo Walks
-
-A film-only photo walk, once a month, around a different corner of Vienna. Any camera that takes
-a roll counts — point-and-shoot, medium format, or the thing you found in your grandmother's
-cupboard. We walk slowly, we stop a lot, and we get a drink at the end.
+        description="""A film-only photo walk, once a month, around a different corner of Vienna. Any camera that takes a roll counts — point-and-shoot, medium format, or the thing you found in your grandmother's cupboard. We walk slowly, we stop a lot, and we get a drink at the end.
 
 ## Why we ask questions
 
-The walks stay at twelve people, so that nobody spends the evening photographing the back of
-someone's head. The short application below just helps us keep the group mixed and know who is
-bringing what.
+The walks stay at twelve people, so that nobody spends the evening photographing the back of someone's head. The short application below just helps us keep the group mixed and know who is bringing what.
 """,
     )
 
@@ -512,9 +488,7 @@ bringing what.
         max_attendees=12,
         description="""# Golden Hour Photo Walk
 
-We meet at the Otto Wagner pavilions on Karlsplatz an hour before sunset, walk through the
-Naschmarkt and along the Wienzeile as the light turns orange, and finish at a bar in the 5th
-about two hours later.
+We meet at the Otto Wagner pavilions on Karlsplatz an hour before sunset, walk through the Naschmarkt and along the Wienzeile as the light turns orange, and finish at a bar in the 5th about two hours later.
 
 ## Bring
 
@@ -524,8 +498,7 @@ about two hours later.
 
 ## Level
 
-All of them. Half the group has never developed a roll, and the other half will happily talk
-your ear off about it.
+All of them. Half the group has never developed a roll, and the other half will happily talk your ear off about it.
 """,
     )
 
@@ -692,16 +665,11 @@ def seed_book_club() -> ScenarioSummary:
         owner=owner,
         address="Gumpendorfer Straße 11, 1060 Vienna, Austria",
         contact_email="hello@paperhearts.example.com",
-        description="""# Paper Hearts Book Club
-
-Twelve people, one book a month, and a rule that you are welcome whether or not you finished it.
-We read fiction in translation, mostly, and we have been meeting above the same café on
-Gumpendorfer Straße since 2021.
+        description="""Twelve people, one book a month, and a rule that you are welcome whether or not you finished it. We read fiction in translation, mostly, and we have been meeting above the same café on Gumpendorfer Straße since 2021.
 
 ## Membership
 
-The reading circle is for members. Membership is free — send us a short note about what you are
-reading at the moment and we will get you on the list before the next meeting.
+The reading circle is for members. Membership is free — send us a short note about what you are reading at the moment and we will get you on the list before the next meeting.
 """,
     )
 
@@ -719,8 +687,7 @@ reading at the moment and we will get you on the list before the next meeting.
 
 **This month:** *The Employees* by Olga Ravn.
 
-Upstairs at the café from 19:30, until they throw us out at around 22:00. Coffee and wine at the
-bar; the first round is on the club.
+Upstairs at the café from 19:30, until they throw us out at around 22:00. Coffee and wine at the bar; the first round is on the club.
 
 ## How the evening runs
 

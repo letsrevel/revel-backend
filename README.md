@@ -1,521 +1,257 @@
-# Revel Backend
+# Revel
 
-**An open-source event management, ticketing and membership platform for communities, clubs and independent venues.**
+**Revel is an open-source event management, ticketing and membership platform for communities, clubs, independent venues and independent artists.**
 
-<!-- Status -->
-[![Status](https://img.shields.io/badge/status-Live-green?style=for-the-badge)](https://letsrevel.io)
+[![Release](https://img.shields.io/github/v/release/letsrevel/revel-backend?style=for-the-badge)](https://github.com/letsrevel/revel-backend/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](./LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/Rnwbzuvxvn)
-![Django](https://img.shields.io/badge/django-5.2_LTS-092E20.svg?logo=django&logoColor=white&style=for-the-badge)
 [![Docs](https://img.shields.io/badge/docs-docs.letsrevel.io-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.letsrevel.io)
+[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/Rnwbzuvxvn)
+[![Django](https://img.shields.io/badge/django-5.2_LTS-092E20.svg?logo=django&logoColor=white&style=for-the-badge)](https://docs.djangoproject.com/en/5.2/)
 
-<!-- Tooling / meta -->
-![Python](https://img.shields.io/badge/python-3.14%2B-3776AB.svg?logo=python&logoColor=white)
-![Ruff](https://img.shields.io/badge/lint-ruff-46aef7?logo=ruff&logoColor=white)
-![mypy strict](https://img.shields.io/badge/types-mypy-informational.svg)
-
-<!-- CI -->
+[![Python](https://img.shields.io/badge/python-3.14%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-46aef7?logo=ruff&logoColor=white)](https://docs.astral.sh/ruff/)
+[![mypy strict](https://img.shields.io/badge/types-mypy-informational.svg)](https://mypy-lang.org/)
 [![Test](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml)
 [![codecov](https://codecov.io/gh/letsrevel/revel-backend/graph/badge.svg)](https://codecov.io/gh/letsrevel/revel-backend)
 [![Build](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml)
-[![Docs](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml)
-
-<!-- Security -->
+[![Docs build](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml)
 [![Bandit](https://github.com/letsrevel/revel-backend/actions/workflows/bandit.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/bandit.yaml)
 
----
-
-## 🔗 Related Repositories
-
-This repository contains the **backend API and business logic** for Revel. The complete platform consists of:
-
-- **[revel-backend](https://github.com/letsrevel/revel-backend)** (this repository) - Django Ninja REST API, business logic, database models
-- **[revel-frontend](https://github.com/letsrevel/revel-frontend)** - SvelteKit web application, user interface
-- **[infra](https://github.com/letsrevel/infra)** - Docker Compose setup, reverse proxy, observability stack, deployment configurations
-
----
-
-Revel is an event management and ticketing platform designed with community at its heart. Initially created to serve the specific needs of queer, LGBTQ+, and sex-positive communities, it is built to be event-agnostic, scalable, and a powerful tool for any group that values privacy, control, and transparency. It works just as well for a gym, a yoga studio, a dance school or a choir: sell monthly or annual memberships, run members-only classes with a plain RSVP, sell a pass for a whole series, and put the membership card in your members' wallets.
-
-Unlike monolithic, corporate platforms that treat events as transactions, Revel treats them as part of a larger community ecosystem.
-
----
-
-> 🤖 **AI disclosure:** Revel makes use of AI-assisted coding, but stays firmly away from vibe
-> coding. Every line that lands in `main` is understood, reviewed, and defended by a human.
-> If you contribute with AI, follow the workflow in **[AI_USAGE.md](AI_USAGE.md)**.
-
----
-
-### ✨ Live Demo
-
-You can try out an early version of Revel yourself at https://demo.letsrevel.io
-
-The api lives at https://demo-api.letsrevel.io/api/docs
-
-**NOTE:** Emails are dry, and the data is reset every day at 00:00 CET.
-
-More info on what's available [here](./src/events/management/commands/README.md).
-
----
-
-## 🤔 Why Revel? The Philosophy
-
-Revel is being built to address the shortcomings of existing event platforms, especially for communities that prioritize safety, autonomy, and trust.
-
-*   **For Communities, Not Corporations:** Mainstream platforms often have restrictive content policies or a lack of privacy features, creating challenges for adult, queer, or activist-oriented events. Revel is explicitly designed to support these communities.
-*   **Open, Transparent & Self-Hostable:** Avoid vendor lock-in. You can host Revel on your own infrastructure for free, giving you complete control over your data and eliminating platform commissions. Its open-source nature means you can trust the code you run.
-*   **Fair & Simple Pricing:** For those who choose our future hosted version, the model is simple: **no charge for free events or events where you handle payments yourself**; a **1.5% + 0.25€ commission (+ VAT where applicable)** on paid tickets sold and bought through Revel. This significantly undercuts the high fees of major platforms and helps us keep the platform online, free and open source.
-
-## 🚀 Key Features
-
-Revel combines the ticketing power of platforms like Eventbrite with the community-building tools of Meetup, all under a privacy-minded, open-source framework.
-
-#### Community & Membership
-*   **Organizations:** Create and manage your community's central hub. Customize its visibility (Public, Unlisted, Members-Only, Private).
-*   **Roles & Permissions:** Assign roles like Owner, Staff, and Member, with a granular permission system to control who can create events, manage members, and more.
-*   **Membership System:** Manage a roster of members, enabling members-only events and fostering a sense of belonging.
-*   **Membership Tiers & Approval:** Define membership tiers, each with its own approval questionnaire — auto-approved, manually reviewed, or hybrid.
-*   **Subscription Plans:** Sell monthly or annual memberships through Stripe, or record cash and wire payments manually from the dashboard.
-*   **Members-Only Events:** Restrict any event to your members — a weekly class for ten people is a members-only event with a plain RSVP, no tickets needed.
-*   **Series Passes:** Sell one pass covering a whole event series — a class pack, a course or a season — optionally restricted to members.
-*   **Digital Membership Cards:** Members add their card to Apple Wallet or Google Wallet, or download it as a PDF.
-
-#### Trust, Safety & Privacy
-*   **Advanced Attendee Screening:** Gate event eligibility with custom questionnaires. Automatically review submissions or use a manual/hybrid approach to ensure attendees align with your community's values.
-*   **Full Data Ownership:** When self-hosting, you control your data. No third-party trackers, no selling of event data. Keep your community's information safe.
-*   **Tailored Invitations:** Send direct invitations that can waive specific requirements (like questionnaires, membership or purchase) for trusted guests.
-
-#### Billing & VAT
-*   **In-House VAT Calculations:** Ticket prices include VAT; net/gross breakdowns are computed at purchase time and persisted on each payment record.
-*   **EU B2B Reverse Charge:** Platform fees automatically apply reverse charge for cross-border B2B transactions with VIES-validated VAT IDs.
-*   **VIES Integration:** Organization VAT IDs are validated in real-time against the EU's VIES system, with monthly re-validation via Celery Beat.
-*   **Automated Invoicing:** Monthly platform fee invoices are generated automatically, rendered as PDFs (WeasyPrint), and emailed to organization owners — with race-safe sequential numbering and idempotent generation.
-*   **Attendee Invoicing:** Organizations can generate invoices for ticket buyers on their behalf, with configurable modes (automatic or manual review) and buyer-specific VAT calculation including EU B2B reverse charge.
-
-#### Core Event & Ticketing Features
-*   **Event & Series Management:** Easily create single events or recurring event series under your organization.
-*   **Ticketing & RSVPs:** Support for both paid/free ticketed events (powered by Stripe) and simpler RSVP-based gatherings.
-*   **Batch Ticket Purchases:** Buy multiple tickets in a single transaction with individual guest names for each ticket holder.
-*   **Venue & Seat Management:** Define venues with sectors and individual seats. Support for general admission, random seat assignment, or user-selected seating.
-*   **QR Code Check-In:** Manage event entry smoothly with QR code tickets and a staff-facing check-in flow.
-*   **Apple Wallet Integration:** Tickets can be added to Apple Wallet for easy access at events (optional, requires Apple Developer certificate).
-*   **Discount Codes:** Create percentage or fixed-amount discount codes scoped to events, series, or specific tiers, with usage limits and validity windows.
-*   **Potluck Coordination:** A unique, built-in system for attendees to coordinate bringing items, dietary restrictions and preferences, moving logistics off messy spreadsheets.
-*   **Referral Program:** Users earn a share of platform fees from ticket purchases by people they refer. Monthly payouts via Stripe with automated self-billing invoices (Gutschrift) or payout statements.
-*   **Global Banning:** Platform-wide bans by email, domain, or Telegram username with automatic account deactivation.
-*   **XLSX Exports:** Export attendee lists, ticket holders, and member rosters as spreadsheets.
-
----
-
-## 📸 Screenshots
-
 <p align="center">
-  <img src="docs/screenshots/event-detail-page.png" alt="Event Detail Page" width="800"/>
-  <br/>
-  <em>Event detail page — cover art, live availability, and one-click ticketing</em>
+  <img src="docs/screenshots/2026-09/event-detail-page.png" alt="A Revel event page for a gig, with date, venue, running order and a Get Tickets button" width="800"/>
 </p>
+
+For gyms, yoga studios, choirs, comedy clubs, supper clubs and theaters, Revel runs recurring memberships, series passes, seat maps and the box office. Musicians, DJs and bands selling their own shows get ticketing with no promoter in between, and they keep the attendee list. Revel was first built for queer collectives, kink clubs and activist groups, which is why attendee vetting, private guest lists and invitation-only events are part of the core.
+
+This repository is the API and the main project page. The web app lives in [revel-frontend](https://github.com/letsrevel/revel-frontend) and the deployment in [infra](https://github.com/letsrevel/infra).
+
+## Try it
+
+**Demo:** [demo.letsrevel.io](https://demo.letsrevel.io). Pick a test account on the login page (password `password123`). Data resets every night at midnight CET. No real email is sent; outgoing mail shows up at [mailpit.letsrevel.io](https://mailpit.letsrevel.io). The demo API is browsable at [demo-api.letsrevel.io/api/docs](https://demo-api.letsrevel.io/api/docs).
+
+**Hosted:** [letsrevel.io](https://letsrevel.io).
+
+**Self-host** on a Linux x86-64 server, as root or as a user in the `docker` group, with DNS A records for two hostnames (one for the web app and one for the API, which defaults to `api.<your domain>`; add a third for Grafana if you enable observability) and ports 80 and 443 open:
+
+```bash
+git clone https://github.com/letsrevel/infra && cd infra && ./setup.sh
+```
+
+The wizard offers to install Docker if it is missing, asks for your domains, email settings and which optional services to run, writes `.env` with generated secrets, pulls the prebuilt images and starts the stack. The slim tier needs 2 vCPU and 4 GB RAM, about €20/month (Hetzner CPX22, September 2026). The full tier, with observability and malware scanning, needs 8 vCPU and 32 GB RAM. Full guide: [docs.letsrevel.io/self-hosting](https://docs.letsrevel.io/self-hosting/).
+
+## Fees and data
+
+**On letsrevel.io**, free events, RSVPs and offline payments cost nothing. Online card payments cost the organizer 3% + €0.50 per order in total for standard EEA cards: Stripe's processing fee (1.5% + €0.25) plus Revel's platform fee (1.5% + €0.25, plus VAT where Revel has to charge it). The fixed part is charged once per order, not once per ticket: four €20 tickets bought together cost €2.90 in total fees (3% of €80 plus €0.50), not 3% plus 4 × €0.50. Cards issued outside the EEA carry higher Stripe fees. Buyers pay the ticket price and nothing more. Membership subscriptions pay Revel 1.5% with no fixed part, plus Stripe's fees.
+
+**Self-hosted**, you pay nothing to Revel. The code is MIT-licensed.
+
+Ticket money goes straight to the organizer's own Stripe account (Stripe Connect, direct charges), so Revel never holds it. The web app loads no third-party analytics or tracking scripts.
+
+For comparison, from each vendor's published pricing (September 2026): Eventbrite's US page lists 3.7% + $1.79 per ticket plus 2.9% payment processing per order. DICE's UK self-serve terms list 8.5% + VAT (minimum £1) plus a 2.5% transaction fee. Ticket Tailor charges €0.70 per ticket + VAT, plus payment processing. DICE's terms make it a data controller of the attendee data alongside the organizer; Eventbrite's privacy policy says it may act as controller or processor.
+
+### Selling your own shows
+
+The attendee export gives you every buyer's name and email. Tiers can be pay-what-you-can, and presales can go to members or to holders of an invitation link before general sale. A run of dates can be one event series.
+
+### Compared with pretix and Hi.Events
+
+Both are open source and self-hostable. Checked against each project's default branch, docs and pricing page on 2026-09-22:
+
+| | Revel | pretix | Hi.Events |
+|---|---|---|---|
+| License | MIT | AGPL-3.0 with additional terms; "built using pretix" footer required | AGPL-3.0 with additional terms; "Powered by Hi.Events" footer required unless you buy a license |
+| Recurring membership billing | Monthly or yearly plans through Stripe; offline and lifetime plans recorded by staff | Fixed-duration memberships; no recurring billing in core | None in the codebase |
+| Screening before a ticket is issued | Questionnaires with automatic, manual or hybrid review | Manual approval per product | No approval step |
+| Buyer-side EU VAT | VIES check of buyer VAT IDs, reverse charge where it applies, optional automatic attendee invoices | VIES check, reverse charge, automatic invoices | Invoices and manual tax rates; VIES and reverse charge apply only to Hi.Events' own fee |
+| Seat maps in the free edition | Yes | Paid proprietary plugin | No |
+| Apple Wallet | Built in | Official open-source plugin | No |
+| Google Wallet | Built in | No (announced as in progress) | No |
+| Hosted platform fee | 1.5% + €0.25 **per order**, paid by the organizer | 2.5% of the net ticket price (max €15) **per ticket** | 1.25% + $0.60 **per ticket**, added to the buyer's price by default |
+
+Platform fees are as each vendor publishes them. Payment processing (Stripe or another provider) comes on top for all three. Revel's fixed €0.25 is charged once per order however many tickets it holds; a per-ticket fixed fee grows with the order, so Hi.Events' $0.60 becomes $2.40 on four tickets.
+
+## Features
+
+Everything below is on `main` and has a UI in the web app.
+
+### Ticketing
+
+- Multi-tier cart checkout through Stripe, with a guest checkout that needs no account.
+- Tier types: fixed price, pay-what-you-can (with minimum and maximum), free, pay at the door and offline (cash or bank transfer, confirmed by staff).
+- Tiers restricted to members, to specific membership tiers or to invitation-link holders. Sales windows, quantity caps, per-user limits and a pause switch.
+- Discount codes: percentage or fixed, scoped to events, series or tiers, with usage limits and validity windows.
+- QR tickets as PDF, Apple Wallet and Google Wallet passes. Staff check in by scanning the QR code.
+- Waitlists with time-limited offers when spots free up, first come or in random order.
+- Refunds: full or partial by the organizer, self-service cancellation under a per-tier refund policy and optional automatic refunds of online payments when an event is canceled.
+- RSVP-only events, event series and recurring events.
+- An embeddable event widget (it links through to Revel) and oEmbed. UTM tags from tagged links are stored on each ticket and broken down per event.
+
+### Memberships
+
+- Paid plans billed monthly or yearly through Stripe. Staff can also record plans paid in cash or by bank transfer, and plans can be free. Offline and free plans can be lifetime.
+- Subscriptions can be paused, resumed, canceled and moved to another plan. Members get a Stripe billing portal and automatic renewal reminders.
+- Membership tiers, each with its own application questionnaire.
+- Members-only events and tiers. A weekly class for ten people is a members-only event with a plain RSVP.
+- Series passes: one purchase covers every event in a series (a class pack, a course, a season), with an optional discount for each event already past.
+- Membership cards in Apple Wallet, Google Wallet or as a PDF. A door scan verifies membership without checking anyone in.
+
+### Screening and safety
+
+- Questionnaires gate who can get a ticket or join: multiple choice, free text, file upload, conditional questions and scoring. Free-text answers can be scored by an LLM you configure.
+- Invitations that waive specific requirements (questionnaire, membership, purchase), shareable invitation links and requests to be invited.
+- An organization blacklist by user, email, name or Telegram handle, with fuzzy matching.
+- Private guest lists: hide the attendee count, the capacity or the list itself.
+- Visibility per organization and per event, down to members-only or private.
+- Two-factor login (TOTP), personal data export, account deletion and ClamAV scanning of uploads.
+
+### EU VAT and invoicing
+
+- VIES validation of organization and buyer VAT IDs, with a monthly re-check.
+- Place-of-supply rules for tickets: physical events use the organizer's VAT rate; online events apply reverse charge for EU businesses in another country with a valid VAT ID.
+- Attendee invoices issued on the organizer's behalf, automatically or as drafts for review, with credit notes. Off by default.
+- VAT-inclusive prices with per-tier rates; net and VAT are stored on every payment.
+- Revenue and VAT reports per event and per organization, as XLSX and PDF, optionally emailed monthly or quarterly.
+- Monthly platform-fee invoices with sequential numbering, reverse-charged for EU businesses in another country.
+
+### Venues and seating
+
+- A seat map designer: venues, sectors, individual seats, price categories and accessible seats.
+- Buyers pick seats on an interactive map, or get the best available adjacent seats. Seats are held while the buyer checks out.
+- A box office view for selling and reseating from the admin, with per-event seat overrides.
+
+### Notifications
+
+- In-app, email and Telegram, with per-type and per-channel preferences and digests.
+- Announcements to attendees, all members, specific membership tiers or staff, sent now or scheduled relative to the event.
+- Event reminders. Ticket emails carry a calendar file. Followers of an organization or series hear about new public events.
+- A Telegram bot for RSVPs, invitations and waitlist offers. Organizers can approve requests from the chat.
+
+### Integrations
+
+- Stripe Connect (Standard accounts) for tickets, series passes and subscriptions.
+- Apple Wallet and Google Wallet, each with your own issuer credentials.
+- Eventbrite: publish Revel events there, sync sold counts and pause remote sales (needs Eventbrite app credentials).
+- Sign in with any OpenID Connect provider: Google, Keycloak, Authentik and others.
+- RSS feed and sitemaps for public events.
+
+### Exports
+
+- Attendee lists as XLSX: name, email, pronouns, tier, ticket status, check-in, seat, payment and UTM tags.
+- Questionnaire submissions as XLSX.
+- Revenue and VAT reports (XLSX and PDF).
+- A personal data export for every user.
+
+### Languages
+
+The web app and the API are translated into English, German, Italian, French, Spanish and Portuguese. Invoice and report PDFs are English only.
+
+### Also included
+
+Potluck coordination with dietary restrictions, polls and event discovery with distance sorting and a calendar view. A referral program shares platform fees with referrers.
+
+## Screenshots
 
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/screenshots/event-discovery.png" alt="Event Discovery" width="400"/>
+      <img src="docs/screenshots/2026-09/ticket-tiers.png" alt="Ticket options for a gig" width="400"/>
       <br/>
-      <em>Event discovery with filters, tags & calendar view</em>
+      <em>Fixed-price and pay-what-you-can tiers in one cart</em>
     </td>
     <td align="center" width="50%">
-      <img src="docs/screenshots/ticket-tiers.png" alt="Ticket Tiers" width="400"/>
+      <img src="docs/screenshots/2026-09/membership-plans.png" alt="Membership plans" width="400"/>
       <br/>
-      <em>Ticket tiers — free, fixed, PWYC, at-the-door & offline</em>
+      <em>Monthly and yearly membership plans</em>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="docs/screenshots/seat-selection.png" alt="Seat Selection" width="400"/>
+      <img src="docs/screenshots/2026-09/membership-card.png" alt="Membership card" width="400"/>
       <br/>
-      <em>Interactive seat selection with accessible-seat markers</em>
+      <em>A membership card with Apple Wallet and Google Wallet buttons</em>
     </td>
     <td align="center">
-      <img src="docs/screenshots/ticket-qr.png" alt="QR Ticket" width="400"/>
+      <img src="docs/screenshots/2026-09/series-pass.png" alt="Season pass" width="400"/>
       <br/>
-      <em>QR tickets with PDF download & Apple Wallet</em>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="docs/screenshots/questionnaire-screening.png" alt="Attendee Screening Questionnaire" width="400"/>
-      <br/>
-      <em>Questionnaire-based attendee screening</em>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/submissions-review.png" alt="Submission Review" width="400"/>
-      <br/>
-      <em>Organizer review workflow with scoring & approval stats</em>
+      <em>A season pass for an event series</em>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="docs/screenshots/potluck-coordination.png" alt="Potluck Coordination" width="400"/>
+      <img src="docs/screenshots/2026-09/seat-selection.png" alt="Seat selection on a venue map" width="400"/>
       <br/>
-      <em>Potluck coordination with item claiming</em>
+      <em>Seat selection on a venue map</em>
     </td>
     <td align="center">
-      <img src="docs/screenshots/financials.png" alt="Organization Financials" width="400"/>
+      <img src="docs/screenshots/2026-09/org-admin-memberships.png" alt="Subscriptions in the organization admin" width="400"/>
       <br/>
-      <em>Revenue & VAT reporting, per event and org-wide</em>
+      <em>Subscriptions and recurring revenue in the organization admin</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/2026-09/questionnaire-screening.png" alt="Application questionnaire for a rope workshop" width="400"/>
+      <br/>
+      <em>An application questionnaire for a rope workshop</em>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/2026-09/financials.png" alt="Revenue and VAT reporting" width="400"/>
+      <br/>
+      <em>Ticket revenue and VAT per event, plus membership revenue</em>
     </td>
   </tr>
 </table>
 
-<p align="center">
-  <img src="docs/screenshots/org-admin-dashboard.png" alt="Organization Admin" width="800"/>
-  <br/>
-  <em>Organization admin — events, tickets, members, questionnaires, venues, billing & more</em>
-</p>
+## Self-hosting
 
----
+The [infra](https://github.com/letsrevel/infra) repo holds the Docker Compose stack and the `setup.sh` wizard shown above. You do not need to clone this repo or the frontend; the images come from `ghcr.io/letsrevel` and are built for `linux/amd64` only. The infra README lists what each tier runs and every Compose profile and feature flag.
 
-## 💻 Tech Stack
+Stripe, SMTP, Telegram, LLM screening, OpenID Connect login, Eventbrite and the wallet passes are all optional. Without SMTP the instance runs, but nobody receives verification or ticket emails. DNS, tiers, upgrades and troubleshooting: [docs.letsrevel.io/self-hosting](https://docs.letsrevel.io/self-hosting/).
 
-Revel is built with a modern and robust backend, designed for performance and scalability.
+## Local development
 
-*   **🐍 Backend:** Python 3.14+ with **[Django 5.2 LTS](https://docs.djangoproject.com/en/5.2/)**
-*   **🚀 API:** **[Django Ninja](https://django-ninja.dev/)** and **[Django Ninja Extra](https://eadwincode.github.io/django-ninja-extra/)** for a fast, modern, and auto-documenting REST API.
-*   **🐘 Database:** **PostgreSQL** with **PostGIS** for powerful geo-features.
-*   **⚙️ Async Tasks:** **Celery** with **Redis** for background jobs (emails, evaluations).
-*   **🐳 Deployment:** Fully containerized with **Docker** for easy setup and deployment.
-
-### Why Django 5.2 LTS?
-
-We intentionally stay on Django 5.2 LTS rather than upgrading to Django 6.x. Our policy:
-
-- **LTS stability** - Django 5.2 is a Long-Term Support release with security updates until April 2028
-- **Upgrade when it matters** - We'll upgrade for compelling features, performance improvements, or security CVEs
-- **No bleeding edge for its own sake** - Django 6.0 is only ~3 months old; we prefer battle-tested releases
-
----
-
-## 🏁 Quick Start (Development)
-
-Get a local development environment running in minutes. You'll need `make`, `Docker`, Python 3.14+, and [UV](https://docs.astral.sh/uv/getting-started/installation/).
-
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/letsrevel/revel-backend.git
-    cd revel-backend
-    ```
-    
-2.  **Make sure you have the necessary geo data:**
-    *   You must download [IP2LOCATION-LITE-DB5.BIN](https://lite.ip2location.com/database/db5-ip-country-region-city-latitude-longitude?lang=en_US) and place it in `src/geo/data/`
-    *   You must download the [worldcities.csv](https://simplemaps.com/data/world-cities) and place it in `src/geo/data/` (or for dev purposes just copy `worldcities.mini.csv` into `worldcities.csv`)
-
-
-3.  **Run the setup command:**
-    This command fully automates the setup process.
-    ```bash
-    make setup
-    ```
-
-    > **macOS note:** if startup crashes with `Could not find the GDAL library` or a
-    > `libgobject-2.0` `dlopen` error (often after a macOS update), expose Homebrew's libs on
-    > dyld's default fallback path: `ln -s "$(brew --prefix)/lib" ~/lib`. See
-    > [Troubleshooting](docs/getting-started/troubleshooting.md#macos-could-not-find-the-gdal-library-homebrew-native-libs).
-
-4.  **You're ready!**
-    *   The API is running at `http://localhost:8000`
-    *   Interactive API docs (Swagger UI) are at `http://localhost:8000/api/docs`
-    *   A default superuser is created (`admin@letsrevel.io` / `password`).
-    *   **Mailpit** (email testing) is at `http://localhost:8025`
-
----
-
-## 🐳 Docker Compose Files
-
-The project uses multiple Docker Compose files for different purposes:
-
-| File | Purpose | Usage |
-|------|---------|-------|
-| `compose.yaml` | **Local development** — PostgreSQL, Redis, ClamAV + Mailpit (email testing) | `docker compose up -d` |
-| `docker-compose-ci.yml` | **CI** — minimal services for tests (PostgreSQL, Redis, ClamAV, no Mailpit) | `docker compose -f docker-compose-ci.yml up -d` |
-| `docker-compose-base.yml` | **Service definitions** — every service the other files extend (core + observability stack); not run directly | — |
-| `docker-compose-observability.yml` | **Standalone** — core services + the full observability stack (Grafana, Prometheus, Loki, Tempo, …). Replaces `compose.yaml`; does **not** include Mailpit | `docker compose -f docker-compose-observability.yml up -d` |
-
-The application itself (Django + Celery) runs on the host via `make run` — Docker only provides the backing services. For production (app, frontend, reverse proxy, TLS) use the [infra](https://github.com/letsrevel/infra) repo.
-
-For local development, simply run:
-```bash
-docker compose up -d
-```
-
-This starts PostgreSQL, Redis, ClamAV, and **Mailpit**. All emails sent by the application are captured by Mailpit and viewable at [http://localhost:8025](http://localhost:8025).
-
----
-
-## 🏠 Self-Hosting (Production)
-
-The entire stack — frontend, API, workers, database, and (optionally) the full observability suite — is self-hostable on a single box with Docker Compose. The **[infra](https://github.com/letsrevel/infra)** repository ships the Compose files, a parameterized Caddyfile, and an interactive **`setup.sh` wizard** that writes your `.env`, picks the right Caddy config, fetches geo data, and brings the stack up. You don't need to clone the backend or frontend repos — the application images are pulled from the registry.
-
-**Two reference tiers** let Revel scale down a long way:
-
-- **Slim** — ~2 vCPU / 4 GB RAM (~5 €/mo). Core services only; ClamAV, Telegram, and observability switched off. Recommended starting point for a single-org instance.
-- **Full** — 8 vCPU / 32 GB RAM. Every optional Compose profile: antivirus, the LGTM observability stack, the Telegram bot, and the login canary.
-
-The difference is mostly which Compose profiles you enable (`COMPOSE_PROFILES`) plus a few feature flags (`FEATURE_MALWARE_SCAN`, `FEATURE_TELEGRAM`, `FEATURE_OBSERVABILITY`, `FEATURE_ORGANIZATION_CREATION`). Clients read the active flags from `GET /version`, so gated features are hidden rather than 403'd. The published frontend image (`ghcr.io/letsrevel/revel-frontend`) is **environment-agnostic** — it reads its backend API URL from `PUBLIC_API_URL` at **runtime**, so one prebuilt image can target any backend (no rebuild required).
-
-📖 **Full guide:** [docs.letsrevel.io/self-hosting](https://docs.letsrevel.io/self-hosting/).
-
----
-
-## 📊 Observability
-
-Revel includes a comprehensive observability stack built on the LGTM (Loki, Grafana, Tempo, Mimir) framework.
-
-### Available Services
-
-The observability stack lives in a separate Docker Compose file. After `make setup`, only the core services (PostgreSQL, Redis, ClamAV, Mailpit) are running. To enable full observability:
+Prerequisites: `make`, Docker with Compose v2, [uv](https://docs.astral.sh/uv/getting-started/installation/) (it installs Python 3.14 if you do not have it) plus native libraries for GeoDjango (GDAL, GEOS), PDF rendering (Pango), translations (gettext) and MIME detection (libmagic):
 
 ```bash
-docker compose down                                          # stop compose.yaml first
-docker compose -f docker-compose-observability.yml up -d
+brew install gdal pango gettext libmagic                                                                  # macOS
+sudo apt install build-essential gdal-bin libgdal-dev libpango-1.0-0 libpangoft2-1.0-0 gettext libmagic1  # Debian/Ubuntu
 ```
-
-!!! note
-    `docker-compose-observability.yml` is **standalone**: it bundles the core services *and* the observability stack, so it **replaces** `compose.yaml` (same container names — don't run both). Note it does **not** include Mailpit, so email testing is unavailable while it's running.
-
-| Service | Purpose | URL | Credentials |
-|---------|---------|-----|-------------|
-| **Grafana** | Unified dashboard for logs, traces, and metrics | [http://localhost:3000](http://localhost:3000) | admin / admin |
-| **Prometheus** | Metrics collection and querying | [http://localhost:9090](http://localhost:9090) | - |
-| **Loki** | Log aggregation | [http://localhost:3100](http://localhost:3100) | - |
-| **Tempo** | Distributed tracing | [http://localhost:3200](http://localhost:3200) | - |
-| **Django Metrics** | Application metrics endpoint | [http://localhost:8000/metrics](http://localhost:8000/metrics) | - |
-
-### Features
-
-- **Structured Logging**: All logs in JSON format with automatic context (request_id, user_id, task_id, etc.)
-- **Distributed Tracing**: Automatic tracing of HTTP requests, database queries, Redis operations, and Celery tasks
-- **Metrics**: Django, PostgreSQL, Redis, and Celery metrics automatically collected
-- **PII Scrubbing**: Automatic redaction of sensitive data (passwords, card numbers, emails, etc.)
-- **Trace-to-Log Correlation**: Jump from traces to related logs and vice versa in Grafana
-- **Grafana Alerting**: Production-ready alerts for errors, payments, auth failures, and more (no DB overhead)
-
-!!! warning "Pyroscope SDK Disabled"
-    The Pyroscope Python SDK (`pyroscope-io`) is currently disabled due to incompatibility with Grafana Pyroscope 1.6+. Profiling can be provided externally (e.g., via a Grafana Alloy eBPF agent at the infrastructure level). This may change when the SDK is updated.
-
-### Quick Start
-
-1. **View logs in Grafana**: Go to `http://localhost:3000` → Explore → Select "Loki" datasource
-   ```logql
-   {service="revel"} | json | level="error"
-   ```
-
-2. **View traces in Grafana**: Explore → Select "Tempo" datasource → Search by service or endpoint
-
-3. **View metrics in Prometheus**: Go to `http://localhost:9090` → Graph
-   ```promql
-   rate(django_http_requests_total[5m])
-   ```
-
-4. **Set up alerts**: Configure Grafana alert rules for production monitoring
-   - See [GRAFANA_ALERTING.md](observability/GRAFANA_ALERTING.md) for 10+ ready-to-use alert examples
-   - Supports Email, Slack, Discord, PagerDuty notifications
-
-### Configuration
-
-Observability can be configured via environment variables in `.env`:
 
 ```bash
-FEATURE_OBSERVABILITY=True         # Enable/disable all observability features (legacy alias: ENABLE_OBSERVABILITY)
-TRACING_SAMPLE_RATE=1.0            # 100% in dev (auto-switches to 0.1 in production)
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+git clone https://github.com/letsrevel/revel-backend.git
+cd revel-backend
+make setup   # first time only
+make run     # every time after
 ```
 
-!!! note
-    `make setup` runs with `FEATURE_OBSERVABILITY=False` to avoid connection errors to non-existent services. If you start the observability stack later, set `FEATURE_OBSERVABILITY=True` in your `.env`. The old `ENABLE_OBSERVABILITY` name is still honoured as a deprecated alias for one release.
+`make setup` installs dependencies, copies `.env.example` to `.env` (overwriting any existing one), recreates the Docker services with `docker compose down -v`, migrates, seeds demo data and starts the server. Use `make run` after that. The dev database runs on tmpfs and is empty after a container restart; `make bootstrap` reseeds it. The services use ports 5432, 6379, 3310, 1025 and 8025, so stop any local PostgreSQL or Redis first.
 
-### Verifying Observability Setup
+Once running:
 
-After starting the observability stack and Django with `make run`, verify the setup:
+- API: http://localhost:8000, interactive docs at http://localhost:8000/api/docs
+- Superuser: `admin@letsrevel.io` / `password`
+- Mailpit (captured email): http://localhost:8025
+- Code: `src/`, one Django app per domain (`events`, `accounts`, `questionnaires`, `notifications`, `wallet`, `telegram` and others)
+- The web app: see [revel-frontend](https://github.com/letsrevel/revel-frontend)
 
-1. **Check startup logs**: Look for initialization messages:
-   ```
-   OpenTelemetry tracing initialized: service=revel, sample_rate=1.0, endpoint=http://localhost:4318
-   ```
+The stack is Django 5.2 LTS, Django Ninja, PostgreSQL with PostGIS, Celery and Redis. Everything else (commands, project structure, Docker Compose files, observability, architecture, ADRs) is at [docs.letsrevel.io](https://docs.letsrevel.io). On macOS, if startup fails with `Could not find the GDAL library`, see [troubleshooting](docs/getting-started/troubleshooting.md#macos-could-not-find-the-gdal-library-homebrew-native-libs).
 
-2. **Check metrics endpoint**: Visit [http://localhost:8000/metrics](http://localhost:8000/metrics) - should show Prometheus metrics
+## Contributing
 
-3. **Generate some traffic**: Make API requests to create traces and logs
-   ```bash
-   curl http://localhost:8000/api/docs
-   ```
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Revel is built with AI assistance under a human-review workflow; if you contribute with AI, follow [AI_USAGE.md](AI_USAGE.md).
 
-4. **Check Grafana**: Go to [http://localhost:3000](http://localhost:3000) → Explore → Select datasource
-   - **Loki** for logs: `{service="revel"} | json`
-   - **Tempo** for traces: Search by service name "revel"
-   - **Prometheus** for metrics: `rate(django_http_requests_total[5m])`
+## Security
 
-For detailed documentation, see:
-- [OBSERVABILITY_SPEC.md](observability/OBSERVABILITY_SPEC.md) - Full specification and implementation plan
-- [OBSERVABILITY_IMPLEMENTATION.md](observability/OBSERVABILITY_IMPLEMENTATION.md) - What's implemented and how to use it
-- [GRAFANA_ALERTING.md](observability/GRAFANA_ALERTING.md) - Production-ready alert rules and notification setup
-- [ASYNC_LOGGING.md](observability/ASYNC_LOGGING.md) - Async logging architecture (50-100x faster)
+Report vulnerabilities privately through [GitHub security advisories](https://github.com/letsrevel/revel-backend/security/advisories/new), not in a public issue. CI runs bandit, `pip-audit`, license checks, `mypy --strict` and a 90% branch-coverage gate. Details in [SECURITY.md](SECURITY.md).
 
----
+## License
 
-## 🛠️ Development Commands
+MIT. See [LICENSE](LICENSE).
 
-The project uses a `Makefile` to streamline common development tasks.
+Revel uses the IP2Location LITE database for [IP geolocation](https://lite.ip2location.com) and the [World Cities Database](https://simplemaps.com/data/world-cities) from SimpleMaps under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
-| Command              | Description                                                      |
-| -------------------- | ---------------------------------------------------------------- |
-| `make setup`         | Runs the complete one-time setup for the dev environment.        |
-| `make run`           | Starts the Django development server.                            |
-| `make check`         | Runs all checks: formatting, linting, type checking, migration check, i18n check, and file length. |
-| `make test`          | Runs the full `pytest` test suite and generates a coverage report. |
-| `make run-celery`      | Starts the Celery worker for processing background tasks.        |
-| `make run-celery-beat` | Starts the Celery beat scheduler for periodic tasks.             |
-| `make migrations`    | Creates new database migrations based on model changes.          |
-| `make migrate`       | Applies pending database migrations.                             |
-| `make shell`         | Opens the Django shell.                                          |
-| `make restart`       | **Destructive**: Deletes all migrations, regenerates them, restarts Docker, and bootstraps. |
-| `make nuke-db`       | **Destructive**: Resets database and regenerates migrations (preserves special data migrations). |
+## Related repositories
 
----
-
-## 🔐 Protected File Access
-
-Revel implements HMAC-signed URLs for protected file access, allowing certain media files to require authorization while being served efficiently by Caddy.
-
-### Architecture
-
-```
-Client → Caddy → forward_auth → Django /api/media/validate/*
-                                     ↓
-                        Validates HMAC signature + expiry
-                                     ↓
-                        Returns 200 (serve file) or 401
-```
-
-### Why HMAC over MinIO/S3?
-
-We evaluated MinIO but chose HMAC signing for these reasons:
-
-- **FOSS-friendly**: MinIO moved to AGPL v3 and now distributes community edition as source-only (no pre-compiled binaries)
-- **No additional services**: Caddy already handles file serving
-- **Simple is better**: For our use case (<100MB files, no streaming), HMAC signing is sufficient
-- **No vendor lock-in**: Pure Django + Caddy, no external dependencies
-
-### How It Works
-
-1. **Any file in `protected/`** requires signed URL access
-2. **Caddy configuration** routes `/media/protected/*` through `forward_auth`
-3. **Django validates** the signature and expiry, returns 200 or 401
-4. **Caddy serves** the file if validation passes
-
-### Usage in Models
-
-Use `ProtectedFileField` or `ProtectedImageField` for files requiring signed access:
-
-```python
-from common.fields import ProtectedFileField, ProtectedImageField
-
-
-class MyModel(models.Model):
-    # Stored in protected/attachments/ - requires signed URL
-    attachment = ProtectedFileField(upload_to="attachments")
-
-    # Stored in protected/profile-pics/ - requires signed URL
-    profile_pic = ProtectedImageField(upload_to="profile-pics")
-```
-
-### Usage in Schemas
-
-Use `get_file_url()` with a static resolver to generate signed URLs in your schemas:
-
-```python
-from ninja import ModelSchema
-from common.signing import get_file_url
-
-
-class MyResourceSchema(ModelSchema):
-    file_url: str | None = None
-
-    @staticmethod
-    def resolve_file_url(obj: MyModel) -> str | None:
-        """Return signed URL for protected files, direct URL for public files."""
-        return get_file_url(obj.file)
-
-    class Meta:
-        model = MyModel
-        fields = ["id", "name"]
-```
-
-The `get_file_url()` function automatically:
-- Returns a signed URL (with `exp` and `sig` params) for protected paths
-- Returns a direct URL for public paths
-- Returns `None` if the file field is empty
-
-### Security
-
-- Signatures use Django's `SECRET_KEY` with domain separation
-- URLs expire after 1 hour by default (configurable)
-- Timing-safe comparison prevents timing attacks
-- Rate limiting on validation endpoint prevents brute-force attacks
-
-### Caddy Configuration
-
-See the [Protected Files architecture docs](docs/architecture/protected-files.md) for details. The Caddy configuration lives in the [infra](https://github.com/letsrevel/infra) repository.
-
----
-
-## 📂 Project Structure
-
-The codebase is organized into a `src` directory with a clear separation of concerns, following modern Django best practices.
-
-*   `src/revel/`: The core Django project settings.
-*   `src/accounts/`: User authentication, registration, and profile management.
-*   `src/events/`: The core logic for organizations, events, tickets, and memberships.
-*   `src/questionnaires/`: The questionnaire building, submission, and evaluation system. [📖 Read more](src/questionnaires/README.md)
-*   `src/notifications/`: Multi-channel notification system (in-app, email, Telegram) with user preferences, digest support, and event-driven delivery.
-*   `src/wallet/`: Apple Wallet pass generation for event tickets (.pkpass files).
-*   `src/geo/`: Geolocation features (cities, IP lookups).
-*   `src/telegram/`: Telegram Bot integration with FSM-based conversation flows, inline keyboards, and organizer notifications.
-*   `src/api/`: Main API configuration, exception handlers, and global endpoints.
-*   `src/common/`: Shared utilities, authentication backends, base models, and admin customizations.
-
-Most apps contain controllers and service modules for API endpoints and business logic respectively, either as directories or single files depending on complexity.
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please read our **[CONTRIBUTING.md](CONTRIBUTING.md)** to learn how you can get involved, from reporting bugs to submitting code. If you contribute with AI assistance, also read **[AI_USAGE.md](AI_USAGE.md)** — it is not optional.
-
-### Internationalization
-
-Revel aims to support multiple languages (currently English, German, Italian, and French). See **[i18n.md](i18n.md)** for details on how the translation system works and how to add new languages.
-
-This is currently heavily WIP.
-
----
-
-## 🔒 Security
-
-We run layered, mostly-automated security controls — SAST (bandit), dependency
-CVE scanning (`pip-audit`) and license checks, strict typing, a 90%
-branch-coverage gate, a nightly dependency audit, and periodic OWASP ZAP scans.
-See **[SECURITY.md](SECURITY.md)** for the full posture.
-
-**Found a vulnerability?** Please report it privately via
-**[Report a vulnerability](https://github.com/letsrevel/revel-backend/security/advisories/new)** —
-do not open a public issue.
-
----
-
-## 📜 License
-
-This project is licensed under the MIT license. See [LICENSE](LICENSE).
-
-## Acknowledgements
-- Revel uses the IP2Location LITE database for <a href="https://lite.ip2location.com">IP geolocation</a>.
-- Revel uses the [World Cities Database](https://simplemaps.com/data/world-cities) from SimpleMaps, available under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- [revel-frontend](https://github.com/letsrevel/revel-frontend): the SvelteKit web app
+- [infra](https://github.com/letsrevel/infra): Docker Compose deployment and the `setup.sh` wizard
+- [.github](https://github.com/letsrevel/.github): the organization profile

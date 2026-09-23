@@ -1,4 +1,6 @@
 # src/events/management/commands/bootstrap_helpers/organizations.py
+# Seed descriptions keep each markdown paragraph on one line: hard wraps render as line breaks in the web app.
+# ruff: noqa: E501
 """Organization creation for bootstrap process."""
 
 import structlog
@@ -29,15 +31,10 @@ def create_organizations(state: BootstrapState) -> None:
         slug="revel-events-collective",
         owner=state.users["org_alpha_owner"],
         visibility=events_models.Organization.Visibility.PUBLIC,
-        description="""# Revel Events Collective
-
-We're a vibrant community dedicated to bringing people together through unforgettable experiences.
-From intimate gatherings to large-scale celebrations, we create events that spark joy, foster
-connections, and celebrate life's special moments.
+        description="""We're a vibrant community dedicated to bringing people together through unforgettable experiences. From intimate gatherings to large-scale celebrations, we create events that spark joy, foster connections, and celebrate life's special moments.
 
 ## Our Mission
-To transform ordinary moments into extraordinary memories through thoughtfully curated events
-that bring communities together.
+To transform ordinary moments into extraordinary memories through thoughtfully curated events that bring communities together.
 
 ## What We Do
 - Music and cultural events
@@ -87,10 +84,7 @@ that bring communities together.
         slug="tech-innovators-network",
         owner=state.users["org_beta_owner"],
         visibility=events_models.Organization.Visibility.PUBLIC,
-        description="""# Tech Innovators Network
-
-An exclusive community for tech professionals, entrepreneurs, and innovators. Join us for
-cutting-edge workshops, networking events, and knowledge-sharing sessions.
+        description="""An exclusive community for tech professionals, entrepreneurs, and innovators. Join us for cutting-edge workshops, networking events, and knowledge-sharing sessions.
 
 ## Membership Benefits
 - Access to exclusive tech workshops and conferences
@@ -99,8 +93,7 @@ cutting-edge workshops, networking events, and knowledge-sharing sessions.
 - Members-only online resources and forums
 
 ## Join Us
-Membership is by invitation or application review. We're looking for passionate technologists
-who want to shape the future.
+Membership is by invitation or application review. We're looking for passionate technologists who want to shape the future.
 """,
         city=state.cities["berlin"],
     )

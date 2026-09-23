@@ -44,21 +44,56 @@ flowchart TB
 
 ## Quick Start
 
+After `make setup`, only the core services (PostgreSQL, Redis, ClamAV, Mailpit) are running.
+To switch to the full observability stack:
+
 ```bash
-# Start development services (PostgreSQL, Redis, ClamAV, Mailpit)
-docker compose up -d
-
-# Start the observability stack (Loki, Tempo, Prometheus, Grafana, Pyroscope)
+docker compose down                                      # stop compose.yaml first
 docker compose -f docker-compose-observability.yml up -d
-
-# Start Django with observability enabled
-make run
-
-# Access the UIs
-# Grafana:    http://localhost:3000  (admin / admin)
-# Prometheus: http://localhost:9090
-# Pyroscope:  http://localhost:4040
+make run                                                 # with FEATURE_OBSERVABILITY=True in .env
 ```
+
+!!! note "Standalone, not additive"
+    `docker-compose-observability.yml` bundles the core services *and* the observability stack,
+    so it **replaces** `compose.yaml` (same container names, so don't run both). It does **not**
+    include Mailpit, so email testing is unavailable while it's running.
+
+!!! note "`FEATURE_OBSERVABILITY` after `make setup`"
+    `make setup` runs the server with `FEATURE_OBSERVABILITY=False` to avoid connection errors to
+    services that aren't running. Once the observability stack is up, set
+    `FEATURE_OBSERVABILITY=True` in your `.env`. The old `ENABLE_OBSERVABILITY` name is still
+    honoured as a deprecated alias.
+
+| Service | Purpose | URL | Credentials |
+|---|---|---|---|
+| **Grafana** | Dashboards for logs, traces and metrics | http://localhost:3000 | admin / admin |
+| **Prometheus** | Metrics collection and querying | http://localhost:9090 | - |
+| **Loki** | Log aggregation | http://localhost:3100 | - |
+| **Tempo** | Distributed tracing | http://localhost:3200 | - |
+| **Pyroscope** | Profiling UI | http://localhost:4040 | - |
+| **Django metrics** | Application metrics endpoint | http://localhost:8000/metrics | - |
+
+### Verifying the setup
+
+1. **Check startup logs** for the initialization line:
+   ```
+   OpenTelemetry tracing initialized: service=revel, sample_rate=1.0, endpoint=http://localhost:4318
+   ```
+2. **Check the metrics endpoint**: http://localhost:8000/metrics should return Prometheus metrics.
+3. **Generate some traffic**, e.g. `curl http://localhost:8000/api/docs`.
+4. **Check Grafana** (http://localhost:3000, Explore):
+    - **Loki** for logs: `{service="revel"} | json`, or errors only: `{service="revel"} | json | level="error"`
+    - **Tempo** for traces: search by service name `revel`
+    - **Prometheus** for metrics: `rate(django_http_requests_total[5m])`
+
+### Further reading
+
+These live in the repository's `observability/` directory:
+
+- [OBSERVABILITY_SPEC.md](https://github.com/letsrevel/revel-backend/blob/main/observability/OBSERVABILITY_SPEC.md): full specification and implementation plan
+- [OBSERVABILITY_IMPLEMENTATION.md](https://github.com/letsrevel/revel-backend/blob/main/observability/OBSERVABILITY_IMPLEMENTATION.md): what's implemented and how to use it
+- [GRAFANA_ALERTING.md](https://github.com/letsrevel/revel-backend/blob/main/observability/GRAFANA_ALERTING.md): alert rules and notification setup (Email, Slack, Discord, PagerDuty)
+- [ASYNC_LOGGING.md](https://github.com/letsrevel/revel-backend/blob/main/observability/ASYNC_LOGGING.md): async logging architecture
 
 ---
 
@@ -301,12 +336,14 @@ chase, only a 500 the buyer saw.
 
 ## Configuration
 
-The observability stack is controlled by a single environment variable:
+The observability stack is controlled by these environment variables:
 
 ```bash
 # Enable/disable observability (default: varies by environment)
 # (legacy name ENABLE_OBSERVABILITY is still honoured as a deprecated alias)
 FEATURE_OBSERVABILITY=True
+TRACING_SAMPLE_RATE=1.0            # default: 1.0 when DEBUG, 0.1 otherwise
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
 | Environment | Default | Rationale |

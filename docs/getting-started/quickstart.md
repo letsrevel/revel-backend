@@ -11,6 +11,7 @@ Before you begin, make sure the following tools are installed on your machine:
 | **Make** | Any | Task runner for development commands |
 | **Docker** | 20+ | Runs PostgreSQL, Redis, ClamAV, Mailpit |
 | **Python** | 3.14+ | Runtime for the Django application |
+| **GDAL/GEOS, Pango, gettext, libmagic** | Any | Native libraries for GeoDjango, WeasyPrint PDFs, `compilemessages` and MIME detection. macOS: `brew install gdal pango gettext libmagic`. Debian/Ubuntu: `sudo apt install gdal-bin libgdal-dev libpango-1.0-0 libpangoft2-1.0-0 gettext libmagic1` |
 | **UV** | Latest | Dependency management (replaces pip) |
 
 !!! note "Installing UV"
@@ -25,25 +26,16 @@ Before you begin, make sure the following tools are installed on your machine:
 
 ```bash
 # 1. Clone the repository
-git clone git@github.com:letsrevel/revel-backend.git
+git clone https://github.com/letsrevel/revel-backend.git
 cd revel-backend
 ```
 
-!!! warning "Geo data file required before setup"
-    The database migration `0002_load_cities` requires a cities CSV file that is **not** included in the repository due to licensing.
-    **`make setup` will fail** if this file is missing.
-
-    Download `worldcities.csv` from [SimpleMaps](https://simplemaps.com/data/world-cities) and place it at:
-
-    ```
-    src/geo/data/worldcities.csv
-    ```
-
-    For a lighter alternative during development, rename the included `worldcities.mini.csv` (a small subset):
-
-    ```bash
-    cp src/geo/data/worldcities.mini.csv src/geo/data/worldcities.csv
-    ```
+!!! note "Geo data is optional"
+    The migration `0002_load_cities` loads `src/geo/data/worldcities.csv` if it exists and otherwise
+    falls back to the tracked 50-city `src/geo/fixtures/worldcities.mini.csv`, so `make setup` works on a fresh clone.
+    For the full city list, download `worldcities.csv` from
+    [SimpleMaps](https://simplemaps.com/data/world-cities) and place it at `src/geo/data/worldcities.csv`
+    before running setup.
 
     The IP-to-location database (`IP2LOCATION-LITE-DB5.BIN`) is **not** required for setup. It is downloaded automatically by a periodic Celery task if the `IP2LOCATION_TOKEN` environment variable is set.
 
