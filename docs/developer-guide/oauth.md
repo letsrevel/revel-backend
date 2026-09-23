@@ -62,7 +62,7 @@ The table is the contract; the wording is what the user reads before approving.
 | `profile` | See your name and picture |
 | `email` | See your email address |
 | `offline_access` | Stay connected |
-| `me:read` | See your profile, tickets, RSVPs and memberships |
+| `me:read` | See your profile, tickets, RSVPs, memberships, invoices and payments |
 | `org:read` | See your organizations, events and settings |
 | `org:events` | Create, edit and delete events and event series, send invitations, and see attendee lists |
 | `org:tickets` | Manage ticket tiers, tickets, discount codes and seating, issue refunds, and see attendee details and revenue |
@@ -73,11 +73,12 @@ The table is the contract; the wording is what the user reads before approving.
 | `org:polls` | Manage polls |
 | `org:potluck` | Manage potluck items |
 
-Five things to know:
+Six things to know:
 
 - **There is no attendee *write* scope.** `me:read` is the only `me:` scope beyond the OIDC
   four, so RSVPing, buying a ticket, editing a guest name or starting a subscription cannot be
-  done with an app token at all — those routes stay session-only. An earlier draft advertised a
+  done with an app token at all — those routes stay first-party only (see
+  [What app tokens cannot reach](#what-app-tokens-cannot-reach)). An earlier draft advertised a
   `me:rsvp` scope that enforced nothing; it is gone rather than left on the consent screen
   promising a capability no app received.
 - **`me:read` reaches your email address.** `GET /api/account/me` is a `me:read` route and its
@@ -94,15 +95,105 @@ Five things to know:
   because they share one staff permission key. Request it only if you need it. It is also
   required *alongside* `org:events` for the two event-cancellation routes that touch money:
   `POST .../actions/update-status/cancelled` with `refund_tickets=true`, and
-  `GET .../cancellation-refund-preview` (which reads the connected Stripe balance).
+  `GET .../cancellation-refund-preview` (which reads the connected Stripe balance). Series
+  passes are ticket products too: every route under `/api/event-series-admin/{id}/passes`
+  (pricing, holders and what they paid, offline-payment confirmation, cancel-with-refund) needs
+  `org:tickets` alongside the `org:events` their permission key maps to.
 - **`org:members` includes membership money too.** `manage_subscriptions` gates the
   subscription plans, but also the organization's MRR/churn metrics, the membership payment
-  ledger and recording or refunding a payment — which is why the label says so.
+  ledger and recording or refunding a payment — which is why the label says so. It does
+  **not** include organization invitation links (`/organization-admin/{slug}/tokens`): a link
+  can make whoever claims it a staff member, and granting staff status is first-party only.
 - **A scope is a ceiling, not a grant.** A token's power is *the scopes the user approved* ∩
   *what that user may do right now*. An app holding `org:tickets` gets `403` in an organization
   where the user lacks `manage_tickets`, and loses access the moment that permission is
-  withdrawn. Organization settings, ticket purchases and owner-only routes (Stripe onboarding,
-  revenue and VAT reports, adding or removing staff) are unreachable with an app token at all.
+  withdrawn. Some routes are unreachable with an app token whatever it holds — see
+  [What app tokens cannot reach](#what-app-tokens-cannot-reach).
+- **`me:read` includes your money, read-only.** Besides profile, tickets and memberships it
+  returns your invoices (with a download link for each PDF) and your membership payment
+  history — your own records only, never anyone else's.
+
+## What app tokens cannot reach
+
+Some routes accept only a **first-party token**: the JWT you get by logging in to Revel
+yourself, the same one the web app uses. Code comments and reviews call these routes
+*session-only*. "Session" here means *your own login*, not a browser cookie: this is the
+classic way to use the Revel API, and everything below still works with it.
+
+```bash
+curl -X POST https://api.letsrevel.io/api/auth/token/pair \
+  -H 'Content-Type: application/json' -d '{"username": "you@example.com", "password": "…"}'
+# → {"access": "…", "refresh": "…"}
+# With 2FA on, you get {"token": "…", "type": "otp"} instead: POST {"token": "…", "otp": "123456"}
+# to /api/auth/token/pair/otp for the pair. Refresh with POST /api/auth/refresh.
+```
+
+That token is **you**, with everything your account can do. It is for your own scripts only.
+Never ask someone else for their password to get one: acting on another user's behalf is what
+app tokens are for, and the routes below are the ones a user cannot delegate.
+
+**The rule.** A route accepts app tokens only if a scope's consent label honestly describes
+what the route does. When no label does (you are acting as the organization *owner*, handling
+money the scope never mentioned, changing your identity or security settings, or taking an
+attendee action that has no write scope yet), the route stays first-party only. Accepting app
+tokens is opt-in per controller, from a reviewed allow-list, and CI fails if a route on that
+surface is owner-only, is a write gated only by a `:read` scope, or compares an owner in its
+handler (`src/oauth/tests/test_scope_coverage.py`). Those guards read the controller layer
+only. A rule enforced deeper, in a service, still needs a reviewer, which is how the
+invitation links below slipped through.
+
+**How a refusal looks.** A first-party-only route answers an app token with `401` and no
+`insufficient_scope` challenge, so re-consenting will not help. Public routes that also accept
+a login (event, organization, series and poll pages, guest checkout, seat holds) behave the
+same way: they answer `401` to an app token, so call them **without** an `Authorization`
+header to get the anonymous view. Routes with no authentication at all (city and tag lookups, the registration
+and password-reset flows) ignore the header.
+
+### Whole areas
+
+Paths are relative to `/api`.
+
+| Area | Routes | Why |
+|---|---|---|
+| Buying, RSVPing and joining | `/events/{id}/checkout*`, `/events/{id}/tickets/{tier}/checkout*`, `/events/{id}/rsvp/*`, `/events/{id}/waitlist/*`, `/events/{id}/seating/holds*`, `/events/{id}/invitation-requests`, `/events/{id}/questionnaire/*`, `/events/claim-invitation/*`, `/events/tickets/{id}/cancel`, `/series-passes/*`, `/organizations/{slug}/membership-requests`, `/organizations/claim-invitation/*`, following and unfollowing (`/organizations/{slug}/follow`, `/event-series/{id}/follow`) | No attendee write scope exists yet. Reading what you follow is `me:read` (`/me/following/*`) |
+| Attendee views of an event | `/events/{id}/attendee-list`, `…/announcements`, `…/dietary-summary`, `…/pronoun-distribution`, `/organizations/{slug}/member-announcements` | Other attendees' data, shown to fellow attendees; no scope covers it |
+| Public browsing | `/events/*`, `/organizations/*`, `/event-series/*`, `/polls/*` reads | Anonymous or first-party; app tokens get `401` (see above) |
+| Account and security | `/account/*` except `GET /account/me`; `/otp/*`; `/telegram/*`; `/preferences/*`; `/dietary/*`; `/notifications*`; `/notification-preferences*`; `/exports/*`; `/permissions/my-permissions` | Your identity, security and personal settings are not delegable |
+| Your billing and referrals | `/me/billing*`, `/me/referral/*`, `/referral/stripe/*` | Money and tax identity; no scope names them |
+| Wallet passes and PDFs | `/tickets/{id}/pdf`, `/tickets/{id}/wallet/*`, `/me/organizations/{slug}/membership/{pdf,wallet/*}` | Not in any scope |
+| Organization finances | `/organization-admin/{slug}/revenue*`; `…/vat-id`, `…/billing-info`, `…/invoicing`, `…/invoices*`, `…/credit-notes`, `…/attendee-invoices*`, `…/attendee-credit-notes` | Owner-only; waiting for a dedicated `org:financials` scope |
+| Organization invitation links | `/organization-admin/{slug}/tokens*` (all methods) | A link can grant staff status (see below) |
+| Creating organizations | `POST /organizations/`, `POST /organizations/{slug}/contact`, `POST /organizations/{slug}/whitelist-request` | Not delegable |
+| Poll administration | `POST /polls/organizations/{org_id}`, and `PATCH`/`DELETE /polls/{id}/`, `…/open`, `…/close`, `…/reopen`, `…/duplicate`; voting (`/polls/{id}/vote`) | `org:polls` covers a poll's sections and questions (`PollQuestionController`), not the poll's lifecycle; voting is an attendee write |
+| Platform integrations | `/organization-admin/{slug}/integrations*`, `/event-admin/{id}/integrations*` | Third-party credentials (e.g. Eventbrite); not in any scope |
+| Questionnaire file uploads | `/questionnaire-files/*` | Not in any scope |
+| The OAuth provider itself | `/oauth/apps/*`, `/oauth/authorize`, `/oauth/connections*` | An app must never manage apps or approve its own consent |
+
+### Single routes inside app-token controllers
+
+These controllers otherwise accept app tokens, which is why the exceptions are worth listing:
+
+| Route | Why |
+|---|---|
+| `GET /organization-admin/{slug}` | Returns the organization's financial identity (Stripe, VAT), which `org:read` does not promise |
+| `POST /organization-admin/{slug}/verify-contact-email` | Changes a verified identity |
+| `POST /organization-admin/{slug}/stripe/connect`, `POST .../stripe/account/verify` | Owner-only Stripe onboarding |
+| `POST /organization-admin/{slug}/staff/{user_id}`, `DELETE .../staff/{user_id}`, `PUT .../staff/{user_id}/permissions` | Owner-only; granting or changing staff powers |
+| `PATCH /api/dashboard/tickets/{ticket_id}/guest-name` | Attendee write |
+| `POST /api/me/organizations/{slug}/apply`, `POST /api/me/applications/{id}/cancel` | Attendee write |
+| `POST /api/me/organizations/{slug}/membership-questionnaire/{id}/submit` | Attendee write |
+| `POST /api/me/organizations/{org_id}/subscribe`, `…/subscription/cancel`, `…/uncancel`, `…/change-plan`, `…/revive`, `…/billing-portal` | Starting, changing or paying for a subscription; `me:read` only reads |
+| `POST /api/events/{event_id}/potluck/`, `…/{item_id}/claim`, `…/{item_id}/unclaim` | Attendee write (`org:potluck` covers *managing* the list, not bringing a dish) |
+
+!!! note "Why invitation links are first-party only"
+
+    Claiming an organization invitation link that has `grants_staff_status` creates a staff
+    member. `POST /staff/{user_id}` has always been first-party only, but the link routes used
+    to accept `org:members`, so an owner-delegated app could mint a staff link (or list the
+    existing ones) and pass it on. That reaches the same result by a different route. Member-only
+    links are harmless in comparison, but one controller serves both kinds, so the whole
+    controller is first-party only. Event invitation links (`/event-admin/{id}/tokens`) only
+    invite attendees, and they stay on `org:events`.
 
 ## Authorization code + PKCE
 
@@ -145,7 +236,9 @@ curl https://api.letsrevel.io/api/dashboard/organizations \
   unrestricted, and a token bound to some other origin is refused with `invalid_token`.
 - Access tokens live 1 hour. A refresh token is issued **only** when `offline_access` was
   granted; refresh tokens rotate on every use with reuse protection, so replaying an old one
-  revokes the whole family (`invalid_grant`).
+  revokes the whole family (`invalid_grant`). That includes a refresh that narrows the scope
+  (RFC 6749 §6): asking for fewer scopes — even leaving out `offline_access` — narrows the new
+  access token but still rotates, so you always get a new refresh token back and must store it.
 - `state` is yours: Revel echoes it and never inspects it.
 
 ## OIDC login
@@ -182,7 +275,8 @@ Point the host at the API origin (`https://api.letsrevel.io`) and it does the re
 
 Only a subset of the API accepts app tokens — organizer admin, dashboard, polls,
 questionnaires and the attendee-side routes behind `me:` scopes. Anything else refuses an app
-token by construction, whatever scopes it holds.
+token by construction, whatever scopes it holds; the full list is in
+[What app tokens cannot reach](#what-app-tokens-cannot-reach).
 
 One asymmetry worth knowing: `GET /api/questionnaires/` needs only the `org:read` baseline,
 while `GET /api/questionnaires/{id}` needs `org:questionnaires`. The list is a picker — names

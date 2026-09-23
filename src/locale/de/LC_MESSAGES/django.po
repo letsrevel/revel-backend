@@ -5583,8 +5583,8 @@ msgstr "Deine E-Mail-Adresse sehen"
 msgid "Stay connected"
 msgstr "Verbunden bleiben"
 
-msgid "See your profile, tickets, RSVPs and memberships"
-msgstr "Dein Profil, deine Tickets, Zusagen und Mitgliedschaften sehen"
+msgid "See your profile, tickets, RSVPs, memberships, invoices and payments"
+msgstr "Dein Profil, deine Tickets, Zusagen, Mitgliedschaften, Rechnungen und Zahlungen sehen"
 
 msgid "See your organizations, events and settings"
 msgstr "Deine Organisationen, Events und Einstellungen sehen"

@@ -24,7 +24,12 @@ from .permissions import EventSeriesPermission
 @api_controller(
     "/event-series-admin/{series_id}/passes",
     auth=ScopedJWTAuth(),
-    permissions=[RequireScope("org:read"), EventSeriesPermission("edit_event_series")],
+    # ``org:tickets`` alongside the key's own ``org:events``: a series pass is a priced ticket
+    # product, and this controller sets prices, confirms offline payments, lists what holders
+    # paid and cancels passes with real Stripe refunds. ``org:events``'s label promises none of
+    # that; ``org:tickets``'s ("issue refunds ... revenue") does — the same pairing as
+    # cancel-with-refunds in event_admin/core.py. ``RequireScope`` constrains app tokens only.
+    permissions=[RequireScope("org:read"), RequireScope("org:tickets"), EventSeriesPermission("edit_event_series")],
     tags=["Event Series Admin"],
     throttle=WriteThrottle(),
 )

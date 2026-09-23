@@ -5508,7 +5508,7 @@ msgstr "Ver tu dirección de correo electrónico"
 msgid "Stay connected"
 msgstr "Mantener la conexión"
 
-msgid "See your profile, tickets, RSVPs and memberships"
+msgid "See your profile, tickets, RSVPs, memberships, invoices and payments"
 msgstr ""
 "Ver tu perfil, tus entradas, tus confirmaciones de asistencia y tus "
 "membresías"

@@ -26,7 +26,14 @@ from django.test.client import Client
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Organization, OrganizationMember, OrganizationStaff, PermissionMap, PermissionsSchema
+from events.models import (
+    EventSeries,
+    Organization,
+    OrganizationMember,
+    OrganizationStaff,
+    PermissionMap,
+    PermissionsSchema,
+)
 from oauth.models import OAuthApplication
 from oauth.scopes import SCOPES
 from oauth.tests.test_auth_class import make_access_token
@@ -250,6 +257,46 @@ def test_refund_preview_needs_org_tickets_as_well(
 ) -> None:
     """The preview carries the connected Stripe balance and refundable revenue: ``org:tickets`` data."""
     case = Case("GET", f"/api/event-admin/{oauth_event.id}/cancellation-refund-preview", None, 200)
+    owner = organization.owner
+    denied = _request(owner, oauth_app, "org:read org:events", case)
+    assert denied.status_code == 403, denied.content
+    assert 'scope="org:tickets"' in denied["WWW-Authenticate"], denied["WWW-Authenticate"]
+
+    assert _request(owner, oauth_app, "org:read org:events org:tickets", case).status_code == 200
+    assert session_client.get(case.path).status_code == 200
+
+
+def test_invitation_links_are_session_only(
+    organization: Organization, oauth_app: OAuthApplication, session_client: Client
+) -> None:
+    """A link can grant staff status, and staff grants are session-only (R-100).
+
+    ``org:members`` used to reach ``POST .../tokens`` with ``grants_staff_status=true``: the
+    owner check lives in the service and passes for an owner-delegated token, so an app could
+    mint a staff link and hand it to anyone — the end state ``POST /staff/{user_id}`` refuses.
+    """
+    path = f"/api/organization-admin/{organization.slug}/tokens"
+    body = {"grants_membership": False, "grants_staff_status": True, "max_uses": 0}
+    for method, case_body in (("POST", body), ("GET", None)):
+        case = Case(method, path, case_body, 200)
+        response = _request(organization.owner, oauth_app, "org:read org:members", case)
+        assert response.status_code == 401, (method, response.status_code, response.content)
+    assert not organization.tokens.exists()
+
+    assert session_client.get(path).status_code == 200
+
+
+def test_series_pass_admin_needs_org_tickets_as_well(
+    organization: Organization, oauth_app: OAuthApplication, session_client: Client
+) -> None:
+    """Passes are priced ticket products, cancelled with real Stripe refunds: ``org:tickets``.
+
+    ``edit_event_series`` maps to ``org:events``, whose label promises neither money nor
+    refunds, so the controller requires ``org:tickets`` in addition — the pairing the event
+    cancel-with-refunds route already uses.
+    """
+    series = EventSeries.objects.create(organization=organization, name="Series", slug="series")
+    case = Case("GET", f"/api/event-series-admin/{series.id}/passes/", None, 200)
     owner = organization.owner
     denied = _request(owner, oauth_app, "org:read org:events", case)
     assert denied.status_code == 403, denied.content

@@ -5533,7 +5533,7 @@ msgstr "Vedere il tuo indirizzo email"
 msgid "Stay connected"
 msgstr "Restare collegato"
 
-msgid "See your profile, tickets, RSVPs and memberships"
+msgid "See your profile, tickets, RSVPs, memberships, invoices and payments"
 msgstr ""
 "Vedere il tuo profilo, i tuoi biglietti, le tue risposte e le tue iscrizioni"
 

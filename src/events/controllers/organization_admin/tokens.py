@@ -7,22 +7,26 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import ScopedJWTAuth
+from common.authentication import I18nJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import OrganizationPermission
 from events.service import organization_service
-from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
+# Session-only: a token can carry ``grants_staff_status``, and claiming one creates an
+# ``OrganizationStaff`` row. Staff grants are session-only on ``POST /staff/{user_id}`` (R-100),
+# and ``org:members``'s label never mentions staff, so an app token must not reach the same end
+# state by minting — or listing and leaking — an invitation link. The owner check that guards
+# staff links lives in the service, where the scope-coverage guards cannot see it.
 @api_controller(
     "/organization-admin/{slug}",
-    auth=ScopedJWTAuth(),
+    auth=I18nJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),
-    permissions=[RequireScope("org:read"), OrganizationPermission("manage_members")],
+    permissions=[OrganizationPermission("manage_members")],
 )
 class OrganizationAdminTokensController(OrganizationAdminBaseController):
     """Organization token management endpoints."""

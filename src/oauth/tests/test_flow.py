@@ -227,6 +227,36 @@ def test_refresh_rotation_and_reuse_detection(
     assert family_dead.status_code == 400
 
 
+def test_scope_narrowing_refresh_still_rotates(
+    session_client: Client, client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    """Dropping ``offline_access`` on a refresh must not skip rotation.
+
+    ``request.scopes`` on a refresh is the client's *requested* list, so the ``offline_access``
+    gate used to pop the new refresh token, DOT then skipped its revoke block, and the presented
+    token stayed live: replayable indefinitely without ever tripping reuse detection.
+    """
+    tokens = run_code_flow(session_client, client, public_oauth_app, "org:read org:events offline_access")
+    first = tokens["refresh_token"]
+    narrowed = client.post(
+        "/o/token",
+        {
+            "grant_type": "refresh_token",
+            "refresh_token": first,
+            "client_id": public_oauth_app.client_id,
+            "scope": "org:read org:events",
+        },
+    )
+    assert narrowed.status_code == 200, narrowed.content
+    assert narrowed.json()["refresh_token"] != first
+    assert RefreshToken.objects.get(token_checksum=hashlib.sha256(first.encode()).hexdigest()).revoked is not None
+    replay = client.post(
+        "/o/token",
+        {"grant_type": "refresh_token", "refresh_token": first, "client_id": public_oauth_app.client_id},
+    )
+    assert replay.status_code == 400 and replay.json()["error"] == "invalid_grant"
+
+
 def test_foreign_resource_token_fails_audience(
     session_client: Client, client: Client, public_oauth_app: OAuthApplication
 ) -> None:

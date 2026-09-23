@@ -52,7 +52,7 @@ from oauth.scopes import SCOPES, UNSCOPED_KEYS, scopes_for_key
 # so it is simply not on the surface, and adding it is a deliberate edit (M3).
 APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
     {
-        # --- organization admin (13 of the 15 in ORGANIZATION_ADMIN_CONTROLLERS) ---
+        # --- organization admin (12 of the 15 in ORGANIZATION_ADMIN_CONTROLLERS) ---
         # Absent on purpose: OrganizationAdminRevenueController and OrganizationAdminVATController.
         # Both are controller-level ``IsOrganizationOwner()`` and neither is honestly covered by
         # any scope in the registry: ``org:read``'s consent label is "See your organizations,
@@ -61,9 +61,9 @@ APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
         # dedicated ``org:financials`` scope rather than riding in on ``org:read`` (R-93). Note
         # that ``org:read`` still reaches *some* org settings — what it must not reach is the
         # financial identity, which is why ``GET /organization-admin/{slug}`` is pinned
-        # session-only too (R-101).
+        # session-only too (R-101). OrganizationAdminTokensController is absent too: an invitation
+        # link can grant staff status, which is session-only everywhere else (R-100).
         "OrganizationAdminCoreController",
-        "OrganizationAdminTokensController",
         "OrganizationAdminMembershipRequestsController",
         "OrganizationAdminResourcesController",
         "OrganizationAdminMembersController",
@@ -102,7 +102,7 @@ APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
     }
 )
 
-# A floor, not an exact count, but a TIGHT one: 259 routes are switched today, and the smallest
+# A floor, not an exact count, but a TIGHT one: 255 routes are switched today, and the smallest
 # switched controller has a single route, so slack here is slack in which a whole surface could
 # vanish silently (M4). It exists so the parametrized guards below can never assert nothing
 # (R-15); it is meant to be edited deliberately when routes are added or removed.
@@ -114,8 +114,8 @@ MINIMUM_SCOPED_ROUTES = 250
 OWNER_ACTION = "is_owner"
 
 # HTTP methods that change state. A read scope must never be the sole gate on one of these: a
-# consent screen that says "See your profile, tickets, RSVPs and memberships" must not also buy
-# the right to start a Stripe subscription (R-99). The registry has no attendee write scope
+# consent screen that says "See your profile, tickets, RSVPs, memberships, invoices and
+# payments" must not also buy the right to start a Stripe subscription (R-99). The registry has no attendee write scope
 # (``me:rsvp`` was dropped in v1 for gating nothing — R-125), so an attendee write that needs
 # one stays session-only until FOLLOWUPS #5's ``me:write`` lands.
 UNSAFE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})

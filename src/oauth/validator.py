@@ -127,12 +127,14 @@ class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         when the key is present. Popping afterwards would store a refresh token and merely hide
         it from the response, which is worse than either alternative.
 
-        One documented side effect, deliberately left alone: if a client holding
-        ``offline_access`` refreshes while *narrowing* the scope (e.g. ``scope=openid``), the
-        pop makes ``refresh_token_code`` falsy, so DOT skips its whole ``if refresh_token_code:``
-        block — including ``refresh_token_instance.revoke()`` — and the presented refresh token
-        stays live. Nothing new is issued, and RFC 6749 §6 permits a narrowed refresh, so the
-        gate's property holds; it is simply not a rotation.
+        The gate applies to the *issuing* grants only, never to ``refresh_token``. A refresh grant
+        can only exist because ``offline_access`` was granted, but ``request.scopes`` on a refresh
+        is whatever the client asked for — so a client narrowing the scope (e.g. ``scope=openid``)
+        used to trip the pop. That made ``refresh_token_code`` falsy, DOT skipped its whole
+        ``if refresh_token_code:`` block including ``refresh_token_instance.revoke()``, and the
+        presented refresh token stayed live and replayable without ever tripping reuse
+        detection. Always rotating on refresh also matches RFC 6749 §6: the new refresh token's
+        scope must equal the old one's, which narrowing the access token does not change.
 
         Args:
             token: The token dict oauthlib built and will serialise.
@@ -140,6 +142,6 @@ class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
             *args: Passed through to DOT.
             **kwargs: Passed through to DOT.
         """
-        if "offline_access" not in (request.scopes or []):
+        if request.grant_type != "refresh_token" and "offline_access" not in (request.scopes or []):
             token.pop("refresh_token", None)
         super()._save_bearer_token(token, request, *args, **kwargs)

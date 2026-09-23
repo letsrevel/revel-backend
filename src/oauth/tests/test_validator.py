@@ -23,16 +23,17 @@ def _request(user: RevelUser, scopes: list[str]) -> t.Any:
     ``validate_bearer_token`` sets ``request.scopes = list(access_token.scopes)`` and the
     grant types set it from ``scope_to_list``, so a list of scope names is the real shape.
     """
-    return SimpleNamespace(user=user, scopes=scopes)
+    return SimpleNamespace(user=user, scopes=scopes, grant_type="authorization_code")
 
 
 def _token_request(user: RevelUser, app: OAuthApplication, scopes: list[str]) -> t.Any:
     """A request shaped for the *real* ``_save_bearer_token`` path.
 
-    ``grant_type`` is deliberately not ``authorization_code`` (which would look up a
-    ``Grant`` row) nor ``client_credentials`` (which nulls the user).
+    ``authorization_code`` because the ``offline_access`` gate only applies to issuing grants
+    (a refresh always rotates); ``code=None`` makes DOT's ``Grant`` lookup for resource
+    narrowing find nothing rather than needing a row.
     """
-    return SimpleNamespace(user=user, scopes=scopes, client=app, grant_type="refresh_token")
+    return SimpleNamespace(user=user, scopes=scopes, client=app, grant_type="authorization_code", code=None)
 
 
 def test_profile_and_email_claims(user: RevelUser) -> None:

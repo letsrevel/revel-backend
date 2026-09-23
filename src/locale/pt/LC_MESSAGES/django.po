@@ -5448,7 +5448,7 @@ msgstr "Ver o teu endereço de e-mail"
 msgid "Stay connected"
 msgstr "Manter a ligação"
 
-msgid "See your profile, tickets, RSVPs and memberships"
+msgid "See your profile, tickets, RSVPs, memberships, invoices and payments"
 msgstr ""
 "Ver o teu perfil, os teus bilhetes, as tuas confirmações de presença e as "
 "tuas adesões"
