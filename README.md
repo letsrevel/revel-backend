@@ -21,9 +21,15 @@
   <img src="docs/screenshots/2026-09/event-detail-page.png" alt="A Revel event page for a gig, with date, venue, running order and a Get Tickets button" width="800"/>
 </p>
 
-For gyms, yoga studios, choirs, comedy clubs, supper clubs and theaters, Revel runs recurring memberships, series passes, seat maps and the box office. Musicians, DJs and bands selling their own shows get ticketing with no promoter in between, and they keep the attendee list. Revel was first built for queer collectives, kink clubs and activist groups, which is why attendee vetting, private guest lists and invitation-only events are part of the core.
+**Buyers pay the ticket price with no service fee on top.** Ticket money goes straight to the organizer's own Stripe account, and the code is MIT-licensed, so you can use the hosted version or run it on your own server.
 
-This repository is the API and the main project page. The web app lives in [revel-frontend](https://github.com/letsrevel/revel-frontend) and the deployment in [infra](https://github.com/letsrevel/infra).
+## Who it's for
+
+- **Venues, clubs and studios.** For gyms, yoga studios, choirs, comedy clubs, supper clubs and theaters, Revel runs recurring memberships, series passes, seat maps and the box office.
+- **Artists selling their own shows.** Musicians, DJs and bands get ticketing with no promoter in between. The attendee export gives you every buyer's name and email. Tiers can be pay-what-you-can, presales can go to members or to holders of an invitation link before general sale, and a run of dates can be one event series.
+- **Communities that vet who comes.** Revel was first built for queer collectives, kink clubs and activist groups, which is why attendee vetting, private guest lists and invitation-only events are part of the core.
+
+This repository is the API and the main project page. The web app lives in [revel-frontend](https://github.com/letsrevel/revel-frontend) and the deployment in [infra](https://github.com/letsrevel/infra). If you find Revel useful, a star on this repo helps other people find it.
 
 ## Try it
 
@@ -31,27 +37,27 @@ This repository is the API and the main project page. The web app lives in [reve
 
 **Hosted:** [letsrevel.io](https://letsrevel.io).
 
-**Self-host** on a Linux x86-64 server, as root or as a user in the `docker` group, with DNS A records for two hostnames (one for the web app and one for the API, which defaults to `api.<your domain>`; add a third for Grafana if you enable observability) and ports 80 and 443 open:
+**Self-host:**
 
 ```bash
 git clone https://github.com/letsrevel/infra && cd infra && ./setup.sh
 ```
 
-The wizard offers to install Docker if it is missing, asks for your domains, email settings and which optional services to run, writes `.env` with generated secrets, pulls the prebuilt images and starts the stack. The slim tier needs 2 vCPU and 4 GB RAM, about €20/month (Hetzner CPX22, September 2026). The full tier, with observability and malware scanning, needs 8 vCPU and 32 GB RAM. Full guide: [docs.letsrevel.io/self-hosting](https://docs.letsrevel.io/self-hosting/).
+You need a Linux x86-64 server, run as root or as a user in the `docker` group, with ports 80 and 443 open and DNS A records for two hostnames: one for the web app and one for the API, which defaults to `api.<your domain>`. Add a third for Grafana if you enable observability. The wizard offers to install Docker if it is missing, asks for your domains, email settings and which optional services to run, writes `.env` with generated secrets, pulls the prebuilt images and starts the stack. The slim tier needs 2 vCPU and 4 GB RAM, about €20/month (Hetzner CPX22, September 2026). The full tier, with observability and malware scanning, needs 8 vCPU and 32 GB RAM. Full guide: [docs.letsrevel.io/self-hosting](https://docs.letsrevel.io/self-hosting/).
 
 ## Fees and data
 
-**On letsrevel.io**, free events, RSVPs and offline payments cost nothing. Online card payments cost the organizer 3% + €0.50 per order in total for standard EEA cards: Stripe's processing fee (1.5% + €0.25) plus Revel's platform fee (1.5% + €0.25, plus VAT where Revel has to charge it). The fixed part is charged once per order, not once per ticket: four €20 tickets bought together cost €2.90 in total fees (3% of €80 plus €0.50), not 3% plus 4 × €0.50. Cards issued outside the EEA carry higher Stripe fees. Buyers pay the ticket price and nothing more. Membership subscriptions pay Revel 1.5% with no fixed part, plus Stripe's fees.
+| | What the organizer pays |
+|---|---|
+| **Free events**, RSVPs and offline payments | Nothing |
+| **Online payment** on letsrevel.io | 3% + €0.50 per order for standard EEA cards: [Stripe's](https://stripe.com/pricing) 1.5% + €0.25 plus Revel's 1.5% + €0.25 (plus VAT where Revel has to charge it). Non-EEA cards cost more on Stripe's side. Membership subscriptions: 1.5% to Revel with no fixed part, plus Stripe. |
+| **Self-hosted** | Nothing to Revel. The code is MIT-licensed; you pay only your payment provider. |
 
-**Self-hosted**, you pay nothing to Revel. The code is MIT-licensed.
+The fixed part is charged once per order, not per ticket: four €20 tickets bought together cost €2.90 in total fees (3% of €80 plus €0.50).
 
 Ticket money goes straight to the organizer's own Stripe account (Stripe Connect, direct charges), so Revel never holds it. The web app loads no third-party analytics or tracking scripts.
 
-For comparison, from each vendor's published pricing (September 2026): Eventbrite's US page lists 3.7% + $1.79 per ticket plus 2.9% payment processing per order. DICE's UK self-serve terms list 8.5% + VAT (minimum £1) plus a 2.5% transaction fee. Ticket Tailor charges €0.70 per ticket + VAT, plus payment processing. DICE's terms make it a data controller of the attendee data alongside the organizer; Eventbrite's privacy policy says it may act as controller or processor.
-
-### Selling your own shows
-
-The attendee export gives you every buyer's name and email. Tiers can be pay-what-you-can, and presales can go to members or to holders of an invitation link before general sale. A run of dates can be one event series.
+For comparison, from each vendor's published pricing (September 2026): [Eventbrite's US pricing page](https://www.eventbrite.com/organizer/pricing/) lists 3.7% + $1.79 per ticket plus 2.9% payment processing per order. [DICE's UK self-serve terms](https://support.dice.fm/article/758-mio-ticketing-terms-and-conditions-uk) list 8.5% + VAT (minimum £1) plus a 2.5% + VAT transaction fee. [Ticket Tailor](https://www.tickettailor.com/pricing) charges €0.70 per ticket + VAT, plus payment processing. [DICE's terms](https://support.dice.fm/article/758-mio-ticketing-terms-and-conditions-uk) (clause 12.3) make it an independent data controller of the attendee data alongside the organizer; [Eventbrite's privacy policy](https://www.eventbrite.com/help/en-us/articles/460838/eventbrite-privacy-policy/) says it may act as controller or processor.
 
 ### Compared with pretix and Hi.Events
 
@@ -65,16 +71,19 @@ Both are open source and self-hostable. Checked against each project's default b
 | Buyer-side EU VAT | VIES check of buyer VAT IDs, reverse charge where it applies, optional automatic attendee invoices | VIES check, reverse charge, automatic invoices | Invoices and manual tax rates; VIES and reverse charge apply only to Hi.Events' own fee |
 | Seat maps in the free edition | Yes | Paid proprietary plugin | No |
 | Apple Wallet | Built in | Official open-source plugin | No |
-| Google Wallet | Built in | No (announced as in progress) | No |
+| Google Wallet | Built in | No (planned, not yet available) | No |
 | Hosted platform fee | 1.5% + €0.25 **per order**, paid by the organizer | 2.5% of the net ticket price (max €15) **per ticket** | 1.25% + $0.60 **per ticket**, added to the buyer's price by default |
 
 Platform fees are as each vendor publishes them. Payment processing (Stripe or another provider) comes on top for all three. Revel's fixed €0.25 is charged once per order however many tickets it holds; a per-ticket fixed fee grows with the order, so Hi.Events' $0.60 becomes $2.40 on four tickets.
+
+<sub>Sources: pretix [license](https://github.com/pretix/pretix/blob/master/LICENSE), [hosted pricing](https://pretix.eu/about/en/pricing/), [self-hosted plugin pricing](https://pretix.eu/about/en/pricing/selfhosted) (seating), [memberships](https://docs.pretix.eu/guides/customer-accounts/), [Apple Wallet plugin](https://github.com/pretix/pretix-passbook), [Google Wallet status](https://github.com/pretix/pretix/discussions/4486). Hi.Events [license](https://github.com/HiEventsDev/hi.events/blob/develop/LICENCE), [attribution licensing](https://hi.events/licensing), [pricing](https://hi.events/pricing).</sub>
 
 ## Features
 
 Everything below is on `main` and has a UI in the web app.
 
-### Ticketing
+<details open>
+<summary><strong>Ticketing</strong></summary>
 
 - Multi-tier cart checkout through Stripe, with a guest checkout that needs no account.
 - Tier types: fixed price, pay-what-you-can (with minimum and maximum), free, pay at the door and offline (cash or bank transfer, confirmed by staff).
@@ -86,7 +95,10 @@ Everything below is on `main` and has a UI in the web app.
 - RSVP-only events, event series and recurring events.
 - An embeddable event widget (it links through to Revel) and oEmbed. UTM tags from tagged links are stored on each ticket and broken down per event.
 
-### Memberships
+</details>
+
+<details open>
+<summary><strong>Memberships</strong></summary>
 
 - Paid plans billed monthly or yearly through Stripe. Staff can also record plans paid in cash or by bank transfer, and plans can be free. Offline and free plans can be lifetime.
 - Subscriptions can be paused, resumed, canceled and moved to another plan. Members get a Stripe billing portal and automatic renewal reminders.
@@ -95,7 +107,10 @@ Everything below is on `main` and has a UI in the web app.
 - Series passes: one purchase covers every event in a series (a class pack, a course, a season), with an optional discount for each event already past.
 - Membership cards in Apple Wallet, Google Wallet or as a PDF. A door scan verifies membership without checking anyone in.
 
-### Screening and safety
+</details>
+
+<details>
+<summary><strong>Screening and safety</strong></summary>
 
 - Questionnaires gate who can get a ticket or join: multiple choice, free text, file upload, conditional questions and scoring. Free-text answers can be scored by an LLM you configure.
 - Invitations that waive specific requirements (questionnaire, membership, purchase), shareable invitation links and requests to be invited.
@@ -104,7 +119,10 @@ Everything below is on `main` and has a UI in the web app.
 - Visibility per organization and per event, down to members-only or private.
 - Two-factor login (TOTP), personal data export, account deletion and ClamAV scanning of uploads.
 
-### EU VAT and invoicing
+</details>
+
+<details open>
+<summary><strong>EU VAT and invoicing</strong></summary>
 
 - VIES validation of organization and buyer VAT IDs, with a monthly re-check.
 - Place-of-supply rules for tickets: physical events use the organizer's VAT rate; online events apply reverse charge for EU businesses in another country with a valid VAT ID.
@@ -113,20 +131,29 @@ Everything below is on `main` and has a UI in the web app.
 - Revenue and VAT reports per event and per organization, as XLSX and PDF, optionally emailed monthly or quarterly.
 - Monthly platform-fee invoices with sequential numbering, reverse-charged for EU businesses in another country.
 
-### Venues and seating
+</details>
+
+<details>
+<summary><strong>Venues and seating</strong></summary>
 
 - A seat map designer: venues, sectors, individual seats, price categories and accessible seats.
 - Buyers pick seats on an interactive map, or get the best available adjacent seats. Seats are held while the buyer checks out.
 - A box office view for selling and reseating from the admin, with per-event seat overrides.
 
-### Notifications
+</details>
+
+<details>
+<summary><strong>Notifications</strong></summary>
 
 - In-app, email and Telegram, with per-type and per-channel preferences and digests.
 - Announcements to attendees, all members, specific membership tiers or staff, sent now or scheduled relative to the event.
 - Event reminders. Ticket emails carry a calendar file. Followers of an organization or series hear about new public events.
 - A Telegram bot for RSVPs, invitations and waitlist offers. Organizers can approve requests from the chat.
 
-### Integrations
+</details>
+
+<details>
+<summary><strong>Integrations</strong></summary>
 
 - Stripe Connect (Standard accounts) for tickets, series passes and subscriptions.
 - Apple Wallet and Google Wallet, each with your own issuer credentials.
@@ -134,20 +161,31 @@ Everything below is on `main` and has a UI in the web app.
 - Sign in with any OpenID Connect provider: Google, Keycloak, Authentik and others.
 - RSS feed and sitemaps for public events.
 
-### Exports
+</details>
+
+<details>
+<summary><strong>Exports</strong></summary>
 
 - Attendee lists as XLSX: name, email, pronouns, tier, ticket status, check-in, seat, payment and UTM tags.
 - Questionnaire submissions as XLSX.
 - Revenue and VAT reports (XLSX and PDF).
 - A personal data export for every user.
 
-### Languages
+</details>
+
+<details>
+<summary><strong>Languages</strong></summary>
 
 The web app and the API are translated into English, German, Italian, French, Spanish and Portuguese. Invoice and report PDFs are English only.
 
-### Also included
+</details>
+
+<details>
+<summary><strong>Also included</strong></summary>
 
 Potluck coordination with dietary restrictions, polls and event discovery with distance sorting and a calendar view. A referral program shares platform fees with referrers.
+
+</details>
 
 ## Screenshots
 
