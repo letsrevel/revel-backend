@@ -22,7 +22,7 @@ from telegram.models import TelegramUser
 @pytest.fixture
 def bot() -> Bot:
     """Fixture for the aiogram Bot instance."""
-    return Bot(token="test-token")
+    return Bot(token="123456:AAHtest-token-value")
 
 
 @pytest.fixture
@@ -32,9 +32,17 @@ def storage() -> MemoryStorage:
 
 
 @pytest.fixture
-def dispatcher(storage: MemoryStorage) -> Dispatcher:
-    """Fixture for the aiogram Dispatcher."""
-    return get_dispatcher(storage)
+def dispatcher(storage: MemoryStorage) -> t.Iterator[Dispatcher]:
+    """Fixture for the aiogram Dispatcher.
+
+    The routers are module-level singletons and aiogram lets a router attach to only one parent,
+    so detach them on teardown to allow the next test to build a fresh dispatcher.
+    """
+    dp = get_dispatcher(storage)
+    yield dp
+    for router in dp.sub_routers:
+        router._parent_router = None
+    dp.sub_routers.clear()
 
 
 @pytest.fixture

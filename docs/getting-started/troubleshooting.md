@@ -62,14 +62,12 @@ The geo app requires two data files in `src/geo/data/`:
 
 ### Cities CSV missing
 
-Migration `0002_load_cities` will fail with a `FileNotFoundError` if the CSV is not present:
+Migration `0002_load_cities` loads `src/geo/data/worldcities.csv` if present and otherwise falls back to the
+bundled 50-city `src/geo/fixtures/worldcities.mini.csv`. The fallback lives outside `src/geo/data/` so a bind mount
+over that directory cannot hide it. The migration only fails with a `FileNotFoundError` if neither file exists.
 
-```
-FileNotFoundError: City import failed: file does not exist at /app/src/geo/data/worldcities.csv
-```
-
-!!! tip "Quick fix"
-    Download the file from [SimpleMaps](https://simplemaps.com/data/world-cities) and place it at `src/geo/data/worldcities.csv`. For development, `worldcities.mini.csv` (a smaller subset) also works; rename it to `worldcities.csv`.
+!!! tip "Full city list"
+    Download the file from [SimpleMaps](https://simplemaps.com/data/world-cities) and place it at `src/geo/data/worldcities.csv`.
 
 ### IP2Location database
 

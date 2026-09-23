@@ -94,8 +94,8 @@ def _create_summer_festival(state: BootstrapState, now: "datetime.datetime") -> 
     start = _at(now, state.cities["vienna"], 45, 17)
     summer_festival = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
-        name="Summer Sunset Music Festival",
-        slug="summer-sunset-music-festival",
+        name="Sunset Music Festival",
+        slug="sunset-music-festival",
         event_type=events_models.Event.EventType.PUBLIC,
         visibility=events_models.Event.Visibility.PUBLIC,
         status=events_models.Event.EventStatus.OPEN,
@@ -141,7 +141,7 @@ def _create_summer_festival(state: BootstrapState, now: "datetime.datetime") -> 
                 "description": "Wind down the night with a closing DJ set.",
             },
         ],
-        description="""# Summer Sunset Music Festival
+        description="""# Sunset Music Festival
 
 Join us for an unforgettable evening of music under the stars! Experience the magic of live performances from local and touring artists as the sun sets over the city.
 
@@ -326,8 +326,8 @@ def _create_spring_potluck(state: BootstrapState, now: "datetime.datetime") -> N
     start = _at(now, state.cities["vienna"], 15, 13)
     spring_potluck = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
-        name="Spring Community Potluck & Garden Party",
-        slug="spring-community-potluck",
+        name="Community Potluck & Garden Party",
+        slug="community-potluck",
         event_type=events_models.Event.EventType.PUBLIC,
         visibility=events_models.Event.Visibility.PUBLIC,
         status=events_models.Event.EventStatus.OPEN,
@@ -376,9 +376,9 @@ def _create_spring_potluck(state: BootstrapState, now: "datetime.datetime") -> N
                 "description": "Bring cuttings to share and take home something new.",
             },
         ],
-        description="""# Spring Community Potluck & Garden Party
+        description="""# Community Potluck & Garden Party
 
-Celebrate the arrival of spring with neighbors, friends, and community members! Bring a dish to share and enjoy an afternoon of food, games, and connection in the garden.
+Come together with neighbors, friends, and community members! Bring a dish to share and enjoy an afternoon of food, games, and connection in the garden.
 
 ## Event Activities
 - **Potluck Feast** - International dishes from our diverse community
@@ -428,8 +428,8 @@ def _create_tech_conference(state: BootstrapState, now: "datetime.datetime") -> 
     start = _at(now, state.cities["berlin"], 60, 9)
     tech_conference = events_models.Event.objects.create(
         organization=state.orgs["beta"],
-        name="FutureStack 2025: AI & Web3 Conference",
-        slug="futurestack-2025",
+        name="FutureStack: AI & Web3 Conference",
+        slug="futurestack",
         event_type=events_models.Event.EventType.PUBLIC,
         visibility=events_models.Event.Visibility.PUBLIC,
         status=events_models.Event.EventStatus.OPEN,
@@ -440,7 +440,7 @@ def _create_tech_conference(state: BootstrapState, now: "datetime.datetime") -> 
         max_attendees=1000,
         waitlist_open=True,
         apply_before=start - timedelta(days=3),
-        description="""# FutureStack 2025: AI & Web3 Conference
+        description="""# FutureStack: AI & Web3 Conference
 
 Three days of cutting-edge tech insights, hands-on workshops, and networking with 1000+ developers, founders, and tech leaders from around the world.
 
@@ -784,8 +784,8 @@ def _create_tech_talk_may(state: BootstrapState, now: "datetime.datetime") -> No
     start = _at(now, state.cities["berlin"], 40, 19)
     tech_talk_may = events_models.Event.objects.create(
         organization=state.orgs["beta"],
-        name="Tech Talk May: Scaling Microservices",
-        slug="tech-talk-may-2025",
+        name="Tech Talk: Scaling Microservices",
+        slug="tech-talk-scaling-microservices",
         event_type=events_models.Event.EventType.MEMBERS_ONLY,
         visibility=events_models.Event.Visibility.PUBLIC,
         status=events_models.Event.EventStatus.OPEN,
@@ -796,7 +796,7 @@ def _create_tech_talk_may(state: BootstrapState, now: "datetime.datetime") -> No
         end=start + timedelta(hours=2),
         rsvp_before=start - timedelta(days=2),
         max_attendees=60,
-        description="""# Tech Talk May: Scaling Microservices
+        description="""# Tech Talk: Scaling Microservices
 
 **Speaker:** James Chen, Senior Architect at CloudScale Inc.
 

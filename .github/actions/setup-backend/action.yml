@@ -55,7 +55,7 @@ runs:
     - name: Add worldcities.csv  # required so migrations can run
       shell: bash
       working-directory: src
-      run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
+      run: cp geo/fixtures/worldcities.mini.csv geo/data/worldcities.csv
 
     - name: Compile translations
       if: ${{ inputs.compile-translations == 'true' }}

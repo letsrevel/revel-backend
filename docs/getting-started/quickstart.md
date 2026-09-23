@@ -32,7 +32,7 @@ cd revel-backend
 
 !!! note "Geo data is optional"
     The migration `0002_load_cities` loads `src/geo/data/worldcities.csv` if it exists and otherwise
-    falls back to the tracked 50-city `worldcities.mini.csv`, so `make setup` works on a fresh clone.
+    falls back to the tracked 50-city `src/geo/fixtures/worldcities.mini.csv`, so `make setup` works on a fresh clone.
     For the full city list, download `worldcities.csv` from
     [SimpleMaps](https://simplemaps.com/data/world-cities) and place it at `src/geo/data/worldcities.csv`
     before running setup.

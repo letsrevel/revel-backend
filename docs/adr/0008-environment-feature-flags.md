@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted
+Accepted. The `FEATURE_GOOGLE_SSO` flag is superseded by [ADR-0016](0016-oidc-relying-party.md) (OIDC relying party).
+
+> **Partially superseded.** The backend no longer reads `FEATURE_GOOGLE_SSO`. User-facing login is
+> configured with `OIDC_PROVIDERS` plus `OIDC_<KEY>_ISSUER`, `_CLIENT_ID` and `_CLIENT_SECRET`
+> (see [ADR-0016](0016-oidc-relying-party.md)); `GOOGLE_SSO_*` is for admin login only. The rest of
+> this ADR still applies, and its text is kept as written.
 
 ## Context
 
