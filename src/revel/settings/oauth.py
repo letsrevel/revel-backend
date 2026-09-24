@@ -53,6 +53,8 @@ OAUTH2_PROVIDER = {
     "OIDC_RSA_PRIVATE_KEYS_INACTIVE": _INACTIVE_KEYS,
     "OIDC_ISS_ENDPOINT": OAUTH_ISSUER,
     "OAUTH2_VALIDATOR_CLASS": "oauth.validator.RevelOAuth2Validator",
+    # Absolutizes the userinfo URI for the RFC 8707 audience check (DOT 3.4.1 does not).
+    "OAUTH2_BACKEND_CLASS": "oauth.backends.RevelOAuthLibCore",
     "SCOPES_BACKEND_CLASS": "oauth.scopes.RegistryScopes",
     # No SCOPES/DEFAULT_SCOPES keys here on purpose: only DOT's SettingsScopes reads them, and
     # we replace it above. The vocabulary and the (empty) defaults both live in oauth/scopes.py

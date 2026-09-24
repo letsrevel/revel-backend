@@ -328,10 +328,36 @@ def test_decision_without_allow_is_rejected(session_client: Client, public_oauth
     assert not Grant.objects.exists()
 
 
+def test_userinfo_accepts_a_resource_bound_token(
+    session_client: Client, client: Client, public_oauth_app: OAuthApplication, user: RevelUser
+) -> None:
+    """A token bound to the API origin (RFC 8707) must reach ``/o/userinfo``.
+
+    DOT 3.4.1 absolutizes the URI in ``verify_request`` but not in
+    ``create_userinfo_response``, so the audience check compared ``/o/userinfo`` against
+    ``http://testserver`` and refused every well-behaved client. ``RevelOAuthLibCore`` fixes it;
+    a token bound elsewhere must still be refused, or the fix would have disabled the check.
+    """
+    bound = run_code_flow(session_client, client, public_oauth_app, "openid email")
+    response = client.get("/o/userinfo", HTTP_AUTHORIZATION=f"Bearer {bound['access_token']}")
+    assert response.status_code == 200, response.content
+    assert response.json()["sub"] == str(user.pk)
+
+    elsewhere = run_code_flow(
+        session_client, client, public_oauth_app, "openid email", resource="https://other.example"
+    )
+    refused = client.get("/o/userinfo", HTTP_AUTHORIZATION=f"Bearer {elsewhere['access_token']}")
+    assert refused.status_code == 401, refused.content
+
+
 def test_deactivated_app_cannot_refresh_or_userinfo(
     session_client: Client, client: Client, public_oauth_app: OAuthApplication
 ) -> None:
     tokens = run_code_flow(session_client, client, public_oauth_app, "openid org:read offline_access")
+    # Accepted first, so the 401 below is the deactivation and not something else. It once was:
+    # DOT handed userinfo a relative URI, so every resource-bound token failed the audience check
+    # there, and this assertion passed against an app that had not been deactivated at all.
+    assert client.get("/o/userinfo", HTTP_AUTHORIZATION=f"Bearer {tokens['access_token']}").status_code == 200
     public_oauth_app.is_active = False
     public_oauth_app.save(update_fields=["is_active"])
     assert client.get("/o/userinfo", HTTP_AUTHORIZATION=f"Bearer {tokens['access_token']}").status_code == 401
