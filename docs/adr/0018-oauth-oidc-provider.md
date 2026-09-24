@@ -131,6 +131,45 @@ bugs are silent.
 - **Organizer API keys** — no consent, no scopes, no per-app revocation; the degenerate case of
   this design is a developer authorizing their own app, which covers the same need.
 
+### Amendment 2026-09-24: the URI the RFC 8707 audience check sees
+
+A live smoke test (local and beta) found that every token issued with a `resource` parameter,
+i.e. every client that follows the developer guide, was refused in two places:
+
+1. **At `/o/userinfo`, in every environment.** DOT 3.4.1's `create_userinfo_response` hands
+   oauthlib a *relative* URI, while `verify_request` absolutizes it, and the prefix-match
+   validator rejects any URI without a scheme and host. This is an upstream bug: unreported, and
+   still on their `master` (#1004).
+2. **On the whole API, on beta.** `SECURE_PROXY_SSL_HEADER` was production-only, so behind Caddy
+   Django rebuilt `http://` URIs while tokens are bound to `https://`. Production and demo run as
+   `production` and were never affected.
+
+**Decision: follow upstream.** `oauth.backends.RevelOAuthLibCore` overrides only the public
+`create_userinfo_response`, adding the same `build_absolute_uri` that `verify_request` applies.
+Its removal is tracked in #1005. Separately, `SECURE_PROXY_SSL_HEADER` is now gated by
+`TRUST_X_FORWARDED_PROTO` (default `not DEBUG`), which is exactly what DOT's
+`docs/resource_server.rst` ("Deployments Behind a Reverse Proxy") prescribes.
+
+**The alternative was closer to the RFCs, and we chose against it deliberately.** An
+intermediate fix (3b11878b, reverted in d8967d85) rooted the URI oauthlib checks at
+`OAUTH_ISSUER`'s origin instead of letting Django reconstruct it. That matches the specs' model
+better. RFC 9728 has a protected resource identify itself by a *configured* `resource`
+identifier, the value we publish at `/.well-known/oauth-protected-resource` (= `OAUTH_ISSUER`).
+An audience check asks "is this token meant for *me*?", so comparing against that configured
+identity is more faithful than comparing against a URL rebuilt from `Host` and
+`X-Forwarded-Proto`. It also trusted no request headers at all, and a proxy misconfiguration
+could not break it. We rejected it because it overrode DOT's **private**
+`_get_escaped_full_path`, in a module upstream has already moved (`core/backends_oauthlib.py` on
+`master`). That is a silent break waiting for the next upgrade, and it diverges from the
+behaviour upstream documents and tests. What we give up: correctness now depends on deployment
+configuration. The proxy must overwrite `X-Forwarded-Proto` and forward `Host`, and
+`TRUST_X_FORWARDED_PROTO` must stay on behind it. The regression test
+`test_resource_bound_tokens_work_behind_a_tls_proxy` pins that dependency.
+
+**Revisit** if DOT gains a setting that pins the audience base URL to a configured identifier,
+or if a deployment ever needs to serve the API behind a proxy we can't configure. Either way,
+the issuer-rooted design is the one to reach for.
+
 ### Upgrade paths (documented, not built)
 
 Per-organization grant restriction at consent; an `org:attendees` scope (needs a per-route
