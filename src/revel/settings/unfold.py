@@ -606,6 +606,40 @@ UNFOLD = {
                 ],
             },
             {
+                # ``show_all_applications`` is False, so the OAuth admins DOT registers from the
+                # ``*_ADMIN_CLASS`` settings are invisible until they are linked here.
+                "title": _("Developer"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("OAuth Apps"),
+                        "icon": "apps",
+                        "link": reverse_lazy("admin:oauth_oauthapplication_changelist"),
+                    },
+                    {
+                        "title": _("OAuth Access Tokens"),
+                        "icon": "key",
+                        "link": reverse_lazy("admin:oauth2_provider_accesstoken_changelist"),
+                    },
+                    {
+                        "title": _("OAuth Refresh Tokens"),
+                        "icon": "autorenew",
+                        "link": reverse_lazy("admin:oauth2_provider_refreshtoken_changelist"),
+                    },
+                    {
+                        "title": _("OAuth ID Tokens"),
+                        "icon": "badge",
+                        "link": reverse_lazy("admin:oauth2_provider_idtoken_changelist"),
+                    },
+                    {
+                        "title": _("OAuth Authorization Codes"),
+                        "icon": "pin",
+                        "link": reverse_lazy("admin:oauth2_provider_grant_changelist"),
+                    },
+                ],
+            },
+            {
                 "title": _("Authentication"),
                 "separator": True,
                 "collapsible": True,

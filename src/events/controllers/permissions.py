@@ -12,10 +12,42 @@ from ninja_extra.exceptions import PermissionDenied
 from ninja_extra.permissions import BasePermission
 
 from accounts.models import RevelUser
-from common.authentication import I18nJWTAuth
+from common.authentication import I18nJWTAuth, OAuthPrincipal
 from common.controllers import UserAwareController
 from events import models, schema
 from events.service import permission_snapshot
+
+
+def scope_allows(request: HttpRequest, action: models.PermissionKey) -> None:
+    """Raise ``InsufficientScopeError`` when an app token lacks a scope that unlocks ``action``.
+
+    No-op for session principals. Runs *before* any owner/creator short-circuit so that an
+    organization owner holding a narrowly-scoped app token cannot bypass the scope: an app
+    token's effective power is its granted scopes intersected with the user's current
+    organization permissions (spec §7.3).
+
+    Args:
+        request: The request being authorized; ``request.auth`` is an ``OAuthPrincipal``
+            only for third-party app tokens.
+        action: The ``PermissionMap`` key the calling permission class resolves.
+
+    Raises:
+        InsufficientScopeError: The principal is an app token and none of its granted
+            scopes unlock ``action``.
+    """
+    principal = getattr(request, "auth", None)
+    if not isinstance(principal, OAuthPrincipal):
+        return
+    from oauth.exceptions import InsufficientScopeError
+    from oauth.scopes import scopes_for_key
+
+    needed = scopes_for_key(action)
+    if not needed & principal.scopes:
+        # ``sorted(needed)[0]`` is deterministic only because Task 2's
+        # ``test_each_key_maps_to_exactly_one_scope`` guarantees at most one scope per key.
+        # An unscoped key names no scope in the challenge header — never the raw
+        # ``PermissionKey``, which no client could ever request (R-27/R-45).
+        raise InsufficientScopeError(sorted(needed)[0] if needed else None)
 
 
 class RootPermission(BasePermission):
@@ -39,6 +71,10 @@ class PermissionMapPermission(RootPermission):
     be granted, so it would silently deny all non-owner staff (see #683).
     """
 
+    #: Narrowed from ``RootPermission``'s ``str`` so ``scope_allows`` and the permission map
+    #: take ``self.action`` as-is; the constructor below is what keeps the narrowing honest.
+    action: models.PermissionKey
+
     def __init__(self, action: models.PermissionKey) -> None:
         """Store the map-backed action."""
         super().__init__(action=action)
@@ -52,6 +88,7 @@ class EventSeriesPermission(PermissionMapPermission):
         obj: models.EventSeries,
     ) -> bool:
         """Check if the user has permission to perform an action on a specific EventSeries."""
+        scope_allows(request, self.action)
         return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
@@ -63,6 +100,7 @@ class EventPermission(PermissionMapPermission):
         obj: models.Event,
     ) -> bool:
         """Can edit event."""
+        scope_allows(request, self.action)
         return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
@@ -74,6 +112,7 @@ class OrganizationPermission(PermissionMapPermission):
         obj: models.Organization,
     ) -> bool:
         """Can edit organization."""
+        scope_allows(request, self.action)
         return obj.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
@@ -85,9 +124,8 @@ class QuestionnairePermission(PermissionMapPermission):
         obj: models.OrganizationQuestionnaire,
     ) -> bool:
         """Can edit organization."""
-        # self.action is a PermissionKey by construction, but stored as str on the base.
-        action = t.cast(models.PermissionKey, self.action)
-        return OrganizationPermission(action).has_object_permission(request, controller, obj.organization)
+        scope_allows(request, self.action)
+        return OrganizationPermission(self.action).has_object_permission(request, controller, obj.organization)
 
 
 class IsOrganizationOwner(RootPermission):
@@ -131,6 +169,8 @@ class CanDuplicateEvent(RootPermission):
     This ensures the user can create new events in the same organization.
     """
 
+    action: models.PermissionKey
+
     def __init__(self) -> None:
         """Initialize with create_event action."""
         super().__init__(action="create_event")
@@ -142,10 +182,13 @@ class CanDuplicateEvent(RootPermission):
         obj: models.Event,
     ) -> bool:
         """Check if user can duplicate this event (create new event in same org)."""
+        scope_allows(request, self.action)
         return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
 class ManagePotluckPermission(RootPermission):
+    action: models.PermissionKey
+
     def __init__(self) -> None:
         """Init PotluckPermission."""
         super().__init__(action="manage_potluck")
@@ -157,6 +200,7 @@ class ManagePotluckPermission(RootPermission):
         obj: models.PotluckItem,
     ) -> bool:
         """Can edit organization."""
+        scope_allows(request, self.action)
         if obj.created_by_id == request.user.id:
             return True
         return obj.event.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)

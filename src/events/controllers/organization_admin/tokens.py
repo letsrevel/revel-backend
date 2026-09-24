@@ -16,6 +16,11 @@ from events.service import organization_service
 from .base import OrganizationAdminBaseController
 
 
+# Session-only: a token can carry ``grants_staff_status``, and claiming one creates an
+# ``OrganizationStaff`` row. Staff grants are session-only on ``POST /staff/{user_id}`` (R-100),
+# and ``org:members``'s label never mentions staff, so an app token must not reach the same end
+# state by minting — or listing and leaking — an invitation link. The owner check that guards
+# staff links lives in the service, where the scope-coverage guards cannot see it.
 @api_controller(
     "/organization-admin/{slug}",
     auth=I18nJWTAuth(),

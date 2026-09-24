@@ -35,9 +35,10 @@ from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import WriteThrottle
+from oauth.permissions import RequireScope
 from polls.models import Poll
 from polls.permissions import PollPermission
 from questionnaires import models as questionnaires_models
@@ -48,9 +49,9 @@ from questionnaires.service import QuestionnaireService
 @api_controller(
     "/polls",
     tags=["Polls"],
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     throttle=WriteThrottle(),
-    permissions=[PollPermission("manage_polls")],
+    permissions=[RequireScope("org:read"), PollPermission("manage_polls")],
 )
 class PollQuestionController(UserAwareController):
     """Poll-scoped question/option/section CRUD.

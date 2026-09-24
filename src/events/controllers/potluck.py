@@ -4,23 +4,37 @@ from django.db.models import BooleanField, Case, QuerySet, Value, When
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
-from common.authentication import I18nJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import schema
 from events.models import Event, PotluckItem
 from events.service import potluck_service, update_db_instance
+from oauth.permissions import RequireScope
 
 from .permissions import ManagePotluckPermission, PotluckItemPermission
 
 
-@api_controller("/events/{event_id}/potluck", auth=I18nJWTAuth(), tags=["Potluck"], throttle=WriteThrottle())
+@api_controller(
+    "/events/{event_id}/potluck",
+    auth=ScopedJWTAuth(),
+    tags=["Potluck"],
+    throttle=WriteThrottle(),
+    # ``org:read`` is the admission baseline every other organizer route carries and the
+    # developer guide states as a rule; this controller was the one exception (R-128).
+    permissions=[RequireScope("org:read"), RequireScope("org:potluck")],
+)
 class PotluckController(UserAwareController):
     @route.get(
         "/",
         url_name="list_potluck_items",
         response=list[schema.PotluckItemRetrieveSchema],
         throttle=UserDefaultThrottle(),
+        # Deliberately inherits the controller's ``RequireScope("org:potluck")``, whose label is
+        # "Manage potluck items" — so an app token needs a *manage* scope to perform what is, for
+        # an attendee, a read. That is more restrictive than the label implies, not less, and the
+        # alternative (``me:read``) would put a second scope on one small controller for one
+        # route. Revisit if attendee-side potluck ever grows beyond this list (M5).
     )
     def list_potluck_items(self, event_id: UUID) -> QuerySet[PotluckItem]:
         """View all potluck items for this event.
@@ -52,6 +66,9 @@ class PotluckController(UserAwareController):
         "/",
         url_name="create_potluck_item",
         response=schema.PotluckItemRetrieveSchema,
+        # Session-only: ``create_potluck_item`` is not a ``PermissionKey``, so no scope can gate
+        # this write and leaving it on ``ScopedJWTAuth`` would make it scope-free (R-50/R-89).
+        auth=I18nJWTAuth(),
         permissions=[PotluckItemPermission("create_potluck_item")],
     )
     def create_potluck_item(self, event_id: UUID, payload: schema.PotluckItemCreateSchema) -> PotluckItem:
@@ -70,7 +87,7 @@ class PotluckController(UserAwareController):
         "/{item_id}",
         url_name="update_potluck_item",
         response=schema.PotluckItemRetrieveSchema,
-        permissions=[ManagePotluckPermission()],
+        permissions=[RequireScope("org:read"), RequireScope("org:potluck"), ManagePotluckPermission()],
     )
     def update_potluck_item(
         self, event_id: UUID, item_id: UUID, payload: schema.PotluckItemCreateSchema
@@ -85,7 +102,10 @@ class PotluckController(UserAwareController):
         return update_db_instance(potluck_item, payload)  # type: ignore[no-any-return]
 
     @route.delete(
-        "/{item_id}", url_name="delete_potluck_item", permissions=[ManagePotluckPermission()], response={204: None}
+        "/{item_id}",
+        url_name="delete_potluck_item",
+        permissions=[RequireScope("org:read"), RequireScope("org:potluck"), ManagePotluckPermission()],
+        response={204: None},
     )
     def delete_potluck_item(self, event_id: UUID, item_id: UUID) -> None:
         """Remove a potluck item from the event.
@@ -100,6 +120,8 @@ class PotluckController(UserAwareController):
         "/{item_id}/claim",
         url_name="claim_potluck_item",
         response=schema.PotluckItemRetrieveSchema,
+        # Session-only for the same reason as ``create`` above.
+        auth=I18nJWTAuth(),
         permissions=[PotluckItemPermission("claim_potluck_item")],
     )
     def claim_potluck_item(self, event_id: UUID, item_id: UUID) -> PotluckItem:
@@ -116,6 +138,8 @@ class PotluckController(UserAwareController):
         "/{item_id}/unclaim",
         url_name="unclaim_potluck_item",
         response=schema.PotluckItemRetrieveSchema,
+        # Session-only for the same reason as ``create`` above.
+        auth=I18nJWTAuth(),
         permissions=[PotluckItemPermission("claim_potluck_item")],
     )
     def unclaim_potluck_item(self, event_id: UUID, item_id: UUID) -> PotluckItem:

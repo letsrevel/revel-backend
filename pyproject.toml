@@ -35,6 +35,7 @@ dependencies = [
     # ninja-jwt 5.4.5 mis-annotates the for_user classmethod (cls: T instead of
     # type[T]), breaking mypy --strict at every call site — lift when fixed upstream
     "django-ninja-jwt[crypto]>=5.4.4,<5.4.5",
+    "django-oauth-toolkit>=3.4.1,<4",
     "django-prometheus>=2.5.0",
     "django-simple-history>=3.13.0",
     "django-solo>=2.5.1",
@@ -289,6 +290,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "pillow_heif"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "oauth2_provider.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "oauthlib.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "jwcrypto.*"
 ignore_missing_imports = true
 
 [tool.django-stubs]

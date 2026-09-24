@@ -11,7 +11,7 @@ from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
-from common.authentication import I18nJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -27,9 +27,16 @@ from events.service.subscription import eligibility as subscription_eligibility
 from events.service.subscription import lifecycle as subscription_lifecycle
 from events.service.subscription import uncancel as subscription_uncancel
 from events.service.subscription.stripe import checkout as subscription_stripe_checkout
+from oauth.permissions import RequireScope
 
 
-@api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Subscriptions"], throttle=UserDefaultThrottle())
+@api_controller(
+    "/me",
+    auth=ScopedJWTAuth(),
+    tags=["Me - Subscriptions"],
+    throttle=UserDefaultThrottle(),
+    permissions=[RequireScope("me:read")],
+)
 class MeSubscriptionsController(UserAwareController):
     """Member-facing access to the current user's own membership subscriptions."""
 
@@ -120,6 +127,11 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscribe",
         url_name="subscribe_to_membership_plan",
+        # ``me:read`` is a READ scope — its label promises only "See your profile, tickets,
+        # RSVPs and memberships". A read scope must never be the sole gate on an unsafe
+        # method (a write needs a scope of its own), and no write scope in the
+        # registry covers this, so the route stays session-only (R-99).
+        auth=I18nJWTAuth(),
         response={
             # 400 carries either the serialized eligibility verdict (gate-stack
             # refusal — same shape /apply returns) or a plain {detail} error.
@@ -177,6 +189,8 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscription/cancel",
         url_name="cancel_my_membership_subscription",
+        # Session-only for the same reason as the first write on this controller (R-99).
+        auth=I18nJWTAuth(),
         response={
             200: schema.MySubscriptionSchema,
             400: ErrorDetail,
@@ -211,6 +225,8 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscription/uncancel",
         url_name="uncancel_my_membership_subscription",
+        # Session-only for the same reason as the first write on this controller (R-99).
+        auth=I18nJWTAuth(),
         response={
             200: schema.MySubscriptionSchema,
             400: ErrorDetail,
@@ -239,6 +255,8 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscription/change-plan",
         url_name="change_my_membership_plan",
+        # Session-only for the same reason as the first write on this controller (R-99).
+        auth=I18nJWTAuth(),
         response={
             # 400 carries the serialized eligibility verdict when a cross-tier
             # target's gates refuse the member, else a plain {detail} error.
@@ -292,6 +310,8 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/subscription/revive",
         url_name="revive_my_membership_subscription",
+        # Session-only for the same reason as the first write on this controller (R-99).
+        auth=I18nJWTAuth(),
         response={
             200: schema.RevivalResponseSchema,
             400: ErrorDetail,
@@ -351,6 +371,8 @@ class MeSubscriptionsController(UserAwareController):
     @route.post(
         "/organizations/{org_id}/billing-portal",
         url_name="create_billing_portal_session",
+        # Session-only for the same reason as the first write on this controller (R-99).
+        auth=I18nJWTAuth(),
         response={
             201: schema.BillingPortalSessionSchema,
             400: ErrorDetail,

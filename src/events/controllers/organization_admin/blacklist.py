@@ -8,21 +8,22 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import OrganizationPermission
 from events.service import blacklist_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),
-    permissions=[OrganizationPermission("manage_members")],
+    permissions=[RequireScope("org:read"), OrganizationPermission("manage_members")],
 )
 class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
     """Organization blacklist management endpoints."""

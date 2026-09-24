@@ -14,7 +14,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
@@ -25,16 +25,17 @@ from events.service.subscription import refunds as subscription_refunds
 from events.service.subscription import reporting as subscription_reporting
 from events.service.subscription import uncancel as subscription_uncancel
 from events.service.subscription.lifecycle import InitialPayment
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),
-    permissions=[OrganizationPermission("manage_subscriptions")],
+    permissions=[RequireScope("org:read"), OrganizationPermission("manage_subscriptions")],
 )
 class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     """Plans, subscriptions, and payments — all staff-managed in Phase 1."""

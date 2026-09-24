@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "ninja_jwt",
     "ninja_jwt.token_blacklist",
     "ninja_extra",
+    "oauth2_provider",
     "django_extensions",
     # custom
     "api",
@@ -85,6 +86,7 @@ INSTALLED_APPS = [
     "notifications",
     "wallet",
     "integrations",
+    "oauth",
 ]
 
 if SILK_PROFILER:
@@ -377,4 +379,11 @@ if DEPLOYMENT_ENVIRONMENT == "production":
     ]
     SESSION_COOKIE_SECURE = True  # Only send session cookies over HTTPS
     CSRF_COOKIE_SECURE = True  # Only send CSRF cookies over HTTPS
+
+# Every deployment terminates TLS at Caddy, so Django must trust its X-Forwarded-Proto to know a
+# request was https. This used to be production-only, which left beta seeing http:// and refusing
+# every RFC 8707 resource-bound OAuth token (django-oauth-toolkit prescribes exactly this setting,
+# docs/resource_server.rst "Deployments Behind a Reverse Proxy"). Only safe while a proxy
+# overwrites the header: set TRUST_X_FORWARDED_PROTO=False when Django is exposed directly.
+if config("TRUST_X_FORWARDED_PROTO", default=not DEBUG, cast=bool):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **OAuth 2.1 / OpenID Connect provider**: third-party apps and MCP hosts can act on a user's behalf
+  with scoped, revocable tokens. A developer portal to register apps (in **Settings → Developer apps**),
+  a **Connected apps** screen that lists every app with live access and removes it in one click, dynamic
+  client registration so an MCP host can register itself, and "Sign in with Revel" via `id_token` and
+  `/o/userinfo`. An app can only ever do what the consenting user can already do, and only what its
+  consent screen named. Available on deployments that configure an OIDC signing key — `/version` reports
+  `features.oauth_provider`
+
+### Changed
+
+- **Changing your email address now disconnects every connected app.** Rotating the address that
+  identifies your account invalidates every live session, and a third-party app token is a live session;
+  reconnect the apps you still want afterwards
+- **A global ban now also disarms the OAuth applications the banned user owns**, deactivating them and
+  revoking their tokens — so every user of such an app loses access, not just the banned owner.
+  Deliberate: a ban that leaves the banned party operating a client against other people's data has not
+  ended their access. Reversible by reactivating the app
+
 ## [2.15.0] - 2026-09-17
 
 ### Added
