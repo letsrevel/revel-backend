@@ -350,23 +350,27 @@ def test_userinfo_accepts_a_resource_bound_token(
     assert refused.status_code == 401, refused.content
 
 
-def test_audience_check_uses_the_issuer_not_the_scheme_django_sees(
+def test_resource_bound_tokens_work_behind_a_tls_proxy(
     session_client: Client, client: Client, public_oauth_app: OAuthApplication, settings: t.Any
 ) -> None:
-    """Behind a TLS-terminating proxy Django may see ``http://`` while tokens are bound to ``https://``.
+    """Behind Caddy, Django sees ``http://`` unless it trusts ``X-Forwarded-Proto`` (#1004).
 
-    Beta runs without ``SECURE_PROXY_SSL_HEADER`` (it is set only for production), so
-    ``build_absolute_uri`` produced ``http://beta-api…`` and every resource-bound token failed the
-    RFC 8707 check on the API *and* at userinfo. The audience URI is now rooted at ``OAUTH_ISSUER``
-    — the API's public origin and the protected-resource identifier — whatever the proxy says.
+    Beta ran without ``SECURE_PROXY_SSL_HEADER`` (it was production-only), so ``build_absolute_uri``
+    produced ``http://beta-api…`` and every ``https://``-bound token failed the RFC 8707 check on
+    the API *and* at userinfo. The fix is the one django-oauth-toolkit documents (trust the proxy's
+    header), so this pins both halves: with the header trusted the token works on both paths, and
+    without it the same token is refused, which is what proves the header is doing the work.
     """
-    settings.OAUTH_ISSUER = "https://testserver"  # the test client itself speaks plain http
+    settings.SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     tokens = run_code_flow(session_client, client, public_oauth_app, "openid org:read", resource="https://testserver")
     bearer = f"Bearer {tokens['access_token']}"
-    api = client.get("/api/dashboard/organizations", HTTP_AUTHORIZATION=bearer)
-    assert api.status_code == 200, api.content
-    userinfo = client.get("/o/userinfo", HTTP_AUTHORIZATION=bearer)
-    assert userinfo.status_code == 200, userinfo.content
+    for path in ("/api/dashboard/organizations", "/o/userinfo"):
+        # A real proxy always forwards Host; without it Django rebuilds ``testserver:80`` from the
+        # test client's SERVER_PORT, which is a test artifact rather than the behaviour under test.
+        proxied = client.get(path, HTTP_AUTHORIZATION=bearer, HTTP_X_FORWARDED_PROTO="https", HTTP_HOST="testserver")
+        assert proxied.status_code == 200, (path, proxied.content)
+        direct = client.get(path, HTTP_AUTHORIZATION=bearer)
+        assert direct.status_code == 401, (path, direct.content)
 
 
 def test_deactivated_app_cannot_refresh_or_userinfo(

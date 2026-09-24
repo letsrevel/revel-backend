@@ -1,36 +1,40 @@
-"""DOT's oauthlib bridge, with request URIs rooted at ``OAUTH_ISSUER`` (RFC 8707 audience check)."""
+"""DOT's oauthlib bridge, with the userinfo URI made absolute for the RFC 8707 audience check."""
 
-from django.conf import settings
+import typing as t
+
 from django.http import HttpRequest
 from oauth2_provider.oauth2_backends import OAuthLibCore
+from oauthlib.oauth2 import OAuth2Error
 
 
 class RevelOAuthLibCore(OAuthLibCore):  # type: ignore[misc]
-    """``OAuthLibCore`` that hands oauthlib ``OAUTH_ISSUER + path`` instead of a Django-built URI.
+    """``OAuthLibCore`` whose userinfo response audience-checks the absolute request URI.
 
-    A resource-bound token is prefix-matched against the request URI. DOT builds that URI two
-    ways, both wrong for us:
+    Upstream bug (#1004; removal tracked in #1005): DOT 3.4.1 absolutizes the URI in
+    ``verify_request`` because a resource-bound token is prefix-matched against it, but
+    ``create_userinfo_response`` passes the relative path from ``_extract_params``. ``/o/userinfo``
+    never matches ``https://api…``, so every client that sends ``resource`` (as the developer guide
+    tells them to) was refused there. This applies upstream's own ``verify_request`` fix, and
+    nothing else, so it can be deleted as soon as a release does the same.
 
-    * ``create_userinfo_response`` passes the *relative* path (DOT 3.4.1), so ``/o/userinfo``
-      never matched ``https://api…`` and every well-behaved client got 401 there;
-    * ``verify_request`` uses ``request.build_absolute_uri``, whose scheme depends on
-      ``SECURE_PROXY_SSL_HEADER``. Beta and demo terminate TLS at Caddy without it, so Django saw
-      ``http://`` and refused every ``https://``-bound token on the whole API.
-
-    ``OAUTH_ISSUER`` is this API's public origin and the protected-resource identifier, so it is
-    the right root whatever the proxy reports. ``build_absolute_uri`` leaves an absolute URI
-    untouched, which is what makes this one override enough for both paths.
+    Behind a TLS-terminating proxy ``build_absolute_uri`` needs ``SECURE_PROXY_SSL_HEADER`` to see
+    ``https``, exactly as upstream's ``verify_request`` does (``revel.settings.base``).
     """
 
-    def _get_escaped_full_path(self, request: HttpRequest) -> str:
-        """DOT's escaped path, prefixed with the issuer when one is configured.
+    def create_userinfo_response(self, request: HttpRequest) -> tuple[t.Any, t.Any, t.Any, t.Any]:
+        """DOT 3.4.1's implementation plus the ``build_absolute_uri`` that ``verify_request`` applies.
 
         Args:
-            request: The Django request being handed to oauthlib.
+            request: The Django request for ``/o/userinfo``.
 
         Returns:
-            ``OAUTH_ISSUER`` + the escaped path and query, or DOT's relative value without an issuer.
+            DOT's ``(uri, headers, body, status)`` tuple.
         """
-        path: str = super()._get_escaped_full_path(request)
-        issuer: str = settings.OAUTH_ISSUER
-        return f"{issuer}{path}" if issuer else path
+        uri, http_method, body, headers = self._extract_params(request)
+        uri = request.build_absolute_uri(uri)
+        try:
+            headers, body, status = self.server.create_userinfo_response(uri, http_method, body, headers)
+            uri = headers.get("Location", None)
+            return uri, headers, body, status
+        except OAuth2Error as exc:
+            return None, exc.headers, exc.json, exc.status_code
