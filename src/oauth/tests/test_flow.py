@@ -350,6 +350,25 @@ def test_userinfo_accepts_a_resource_bound_token(
     assert refused.status_code == 401, refused.content
 
 
+def test_audience_check_uses_the_issuer_not_the_scheme_django_sees(
+    session_client: Client, client: Client, public_oauth_app: OAuthApplication, settings: t.Any
+) -> None:
+    """Behind a TLS-terminating proxy Django may see ``http://`` while tokens are bound to ``https://``.
+
+    Beta runs without ``SECURE_PROXY_SSL_HEADER`` (it is set only for production), so
+    ``build_absolute_uri`` produced ``http://beta-api…`` and every resource-bound token failed the
+    RFC 8707 check on the API *and* at userinfo. The audience URI is now rooted at ``OAUTH_ISSUER``
+    — the API's public origin and the protected-resource identifier — whatever the proxy says.
+    """
+    settings.OAUTH_ISSUER = "https://testserver"  # the test client itself speaks plain http
+    tokens = run_code_flow(session_client, client, public_oauth_app, "openid org:read", resource="https://testserver")
+    bearer = f"Bearer {tokens['access_token']}"
+    api = client.get("/api/dashboard/organizations", HTTP_AUTHORIZATION=bearer)
+    assert api.status_code == 200, api.content
+    userinfo = client.get("/o/userinfo", HTTP_AUTHORIZATION=bearer)
+    assert userinfo.status_code == 200, userinfo.content
+
+
 def test_deactivated_app_cannot_refresh_or_userinfo(
     session_client: Client, client: Client, public_oauth_app: OAuthApplication
 ) -> None:
