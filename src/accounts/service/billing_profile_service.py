@@ -41,7 +41,13 @@ def create_billing_profile(user: "RevelUser", data: dict[str, t.Any]) -> "UserBi
 
 
 def update_billing_info(profile: "UserBillingProfile", data: dict[str, t.Any]) -> None:
-    """Update billing info fields. Validates vat_country_code vs VAT ID prefix."""
+    """Update billing info fields. Validates vat_country_code vs VAT ID prefix.
+
+    A ``None`` ``self_billing_agreed`` means "not sent" (e.g. the checkout billing form): it leaves
+    the existing agreement untouched rather than revoking it.
+    """
+    if data.get("self_billing_agreed") is None:
+        data.pop("self_billing_agreed", None)
     _update_billing_info(profile, data)
 
 
