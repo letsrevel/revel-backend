@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.15.1] - 2026-09-25
+
+### Fixed
+- Referral program emails (application received, invite, enrolled, rejected) now send; a trailing newline in their subject templates made every one fail with `BadHeaderError`.
+- The self-billing agreement can now be accepted from the referral payout page: `POST`/`PUT /me/billing` accept `self_billing_agreed` instead of silently dropping it, and omitting it on `PUT` (e.g. from the checkout billing form) leaves an existing agreement untouched.
+- Telegram `/unsubscribe` no longer crashes and actually disables Telegram notifications for linked users.
+- The city migration no longer crashes when `geo/data` is bind-mounted without a CSV; the bundled `worldcities.mini.csv` now ships from `geo/fixtures/`.
+- `make setup`/`restart`/`nuke-db` wait for Postgres and Redis to be healthy instead of a fixed sleep.
+- Seed data: event names no longer carry a season or year, descriptions no longer hard-wrap mid-sentence, and events start on the hour in their city's timezone.
+
+### Security
+- Bumped `soupsieve` to 2.9.2 (CVE-2026-85999, CVE-2026-86000); Revel only uses hard-coded selectors and was not exposed.
+
 ## [2.15.0] - 2026-09-17
 
 ### Added
