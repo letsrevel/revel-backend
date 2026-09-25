@@ -100,6 +100,20 @@ class TestCreateBillingProfile:
         assert data["billing_address"] == ""
         assert data["vat_country_code"] == ""
         assert data["billing_email"] == ""
+        assert data["self_billing_agreed"] is False
+
+    def test_creates_profile_with_self_billing_agreement(self, auth_client: Client, user: RevelUser) -> None:
+        """The referral payout form accepts the self-billing agreement on first save."""
+        url = reverse("api:create_billing_profile")
+        response = auth_client.post(
+            url,
+            data=orjson.dumps({"billing_name": "Jane Doe", "self_billing_agreed": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["self_billing_agreed"] is True
+        assert UserBillingProfile.objects.get(user=user).self_billing_agreed is True
 
     def test_rejects_duplicate_profile(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
         """Cannot create a second billing profile."""
@@ -198,6 +212,45 @@ class TestUpdateBillingProfile:
         assert data["vat_country_code"] == "DE"
         assert data["billing_address"] == "New Address"
         assert data["billing_email"] == "new@example.com"
+
+    @pytest.mark.parametrize("agreed", [True, False])
+    def test_sets_self_billing_agreement(
+        self, auth_client: Client, billing_profile: UserBillingProfile, agreed: bool
+    ) -> None:
+        """The user can give (or withdraw) the self-billing agreement via PUT."""
+        billing_profile.self_billing_agreed = not agreed
+        billing_profile.save(update_fields=["self_billing_agreed"])
+
+        url = reverse("api:update_billing_profile")
+        response = auth_client.put(
+            url,
+            data=orjson.dumps({"billing_name": "Test User", "self_billing_agreed": agreed}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["self_billing_agreed"] is agreed
+        billing_profile.refresh_from_db()
+        assert billing_profile.self_billing_agreed is agreed
+
+    def test_omitting_self_billing_keeps_existing_agreement(
+        self, auth_client: Client, billing_profile: UserBillingProfile
+    ) -> None:
+        """Billing forms that don't show the agreement (e.g. checkout) must not revoke it."""
+        billing_profile.self_billing_agreed = True
+        billing_profile.save(update_fields=["self_billing_agreed"])
+
+        url = reverse("api:update_billing_profile")
+        response = auth_client.put(
+            url,
+            data=orjson.dumps({"billing_name": "New Name"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        billing_profile.refresh_from_db()
+        assert billing_profile.self_billing_agreed is True
+        assert billing_profile.billing_name == "New Name"
 
     def test_rejects_invalid_country_code(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
         """Invalid ISO 3166-1 alpha-2 country code is rejected."""
