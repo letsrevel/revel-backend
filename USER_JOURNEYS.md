@@ -171,7 +171,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Frontend calls `GET /referral/invitations/{id}` → `{email, code}` for an approved, not-yet-enrolled invite (404 otherwise); prefills and locks the email, shows an "invited to the referral program" banner
 - Registration itself is unchanged; the id is not sent back — enrollment is by email match at account creation (any path: email, SSO), see [21.10](#2110-enrollment)
 
-### 2.5 Registration Blocked by Global Ban
+### 2.6 Registration Blocked by Global Ban
 - Email or domain is globally banned
 - Registration fails with appropriate error message
 
@@ -223,7 +223,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Disconnect Telegram
 
 ### 3.7 Billing Profile (for Referral Payouts)
-- Navigate to `/account/billing`
+- Navigate to `/account/settings` (Billing section)
 - Set: billing name, billing address, billing email
 - Set VAT ID (VIES-validated for EU) — required for self-billing invoices
 - Agree to self-billing terms (required before payouts are processed)
@@ -732,7 +732,7 @@ DRAFT → OPEN → CLOSED
 - Exposed on the public event detail; copied verbatim on event duplication and recurring-series materialization
 
 ### 10.15 Event Revenue (per event)
-- `GET /event-admin/{event_id}/tickets/revenue` returns `EventFinancialsSchema`: `sold_count` (incl. later refunded/cancelled), `refunds`, `refunded_count`, and VAT detail (`net_taxable`, `vat`, `rate_buckets`)
+- `GET /event-admin/{event_id}/revenue` returns `EventFinancialsSchema`: `sold_count` (incl. later refunded/cancelled), `refunds`, `refunded_count`, and VAT detail (`net_taxable`, `vat`, `rate_buckets`)
 - Tracks both online (Stripe) and offline/at-the-door ticket refunds
 - Org-wide financials live in [Journey 25](#journey-25-revenue--vat-reporting)
 
@@ -1358,7 +1358,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - Delete draft: removes invoice and PDF entirely
 
 ### 22.5 View Invoices (Buyer)
-- Navigate to `/dashboard/invoices`
+- Navigate to `/account/invoices`
 - See all issued invoices (paginated)
 - Download invoice PDFs via signed URLs
 
@@ -1506,7 +1506,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - Computed in the org's timezone; empty periods are skipped
 
 ### 25.4 Per-Event Revenue
-- `GET /event-admin/{event_id}/tickets/revenue` → `EventFinancialsSchema` (see [Journey 10.15](#1015-event-revenue-per-event)) — VAT detail, online + offline refunds tracked
+- `GET /event-admin/{event_id}/revenue` → `EventFinancialsSchema` (see [Journey 10.15](#1015-event-revenue-per-event)) — VAT detail, online + offline refunds tracked
 
 ---
 
@@ -1638,7 +1638,7 @@ Configured via environment variables. The anonymous `GET /version` returns a `fe
 - `FEATURE_TELEGRAM` (default on): when off, Telegram delivery is dropped and the linking endpoints 404
 - `FEATURE_ORGANIZATION_CREATION` (default on): when off, `POST /organizations/` returns 403 for non-staff (single-org instances); staff/superusers bypass
 - `FEATURE_OBSERVABILITY` (renamed from `ENABLE_OBSERVABILITY`, which still works as a deprecated alias for one release)
-- `/version` exposes a subset to clients: `organization_creation`, `telegram`, `llm_evaluation`
+- `/version` exposes a subset to clients: `organization_creation`, `telegram`, `llm_evaluation`, plus `referral_applications` (from `SiteSettings.referral_applications_enabled`, not an env flag)
 
 ### Self-Hosting
 - The backend boots and runs on a self-hosted box **without** ClamAV, Telegram, or the full geo dataset, tailored via the feature flags above
@@ -1772,7 +1772,9 @@ The following questions represent gaps in my understanding that I could not reso
 
 ---
 
-## E2E Test Strategy (agreed 2026-07-07 — not yet implemented)
+## E2E Test Strategy (agreed 2026-07-07 — implemented)
+
+> **Status (2026-09):** implemented in `revel-frontend/tests/e2e/` — one `journeys/jNN-*/` directory per journey here (Journey 19 seating specs live in j06/j07/j08/j10), ~650 tests on Chromium + Mobile Chrome, driven by `make e2e` in `revel-frontend` against this backend (`make e2e-seed` + `run-e2e-daemon`). Stripe checkout is no longer deferred: paid flows run through hosted Checkout with `stripe listen` forwarding webhooks. The bullets below are the original agreement, kept for history; `revel-frontend/tests/e2e/README.md` is the current environment contract.
 
 - **Where tests run**: locally first, against a dev backend (`make run`) in `DEMO_MODE` with the `bootstrap_events` dataset; frontend via Playwright's build+preview `webServer` (`PUBLIC_API_URL=http://localhost:8000`). Specs keep the existing self-skip guard when no demo backend is reachable. CI wiring is a deliberate follow-up (compose up Postgres/Redis + backend, run `bootstrap_events`, then Playwright) — nothing in the contract blocks it.
 - **Browsers**: journey specs run on **Chromium + Mobile Chrome** only; the FOUC/CSP regression specs keep the full 5-project matrix.
