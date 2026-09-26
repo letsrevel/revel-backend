@@ -272,8 +272,15 @@ def build_refund_context(ticket: Ticket, now: datetime) -> RefundContext:
     from events.service.ticket_service import _is_offline_paid
 
     payment_method = TicketTier.PaymentMethod(ticket.tier.payment_method)
-    if payment_method != TicketTier.PaymentMethod.ONLINE and (
-        _is_offline_paid(ticket) or ticket.offline_refund_amount is not None
+    payment = getattr(ticket, "payment", None)
+    # Series-pass tickets are excluded: the pass, not the ticket, carries the money (an
+    # online pass even leaves a Payment on an offline-tier ticket), and the offline
+    # refund/cancel paths reject them — never quote the tier price as refundable.
+    if (
+        payment is None
+        and ticket.held_pass_id is None
+        and payment_method != TicketTier.PaymentMethod.ONLINE
+        and (_is_offline_paid(ticket) or ticket.offline_refund_amount is not None)
     ):
         paid = recorded_or_resolved_price(ticket.tier, ticket.seat, ticket.price_paid)
         refunded = ticket.offline_refund_amount or _ZERO
@@ -287,7 +294,6 @@ def build_refund_context(ticket: Ticket, now: datetime) -> RefundContext:
             policy_suggested_amount=None,
             refunds=[],
         )
-    payment = getattr(ticket, "payment", None)
     if payment is None or payment_method != TicketTier.PaymentMethod.ONLINE:
         return RefundContext(
             payment_method=TicketTier.PaymentMethod(ticket.tier.payment_method),

@@ -531,3 +531,37 @@ class TestRefundContext:
         assert Decimal(data["amount_paid"]) == Decimal("15.00")
         assert Decimal(data["total_refunded"]) == Decimal("5.00")
         assert Decimal(data["remaining_refundable"]) == Decimal("0")
+
+    def test_context_for_series_pass_ticket_on_offline_tier_quotes_nothing(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        event_series: EventSeries,
+        pending_offline_ticket: Ticket,
+    ) -> None:
+        """A series-pass ticket on an offline tier is refunded via the pass, never quoted at tier price."""
+        series_pass = SeriesPass.objects.create(
+            event_series=event_series,
+            name="Season Pass",
+            price=Decimal("36.00"),
+            pro_rata_discount=Decimal("0"),
+        )
+        held_pass = HeldSeriesPass.objects.create(
+            series_pass=series_pass,
+            user=pending_offline_ticket.user,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+            price_paid=Decimal("36.00"),
+        )
+        pending_offline_ticket.status = Ticket.TicketStatus.ACTIVE
+        pending_offline_ticket.held_pass = held_pass
+        pending_offline_ticket.save(update_fields=["status", "held_pass"])
+        url = reverse(
+            "api:ticket_refund_context",
+            kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+        )
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert Decimal(data["amount_paid"]) == Decimal("0")
+        assert Decimal(data["remaining_refundable"]) == Decimal("0")
