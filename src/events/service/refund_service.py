@@ -23,6 +23,7 @@ from events.exceptions import (
     TicketAlreadyCancelledError,
 )
 from events.models import Event, Payment, Refund, Ticket, TicketTier
+from events.service.seating.pricing import recorded_or_resolved_price
 from events.utils.currency import to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -262,11 +263,32 @@ def build_refund_context(ticket: Ticket, now: datetime) -> RefundContext:
     The policy suggestion reuses the user-cancellation quote (snapshot-driven); a
     block reason (NOT_PERMITTED, PAST_DEADLINE, ...) yields no suggestion rather
     than an error — the organizer may refund any amount regardless.
+
+    Offline/at-the-door tickets have no ``Payment``: a paid one reports its collected
+    amount as refundable (a recorded manual refund, #1011); once cancelled, the recorded
+    ``offline_refund_amount`` and nothing left to refund.
     """
     from events.service.cancellation_service import quote_cancellation
+    from events.service.ticket_service import _is_offline_paid
 
+    payment_method = TicketTier.PaymentMethod(ticket.tier.payment_method)
+    if payment_method != TicketTier.PaymentMethod.ONLINE and (
+        _is_offline_paid(ticket) or ticket.offline_refund_amount is not None
+    ):
+        paid = recorded_or_resolved_price(ticket.tier, ticket.seat, ticket.price_paid)
+        refunded = ticket.offline_refund_amount or _ZERO
+        return RefundContext(
+            payment_method=payment_method,
+            amount_paid=paid,
+            currency=str(ticket.tier.currency),
+            total_refunded=refunded,
+            total_pending=_ZERO,
+            remaining_refundable=_ZERO if ticket.status == Ticket.TicketStatus.CANCELLED else paid - refunded,
+            policy_suggested_amount=None,
+            refunds=[],
+        )
     payment = getattr(ticket, "payment", None)
-    if payment is None or ticket.tier.payment_method != TicketTier.PaymentMethod.ONLINE:
+    if payment is None or payment_method != TicketTier.PaymentMethod.ONLINE:
         return RefundContext(
             payment_method=TicketTier.PaymentMethod(ticket.tier.payment_method),
             amount_paid=_ZERO,

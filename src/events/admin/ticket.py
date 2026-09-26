@@ -98,6 +98,7 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
         "discount_code",
         "discount_amount",
         "offline_refund_amount",
+        "sale_source",
         "held_pass",
         "refund_policy_snapshot",
         "attribution",  # written once by checkout (#922); the export relies on it being an object
@@ -121,6 +122,7 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
                     "discount_code",
                     "discount_amount",
                     "offline_refund_amount",
+                    "sale_source",
                     "refund_policy_snapshot",
                     "held_pass",
                 ]

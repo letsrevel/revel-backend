@@ -9,7 +9,7 @@ from django.utils import timezone
 from events.exceptions import NothingToRefundError, RefundInsufficientBalanceError, StripeRefundFailed
 from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationSource
-from events.service import refund_service
+from events.service import refund_service, ticket_service
 from events.tasks.attendees import build_attendee_visibility_flags
 from notifications.signals.payment import send_event_refund_summary
 
@@ -131,8 +131,10 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
         TicketTier.objects.filter(pk=locked_ticket.tier_id, quantity_sold__gt=0).update(
             quantity_sold=F("quantity_sold") - 1
         )
+        ticket_service.record_offline_payment_kept(locked_ticket)
         Ticket.objects.filter(pk=locked_ticket.pk).update(
             status=Ticket.TicketStatus.CANCELLED,
+            offline_refund_amount=locked_ticket.offline_refund_amount,
             cancelled_at=timezone.now(),
             cancelled_by=initiator,
             cancellation_source=CancellationSource.EVENT_CANCELLATION,

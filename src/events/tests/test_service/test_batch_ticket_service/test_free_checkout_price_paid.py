@@ -24,7 +24,17 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, Payment, PriceCategory, Ticket, TicketTier, VenueSeat, VenueSector
+from events.models import (
+    Event,
+    Organization,
+    Payment,
+    PriceCategory,
+    Ticket,
+    TicketSaleSource,
+    TicketTier,
+    VenueSeat,
+    VenueSector,
+)
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
@@ -99,6 +109,7 @@ def test_fully_discounted_online_cart_stamps_price_paid(
         assert ticket.status == Ticket.TicketStatus.ACTIVE
         assert ticket.price_paid == Decimal("0.00")
         assert ticket.discount_amount == TIER_PRICE
+        assert ticket.sale_source == TicketSaleSource.CHECKOUT  # 0.00, yet not a comp (#1013)
 
 
 def test_genuinely_free_tier_leaves_price_paid_null(zero_cart_event: Event, member_user: RevelUser) -> None:

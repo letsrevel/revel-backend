@@ -33,6 +33,7 @@ from events.models import (
     SeriesPass,
     SeriesPassTierLink,
     Ticket,
+    TicketSaleSource,
     TicketTier,
 )
 from events.models.ticket import CancellationSource
@@ -331,6 +332,7 @@ def materialize_tickets(
             # The pass, not the request, is the source of truth (#922): backfills and
             # extensions never see a checkout payload.
             attribution=held_pass.attribution,
+            sale_source=TicketSaleSource.SERIES_PASS,
         )
         for link in links
         if link.event_id not in existing_event_ids
