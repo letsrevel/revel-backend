@@ -17,6 +17,7 @@ from events.models import (
     PriceCategory,
     SeatHold,
     Ticket,
+    TicketSaleSource,
     TicketTier,
     Venue,
     VenueSeat,
@@ -91,6 +92,7 @@ def test_sell_at_the_door_on_free_seat(
     assert ticket.sector == seats[0].sector
     assert ticket.venue == event.venue
     assert ticket.price_paid is None  # tier price applies for reporting
+    assert ticket.sale_source == TicketSaleSource.BOX_OFFICE_SALE
     tier.refresh_from_db()
     assert tier.quantity_sold == 1
 
@@ -104,6 +106,7 @@ def test_sell_comp_records_zero_price_paid(
     )
     assert ticket.status == Ticket.TicketStatus.ACTIVE
     assert ticket.price_paid == Decimal("0.00")
+    assert ticket.sale_source == TicketSaleSource.BOX_OFFICE_COMP  # #1013: a comp is not a door sale
 
 
 def test_sell_guest_name_defaults_to_recipient_display_name(

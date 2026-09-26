@@ -459,6 +459,9 @@ def _finalize_cancellation(
         locked_ticket._refund_amount = str(refund_amount)  # type: ignore[attr-defined]
         locked_ticket._refund_currency = currency  # type: ignore[attr-defined]
 
+    from events.service.ticket_service import record_offline_payment_kept
+
+    record_offline_payment_kept(locked_ticket)
     locked_ticket.status = Ticket.TicketStatus.CANCELLED
     locked_ticket.cancelled_at = now
     locked_ticket.cancelled_by = user
@@ -471,6 +474,7 @@ def _finalize_cancellation(
             "cancelled_by",
             "cancellation_source",
             "cancellation_reason",
+            "offline_refund_amount",
         ]
     )
 

@@ -9,7 +9,7 @@ import copy
 
 from django.db import transaction
 
-from events.models import Ticket, TicketTier, VenueSeat
+from events.models import Ticket, TicketSaleSource, TicketTier, VenueSeat
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.context import BatchTicketContext
@@ -32,6 +32,7 @@ class TicketWriterMixin(BatchTicketContext):
         tier: TicketTier,
         discount_code: DiscountCode | None,
         stamp_price_paid: bool = False,
+        sale_source: TicketSaleSource = TicketSaleSource.CHECKOUT,
     ) -> list[Ticket]:
         """Create ticket objects with the specified status.
 
@@ -58,6 +59,7 @@ class TicketWriterMixin(BatchTicketContext):
                 groups).
             stamp_price_paid: Whether to write the unit price to ``price_paid``. Never
                 decided here — ask ``pricing.should_stamp_price_paid`` (spec §5.5).
+            sale_source: How the tickets were issued (#1013); the box office overrides it.
 
         Returns:
             List of created Ticket objects.
@@ -80,6 +82,7 @@ class TicketWriterMixin(BatchTicketContext):
                 # contract against future in-place mutation of tier.refund_policy.
                 refund_policy_snapshot=(copy.deepcopy(tier.refund_policy) if tier.refund_policy else None),
                 attribution=self.attribution,
+                sale_source=sale_source,
             )
             if seat:
                 ticket.seat = seat

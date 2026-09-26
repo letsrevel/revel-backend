@@ -21,7 +21,13 @@ from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.service import dashboard_service, event_service, ticket_guest_name_service
-from events.service.attendee_invoice_service import ensure_pdf_exists
+from events.service.attendee_invoice_service import ensure_credit_note_pdf_exists, ensure_pdf_exists
+
+# Drafts stay hidden; a fully credited invoice flips to CANCELLED but stays the buyer's record (#1012).
+_BUYER_INVOICE_STATUSES = (
+    models.AttendeeInvoice.InvoiceStatus.ISSUED,
+    models.AttendeeInvoice.InvoiceStatus.CANCELLED,
+)
 
 
 @api_controller("/dashboard", auth=I18nJWTAuth())
@@ -280,19 +286,20 @@ class DashboardController(UserAwareController):
     @route.get(
         "/invoices",
         url_name="dashboard_invoices",
-        response=PaginatedResponseSchema[schema.AttendeeInvoiceSchema],
+        response=PaginatedResponseSchema[schema.BuyerAttendeeInvoiceSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["invoice_number", "seller_name", "buyer_name", "event__name"])
     def dashboard_invoices(self) -> QuerySet[models.AttendeeInvoice]:
-        """View your attendee invoices.
+        """View your attendee invoices with their credit notes.
 
-        Returns only ISSUED invoices (drafts are not visible to the buyer).
+        Returns ISSUED and CANCELLED (fully credited) invoices; drafts are not visible to the buyer.
         """
-        return models.AttendeeInvoice.objects.filter(
-            user=self.user(),
-            status=models.AttendeeInvoice.InvoiceStatus.ISSUED,
-        ).order_by("-issued_at", "-created_at")
+        return (
+            models.AttendeeInvoice.objects.filter(user=self.user(), status__in=_BUYER_INVOICE_STATUSES)
+            .prefetch_related("credit_notes")
+            .order_by("-issued_at", "-created_at")
+        )
 
     @route.get(
         "/invoices/{invoice_id}/download",
@@ -309,10 +316,33 @@ class DashboardController(UserAwareController):
             models.AttendeeInvoice,
             id=invoice_id,
             user=self.user(),
-            status=models.AttendeeInvoice.InvoiceStatus.ISSUED,
+            status__in=_BUYER_INVOICE_STATUSES,
         )
         ensure_pdf_exists(invoice)
         url = get_file_url(invoice.pdf_file)
         if not url:
             raise HttpError(404, str(_("Invoice PDF not available.")))
+        return schema.InvoiceDownloadURLSchema(download_url=url)
+
+    @route.get(
+        "/credit-notes/{credit_note_id}/download",
+        url_name="dashboard_credit_note_download",
+        response=schema.InvoiceDownloadURLSchema,
+        throttle=UserDefaultThrottle(),
+    )
+    def dashboard_credit_note_download(self, credit_note_id: UUID) -> schema.InvoiceDownloadURLSchema:
+        """Get a signed download URL for a credit note on one of your invoices.
+
+        Generates the PDF on-demand if not yet generated.
+        """
+        credit_note = get_object_or_404(
+            models.AttendeeInvoiceCreditNote.objects.select_related("invoice"),
+            id=credit_note_id,
+            invoice__user=self.user(),
+            invoice__status__in=_BUYER_INVOICE_STATUSES,
+        )
+        ensure_credit_note_pdf_exists(credit_note)
+        url = get_file_url(credit_note.pdf_file)
+        if not url:
+            raise HttpError(404, str(_("Credit note PDF not available.")))
         return schema.InvoiceDownloadURLSchema(download_url=url)

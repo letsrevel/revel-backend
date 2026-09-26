@@ -1137,6 +1137,9 @@ msgstr "Bereits Mitglied."
 msgid "Invoice PDF not available."
 msgstr "Rechnungs-PDF nicht verfügbar."
 
+msgid "Credit note PDF not available."
+msgstr "Gutschrift-PDF nicht verfügbar."
+
 msgid "refund_tickets is only valid when cancelling the event."
 msgstr "refund_tickets ist nur beim Abbrechen des Events gültig."
 

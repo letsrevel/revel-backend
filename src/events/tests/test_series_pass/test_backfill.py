@@ -28,6 +28,7 @@ from events.models import (
     SeriesPass,
     SeriesPassTierLink,
     Ticket,
+    TicketSaleSource,
     TicketTier,
 )
 from events.service import series_pass_service, stripe_service
@@ -236,6 +237,7 @@ class TestBackfillMissingTickets:
         # Free of charge — a backfilled ticket must never inherit the mapped tier's
         # price in revenue/VAT reports (#644).
         assert all(ticket.price_paid == Decimal("0.00") for ticket in created)
+        assert all(ticket.sale_source == TicketSaleSource.SERIES_PASS for ticket in created)  # #1013
         full_tier.refresh_from_db()
         assert full_tier.quantity_sold == 1  # unchanged — skipped, not granted
         open_tier.refresh_from_db()
