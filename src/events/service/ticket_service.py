@@ -710,6 +710,7 @@ def _cancel_offline_ticket_core(
     """
     TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(quantity_sold=F("quantity_sold") - 1)
 
+    record_offline_payment_kept(ticket)
     ticket.status = Ticket.TicketStatus.CANCELLED
     ticket.cancelled_at = timezone.now()
     ticket.cancelled_by = cancelled_by
@@ -722,6 +723,7 @@ def _cancel_offline_ticket_core(
             "cancelled_by",
             "cancellation_source",
             "cancellation_reason",
+            "offline_refund_amount",
         ]
     )
 
@@ -783,6 +785,20 @@ def offline_paid_q() -> Q:
 def _is_offline_paid(ticket: Ticket) -> bool:
     """Whether an offline/at-the-door ticket is in a paid state (see ``OFFLINE_PAID_STATUSES``)."""
     return ticket.status in OFFLINE_PAID_STATUSES.get(ticket.tier.payment_method, ())
+
+
+def record_offline_payment_kept(ticket: Ticket) -> None:
+    """Stamp a zero ``offline_refund_amount`` on a paid offline ticket about to be cancelled (#1010).
+
+    Once the ticket is CANCELLED its status no longer says it was paid, so the revenue
+    report would drop the sale. A non-null ``offline_refund_amount`` is that record: the
+    organizer kept the money, minus whatever refund is recorded. Call *before* flipping the
+    status (``_is_offline_paid`` reads the pre-cancel status) and persist
+    ``offline_refund_amount`` alongside the cancellation fields. Online and never-paid
+    tickets are left untouched.
+    """
+    if ticket.offline_refund_amount is None and _is_offline_paid(ticket):
+        ticket.offline_refund_amount = Decimal("0.00")
 
 
 def _resolve_offline_refund_amount(ticket: Ticket, refund_amount: Decimal | None) -> Decimal | None:

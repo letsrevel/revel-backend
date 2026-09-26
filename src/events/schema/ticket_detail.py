@@ -12,7 +12,7 @@ from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
 from common.schema import StrippedString
 from common.signing import get_file_url
 from events import models
-from events.models import DiscountCode, Payment, Ticket, TicketAttribution
+from events.models import DiscountCode, Payment, Ticket, TicketAttribution, TicketSaleSource
 
 from .event import MinimalEventSchema
 from .organization import MemberVerificationSchema, MinimalOrganizationMemberSchema
@@ -94,6 +94,8 @@ class AdminTicketSchema(ModelSchema):
     discount_code: TicketDiscountCodeSchema | None = None
     discount_amount: Decimal | None = None
     offline_refund_amount: Decimal | None = None
+    # How the ticket was issued (#1013) — tells a comp from a sale on the tier's payment method.
+    sale_source: TicketSaleSource | None = None
     series_pass: TicketSeriesPassSchema | None = None
     # Organizer-only (#922): deliberately absent from UserTicketSchema.
     attribution: TicketAttribution | None = None
@@ -110,6 +112,7 @@ class AdminTicketSchema(ModelSchema):
             "price_paid",
             "discount_amount",
             "offline_refund_amount",
+            "sale_source",
         ]
 
     @staticmethod

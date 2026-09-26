@@ -254,32 +254,68 @@ def test_vat_rate_bucket_label_is_human_readable(
     assert "2E+1%" not in labels
 
 
-@pytest.mark.django_db
-def test_offline_zero_refund_still_increments_refunded_count(
-    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
-) -> None:
-    """An offline ticket cancelled with a 0 refund is counted as refunded (#554 review)."""
-    org, event, _, user = org_event_tier
-    offline_tier = TicketTier.objects.create(
+def _offline_ticket(event: Event, user: RevelUser, status: Ticket.TicketStatus) -> Ticket:
+    tier = TicketTier.objects.create(
         event=event,
         name="Door",
         price=Decimal("60.00"),
         currency="EUR",
         payment_method=TicketTier.PaymentMethod.OFFLINE,
     )
-    Ticket.objects.create(
-        event=event,
-        tier=offline_tier,
-        user=user,
-        status=Ticket.TicketStatus.CANCELLED,
-        guest_name="Bob",
-        offline_refund_amount=Decimal("0.00"),
-        cancelled_at=timezone.now(),
-    )
+    return Ticket.objects.create(event=event, tier=tier, user=user, status=status, guest_name="Bob")
+
+
+@pytest.mark.django_db
+def test_offline_zero_refund_keeps_the_sale_and_is_not_a_refund(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """A 0.00 offline refund means the organizer kept the money (#1010): the sale stays, no refund is booked."""
+    org, event, _, user = org_event_tier
+    ticket = _offline_ticket(event, user, Ticket.TicketStatus.CANCELLED)
+    Ticket.objects.filter(pk=ticket.pk).update(offline_refund_amount=Decimal("0.00"), cancelled_at=timezone.now())
     data = svc.build_revenue_report_data(_scope(org))
     section = next(s for s in data.sections if s.currency == "EUR")
-    assert section.refunded_count == 1
+    assert section.sold_count == 1
+    assert section.refunded_count == 0
     assert section.refunds_total == Decimal("0.00")
+
+
+@pytest.mark.django_db
+def test_paid_offline_ticket_cancelled_without_refund_stays_in_revenue(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """Regression #1010: cancelling a paid offline ticket without a refund used to drop it from revenue."""
+    from events.service import ticket_service
+
+    org, event, _, user = org_event_tier
+    ticket = _offline_ticket(event, user, Ticket.TicketStatus.ACTIVE)
+
+    ticket_service.cancel_offline_ticket(ticket, cancelled_by=user)
+
+    ticket.refresh_from_db()
+    assert ticket.offline_refund_amount == Decimal("0.00")
+    data = svc.build_revenue_report_data(_scope(org))
+    section = next(s for s in data.sections if s.currency == "EUR")
+    assert section.sold_count == 1
+    assert section.refunded_count == 0
+
+
+@pytest.mark.django_db
+def test_unpaid_offline_ticket_cancelled_stays_out_of_revenue(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """A PENDING (never paid) offline ticket carries no money, so cancelling it records nothing."""
+    from events.service import ticket_service
+
+    org, event, _, user = org_event_tier
+    ticket = _offline_ticket(event, user, Ticket.TicketStatus.PENDING)
+
+    ticket_service.cancel_offline_ticket(ticket, cancelled_by=user)
+
+    ticket.refresh_from_db()
+    assert ticket.offline_refund_amount is None
+    data = svc.build_revenue_report_data(_scope(org))
+    assert not any(s.currency == "EUR" for s in data.sections)
 
 
 @pytest.mark.django_db

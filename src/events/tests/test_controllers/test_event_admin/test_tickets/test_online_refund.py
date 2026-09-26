@@ -484,3 +484,50 @@ class TestRefundContext:
         assert Decimal(data["remaining_refundable"]) == Decimal("0")
         assert data["policy_suggested_amount"] is None
         assert data["refunds"] == []
+
+    def test_context_for_confirmed_offline_ticket_reports_collected_amount(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        pending_offline_ticket: Ticket,
+    ) -> None:
+        """#1011: a confirmed (paid) offline ticket offers its collected price as a recorded refund."""
+        pending_offline_ticket.status = Ticket.TicketStatus.ACTIVE
+        pending_offline_ticket.price_paid = Decimal("15.00")
+        pending_offline_ticket.save(update_fields=["status", "price_paid"])
+        url = reverse(
+            "api:ticket_refund_context",
+            kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+        )
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert data["payment_method"] == TicketTier.PaymentMethod.OFFLINE
+        assert Decimal(data["amount_paid"]) == Decimal("15.00")
+        assert Decimal(data["total_refunded"]) == Decimal("0")
+        assert Decimal(data["remaining_refundable"]) == Decimal("15.00")
+        assert data["policy_suggested_amount"] is None
+
+    def test_context_for_cancelled_offline_ticket_reports_recorded_refund(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        pending_offline_ticket: Ticket,
+    ) -> None:
+        """Once cancelled, the recorded refund shows and nothing is left to refund."""
+        pending_offline_ticket.status = Ticket.TicketStatus.CANCELLED
+        pending_offline_ticket.price_paid = Decimal("15.00")
+        pending_offline_ticket.offline_refund_amount = Decimal("5.00")
+        pending_offline_ticket.save(update_fields=["status", "price_paid", "offline_refund_amount"])
+        url = reverse(
+            "api:ticket_refund_context",
+            kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+        )
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert Decimal(data["amount_paid"]) == Decimal("15.00")
+        assert Decimal(data["total_refunded"]) == Decimal("5.00")
+        assert Decimal(data["remaining_refundable"]) == Decimal("0")

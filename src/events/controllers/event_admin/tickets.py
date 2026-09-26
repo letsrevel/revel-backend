@@ -449,7 +449,9 @@ class EventAdminTicketsController(EventAdminBaseController):
         """Amounts paid/refunded/remaining plus the policy-suggested refund, for FE quick-select."""
         event = self.get_one(event_id)
         ticket = get_object_or_404(
-            models.Ticket.objects.select_related("tier", "payment", "event").prefetch_related("payment__refunds"),
+            models.Ticket.objects.select_related("tier", "seat", "payment", "event").prefetch_related(
+                "payment__refunds"
+            ),
             pk=ticket_id,
             event=event,
         )

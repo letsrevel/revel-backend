@@ -363,7 +363,9 @@ msgid "This email is permanently blocked from the referral program."
 msgstr "Questa email è bloccata permanentemente dal programma referral."
 
 msgid "This email already has an approved invite awaiting signup (code {})."
-msgstr "Questa email ha già un invito approvato in attesa di registrazione (codice {})."
+msgstr ""
+"Questa email ha già un invito approvato in attesa di registrazione (codice "
+"{})."
 
 msgid "This email already has a pending application; decide it instead."
 msgstr "Questa email ha già una candidatura in sospeso; decidi su quella."
@@ -1122,6 +1124,9 @@ msgstr "Già membro."
 
 msgid "Invoice PDF not available."
 msgstr "Il PDF della fattura non è disponibile."
+
+msgid "Credit note PDF not available."
+msgstr "Il PDF della nota di credito non è disponibile."
 
 msgid "refund_tickets is only valid when cancelling the event."
 msgstr "refund_tickets è valido solo quando si annulla l'evento."

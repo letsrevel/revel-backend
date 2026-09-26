@@ -53,6 +53,15 @@ class CancellationSource(models.TextChoices):
     EVENT_CANCELLATION = "event_cancellation", "Bulk event cancellation"
 
 
+class TicketSaleSource(models.TextChoices):
+    """How a ticket was issued (#1013), so a comp is not mistaken for a sale on the tier's payment method."""
+
+    CHECKOUT = "checkout", "Checkout"
+    BOX_OFFICE_SALE = "box_office_sale", "Box office sale"
+    BOX_OFFICE_COMP = "box_office_comp", "Box office comp"
+    SERIES_PASS = "series_pass", "Series pass"
+
+
 class CancellationBlockReason(models.TextChoices):
     """Stable error codes surfaced to the frontend when cancellation is blocked.
 
@@ -789,6 +798,14 @@ class Ticket(TimeStampedModel):
         help_text="Campaign tags (utm_source/medium/campaign/content) the buyer arrived with, "
         "as sent by the checkout payload (#922). Null when the URL carried none. Never updated.",
     )
+    sale_source = models.CharField(
+        max_length=20,
+        choices=TicketSaleSource.choices,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="How the ticket was issued (#1013). Null for tickets created before this was recorded.",
+    )
     cancelled_at = models.DateTimeField(null=True, blank=True, editable=False)
     cancelled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -813,7 +830,8 @@ class Ticket(TimeStampedModel):
         blank=True,
         editable=False,
         help_text="Amount refunded for a manually-collected offline/at-the-door ticket. "
-        "Null means the ticket was never refunded (a plain cancellation). "
+        "Set when a paid ticket is cancelled — 0.00 means the organizer kept the money (#1010); "
+        "null means nothing was collected (or the ticket is not cancelled). "
         "Online (Stripe) refunds are tracked on Payment.refund_amount instead.",
     )
 

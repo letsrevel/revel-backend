@@ -366,7 +366,9 @@ msgstr ""
 "Diese E-Mail-Adresse ist dauerhaft vom Empfehlungsprogramm ausgeschlossen."
 
 msgid "This email already has an approved invite awaiting signup (code {})."
-msgstr "Für diese E-Mail-Adresse gibt es bereits eine genehmigte Einladung, die auf die Registrierung wartet (Code {})."
+msgstr ""
+"Für diese E-Mail-Adresse gibt es bereits eine genehmigte Einladung, die auf "
+"die Registrierung wartet (Code {})."
 
 msgid "This email already has a pending application; decide it instead."
 msgstr ""
@@ -1136,6 +1138,9 @@ msgstr "Bereits Mitglied."
 
 msgid "Invoice PDF not available."
 msgstr "Rechnungs-PDF nicht verfügbar."
+
+msgid "Credit note PDF not available."
+msgstr "Gutschrift-PDF nicht verfügbar."
 
 msgid "refund_tickets is only valid when cancelling the event."
 msgstr "refund_tickets ist nur beim Abbrechen des Events gültig."

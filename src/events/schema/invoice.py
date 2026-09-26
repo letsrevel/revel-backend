@@ -131,6 +131,12 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     buyer_address: str
 
 
+class BuyerAttendeeInvoiceSchema(AttendeeInvoiceSchema):
+    """Buyer-side invoice with its credit notes, so a refunded (CANCELLED) invoice keeps its audit trail."""
+
+    credit_notes: list["AttendeeInvoiceCreditNoteSchema"]
+
+
 class UpdateAttendeeInvoiceSchema(Schema):
     """Schema for editing a DRAFT attendee invoice.
 
@@ -175,3 +181,6 @@ class AttendeeInvoiceCreditNoteSchema(Schema):
     def resolve_invoice_number(obj: t.Any) -> str:
         """Resolve invoice number from the related invoice."""
         return str(obj.invoice.invoice_number)
+
+
+BuyerAttendeeInvoiceSchema.model_rebuild()

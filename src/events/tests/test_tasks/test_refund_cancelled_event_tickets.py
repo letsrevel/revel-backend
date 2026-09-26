@@ -128,6 +128,9 @@ class TestRefundOneCancelledEventTicket:
             assert tk.cancelled_by_id == organization_owner_user.id
         t_cancelled.refresh_from_db()
         assert t_cancelled.cancelled_at is None  # untouched
+        # #1010: the paid offline ticket keeps its sale on record; online money lives on Payment.
+        assert t_offline.offline_refund_amount == Decimal("0.00")
+        assert t_paid.offline_refund_amount is None
 
         row = Refund.objects.get(payment__ticket=t_paid)
         assert row.source == Refund.Source.EVENT_CANCELLATION

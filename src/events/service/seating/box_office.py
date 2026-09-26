@@ -18,7 +18,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, EventSeatOverride, Ticket, TicketTier, VenueSeat
+from events.models import Event, EventSeatOverride, Ticket, TicketSaleSource, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.guest import get_or_create_guest_user
@@ -163,6 +163,7 @@ def sell(
         tier=locked_tier,
         discount_code=None,
         stamp_price_paid=stamp_price_paid,
+        sale_source=TicketSaleSource.BOX_OFFICE_COMP if is_comp else TicketSaleSource.BOX_OFFICE_SALE,
     )
     TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + 1)
     service.trigger_bulk_create_side_effects(tickets)
