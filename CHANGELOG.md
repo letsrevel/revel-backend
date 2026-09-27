@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-09-27
+
+### Added
+- Buyers keep their invoices after a full refund. `GET /dashboard/invoices` now lists `cancelled` (fully credited) invoices alongside issued ones and nests each invoice's `credit_notes`. Cancelled invoices remain downloadable, and the new `GET /dashboard/credit-notes/{credit_note_id}/download` downloads credit notes.
+- Tickets record how they were issued: `sale_source` (`checkout`, `box_office_sale`, `box_office_comp`, `series_pass`) is exposed on the organizer ticket schema, so a box-office comp is no longer shown as an "At the Door" sale. Tickets issued before this release have no recorded source.
+- The organizer refund preview (`GET /event-admin/{event_id}/tickets/{ticket_id}/refund-context`) reports the collected and refundable amount for confirmed offline and at-the-door tickets, enabling recorded manual refunds from the cancel dialog.
+
+### Changed
+- An offline ticket cancelled with a recorded refund of 0.00 is now treated as a kept sale and no longer counts toward the revenue report's refunded tickets.
+
+### Fixed
+- Cancelling a paid offline or at-the-door ticket without a refund (by the organizer, by the attendee, or through event cancellation) no longer drops the sale from revenue and VAT reports.
+
 ## [2.15.1] - 2026-09-25
 
 ### Fixed
