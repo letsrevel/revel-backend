@@ -124,7 +124,6 @@ def send_account_email(
     *,
     token: str | None = None,
     context: dict[str, str] | None = None,
-    return_url: str | None = None,
 ) -> None:
     """Render and send a transactional account email.
 
@@ -137,8 +136,9 @@ def send_account_email(
         context: Extra template context required by some message types — e.g.
             ``{"masked_new_email": ...}`` for the change notice, or
             ``{"old_email": ..., "new_email": ...}`` for the change-completed emails.
-        return_url: Optional relative path appended to the action link as a fully
-            percent-encoded ``returnUrl`` query param. Omitted entirely when ``None``.
+            An optional ``"return_url"`` key (a relative path, used only by the verification
+            email) is appended to the action link as a fully percent-encoded ``returnUrl``
+            query param; message types without a link ignore it.
 
     Raises:
         ValueError: If a link-bearing email type is dispatched without a token, or a message
@@ -158,7 +158,7 @@ def send_account_email(
         if token is None:
             raise ValueError(f"{email_type} email requires a token")
         action_link = site_settings.frontend_base_url + config.link_path.format(token=token)
-        if return_url is not None:
+        if (return_url := caller_context.get("return_url")) is not None:
             # safe="" so "&", "=", "?" and "/" are encoded and can't inject extra query params.
             action_link += "&returnUrl=" + quote(return_url, safe="")
         body_context["action_link"] = action_link

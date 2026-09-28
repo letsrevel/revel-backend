@@ -190,13 +190,14 @@ def send_verification_email_for_user(
     token = create_verification_token(user)
 
     def dispatch() -> None:
-        # Only pass return_url when set: the message stays identical to the pre-return_url
-        # format, so a not-yet-upgraded worker can still consume it during a rolling deploy.
+        # return_url rides in the task's existing ``context`` kwarg rather than a new kwarg, so
+        # a not-yet-upgraded worker during a rolling deploy still accepts the message and just
+        # sends the normal verification email without ``returnUrl`` (graceful degradation).
         if return_url is None:
             tasks.send_account_email.delay(tasks.AccountEmail.VERIFICATION, user.email, token=token)
         else:
             tasks.send_account_email.delay(
-                tasks.AccountEmail.VERIFICATION, user.email, token=token, return_url=return_url
+                tasks.AccountEmail.VERIFICATION, user.email, token=token, context={"return_url": return_url}
             )
 
     if defer:

@@ -79,13 +79,19 @@ def test_register_rejects_non_relative_return_url(mock_register: MagicMock, clie
 
 
 @patch("accounts.tasks.email.send_email")
+@patch("accounts.tasks.send_account_email.delay", wraps=send_account_email.delay)
 def test_verification_link_carries_encoded_return_url(
-    mock_send: MagicMock, django_capture_on_commit_callbacks: t.Any
+    mock_delay: MagicMock, mock_send: MagicMock, django_capture_on_commit_callbacks: t.Any
 ) -> None:
     payload = schema.RegisterUserSchema(**_payload(return_url=_OAUTH_RETURN_URL))
 
     with django_capture_on_commit_callbacks(execute=True):
-        _, token = account_service.register_user(payload)
+        user, token = account_service.register_user(payload)
+
+    # Carried in the pre-existing ``context`` kwarg so not-yet-upgraded workers accept the message.
+    mock_delay.assert_called_once_with(
+        AccountEmail.VERIFICATION, user.email, token=token, context={"return_url": _OAUTH_RETURN_URL}
+    )
 
     link = _sent_link(mock_send)
     base = SiteSettings.get_solo().frontend_base_url
@@ -108,7 +114,7 @@ def test_verification_link_unchanged_without_return_url(
     link = _sent_link(mock_send)
     assert "returnUrl" not in link
     assert link == f"{SiteSettings.get_solo().frontend_base_url}/login/confirm-email?token={token}"
-    # The dispatched message keeps its pre-return_url shape (old workers can still consume it).
+    # The dispatched message keeps its exact pre-return_url shape.
     mock_delay.assert_called_once_with(AccountEmail.VERIFICATION, user.email, token=token)
 
 
@@ -123,3 +129,13 @@ def test_duplicate_registration_ignores_return_url(mock_send: MagicMock, unverif
     link = _sent_link(mock_send)
     assert "returnUrl" not in link
     assert "/login/confirm-email?token=" in link
+
+
+@pytest.mark.parametrize("context", [None, {}, {"unrelated": "x"}], ids=["no-context", "empty", "no-return-url"])
+@patch("accounts.tasks.email.send_email")
+def test_task_without_return_url_in_context_builds_old_link(
+    mock_send: MagicMock, context: dict[str, str] | None
+) -> None:
+    send_account_email(AccountEmail.VERIFICATION, "u@example.com", token="tok", context=context)
+
+    assert _sent_link(mock_send) == f"{SiteSettings.get_solo().frontend_base_url}/login/confirm-email?token=tok"
