@@ -2,7 +2,7 @@
 
 {% blocktrans %}Please verify your email and finish setting up your account.{% endblocktrans %}
 
-{{ action_link }}
+{{ action_link|safe }}
 
 {% blocktrans %}Thank you,
 The Revel Team{% endblocktrans %}

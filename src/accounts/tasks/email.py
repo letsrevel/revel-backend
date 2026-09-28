@@ -16,6 +16,7 @@ Consolidated from eight per-message wrapper tasks (issue #608). The old task nam
 
 import dataclasses
 import enum
+from urllib.parse import quote
 
 import structlog
 from celery import shared_task
@@ -135,6 +136,9 @@ def send_account_email(
         context: Extra template context required by some message types — e.g.
             ``{"masked_new_email": ...}`` for the change notice, or
             ``{"old_email": ..., "new_email": ...}`` for the change-completed emails.
+            An optional ``"return_url"`` key (a relative path, used only by the verification
+            email) is appended to the action link as a fully percent-encoded ``returnUrl``
+            query param; message types without a link ignore it.
 
     Raises:
         ValueError: If a link-bearing email type is dispatched without a token, or a message
@@ -153,7 +157,11 @@ def send_account_email(
     if config.link_path is not None:
         if token is None:
             raise ValueError(f"{email_type} email requires a token")
-        body_context["action_link"] = site_settings.frontend_base_url + config.link_path.format(token=token)
+        action_link = site_settings.frontend_base_url + config.link_path.format(token=token)
+        if (return_url := caller_context.get("return_url")) is not None:
+            # safe="" so "&", "=", "?" and "/" are encoded and can't inject extra query params.
+            action_link += "&returnUrl=" + quote(return_url, safe="")
+        body_context["action_link"] = action_link
 
     subject = str(render_to_string(f"accounts/emails/{config.template_base}_subject.txt")).strip()
     body = render_to_string(f"accounts/emails/{config.template_base}_body.txt", body_context)
