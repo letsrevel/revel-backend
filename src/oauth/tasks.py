@@ -43,8 +43,9 @@ def prune_unused_dynamic_clients() -> int:
     has since reaped, leaves an app with no artifact at all. Deleting it there would break the
     ``client_id`` for every *other* user of that client, and an MCP host that cached its
     registration would get ``invalid_client`` instead of re-registering. So the primary signal
-    is ``last_used_at``, which Task 4 writes only on genuine app-token API use (a
-    registration-scope token is refused before the bump) and which nothing ever clears.
+    is ``last_used_at``, written on genuine app-token API use (a registration-scope token is
+    refused before the bump) and on every token issuance (``RevelOAuth2Validator._save_bearer_token``,
+    which covers sign-in-only clients that never call the API), and which nothing ever clears.
 
     The two artifact checks stay as belt and braces for a client that registered and authorized
     inside the TTL without an API call yet. A grant only protects a code that is mid-flight or

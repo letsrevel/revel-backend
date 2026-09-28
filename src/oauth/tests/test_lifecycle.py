@@ -8,6 +8,7 @@ import datetime as dt
 import typing as t
 
 import pytest
+from django.test import Client
 from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken as SessionRefreshToken
 from oauth2_provider.models import AccessToken, Grant, RefreshToken
@@ -20,6 +21,7 @@ from accounts.service.global_ban_service import deactivate_user_for_ban
 from oauth.models import OAuthApplication
 from oauth.tasks import clear_expired_tokens, prune_unused_dynamic_clients
 from oauth.tests.test_auth_class import make_access_token
+from oauth.tests.test_flow import REDIRECT_URI, run_code_flow
 from oauth.tests.test_token_service import make_token_pair
 
 pytestmark = pytest.mark.django_db
@@ -171,3 +173,25 @@ def test_prune_returns_the_number_of_apps_not_cascade_rows() -> None:
     assert prune_unused_dynamic_clients() == 2
     assert not OAuthApplication.objects.exists()
     assert not AccessToken.objects.exists()
+
+
+def test_prune_keeps_a_sign_in_only_dynamic_app(session_client: Client, client: Client, user: RevelUser) -> None:
+    """A "Sign in with Revel" client never calls a ``ScopedJWTAuth`` route, so API use cannot be its only history.
+
+    Without ``offline_access`` it holds no refresh token, so once its hour-long tokens expire
+    ``cleartokens`` leaves it with no artifact at all. Issuing those tokens must have marked it
+    used, or the next prune deletes it and every user of the ``client_id`` gets ``invalid_client``.
+    """
+    app = OAuthApplication.objects.create(
+        name="sign-in",
+        client_type=OAuthApplication.CLIENT_PUBLIC,
+        redirect_uris=REDIRECT_URI,
+        registration_source=OAuthApplication.RegistrationSource.DCR,
+    )
+    run_code_flow(session_client, client, app, "openid profile email")
+    AccessToken.objects.filter(application=app).update(expires=timezone.now() - dt.timedelta(hours=1))
+    OAuthApplication.objects.filter(pk=app.pk).update(created=timezone.now() - dt.timedelta(hours=48))
+    clear_expired_tokens()
+    assert not AccessToken.objects.filter(application=app).exists()
+    prune_unused_dynamic_clients()
+    assert OAuthApplication.objects.filter(pk=app.pk).exists()

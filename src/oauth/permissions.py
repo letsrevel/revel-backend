@@ -42,7 +42,7 @@ class RequireScope(BasePermission):
 
 
 class ProviderEnabled(BasePermission):
-    """Make every route it guards indistinguishable from a route that does not exist.
+    """Answer 404 on every route it guards while the provider is off.
 
     The provider is enabled iff a signing key is configured (ADR-0008), and issue #986's
     acceptance criterion is that with it unset *every* provider route answers 404. The
@@ -53,7 +53,11 @@ class ProviderEnabled(BasePermission):
     while create and update 400'd out of DOT's own RS256 validation.
 
     ``OAuthProviderDisabledError`` is rendered as a static 404 by
-    ``oauth.exception_handlers``, so nothing distinguishes it from a missing route.
+    ``oauth.exception_handlers``. Being a permission, it runs *after* the controller's auth
+    class, so an anonymous caller still gets that class's 401 (and an unverified user a 403 on
+    ``requires_verified_email`` controllers) — which reveals only that the route exists in the
+    open-source codebase. ADR-0018's "every route 404s" is about the protocol routes
+    (``/o/*``, ``.well-known``), which ``oauth/urls.py`` gates before any auth runs.
     """
 
     def has_permission(self, request: HttpRequest, controller: ControllerBase) -> bool:

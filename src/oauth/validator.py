@@ -3,6 +3,7 @@
 import typing as t
 
 from django.conf import settings
+from django.utils import timezone
 from oauth2_provider.oauth2_validators import OAuth2Validator
 
 from accounts.models import RevelUser
@@ -136,6 +137,13 @@ class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         detection. Always rotating on refresh also matches RFC 6749 §6: the new refresh token's
         scope must equal the old one's, which narrowing the access token does not change.
 
+        Issuing a token also marks the app used. ``ScopedJWTAuth`` only sees clients that call the
+        API, so a sign-in-only client (id_token + userinfo, no ``offline_access``) would otherwise
+        keep ``last_used_at`` NULL and be deleted by ``prune_unused_dynamic_clients`` once
+        ``cleartokens`` reaps its tokens. DCR's registration credential is minted outside this
+        hook, so it never counts. Unthrottled, unlike the API-path bump: issuance is at most
+        once per token lifetime per user, not once per request.
+
         Args:
             token: The token dict oauthlib built and will serialise.
             request: The oauthlib request, carrying the granted scopes.
@@ -145,3 +153,4 @@ class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
         if request.grant_type != "refresh_token" and "offline_access" not in (request.scopes or []):
             token.pop("refresh_token", None)
         super()._save_bearer_token(token, request, *args, **kwargs)
+        type(request.client).objects.filter(pk=request.client.pk).update(last_used_at=timezone.now())
