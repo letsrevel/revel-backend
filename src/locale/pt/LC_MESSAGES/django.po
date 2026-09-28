@@ -1692,6 +1692,9 @@ msgstr ""
 "A hora de fim da venda de bilhetes tem de ser posterior à hora de início da "
 "venda."
 
+msgid "Check-in offset must be within 364 days of the event start."
+msgstr "O desvio do check-in deve estar dentro de 364 dias a partir do início do evento."
+
 msgid ""
 "Maximum pay-what-you-can amount must be greater than or equal to minimum "
 "amount."

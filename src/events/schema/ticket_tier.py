@@ -12,6 +12,7 @@ from pydantic import UUID4, AwareDatetime, Field, model_validator
 from common.schema import OneToOneFiftyString, StrippedString, viewer_from_context
 from events import models
 from events.models import TicketTier
+from events.models.ticket import MAX_CHECK_IN_OFFSET
 from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
 from events.utils.tier_pricing import painted_categories, parse_price_map, unsellable_zone_ids
 
@@ -306,10 +307,16 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     sales_end_at: AwareDatetime | None = None
     sales_paused: bool = False
     check_in_opens_offset: timedelta | None = Field(
-        default=None, description="Check-in opens at event start + this (may be negative). Null = event window."
+        default=None,
+        ge=-MAX_CHECK_IN_OFFSET,
+        le=MAX_CHECK_IN_OFFSET,
+        description="Check-in opens at event start + this (may be negative). Null = event window.",
     )
     check_in_closes_offset: timedelta | None = Field(
-        default=None, description="Check-in closes at event start + this. Null = event window."
+        default=None,
+        ge=-MAX_CHECK_IN_OFFSET,
+        le=MAX_CHECK_IN_OFFSET,
+        description="Check-in closes at event start + this. Null = event window.",
     )
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
@@ -374,10 +381,16 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     sales_end_at: AwareDatetime | None = None
     sales_paused: bool | None = None
     check_in_opens_offset: timedelta | None = Field(
-        default=None, description="Check-in opens at event start + this (may be negative). Null = event window."
+        default=None,
+        ge=-MAX_CHECK_IN_OFFSET,
+        le=MAX_CHECK_IN_OFFSET,
+        description="Check-in opens at event start + this (may be negative). Null = event window.",
     )
     check_in_closes_offset: timedelta | None = Field(
-        default=None, description="Check-in closes at event start + this. Null = event window."
+        default=None,
+        ge=-MAX_CHECK_IN_OFFSET,
+        le=MAX_CHECK_IN_OFFSET,
+        description="Check-in closes at event start + this. Null = event window.",
     )
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None

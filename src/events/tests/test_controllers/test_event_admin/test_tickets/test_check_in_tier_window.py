@@ -12,7 +12,9 @@ import orjson
 import pytest
 from django.contrib.gis.geos import Point
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_duration
@@ -33,6 +35,20 @@ def _set_offsets(tier: TicketTier, opens: timedelta | None, closes: timedelta | 
     tier.check_in_opens_offset = opens
     tier.check_in_closes_offset = closes
     tier.save()
+
+
+def _vienna() -> City:
+    return City.objects.create(
+        name="Vienna",
+        ascii_name="Vienna",
+        country="Austria",
+        iso2="AT",
+        iso3="AUT",
+        city_id=2761369,
+        location=Point(16.37, 48.21),
+        population=1000,
+        timezone="Europe/Vienna",
+    )
 
 
 # --- Check-in gate ---
@@ -151,23 +167,31 @@ def test_clean_rejects_window_inverted_after_fallback(event: Event, event_ticket
     assert "check_in_closes_offset" in exc.value.message_dict
 
 
+def test_clean_rejects_out_of_range_offset(event_ticket_tier: TicketTier) -> None:
+    """An absurd offset is a 400-class ValidationError, not an OverflowError (500)."""
+    with pytest.raises(ValidationError) as exc:
+        _set_offsets(event_ticket_tier, timedelta(days=999_999_999), None)
+    assert "check_in_opens_offset" in exc.value.message_dict
+
+
+def test_admin_rejects_out_of_range_offset(organization_owner_client: Client, event_ticket_tier: TicketTier) -> None:
+    url = reverse(
+        "api:update_ticket_tier", kwargs={"event_id": event_ticket_tier.event_id, "tier_id": event_ticket_tier.id}
+    )
+    payload = {"check_in_closes_offset": "P999999999D"}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 422  # rejected by the schema bound, before any datetime arithmetic
+
+
 # --- DST: offsets are wall-clock in the event's timezone ---
 
 
 def test_offset_is_wall_clock_across_dst_change(event: Event, event_ticket_tier: TicketTier) -> None:
     """Vienna leaves CEST on 2026-10-25: "+1 day" from Saturday 10:00 is Sunday 10:00, not 09:00."""
     vienna = ZoneInfo("Europe/Vienna")
-    event.city = City.objects.create(
-        name="Vienna",
-        ascii_name="Vienna",
-        country="Austria",
-        iso2="AT",
-        iso3="AUT",
-        city_id=2761369,
-        location=Point(16.37, 48.21),
-        population=1000,
-        timezone="Europe/Vienna",
-    )
+    event.city = _vienna()
     event.start = datetime(2026, 10, 24, 10, 0, tzinfo=vienna)
     event.end = datetime(2026, 10, 25, 23, 0, tzinfo=vienna)
     event.save()
@@ -225,6 +249,27 @@ def test_public_tier_list_exposes_offsets_and_effective_window(
     closes_at = datetime.fromisoformat(tier["effective_check_in_closes_at"])
     assert abs(opens_at - (event.start - timedelta(hours=1))) < timedelta(milliseconds=1)
     assert abs(closes_at - event.end) < timedelta(milliseconds=1)
+
+
+def test_public_tier_list_query_count_does_not_scale_with_offset_tiers(
+    client: Client, event: Event, event_ticket_tier: TicketTier, django_assert_num_queries: t.Any
+) -> None:
+    """Resolving the effective window reads event.city; the list must not do so per tier."""
+    event.city = _vienna()
+    event.save()
+    _set_offsets(event_ticket_tier, timedelta(hours=-1), None)
+    url = reverse("api:tier_list", kwargs={"event_id": event.pk})
+    client.get(url)  # warm per-process caches so the baseline counts only per-request queries
+    with CaptureQueriesContext(connection) as captured:
+        client.get(url)
+    baseline = len(captured.captured_queries)
+
+    for i in range(3):
+        TicketTier.objects.create(event=event, name=f"Slot {i}", check_in_opens_offset=timedelta(hours=i))
+
+    with django_assert_num_queries(baseline):
+        response = client.get(url)
+    assert sum(tier["check_in_opens_offset"] is not None for tier in response.json()) == 4
 
 
 # --- Duplication ---

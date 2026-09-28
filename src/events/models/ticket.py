@@ -263,6 +263,11 @@ class TicketTierManager(models.Manager["TicketTier"]):
         return self.get_queryset().for_visible_event(event, user, event_token=event_token)
 
 
+# Pydantic's JSON dump switches to years ("P1Y…") at 365 days, which Django's parse_duration
+# cannot read — so the bound also keeps the API round-trip (model_dump(mode="json")) parseable.
+MAX_CHECK_IN_OFFSET = timedelta(days=364)
+
+
 class TicketTier(TimeStampedModel, VisibilityMixin):
     """The ticket tier.
 
@@ -467,6 +472,11 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         """Validate that the tier's check-in window is non-empty once fallbacks are resolved."""
         if self.check_in_opens_offset is None and self.check_in_closes_offset is None:
             return  # pure event window — Event.clean owns that one
+        # Bound before the datetime arithmetic: an absurd offset would raise OverflowError (a 500).
+        for field in ("check_in_opens_offset", "check_in_closes_offset"):
+            offset = getattr(self, field)
+            if offset is not None and abs(offset) > MAX_CHECK_IN_OFFSET:
+                raise DjangoValidationError({field: _("Check-in offset must be within 364 days of the event start.")})
         opens_at, closes_at = self.effective_check_in_window()
         if closes_at <= opens_at:
             raise DjangoValidationError(
@@ -485,8 +495,8 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         closes_at = event.check_in_ends_at or event.end
         if self.check_in_opens_offset is None and self.check_in_closes_offset is None:
             return opens_at, closes_at  # hot path in tier lists: no city lookup
-        # ponytail: get_event_timezone reads event.city — one query per offset tier unless the
-        # caller select_related it; fine at a handful of tiers, prefetch if lists grow.
+        # get_event_timezone reads event.city: list querysets that serialize TicketTierSchema
+        # (Ticket.objects.full(), the public tier list) select_related it to avoid an N+1.
         # Aware datetime + timedelta within one tzinfo is wall-clock arithmetic (Python does not
         # re-normalise across a DST change for same-zone addition), which is exactly what we want.
         local_start = event.start.astimezone(get_event_timezone(event))
@@ -611,7 +621,11 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
             )
 
     def clean(self) -> None:
-        """Validate sales window, PWYC, membership tier, venue/sector, category prices and invitation restrictions."""
+        """Validate the tier's rules.
+
+        Covers sales and check-in windows, PWYC, membership tier, venue/sector, category prices
+        and invitation restrictions.
+        """
         super().clean()
         self._validate_sales_window()
         self._validate_check_in_window()
@@ -690,6 +704,7 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
             "tier__sector",
             "tier__event",
             "tier__event__organization",
+            "tier__event__city",
             "venue",
             "venue__city",
             "seat",

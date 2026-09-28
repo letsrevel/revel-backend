@@ -795,14 +795,6 @@ class Event(
         if self.start and self.waitlist_cutoff_date >= self.start:
             raise DjangoValidationError({"waitlist_cutoff_date": _("Cutoff date must be before event start.")})
 
-    def is_check_in_open(self) -> bool:
-        """Check if check-in is currently open for this event."""
-        now = timezone.now()
-        if not self.status == self.EventStatus.OPEN:
-            return False
-
-        return (self.check_in_starts_at or self.start) <= now <= (self.check_in_ends_at or self.end)
-
     def ics(self) -> bytes:
         """Generates an iCalendar (.ics) file for this event.
 

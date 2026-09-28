@@ -1729,6 +1729,9 @@ msgstr "Der Ticketverkauf muss spätestens zum Eventbeginn starten."
 msgid "Ticket sales end time must be after the sales start time."
 msgstr "Das Verkaufsende der Tickets muss nach dem Verkaufsbeginn liegen."
 
+msgid "Check-in offset must be within 364 days of the event start."
+msgstr "Der Check-in-Versatz muss innerhalb von 364 Tagen ab Beginn des Events liegen."
+
 msgid ""
 "Maximum pay-what-you-can amount must be greater than or equal to minimum "
 "amount."
@@ -2050,7 +2053,8 @@ msgstr "Anwender:in nicht gefunden."
 
 #, python-brace-format
 msgid "Check-in for {tier} is not open yet. It will open at {opens_at}."
-msgstr "Der Check-in für {tier} ist noch nicht geöffnet. Er öffnet um {opens_at}."
+msgstr ""
+"Der Check-in für {tier} ist noch nicht geöffnet. Er öffnet um {opens_at}."
 
 #, python-brace-format
 msgid "Check-in is not open yet. It will open at {opens_at}."

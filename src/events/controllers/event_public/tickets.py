@@ -63,7 +63,7 @@ class EventPublicTicketsController(EventPublicBaseController):
         event_token = self.get_event_token()
         visible_tiers = list(
             models.TicketTier.objects.for_visible_event(event, user, event_token=event_token)
-            .select_related("event__organization")
+            .select_related("event__organization", "event__city")
             .with_venue_and_sector()
             .distinct()
             .order_by("display_order", "name")
