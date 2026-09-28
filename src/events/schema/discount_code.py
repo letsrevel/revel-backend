@@ -63,6 +63,7 @@ class _DiscountCodeValidatorMixin:
     currency: Currencies | None
     valid_from: AwareDatetime | None
     valid_until: AwareDatetime | None
+    tier_ids: list[UUID] | None
 
     @model_validator(mode="after")
     def validate_discount_fields(self) -> t.Self:
@@ -75,8 +76,8 @@ class _DiscountCodeValidatorMixin:
         ):
             raise ValueError("Percentage discount cannot exceed 100.")
 
-        # Currency required for fixed amount
-        if self.discount_type == DiscountCode.DiscountType.FIXED_AMOUNT and not self.currency:
+        # Currency required for fixed amount, unless tiers are given (the service derives it from them)
+        if self.discount_type == DiscountCode.DiscountType.FIXED_AMOUNT and not self.currency and not self.tier_ids:
             raise ValueError("Currency is required for fixed amount discounts.")
 
         # Date ordering

@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Last updated**: 2026-07-25 (merged seating phase 1 + subscriptions integration)
+> **Last updated**: 2026-09-28 (Journey 20: discount-code scoping and mixed-cart behaviour, #997)
 
 ---
 
@@ -1230,17 +1230,36 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ### 20.1 Create Discount Code (Organizer)
 - Navigate to `/org/[slug]/admin/discount-codes/new`
 - Configure: code string, discount type (percentage/fixed), value
-- Scope: events, series, specific tiers
+- Scope: events, series, specific tiers (see 20.1a); no scope = valid for every tier of the organization
 - Limits: max uses total, max uses per user, min purchase amount
 - Validity: start date, end date
 - Activate/deactivate
 - Creating a code with a **duplicate code** returns a clear `409` (was an opaque 500)
 - `currency` is validated against the supported `Currencies` whitelist on both create and update
 
+### 20.1a Create a Tier-Scoped Code (Organizer)
+- The tier picker appears only once at least one event is selected, and lists that event's tiers
+- Deselecting an event also drops any of its tiers from the selection
+- Scopes combine as a **union**: a tier qualifies if it is selected directly, belongs to a selected event, or belongs to an event in a selected series. So a code scoped to an event or series applies to **all** of its tiers
+- **Fixed-amount codes with tiers selected**: the currency picker is hidden and the code takes its currency from the tiers
+  - Tiers priced in different currencies → rejected (`400`): one fixed amount can't be in two currencies
+  - An explicit currency that doesn't match the tiers → rejected (`400`)
+  - Changing a code's tiers on edit re-derives its currency
+- Percentage codes have no currency
+
 ### 20.2 Apply Discount Code (Attendee)
 - During ticket checkout
 - Enter code → validated and applied
 - See discounted price before confirming
+
+#### Scoped codes in a multi-tier cart (#846)
+- **Mixed cart:** the code is checked against each tier in the cart separately. A code scoped to tier A, applied to a cart with tiers A + B, discounts only A's tickets; B stays at full price
+- **No qualifying tier:** if the code applies to no tier in the cart, the whole code is rejected (`400`):
+  - when every tier fails for the **same** reason (e.g. expired, not yet active, usage limit reached, wrong currency), that specific reason is shown
+  - otherwise the generic "This discount code does not apply to any tier in your cart." message
+- **Excluded tiers:** free and pay-what-you-can tiers are never discounted, whatever the scope. In a mixed cart they just stay at full price; a cart containing only such tiers rejects the code
+- **Per-user cap across the whole cart:** `max_uses_per_user` counts the buyer's previous uses **plus** the tickets across every tier the code applies to. A cart that goes over the cap rejects the code as a whole: no silent partial discount (e.g. a 3 + 1 cart under a cap of 2 is rejected, it doesn't discount 1 of 4)
+- Tiers that don't qualify never count toward `max_uses_per_user`, `max_uses` or `min_purchase_amount`
 
 ### 20.3 Track Usage (Organizer)
 - View usage count per code
