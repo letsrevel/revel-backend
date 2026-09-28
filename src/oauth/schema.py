@@ -1,6 +1,7 @@
 """Wire schemas for the oauth app."""
 
 import typing as t
+from uuid import UUID
 
 from django.conf import settings
 from ninja import Field, ModelSchema, Schema
@@ -184,6 +185,19 @@ class OAuthAppSchema(ModelSchema):
 
     # See ``AuthorizeAppSchema.registration_source`` for why the ignore is needed.
     registration_source: OAuthApplication.RegistrationSource  # type: ignore[name-defined]
+    # Declared explicitly: ModelSchema infers ``blank=True`` columns as optional-nullable, the
+    # primary key as optional, ``client_type`` as a bare string (DOT's choices are a tuple, not
+    # an enum) and the JSONField as ``object`` — none of which is the contract the API honours.
+    id: UUID
+    client_id: str
+    name: str
+    description: str
+    client_type: t.Literal["confidential", "public"]
+    allowed_scopes: list[str]
+    homepage_url: str
+    privacy_policy_url: str
+    verified: bool
+    is_active: bool
     redirect_uris: list[str]
     last_used_at: AwareDatetime | None = None
     logo_url: str | None = None
@@ -234,7 +248,7 @@ class OAuthAppCreatedSchema(OAuthAppSchema):
         return obj.plaintext_client_secret
 
 
-class ConnectionSchema(Schema):
+class OAuthConnectionSchema(Schema):
     """One entry of the Connected Apps screen (spec §8.4)."""
 
     #: The key ``DELETE /oauth/connections/{client_id}`` takes. Public by design (it rides in

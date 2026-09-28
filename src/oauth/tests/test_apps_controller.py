@@ -374,3 +374,30 @@ def test_logo_url_is_absolute(settings: t.Any, session_client: Client) -> None:
 
 def test_logo_url_is_none_without_a_logo(session_client: Client) -> None:
     assert create_app(session_client)["logo_url"] is None
+
+
+def test_app_schema_contract_is_strict() -> None:
+    """The generated client must see the real shape, not ModelSchema's blank=True-means-nullable guess."""
+    from api.api import api
+
+    component = api.get_openapi_schema()["components"]["schemas"]["OAuthAppSchema"]
+    strict = {
+        "id",
+        "client_id",
+        "name",
+        "description",
+        "client_type",
+        "allowed_scopes",
+        "homepage_url",
+        "privacy_policy_url",
+        "verified",
+        "is_active",
+        "registration_source",
+        "redirect_uris",
+    }
+    assert strict <= set(component["required"])
+    properties = component["properties"]
+    for name in strict - {"registration_source"}:
+        assert "anyOf" not in properties[name], f"{name} is nullable"
+    assert properties["client_type"]["enum"] == ["confidential", "public"]
+    assert properties["allowed_scopes"] == {"items": {"type": "string"}, "title": "Allowed Scopes", "type": "array"}

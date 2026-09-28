@@ -64,6 +64,8 @@ def test_schema_return_url_defaults_to_none() -> None:
         "/path\r\n",
         "/path\tx",
         "/path with space",
+        pytest.param("/path\x9f", id="c1-control"),
+        pytest.param("/\x85evil", id="c1-next-line"),
         pytest.param("/" + "a" * 2048, id="2049-chars"),
     ],
 )
@@ -139,3 +141,11 @@ def test_task_without_return_url_in_context_builds_old_link(
     send_account_email(AccountEmail.VERIFICATION, "u@example.com", token="tok", context=context)
 
     assert _sent_link(mock_send) == f"{SiteSettings.get_solo().frontend_base_url}/login/confirm-email?token=tok"
+
+
+@patch("accounts.tasks.email.send_email")
+def test_task_ignores_return_url_on_other_link_emails(mock_send: MagicMock) -> None:
+    """Only the verification link carries ``returnUrl``, whatever a caller puts in ``context``."""
+    send_account_email(AccountEmail.PASSWORD_RESET, "u@example.com", token="tok", context={"return_url": "/x"})
+
+    assert "returnUrl" not in _sent_link(mock_send)

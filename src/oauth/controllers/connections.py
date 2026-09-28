@@ -25,11 +25,11 @@ from oauth.service import token_service
     permissions=[ProviderEnabled()],
 )
 class OAuthConnectionController(UserAwareController):
-    @route.get("/", url_name="oauth_connections_list", response=list[schema.ConnectionSchema])
-    def list_connections(self) -> list[schema.ConnectionSchema]:
+    @route.get("/", url_name="oauth_connections_list", response=list[schema.OAuthConnectionSchema])
+    def list_connections(self) -> list[schema.OAuthConnectionSchema]:
         """List the apps you have authorized, most recently used first."""
         return [
-            schema.ConnectionSchema(
+            schema.OAuthConnectionSchema(
                 client_id=connection.application.client_id,
                 application=schema.AuthorizeAppSchema.from_app(connection.application),
                 scopes=sorted(connection.scopes),
