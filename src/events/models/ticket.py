@@ -87,7 +87,8 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 
         Membership status handling:
         - CANCELLED users: Treated as if they have no membership (no access to member-only tiers)
-        - BANNED users: Inherit banned status from Event.for_user (won't see events at all)
+        - BANNED users: Inherit banned status from Event.for_user (won't see the org's events,
+          except ones they hold a ticket for)
         """
         from .event import Event
 

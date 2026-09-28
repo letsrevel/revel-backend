@@ -115,7 +115,7 @@ class PollQuerySet(models.QuerySet["Poll"]):
         # Authenticated, non-Django-staff user.
         # Users banned/blacklisted from an organization cannot see its polls, even if public
         # (mirrors EventQuerySet.for_user).
-        from events.utils.visibility import get_excluded_org_ids
+        from events.utils.visibility import get_excluded_org_ids, not_excluded_q
 
         excluded_org_ids = get_excluded_org_ids(user)
 
@@ -168,13 +168,14 @@ class PollQuerySet(models.QuerySet["Poll"]):
 
         # Owners/org staff: everything in their org including DRAFT.
         # Other authenticated users: passes visibility OR has voted; DRAFT hidden.
-        # Banned/blacklisted users do not see any poll from those orgs.
+        # Banned/blacklisted users do not see any poll from those orgs (unless they own the org).
         # No DISTINCT: every predicate is an Exists() subquery or the single-valued
         # organization FK, so rows cannot duplicate (and DISTINCT over the wide select
         # list is pure planner cost, see #880).
-        return self.filter(is_org_owner_or_staff | ((passes_vis | voted_q) & ~Q(status=Poll.PollStatus.DRAFT))).exclude(
-            organization_id__in=excluded_org_ids
-        )
+        qs = self.filter(is_org_owner_or_staff | ((passes_vis | voted_q) & ~Q(status=Poll.PollStatus.DRAFT)))
+        if excluded_org_ids:
+            qs = qs.filter(not_excluded_q(user, excluded_org_ids))
+        return qs
 
 
 class PollManager(models.Manager["Poll"]):

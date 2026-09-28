@@ -194,3 +194,21 @@ def test_for_user_no_distinct_and_no_duplicates_across_predicates(
     qs = Poll.objects.for_user(user)
     assert qs.query.distinct is False
     assert list(qs.values_list("pk", flat=True)) == [poll.pk]
+
+
+def test_for_user_owner_matched_by_blacklist_still_sees_own_draft_poll(
+    organization: t.Any, questionnaire: t.Any
+) -> None:
+    """A Blacklist row matching the owner must not hide the org's polls from them (#960)."""
+    from events.models import Blacklist
+
+    owner = organization.owner
+    Blacklist.objects.create(organization=organization, email=owner.email, created_by=owner)
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.STAFF_ONLY,
+        status=Poll.PollStatus.DRAFT,
+    )
+
+    assert list(Poll.objects.for_user(owner)) == [poll]

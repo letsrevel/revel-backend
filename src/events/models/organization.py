@@ -65,7 +65,8 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         Avoid slow, multi-JOIN queries.
 
         Membership status handling:
-        - BANNED users: Cannot see ANY organizations, even public ones
+        - BANNED/blacklisted users: Cannot see the organization at all, whatever branch would
+          otherwise grant access (public, membership, staff, ``allowed_ids``), unless they own it
         - CANCELLED users: Treated as if they have no membership
         - PAUSED/ACTIVE users: Can see organizations based on visibility rules
         """
@@ -80,21 +81,17 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
             return self.filter(Q(visibility__in=Organization.Visibility.publicly_accessible()) | is_allowed_special)
 
         # --- Check if user is banned or blacklisted from any organization ---
-        # If a user is banned/blacklisted, they cannot see the organization at all, even if it's public
+        # If a user is banned/blacklisted, they cannot see the organization at all (applied at the end)
         excluded_org_ids = get_excluded_org_ids(user)
 
         # --- "Gather-then-filter" strategy for standard users ---
 
         # 1. Gather IDs from all distinct sources of visibility.
 
-        # A) Publicly accessible organizations (PUBLIC + UNLISTED; exclude banned/blacklisted).
+        # A) Publicly accessible organizations (PUBLIC + UNLISTED).
         #    UNLISTED orgs are accessible like PUBLIC ones (e.g. via direct link),
         #    but are filtered out from discovery listings by discoverable_for_user().
-        public_orgs_qs = (
-            self.filter(visibility__in=Organization.Visibility.publicly_accessible())
-            .exclude(id__in=excluded_org_ids)
-            .values("id")
-        )
+        public_orgs_qs = self.filter(visibility__in=Organization.Visibility.publicly_accessible()).values("id")
 
         # B) Organizations the user owns
         owned_orgs_qs = self.filter(owner=user).values("id")
@@ -114,7 +111,13 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
 
         # 3. Filter the main queryset using the gathered IDs.
         # This final query is very fast as it filters on the primary key.
-        return self.filter(Q(id__in=visible_org_ids_qs) | is_allowed_special).distinct()
+        qs = self.filter(Q(id__in=visible_org_ids_qs) | is_allowed_special)
+
+        # 4. A ban/blacklist trumps every branch above; only the owner is exempt
+        #    (see events.utils.visibility.not_excluded_q).
+        if excluded_org_ids:
+            qs = qs.filter(~Q(id__in=excluded_org_ids) | Q(owner=user))
+        return qs.distinct()
 
     def discoverable_for_user(self, user: RevelUser | AnonymousUser, allowed_ids: list[UUID] | None = None) -> t.Self:
         """Get queryset for discovery listings (browse/search).
