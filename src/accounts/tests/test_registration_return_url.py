@@ -13,6 +13,7 @@ from ninja.errors import HttpError
 from accounts import schema
 from accounts.models import RevelUser
 from accounts.service import account as account_service
+from accounts.tasks import AccountEmail, send_account_email
 from common.models import SiteSettings
 
 pytestmark = pytest.mark.django_db
@@ -97,7 +98,7 @@ def test_verification_link_carries_encoded_return_url(
 
 
 @patch("accounts.tasks.email.send_email")
-@patch("accounts.tasks.send_account_email.delay", wraps=account_service.tasks.send_account_email.delay)
+@patch("accounts.tasks.send_account_email.delay", wraps=send_account_email.delay)
 def test_verification_link_unchanged_without_return_url(
     mock_delay: MagicMock, mock_send: MagicMock, django_capture_on_commit_callbacks: t.Any
 ) -> None:
@@ -108,7 +109,7 @@ def test_verification_link_unchanged_without_return_url(
     assert "returnUrl" not in link
     assert link == f"{SiteSettings.get_solo().frontend_base_url}/login/confirm-email?token={token}"
     # The dispatched message keeps its pre-return_url shape (old workers can still consume it).
-    mock_delay.assert_called_once_with(account_service.tasks.AccountEmail.VERIFICATION, user.email, token=token)
+    mock_delay.assert_called_once_with(AccountEmail.VERIFICATION, user.email, token=token)
 
 
 @patch("accounts.tasks.email.send_email")
