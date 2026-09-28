@@ -87,7 +87,8 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 
         Membership status handling:
         - CANCELLED users: Treated as if they have no membership (no access to member-only tiers)
-        - BANNED users: Inherit banned status from Event.for_user (won't see events at all)
+        - BANNED users: Inherit banned status from Event.for_user (won't see the org's events,
+          except ones they hold a ticket for)
         """
         from .event import Event
 
@@ -106,7 +107,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 
         # --- Authenticated User ---
         # 1. Get all events this user is allowed to see. This is the source of truth.
-        # Event.for_user already handles banned users (they won't see events from banned orgs)
+        # Event.for_user already handles banned users (no events from banned orgs, except ticketed ones)
         visible_event_ids = Event.objects.for_user(user, include_past=True).values_list("id", flat=True)
 
         # Base filter: only consider tiers on events the user can see.

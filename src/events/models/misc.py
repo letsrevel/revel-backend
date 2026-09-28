@@ -8,10 +8,12 @@ from accounts.models import RevelUser
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from events.utils.visibility import (
+    get_excluded_org_ids,
     get_invited_event_ids,
     get_rsvp_event_ids,
     get_ticketed_event_ids,
     get_valid_member_org_ids,
+    not_excluded_q,
     owner_or_staff_q,
 )
 
@@ -40,6 +42,8 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
            to an event linked to that resource.
         4. For `ATTENDEES_ONLY` resources, only users with tickets or RSVPs (not just invitations)
            can see them.
+        5. Users banned/blacklisted from the organization see none of its resources, whatever
+           branch matched (unless they own it).
         """
         # --- Fast paths for special users ---
         qs = self.all()
@@ -108,6 +112,11 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
         # A resource is visible if it matches EITHER the role criteria OR the private event criteria
         # OR the attendees-only criteria.
         final_q = role_based_q | private_resources_q | attendees_only_resources_q
+
+        # 5. A ban/blacklist trumps every branch above (the event-relationship branches
+        # are not scoped by org visibility, so it has to be applied here explicitly).
+        if excluded_org_ids := get_excluded_org_ids(user):
+            final_q &= not_excluded_q(user, excluded_org_ids)
 
         return qs.filter(final_q).distinct()
 
