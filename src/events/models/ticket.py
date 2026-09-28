@@ -14,7 +14,7 @@ from django.utils.translation import gettext_lazy as _
 
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
-from events.utils import apple_wallet_configured, google_wallet_configured
+from events.utils import apple_wallet_configured, get_event_timezone, google_wallet_configured
 from events.utils.tier_pricing import validate_category_prices
 from events.utils.visibility import get_invited_event_ids, get_valid_member_org_ids, owner_or_staff_q
 
@@ -351,6 +351,21 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         db_index=True,
         help_text="Organizer kill switch: hides the tier from checkout until resumed. Independent of the sales window.",
     )
+    check_in_opens_offset = models.DurationField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When check-in opens for this tier, relative to the event start (may be negative). "
+            "Null = the event's check-in window."
+        ),
+    )
+    check_in_closes_offset = models.DurationField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When check-in closes for this tier, relative to the event start. Null = the event's check-in window."
+        ),
+    )
     total_quantity = models.PositiveIntegerField(default=None, null=True, blank=True)
     quantity_sold = models.PositiveIntegerField(default=0)
     manual_payment_instructions = MarkdownField(null=True, blank=True)
@@ -447,6 +462,39 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
             raise DjangoValidationError(
                 {"sales_end_at": _("Ticket sales end time must be after the sales start time.")}
             )
+
+    def _validate_check_in_window(self) -> None:
+        """Validate that the tier's check-in window is non-empty once fallbacks are resolved."""
+        if self.check_in_opens_offset is None and self.check_in_closes_offset is None:
+            return  # pure event window — Event.clean owns that one
+        opens_at, closes_at = self.effective_check_in_window()
+        if closes_at <= opens_at:
+            raise DjangoValidationError(
+                {"check_in_closes_offset": _("Check-in end time must be after check-in start time.")}
+            )
+
+    def effective_check_in_window(self) -> tuple[datetime, datetime]:
+        """Resolve when check-in opens and closes for this tier.
+
+        Each tier offset falls back independently to the event's check-in window, which in
+        turn falls back to the event's start/end. Offsets are added in the event's local
+        time, so "+1 day" from Saturday 10:00 is Sunday 10:00 even across a DST change.
+        """
+        event = self.event
+        opens_at = event.check_in_starts_at or event.start
+        closes_at = event.check_in_ends_at or event.end
+        if self.check_in_opens_offset is None and self.check_in_closes_offset is None:
+            return opens_at, closes_at  # hot path in tier lists: no city lookup
+        # ponytail: get_event_timezone reads event.city — one query per offset tier unless the
+        # caller select_related it; fine at a handful of tiers, prefetch if lists grow.
+        # Aware datetime + timedelta within one tzinfo is wall-clock arithmetic (Python does not
+        # re-normalise across a DST change for same-zone addition), which is exactly what we want.
+        local_start = event.start.astimezone(get_event_timezone(event))
+        if self.check_in_opens_offset is not None:
+            opens_at = local_start + self.check_in_opens_offset
+        if self.check_in_closes_offset is not None:
+            closes_at = local_start + self.check_in_closes_offset
+        return opens_at, closes_at
 
     def _validate_pwyc(self) -> None:
         """Validate pay-what-you-can pricing constraints."""
@@ -566,6 +614,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         """Validate sales window, PWYC, membership tier, venue/sector, category prices and invitation restrictions."""
         super().clean()
         self._validate_sales_window()
+        self._validate_check_in_window()
         self._validate_pwyc()
         self._validate_membership_tiers()
         self._validate_venue_sector()

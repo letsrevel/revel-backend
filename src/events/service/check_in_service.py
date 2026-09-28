@@ -40,22 +40,39 @@ def _format_in_event_tz(dt: datetime, event: Event) -> str:
     return f"{formats.date_format(local, 'DATETIME_FORMAT', use_l10n=True)} {local.tzname() or ''}".rstrip()
 
 
-def _check_in_closed_message(event: Event) -> str:
-    """Build a localized error message for a closed check-in window, surfacing the open/close time when known."""
-    if event.status != event.EventStatus.OPEN:
-        return str(_("Check-in is not currently open for this event."))
+def _check_in_closed_message(tier: TicketTier, opens_at: datetime, closes_at: datetime) -> str:
+    """Build a localized error message for a closed check-in window, surfacing the open/close time.
+
+    When the tier sets its own window, the message names the tier so door staff can tell a
+    "Sunday-only" ticket apart from an event-wide closure.
+    """
+    event = tier.event
     now = timezone.now()
-    starts_at = event.check_in_starts_at or event.start
-    ends_at = event.check_in_ends_at or event.end
-    if now < starts_at:
-        return str(_("Check-in is not open yet. It will open at {opens_at}.")).format(
-            opens_at=_format_in_event_tz(starts_at, event)
-        )
-    if now > ends_at:
-        return str(_("Check-in has closed for this event. It ended at {ended_at}.")).format(
-            ended_at=_format_in_event_tz(ends_at, event)
-        )
+    has_tier_window = tier.check_in_opens_offset is not None or tier.check_in_closes_offset is not None
+    if now < opens_at:
+        opens = _format_in_event_tz(opens_at, event)
+        if has_tier_window:
+            return str(_("Check-in for {tier} is not open yet. It will open at {opens_at}.")).format(
+                tier=tier.name, opens_at=opens
+            )
+        return str(_("Check-in is not open yet. It will open at {opens_at}.")).format(opens_at=opens)
+    if now > closes_at:
+        ended = _format_in_event_tz(closes_at, event)
+        if has_tier_window:
+            return str(_("Check-in for {tier} has closed. It ended at {ended_at}.")).format(
+                tier=tier.name, ended_at=ended
+            )
+        return str(_("Check-in has closed for this event. It ended at {ended_at}.")).format(ended_at=ended)
     return str(_("Check-in is not currently open for this event."))
+
+
+def _ensure_check_in_open(event: Event, tier: TicketTier) -> None:
+    """Require an OPEN event and ``now`` inside the tier's window (which falls back to the event's)."""
+    if event.status != Event.EventStatus.OPEN:
+        raise HttpError(400, str(_("Check-in is not currently open for this event.")))
+    opens_at, closes_at = tier.effective_check_in_window()
+    if not opens_at <= timezone.now() <= closes_at:
+        raise HttpError(400, _check_in_closed_message(tier, opens_at, closes_at))
 
 
 def resolve_check_in_ticket_id(event: Event, code: str) -> UUID:
@@ -112,7 +129,14 @@ def check_in_ticket(
     # tier__* + the M2M prefetch cover CheckInResponseSchema's nested TicketTierSchema;
     # seat/sector feed the seat display. Trims ~4 queries per scan.
     ticket_qs = Ticket.objects.select_related(
-        "user", "tier__event__organization", "tier__venue", "tier__sector", "held_pass__series_pass", "seat", "sector"
+        "user",
+        "tier__event__organization",
+        "tier__event__city",
+        "tier__venue",
+        "tier__sector",
+        "held_pass__series_pass",
+        "seat",
+        "sector",
     ).prefetch_related("tier__restricted_to_membership_tiers")
     ticket = get_object_or_404(ticket_qs, pk=ticket_id, event=event)
 
@@ -134,9 +158,7 @@ def check_in_ticket(
                 error_message = str(_("Invalid ticket status: {status}")).format(status=ticket.status)
             raise HttpError(400, error_message)
 
-    # Check if check-in window is open
-    if not event.is_check_in_open():
-        raise HttpError(400, _check_in_closed_message(event))
+    _ensure_check_in_open(event, ticket.tier)
 
     # May door staff type a price onto this ticket? Same authority as confirm/unconfirm
     # (spec §5.5), narrowed twice: pass tickets never carry a per-ticket price (the pass

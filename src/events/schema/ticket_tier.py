@@ -1,6 +1,7 @@
 """Ticket tier schemas: pricing, seating configuration, and admin CRUD."""
 
 import typing as t
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -127,6 +128,8 @@ class TicketTierSchema(ModelSchema):
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
     seat_pricing: TierSeatPricingSchema | None = None
+    effective_check_in_opens_at: AwareDatetime | None = None
+    effective_check_in_closes_at: AwareDatetime | None = None
 
     class Meta:
         model = TicketTier
@@ -142,6 +145,8 @@ class TicketTierSchema(ModelSchema):
             "sales_start_at",
             "sales_end_at",
             "sales_paused",
+            "check_in_opens_offset",
+            "check_in_closes_offset",
             "purchasable_by",
             "payment_method",
             "manual_payment_instructions",
@@ -180,6 +185,24 @@ class TicketTierSchema(ModelSchema):
         if not event.can_user_see_capacity(viewer_from_context(context)):
             return None
         return t.cast(int | None, obj.total_available)
+
+    @staticmethod
+    def resolve_effective_check_in_opens_at(obj: t.Any) -> datetime | None:
+        """When check-in opens for this tier, with the tier → event → start fallback applied.
+
+        Like ``resolve_total_available``, ``obj`` may be an already-assembled schema on
+        ninja's re-validation pass; it carries no ``event`` and is passed through.
+        """
+        if getattr(obj, "event", None) is None:
+            return t.cast(datetime | None, getattr(obj, "effective_check_in_opens_at", None))
+        return t.cast(TicketTier, obj).effective_check_in_window()[0]
+
+    @staticmethod
+    def resolve_effective_check_in_closes_at(obj: t.Any) -> datetime | None:
+        """When check-in closes for this tier, with the tier → event → end fallback applied."""
+        if getattr(obj, "event", None) is None:
+            return t.cast(datetime | None, getattr(obj, "effective_check_in_closes_at", None))
+        return t.cast(TicketTier, obj).effective_check_in_window()[1]
 
     @staticmethod
     def resolve_invoicing_available(obj: TicketTier) -> bool:
@@ -282,6 +305,12 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
     sales_paused: bool = False
+    check_in_opens_offset: timedelta | None = Field(
+        default=None, description="Check-in opens at event start + this (may be negative). Null = event window."
+    )
+    check_in_closes_offset: timedelta | None = Field(
+        default=None, description="Check-in closes at event start + this. Null = event window."
+    )
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
     manual_payment_instructions: StrippedString | None = None
@@ -344,6 +373,12 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
     sales_paused: bool | None = None
+    check_in_opens_offset: timedelta | None = Field(
+        default=None, description="Check-in opens at event start + this (may be negative). Null = event window."
+    )
+    check_in_closes_offset: timedelta | None = Field(
+        default=None, description="Check-in closes at event start + this. Null = event window."
+    )
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
     manual_payment_instructions: StrippedString | None = None
@@ -434,6 +469,8 @@ class TicketTierDetailSchema(ModelSchema):
             "sales_start_at",
             "sales_end_at",
             "sales_paused",
+            "check_in_opens_offset",
+            "check_in_closes_offset",
             "created_at",
             "updated_at",
             "total_quantity",

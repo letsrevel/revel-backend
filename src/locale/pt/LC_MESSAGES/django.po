@@ -363,7 +363,8 @@ msgid "This email is permanently blocked from the referral program."
 msgstr "Este email está bloqueado permanentemente do programa de referência."
 
 msgid "This email already has an approved invite awaiting signup (code {})."
-msgstr "Este e-mail já tem um convite aprovado à espera de registo (código {})."
+msgstr ""
+"Este e-mail já tem um convite aprovado à espera de registo (código {})."
 
 msgid "This email already has a pending application; decide it instead."
 msgstr "Este email já tem uma candidatura pendente; decide sobre essa."
@@ -1986,16 +1987,24 @@ msgstr "Já existe uma entrada com este e-mail."
 msgid "User not found."
 msgstr "Utilizador não encontrado."
 
-msgid "Check-in is not currently open for this event."
-msgstr "O check-in não está atualmente aberto para este evento."
+#, python-brace-format
+msgid "Check-in for {tier} is not open yet. It will open at {opens_at}."
+msgstr "O check-in para {tier} ainda não está aberto. Abre às {opens_at}."
 
 #, python-brace-format
 msgid "Check-in is not open yet. It will open at {opens_at}."
 msgstr "O check-in ainda não está aberto. Abre às {opens_at}."
 
 #, python-brace-format
+msgid "Check-in for {tier} has closed. It ended at {ended_at}."
+msgstr "O check-in para {tier} está encerrado. Terminou às {ended_at}."
+
+#, python-brace-format
 msgid "Check-in has closed for this event. It ended at {ended_at}."
 msgstr "O check-in deste evento está encerrado. Terminou às {ended_at}."
+
+msgid "Check-in is not currently open for this event."
+msgstr "O check-in não está atualmente aberto para este evento."
 
 msgid "This ticket has already been checked in."
 msgstr "Este bilhete já foi validado."
@@ -2028,10 +2037,14 @@ msgstr ""
 "organização."
 
 msgid "All tiers of a fixed amount discount code must use the same currency."
-msgstr "Todos os tipos de bilhete de um código de desconto de valor fixo têm de usar a mesma moeda."
+msgstr ""
+"Todos os tipos de bilhete de um código de desconto de valor fixo têm de usar "
+"a mesma moeda."
 
 msgid "The discount code currency must match the currency of its tiers."
-msgstr "A moeda do código de desconto tem de corresponder à dos seus tipos de bilhete."
+msgstr ""
+"A moeda do código de desconto tem de corresponder à dos seus tipos de "
+"bilhete."
 
 msgid "This discount code is not valid for this ticket tier."
 msgstr "Este código de desconto não é válido para este tipo de bilhete."
