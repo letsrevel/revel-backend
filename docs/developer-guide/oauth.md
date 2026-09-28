@@ -167,7 +167,7 @@ Paths are relative to `/api`.
 | Poll administration | `POST /polls/organizations/{org_id}`, and `PATCH`/`DELETE /polls/{id}/`, `…/open`, `…/close`, `…/reopen`, `…/duplicate`; voting (`/polls/{id}/vote`) | `org:polls` covers a poll's sections and questions (`PollQuestionController`), not the poll's lifecycle; voting is an attendee write |
 | Platform integrations | `/organization-admin/{slug}/integrations*`, `/event-admin/{id}/integrations*` | Third-party credentials (e.g. Eventbrite); not in any scope |
 | Questionnaire file uploads | `/questionnaire-files/*` | Not in any scope |
-| The OAuth provider itself | `/oauth/apps/*`, `/oauth/authorize`, `/oauth/connections*` | An app must never manage apps or approve its own consent |
+| The OAuth provider itself | `/oauth/apps/*`, `/oauth/authorize`, `/oauth/connections*`, `/oauth/scopes/` | An app must never manage apps or approve its own consent |
 
 ### Single routes inside app-token controllers
 

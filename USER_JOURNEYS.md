@@ -1626,6 +1626,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ### 28.1 Register an App (App Developer)
 - Settings → **Developer apps** (`/api/oauth/apps/`), verified email required (403 otherwise)
 - Create with name, description, `client_type` (`public` = PKCE-only for SPAs/CLIs/native apps; `confidential` = has a secret), 1–10 redirect URIs, `allowed_scopes` (the app's ceiling), homepage and privacy-policy URLs; optional logo upload
+- The scope checkboxes come from `GET /api/oauth/scopes/`: every scope with its translated consent label and group (identity → me → org), the same labels the consent screen shows
 - A confidential app's **`client_secret` is shown once** in the create response and never again (stored hashed); **Rotate secret** issues a new one, again shown once
 - Redirect URIs: `https`, or `http` on loopback for public clients; fragments rejected
 - Per-user cap (`OAUTH_MAX_APPS_PER_USER`, default 10): the next create is a **409**
