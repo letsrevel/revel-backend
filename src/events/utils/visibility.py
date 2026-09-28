@@ -30,7 +30,11 @@ if t.TYPE_CHECKING:
 def get_excluded_org_ids(user: "RevelUser") -> set["UUID"]:
     """Organizations the user is BANNED from or hard-blacklisted in.
 
-    Such users see nothing from those organizations, not even PUBLIC content.
+    Such users see nothing from those organizations, not even PUBLIC content, whichever
+    branch of ``for_user()`` would otherwise match (see :func:`not_excluded_q`). The only
+    exceptions are an organization the user owns and, in ``EventQuerySet.for_user``, an
+    event they hold a ticket for (even cancelled), so the event their ticket and any
+    refund refer to stays reachable.
     Materialised as a set because callers feed it to ``~Q(...__in=...)`` /
     ``.exclude(id__in=...)``, where a small literal list beats a correlated subquery.
     """
@@ -40,6 +44,24 @@ def get_excluded_org_ids(user: "RevelUser") -> set["UUID"]:
         user=user, status=OrganizationMember.MembershipStatus.BANNED
     ).values_list("organization_id", flat=True)
     return set(banned_org_ids) | set(get_hard_blacklisted_org_ids(user))
+
+
+def not_excluded_q(user: "RevelUser", excluded_org_ids: set["UUID"], org_lookup: str = "organization") -> Q:
+    """``Q`` dropping rows from organizations in ``excluded_org_ids``, except ones the user owns.
+
+    A ban or hard blacklist overrides every *other* visibility branch (membership,
+    staff, invitation, RSVP, token), so ``for_user()`` ANDs this onto its final
+    filter instead of applying it to the public branch only. The owner carve-out
+    exists because ``add_to_blacklist`` accepts identifiers that match the owner:
+    it skips the consequences but still stores the row, and a staff member must
+    not be able to hide an organization from its own owner.
+
+    Args:
+        user: The viewer.
+        excluded_org_ids: Result of :func:`get_excluded_org_ids`.
+        org_lookup: Lookup path from the queried model to its organization.
+    """
+    return ~Q(**{f"{org_lookup}__in": excluded_org_ids}) | Q(**{f"{org_lookup}__owner": user})
 
 
 def get_valid_member_org_ids(user: "RevelUser") -> "QuerySet[OrganizationMember, UUID]":

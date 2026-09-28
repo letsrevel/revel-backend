@@ -21,6 +21,7 @@ from events.utils.visibility import (
     get_rsvp_event_ids,
     get_ticketed_event_ids,
     get_valid_member_org_ids,
+    not_excluded_q,
     owner_or_staff_q,
 )
 from events.utils.visibility_settings import EventVisibilitySettings, validate_visibility_settings
@@ -90,7 +91,11 @@ class EventQuerySet(models.QuerySet["Event"]):
         """Get the queryset based on the user, using an efficient subquery strategy.
 
         Membership status handling:
-        - BANNED users: Cannot see events from organizations where they are banned, even if public
+        - BANNED/blacklisted users: Cannot see events from organizations where they are banned,
+          whatever branch would otherwise grant access (public, membership, staff, invitation,
+          RSVP, token). Two carve-outs: events of an organization the user owns, and events the
+          user holds a ticket for (even cancelled), so they can still open the event their
+          ticket and any refund refer to.
         - CANCELLED users: Treated as if they have no membership
         - PAUSED/ACTIVE users: Can see events based on visibility rules
         """
@@ -117,7 +122,7 @@ class EventQuerySet(models.QuerySet["Event"]):
             )
 
         # --- Get banned and blacklisted organization IDs ---
-        # Users banned/blacklisted from an organization cannot see its events, even if public
+        # Users banned/blacklisted from an organization cannot see its events, whatever the branch
         excluded_org_ids = get_excluded_org_ids(user)
 
         # --- Subquery Strategy ---
@@ -130,10 +135,11 @@ class EventQuerySet(models.QuerySet["Event"]):
 
         # Listing visibility is deliberately lenient: any ticket (even cancelled) and any
         # RSVP row count. Fine-grained checks (address, cancellation reason) are stricter.
+        ticketed_event_ids = set(get_ticketed_event_ids(user, include_cancelled=True))
         allowed_non_public_ids = (
             set(get_invited_event_ids(user))
             | set(member_event_ids)
-            | set(get_ticketed_event_ids(user, include_cancelled=True))
+            | ticketed_event_ids
             | set(get_rsvp_event_ids(user, confirmed_only=False))
             | set(allowed_ids or [])  # allow specific extra ids (e.g., when an EventToken is used).
         )
@@ -142,12 +148,16 @@ class EventQuerySet(models.QuerySet["Event"]):
         is_owner_or_staff = owner_or_staff_q(user)
         # UNLISTED events are accessible like PUBLIC (e.g. via direct link);
         # discovery listings use discoverable_for_user() to hide them.
-        is_public = Q(visibility__in=Event.Visibility.publicly_accessible()) & ~Q(organization_id__in=excluded_org_ids)
+        is_public = Q(visibility__in=Event.Visibility.publicly_accessible())
         is_allowed_non_public = Q(id__in=list(allowed_non_public_ids))
 
-        # Users see events if they are public (and not banned), if they are staff/owner,
+        # Users see events if they are public, if they are staff/owner,
         # or if they have a specific permission (invite/member)
         final_qs = base_qs.filter(is_public | is_owner_or_staff | is_allowed_non_public)
+
+        # A ban/blacklist trumps every branch above, except for ticket holders (see docstring).
+        if excluded_org_ids:
+            final_qs = final_qs.filter(not_excluded_q(user, excluded_org_ids) | Q(id__in=list(ticketed_event_ids)))
 
         # Only staff/owners can see drafts
         if not (user.is_staff or user.is_superuser):
@@ -784,14 +794,6 @@ class Event(
             )
         if self.start and self.waitlist_cutoff_date >= self.start:
             raise DjangoValidationError({"waitlist_cutoff_date": _("Cutoff date must be before event start.")})
-
-    def is_check_in_open(self) -> bool:
-        """Check if check-in is currently open for this event."""
-        now = timezone.now()
-        if not self.status == self.EventStatus.OPEN:
-            return False
-
-        return (self.check_in_starts_at or self.start) <= now <= (self.check_in_ends_at or self.end)
 
     def ics(self) -> bytes:
         """Generates an iCalendar (.ics) file for this event.

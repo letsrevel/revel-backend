@@ -393,9 +393,11 @@ def _process_ticket(
     breakdown = calculate_vat_inclusive(gross, org_rate)
 
     sale_in = _in_period(_local_date(ticket.created_at, tz), scope)
+    # A zero ``offline_refund_amount`` marks a paid ticket cancelled with the money kept
+    # (#1010): it keeps the sale in the report but is not a refund.
     refund_in = (
         ticket.status == Ticket.TicketStatus.CANCELLED
-        and ticket.offline_refund_amount is not None
+        and bool(ticket.offline_refund_amount)
         and ticket.cancelled_at is not None
         and _in_period(_local_date(ticket.cancelled_at, tz), scope)
     )

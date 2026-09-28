@@ -316,6 +316,27 @@ class TestCancelTicketByUser:
         tier.refresh_from_db()
         assert tier.quantity_sold == 0
 
+    def test_paid_offline_ticket_records_kept_money(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+    ) -> None:
+        """Regression #1010: a user cancelling a paid offline ticket gets no refund — the sale stays on record."""
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            price=Decimal("20.00"),
+            allow_user_cancellation=True,
+        )
+        ticket = ticket_factory(tier=tier)
+        cancel_ticket_by_user(ticket, ticket.user, reason="", now=timezone.now())
+        ticket.refresh_from_db()
+        assert ticket.status == Ticket.TicketStatus.CANCELLED
+        assert ticket.offline_refund_amount == Decimal("0.00")
+
     def test_online_ticket_calls_stripe_with_idempotency_key(
         self,
         ticket_factory: t.Callable[..., Ticket],

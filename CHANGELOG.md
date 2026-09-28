@@ -27,6 +27,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Deliberate: a ban that leaves the banned party operating a client against other people's data has not
   ended their access. Reversible by reactivating the app
 
+## [2.16.0] - 2026-09-27
+
+### Added
+- Buyers keep their invoices after a full refund. `GET /dashboard/invoices` now lists `cancelled` (fully credited) invoices alongside issued ones and nests each invoice's `credit_notes`. Cancelled invoices remain downloadable, and the new `GET /dashboard/credit-notes/{credit_note_id}/download` downloads credit notes.
+- Tickets record how they were issued: `sale_source` (`checkout`, `box_office_sale`, `box_office_comp`, `series_pass`) is exposed on the organizer ticket schema, so a box-office comp is no longer shown as an "At the Door" sale. Tickets issued before this release have no recorded source.
+- The organizer refund preview (`GET /event-admin/{event_id}/tickets/{ticket_id}/refund-context`) reports the collected and refundable amount for confirmed offline and at-the-door tickets, enabling recorded manual refunds from the cancel dialog.
+
+### Changed
+- An offline ticket cancelled with a recorded refund of 0.00 is now treated as a kept sale and no longer counts toward the revenue report's refunded tickets.
+
+### Fixed
+- Cancelling a paid offline or at-the-door ticket without a refund (by the organizer, by the attendee, or through event cancellation) no longer drops the sale from revenue and VAT reports.
+
+## [2.15.1] - 2026-09-25
+
+### Fixed
+- Referral program emails (application received, invite, enrolled, rejected) now send; a trailing newline in their subject templates made every one fail with `BadHeaderError`.
+- The self-billing agreement can now be accepted from the referral payout page: `POST`/`PUT /me/billing` accept `self_billing_agreed` instead of silently dropping it, and omitting it on `PUT` (e.g. from the checkout billing form) leaves an existing agreement untouched.
+- Telegram `/unsubscribe` no longer crashes and actually disables Telegram notifications for linked users.
+- The city migration no longer crashes when `geo/data` is bind-mounted without a CSV; the bundled `worldcities.mini.csv` now ships from `geo/fixtures/`.
+- `make setup`/`restart`/`nuke-db` wait for Postgres and Redis to be healthy instead of a fixed sleep.
+- Seed data: event names no longer carry a season or year, descriptions no longer hard-wrap mid-sentence, and events start on the hour in their city's timezone.
+
+### Security
+- Bumped `soupsieve` to 2.9.2 (CVE-2026-85999, CVE-2026-86000); Revel only uses hard-coded selectors and was not exposed.
+
 ## [2.15.0] - 2026-09-17
 
 ### Added

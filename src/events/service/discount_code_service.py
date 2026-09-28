@@ -64,6 +64,31 @@ def _set_m2m_relations(dc: DiscountCode, m2m_data: dict[str, list[UUID]]) -> Non
         getattr(dc, attr_name).set(scoped)
 
 
+def _tier_currency(organization: Organization, tier_ids: list[UUID], requested: str | None) -> str:
+    """Resolve a tier-scoped fixed-amount code's currency from its tiers (#997).
+
+    A fixed discount can only ever apply to tiers priced in its own currency, so a
+    tier-scoped code takes its tiers' currency rather than asking the organizer for it.
+
+    Raises:
+        HttpError: If the tiers are unknown, span several currencies, or disagree with
+            an explicitly requested currency.
+    """
+    currencies = set(
+        TicketTier.objects.filter(id__in=tier_ids, event__organization=organization).values_list("currency", flat=True)
+    )
+    if not currencies:
+        raise HttpError(
+            400, str(_("One or more referenced objects are invalid or do not belong to this organization."))
+        )
+    if len(currencies) > 1:
+        raise HttpError(400, str(_("All tiers of a fixed amount discount code must use the same currency.")))
+    (tier_currency,) = currencies
+    if requested and requested != tier_currency:
+        raise HttpError(400, str(_("The discount code currency must match the currency of its tiers.")))
+    return tier_currency
+
+
 @transaction.atomic
 def create_discount_code(
     organization: Organization,
@@ -86,6 +111,8 @@ def create_discount_code(
     data["code"] = data["code"].upper()
     # Always pop M2M keys (they aren't model fields); keep only truthy values for .set()
     m2m_data = {key: val for key in _M2M_FIELDS if (val := data.pop(key, None))}
+    if data["discount_type"] == DiscountCode.DiscountType.FIXED_AMOUNT and "tier_ids" in m2m_data:
+        data["currency"] = _tier_currency(organization, m2m_data["tier_ids"], data["currency"])
     # Reject duplicates race-safely (see #520). TimeStampedModel.save() runs full_clean(),
     # so a sequential duplicate is caught by validate_constraints() and raised as a
     # ValidationError (its SELECT sees the existing row), while a genuine concurrent race
@@ -124,6 +151,14 @@ def update_discount_code(
     data = payload.model_dump(exclude_unset=True)
     # Pop M2M keys; treat explicit null as "clear relation"
     m2m_data = {key: (data.pop(key) or []) for key in _M2M_FIELDS if key in data}
+
+    # Re-derive a tier-scoped fixed code's currency whenever its type, currency or tiers change
+    discount_type = data.get("discount_type", dc.discount_type)
+    touched = {"discount_type", "currency", "tier_ids"} & (data.keys() | m2m_data.keys())
+    if discount_type == DiscountCode.DiscountType.FIXED_AMOUNT and touched:
+        tier_ids = m2m_data["tier_ids"] if "tier_ids" in m2m_data else list(dc.tiers.values_list("id", flat=True))
+        if tier_ids:
+            data["currency"] = _tier_currency(dc.organization, tier_ids, data.get("currency"))
 
     # Update scalar fields with race-condition-safe locking
     if data:

@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Last updated**: 2026-09-24 (OAuth 2.1 / OpenID Connect provider: Journey 28)
+> **Last updated**: 2026-09-28 (Journey 20: discount-code scoping and mixed-cart behaviour, #997; OAuth 2.1 / OpenID Connect provider: Journey 28)
 
 ---
 
@@ -174,7 +174,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Frontend calls `GET /referral/invitations/{id}` → `{email, code}` for an approved, not-yet-enrolled invite (404 otherwise); prefills and locks the email, shows an "invited to the referral program" banner
 - Registration itself is unchanged; the id is not sent back — enrollment is by email match at account creation (any path: email, SSO), see [21.10](#2110-enrollment)
 
-### 2.5 Registration Blocked by Global Ban
+### 2.6 Registration Blocked by Global Ban
 - Email or domain is globally banned
 - Registration fails with appropriate error message
 
@@ -226,7 +226,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Disconnect Telegram
 
 ### 3.7 Billing Profile (for Referral Payouts)
-- Navigate to `/account/billing`
+- Navigate to `/account/settings` (Billing section)
 - Set: billing name, billing address, billing email
 - Set VAT ID (VIES-validated for EU) — required for self-billing invoices
 - Agree to self-billing terms (required before payouts are processed)
@@ -736,7 +736,7 @@ DRAFT → OPEN → CLOSED
 - Exposed on the public event detail; copied verbatim on event duplication and recurring-series materialization
 
 ### 10.15 Event Revenue (per event)
-- `GET /event-admin/{event_id}/tickets/revenue` returns `EventFinancialsSchema`: `sold_count` (incl. later refunded/cancelled), `refunds`, `refunded_count`, and VAT detail (`net_taxable`, `vat`, `rate_buckets`)
+- `GET /event-admin/{event_id}/revenue` returns `EventFinancialsSchema`: `sold_count` (incl. later refunded/cancelled), `refunds`, `refunded_count`, and VAT detail (`net_taxable`, `vat`, `rate_buckets`)
 - Tracks both online (Stripe) and offline/at-the-door ticket refunds
 - Org-wide financials live in [Journey 25](#journey-25-revenue--vat-reporting)
 
@@ -1235,17 +1235,36 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ### 20.1 Create Discount Code (Organizer)
 - Navigate to `/org/[slug]/admin/discount-codes/new`
 - Configure: code string, discount type (percentage/fixed), value
-- Scope: events, series, specific tiers
+- Scope: events, series, specific tiers (see 20.1a); no scope = valid for every tier of the organization
 - Limits: max uses total, max uses per user, min purchase amount
 - Validity: start date, end date
 - Activate/deactivate
 - Creating a code with a **duplicate code** returns a clear `409` (was an opaque 500)
 - `currency` is validated against the supported `Currencies` whitelist on both create and update
 
+### 20.1a Create a Tier-Scoped Code (Organizer)
+- The tier picker appears only once at least one event is selected, and lists that event's tiers
+- Deselecting an event also drops any of its tiers from the selection
+- Scopes combine as a **union**: a tier qualifies if it is selected directly, belongs to a selected event, or belongs to an event in a selected series. So a code scoped to an event or series applies to **all** of its tiers
+- **Fixed-amount codes with tiers selected**: the currency picker is hidden and the code takes its currency from the tiers
+  - Tiers priced in different currencies → rejected (`400`): one fixed amount can't be in two currencies
+  - An explicit currency that doesn't match the tiers → rejected (`400`)
+  - Changing a code's tiers on edit re-derives its currency
+- Percentage codes have no currency
+
 ### 20.2 Apply Discount Code (Attendee)
 - During ticket checkout
 - Enter code → validated and applied
 - See discounted price before confirming
+
+#### Scoped codes in a multi-tier cart (#846)
+- **Mixed cart:** the code is checked against each tier in the cart separately. A code scoped to tier A, applied to a cart with tiers A + B, discounts only A's tickets; B stays at full price
+- **No qualifying tier:** if the code applies to no tier in the cart, the whole code is rejected (`400`):
+  - when every tier fails for the **same** reason (e.g. expired, not yet active, usage limit reached, wrong currency), that specific reason is shown
+  - otherwise the generic "This discount code does not apply to any tier in your cart." message
+- **Excluded tiers:** free and pay-what-you-can tiers are never discounted, whatever the scope. In a mixed cart they just stay at full price; a cart containing only such tiers rejects the code
+- **Per-user cap across the whole cart:** `max_uses_per_user` counts the buyer's previous uses **plus** the tickets across every tier the code applies to. A cart that goes over the cap rejects the code as a whole: no silent partial discount (e.g. a 3 + 1 cart under a cap of 2 is rejected, it doesn't discount 1 of 4)
+- Tiers that don't qualify never count toward `max_uses_per_user`, `max_uses` or `min_purchase_amount`
 
 ### 20.3 Track Usage (Organizer)
 - View usage count per code
@@ -1363,7 +1382,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - Delete draft: removes invoice and PDF entirely
 
 ### 22.5 View Invoices (Buyer)
-- Navigate to `/dashboard/invoices`
+- Navigate to `/account/invoices`
 - See all issued invoices (paginated)
 - Download invoice PDFs via signed URLs
 
@@ -1511,7 +1530,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - Computed in the org's timezone; empty periods are skipped
 
 ### 25.4 Per-Event Revenue
-- `GET /event-admin/{event_id}/tickets/revenue` → `EventFinancialsSchema` (see [Journey 10.15](#1015-event-revenue-per-event)) — VAT detail, online + offline refunds tracked
+- `GET /event-admin/{event_id}/revenue` → `EventFinancialsSchema` (see [Journey 10.15](#1015-event-revenue-per-event)) — VAT detail, online + offline refunds tracked
 
 ---
 
@@ -1702,7 +1721,7 @@ Configured via environment variables. The anonymous `GET /version` returns a `fe
 - `FEATURE_ORGANIZATION_CREATION` (default on): when off, `POST /organizations/` returns 403 for non-staff (single-org instances); staff/superusers bypass
 - `FEATURE_OBSERVABILITY` (renamed from `ENABLE_OBSERVABILITY`, which still works as a deprecated alias for one release)
 - `OIDC_SIGNING_KEY_PATH` + `OAUTH_ISSUER` (credential presence, not a `FEATURE_*` flag): switch the OAuth/OIDC provider on. With no key every provider route is a 404; a key without an issuer fails the `oauth.E001` system check
-- `/version` exposes a subset to clients: `organization_creation`, `telegram`, `llm_evaluation`, `referral_applications`, `oauth_provider`
+- `/version` exposes a subset to clients: `organization_creation`, `telegram`, `llm_evaluation`, `oauth_provider`, plus `referral_applications` (from `SiteSettings.referral_applications_enabled`, not an env flag)
 
 ### Self-Hosting
 - The backend boots and runs on a self-hosted box **without** ClamAV, Telegram, or the full geo dataset, tailored via the feature flags above
@@ -1836,7 +1855,9 @@ The following questions represent gaps in my understanding that I could not reso
 
 ---
 
-## E2E Test Strategy (agreed 2026-07-07 — not yet implemented)
+## E2E Test Strategy (agreed 2026-07-07 — implemented)
+
+> **Status (2026-09):** implemented in `revel-frontend/tests/e2e/` — one `journeys/jNN-*/` directory per journey here (Journey 19 seating specs live in j06/j07/j08/j10), ~650 tests on Chromium + Mobile Chrome, driven by `make e2e` in `revel-frontend` against this backend (`make e2e-seed` + `run-e2e-daemon`). Stripe checkout is no longer deferred: paid flows run through hosted Checkout with `stripe listen` forwarding webhooks. The bullets below are the original agreement, kept for history; `revel-frontend/tests/e2e/README.md` is the current environment contract.
 
 - **Where tests run**: locally first, against a dev backend (`make run`) in `DEMO_MODE` with the `bootstrap_events` dataset; frontend via Playwright's build+preview `webServer` (`PUBLIC_API_URL=http://localhost:8000`). Specs keep the existing self-skip guard when no demo backend is reachable. CI wiring is a deliberate follow-up (compose up Postgres/Redis + backend, run `bootstrap_events`, then Playwright) — nothing in the contract blocks it.
 - **Browsers**: journey specs run on **Chromium + Mobile Chrome** only; the FOUC/CSP regression specs keep the full 5-project matrix.

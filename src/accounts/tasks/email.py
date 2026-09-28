@@ -155,7 +155,7 @@ def send_account_email(
             raise ValueError(f"{email_type} email requires a token")
         body_context["action_link"] = site_settings.frontend_base_url + config.link_path.format(token=token)
 
-    subject = str(render_to_string(f"accounts/emails/{config.template_base}_subject.txt"))
+    subject = str(render_to_string(f"accounts/emails/{config.template_base}_subject.txt")).strip()
     body = render_to_string(f"accounts/emails/{config.template_base}_body.txt", body_context)
     html_body = render_to_string(f"accounts/emails/{config.template_base}_body.html", body_context)
     send_email(to=to, subject=subject, body=body, html_body=html_body)

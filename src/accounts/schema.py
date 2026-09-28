@@ -462,6 +462,7 @@ class UserBillingProfileCreateSchema(Schema):
     vat_country_code: VATCountryCode = Field(default="", description="ISO 3166-1 alpha-2 country code")
     billing_address: str = Field(default="", description="Billing address")
     billing_email: EmailStr | None = Field(default=None, description="Billing email; omit to use the account email")
+    self_billing_agreed: bool = Field(default=False, description="Agreement to self-billing (Gutschrift)")
 
     @field_validator("vat_country_code")
     @classmethod
@@ -476,6 +477,10 @@ class UserBillingProfileUpdateSchema(BillingInfoSchemaMixin):
     Conflict check between vat_country_code and vat_id prefix
     is done at the service level.
     """
+
+    self_billing_agreed: bool | None = Field(
+        default=None, description="Agreement to self-billing (Gutschrift); omit to leave it unchanged"
+    )
 
 
 class UserVATIdUpdateSchema(VATIdUpdateBaseSchema):

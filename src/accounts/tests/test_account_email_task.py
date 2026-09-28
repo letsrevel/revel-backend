@@ -20,7 +20,7 @@ _TOKEN = "test-token-123"  # noqa: S105 — not a real secret
 
 def _render(base: str, context: dict[str, str]) -> tuple[str, str, str]:
     """Render the (subject, body, html_body) triad for an ``accounts/emails`` template base."""
-    subject = str(render_to_string(f"accounts/emails/{base}_subject.txt"))
+    subject = str(render_to_string(f"accounts/emails/{base}_subject.txt")).strip()
     body = render_to_string(f"accounts/emails/{base}_body.txt", context)
     html_body = render_to_string(f"accounts/emails/{base}_body.html", context)
     return subject, body, html_body
@@ -178,3 +178,25 @@ def test_referral_application_received_requires_code(mock_send: MagicMock) -> No
         send_account_email(AccountEmail.REFERRAL_APPLICATION_RECEIVED, "u@example.com")
     send_account_email(AccountEmail.REFERRAL_APPLICATION_RECEIVED, "u@example.com", context={"code": "biagio"})
     assert "biagio" in mock_send.call_args.kwargs["body"]
+
+
+_REFERRAL_CASES = [
+    (AccountEmail.REFERRAL_APPLICATION_RECEIVED, {"code": "biagio"}),
+    (AccountEmail.REFERRAL_INVITE, {"code": "biagio", "revenue_share_percent": "15.00", "admin_note": ""}),
+    (AccountEmail.REFERRAL_ENROLLED, {"code": "biagio", "revenue_share_percent": "15.00"}),
+    (AccountEmail.REFERRAL_REJECTED, {"admin_note": ""}),
+]
+
+
+@pytest.mark.parametrize("email_type, context", _REFERRAL_CASES)
+@patch("accounts.tasks.email.send_email")
+def test_subject_is_a_single_header_line(
+    mock_send: MagicMock, email_type: AccountEmail, context: dict[str, str]
+) -> None:
+    """A trailing newline in a subject template must not reach the header (SMTP raises BadHeaderError)."""
+    send_account_email(email_type, "u@example.com", token=_TOKEN, context=context)
+
+    subject = mock_send.call_args.kwargs["subject"]
+    assert subject
+    assert "\n" not in subject
+    assert subject == subject.strip()
