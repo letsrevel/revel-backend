@@ -666,3 +666,128 @@ class TestDeleteDiscountCode:
         assert response.status_code == 200
         assert response.json() == {"action": "deleted"}
         assert not DiscountCode.objects.filter(id=dc_inactive.id).exists()
+
+
+# ===========================================================================
+# Tier-scoped fixed codes derive their currency from the tiers (#997)
+# ===========================================================================
+
+
+@pytest.fixture
+def usd_tier(event: Event) -> TicketTier:
+    """A USD-priced tier, so a derived currency is distinguishable from the EUR default."""
+    return TicketTier.objects.create(
+        event=event, name="USD", price=10.00, currency="USD", payment_method=TicketTier.PaymentMethod.ONLINE
+    )
+
+
+class TestTierScopedFixedCurrency:
+    """A tier-scoped fixed-amount code takes its tiers' currency instead of asking for one."""
+
+    def test_create_derives_currency_from_tier(
+        self, organization_owner_client: Client, organization: Organization, usd_tier: TicketTier
+    ) -> None:
+        """No currency sent (the FE hides the picker once tiers are selected) → the tier's."""
+        url = reverse("api:create_discount_code", kwargs={"slug": organization.slug})
+        payload = {
+            "code": "TIERFLAT",
+            "discount_type": "fixed_amount",
+            "discount_value": "5.00",
+            "tier_ids": [str(usd_tier.id)],
+        }
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 201
+        assert response.json()["currency"] == "USD"
+
+    def test_create_rejects_tiers_with_mixed_currencies(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        usd_tier: TicketTier,
+        event_ticket_tier: TicketTier,
+    ) -> None:
+        """A fixed amount cannot be in two currencies at once."""
+        url = reverse("api:create_discount_code", kwargs={"slug": organization.slug})
+        payload = {
+            "code": "MIXED",
+            "discount_type": "fixed_amount",
+            "discount_value": "5.00",
+            "tier_ids": [str(usd_tier.id), str(event_ticket_tier.id)],
+        }
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 400
+        assert not DiscountCode.objects.filter(code="MIXED").exists()
+
+    def test_create_rejects_currency_not_matching_tiers(
+        self, organization_owner_client: Client, organization: Organization, usd_tier: TicketTier
+    ) -> None:
+        """An explicit currency that no selected tier is priced in would never apply."""
+        url = reverse("api:create_discount_code", kwargs={"slug": organization.slug})
+        payload = {
+            "code": "WRONGCUR",
+            "discount_type": "fixed_amount",
+            "discount_value": "5.00",
+            "currency": "EUR",
+            "tier_ids": [str(usd_tier.id)],
+        }
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 400
+
+    def test_create_rejects_unknown_tier_without_currency(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """Unknown tier ids give the scope error, not a confusing 'currency required'."""
+        url = reverse("api:create_discount_code", kwargs={"slug": organization.slug})
+        payload = {
+            "code": "GHOST",
+            "discount_type": "fixed_amount",
+            "discount_value": "5.00",
+            "tier_ids": [str(uuid.uuid4())],
+        }
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 400
+        assert "do not belong to this organization" in response.json()["detail"]
+
+    def test_update_rederives_currency_when_tiers_change(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        dc_fixed: DiscountCode,
+        usd_tier: TicketTier,
+    ) -> None:
+        """The edit form sends ``currency: null`` with tiers selected → currency follows the tiers."""
+        url = reverse("api:update_discount_code", kwargs={"slug": organization.slug, "code_id": dc_fixed.id})
+        payload = {"discount_type": "fixed_amount", "currency": None, "tier_ids": [str(usd_tier.id)]}
+
+        response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 200
+        assert response.json()["currency"] == "USD"
+        dc_fixed.refresh_from_db()
+        assert dc_fixed.currency == "USD"
+
+    def test_update_unrelated_field_leaves_currency_alone(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        dc_fixed: DiscountCode,
+        usd_tier: TicketTier,
+    ) -> None:
+        """Toggling is_active doesn't touch currency, even if the stored one disagrees with the tiers."""
+        dc_fixed.tiers.set([usd_tier])
+        url = reverse("api:update_discount_code", kwargs={"slug": organization.slug, "code_id": dc_fixed.id})
+
+        response = organization_owner_client.patch(
+            url, data=orjson.dumps({"is_active": False}), content_type="application/json"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["currency"] == "EUR"

@@ -2079,6 +2079,12 @@ msgstr ""
 "Un ou plusieurs objets référencés sont invalides ou n'appartiennent pas à "
 "cette organisation."
 
+msgid "All tiers of a fixed amount discount code must use the same currency."
+msgstr "Toutes les catégories de tickets d'un code de réduction à montant fixe doivent utiliser la même devise."
+
+msgid "The discount code currency must match the currency of its tiers."
+msgstr "La devise du code de réduction doit correspondre à celle de ses catégories de tickets."
+
 msgid "This discount code is not valid for this ticket tier."
 msgstr "Ce code de réduction n'est pas valide pour cette catégorie de tickets."
 
