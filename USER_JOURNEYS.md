@@ -144,6 +144,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Submit → redirected to `/register/check-email`
 - Receive verification email
 - Click verification link → account verified → auto-login → redirected to dashboard
+- Registering from a deep page (e.g. OAuth consent, event invite, gated tier) can send an optional relative `return_url`; the verification link then carries it as `returnUrl` so the user lands back where they started. Absolute or protocol-relative URLs are rejected
 
 ### 2.2 Google SSO Registration
 - Navigate to `/login`

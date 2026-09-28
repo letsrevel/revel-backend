@@ -109,7 +109,7 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
         )
 
     logger.info("user_registration_completed", user_id=str(new_user.id), email=new_user.email)
-    return send_verification_email_for_user(new_user)
+    return send_verification_email_for_user(new_user, return_url=payload.return_url)
 
 
 def create_verification_token(user: RevelUser) -> str:
@@ -169,7 +169,9 @@ def create_deletion_token(user: RevelUser) -> str:
     return token
 
 
-def send_verification_email_for_user(user: RevelUser, *, defer: bool = True) -> tuple[RevelUser, str]:
+def send_verification_email_for_user(
+    user: RevelUser, *, defer: bool = True, return_url: str | None = None
+) -> tuple[RevelUser, str]:
     """Send a verification email for a user.
 
     Args:
@@ -181,15 +183,26 @@ def send_verification_email_for_user(user: RevelUser, *, defer: bool = True) -> 
             that dispatches and then rolls the request transaction back: there
             the target user already exists, so the email must be sent
             regardless of the rollback.
+        return_url: Optional relative path (validated by ``RegisterUserSchema``)
+            carried in the verification link as ``returnUrl``.
     """
     logger.info("verification_email_requested", user_id=str(user.id), email=user.email)
     token = create_verification_token(user)
+
+    def dispatch() -> None:
+        # Only pass return_url when set: the message stays identical to the pre-return_url
+        # format, so a not-yet-upgraded worker can still consume it during a rolling deploy.
+        if return_url is None:
+            tasks.send_account_email.delay(tasks.AccountEmail.VERIFICATION, user.email, token=token)
+        else:
+            tasks.send_account_email.delay(
+                tasks.AccountEmail.VERIFICATION, user.email, token=token, return_url=return_url
+            )
+
     if defer:
-        transaction.on_commit(
-            lambda: tasks.send_account_email.delay(tasks.AccountEmail.VERIFICATION, user.email, token=token)
-        )
+        transaction.on_commit(dispatch)
     else:
-        tasks.send_account_email.delay(tasks.AccountEmail.VERIFICATION, user.email, token=token)
+        dispatch()
     return user, token
 
 
