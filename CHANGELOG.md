@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/o/userinfo`. An app can only ever do what the consenting user can already do, and only what its
   consent screen named. Available on deployments that configure an OIDC signing key — `/version` reports
   `features.oauth_provider`
+- Password registration accepts an optional `return_url` (a relative path such as `/oauth/authorize?...`). The verification email link carries it as `returnUrl`, so users who register from an OAuth consent page, event invite or gated tier land back there after verifying. Absolute and protocol-relative URLs are rejected with a 422.
 
 ### Changed
 
