@@ -59,6 +59,25 @@ Geolocation uses two datasets: the **cities** dataset (for city/region lookups) 
     place and do not strip it**. If you redistribute or publicly display the data, honor the
     upstream licenses' attribution terms.
 
+## OAuth signing key
+
+If you enabled the OAuth / OpenID Connect provider, `certs/oidc.pem` in the infra directory is
+state that neither `deploy.sh backup` nor the Docker volumes cover. Copy it off the box with your
+other secrets. Losing it invalidates outstanding ID tokens and every client's cached signing
+keys; access and refresh tokens live in the database and keep working.
+
+**Rotating the key** without breaking tokens already issued:
+
+1. Generate the new key next to the old one (e.g. `certs/oidc-2027.pem`, `chmod 644`).
+2. Point `OIDC_SIGNING_KEY_PATH` at the new key and add the old path to
+   `OIDC_SIGNING_KEYS_INACTIVE_PATHS` (comma-separated). New tokens are signed with the new key,
+   while `/o/jwks` keeps publishing the old public key so existing ID tokens still verify.
+3. Restart `web` and `celery_default`.
+4. After the longest-lived ID token has expired (1 hour), remove the old path from
+   `OIDC_SIGNING_KEYS_INACTIVE_PATHS` and restart again.
+
+Never regenerate `certs/oidc.pem` in place: that is a rotation with no overlap window.
+
 ## Volumes to back up
 
 The database dump covers your relational data, but several named Docker volumes hold state that a
@@ -70,5 +89,6 @@ SQL dump does not. Include these in your backup routine:
 - **caddy data/config** — issued TLS certificates and Caddy state (so you don't re-issue certs on
   every rebuild).
 - **geo data** — the IP2Location BIN and any full cities CSV you added.
+- **`certs/`** (a host directory, not a volume) — the OAuth signing key and wallet certificates.
 - **grafana / prometheus / loki / tempo** (Full tier only) — dashboards, metrics, logs, and traces,
   if you want observability history to survive a rebuild.

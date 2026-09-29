@@ -67,6 +67,33 @@ Caddy data volume causes 403s or TLS failures.
 (certificates and keys) is owned by the Caddy process and not world-writable. After fixing
 ownership, restart Caddy.
 
+## OAuth provider stays off
+
+**Symptom:** after setting `OIDC_SIGNING_KEY_PATH` and `OAUTH_ISSUER`, `/api/version` still
+reports `features.oauth_provider: false` and `/.well-known/openid-configuration` returns `404`.
+
+**Cause:** the provider enables itself only when the key is *readable* and an issuer is set, and
+it fails closed rather than crashing the stack. `docker compose exec web python manage.py check`
+says which:
+
+- **`oauth.E002`** — the key cannot be read. Almost always file permissions: the containers run as
+  uid 997, and `generate_oidc_signing_key` writes the key `0600` for your host user. Also check
+  the path is the *in-container* one (`/app/certs/oidc.pem`), not the host path.
+- **`oauth.E001`** — a key is configured but `OAUTH_ISSUER` is empty.
+
+**Fix:** `chmod 644 certs/oidc.pem` (or set `OAUTH_ISSUER`), then restart `web` and
+`celery_default`.
+
+## OAuth clients get 403 / error 1010 from `/o/token`
+
+**Cause:** a Cloudflare browser-integrity or bot rule on the API host. OAuth clients call
+`/o/token`, `/o/userinfo`, `/o/register` and `/.well-known/*` from servers and CLIs with
+non-browser user agents, which such rules block.
+
+**Fix:** add a Cloudflare WAF skip rule for those paths on the API hostname (or disable Browser
+Integrity Check for it). Verify with `curl -i -X POST https://<api-host>/o/token`: expect a `400`
+JSON error from Revel, not a Cloudflare page.
+
 ## The stack won't start after editing `.env`
 
 **Cause:** common `.env` mistakes:

@@ -85,6 +85,11 @@ needs credentials from an identity provider to do anything (the opt-in rule is e
   identity providers whose email verification you trust.
   `OIDC_LOGIN_TOKEN_LIFETIME_SECONDS` (default `60`) controls how long the one-time hand-off
   token from the callback to the frontend stays valid.
+- `OIDC_SIGNING_KEY_PATH` + `OAUTH_ISSUER` — opt-in, unset by default; not a `FEATURE_*` flag but
+  credential presence. With a readable RSA signing key and an issuer, Revel becomes an OAuth 2.1 /
+  OpenID Connect provider (third-party apps, MCP hosts, "Sign in with" your instance), and
+  `/api/version` reports `features.oauth_provider: true`. Without them every provider route is a
+  `404`. Setup, the `chmod 644` gotcha and tuning knobs: [OAuth provider setup](index.md#oauth-openid-connect-provider-setup-one-time).
 - `FEATURE_OBSERVABILITY` — master toggle for the metrics/traces/logs exporters and the async log
   queue. Set `False` (and drop the `observability` profile) on Slim. Legacy alias:
   `ENABLE_OBSERVABILITY` (deprecated). See [Observability](observability.md).
