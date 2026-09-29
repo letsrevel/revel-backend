@@ -373,6 +373,8 @@ def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> Rev
         user.save(update_fields=["password"])
 
     blacklist_token(token)
+    # Reset is the account-recovery path — sign out everywhere, apps included (#1020).
+    blacklist_user_tokens(user)
     logger.info("password_reset_completed", user_id=str(user.id), email=user.email)
     return user
 

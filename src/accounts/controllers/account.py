@@ -249,7 +249,8 @@ class AccountController(UserAwareController):
 
         Call this with the token received via email after POST /account/password/reset-request.
         The new password must meet security requirements. The reset token is single-use and
-        expires after a set period. After reset, the user must login again with the new password.
+        expires after a set period. After reset, the user must login again with the new password:
+        every existing session is signed out and every connected third-party app is disconnected.
         """
         account_service.reset_password(payload.token, payload.password1)
         return ResponseMessage(message=str(_("Password reset successfully.")))

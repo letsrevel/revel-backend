@@ -10,6 +10,7 @@ import typing as t
 import pytest
 from django.test import Client
 from django.utils import timezone
+from ninja_jwt.exceptions import TokenError
 from ninja_jwt.tokens import RefreshToken as SessionRefreshToken
 from oauth2_provider.models import AccessToken, Grant, RefreshToken
 from oauth2_provider.settings import oauth2_settings
@@ -17,8 +18,10 @@ from pytest_django.fixtures import Settings
 
 from accounts.jwt import blacklist_user_tokens
 from accounts.models import RevelUser
+from accounts.service import account as account_service
 from accounts.service.global_ban_service import deactivate_user_for_ban
 from oauth.models import OAuthApplication
+from oauth.service.authorize_service import has_prior_grant
 from oauth.tasks import clear_expired_tokens, prune_unused_dynamic_clients
 from oauth.tests.test_auth_class import make_access_token
 from oauth.tests.test_flow import REDIRECT_URI, run_code_flow
@@ -66,6 +69,25 @@ def test_blacklist_user_tokens_revokes_even_when_provider_disabled(
     settings.OIDC_SIGNING_KEY_PATH = ""
     blacklist_user_tokens(user)
     assert not AccessToken.objects.filter(user=user).exists()
+
+
+def test_password_reset_revokes_sessions_and_app_tokens(user: RevelUser, oauth_app: OAuthApplication) -> None:
+    """#1020: reset is the account-recovery path, so it must evict whoever had the account.
+
+    An intruder's session JWT and an ``offline_access`` app they authorized both have to die,
+    and the app must not be silently re-approved on the next authorize.
+    """
+    session = SessionRefreshToken.for_user(user)
+    make_token_pair(user, oauth_app)
+    assert has_prior_grant(user, oauth_app, ["org:read"], [])
+
+    account_service.reset_password(account_service.create_password_reset_token(user), "a-new-valid-Password-123!")
+
+    with pytest.raises(TokenError):
+        SessionRefreshToken(str(session))
+    assert not RefreshToken.objects.filter(user=user, revoked__isnull=True).exists()
+    assert not AccessToken.objects.filter(user=user).exists()
+    assert not has_prior_grant(user, oauth_app, ["org:read"], [])
 
 
 def test_clear_expired_tokens_task(user: RevelUser, oauth_app: OAuthApplication) -> None:

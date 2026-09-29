@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Changing your email address now disconnects every connected app.** Rotating the address that
   identifies your account invalidates every live session, and a third-party app token is a live session;
   reconnect the apps you still want afterwards
+- **Resetting your password now signs you out everywhere and disconnects every connected app.** Reset
+  is the account-recovery path, so anyone who briefly had the account — through a session or an app they
+  authorized — loses access; the app must ask for consent again before it can reconnect
 - **A global ban now also disarms the OAuth applications the banned user owns**, deactivating them and
   revoking their tokens — so every user of such an app loses access, not just the banned owner.
   Deliberate: a ban that leaves the banned party operating a client against other people's data has not
