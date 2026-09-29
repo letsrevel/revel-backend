@@ -9,20 +9,21 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.service import update_db_instance
 from events.service.waitlist_service import enqueue_waitlist_processing
+from oauth.permissions import RequireScope
 
 from .base import EventAdminBaseController
 
 
 @api_controller(
     "/event-admin/{event_id}",
-    auth=I18nJWTAuth(),
-    permissions=[EventPermission("invite_to_event")],
+    auth=ScopedJWTAuth(),
+    permissions=[RequireScope("org:read"), EventPermission("invite_to_event")],
     tags=["Event Admin"],
     throttle=WriteThrottle(),
 )

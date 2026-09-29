@@ -13,7 +13,7 @@ from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import EventPermission
@@ -23,14 +23,15 @@ from events.service.waitlist_service import (
     reactivate_admin_offer,
     revoke_all_pending_offers,
 )
+from oauth.permissions import RequireScope
 
 from .base import EventAdminBaseController
 
 
 @api_controller(
     "/event-admin/{event_id}",
-    auth=I18nJWTAuth(),
-    permissions=[EventPermission("manage_event")],
+    auth=ScopedJWTAuth(),
+    permissions=[RequireScope("org:read"), EventPermission("manage_event")],
     tags=["Event Admin"],
     throttle=WriteThrottle(),
 )

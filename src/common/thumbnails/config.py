@@ -142,6 +142,13 @@ THUMBNAIL_CONFIGS: dict[tuple[str, str, str], ModelThumbnailConfig] = {
             ThumbnailSpec("cover_art_social", 1200, 630),
         ),
     ),
+    # OAuthApplication.logo
+    ("oauth", "oauthapplication", "logo"): ModelThumbnailConfig(
+        app_label="oauth",
+        model_name="oauthapplication",
+        source_field="logo",
+        specs=(ThumbnailSpec("logo_thumbnail", 150, 150),),
+    ),
 }
 
 

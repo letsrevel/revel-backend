@@ -5,7 +5,7 @@ from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
 
 from accounts.schema import VerifyEmailSchema
-from common.authentication import I18nJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.schema import EmailSchema, ErrorDetail, ValidationErrorResponse
 from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -13,11 +13,18 @@ from common.thumbnails.service import delete_image_with_derivatives
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 from events.service import event_service, organization_service, stripe_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=ScopedJWTAuth(),
+    tags=["Organization Admin"],
+    throttle=WriteThrottle(),
+    permissions=[RequireScope("org:read")],
+)
 class OrganizationAdminCoreController(OrganizationAdminBaseController):
     """Core organization admin operations.
 
@@ -27,6 +34,16 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     @route.get(
         "",
         url_name="get_organization_admin",
+        # ``OrganizationAdminDetailSchema`` carries the organization's financial identity —
+        # ``vat_id``/``vat_country_code``/``vat_rate``, ``billing_name``/``address``/``email``,
+        # ``invoicing_mode`` and ``stripe_account_id``/``stripe_account_email``. R-93 pulled the
+        # VAT and revenue controllers for exactly that data; this read walks straight through
+        # core, and ``IsOrganizationStaff`` binds ``is_staff`` (not a ``PermissionKey``), so
+        # ``scope_allows`` never runs and ``org:read`` would be the sole gate (R-101).
+        # Apps keep an org-details read via ``GET /api/dashboard/organizations``, whose
+        # ``OrganizationRetrieveSchema`` has no VAT identity, no billing address and no
+        # ``stripe_account_id`` — only ``is_stripe_connected`` and the fees #809 made public.
+        auth=I18nJWTAuth(),
         response=schema.OrganizationAdminDetailSchema,
         permissions=[IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
@@ -39,7 +56,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "",
         url_name="edit_organization",
         response=schema.OrganizationAdminDetailSchema,
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def update_organization(self, slug: str, payload: schema.OrganizationEditSchema) -> models.Organization:
         """Update organization by slug.
@@ -58,7 +75,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/update-contact-email",
         url_name="update_contact_email",
         response={200: schema.OrganizationRetrieveSchema},
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def update_contact_email(self, slug: str, payload: EmailSchema) -> models.Organization:
         """Update organization contact email with verification.
@@ -99,6 +116,12 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/verify-contact-email",
         url_name="verify_contact_email",
         response={200: schema.OrganizationRetrieveSchema},
+        # An unsafe method whose only scope gate would be ``org:read`` (it declares no route-level
+        # permissions and resolves the organization from the emailed token, not from ``slug``, so
+        # no object check runs either). Confirming an email link is a browser/session flow, not an
+        # integration one, so it is session-only under the same rule as R-99. Found by the
+        # read-scope sweep, not named in R-99's list.
+        auth=I18nJWTAuth(),
     )
     def verify_contact_email(self, slug: str, payload: VerifyEmailSchema) -> models.Organization:
         """Verify organization contact email using token from email link.
@@ -128,6 +151,10 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/stripe/connect",
         url_name="stripe_connect",
         response=schema.StripeOnboardingLinkSchema,
+        # Owner-gated: ``org:read``'s label ("See your organizations, events and settings")
+        # does not promise this, and no scope in the registry honestly covers it, so the route
+        # stays session-only rather than being gated by a scope that understates it (R-93).
+        auth=I18nJWTAuth(),
         permissions=[IsOrganizationOwner()],
     )
     def stripe_connect(self, slug: str, payload: EmailSchema) -> schema.StripeOnboardingLinkSchema:
@@ -153,6 +180,8 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/stripe/account/verify",
         url_name="stripe_account_verify",
         response=schema.StripeAccountStatusSchema,
+        # Session-only for the same reason as ``stripe_connect`` above.
+        auth=I18nJWTAuth(),
         permissions=[IsOrganizationOwner()],
     )
     def stripe_account_verify(self, slug: str) -> schema.StripeAccountStatusSchema:
@@ -168,7 +197,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/upload-logo",
         url_name="org_upload_logo",
         response=schema.OrganizationRetrieveSchema,
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def upload_logo(self, slug: str, logo: File[UploadedFile]) -> models.Organization:
         """Upload logo to organization."""
@@ -180,7 +209,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/upload-cover-art",
         url_name="org_upload_cover_art",
         response=schema.OrganizationRetrieveSchema,
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def upload_cover_art(self, slug: str, cover_art: File[UploadedFile]) -> models.Organization:
         """Upload cover art to organization."""
@@ -194,7 +223,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/delete-logo",
         url_name="org_delete_logo",
         response={204: None},
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def delete_logo(self, slug: str) -> tuple[int, None]:
         """Delete logo and its derivatives from organization."""
@@ -206,7 +235,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/delete-cover-art",
         url_name="org_delete_cover_art",
         response={204: None},
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def delete_cover_art(self, slug: str) -> tuple[int, None]:
         """Delete cover art and its derivatives from organization."""
@@ -218,7 +247,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/create-event-series",
         url_name="create_event_series",
         response={200: schema.EventSeriesRetrieveSchema, 400: ValidationErrorResponse},
-        permissions=[OrganizationPermission("create_event_series")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("create_event_series")],
     )
     def create_event_series(self, slug: str, payload: schema.EventSeriesEditSchema) -> models.EventSeries:
         """Create a new event series."""
@@ -229,7 +258,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         "/create-event",
         url_name="create_event",
         response={200: schema.EventDetailSchema, 400: ValidationErrorResponse | ErrorDetail},
-        permissions=[OrganizationPermission("create_event")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("create_event")],
     )
     def create_event(self, slug: str, payload: schema.EventCreateSchema) -> models.Event:
         """Create a new event."""

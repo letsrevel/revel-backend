@@ -447,3 +447,73 @@ def test_rows_carry_id_and_timestamps(
     (ticket_data,) = data["tickets"]
     assert ticket_data["id"] == str(ticket.id)
     assert ticket_data["created_at"] is not None
+
+
+@pytest.mark.django_db
+def test_oauth_apps_exported_without_the_client_secret(user: RevelUser) -> None:
+    """A user's own app registrations are their data; the stored secret never is.
+
+    ``client_secret`` holds only a hash, but a user-downloadable archive is the wrong place
+    for credential material of any kind — and the raw-text assertion is what stops a future
+    field rename from quietly reintroducing it.
+    """
+    from oauth.models import OAuthApplication
+
+    raw_secret = "s3cret-export-guard"
+    app = OAuthApplication(
+        user=user,
+        name="Exported App",
+        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+        client_secret=raw_secret,
+        redirect_uris="https://app.example/cb",
+        allowed_scopes=["openid", "org:read"],
+        registration_source=OAuthApplication.RegistrationSource.MANUAL,
+    )
+    # No full_clean(): the default RS256 algorithm needs a configured signing key (R-36) and
+    # this test is about what leaves in the archive, not about DOT's OIDC validation.
+    # ``ClientSecretField.pre_save`` still hashes the secret on save, which is what matters here.
+    app.save()
+    stored_hash = OAuthApplication.objects.values_list("client_secret", flat=True).get(pk=app.pk)
+
+    data, raw = _export(user)
+
+    (app_data,) = data["oauth_oauthapplication"]
+    assert app_data["name"] == "Exported App"
+    assert app_data["allowed_scopes"] == ["openid", "org:read"]
+    assert "client_secret" not in app_data
+    assert raw_secret not in raw
+    assert stored_hash not in raw
+
+
+@pytest.mark.django_db
+def test_oauth_tokens_and_grants_are_never_exported(user: RevelUser) -> None:
+    """Bearer tokens and authorization grants stay out of the archive entirely."""
+    from oauth.tests.test_auth_class import make_access_token
+
+    from oauth.models import OAuthApplication  # isort: skip
+
+    app = OAuthApplication(
+        user=user,
+        name="Token Holder",
+        client_type=OAuthApplication.CLIENT_PUBLIC,
+        redirect_uris="https://app.example/cb",
+        allowed_scopes=["org:read"],
+        registration_source=OAuthApplication.RegistrationSource.MANUAL,
+    )
+    app.save()  # see the note in the test above about full_clean()
+    token = make_access_token(user, app, "org:read")
+
+    data, raw = _export(user)
+
+    for accessor in (
+        "oauth2_provider_accesstoken",
+        "oauth2_provider_refreshtoken",
+        "oauth2_provider_idtoken",
+        "oauth2_provider_grant",
+        "oauth2_provider_devicegrant",
+    ):
+        assert accessor not in data, accessor
+    # Cheap insurance, NOT a guarantee: token storage keeps only a SHA-256 checksum, so the raw
+    # bearer never reaches the DB and could not appear here even without the exclusions above.
+    # The accessor loop is what actually proves the rules work (M2).
+    assert token not in raw

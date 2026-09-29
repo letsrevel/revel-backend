@@ -8,20 +8,21 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.models import EventInvitationRequest
 from events.service import event_service
+from oauth.permissions import RequireScope
 
 from .base import EventAdminBaseController
 
 
 @api_controller(
     "/event-admin/{event_id}",
-    auth=I18nJWTAuth(),
-    permissions=[EventPermission("invite_to_event")],
+    auth=ScopedJWTAuth(),
+    permissions=[RequireScope("org:read"), EventPermission("invite_to_event")],
     tags=["Event Admin"],
     throttle=WriteThrottle(),
 )

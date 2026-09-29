@@ -158,7 +158,7 @@ def send_account_email(
         if token is None:
             raise ValueError(f"{email_type} email requires a token")
         action_link = site_settings.frontend_base_url + config.link_path.format(token=token)
-        if (return_url := caller_context.get("return_url")) is not None:
+        if email_type == AccountEmail.VERIFICATION and (return_url := caller_context.get("return_url")) is not None:
             # safe="" so "&", "=", "?" and "/" are encoded and can't inject extra query params.
             action_link += "&returnUrl=" + quote(return_url, safe="")
         body_context["action_link"] = action_link

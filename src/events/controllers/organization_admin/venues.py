@@ -8,11 +8,12 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import IsOrganizationStaff, OrganizationPermission
 from events.service import venue_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
@@ -22,10 +23,10 @@ _SEATS_PREFETCH = Prefetch("seats", queryset=models.VenueSeat.objects.select_rel
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),
-    permissions=[OrganizationPermission("edit_organization")],
+    permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
 )
 class OrganizationAdminVenuesController(OrganizationAdminBaseController):
     """Organization venue management endpoints.
@@ -39,7 +40,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues",
         url_name="list_organization_venues",
         response=PaginatedResponseSchema[schema.VenueDetailSchema],
-        permissions=[IsOrganizationStaff()],
+        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -73,7 +74,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}",
         url_name="get_organization_venue",
         response=schema.VenueDetailSchema,
-        permissions=[IsOrganizationStaff()],
+        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     def get_venue(self, slug: str, venue_id: UUID) -> models.Venue:
@@ -133,7 +134,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/price-categories",
         url_name="list_venue_price_categories",
         response=list[schema.PriceCategorySchema],
-        permissions=[IsOrganizationStaff()],
+        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     def list_price_categories(self, slug: str, venue_id: UUID) -> QuerySet[models.PriceCategory]:
@@ -241,7 +242,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors",
         url_name="list_venue_sectors",
         response=list[schema.VenueSectorWithSeatsSchema],
-        permissions=[IsOrganizationStaff()],
+        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     def list_sectors(self, slug: str, venue_id: UUID) -> QuerySet[models.VenueSector]:
@@ -278,7 +279,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors/{sector_id}",
         url_name="get_venue_sector",
         response=schema.VenueSectorWithSeatsSchema,
-        permissions=[IsOrganizationStaff()],
+        permissions=[RequireScope("org:read"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     def get_sector(self, slug: str, venue_id: UUID, sector_id: UUID) -> models.VenueSector:

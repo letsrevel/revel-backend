@@ -3,20 +3,21 @@ from uuid import UUID
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import EventPermission
 from events.service.seating import box_office
 from events.service.seating import overrides as overrides_service
+from oauth.permissions import RequireScope
 
 from .base import EventAdminBaseController
 
 
 @api_controller(
     "/event-admin/{event_id}",
-    auth=I18nJWTAuth(),
-    permissions=[EventPermission("manage_tickets")],
+    auth=ScopedJWTAuth(),
+    permissions=[RequireScope("org:read"), EventPermission("manage_tickets")],
     tags=["Event Admin"],
     throttle=WriteThrottle(),
 )

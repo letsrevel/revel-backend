@@ -150,16 +150,22 @@ def check_blacklist(jti: str) -> None:
 
 
 def blacklist_user_tokens(user: t.Any) -> int:
-    """Blacklist all outstanding JWT tokens for a user.
+    """Blacklist all outstanding JWT tokens for a user, and revoke the OAuth apps they authorized.
 
     Used when an event invalidates every active session — e.g. global ban,
-    or an identity-primitive change like email rotation.
+    or an identity-primitive change like email rotation. A third-party app token is another
+    live session by any honest reading, so it goes too: leaving one behind would let an app
+    keep acting for a banned user, and leaving an unrevoked refresh token behind would let
+    ``oauth.service.authorize_service.has_prior_grant`` silently re-approve on the next
+    authorize.
 
     Args:
         user: The user whose tokens should be blacklisted.
 
     Returns:
-        Number of tokens blacklisted.
+        Number of session JWTs blacklisted. OAuth credentials are counted and logged
+        separately rather than folded in here — they are a different kind of credential with a
+        different lifetime, and callers reading this number mean sessions.
     """
     outstanding = OutstandingToken.objects.filter(user=user).exclude(blacklistedtoken__isnull=False)
     count = 0
@@ -168,6 +174,18 @@ def blacklist_user_tokens(user: t.Any) -> int:
         count += 1
     if count:
         logger.info("user_tokens_blacklisted", user_id=str(user.id), count=count)
+
+    # Unconditional, deliberately NOT gated on ``oauth.utils.oauth_provider_enabled()`` (R-108).
+    # The credential-presence feature flag (ADR-0008) governs whether app tokens can be
+    # *issued*, not whether a ban is honoured. Gating this would leave stale rows alive across a
+    # disable → ban → re-enable window — where they come back usable — and would make
+    # ``common.authentication``'s ``user.is_active`` check the only guard rather than a backstop.
+    # ``oauth`` is unconditionally in ``INSTALLED_APPS``, so the import is safe either way.
+    from oauth.service import token_service  # lazy: oauth imports accounts
+
+    revoked = token_service.revoke_user_tokens(user)
+    if revoked:
+        logger.info("user_oauth_credentials_revoked", user_id=str(user.id), count=revoked)
     return count
 
 

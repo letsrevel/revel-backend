@@ -91,6 +91,7 @@ nav:
       - Internationalization: guides/internationalization.md
       - Observability: guides/observability.md
       - Telegram Bot: guides/telegram-bot.md
+      - Third-Party Apps (OAuth): developer-guide/oauth.md
       - Demo & Seeding: guides/demo-and-seeding.md
       - Reserved Seating:
           - guides/seating/index.md

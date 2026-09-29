@@ -93,6 +93,24 @@ def test_guard_raises_on_conflicting_redefinition() -> None:
             )
 
 
+def test_guard_compares_objects_by_property_names() -> None:
+    """Two classes sharing a name clash on their property set; mode quirks on types do not.
+
+    oauth's and integrations' ``ConnectionSchema`` clobbered each other unnoticed while the
+    guard only looked at enums.
+    """
+    decimal_response = {"properties": {"price": {"type": "string"}}, "title": "Tier", "type": "object"}
+    fake = t.cast(OpenAPISchema, types.SimpleNamespace(schemas={"Tier": decimal_response}))
+    with schema_name_collision_guard():
+        # Same class in validation mode: property types differ, property names do not.
+        decimal_request = {"properties": {"price": {"anyOf": [{"type": "number"}, {"type": "string"}]}}}
+        OpenAPISchema.add_schema_definitions(fake, {"Tier": {**decimal_response, **decimal_request}})
+        with pytest.raises(OpenAPINameCollisionError):
+            OpenAPISchema.add_schema_definitions(
+                fake, {"Tier": {"properties": {"client_id": {"type": "string"}}, "title": "Tier", "type": "object"}}
+            )
+
+
 # --- 400 response-body contract (#712) -------------------------------------
 #
 # 400 bodies come from exception handlers that return a raw ``Response``,
@@ -116,6 +134,7 @@ RESPONSE_MESSAGE_ERROR_ALLOWLIST = {(path, "400") for path in RESPONSE_MESSAGE_4
 
 #: Every component a 400 is allowed to resolve to.
 KNOWN_400_COMPONENTS = {
+    "AuthorizationErrorResponse",
     "ErrorDetail",
     "EventUserEligibility",
     "GuestActionErrorSchema",

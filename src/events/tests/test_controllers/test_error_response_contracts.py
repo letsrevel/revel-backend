@@ -20,7 +20,8 @@ and the real body drifted apart: 26 endpoints declared ``ResponseMessage``
 These tests pin the *actual* wire shape so the declarations stay honest.
 
 See also ``integrations/tests/test_error_response_contracts.py`` for the same kind
-of pinning over the ``integrations`` app's ``IntegrationError`` body shape.
+of pinning over the ``integrations`` app's ``IntegrationError`` body shape, and
+``oauth/tests/test_error_response_contracts.py`` for the OAuth provider's five.
 """
 
 import datetime as dt

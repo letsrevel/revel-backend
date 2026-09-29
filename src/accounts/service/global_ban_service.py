@@ -80,8 +80,24 @@ def deactivate_user_for_ban(user: RevelUser, reason: str) -> None:
     user.is_active = False
     user.save(update_fields=["is_active"])
 
-    # Blacklist all outstanding JWT tokens so the user is immediately locked out
+    # Blacklist all outstanding JWT tokens so the user is immediately locked out. This also
+    # revokes every OAuth credential the user *granted* to other people's apps.
     blacklist_user_tokens(user)
+
+    # The other direction (R-116): apps the banned user *owns*. Deliberately here and not in
+    # ``blacklist_user_tokens``, which email rotation also calls — deactivating a developer's
+    # apps because they changed their address would cut off all of that app's users, which is
+    # right for a ban and wrong for an email change.
+    from oauth.service import app_service  # lazy: oauth imports accounts
+
+    deactivated, revoked = app_service.deactivate_apps_owned_by(user)
+    if deactivated:
+        logger.warning(
+            "banned_user_oauth_apps_deactivated",
+            user_id=str(user.id),
+            apps=deactivated,
+            credentials_revoked=revoked,
+        )
 
     logger.warning("user_deactivated_for_ban", user_id=str(user.id), email=user.email, reason=reason)
 

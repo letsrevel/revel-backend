@@ -11,13 +11,14 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
-from common.authentication import I18nJWTAuth
+from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.models import Tag
 from common.schema import ErrorDetail, TagSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 from events.service import organization_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
@@ -28,10 +29,10 @@ MEMBER_VERIFY_CODE_PATTERN = r"^(member:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),
-    permissions=[OrganizationPermission("manage_members")],
+    permissions=[RequireScope("org:read"), OrganizationPermission("manage_members")],
 )
 class OrganizationAdminMembersController(OrganizationAdminBaseController):
     """Organization membership management endpoints.
@@ -45,7 +46,13 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members",
         url_name="list_organization_members",
         response=PaginatedResponseSchema[schema.OrganizationMemberSchema],
-        permissions=[IsOrganizationStaff()],
+        # ``org:members`` ("Manage members and subscriptions"), not the ``org:read`` baseline:
+        # ``IsOrganizationStaff`` binds ``is_staff``, which is not a ``PermissionKey``, so
+        # ``scope_allows`` never runs and ``RequireScope`` is the only scope gate on a response
+        # nesting every member's email, phone number, real name, pronouns and live subscription.
+        # ``GET /staff`` already resolves to ``org:members`` through ``manage_members`` (R-123).
+        # The ``org:read`` baseline stays alongside it, as on every other organizer route.
+        permissions=[RequireScope("org:read"), RequireScope("org:members"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -108,7 +115,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members/verify/{code}",
         url_name="verify_organization_member",
         response=schema.MemberVerificationSchema,
-        permissions=[OrganizationPermission("check_in_attendees")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("check_in_attendees")],
         throttle=UserDefaultThrottle(),
     )
     def verify_member(
@@ -205,7 +212,9 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/membership-tiers",
         url_name="list_membership_tiers",
         response=list[schema.MembershipTierAdminSchema],
-        permissions=[IsOrganizationStaff()],
+        # Moved with the roster (R-123): every write on this path already requires
+        # ``org:members``, so leaving the read on the baseline alone buys nothing.
+        permissions=[RequireScope("org:read"), RequireScope("org:members"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     def list_membership_tiers(self, slug: str) -> QuerySet[models.MembershipTier]:
@@ -286,6 +295,10 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}",
         url_name="remove_organization_staff",
         response={204: None},
+        # Owner-gated: ``org:read``'s label ("See your organizations, events and settings")
+        # does not promise this, and no scope in the registry honestly covers it, so the route
+        # stays session-only rather than being gated by a scope that understates it (R-93).
+        auth=I18nJWTAuth(),
         permissions=[IsOrganizationOwner()],
     )
     def remove_staff(self, slug: str, user_id: UUID) -> tuple[int, None]:
@@ -299,6 +312,11 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}",
         url_name="create_organization_staff",
         response={201: schema.OrganizationStaffSchema},
+        # Owner-only, enforced in the handler body rather than by ``IsOrganizationOwner()``, so
+        # the permission list alone does not show it. Granting staff powers with an arbitrary
+        # permission map is strictly more dangerous than the removal pinned above, so it is
+        # session-only too rather than reachable on ``org:read org:members`` (R-100).
+        auth=I18nJWTAuth(),
     )
     def add_staff(
         self, slug: str, user_id: UUID, payload: models.PermissionsSchema | None = None
@@ -314,6 +332,11 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}/permissions",
         url_name="update_staff_permissions",
         response=schema.OrganizationStaffSchema,
+        # Owner-only, enforced in the handler body (see ``add_staff``). ``edit_organization`` is
+        # in ``UNSCOPED_KEYS``, so app tokens were already refused here — but only *incidentally*,
+        # by a mapping in another file. Pin the auth so the protection is stated, not inherited
+        # from a coincidence (R-100).
+        auth=I18nJWTAuth(),
         permissions=[OrganizationPermission("edit_organization")],  # Only owners can do this
     )
     def update_staff_permissions(
@@ -334,7 +357,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/tags",
         url_name="add_organization_tags",
         response=list[TagSchema],
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def add_tags(self, slug: str, payload: schema.TagUpdateSchema) -> list[Tag]:
         """Add one or more tags to the organization."""
@@ -346,7 +369,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/tags",
         url_name="clear_organization_tags",
         response={204: None},
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def clear_tags(self, slug: str) -> tuple[int, None]:
         """Clear all tags from the organization."""
@@ -358,7 +381,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/tags/remove",
         url_name="remove_organization_tags",
         response=list[TagSchema],
-        permissions=[OrganizationPermission("edit_organization")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
     )
     def remove_tags(self, slug: str, payload: schema.TagUpdateSchema) -> list[Tag]:
         """Remove one or more tags from the organization."""

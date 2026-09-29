@@ -67,6 +67,46 @@ Caddy data volume causes 403s or TLS failures.
 (certificates and keys) is owned by the Caddy process and not world-writable. After fixing
 ownership, restart Caddy.
 
+## OAuth provider stays off (`oauth.W002`)
+
+**Symptom:** after setting `OIDC_SIGNING_KEY_PATH` and `OAUTH_ISSUER`, `/api/version` still
+reports `features.oauth_provider: false` and `/.well-known/openid-configuration` returns `404`.
+The rest of the API works normally.
+
+**Cause:** the signing key could not be read, so the provider disabled itself instead of taking
+the API down. Every management command (including the `migrate` in `docker compose logs web`)
+prints `oauth.W002` with the path and the reason. Almost always file permissions: the containers
+run as uid 997, and `generate_oidc_signing_key` writes the key `0600` for your host user. Also
+check the path is the *in-container* one (`/app/certs/oidc.pem`), not the host path, and that the
+service mounts `./certs`.
+
+**Fix:** `chmod 644 certs/oidc.pem`, confirm with
+`docker compose exec web python manage.py check`, then `docker compose up -d web celery_default
+telegram`.
+
+## `web` exits on startup with `oauth.E001`
+
+**Symptom:** after setting `OIDC_SIGNING_KEY_PATH`, the API is down and `web` keeps restarting;
+`docker compose logs web` ends in `SystemCheckError` naming `oauth.E001`.
+
+**Cause:** the key is readable, so the provider is on, but `OAUTH_ISSUER` is empty. That would
+serve broken discovery and tokens, so it is an Error, and `web`'s entrypoint runs `migrate` (which
+runs the checks) before starting gunicorn.
+
+**Fix:** set `OAUTH_ISSUER` to your public API origin and `docker compose up -d web
+celery_default telegram`. To get the API back immediately instead, comment out
+`OIDC_SIGNING_KEY_PATH` and restart: with no key configured the provider is simply off.
+
+## OAuth clients get 403 / error 1010 from `/o/token`
+
+**Cause:** a Cloudflare browser-integrity or bot rule on the API host. OAuth clients call
+`/o/token`, `/o/userinfo`, `/o/register` and `/.well-known/*` from servers and CLIs with
+non-browser user agents, which such rules block.
+
+**Fix:** add a Cloudflare WAF skip rule for those paths on the API hostname (or disable Browser
+Integrity Check for it). Verify with `curl -i -X POST https://<api-host>/o/token`: expect a `400`
+JSON error from Revel, not a Cloudflare page.
+
 ## The stack won't start after editing `.env`
 
 **Cause:** common `.env` mistakes:

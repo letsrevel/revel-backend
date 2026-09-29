@@ -164,13 +164,13 @@ class PasswordMixin(Schema):
 
 
 # Relative path only: one leading slash, not followed by "/" or "\" (protocol-relative /
-# backslash host smuggling), and no whitespace or control characters anywhere. Shared by the
+# backslash host smuggling), and no whitespace or C0/C1 control characters anywhere. Shared by the
 # registration and verify-resend payloads so the two can't drift apart.
 VerificationReturnUrl = t.Annotated[
     str | None,
     Field(
         max_length=2048,
-        pattern=r"^/(?:[^/\\\s\x00-\x1f\x7f][^\s\x00-\x1f\x7f]*)?$",
+        pattern=r"^/(?:[^/\\\s\x00-\x1f\x7f-\x9f][^\s\x00-\x1f\x7f-\x9f]*)?$",
         description="Relative path the verification link sends the user back to after verifying.",
     ),
 ]

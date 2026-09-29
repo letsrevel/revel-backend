@@ -4,14 +4,15 @@ from django.db.models import QuerySet
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.controllers import UserAwareController
 from events import schema
 from events.models.follow import EventSeriesFollow, OrganizationFollow
 from events.service import follow_service
+from oauth.permissions import RequireScope
 
 
-@api_controller("/me/following", auth=I18nJWTAuth(), tags=["Following"])
+@api_controller("/me/following", auth=ScopedJWTAuth(), tags=["Following"], permissions=[RequireScope("me:read")])
 class FollowingController(UserAwareController):
     """Controller for managing user's follows."""
 

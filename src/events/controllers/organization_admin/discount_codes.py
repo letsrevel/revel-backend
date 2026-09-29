@@ -8,21 +8,22 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import OrganizationPermission
 from events.service import discount_code_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),
-    permissions=[OrganizationPermission("manage_tickets")],
+    permissions=[RequireScope("org:read"), OrganizationPermission("manage_tickets")],
 )
 class OrganizationAdminDiscountCodesController(OrganizationAdminBaseController):
     """Organization discount code management endpoints."""

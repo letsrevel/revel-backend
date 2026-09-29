@@ -7,7 +7,6 @@ from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import searching
 
-from common.authentication import I18nJWTAuth
 from common.controllers import DistinctSearching
 from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -16,6 +15,7 @@ from events import models as event_models
 from events import schema as event_schema
 from events.service import event_questionnaire_service, update_organization_questionnaire
 from events.service.event_questionnaire_service import duplicate_organization_questionnaire, get_questionnaire_summary
+from oauth.permissions import RequireScope
 from questionnaires import models as questionnaires_models
 
 from ..permissions import OrganizationPermission, QuestionnairePermission
@@ -53,8 +53,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
         "/{organization_id}/create-questionnaire",
         url_name="create_questionnaire",
         response={200: event_schema.OrganizationQuestionnaireSchema, 400: ValidationErrorResponse | ErrorDetail},
-        auth=I18nJWTAuth(),
-        permissions=[OrganizationPermission("create_questionnaire")],
+        permissions=[RequireScope("org:read"), OrganizationPermission("create_questionnaire")],
     )
     def create_org_questionnaire(
         self, organization_id: UUID, payload: event_schema.OrganizationQuestionnaireCreateSchema
@@ -76,7 +75,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}",
         url_name="get_org_questionnaire",
         response=event_schema.OrganizationQuestionnaireSchema,
-        permissions=[QuestionnairePermission("evaluate_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("evaluate_questionnaire")],
         throttle=UserDefaultThrottle(),
     )
     def get_org_questionnaire(self, org_questionnaire_id: UUID) -> event_models.OrganizationQuestionnaire:
@@ -125,7 +124,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/summary",
         url_name="questionnaire_summary",
         response=event_schema.QuestionnaireSummarySchema,
-        permissions=[QuestionnairePermission("evaluate_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("evaluate_questionnaire")],
         throttle=UserDefaultThrottle(),
     )
     def get_summary(
@@ -152,7 +151,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}",
         url_name="update_org_questionnaire",
         response=event_schema.OrganizationQuestionnaireSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def update_org_questionnaire(
         self, org_questionnaire_id: UUID, payload: event_schema.OrganizationQuestionnaireUpdateSchema
@@ -173,7 +172,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/status/{status}",
         url_name="update_questionnaire_status",
         response=event_schema.OrganizationQuestionnaireSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def update_questionnaire_status(
         self, org_questionnaire_id: UUID, status: questionnaires_models.Questionnaire.QuestionnaireStatus
@@ -197,7 +196,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}",
         url_name="delete_org_questionnaire",
         response={204: None},
-        permissions=[QuestionnairePermission("delete_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("delete_questionnaire")],
     )
     def delete_org_questionnaire(self, org_questionnaire_id: UUID) -> tuple[int, None]:
         """Delete an organization questionnaire (admin only).
@@ -212,7 +211,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/duplicate",
         url_name="duplicate_org_questionnaire",
         response=event_schema.OrganizationQuestionnaireSchema,
-        permissions=[QuestionnairePermission("create_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("create_questionnaire")],
         throttle=WriteThrottle(),
     )
     def duplicate_org_questionnaire(

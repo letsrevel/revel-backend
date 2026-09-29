@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404
 from ninja_extra import route
 
 from events import models as event_models
+from oauth.permissions import RequireScope
 from questionnaires import models as questionnaires_models
 from questionnaires import schema as questionnaire_schema
 from questionnaires.service import QuestionnaireService
@@ -19,7 +20,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/multiple-choice-questions",
         url_name="create_mc_question",
         response=questionnaire_schema.MultipleChoiceQuestionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def create_mc_question(
         self, org_questionnaire_id: UUID, payload: questionnaire_schema.MultipleChoiceQuestionCreateSchema
@@ -40,7 +41,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/multiple-choice-questions/{question_id}",
         url_name="update_mc_question",
         response=questionnaire_schema.MultipleChoiceQuestionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def update_mc_question(
         self,
@@ -64,7 +65,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/multiple-choice-questions/{question_id}",
         url_name="delete_mc_question",
         response={204: None},
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def delete_mc_question(self, org_questionnaire_id: UUID, question_id: UUID) -> tuple[int, None]:
         """Delete a multiple choice question (admin only).
@@ -84,7 +85,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/multiple-choice-questions/{question_id}/options",
         url_name="create_mc_option",
         response=questionnaire_schema.MultipleChoiceOptionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def create_mc_option(
         self,
@@ -108,7 +109,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/multiple-choice-options/{option_id}",
         url_name="update_mc_option",
         response=questionnaire_schema.MultipleChoiceOptionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def update_mc_option(
         self,
@@ -132,7 +133,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/multiple-choice-options/{option_id}",
         url_name="delete_mc_option",
         response={204: None},
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def delete_mc_option(self, org_questionnaire_id: UUID, option_id: UUID) -> tuple[int, None]:
         """Delete a multiple choice option (admin only).
@@ -152,7 +153,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/free-text-questions",
         url_name="create_ft_question",
         response=questionnaire_schema.FreeTextQuestionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def create_ft_question(
         self, org_questionnaire_id: UUID, payload: questionnaire_schema.FreeTextQuestionCreateSchema
@@ -172,7 +173,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/free-text-questions/{question_id}",
         url_name="update_ft_question",
         response=questionnaire_schema.FreeTextQuestionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def update_ft_question(
         self, org_questionnaire_id: UUID, question_id: UUID, payload: questionnaire_schema.FreeTextQuestionUpdateSchema
@@ -191,7 +192,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/free-text-questions/{question_id}",
         url_name="delete_ft_question",
         response={204: None},
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def delete_ft_question(self, org_questionnaire_id: UUID, question_id: UUID) -> tuple[int, None]:
         """Delete a free text question (admin only).
@@ -211,7 +212,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/file-upload-questions",
         url_name="create_fu_question",
         response=questionnaire_schema.FileUploadQuestionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def create_fu_question(
         self, org_questionnaire_id: UUID, payload: questionnaire_schema.FileUploadQuestionCreateSchema
@@ -232,7 +233,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/file-upload-questions/{question_id}",
         url_name="update_fu_question",
         response=questionnaire_schema.FileUploadQuestionResponseSchema,
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def update_fu_question(
         self,
@@ -260,7 +261,7 @@ class QuestionnaireQuestionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/file-upload-questions/{question_id}",
         url_name="delete_fu_question",
         response={204: None},
-        permissions=[QuestionnairePermission("edit_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("edit_questionnaire")],
     )
     def delete_fu_question(self, org_questionnaire_id: UUID, question_id: UUID) -> tuple[int, None]:
         """Delete a file upload question (admin only).

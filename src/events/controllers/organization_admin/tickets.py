@@ -7,20 +7,21 @@ from ninja import Query
 from ninja_extra import api_controller, route
 from pydantic import AwareDatetime
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
 from events.service import ticket_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin"],
-    permissions=[OrganizationPermission("manage_tickets")],
+    permissions=[RequireScope("org:read"), OrganizationPermission("manage_tickets")],
 )
 class OrganizationAdminTicketsController(OrganizationAdminBaseController):
     """Ticket analytics across every event of an organization."""

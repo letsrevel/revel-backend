@@ -11,7 +11,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 from pydantic import UUID4
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.throttling import SendAnnouncementThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models
 from events.controllers.permissions import OrganizationPermission
@@ -24,16 +24,17 @@ from events.schema.announcement import (
     RecipientCountSchema,
 )
 from events.service import announcement_service
+from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
 
 
 @api_controller(
     "/organization-admin/{slug}",
-    auth=I18nJWTAuth(),
+    auth=ScopedJWTAuth(),
     tags=["Organization Admin - Announcements"],
     throttle=WriteThrottle(),
-    permissions=[OrganizationPermission("send_announcements")],
+    permissions=[RequireScope("org:read"), OrganizationPermission("send_announcements")],
 )
 class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
     """Organization announcement management endpoints."""

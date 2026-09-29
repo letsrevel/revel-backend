@@ -6,7 +6,7 @@ from ninja import File
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
 
-from common.authentication import I18nJWTAuth
+from common.authentication import ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
@@ -15,14 +15,15 @@ from common.throttling import WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from events import models, schema
 from events.service import event_series_service, update_db_instance
+from oauth.permissions import RequireScope
 
 from .permissions import EventSeriesPermission
 
 
 @api_controller(
     "/event-series-admin/{series_id}",
-    auth=I18nJWTAuth(),
-    permissions=[EventSeriesPermission("edit_event_series")],
+    auth=ScopedJWTAuth(),
+    permissions=[RequireScope("org:read"), EventSeriesPermission("edit_event_series")],
     tags=["Event Series Admin"],
     throttle=WriteThrottle(),
 )
@@ -53,7 +54,7 @@ class EventSeriesAdminController(UserAwareController):
         "/",
         url_name="delete_event_series",
         response={204: None},
-        permissions=[EventSeriesPermission("delete_event_series")],
+        permissions=[RequireScope("org:read"), EventSeriesPermission("delete_event_series")],
     )
     def delete_event_series(self, series_id: UUID) -> tuple[int, None]:
         """Permanently delete an event series (admin only).

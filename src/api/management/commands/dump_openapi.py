@@ -28,19 +28,29 @@ def schema_name_collision_guard() -> t.Iterator[None]:
     (same name, same content — e.g. two enums with equal value sets) are fine
     and common, so only *conflicting* re-definitions raise.
 
-    Scope: enum components only. Non-enum components legitimately differ for
-    the SAME class between validation and serialization mode (ninja's known
-    by_alias quirk — e.g. Decimal fields render ``str`` in responses but
-    ``number|str`` in requests), so a whole-spec equality check would only
-    produce false positives there. Enum definitions are mode-invariant: a
+    Scope: enums are compared whole; objects by their *property names*. Non-enum
+    components legitimately differ for the SAME class between validation and
+    serialization mode (ninja's known by_alias quirk — e.g. Decimal fields
+    render ``str`` in responses but ``number|str`` in requests), so a
+    whole-definition equality check would only produce false positives there.
+    Those quirks change property *types*, never the property *set*, while two
+    different classes sharing a name (oauth vs integrations ``ConnectionSchema``)
+    almost always differ in it. Enum definitions are mode-invariant: a
     same-name/different-content enum is always a real clobber.
     """
     original = OpenAPISchema.add_schema_definitions
 
+    def conflicts(existing: dict[str, t.Any], definition: dict[str, t.Any]) -> bool:
+        if existing == definition:
+            return False
+        if "enum" in existing or "enum" in definition:
+            return True
+        return set(existing.get("properties", {})) != set(definition.get("properties", {}))
+
     def checked(self: OpenAPISchema, definitions: dict[str, t.Any]) -> None:
         for name, definition in definitions.items():
             existing = self.schemas.get(name)
-            if existing is not None and existing != definition and ("enum" in existing or "enum" in definition):
+            if existing is not None and conflicts(existing, definition):
                 raise OpenAPINameCollisionError(
                     f"OpenAPI component name collision: {name!r} maps to two different definitions. "
                     f"Give one of the classes a distinct name (see issue #782)."

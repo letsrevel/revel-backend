@@ -13,6 +13,7 @@ from events import filters
 from events import models as event_models
 from events import schema as event_schema
 from events.service import event_questionnaire_service, feedback_service
+from oauth.permissions import RequireScope
 from questionnaires import models as questionnaires_models
 from questionnaires import schema as questionnaire_schema
 from questionnaires.service import SubmissionService
@@ -37,7 +38,7 @@ class QuestionnaireSubmissionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/submissions/export",
         url_name="export_submissions",
         response={202: event_schema.FileExportSchema},
-        permissions=[QuestionnairePermission("evaluate_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("evaluate_questionnaire")],
         throttle=ExportThrottle(),
     )
     def export_submissions(
@@ -70,7 +71,7 @@ class QuestionnaireSubmissionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/submissions",
         url_name="list_submissions",
         response=PaginatedResponseSchema[questionnaire_schema.SubmissionListItemSchema],
-        permissions=[QuestionnairePermission("evaluate_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("evaluate_questionnaire")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -100,7 +101,7 @@ class QuestionnaireSubmissionsMixin(QuestionnaireControllerBase):
         "/{org_questionnaire_id}/submissions/{submission_id}",
         url_name="get_submission_detail",
         response=questionnaire_schema.SubmissionDetailSchema,
-        permissions=[QuestionnairePermission("evaluate_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("evaluate_questionnaire")],
         throttle=UserDefaultThrottle(),
     )
     def get_submission_detail(
@@ -126,7 +127,7 @@ class QuestionnaireSubmissionsMixin(QuestionnaireControllerBase):
             # an unmapped DoesNotExist that surfaced as a 500.
             404: ErrorDetail,
         },
-        permissions=[QuestionnairePermission("evaluate_questionnaire")],
+        permissions=[RequireScope("org:read"), QuestionnairePermission("evaluate_questionnaire")],
     )
     def evaluate_submission(
         self,
