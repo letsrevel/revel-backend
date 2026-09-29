@@ -99,9 +99,9 @@ setup wizard can do steps 1–2 for you.
     Inside a running stack, `docker compose exec web python manage.py generate_oidc_signing_key
     --out /app/certs/oidc.pem` produces the same format. The `chmod 644` is not optional: the
     command writes the file `0600` for your host user, but the containers run as uid 997. An
-    unreadable key **stops `web` from starting**: its entrypoint runs `migrate`, which fails the
-    `oauth.E002` system check (see
-    [Troubleshooting](troubleshooting.md#web-exits-on-startup-with-oauthe001-oauthe002)).
+    unreadable key leaves the provider **off** while the rest of the API keeps serving, with an
+    `oauth.W002` warning in the logs (see
+    [Troubleshooting](troubleshooting.md#oauth-provider-stays-off-oauthw002)).
 
 2. **Set in `.env`** (`./certs` is mounted read-only at `/app/certs` in every service that
    runs management commands: `web`, `celery_default` and `telegram`):
@@ -113,12 +113,14 @@ setup wizard can do steps 1–2 for you.
 
     `OAUTH_ISSUER` must be exactly the origin that serves `/.well-known/openid-configuration`;
     clients reject tokens whose `iss` does not match it.
+    Set both together: a readable key with an empty issuer is the one misconfiguration that
+    stops `web` from starting (`oauth.E001`), because it would publish broken discovery.
 
 3. **Restart and verify:**
 
     ```bash
     docker compose up -d web celery_default telegram
-    docker compose exec web python manage.py check      # no oauth.E001 / oauth.E002
+    docker compose exec web python manage.py check      # no oauth.E001 / oauth.W002
     curl -s https://api.example.org/api/version          # features.oauth_provider: true
     curl -s https://api.example.org/.well-known/openid-configuration   # "issuer" equals OAUTH_ISSUER
     ```

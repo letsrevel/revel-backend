@@ -31,17 +31,33 @@ def test_check_is_registered_with_djangos_registry() -> None:
     assert check_oauth_issuer_configured in registry.registry.registered_checks
 
 
-# --- oauth.E002: a configured key the process cannot read -------------------------------------
+# --- oauth.W002: a configured key the process cannot read -------------------------------------
 
 
-def test_unreadable_signing_key_is_an_error(settings: t.Any) -> None:
+def test_unreadable_signing_key_is_a_warning(settings: t.Any) -> None:
+    from django.core.checks import WARNING
+
     from oauth.checks import SIGNING_KEY_CHECK_ID, check_oidc_signing_key_readable
 
     settings.OIDC_SIGNING_KEY_ERRORS = ["/app/certs/oidc.pem: Permission denied"]
     errors = check_oidc_signing_key_readable(app_configs=None)
     assert [e.id for e in errors] == [SIGNING_KEY_CHECK_ID]
+    assert errors[0].level == WARNING
     assert "Permission denied" in errors[0].msg
     assert "997" in (errors[0].hint or "")
+
+
+def test_unreadable_signing_key_does_not_fail_manage_py_check(settings: t.Any) -> None:
+    """The web entrypoint runs ``migrate``; an Error here would take the whole API down.
+
+    With the key unreadable the provider is off, so the issuer check has nothing to guard and
+    the only message is the warning — ``check`` must complete rather than raise.
+    """
+    from django.core.management import call_command
+
+    settings.OIDC_SIGNING_KEY_ERRORS = ["/app/certs/oidc.pem: Permission denied"]
+    settings.OAUTH_ISSUER = ""
+    call_command("check")
 
 
 def test_readable_signing_key_passes(settings: t.Any) -> None:

@@ -11,7 +11,7 @@ def oauth_provider_enabled() -> bool:
     Returns:
         True when ``OIDC_SIGNING_KEY_PATH`` is set to a non-blank value and no configured key
         failed to load at settings import (``OIDC_SIGNING_KEY_ERRORS``, reported as
-        ``oauth.E002``).
+        ``oauth.W002``).
     """
     if getattr(settings, "OIDC_SIGNING_KEY_ERRORS", []):
         return False

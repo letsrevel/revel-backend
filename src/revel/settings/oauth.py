@@ -21,7 +21,7 @@ OAUTH_DCR_UNUSED_TTL_HOURS: int = config("OAUTH_DCR_UNUSED_TTL_HOURS", default=2
 
 
 #: Configured key paths that could not be read (missing, or not readable by this uid), as
-#: ``"<path>: <reason>"``. Reported by ``oauth.checks`` as ``oauth.E002`` and consulted by
+#: ``"<path>: <reason>"``. Reported by ``oauth.checks`` as ``oauth.W002`` and consulted by
 #: ``oauth.utils.oauth_provider_enabled`` — deliberately NOT raised here. A settings-import
 #: crash takes every process down (web, celery, beat, telegram) for what is one optional
 #: feature, and the failure is an ordinary deploy mistake: a PEM generated on the host is

@@ -33,5 +33,5 @@ class Command(BaseCommand):
         self.stdout.write(
             "If it is mounted into a container that runs as another uid (the Docker image uses 997), "
             "make it readable there — e.g. `chmod 644` — or the provider stays disabled and "
-            "`manage.py check` reports oauth.E002."
+            "`manage.py check` reports oauth.W002."
         )
