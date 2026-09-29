@@ -361,18 +361,21 @@ def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> Rev
     """Set the new password and consume the token (the atomic half of ``reset_password``)."""
     validate_password(new_password, user=user)
     user.set_password(new_password)
+    user.credentials_changed_at = timezone.now()
 
     # Convert guest user to full user when setting password
     if user.guest:
         user.guest = False
         user.email_verified = True
-        user.save(update_fields=["password", "guest", "email_verified"])
+        user.save(update_fields=["password", "credentials_changed_at", "guest", "email_verified"])
         logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
         referral_application_service.try_enroll_invitee(user)
     else:
-        user.save(update_fields=["password"])
+        user.save(update_fields=["password", "credentials_changed_at"])
 
     blacklist_token(token)
+    # Reset is the account-recovery path — sign out everywhere, apps included (#1020).
+    blacklist_user_tokens(user)
     logger.info("password_reset_completed", user_id=str(user.id), email=user.email)
     return user
 
@@ -392,6 +395,7 @@ def create_email_change_token(user: RevelUser, new_email: str) -> str:
         email=user.email,
         new_email=new_email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
+        iat=timezone.now(),
     )
     token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
     store_test_token(TOKEN_TYPE_EMAIL_CHANGE, token)
@@ -485,6 +489,13 @@ def confirm_email_change(token: str) -> RevelUser:
     check_blacklist(payload.jti)
     user = get_object_or_404(RevelUser, id=payload.user_id)
     new_email = payload.new_email.lower()
+
+    # The link goes to the *new* address, so whoever requested it holds it. A password reset
+    # (account recovery) must void it, or an evicted intruder confirms it and takes the account.
+    if user.credentials_changed_at and payload.iat < user.credentials_changed_at:
+        blacklist_token(token)
+        logger.warning("email_change_confirm_superseded_by_password_reset", user_id=str(user.id))
+        raise HttpError(400, str(_("This email change link is no longer valid. Please request a new one.")))
 
     # Re-check the global ban at confirm time — a ban added between request and
     # confirm must block the swap (mirrors verify_email).

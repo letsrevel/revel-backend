@@ -71,6 +71,12 @@ class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
     guest = models.BooleanField(default=False, help_text="True if this is a guest user (not fully registered)")
     totp_secret = EncryptedTextField(default=pyotp.random_base32, editable=False)
     totp_active = models.BooleanField(default=False)
+    credentials_changed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Last password reset; single-use links issued before it are rejected.",
+    )
     language = models.CharField(
         max_length=7,
         choices=settings.LANGUAGES,

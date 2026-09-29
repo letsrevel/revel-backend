@@ -247,7 +247,14 @@ class UnsubscribeJWTPayloadSchema(BaseEmailJWTPayloadSchema):
 
 class EmailChangeJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     new_email: EmailStr
+    # Required (no default): checked against ``RevelUser.credentials_changed_at`` at confirm.
+    iat: AwareDatetime
     type: t.Literal["email_change"] = "email_change"
+
+    @field_serializer("iat")
+    def serialize_iat(self, value: datetime.datetime) -> int:
+        """Serialize the issue time to a Unix timestamp (floored, so a same-second race rejects)."""
+        return int(value.timestamp())
 
 
 class DeleteAccountSchema(Schema):

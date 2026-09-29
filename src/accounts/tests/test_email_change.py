@@ -164,6 +164,7 @@ def _make_change_token(user: RevelUser, new_email: str, *, expired: bool = False
         email=user.email,
         new_email=new_email,
         exp=exp,
+        iat=timezone.now(),
     )
     return create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
 
@@ -264,6 +265,32 @@ class TestConfirmEmailChange:
         assert exc.value.status_code == 403
         user.refresh_from_db()
         assert user.email != "ban-me-later@example.com"
+
+    def test_token_issued_before_password_reset_rejected(self, user: RevelUser) -> None:
+        """#1020: the change link goes to the *new* address, so whoever requested it holds it.
+
+        A reset evicts an intruder's sessions; it must also void a change they sent themselves,
+        or they take the account back by confirming it.
+        """
+        token = _make_change_token(user, "intruder@example.com")
+        account_service.reset_password(account_service.create_password_reset_token(user), "a-new-valid-Password-123!")
+
+        with pytest.raises(HttpError) as exc:
+            account_service.confirm_email_change(token)
+        assert exc.value.status_code == 400
+        user.refresh_from_db()
+        assert user.email != "intruder@example.com"
+        assert BlacklistedToken.objects.filter(token__jti=_jti(token)).exists()
+
+    @patch("accounts.tasks.send_account_email.delay")
+    def test_token_issued_after_password_reset_accepted(self, mock_send: MagicMock, user: RevelUser) -> None:
+        """A reset only voids links issued before it; a fresh request after it still works."""
+        RevelUser.objects.filter(pk=user.pk).update(
+            credentials_changed_at=timezone.now() - datetime.timedelta(minutes=5)
+        )
+        token = _make_change_token(user, "new@example.com")
+
+        assert account_service.confirm_email_change(token).email == "new@example.com"
 
 
 # ===== Controller tests =====
