@@ -177,13 +177,13 @@ class TestDetermineDeliveryChannels:
         regular_user: RevelUser,
     ) -> None:
         """Test that disabled channels are excluded."""
-        # Arrange - Disable email channel
+        # Arrange - Disable email channel (non-mandatory type: mandatory ones always email)
         prefs = regular_user.notification_preferences
         prefs.enabled_channels = [DeliveryChannel.IN_APP]
         prefs.save()
 
         # Act
-        channels = determine_delivery_channels(regular_user, NotificationType.TICKET_CREATED)
+        channels = determine_delivery_channels(regular_user, NotificationType.EVENT_UPDATED)
 
         # Assert
         assert DeliveryChannel.IN_APP in channels
@@ -209,8 +209,8 @@ class TestDetermineDeliveryChannels:
         guest_user: RevelUser,
     ) -> None:
         """Test that guest users DO receive allowed notification types."""
-        # Act - TICKET_CREATED is allowed for guests
-        channels = determine_delivery_channels(guest_user, NotificationType.TICKET_CREATED)
+        # Act - EVENT_UPDATED is allowed for guests
+        channels = determine_delivery_channels(guest_user, NotificationType.EVENT_UPDATED)
 
         # Assert
         assert DeliveryChannel.IN_APP in channels
@@ -257,9 +257,9 @@ class TestDetermineDeliveryChannels:
         prefs = regular_user.notification_preferences
         prefs.enabled_channels = [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL, DeliveryChannel.TELEGRAM]
 
-        # But for TICKET_CREATED, only use email
+        # But for EVENT_UPDATED, only use email
         prefs.notification_type_settings = {
-            NotificationType.TICKET_CREATED: {
+            NotificationType.EVENT_UPDATED: {
                 "enabled": True,
                 "channels": [DeliveryChannel.EMAIL],
             }
@@ -267,7 +267,7 @@ class TestDetermineDeliveryChannels:
         prefs.save()
 
         # Act
-        channels = determine_delivery_channels(regular_user, NotificationType.TICKET_CREATED)
+        channels = determine_delivery_channels(regular_user, NotificationType.EVENT_UPDATED)
 
         # Assert - Should only include email
         assert channels == [DeliveryChannel.EMAIL]
@@ -286,7 +286,7 @@ class TestDetermineDeliveryChannels:
         prefs.save()
 
         # Act
-        channels = determine_delivery_channels(regular_user, NotificationType.TICKET_CREATED)
+        channels = determine_delivery_channels(regular_user, NotificationType.EVENT_UPDATED)
 
         # Assert - Should use global channels
         assert set(channels) == {DeliveryChannel.IN_APP, DeliveryChannel.TELEGRAM}

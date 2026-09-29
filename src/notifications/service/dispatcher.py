@@ -7,34 +7,11 @@ import structlog
 from django.conf import settings
 
 from accounts.models import RevelUser
+from notifications.enums import TRANSACTIONAL_TYPES as TRANSACTIONAL_TYPES  # re-exported for existing callers
 from notifications.enums import DeliveryChannel, NotificationType
 from notifications.models import Notification, NotificationPreference
 
 logger = structlog.get_logger(__name__)
-
-
-# Transactional notification types always send immediately on their enabled channels,
-# bypassing the digest cadence. These are time-/money-sensitive (a ticket sale, a
-# payment, a cancellation or a refund) and must not be held back for the periodic
-# digest sweep. See issue #506.
-TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
-    {
-        NotificationType.PAYMENT_CONFIRMATION,
-        NotificationType.TICKET_CREATED,
-        NotificationType.TICKET_CANCELLED,
-        NotificationType.TICKET_REFUNDED,
-        # Subscription money/lifecycle events must not wait for a digest sweep:
-        # a failed renewal or expiry needs immediate action, a revival checkout
-        # link is time-boxed, and renewal/cancellation confirmations are
-        # receipts. (RENEWAL_REMINDER and PRICE_MIGRATION_NOTICE are advance
-        # notices with days of slack — they stay on the digest cadence.)
-        NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
-        NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
-        NotificationType.SUBSCRIPTION_EXPIRED,
-        NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
-        NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
-    }
-)
 
 
 class NotificationData(t.NamedTuple):

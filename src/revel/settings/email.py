@@ -17,6 +17,12 @@ DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="Let's Revel <revel@le
 DEFAULT_BILLING_EMAIL = config("DEFAULT_BILLING_EMAIL", default=DEFAULT_FROM_EMAIL)
 DEFAULT_REPLY_TO_EMAIL = config("DEFAULT_REPLY_TO_EMAIL", default=DEFAULT_FROM_EMAIL)
 
+# Domain for org-sent mail ("<Org> via Revel" <slug@ORG_EMAIL_DOMAIN>). Empty → falls back to
+# the apex domain of DEFAULT_FROM_EMAIL (see common.utils.org_email_domain).
+ORG_EMAIL_DOMAIN = config("ORG_EMAIL_DOMAIN", default="")
+# Shared secret for the provider (Brevo) bounce/complaint webhook. Empty → endpoint disabled.
+EMAIL_WEBHOOK_SECRET = config("EMAIL_WEBHOOK_SECRET", default="")
+
 EMAIL_DRY_RUN = config("EMAIL_DRY_RUN", default=False, cast=bool)
 
 if EMAIL_DRY_RUN:
