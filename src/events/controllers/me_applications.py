@@ -83,9 +83,9 @@ class MeMembershipApplicationsController(UserAwareController):
         "/organizations/{slug}/apply",
         url_name="apply_for_membership",
         # ``me:read`` is a READ scope — its label promises only "See your profile, tickets,
-        # RSVPs and memberships". A read scope must never be the sole gate on an unsafe
-        # method (a write needs a scope of its own), and no write scope in the
-        # registry covers this, so the route stays session-only (R-99).
+        # RSVPs, memberships, invoices and payments". A read scope must never be the sole
+        # gate on an unsafe method (a write needs a scope of its own), and no write scope
+        # in the registry covers this, so the route stays session-only (R-99).
         auth=I18nJWTAuth(),
         # 400 has two shapes: a plain ``{detail}`` for the plan_id refusal, and
         # the serialized eligibility payload when a gate refuses the application

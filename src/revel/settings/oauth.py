@@ -1,7 +1,7 @@
 """OAuth 2.1 / OpenID Connect *provider* (django-oauth-toolkit).
 
 Credential presence is the feature flag (ADR-0008): the provider is enabled iff
-``OIDC_SIGNING_KEY_PATH`` points at an RSA private key PEM. With it unset nothing is mounted.
+``OIDC_SIGNING_KEY_PATH`` points at an RSA private key PEM. With it unset every provider route answers 404.
 See docs/superpowers/specs/2026-09-14-oauth-provider-design.md §5.
 """
 

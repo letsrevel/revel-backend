@@ -64,7 +64,8 @@ class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
     # the URI, method, body and headers only, so there is no Django session, no end user and no
     # prior-grant state to consult. The real ``prompt=none`` decision therefore lives one layer
     # up, in ``oauth.service.authorize_service.describe``, which has all three and which never
-    # issues a code without either an explicit ``allow=True`` or a genuine prior grant.
+    # issues a code without an explicit ``allow=True``, a genuine prior grant, or the
+    # operator-set ``skip_authorization`` flag on the app.
 
     def validate_silent_login(self, request: t.Any) -> bool:
         """Defer the silent-login decision to the consent service (see the note above).

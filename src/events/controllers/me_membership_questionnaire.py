@@ -61,9 +61,9 @@ class MeMembershipQuestionnaireController(UserAwareController):
         "/organizations/{slug}/membership-questionnaire/{questionnaire_id}/submit",
         url_name="submit_membership_questionnaire",
         # ``me:read`` is a READ scope — its label promises only "See your profile, tickets,
-        # RSVPs and memberships". A read scope must never be the sole gate on an unsafe
-        # method (a write needs a scope of its own), and no write scope in the
-        # registry covers this, so the route stays session-only (R-99).
+        # RSVPs, memberships, invoices and payments". A read scope must never be the sole
+        # gate on an unsafe method (a write needs a scope of its own), and no write scope
+        # in the registry covers this, so the route stays session-only (R-99).
         auth=I18nJWTAuth(),
         response={200: QuestionnaireSubmissionOrEvaluationSchema, 400: ErrorDetail},
         throttle=QuestionnaireSubmissionThrottle(),

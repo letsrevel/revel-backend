@@ -411,7 +411,8 @@ def decide(request: HttpRequest, user: RevelUser, *, allow: bool, consent_ticket
         request: The authorization request, replayed in the query string of the decision POST.
         user: The signed-in end user, whose identity the consent ticket is bound to.
         allow: The user's answer. There is no default — no branch of this module issues a code
-            without either an explicit ``True`` here or a genuine prior grant in ``describe``.
+            without an explicit ``True`` here, a genuine prior grant in ``describe``, or the
+            operator-set ``skip_authorization`` flag on the app.
         consent_ticket: The ticket ``describe`` handed the screen. Required to approve;
             ignored for a refusal, which issues no code and can therefore be honoured from a
             screen that has since expired.

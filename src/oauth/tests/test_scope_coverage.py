@@ -21,9 +21,9 @@ passes in this task, which is why it is now CI's problem rather than a reader's.
    how ``POST stripe/connect``, ``POST stripe/account/verify`` and ``DELETE staff/{user_id}``
    stayed reachable on ``org:read`` through two careful passes. This guard is per route (R-96).
 5. **No read scope is the sole gate on a state-changing method.** ``me:read``'s label is "See
-   your profile, tickets, RSVPs and memberships", and it was authorizing a Stripe Customer
-   Portal URL and a subscription checkout. A write needs a scope of its own, and until one
-   exists the route stays session-only (R-99).
+   your profile, tickets, RSVPs, memberships, invoices and payments", and it was authorizing
+   a Stripe Customer Portal URL and a subscription checkout. A write needs a scope of its
+   own, and until one exists the route stays session-only (R-99).
 6. **No switched route hides an owner check in its handler body.** Properties 4 and 5 read the
    ``permissions`` list, so neither can see ``if organization.owner != self.user(): raise
    HttpError(403, ...)`` — which is how ``POST /staff/{user_id}`` stayed open while its
@@ -102,7 +102,7 @@ APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
     }
 )
 
-# A floor, not an exact count, but a TIGHT one: 255 routes are switched today, and the smallest
+# A floor, not an exact count, but a TIGHT one: 256 routes are switched today, and the smallest
 # switched controller has a single route, so slack here is slack in which a whole surface could
 # vanish silently (M4). It exists so the parametrized guards below can never assert nothing
 # (R-15); it is meant to be edited deliberately when routes are added or removed.

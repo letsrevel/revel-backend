@@ -221,6 +221,8 @@ def connections_for(user: RevelUser) -> list[Connection]:
         held.update(scope.split())
         folded[app_id] = (held, min(first, created), max(last, updated))
     apps = OAuthApplication.objects.in_bulk(list(folded))
+    # Every credential table cascades from the app, so an id folded above but missing here
+    # means the app was hard-deleted between the two statements. Skip it rather than 500.
     connections = [
         Connection(
             application=apps[app_id],
@@ -229,5 +231,6 @@ def connections_for(user: RevelUser) -> list[Connection]:
             last_used_at=last,
         )
         for app_id, (held, first, last) in folded.items()
+        if app_id in apps
     ]
     return sorted(connections, key=lambda connection: connection.last_used_at, reverse=True)

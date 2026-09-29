@@ -5,8 +5,9 @@ a regeneration of ``0001_initial``. ``django_celery_beat.PeriodicTask`` referenc
 registered *name* string, which is why every ``@shared_task`` in this app pins ``name=``.
 
 Both run daily in the small hours, ten minutes apart so the prune sees a table ``cleartokens``
-has already tidied: an app whose only credential was an expired access token is then genuinely
-unused rather than looking used because of a dead row.
+has already tidied. The ordering is belt and braces rather than load-bearing: the prune keys
+on ``last_used_at``, which every token issuance stamps, so an app that ever held a real token
+is kept whether or not its rows have since been reaped.
 """
 
 import typing as t
