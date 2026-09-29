@@ -27,6 +27,7 @@ handler directly:
 
 import json
 import typing as t
+from urllib.parse import urlencode
 
 import pytest
 from django.http import HttpRequest
@@ -98,6 +99,33 @@ class TestAuthorizationRequestErrorContracts:
         query = authorize_query(public_oauth_app, "", "openid", code_challenge="", code_challenge_method="")
         response = session_client.get("/api/oauth/authorize", query)
         assert_authorization_error_body(response, "invalid_request")
+
+    def test_unknown_client_is_invalid_client(self, session_client: Client, public_oauth_app: OAuthApplication) -> None:
+        """#1025: the consent page tells "unknown app" apart from a malformed request."""
+        _, challenge = pkce()
+        query = {**authorize_query(public_oauth_app, challenge, "openid"), "client_id": "not-a-registered-client"}
+        response = session_client.get("/api/oauth/authorize", query)
+        assert_authorization_error_body(response, "invalid_client")
+
+    def test_deactivated_client_is_invalid_client(
+        self, session_client: Client, public_oauth_app: OAuthApplication
+    ) -> None:
+        OAuthApplication.objects.filter(pk=public_oauth_app.pk).update(is_active=False)
+        _, challenge = pkce()
+        response = session_client.get("/api/oauth/authorize", authorize_query(public_oauth_app, challenge, "openid"))
+        assert_authorization_error_body(response, "invalid_client")
+
+    def test_unknown_client_is_invalid_client_on_decide(
+        self, session_client: Client, public_oauth_app: OAuthApplication
+    ) -> None:
+        _, challenge = pkce()
+        query = {**authorize_query(public_oauth_app, challenge, "openid"), "client_id": "not-a-registered-client"}
+        response = session_client.post(
+            authorize_url(public_oauth_app, challenge, "openid").split("?")[0] + "?" + urlencode(query),
+            {"allow": True, "consent_ticket": "irrelevant"},
+            content_type="application/json",
+        )
+        assert_authorization_error_body(response, "invalid_client")
 
 
 class TestConsentTicketErrorContracts:

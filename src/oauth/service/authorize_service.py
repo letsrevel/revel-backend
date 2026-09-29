@@ -22,6 +22,7 @@ from oauth2_provider.exceptions import OAuthToolkitError
 from oauth2_provider.models import AccessToken, RefreshToken
 from oauth2_provider.oauth2_backends import get_oauthlib_core
 from oauth2_provider.oauth2_validators import is_valid_resource_uri
+from oauthlib.oauth2.rfc6749.errors import InvalidClientIdError
 
 from accounts.models import RevelUser
 from oauth.exceptions import AuthorizationRequestError, OAuthProviderDisabledError
@@ -75,6 +76,11 @@ def _as_error(exc: OAuthToolkitError) -> AuthorizationRequestError:
     understanding the error". oauthlib leaves some errors (``invalid_scope``) with no
     description at all, hence the error code as the last resort.
 
+    An unknown (or deactivated) ``client_id`` is reported as ``invalid_client`` rather than
+    oauthlib's ``invalid_request`` (#1025), so the consent page can say it does not recognize
+    the app. RFC 6749 reserves ``invalid_client`` for the token endpoint, but this code only
+    ever reaches our own frontend: a fatal client error is never redirected to the client.
+
     Args:
         exc: The error DOT's core raised.
 
@@ -82,7 +88,8 @@ def _as_error(exc: OAuthToolkitError) -> AuthorizationRequestError:
         The equivalent ``AuthorizationRequestError``.
     """
     err = exc.oauthlib_error
-    return AuthorizationRequestError(err.error, err.description or err.error)
+    error = "invalid_client" if isinstance(err, InvalidClientIdError) else err.error
+    return AuthorizationRequestError(error, err.description or err.error)
 
 
 def _resource_indicators(request: HttpRequest) -> list[str]:

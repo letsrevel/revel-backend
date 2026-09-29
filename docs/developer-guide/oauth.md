@@ -304,7 +304,7 @@ evaluations. `org:read`'s label covers the first and not the second.
 
 | Status | Body / header | Meaning |
 |---|---|---|
-| `400` | `{"detail", "error": "invalid_scope" \| "invalid_request" \| …}` | The authorization request was refused; the consent page renders it. |
+| `400` | `{"detail", "error": "invalid_scope" \| "invalid_request" \| "invalid_client" \| …}` | The authorization request was refused; the consent page renders it. `invalid_client` means the `client_id` is unknown or the app is deactivated. |
 | `400` | `{"detail", "error": "consent_required"}` | The consent screen expired — show it again. |
 | `401` | `WWW-Authenticate: Bearer resource_metadata="…"` | No credentials were sent. Follow `resource_metadata` to discover the authorization server. |
 | `401` | `WWW-Authenticate: Bearer error="invalid_token", resource_metadata="…"` | Token unknown, expired, revoked, bound elsewhere, or its app or user was deactivated. Re-acquire it. |
