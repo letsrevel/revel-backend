@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.17.0] - 2026-09-29
+
 ### Added
 
 - **OAuth 2.1 / OpenID Connect provider**: third-party apps and MCP hosts can act on a user's behalf
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `features.oauth_provider`
 - Password registration accepts an optional `return_url` (a relative path such as `/oauth/authorize?...`). The verification email link carries it as `returnUrl`, so users who register from an OAuth consent page, event invite or gated tier land back there after verifying. Absolute and protocol-relative URLs are rejected with a 422.
 - `POST /api/accounts/verify-resend` accepts the same optional `return_url`, so a re-sent verification email keeps the user's destination (e.g. an OAuth consent page) instead of dropping it. Omitting it leaves the resend unchanged.
+- **Per-tier check-in windows**: organizers can restrict when each ticket tier can be checked in (e.g. Saturday-only and Sunday-only tickets for one event) via `check_in_opens_offset` / `check_in_closes_offset` on `TicketTier`. The offsets are measured from the event start in the event's local time, so recurring, duplicated and rescheduled events keep correct windows. Each unset offset falls back to the event's check-in window. The public tier schema exposes the resolved `effective_check_in_opens_at` / `effective_check_in_closes_at`, and a closed tier window rejects check-in with a message that names the tier.
 
 ### Changed
 
@@ -32,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   revoking their tokens — so every user of such an app loses access, not just the banned owner.
   Deliberate: a ban that leaves the banned party operating a client against other people's data has not
   ended their access. Reversible by reactivating the app
+
+### Fixed
+
+- Fixed-amount discount codes scoped to ticket tiers can now be created. They take their currency from the selected tiers instead of failing with `422 Currency is required`. Tiers in mixed currencies, or an explicit currency that doesn't match the tiers, are rejected with a 400.
+
+### Security
+
+- Bans and hard blacklists now hide an organization and its events, ticket tiers, polls and resources from the affected user in every case. Before, access through membership, staff, invitation, RSVP or event-token still let them in. Two exceptions remain: a ticket holder can still open the event their ticket (including a cancelled one) belongs to, and an organization's owner always sees their own organization.
 
 ## [2.16.0] - 2026-09-27
 
