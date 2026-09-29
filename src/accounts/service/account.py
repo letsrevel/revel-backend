@@ -247,7 +247,7 @@ def verify_email(token: str) -> RevelUser:
     raise HttpError(400, str(_("A user with this email no longer exists.")))
 
 
-def resend_verification_email(email: str) -> None:
+def resend_verification_email(email: str, *, return_url: str | None = None) -> None:
     """Resend verification email for a user.
 
     Silently handles all cases to prevent user enumeration:
@@ -257,6 +257,8 @@ def resend_verification_email(email: str) -> None:
 
     Args:
         email (str): The email address of the user.
+        return_url: Optional relative path (validated by ``ResendVerificationSchema``)
+            carried in the verification link as ``returnUrl``.
     """
     logger.info("verification_email_resend_requested", email=email)
     try:
@@ -280,7 +282,7 @@ def resend_verification_email(email: str) -> None:
         logger.info("verification_email_resend_blocked_banned_user", user_id=str(user.id), email=email)
         return None
 
-    send_verification_email_for_user(user)
+    send_verification_email_for_user(user, return_url=return_url)
     return None
 
 

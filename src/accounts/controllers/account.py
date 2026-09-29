@@ -162,14 +162,15 @@ class AccountController(UserAwareController):
         auth=None,
         throttle=UserRegistrationThrottle(),
     )
-    def resend_verification_email(self, payload: EmailSchema) -> ResponseMessage:
+    def resend_verification_email(self, payload: schema.ResendVerificationSchema) -> ResponseMessage:
         """Resend the email verification link for a given email address.
 
         Use this if the original verification email was lost or expired. Always returns a
         success message to prevent user enumeration attacks. The email is only sent if the
-        account exists and is not yet verified.
+        account exists and is not yet verified. An optional relative ``return_url`` is carried
+        in the verification link as ``returnUrl``, exactly as ``POST /register`` does.
         """
-        account_service.resend_verification_email(payload.email)
+        account_service.resend_verification_email(payload.email, return_url=payload.return_url)
         return ResponseMessage(message=str(_("Verification email sent.")))
 
     @route.post(
