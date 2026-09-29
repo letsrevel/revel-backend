@@ -297,6 +297,9 @@ msgstr "El nuevo correo electrónico es el mismo que el actual."
 msgid "This email is already in use."
 msgstr "Este correo electrónico ya está en uso."
 
+msgid "This email change link is no longer valid. Please request a new one."
+msgstr "Este enlace para cambiar el correo electrónico ya no es válido. Solicita uno nuevo."
+
 msgid ""
 "You cannot delete your account while you own organizations. Please contact "
 "support to transfer ownership or delete the organizations first."
@@ -1718,7 +1721,9 @@ msgstr ""
 "inicio de la venta."
 
 msgid "Check-in offset must be within 364 days of the event start."
-msgstr "El desfase del check-in debe estar dentro de los 364 días desde el inicio del evento."
+msgstr ""
+"El desfase del check-in debe estar dentro de los 364 días desde el inicio "
+"del evento."
 
 msgid ""
 "Maximum pay-what-you-can amount must be greater than or equal to minimum "
