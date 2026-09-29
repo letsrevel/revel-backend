@@ -13,6 +13,7 @@ from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_serializer, fi
 from accounts.password_validation import validate_password
 from common.schema import (
     BillingInfoSchemaMixin,
+    EmailSchema,
     ProfilePictureSchemaMixin,
     StrippedString,
     VATCountryCode,
@@ -162,20 +163,26 @@ class PasswordMixin(Schema):
         return self
 
 
+# Relative path only: one leading slash, not followed by "/" or "\" (protocol-relative /
+# backslash host smuggling), and no whitespace or C0/C1 control characters anywhere. Shared by the
+# registration and verify-resend payloads so the two can't drift apart.
+VerificationReturnUrl = t.Annotated[
+    str | None,
+    Field(
+        max_length=2048,
+        pattern=r"^/(?:[^/\\\s\x00-\x1f\x7f-\x9f][^\s\x00-\x1f\x7f-\x9f]*)?$",
+        description="Relative path the verification link sends the user back to after verifying.",
+    ),
+]
+
+
 class RegisterUserSchema(PasswordMixin):
     email: EmailStr
     first_name: StrippedString = ""
     last_name: StrippedString = ""
     referral_code: StrippedString | None = None
     accept_toc_and_privacy: bool = Field(..., description="Must accept terms of service and privacy policy")
-    # Relative path only: one leading slash, not followed by "/" or "\" (protocol-relative /
-    # backslash host smuggling), and no whitespace or C0/C1 control characters anywhere.
-    return_url: str | None = Field(
-        default=None,
-        max_length=2048,
-        pattern=r"^/(?:[^/\\\s\x00-\x1f\x7f-\x9f][^\s\x00-\x1f\x7f-\x9f]*)?$",
-        description="Relative path the verification link sends the user back to after verifying.",
-    )
+    return_url: VerificationReturnUrl = None
 
     @field_validator("email")
     @classmethod
@@ -203,6 +210,10 @@ class RegisterUserSchema(PasswordMixin):
 
 class VerifyEmailSchema(Schema):
     token: str
+
+
+class ResendVerificationSchema(EmailSchema):
+    return_url: VerificationReturnUrl = None
 
 
 class BaseEmailJWTPayloadSchema(Schema):
