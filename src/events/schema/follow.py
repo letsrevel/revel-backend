@@ -27,19 +27,22 @@ class OrganizationFollowSchema(Schema):
         """Create schema from OrganizationFollow model instance.
 
         Args:
-            follow: OrganizationFollow instance with organization prefetched.
+            follow: OrganizationFollow with organization prefetched and the
+                ``announcements_muted`` annotation (see ``follow_service``).
 
         Returns:
             OrganizationFollowSchema instance.
         """
-        return cls(
-            id=follow.id,
-            organization=MinimalOrganizationSchema.model_validate(follow.organization, from_attributes=True),
-            notify_new_events=follow.notify_new_events,
-            notify_announcements=follow.notify_announcements,
-            is_public=follow.is_public,
-            created_at=follow.created_at,
-        )
+        return cls.model_validate(follow)
+
+    @staticmethod
+    def resolve_notify_announcements(obj: OrganizationFollow) -> bool:
+        """Effective opt-in: the per-org mute on notification preferences is the truth (#1031).
+
+        The legacy ``notify_announcements`` column is not read. Requires the
+        ``announcements_muted`` annotation from ``follow_service`` (fails loudly without it).
+        """
+        return not getattr(obj, "announcements_muted")
 
 
 class EventSeriesFollowSchema(Schema):

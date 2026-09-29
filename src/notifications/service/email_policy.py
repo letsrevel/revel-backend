@@ -1,5 +1,6 @@
 """Who Revel may email: user preferences and the address-level suppression list."""
 
+from collections.abc import Iterable
 from uuid import UUID
 
 from django.db import transaction
@@ -49,6 +50,23 @@ def suppression_for(email: str, *, include_opt_out: bool = False) -> EmailSuppre
     if not include_opt_out:
         qs = qs.exclude(reason=EmailSuppression.Reason.INVITATION_OPT_OUT)
     return qs.first()
+
+
+def suppressed_addresses(emails: Iterable[str]) -> set[str]:
+    """Batch form of :func:`suppression_for` for mail to users (opt-outs ignored).
+
+    Args:
+        emails: Raw addresses; normalized before lookup.
+
+    Returns:
+        The normalized addresses among ``emails`` that are suppressed.
+    """
+    normalized = {normalize_email_for_matching(email) for email in emails if email}
+    return set(
+        EmailSuppression.objects.filter(email__in=normalized)
+        .exclude(reason=EmailSuppression.Reason.INVITATION_OPT_OUT)
+        .values_list("email", flat=True)
+    )
 
 
 def suppress(

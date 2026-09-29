@@ -16,6 +16,7 @@ from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
 from common.service.invoice_utils import get_next_sequential_number, render_pdf
+from common.utils import apex_email_domain
 from events.models.attendee_invoice import (
     AttendeeInvoice,
     AttendeeInvoiceCreditNote,
@@ -390,7 +391,7 @@ def _send_org_branded_email(
         subject=subject,
         body=body,
         html_body=html_body,
-        from_email=formataddr((org_billing_name, f"{org_slug}@letsrevel.io")),
+        from_email=formataddr((org_billing_name, f"{org_slug}@{apex_email_domain()}")),
         reply_to=[reply_to_email] if reply_to_email else None,
         bcc=[bcc_email] if bcc_email else None,
         attachment_storage_path=attachment_path,

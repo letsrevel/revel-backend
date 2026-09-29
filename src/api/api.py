@@ -41,7 +41,9 @@ from events.controllers.stripe_webhook import StripeWebhookController
 from events.controllers.user_preferences import UserPreferencesController
 from geo.controllers.cities import CityController
 from integrations.controllers import INTEGRATION_CONTROLLERS
+from notifications.controllers.email_events_controller import EmailEventsController
 from notifications.controllers.notification_controller import NotificationController
+from notifications.controllers.one_click_controller import OneClickUnsubscribeController
 from notifications.controllers.preference_controller import NotificationPreferenceController
 from oauth.controllers import OAUTH_CONTROLLERS
 from oauth.utils import oauth_provider_enabled
@@ -203,6 +205,8 @@ api.register_controllers(
     # Notification controllers
     NotificationController,
     NotificationPreferenceController,
+    OneClickUnsubscribeController,
+    EmailEventsController,
     # Poll controllers
     *POLL_CONTROLLERS,
     # Telegram controllers

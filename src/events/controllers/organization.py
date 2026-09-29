@@ -501,13 +501,9 @@ class OrganizationController(UserAwareController):
         is_following = follow_service.is_following_organization(self.user(), organization)
 
         if is_following:
-            follow = models.OrganizationFollow.objects.select_related("organization").get(
-                user=self.user(), organization=organization, is_archived=False
-            )
-            return schema.OrganizationFollowStatusSchema(
-                is_following=True,
-                follow=schema.OrganizationFollowSchema.from_model(follow),
-            )
+            follow = follow_service.get_organization_follow(self.user(), organization)
+            # Validate from the annotated model so the notify_announcements resolver sees it.
+            return schema.OrganizationFollowStatusSchema.model_validate({"is_following": True, "follow": follow})
 
         return schema.OrganizationFollowStatusSchema(is_following=False, follow=None)
 

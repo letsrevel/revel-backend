@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.utils import timezone
 
-from notifications.enums import DeliveryChannel, DeliveryStatus
+from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.email import EmailChannel
 from notifications.service.channels.in_app import InAppChannel
@@ -88,6 +88,8 @@ class TestEmailChannel:
     ) -> None:
         """Test that can_deliver checks if email channel is enabled."""
         # Arrange
+        # TICKET_CREATED is mandatory (can't be opted out of, #1030); use an ordinary type.
+        notification.notification_type = NotificationType.EVENT_UPDATED
         prefs = notification.user.notification_preferences
         prefs.enabled_channels = [DeliveryChannel.IN_APP]  # Disable email
         prefs.save()
@@ -106,6 +108,8 @@ class TestEmailChannel:
     ) -> None:
         """Test that can_deliver checks if notification type is enabled."""
         # Arrange
+        # TICKET_CREATED is mandatory (can't be opted out of, #1030); use an ordinary type.
+        notification.notification_type = NotificationType.EVENT_UPDATED
         prefs = notification.user.notification_preferences
         prefs.notification_type_settings = {notification.notification_type: {"enabled": False}}
         prefs.save()

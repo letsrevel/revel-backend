@@ -10,3 +10,6 @@
 {% endif %}{% if event_start_formatted %}{% include "notifications/email/_timezone_note.txt" %}
 {% endif %}
 {%trans "Sign up to accept this invitation:" %} {{ signup_url }}
+
+---
+{% trans "Don't want invitations from Revel organizers? Stop these emails:" %} {{ opt_out_link }}

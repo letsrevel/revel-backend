@@ -4,7 +4,7 @@ import typing as t
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Model, QuerySet
+from django.db.models import Exists, Model, OuterRef, QuerySet
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -13,6 +13,8 @@ from common.models import SiteSettings
 from events.models import EventSeries, Organization, OrganizationMember
 from events.models.follow import EventSeriesFollow, OrganizationFollow
 from notifications.enums import NotificationType
+from notifications.models import NotificationPreference
+from notifications.service import announcement_mute
 from notifications.service.notification_helpers import notify_org_staff
 
 # Type variable for follow models
@@ -95,6 +97,29 @@ def _archive_follow(
     follow.save(update_fields=["is_archived"])
 
 
+def _with_announcements_muted(qs: QuerySet[OrganizationFollow]) -> QuerySet[OrganizationFollow]:
+    """Annotate ``announcements_muted`` from the per-org mute (#1031), one subquery, no N+1.
+
+    ``OrganizationFollowSchema`` reports ``notify_announcements = not announcements_muted``.
+    """
+    muted = NotificationPreference.muted_organizations.through.objects.filter(
+        notificationpreference__user_id=OuterRef("user_id"),
+        organization_id=OuterRef("organization_id"),
+    )
+    return qs.annotate(announcements_muted=Exists(muted))
+
+
+def get_organization_follow(user: RevelUser, organization: Organization) -> OrganizationFollow:
+    """Get the user's active follow of an organization, ready for ``OrganizationFollowSchema``.
+
+    Raises:
+        OrganizationFollow.DoesNotExist: If the user is not following the organization.
+    """
+    return _with_announcements_muted(OrganizationFollow.objects.with_organization()).get(
+        user=user, organization=organization, is_archived=False
+    )
+
+
 def follow_organization(
     user: RevelUser,
     organization: Organization,
@@ -108,10 +133,11 @@ def follow_organization(
         user: The user who wants to follow
         organization: The organization to follow
         notify_new_events: Whether to receive notifications for new events
-        notify_announcements: Whether to receive notifications for announcements
+        notify_announcements: ``False`` mutes the organization's announcements; ``True``
+            never removes an existing mute (the mute lives on notification preferences)
 
     Returns:
-        The created or reactivated OrganizationFollow instance
+        The created or reactivated OrganizationFollow instance (annotated for the schema)
 
     Raises:
         HttpError: If the organization is not visible to the user
@@ -119,7 +145,7 @@ def follow_organization(
     if not Organization.objects.for_user(user).filter(pk=organization.pk).exists():
         raise HttpError(404, str(_("Organization not found")))
 
-    follow = _get_or_reactivate_follow(
+    _get_or_reactivate_follow(
         model=OrganizationFollow,
         user=user,
         target_field="organization",
@@ -127,12 +153,11 @@ def follow_organization(
         defaults={"notify_new_events": notify_new_events, "notify_announcements": notify_announcements},
         already_following_message=str(_("Already following this organization")),
     )
-
-    # Ensure organization is attached for schema serialization
-    follow.organization = organization
+    if not notify_announcements:
+        announcement_mute.mute_organization(user, organization)
 
     _send_org_follow_notification(user, organization)
-    return follow
+    return get_organization_follow(user, organization)
 
 
 def _send_org_follow_notification(user: RevelUser, organization: Organization) -> None:
@@ -179,7 +204,7 @@ def unfollow_organization(user: RevelUser, organization: Organization) -> None:
 
 def get_user_followed_organizations(user: RevelUser) -> QuerySet[OrganizationFollow]:
     """Get all organizations followed by a user."""
-    return OrganizationFollow.objects.active().for_user(user).with_organization()
+    return _with_announcements_muted(OrganizationFollow.objects.active().for_user(user).with_organization())
 
 
 def update_organization_follow_preferences(
@@ -195,10 +220,11 @@ def update_organization_follow_preferences(
         user: The user
         organization: The organization
         notify_new_events: New value for notify_new_events (if provided)
-        notify_announcements: New value for notify_announcements (if provided)
+        notify_announcements: If provided, ``False`` mutes and ``True`` unmutes the
+            organization's announcements (per-org mute on notification preferences)
 
     Returns:
-        Updated OrganizationFollow instance
+        Updated OrganizationFollow instance (annotated for the schema)
 
     Raises:
         HttpError: If not following
@@ -218,11 +244,10 @@ def update_organization_follow_preferences(
 
     if update_fields:
         follow.save(update_fields=update_fields)
+    if notify_announcements is not None:
+        announcement_mute.set_organization_muted(user, organization, muted=not notify_announcements)
 
-    # Ensure organization is attached for schema serialization
-    follow.organization = organization
-
-    return follow
+    return get_organization_follow(user, organization)
 
 
 def follow_event_series(

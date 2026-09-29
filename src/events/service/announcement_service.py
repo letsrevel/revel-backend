@@ -9,7 +9,7 @@ from uuid import UUID
 
 import structlog
 from django.db import transaction
-from django.db.models import F, QuerySet
+from django.db.models import F, Q, QuerySet
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -419,7 +419,12 @@ def get_recipient_count(announcement: Announcement) -> int:
     Returns:
         Number of users who would receive the announcement.
     """
-    return get_recipients(announcement).count()
+    return get_recipients(announcement).exclude(_muted_by_q(announcement)).count()
+
+
+def _muted_by_q(announcement: Announcement) -> Q:
+    """Users who muted the announcement's organization (per-org opt-out, #1031)."""
+    return Q(notification_preferences__muted_organizations=announcement.organization_id)
 
 
 @transaction.atomic
@@ -445,7 +450,8 @@ def send_announcement(announcement: Announcement) -> int:
         raise ValueError(str(_("Only draft or scheduled announcements can be sent")))
 
     recipients = list(get_recipients(announcement).select_related("notification_preferences"))
-    recipient_count = len(recipients)
+    # Muted users are dropped inside _deliver_to_recipients, so the count reflects actual sends.
+    recipient_count = _deliver_to_recipients(announcement, recipients)
 
     announcement.status = Announcement.AnnouncementStatus.SENT
     announcement.sent_at = timezone.now()
@@ -456,7 +462,6 @@ def send_announcement(announcement: Announcement) -> int:
         logger.info("announcement_sent_no_recipients", announcement_id=str(announcement.id))
         return 0
 
-    _deliver_to_recipients(announcement, recipients)
     logger.info("announcement_sent", announcement_id=str(announcement.id), recipient_count=recipient_count)
     return recipient_count
 
@@ -514,7 +519,10 @@ def resend_to_new_recipients(announcement: Announcement) -> int:
 def _deliver_to_recipients(announcement: Announcement, recipients: list[RevelUser]) -> int:
     """Create notifications for the given recipients and dispatch them.
 
-    Shared by the initial send, the scheduled send, and the resend-to-new-signups flow.
+    Shared by the initial send, the scheduled send, and the resend-to-new-signups flow, so
+    this is the single choke point for the per-organization announcement mute (#1031):
+    users who muted the organization are dropped here. A muted user stays in the resend
+    delta (they hold no notification) but is skipped again on every sweep, never counted.
 
     Args:
         announcement: Announcement providing the notification context.
@@ -525,6 +533,10 @@ def _deliver_to_recipients(announcement: Announcement, recipients: list[RevelUse
     """
     from notifications.tasks import dispatch_notifications_batch
 
+    if recipients:
+        # One query over the org's muters (small set) instead of one per recipient.
+        muted_ids = set(RevelUser.objects.filter(_muted_by_q(announcement)).values_list("id", flat=True))
+        recipients = [user for user in recipients if user.id not in muted_ids]
     if not recipients:
         return 0
 

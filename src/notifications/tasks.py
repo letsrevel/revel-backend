@@ -286,17 +286,24 @@ def send_notification_digests() -> dict[str, t.Any]:
     Returns:
         Dict with digest stats
     """
+    from accounts.utils.email_normalization import normalize_email_for_matching
+    from notifications.enums import NotificationType
     from notifications.service.digest import (
         NotificationDigest,
         get_digest_lookback_period,
         get_pending_notifications_for_digest,
         should_send_digest_now,
     )
+    from notifications.service.email_policy import may_email, suppressed_addresses
 
-    # Get users who want digests (not immediate)
-    users_with_digests = NotificationPreference.objects.exclude(
-        digest_frequency=NotificationPreference.DigestFrequency.IMMEDIATE
-    ).select_related("user")
+    # Users who want digests (not immediate) and haven't opted out of email globally.
+    # Per-type opt-outs are applied per user below (#1030).
+    users_with_digests = list(
+        NotificationPreference.objects.exclude(digest_frequency=NotificationPreference.DigestFrequency.IMMEDIATE)
+        .filter(silence_all_notifications=False, enabled_channels__contains=[DeliveryChannel.EMAIL])
+        .select_related("user")
+    )
+    suppressed = suppressed_addresses(prefs.user.email for prefs in users_with_digests)
 
     digests_sent = 0
     digests_skipped = 0
@@ -307,12 +314,17 @@ def send_notification_digests() -> dict[str, t.Any]:
             digests_skipped += 1
             continue
 
+        if normalize_email_for_matching(prefs.user.email) in suppressed:
+            digests_skipped += 1
+            continue
+
         # Get lookback period
         lookback = get_digest_lookback_period(prefs.digest_frequency)
         since = timezone.now() - lookback
 
-        # Get pending notifications
-        pending = get_pending_notifications_for_digest(prefs.user, since)
+        # Pending notifications, restricted to the types the user may be emailed.
+        emailable_types = [t for t in NotificationType if may_email(prefs.user, t)]
+        pending = get_pending_notifications_for_digest(prefs.user, since).filter(notification_type__in=emailable_types)
 
         if not pending.exists():
             continue  # No notifications to send
@@ -394,9 +406,13 @@ def retry_failed_deliveries() -> dict[str, t.Any]:
     """
     twenty_four_hours_ago = timezone.now() - timedelta(hours=24)
 
-    failed_deliveries = NotificationDelivery.objects.filter(
-        status=DeliveryStatus.FAILED, retry_count__lt=5, created_at__gte=twenty_four_hours_ago
-    ).select_related("notification")
+    failed_deliveries = (
+        NotificationDelivery.objects.filter(
+            status=DeliveryStatus.FAILED, retry_count__lt=5, created_at__gte=twenty_four_hours_ago
+        )
+        .exclude(metadata__has_key="suppression_reason")  # permanent: address is suppressed
+        .select_related("notification")
+    )
 
     # Get list of deliveries to retry
     deliveries_to_retry = list(failed_deliveries)
@@ -449,7 +465,10 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
     from common.models import SiteSettings
     from common.tasks import send_email
     from events.models import PendingEventInvitation
+    from notifications.service.email_policy import suppression_for
     from notifications.service.notification_helpers import format_event_datetime
+    from notifications.service.org_sender import build_list_unsubscribe_headers, org_from_address, org_reply_to
+    from notifications.service.unsubscribe import generate_email_opt_out_token
 
     try:
         pending = PendingEventInvitation.objects.select_related("event", "event__organization", "event__city").get(
@@ -459,9 +478,20 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
         logger.warning("pending_invitation_not_found", pending_invitation_id=pending_invitation_id)
         return
 
+    suppression = suppression_for(pending.email, include_opt_out=True)
+    if suppression is not None:
+        logger.info(
+            "pending_invitation_email_suppressed",
+            pending_invitation_id=pending_invitation_id,
+            reason=suppression.reason,
+        )
+        return
+
     event = pending.event
+    org = event.organization
     site_settings = SiteSettings.get_solo()
     frontend_base_url = site_settings.frontend_base_url
+    opt_out_token = generate_email_opt_out_token(pending.email, organization_id=org.id)
 
     context = {
         "event_name": event.name,
@@ -472,6 +502,7 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
         "organization_name": event.organization.name,
         "signup_url": f"{frontend_base_url}/auth/register",
         "frontend_base_url": frontend_base_url,
+        "opt_out_link": f"{frontend_base_url}/unsubscribe?token={opt_out_token}",
     }
 
     subject = _("You're invited: %(event_name)s") % {"event_name": event.name}
@@ -483,6 +514,12 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
         subject=subject,
         body=txt_body,
         html_body=html_body,
+        from_email=org_from_address(org),
+        reply_to=org_reply_to(org) or None,
+        headers={
+            **build_list_unsubscribe_headers(opt_out_token),
+            "X-Mailin-custom": f"invitation:{pending.id}|org:{org.id}",
+        },
     )
 
     logger.info(

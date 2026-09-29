@@ -11,9 +11,17 @@ from django.utils import timezone
 
 from common.models import EmailLog, SiteSettings
 from common.tasks import to_safe_email_address
-from notifications.enums import DeliveryChannel, DeliveryStatus
+from notifications.enums import ORG_SENDER_TYPES, DeliveryChannel, DeliveryStatus
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.base import NotificationChannel
+from notifications.service.email_policy import may_email, suppression_for
+from notifications.service.org_sender import (
+    build_list_unsubscribe_headers,
+    org_from_address,
+    org_reply_to,
+    resolve_sender_org,
+)
+from notifications.service.unsubscribe import generate_unsubscribe_token
 
 logger = structlog.get_logger(__name__)
 
@@ -34,32 +42,21 @@ class EmailChannel(NotificationChannel):
         Returns:
             True if email can be delivered
         """
-        prefs = notification.user.notification_preferences
-
-        # Check if email channel is enabled
-        if not prefs.is_channel_enabled(DeliveryChannel.EMAIL):
-            logger.debug(
-                "email_channel_disabled",
-                notification_id=str(notification.id),
-                user_id=str(notification.user.id),
-            )
-            return False
-
-        # Check if notification type is enabled
-        if not prefs.is_notification_type_enabled(notification.notification_type):
-            logger.debug(
-                "notification_type_disabled",
-                notification_id=str(notification.id),
-                notification_type=notification.notification_type,
-                user_id=str(notification.user.id),
-            )
-            return False
-
-        # Check if user has valid email
         if not notification.user.email:
             logger.warning(
                 "user_missing_email",
                 notification_id=str(notification.id),
+                user_id=str(notification.user.id),
+            )
+            return False
+
+        # One shared preference check (silence, email switch, per-type disables;
+        # mandatory types bypass them) — see email_policy.may_email (#1030).
+        if not may_email(notification.user, notification.notification_type):
+            logger.debug(
+                "email_not_allowed_by_preferences",
+                notification_id=str(notification.id),
+                notification_type=notification.notification_type,
                 user_id=str(notification.user.id),
             )
             return False
@@ -81,6 +78,24 @@ class EmailChannel(NotificationChannel):
         delivery.attempted_at = timezone.now()
         delivery.retry_count += 1
 
+        suppression = suppression_for(notification.user.email)
+        if suppression is not None:
+            # Permanent: returning False (no raise) means no Celery retry, and
+            # retry_failed_deliveries skips rows carrying suppression_reason.
+            delivery.status = DeliveryStatus.FAILED
+            delivery.metadata["suppression_reason"] = suppression.reason
+            delivery.error_message = f"suppressed:{suppression.reason}"
+            delivery.save(
+                update_fields=["status", "metadata", "error_message", "retry_count", "attempted_at", "updated_at"]
+            )
+            logger.info(
+                "email_notification_suppressed",
+                notification_id=str(notification.id),
+                user_id=str(notification.user.id),
+                reason=suppression.reason,
+            )
+            return False
+
         try:
             # Get email template
             from notifications.service.templates.registry import get_template
@@ -101,12 +116,16 @@ class EmailChannel(NotificationChannel):
             site_settings = SiteSettings.get_solo()
             recipient = to_safe_email_address(notification.user.email, site_settings=site_settings)
 
+            from_email, reply_to, headers = self._envelope(notification, delivery)
+
             # Build email
             email_msg = EmailMultiAlternatives(
                 subject=subject,
                 body=text_body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
+                from_email=from_email,
                 to=[recipient],
+                reply_to=reply_to,
+                headers=headers,
             )
 
             if html_body:
@@ -170,6 +189,29 @@ class EmailChannel(NotificationChannel):
             )
 
             return False
+
+    @staticmethod
+    def _envelope(notification: Notification, delivery: NotificationDelivery) -> tuple[str, list[str], dict[str, str]]:
+        """Sender, Reply-To and extra headers for a notification email.
+
+        Org-sender types whose organization resolves go out as ``"<Org> via Revel"``
+        with the org's verified Reply-To, one-click List-Unsubscribe and a Feedback-ID;
+        everything else uses the system sender. ``X-Mailin-custom`` lets provider
+        webhooks correlate bounces/complaints back to the delivery (and org).
+        """
+        headers = {"X-Mailin-custom": f"delivery:{delivery.id}"}
+        notification_type = notification.notification_type
+        org = resolve_sender_org(notification) if notification_type in ORG_SENDER_TYPES else None
+        if org is None:
+            return settings.DEFAULT_FROM_EMAIL, [], headers
+
+        token = generate_unsubscribe_token(
+            notification.user, notification_type=notification_type, organization_id=org.id
+        )
+        headers.update(build_list_unsubscribe_headers(token))
+        headers["Feedback-ID"] = f"{org.slug}:{notification_type}:revel"
+        headers["X-Mailin-custom"] = f"delivery:{delivery.id}|org:{org.id}"
+        return org_from_address(org), org_reply_to(org), headers
 
     def should_retry(self, error: Exception) -> bool:
         """Determine if email delivery should be retried.

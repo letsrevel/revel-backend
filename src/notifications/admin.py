@@ -17,7 +17,7 @@ from accounts.models import RevelUser
 from common.fields import sanitize_html
 from notifications.context_schemas import SystemAnnouncementContext
 from notifications.enums import NotificationType
-from notifications.models import Notification, NotificationDelivery, NotificationPreference
+from notifications.models import EmailSuppression, Notification, NotificationDelivery, NotificationPreference
 from notifications.service.dispatcher import NotificationData, bulk_create_notifications
 from notifications.tasks import dispatch_notifications_batch
 
@@ -451,3 +451,20 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         return ", ".join(obj.enabled_channels)
 
     channels_display.short_description = "Enabled Channels"  # type: ignore[attr-defined]
+
+
+@admin.register(EmailSuppression)
+class EmailSuppressionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    """Addresses Revel won't email. Deleting a row clears the suppression.
+
+    Per-org complaint count (abuse triage): filter reason = "Spam complaint" + organization.
+    """
+
+    list_display = ["email", "reason", "source", "organization", "created_at", "updated_at"]
+    list_select_related = ["organization"]
+    list_filter = ["reason", "source", ("organization", admin.RelatedOnlyFieldListFilter)]
+    search_fields = ["email"]
+    autocomplete_fields = ["organization"]
+    readonly_fields = ["created_at", "updated_at"]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]

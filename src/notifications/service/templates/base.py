@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 
 from django.template.loader import render_to_string
 
+from notifications.enums import NotificationType
 from notifications.models import Notification
 from notifications.utils import get_formatted_context_for_template
 
@@ -159,8 +160,15 @@ class NotificationTemplate(ABC):
             user_language=user_language,
         )
 
-        # Generate unsubscribe token and link
-        unsubscribe_token = generate_unsubscribe_token(user)
+        # Typed token (same scope as the List-Unsubscribe header). The org id only
+        # matters for ORG_ANNOUNCEMENT (one-click mutes that org), whose context
+        # always carries it; taken from the context to avoid a query per render.
+        is_announcement = notification.notification_type == NotificationType.ORG_ANNOUNCEMENT
+        unsubscribe_token = generate_unsubscribe_token(
+            user,
+            notification_type=notification.notification_type,
+            organization_id=notification.context.get("organization_id") if is_announcement else None,
+        )
         site_settings = SiteSettings.get_solo()
         unsubscribe_link = f"{site_settings.frontend_base_url}/unsubscribe?token={unsubscribe_token}"
         enriched_context["unsubscribe_link"] = unsubscribe_link

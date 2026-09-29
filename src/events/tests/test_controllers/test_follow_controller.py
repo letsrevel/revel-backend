@@ -57,8 +57,9 @@ class TestOrganizationFollowEndpoints:
                 organization=organization,
                 is_archived=False,
                 notify_new_events=True,
-                notify_announcements=False,
             )
+            # notify_announcements is a facade over the per-org mute (#1031)
+            user.notification_preferences.muted_organizations.add(organization)
 
             # Act
             url = reverse("api:get_organization_follow_status", kwargs={"slug": organization.slug})
