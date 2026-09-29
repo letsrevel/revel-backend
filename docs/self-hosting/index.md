@@ -99,11 +99,12 @@ setup wizard can do steps 1–2 for you.
     Inside a running stack, `docker compose exec web python manage.py generate_oidc_signing_key
     --out /app/certs/oidc.pem` produces the same format. The `chmod 644` is not optional: the
     command writes the file `0600` for your host user, but the containers run as uid 997. An
-    unreadable key leaves the provider **silently off** (see
-    [Troubleshooting](troubleshooting.md#oauth-provider-stays-off)).
+    unreadable key **stops `web` from starting**: its entrypoint runs `migrate`, which fails the
+    `oauth.E002` system check (see
+    [Troubleshooting](troubleshooting.md#web-exits-on-startup-with-oauthe001-oauthe002)).
 
-2. **Set in `.env`** (`./certs` is already mounted read-only at `/app/certs` in `web` and
-   `celery_default`):
+2. **Set in `.env`** (`./certs` is mounted read-only at `/app/certs` in every service that
+   runs management commands: `web`, `celery_default` and `telegram`):
 
     ```bash
     OIDC_SIGNING_KEY_PATH=/app/certs/oidc.pem
@@ -116,7 +117,7 @@ setup wizard can do steps 1–2 for you.
 3. **Restart and verify:**
 
     ```bash
-    docker compose up -d web celery_default
+    docker compose up -d web celery_default telegram
     docker compose exec web python manage.py check      # no oauth.E001 / oauth.E002
     curl -s https://api.example.org/api/version          # features.oauth_provider: true
     curl -s https://api.example.org/.well-known/openid-configuration   # "issuer" equals OAUTH_ISSUER

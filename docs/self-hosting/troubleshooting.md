@@ -67,22 +67,26 @@ Caddy data volume causes 403s or TLS failures.
 (certificates and keys) is owned by the Caddy process and not world-writable. After fixing
 ownership, restart Caddy.
 
-## OAuth provider stays off
+## `web` exits on startup with `oauth.E001` / `oauth.E002`
 
-**Symptom:** after setting `OIDC_SIGNING_KEY_PATH` and `OAUTH_ISSUER`, `/api/version` still
-reports `features.oauth_provider: false` and `/.well-known/openid-configuration` returns `404`.
+**Symptom:** after setting `OIDC_SIGNING_KEY_PATH`, the API is down and `web` keeps restarting;
+`docker compose logs web` ends in `SystemCheckError` naming `oauth.E001` or `oauth.E002`. The
+`telegram` service crash-loops the same way.
 
-**Cause:** the provider enables itself only when the key is *readable* and an issuer is set, and
-it fails closed rather than crashing the stack. `docker compose exec web python manage.py check`
-says which:
+**Cause:** both are Error-level system checks, and `web`'s entrypoint runs `migrate` (which runs
+the checks) before starting gunicorn, so a half-configured provider stops the process rather than
+serving without it:
 
 - **`oauth.E002`** — the key cannot be read. Almost always file permissions: the containers run as
   uid 997, and `generate_oidc_signing_key` writes the key `0600` for your host user. Also check
-  the path is the *in-container* one (`/app/certs/oidc.pem`), not the host path.
+  the path is the *in-container* one (`/app/certs/oidc.pem`), not the host path, and that the
+  service mounts `./certs`.
 - **`oauth.E001`** — a key is configured but `OAUTH_ISSUER` is empty.
 
-**Fix:** `chmod 644 certs/oidc.pem` (or set `OAUTH_ISSUER`), then restart `web` and
-`celery_default`.
+**Fix:** `chmod 644 certs/oidc.pem` (or set `OAUTH_ISSUER`), confirm with
+`docker compose run --rm web python manage.py check`, then `docker compose up -d web
+celery_default telegram`. To get the API back immediately instead, comment out
+`OIDC_SIGNING_KEY_PATH` and restart: with no key configured the provider is simply off.
 
 ## OAuth clients get 403 / error 1010 from `/o/token`
 
