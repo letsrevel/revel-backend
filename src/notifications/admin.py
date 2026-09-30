@@ -466,5 +466,24 @@ class EmailSuppressionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     search_fields = ["email"]
     autocomplete_fields = ["organization"]
     readonly_fields = ["created_at", "updated_at"]
+    fields = ["email", "reason", "organization", "detail", "created_at", "updated_at"]
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
+
+    def has_change_permission(self, request: HttpRequest, obj: EmailSuppression | None = None) -> bool:
+        """Rows are immutable here: edits would bypass normalization and the rank rules."""
+        return False
+
+    def save_model(self, request: HttpRequest, obj: EmailSuppression, form: t.Any, change: bool) -> None:
+        """Route manual additions through ``suppress()`` (normalized address, rank-aware upsert)."""
+        from notifications.service.email_policy import suppress
+
+        row = suppress(
+            obj.email,
+            EmailSuppression.Reason(obj.reason),
+            EmailSuppression.Source.ADMIN,
+            organization_id=obj.organization_id,
+            detail=obj.detail,
+        )
+        obj.pk = row.pk
+        obj._state.adding = False

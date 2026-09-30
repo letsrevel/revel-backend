@@ -70,3 +70,36 @@ def test_delete_clears_suppression(admin_client: Client) -> None:
 
     assert response.status_code == 302
     assert not EmailSuppression.objects.exists()
+
+
+def test_admin_add_goes_through_suppress(admin_client: Client) -> None:
+    """A manual add is normalized and recorded as an admin suppression."""
+    url = reverse("admin:notifications_emailsuppression_add")
+    response = admin_client.post(
+        url, {"email": "Manual.Add+tag@Example.com", "reason": Reason.HARD_BOUNCE, "detail": ""}
+    )
+
+    assert response.status_code == 302
+    row = EmailSuppression.objects.get()
+    assert row.email == "manual.add@example.com"
+    assert row.source == Source.ADMIN
+
+
+def test_admin_add_never_downgrades_existing_row(admin_client: Client) -> None:
+    suppress("dup@example.com", Reason.COMPLAINT, Source.PROVIDER)
+    url = reverse("admin:notifications_emailsuppression_add")
+    admin_client.post(url, {"email": "dup@example.com", "reason": Reason.INVITATION_OPT_OUT, "detail": ""})
+
+    row = EmailSuppression.objects.get()
+    assert row.reason == Reason.COMPLAINT
+    assert row.source == Source.PROVIDER
+
+
+def test_admin_rows_are_not_editable(admin_client: Client) -> None:
+    row = suppress("ro@example.com", Reason.HARD_BOUNCE, Source.PROVIDER)
+    url = reverse("admin:notifications_emailsuppression_change", args=[row.pk])
+    admin_client.post(url, {"email": "other@example.com", "reason": Reason.COMPLAINT, "detail": ""})
+
+    row.refresh_from_db()
+    assert row.email == "ro@example.com"
+    assert row.reason == Reason.HARD_BOUNCE
