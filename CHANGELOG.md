@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.18.0] - 2026-09-30
+
 > **Deploy note:** leave `ORG_EMAIL_DOMAIN` unset until the sending domain passes DKIM and DMARC at
 > your SMTP provider. Unset, organization mail falls back to the domain of `DEFAULT_FROM_EMAIL`, so
 > this release is safe to deploy first. Ship the frontend unsubscribe page update (invitation
@@ -82,6 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Password-reset, verification, unsubscribe, signed-media and OAuth callback parameters (`token`,
   `sig`, `code`, `state`, access tokens), invitation-link tokens and the integrations webhook
   secret are redacted from tracing spans before export
+- `pyjwt` upgraded to 2.15.1 (minimum now 2.14.0) and `oauthlib` to 4.0.0 to pick up published
+  security fixes
 
 ## [2.17.0] - 2026-09-29
 
