@@ -24,6 +24,7 @@ from events.models import (
     RecurrenceRule,
     Ticket,
 )
+from notifications.models import EmailSuppression
 from questionnaires.models import Questionnaire
 
 
@@ -142,6 +143,13 @@ class Command(BaseCommand):
             # Delete all users with @example.com emails
             RevelUser.objects.filter(~Q(email__endswith="@letsrevel.io")).delete()
             self.stdout.write(self.style.SUCCESS(f"✓ Deleted {user_count} @example.com users"))
+
+            # Suppressions are keyed by address (+tags stripped), not by user, so they
+            # outlive the user sweep: one suppressed e2e+x@example.com would silence
+            # every seeded e2e+*@example.com mailbox across reseeds. Real addresses
+            # keep theirs — a genuine bounce/complaint must survive a demo reset.
+            EmailSuppression.objects.filter(email__endswith="@example.com").delete()
+            self.stdout.write(self.style.SUCCESS("✓ Deleted @example.com email suppressions"))
 
             # Clear on_commit hooks to prevent signals from trying to access deleted users
             # This prevents "DoesNotExist" errors when signals try to access cascade-deleted users
