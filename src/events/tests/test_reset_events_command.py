@@ -30,6 +30,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
+from notifications.models import EmailSuppression
 from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
@@ -115,6 +116,31 @@ class TestResetEventsCommand:
         # The subscriber user used a non-@letsrevel.io address, so they should
         # also have been swept up by the demo-user cleanup.
         assert not RevelUser.objects.filter(pk=demo_subscriber.pk).exists()
+
+    @override_settings(DEMO_MODE=True)
+    def test_clears_example_com_suppressions_only(self) -> None:
+        """Seeded-address suppressions are wiped; real-address ones survive.
+
+        Suppression is keyed by the +tag-stripped address, so a single suppressed
+        ``e2e+x@example.com`` silenced every seeded E2E mailbox and outlived reseeds.
+        A real bounce/complaint, though, must keep protecting sender reputation.
+        """
+        seeded = EmailSuppression.objects.create(
+            email="e2e@example.com",
+            reason=EmailSuppression.Reason.HARD_BOUNCE,
+            source=EmailSuppression.Source.PROVIDER,
+        )
+        real = EmailSuppression.objects.create(
+            email="someone@gmail.com",
+            reason=EmailSuppression.Reason.COMPLAINT,
+            source=EmailSuppression.Source.PROVIDER,
+        )
+
+        with patch("events.management.commands.reset_events.call_command"):
+            call_command("reset_events", "--no-input")
+
+        assert not EmailSuppression.objects.filter(pk=seeded.pk).exists()
+        assert EmailSuppression.objects.filter(pk=real.pk).exists()
 
     @override_settings(DEMO_MODE=True)
     def test_succeeds_with_tier_bearing_membership_application(
