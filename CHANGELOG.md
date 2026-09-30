@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> **Deploy note:** leave `ORG_EMAIL_DOMAIN` unset until the sending domain passes DKIM and DMARC at
+> your SMTP provider. Unset, organization mail falls back to the domain of `DEFAULT_FROM_EMAIL`, so
+> this release is safe to deploy first. Ship the frontend unsubscribe page update (invitation
+> opt-out tokens) before or with it.
+
+### Added
+
+- **Organization mail comes from the organization.** Announcements, invitations, event updates,
+  reminders and new-event mail go out as `"<Org> via Revel" <org-slug@ORG_EMAIL_DOMAIN>`, with the
+  organization's contact address as Reply-To once it is verified. The new optional
+  `ORG_EMAIL_DOMAIN` setting puts this mail on its own sending domain; unset, it uses the domain of
+  `DEFAULT_FROM_EMAIL`. Slugs that match role mailboxes (`abuse`, `postmaster`, `support`, …) send
+  from the platform address instead
+- **One-click unsubscribe** (RFC 8058) on organization mail and digests, so mail apps can show
+  their unsubscribe button. Unsubscribing from an announcement mutes that organization; from other
+  organization mail, stops email for that kind of mail; from a digest, stops email altogether
+- **Mute one organization's announcements** without touching anything else, via
+  `PUT`/`DELETE /api/notification-preferences/muted-organizations/{organization_id}`. Preferences now
+  return `muted_organization_ids`, and the GDPR export lists muted organizations
+- **People without an account can opt out of invitations**: invitation emails to them carry a
+  visible "Stop these emails" link and one-click unsubscribe, and later invitations to that address
+  are no longer sent
+- **Bounce and complaint suppression**: an optional Brevo webhook (`POST /api/email-events/brevo`,
+  enabled by `EMAIL_WEBHOOK_SECRET`) records hard bounces, spam complaints, blocked and invalid
+  addresses, and Revel stops emailing them. Admins can review and clear entries under **Email
+  Suppressions**, and filter complaints per organization
+
+### Changed
+
+- **Receipts and account notices can no longer be switched off.** Payment, ticket and subscription
+  receipts, ban notices and platform notices (Terms of Service, privacy) are always emailed and never
+  held for the digest, even with "silence all" or email turned off. Platform notices are never used
+  for promotional content
+- The follow setting "notify me about announcements" now controls the per-organization mute, and
+  existing opt-outs were carried over
+- Unsubscribe links in emails stay valid for about ten years (`UNSUBSCRIBE_TOKEN_LIFETIME_DAYS`,
+  default `3650`, was 30), and stop working when the account's email address changes
+- Attendee invoice emails use the deployment's own domain instead of a hard-coded `letsrevel.io`
+
+### Fixed
+
+- Unsubscribing no longer silences receipts and ticket mail, and re-enabling a channel afterwards
+  works again. Preferences pinned by the old unsubscribe page are reset to their defaults
+- Digests now respect "silence all", the email switch and per-type opt-outs; before, they kept
+  arriving
+- "Notify me about announcements" on a follow did nothing; turning it off now actually stops that
+  organization's announcements
+
 ## [2.17.0] - 2026-09-29
 
 ### Added

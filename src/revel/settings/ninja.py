@@ -17,7 +17,9 @@ NINJA_JWT = {
     "AUDIENCE": JWT_AUDIENCE,
 }
 VERIFY_TOKEN_LIFETIME = timedelta(minutes=config("VERIFY_TOKEN_LIFETIME_MINUTES", default=15, cast=int))
-UNSUBSCRIBE_TOKEN_LIFETIME = timedelta(days=config("UNSUBSCRIBE_TOKEN_LIFETIME_DAYS", default=30, cast=int))
+# Effectively non-expiring (~10 years): List-Unsubscribe headers and footer links must keep
+# working for as long as the mail sits in a mailbox. Kept finite so `exp` stays required.
+UNSUBSCRIBE_TOKEN_LIFETIME = timedelta(days=config("UNSUBSCRIBE_TOKEN_LIFETIME_DAYS", default=3650, cast=int))
 
 # Impersonation settings
 IMPERSONATION_REQUEST_TOKEN_LIFETIME = timedelta(

@@ -501,13 +501,9 @@ class OrganizationController(UserAwareController):
         is_following = follow_service.is_following_organization(self.user(), organization)
 
         if is_following:
-            follow = models.OrganizationFollow.objects.select_related("organization").get(
-                user=self.user(), organization=organization, is_archived=False
-            )
-            return schema.OrganizationFollowStatusSchema(
-                is_following=True,
-                follow=schema.OrganizationFollowSchema.from_model(follow),
-            )
+            follow = follow_service.get_organization_follow(self.user(), organization)
+            # Validate from the annotated model so the notify_announcements resolver sees it.
+            return schema.OrganizationFollowStatusSchema.model_validate({"is_following": True, "follow": follow})
 
         return schema.OrganizationFollowStatusSchema(is_following=False, follow=None)
 
@@ -528,7 +524,8 @@ class OrganizationController(UserAwareController):
 
         **Parameters:**
         - `notify_new_events`: Whether to receive notifications when the organization creates new events
-        - `notify_announcements`: Whether to receive notifications for organization announcements
+        - `notify_announcements`: False mutes this organization's announcements; True never removes an
+          existing mute (the mute lives on notification preferences)
 
         **Returns:**
         - 201: The created follow relationship
@@ -562,7 +559,8 @@ class OrganizationController(UserAwareController):
 
         **Parameters:**
         - `notify_new_events`: Whether to receive new event notifications
-        - `notify_announcements`: Whether to receive announcement notifications
+        - `notify_announcements`: False mutes this organization's announcements; True unmutes them
+          (the mute lives on notification preferences)
 
         **Returns:**
         - The updated follow relationship

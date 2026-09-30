@@ -1,5 +1,6 @@
 """Models for the notification system."""
 
+import typing as t
 from datetime import time
 
 from django.contrib.postgres.fields import ArrayField
@@ -11,7 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import TimeStampedModel
-from notifications.enums import DeliveryStatus, NotificationType
+from notifications.enums import MANDATORY_TYPES, DeliveryStatus, NotificationType
 
 from .enums import DeliveryChannel
 from .types import NotificationTypeSetting
@@ -208,7 +209,9 @@ class NotificationPreference(TimeStampedModel):
 
     # Global notification settings
     silence_all_notifications = models.BooleanField(
-        default=False, help_text="Master kill switch - disables ALL notifications including in-app"
+        default=False,
+        help_text="Master kill switch - disables all notifications including in-app, except mandatory types "
+        "(MANDATORY_TYPES)",
     )
 
     enabled_channels = ArrayField(
@@ -241,6 +244,14 @@ class NotificationPreference(TimeStampedModel):
     # Event reminders
     event_reminders_enabled = models.BooleanField(
         default=True, help_text="Receive reminders 14, 7, 1 days before events"
+    )
+
+    # Per-organization announcement mute (#1031). Governs ORG_ANNOUNCEMENT only, on all channels.
+    muted_organizations = models.ManyToManyField(
+        "events.Organization",
+        blank=True,
+        related_name="+",
+        help_text="Organizations whose announcements this user does not want to receive.",
     )
 
     class Meta:
@@ -288,6 +299,8 @@ class NotificationPreference(TimeStampedModel):
         This allows users to say "I generally don't want telegram, BUT for critical alerts send telegram."
 
         Hierarchy:
+            0. MANDATORY_TYPES -> base channels (steps 3/4) plus IN_APP and EMAIL, ignoring
+               silence and per-type ``enabled`` (users can't opt out of these)
             1. silence_all_notifications (master kill switch) -> []
             2. notification_type enabled check -> []
             3. notification_type_settings[type].channels (if specified) -> use these channels
@@ -299,6 +312,13 @@ class NotificationPreference(TimeStampedModel):
         Returns:
             List of enabled channel names
         """
+        if notification_type in MANDATORY_TYPES:
+            channels = self._base_channels(notification_type)
+            for required in (DeliveryChannel.IN_APP, DeliveryChannel.EMAIL):
+                if required not in channels:
+                    channels.append(required)
+            return channels
+
         if self.silence_all_notifications:
             return []
 
@@ -306,16 +326,73 @@ class NotificationPreference(TimeStampedModel):
         if not self.is_notification_type_enabled(notification_type):
             return []
 
-        # Check if notification type has custom channel settings
+        return self._base_channels(notification_type)
+
+    def _base_channels(self, notification_type: str) -> list[str]:
+        """Per-type channel override if set, else the global ``enabled_channels``."""
         settings = self.notification_type_settings.get(notification_type, {})
         custom_channels = settings.get("channels", [])
-
         if custom_channels:
             # Per-type override - use these channels instead of global settings
             return list(custom_channels)
-
-        # Otherwise use global enabled channels
         return list(self.enabled_channels)
+
+    def disable_email_for_type(self, notification_type: str) -> bool:
+        """Stop email for one notification type while keeping its other channels.
+
+        Pins a per-type override of the currently effective channels minus EMAIL. An
+        empty ``channels`` list would fall back to ``enabled_channels`` (and email would
+        come back), so when nothing else remains the override is pinned to IN_APP.
+
+        Args:
+            notification_type: Notification type to stop emailing.
+
+        Returns:
+            True if the stored settings changed, False otherwise.
+        """
+        existing = t.cast(NotificationTypeSetting, self.notification_type_settings.get(notification_type, {}))
+        channels = [
+            DeliveryChannel(c)
+            for c in self.get_channels_for_notification_type(notification_type)
+            if c != DeliveryChannel.EMAIL
+        ]
+        new_setting = NotificationTypeSetting(
+            enabled=existing.get("enabled", True),
+            channels=channels or [DeliveryChannel.IN_APP],
+        )
+        if existing == new_setting:
+            return False
+        self.notification_type_settings[notification_type] = new_setting
+        return True
+
+    def enable_channel(self, channel: str) -> bool:
+        """Re-enable a delivery channel globally and on its default per-type overrides.
+
+        Mirror of :meth:`disable_channel`: adds ``channel`` to ``enabled_channels`` and
+        re-adds it to every per-type override whose default (see
+        ``get_default_notification_type_settings``) includes it. Overrides whose default
+        doesn't include the channel (e.g. potluck → IN_APP only) are left alone.
+
+        Args:
+            channel: Channel to enable (e.g. ``DeliveryChannel.TELEGRAM``).
+
+        Returns:
+            True if anything changed, False otherwise.
+        """
+        changed = False
+        if channel not in self.enabled_channels:
+            self.enabled_channels = [*self.enabled_channels, channel]
+            changed = True
+        for notification_type, default in get_default_notification_type_settings().items():
+            if channel not in default["channels"]:
+                continue
+            setting = t.cast(NotificationTypeSetting | None, self.notification_type_settings.get(notification_type))
+            # No override (or no channel list) falls back to enabled_channels, fixed above.
+            channels = setting.get("channels") if setting is not None else None
+            if setting is not None and channels and channel not in channels:
+                setting["channels"] = [*channels, DeliveryChannel(channel)]
+                changed = True
+        return changed
 
     def disable_channel(self, channel: str) -> bool:
         """Remove a delivery channel from global and per-type preferences.
@@ -342,3 +419,55 @@ class NotificationPreference(TimeStampedModel):
                 setting["channels"] = [c for c in channels if c != channel]
                 changed = True
         return changed
+
+
+class EmailSuppression(TimeStampedModel):
+    """An address Revel must not email (bounce, complaint, block, invalid, or opt-out).
+
+    One row per normalized address; see ``notifications.service.email_policy`` for the
+    rank-aware upsert and the lookup rules.
+
+    # ponytail: one row per address → per-org complaint counts = distinct complainers
+    # attributed to their strongest/latest; add an event table if triage needs exact counts.
+    """
+
+    class Reason(models.TextChoices):
+        HARD_BOUNCE = "hard_bounce", _("Hard bounce")
+        COMPLAINT = "complaint", _("Spam complaint")
+        BLOCKED = "blocked", _("Blocked")
+        INVALID = "invalid", _("Invalid address")
+        INVITATION_OPT_OUT = "invitation_opt_out", _("Opted out of invitations")
+
+    class Source(models.TextChoices):
+        PROVIDER = "provider", _("Email provider")
+        RECIPIENT = "recipient", _("Recipient")
+        ADMIN = "admin", _("Admin")
+
+    # Higher wins; a write of lower/equal rank never overwrites an existing row.
+    REASON_RANK: t.ClassVar[dict[str, int]] = {
+        Reason.INVITATION_OPT_OUT: 0,
+        Reason.HARD_BOUNCE: 1,
+        Reason.INVALID: 1,
+        Reason.BLOCKED: 1,
+        Reason.COMPLAINT: 2,
+    }
+
+    email = models.EmailField(unique=True, help_text="Normalized via normalize_email_for_matching().")
+    reason = models.CharField(max_length=32, choices=Reason.choices)
+    source = models.CharField(max_length=16, choices=Source.choices)
+    organization = models.ForeignKey(
+        "events.Organization",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Organization whose mail triggered the suppression, if known.",
+    )
+    detail = models.TextField(blank=True, default="", help_text="Provider reason text.")
+
+    class Meta:
+        verbose_name = "Email Suppression"
+        verbose_name_plural = "Email Suppressions"
+
+    def __str__(self) -> str:
+        return f"{self.email} ({self.reason})"

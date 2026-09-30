@@ -126,6 +126,42 @@ fewer than the reserve remain in the shared hourly budget.
 - `EMAIL_DRY_RUN` — when `True`, outbound email is logged instead of sent. Useful for test
   instances; never use it for a real instance, since verification mails won't be delivered.
 - SMTP settings — host, port, credentials, and from-address for real email.
+- `ORG_EMAIL_DOMAIN` (optional) — a dedicated sending domain such as `mail.<your-domain>` for
+  mail organizations send to people: announcements, invitations, event updates and reminders.
+  They go out as `"<Org> via Revel" <org-slug@ORG_EMAIL_DOMAIN>`. Unset, that mail uses the
+  domain of `DEFAULT_FROM_EMAIL`. A separate domain keeps the reputation of organization bulk mail
+  apart from account mail (verification, password reset, tickets). Authenticate it at your SMTP
+  provider first (see [DNS → Sending domain](dns-cloudflare.md#sending-domain-for-organization-mail)):
+  setting it before DKIM and DMARC pass makes all of that mail fail DMARC.
+- `EMAIL_WEBHOOK_SECRET` (optional) — turns on the bounce and complaint webhook (below). Unset, the
+  endpoint answers 404 and nothing is suppressed automatically.
+- `UNSUBSCRIBE_TOKEN_LIFETIME_DAYS` (default `3650`) — how long unsubscribe links in emails stay
+  valid. Mailbox providers show the one-click unsubscribe button on old mail too, so keep it long.
+
+Which mail users can and can't opt out of, and what each unsubscribe does, is described in
+[Email Sending & Opt-Out Policy](../architecture/email-sending.md).
+
+#### Bounce and complaint webhook
+
+Revel keeps a suppression list of addresses it must not email. Your email provider feeds it through
+a webhook; without one, bounces and spam complaints are not recorded and Revel keeps mailing those
+addresses. The receiver is built for Brevo transactional webhooks.
+
+1. Set `EMAIL_WEBHOOK_SECRET` to a long random value (`openssl rand -hex 32`) and restart the stack.
+2. In Brevo, add a **transactional** webhook with the URL
+   `https://revel:<secret>@<API_DOMAIN>/api/email-events/brevo`. Only the password is checked, so
+   the username can be anything. If you create the webhook through Brevo's API instead, you can
+   send the secret as a bearer token (`Authorization: Bearer <secret>`).
+3. Tick the events **Hard bounce**, **Spam** (complaint), **Blocked** and **Invalid email**. Other
+   events are accepted and ignored.
+
+Wrong or missing credentials get a 401 and change nothing. To let an address receive mail again,
+delete its row under **Email Suppressions** in the admin. Rows survive account deletion, so a
+re-registered address keeps its bounce, complaint or opt-out.
+
+!!! warning "Gmail complaints never reach the webhook"
+    Gmail doesn't forward spam reports to email providers. Register your sending domain in
+    [Google Postmaster Tools](https://postmaster.google.com/) and watch its spam rate there.
 
 ## Single-org instances
 

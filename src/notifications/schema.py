@@ -2,11 +2,13 @@
 
 import typing as t
 from datetime import datetime, time
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from django.conf import settings
 from ninja import ModelSchema, Schema
-from pydantic import Field, field_validator
+from pydantic import AwareDatetime, EmailStr, Field, field_serializer, field_validator
 
+from accounts.schema import UnsubscribeJWTPayloadSchema
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
 
@@ -57,6 +59,8 @@ class NotificationPreferenceSchema(ModelSchema):
     digest_send_time: time
     enabled_channels: list[ChannelType]
     notification_type_settings: dict[NotificationType, NotificationTypeSettings]
+    # Read-only: change via PUT/DELETE /notification-preferences/muted-organizations/{id} (#1031).
+    muted_organization_ids: list[UUID]
 
     class Meta:
         model = NotificationPreference
@@ -68,6 +72,11 @@ class NotificationPreferenceSchema(ModelSchema):
             "event_reminders_enabled",
             "notification_type_settings",
         ]
+
+    @staticmethod
+    def resolve_muted_organization_ids(obj: NotificationPreference) -> list[UUID]:
+        """Organizations whose announcements the user muted."""
+        return list(obj.muted_organizations.values_list("id", flat=True))
 
 
 class UpdateNotificationPreferenceSchema(Schema):
@@ -94,3 +103,31 @@ class UnsubscribeSchema(Schema):
 
     token: str
     preferences: UpdateNotificationPreferenceSchema
+
+
+class OneClickUnsubscribePayload(UnsubscribeJWTPayloadSchema):
+    """Unsubscribe token, optionally scoped to a notification type and organization.
+
+    Keeps ``type="unsubscribe"`` so the frontend preferences page accepts it unchanged.
+    One-click effect: ORG_ANNOUNCEMENT + organization → mute that org; another type →
+    stop emailing that type; no type (digest) → stop email altogether.
+    """
+
+    notification_type: NotificationType | None = None
+    organization_id: UUID | None = None
+
+
+class EmailOptOutJWTPayloadSchema(Schema):
+    """Opt-out token for cold mail (pending invitations) to an address with no account."""
+
+    type: t.Literal["email_opt_out"] = "email_opt_out"
+    email: EmailStr
+    organization_id: UUID | None = None
+    exp: AwareDatetime
+    jti: str = Field(default_factory=lambda: str(uuid4()))
+    aud: str = Field(default_factory=lambda: settings.JWT_AUDIENCE)
+
+    @field_serializer("exp")
+    def serialize_exp(self, value: datetime) -> int:
+        """Serialize the expiry datetime to a Unix timestamp."""
+        return int(value.timestamp())

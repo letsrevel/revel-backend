@@ -1,11 +1,15 @@
 """API controller for notification preference management."""
 
+from uuid import UUID
+
+from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
+from events.models import Organization
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
 from notifications.schema import (
@@ -14,6 +18,7 @@ from notifications.schema import (
     UnsubscribeSchema,
     UpdateNotificationPreferenceSchema,
 )
+from notifications.service import announcement_mute
 from notifications.service.unsubscribe import confirm_unsubscribe
 
 
@@ -58,9 +63,8 @@ class NotificationPreferenceController(UserAwareController):
         """Enable a notification channel."""
         prefs, _ = NotificationPreference.objects.get_or_create(user=self.user())
 
-        if channel not in prefs.enabled_channels:
-            prefs.enabled_channels.append(channel)
-            prefs.save(update_fields=["enabled_channels", "updated_at"])
+        if prefs.enable_channel(channel):
+            prefs.save(update_fields=["enabled_channels", "notification_type_settings", "updated_at"])
 
         return prefs
 
@@ -78,6 +82,32 @@ class NotificationPreferenceController(UserAwareController):
 
         return prefs
 
+    @route.put(
+        "/muted-organizations/{organization_id}",
+        response=NotificationPreferenceSchema,
+        throttle=WriteThrottle(),
+    )
+    def mute_organization(self, organization_id: UUID) -> NotificationPreference:
+        """Stop receiving an organization's announcements, on every channel (idempotent).
+
+        Only organization announcements are affected; tickets, event updates and other
+        notifications from the organization still arrive. The organization only needs to
+        exist, not be visible: attendees of private organizations receive their
+        announcements too, so they must be able to mute them.
+        """
+        organization = get_object_or_404(Organization.objects.only("id"), pk=organization_id)
+        return announcement_mute.mute_organization(self.user(), organization)
+
+    @route.delete(
+        "/muted-organizations/{organization_id}",
+        response=NotificationPreferenceSchema,
+        throttle=WriteThrottle(),
+    )
+    def unmute_organization(self, organization_id: UUID) -> NotificationPreference:
+        """Resume receiving an organization's announcements (idempotent)."""
+        organization = get_object_or_404(Organization.objects.only("id"), pk=organization_id)
+        return announcement_mute.unmute_organization(self.user(), organization)
+
     @route.get("/available-notification-types", response=list[NotificationType])
     def get_available_notification_types(self) -> list[NotificationType]:
         """Get list of all available notification types.
@@ -92,8 +122,9 @@ class NotificationPreferenceController(UserAwareController):
         """Update notification preferences via unsubscribe token from email.
 
         This is an unauthenticated endpoint that allows users to update their
-        notification preferences using a token received via email. The token
-        is valid for 7 days.
+        notification preferences using a token received via email. Tokens are
+        effectively non-expiring (``UNSUBSCRIBE_TOKEN_LIFETIME_DAYS``, default ten
+        years) so links keep working for as long as the mail sits in a mailbox.
 
         The frontend should handle the token and present a UI for users to
         customize their preferences before submitting to this endpoint.

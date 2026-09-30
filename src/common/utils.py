@@ -1,8 +1,10 @@
 import functools
 import mimetypes
 import typing as t
+from email.utils import parseaddr
 from io import BytesIO
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files import File
 from django.core.files.uploadedfile import InMemoryUploadedFile
@@ -238,3 +240,54 @@ def serve_image_or_placeholder(*file_fields: FieldFile | None) -> HttpResponse:
     response = HttpResponse(body, content_type=content_type)
     response["Cache-Control"] = "public, max-age=3600"
     return response
+
+
+def apex_email_domain() -> str:
+    """Return the domain of ``settings.DEFAULT_FROM_EMAIL`` (read at call time).
+
+    Returns:
+        The lowercased domain part, e.g. ``letsrevel.io``.
+    """
+    return parseaddr(settings.DEFAULT_FROM_EMAIL)[1].rpartition("@")[2].lower()
+
+
+def org_email_domain() -> str:
+    """Return the domain for org-sent mail: ``ORG_EMAIL_DOMAIN``, else the apex domain.
+
+    Returns:
+        The domain used for ``<slug>@<domain>`` org sender addresses.
+    """
+    return t.cast(str, settings.ORG_EMAIL_DOMAIN) or apex_email_domain()
+
+
+# RFC 2142 / role mailboxes an org slug must never impersonate on our domain.
+RESERVED_MAILBOX_LOCAL_PARTS = frozenset(
+    {
+        "abuse",
+        "postmaster",
+        "hostmaster",
+        "webmaster",
+        "security",
+        "noreply",
+        "no-reply",
+        "support",
+        "admin",
+        "root",
+        "mailer-daemon",
+        "info",
+        "billing",
+        "revel",
+    }
+)
+
+
+def is_reserved_mailbox(local_part: str) -> bool:
+    """Whether an org slug would impersonate a role mailbox (RFC 2142) if used as a local part.
+
+    Args:
+        local_part: The candidate local part (an organization slug).
+
+    Returns:
+        True if it must not be used as a sender local part on our domains.
+    """
+    return local_part.lower() in RESERVED_MAILBOX_LOCAL_PARTS

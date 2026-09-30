@@ -296,7 +296,8 @@ msgid "This email is already in use."
 msgstr "Questa email è già in uso."
 
 msgid "This email change link is no longer valid. Please request a new one."
-msgstr "Questo link per cambiare l'email non è più valido. Richiedine uno nuovo."
+msgstr ""
+"Questo link per cambiare l'email non è più valido. Richiedine uno nuovo."
 
 msgid ""
 "You cannot delete your account while you own organizations. Please contact "
@@ -1124,6 +1125,9 @@ msgstr "Se ritieni che si tratti di un errore, contatta l'assistenza."
 
 msgid "The Revel Team"
 msgstr "Il Team di Revel"
+
+msgid "Manage notification preferences"
+msgstr "Gestisci le preferenze di notifica"
 
 msgid "Unsubscribe or manage notification preferences"
 msgstr "Annulla l'iscrizione o gestisci le preferenze di notifica"
@@ -3333,6 +3337,12 @@ msgstr "Consegna webhook malformata."
 msgid "This name is not allowed."
 msgstr "Questo nome non è consentito."
 
+msgid "Invalid webhook credentials."
+msgstr "Credenziali del webhook non valide."
+
+msgid "You have been unsubscribed."
+msgstr "Hai annullato l'iscrizione."
+
 msgid "Immediate"
 msgstr "Immediato"
 
@@ -3360,6 +3370,27 @@ msgstr "Visibile agli altri invitati dello stesso evento"
 msgid "Visible to both"
 msgstr "Visibile a entrambi"
 
+msgid "Hard bounce"
+msgstr "Rimbalzo permanente"
+
+msgid "Spam complaint"
+msgstr "Segnalazione di spam"
+
+msgid "Blocked"
+msgstr "Bloccato"
+
+msgid "Invalid address"
+msgstr "Indirizzo non valido"
+
+msgid "Opted out of invitations"
+msgstr "Disiscritto dagli inviti"
+
+msgid "Email provider"
+msgstr "Provider email"
+
+msgid "Recipient"
+msgstr "Destinatario"
+
 msgid "Read more..."
 msgstr "Leggi di più..."
 
@@ -3368,6 +3399,9 @@ msgid "%(counter)s new notification"
 msgid_plural "%(counter)s new notifications"
 msgstr[0] "%(counter)s nuova notifica"
 msgstr[1] "%(counter)s nuove notifiche"
+
+msgid "Webhook body must be a JSON object or array."
+msgstr "Il corpo del webhook deve essere un oggetto o un array JSON."
 
 msgid "Account Suspended"
 msgstr "Account sospeso"
@@ -3839,6 +3873,9 @@ msgstr "Verifica rifiutata: %(org)s"
 msgid "Verification Update: %(org)s"
 msgstr "Aggiornamento verifica: %(org)s"
 
+msgid "This unsubscribe link is no longer valid."
+msgstr "Questo link di disiscrizione non è più valido."
+
 msgid "Event details have been updated."
 msgstr "I dettagli dell'evento sono stati aggiornati."
 
@@ -3880,6 +3917,9 @@ msgstr ""
 "Questo invierà una notifica a tutti gli utenti attivi corrispondenti tramite "
 "tutti i canali abilitati (in-app, email, Telegram). Questa azione non può "
 "essere annullata."
+
+msgid "Manage notification preferences:"
+msgstr "Gestisci le preferenze di notifica:"
 
 msgid "Unsubscribe or manage notification preferences:"
 msgstr "Annulla l'iscrizione o gestisci le preferenze di notifica:"
@@ -4322,8 +4362,19 @@ msgstr "Registrati per accettare questo invito e partecipare all'evento:"
 msgid "Sign Up & Accept"
 msgstr "Registrati e accetta"
 
+msgid "Don't want invitations from Revel organizers?"
+msgstr "Non vuoi ricevere inviti dagli organizzatori di Revel?"
+
+msgid "Stop these emails"
+msgstr "Non ricevere più queste email"
+
 msgid "Sign up to accept this invitation:"
 msgstr "Registrati per accettare questo invito:"
+
+msgid "Don't want invitations from Revel organizers? Stop these emails:"
+msgstr ""
+"Non vuoi ricevere inviti dagli organizzatori di Revel? Non ricevere più "
+"queste email:"
 
 #, python-format
 msgid ""
@@ -5993,6 +6044,9 @@ msgstr "Consegne notifiche"
 
 msgid "Notification Preferences"
 msgstr "Preferenze notifiche"
+
+msgid "Email Suppressions"
+msgstr "Soppressioni email"
 
 msgid "Geography"
 msgstr "Geografia"

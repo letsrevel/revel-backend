@@ -395,63 +395,17 @@ def test_confirm_unsubscribe_idempotent_with_same_values(user: RevelUser) -> Non
     assert result1.id == result2.id  # Same preference object
 
 
-def test_confirm_unsubscribe_syncs_enabled_channels_to_all_notification_types(user: RevelUser) -> None:
-    """Test that updating enabled_channels syncs to ALL notification_type_settings.
+def test_confirm_unsubscribe_does_not_sync_enabled_channels_into_per_type_settings(user: RevelUser) -> None:
+    """Updating enabled_channels leaves per-type overrides untouched (#1030).
 
-    This ensures that notification types without explicit settings don't slip through
-    via default behavior (enabled=True, channels=all).
+    The old sync pinned the submitted channels onto every type, so a later global
+    re-enable had no effect and types with their own defaults were re-routed.
     """
-    # Arrange - Get existing preferences and set some custom per-type settings
     existing_prefs = NotificationPreference.objects.get(user=user)
     existing_prefs.enabled_channels = ["email", "in_app", "telegram"]
     existing_prefs.notification_type_settings = {
         NotificationType.EVENT_REMINDER: {"enabled": True, "channels": ["email"]},
-        NotificationType.TICKET_CREATED: {"enabled": False, "channels": ["in_app"]},
-        # All other types are NOT explicitly set (would default to enabled=True, all channels)
-    }
-    existing_prefs.save()
-
-    payload = UnsubscribeJWTPayloadSchema(
-        user_id=user.id, email=user.email, exp=timezone.now() + settings.UNSUBSCRIBE_TOKEN_LIFETIME
-    )
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
-
-    # User unsubscribes from email and telegram, only wants in_app
-    preferences = UpdateNotificationPreferenceSchema(enabled_channels=["in_app"])
-
-    # Act
-    result = confirm_unsubscribe(token, preferences)
-
-    # Assert - enabled_channels updated
-    assert result.enabled_channels == ["in_app"]
-
-    # Assert - ALL notification types now have explicit entries with new channels
-    for notif_type in NotificationType:
-        assert notif_type.value in result.notification_type_settings
-        type_setting = result.notification_type_settings[notif_type.value]
-
-        # Channels should be synced to ["in_app"] for ALL types
-        assert type_setting["channels"] == ["in_app"]
-
-        # Enabled status should be preserved for types that had explicit settings
-        if notif_type == NotificationType.EVENT_REMINDER:
-            assert type_setting["enabled"] is True  # Was True, should remain True
-        elif notif_type == NotificationType.TICKET_CREATED:
-            assert type_setting["enabled"] is False  # Was False, should remain False
-        else:
-            # All other types default to enabled=True
-            assert type_setting["enabled"] is True
-
-
-def test_confirm_unsubscribe_preserves_enabled_status_when_syncing_channels(user: RevelUser) -> None:
-    """Test that syncing channels preserves the enabled status of each notification type."""
-    # Arrange - User has disabled some notification types
-    existing_prefs = NotificationPreference.objects.get(user=user)
-    existing_prefs.enabled_channels = ["email", "in_app"]
-    existing_prefs.notification_type_settings = {
         NotificationType.POTLUCK_ITEM_CREATED: {"enabled": False, "channels": ["in_app"]},
-        NotificationType.POTLUCK_ITEM_CLAIMED: {"enabled": False, "channels": ["in_app"]},
-        NotificationType.EVENT_REMINDER: {"enabled": True, "channels": ["email", "in_app"]},
     }
     existing_prefs.save()
 
@@ -460,20 +414,11 @@ def test_confirm_unsubscribe_preserves_enabled_status_when_syncing_channels(user
     )
     token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
 
-    # User removes email from enabled_channels
-    preferences = UpdateNotificationPreferenceSchema(enabled_channels=["in_app"])
+    result = confirm_unsubscribe(token, UpdateNotificationPreferenceSchema(enabled_channels=["in_app"]))
 
-    # Act
-    result = confirm_unsubscribe(token, preferences)
-
-    # Assert - Disabled types remain disabled
-    assert result.notification_type_settings[NotificationType.POTLUCK_ITEM_CREATED]["enabled"] is False
-    assert result.notification_type_settings[NotificationType.POTLUCK_ITEM_CLAIMED]["enabled"] is False
-
-    # But their channels are updated
-    assert result.notification_type_settings[NotificationType.POTLUCK_ITEM_CREATED]["channels"] == ["in_app"]
-    assert result.notification_type_settings[NotificationType.POTLUCK_ITEM_CLAIMED]["channels"] == ["in_app"]
-
-    # Enabled types remain enabled
-    assert result.notification_type_settings[NotificationType.EVENT_REMINDER]["enabled"] is True
-    assert result.notification_type_settings[NotificationType.EVENT_REMINDER]["channels"] == ["in_app"]
+    result.refresh_from_db()
+    assert result.enabled_channels == ["in_app"]
+    assert result.notification_type_settings == {
+        NotificationType.EVENT_REMINDER: {"enabled": True, "channels": ["email"]},
+        NotificationType.POTLUCK_ITEM_CREATED: {"enabled": False, "channels": ["in_app"]},
+    }

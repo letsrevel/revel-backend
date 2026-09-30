@@ -106,6 +106,7 @@ def send_email(
     attachment_storage_path: str | None = None,
     attachment_filename: str | None = None,
     attachment_mime_type: str = "application/pdf",
+    headers: dict[str, str] | None = None,
 ) -> None:
     """Send an email with optional callback and optional file attachment.
 
@@ -128,6 +129,7 @@ def send_email(
         attachment_filename: Display filename for the attachment (defaults to
             the storage path basename).
         attachment_mime_type: MIME type for the attachment.
+        headers: Extra message headers (e.g. List-Unsubscribe, X-Mailin-custom).
     """
     from django.core.files.storage import default_storage
 
@@ -153,6 +155,7 @@ def send_email(
                 to=recipients,
                 bcc=safe_bcc,
                 reply_to=reply_to or [],
+                headers=headers,
             )
         else:
             email_msg = EmailMultiAlternatives(
@@ -162,6 +165,7 @@ def send_email(
                 to=[sender],
                 bcc=recipients + safe_bcc,
                 reply_to=reply_to or [],
+                headers=headers,
             )
 
         if html_body:  # pragma: no branch

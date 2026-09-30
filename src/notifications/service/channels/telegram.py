@@ -8,7 +8,7 @@ from django.conf import settings
 from django.utils import timezone, translation
 
 from common.fields import render_markdown
-from notifications.enums import DeliveryChannel, DeliveryStatus
+from notifications.enums import MANDATORY_TYPES, DeliveryChannel, DeliveryStatus
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.base import NotificationChannel
 from notifications.service.templates.registry import get_template
@@ -75,8 +75,13 @@ class TelegramChannel(NotificationChannel):
         """
         prefs = notification.user.notification_preferences
 
+        # Mandatory types ignore silence / per-type disables (#1030): the effective channel
+        # list is the single source of truth, as in the dispatcher.
+        if notification.notification_type in MANDATORY_TYPES:
+            if DeliveryChannel.TELEGRAM not in prefs.get_channels_for_notification_type(notification.notification_type):
+                return False
         # Check if telegram channel is enabled
-        if not prefs.is_channel_enabled(DeliveryChannel.TELEGRAM):
+        elif not prefs.is_channel_enabled(DeliveryChannel.TELEGRAM):
             logger.debug(
                 "telegram_channel_disabled",
                 notification_id=str(notification.id),
@@ -85,7 +90,7 @@ class TelegramChannel(NotificationChannel):
             return False
 
         # Check if notification type is enabled
-        if not prefs.is_notification_type_enabled(notification.notification_type):
+        elif not prefs.is_notification_type_enabled(notification.notification_type):
             logger.debug(
                 "notification_type_disabled",
                 notification_id=str(notification.id),

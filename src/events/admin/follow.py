@@ -12,7 +12,7 @@ class OrganizationFollowAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):
     """Admin for OrganizationFollow."""
 
     list_display = ["__str__", "user_link", "organization_link", "notify_new_events", "is_archived", "created_at"]
-    list_filter = ["is_archived", "is_public", "notify_new_events", "notify_announcements"]
+    list_filter = ["is_archived", "is_public", "notify_new_events"]
     list_select_related = ["user", "organization"]
     search_fields = ["user__username", "user__email", "organization__name"]
     autocomplete_fields = ["user", "organization"]

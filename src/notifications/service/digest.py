@@ -147,10 +147,14 @@ class NotificationDigest:
             True if digest was sent successfully
         """
         from common.tasks import send_email
+        from notifications.service.org_sender import build_list_unsubscribe_headers
+        from notifications.service.unsubscribe import generate_unsubscribe_token
 
         subject, text_body, html_body = self.build_digest_content()
 
-        send_email.delay(to=self.user.email, subject=subject, body=text_body, html_body=html_body)
+        # Type-less token: one-click turns email (and the digest) off altogether.
+        headers = build_list_unsubscribe_headers(generate_unsubscribe_token(self.user))
+        send_email.delay(to=self.user.email, subject=subject, body=text_body, html_body=html_body, headers=headers)
 
         logger.info(
             "digest_email_sent",

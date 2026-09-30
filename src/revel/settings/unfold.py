@@ -505,6 +505,11 @@ UNFOLD = {
                         "icon": "tune",
                         "link": reverse_lazy("admin:notifications_notificationpreference_changelist"),
                     },
+                    {
+                        "title": _("Email Suppressions"),
+                        "icon": "unsubscribe",
+                        "link": reverse_lazy("admin:notifications_emailsuppression_changelist"),
+                    },
                 ],
             },
             {

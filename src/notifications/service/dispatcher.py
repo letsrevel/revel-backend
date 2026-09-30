@@ -7,34 +7,11 @@ import structlog
 from django.conf import settings
 
 from accounts.models import RevelUser
-from notifications.enums import DeliveryChannel, NotificationType
+from notifications.enums import MANDATORY_TYPES, DeliveryChannel, NotificationType
+from notifications.enums import TRANSACTIONAL_TYPES as TRANSACTIONAL_TYPES  # re-exported for existing callers
 from notifications.models import Notification, NotificationPreference
 
 logger = structlog.get_logger(__name__)
-
-
-# Transactional notification types always send immediately on their enabled channels,
-# bypassing the digest cadence. These are time-/money-sensitive (a ticket sale, a
-# payment, a cancellation or a refund) and must not be held back for the periodic
-# digest sweep. See issue #506.
-TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
-    {
-        NotificationType.PAYMENT_CONFIRMATION,
-        NotificationType.TICKET_CREATED,
-        NotificationType.TICKET_CANCELLED,
-        NotificationType.TICKET_REFUNDED,
-        # Subscription money/lifecycle events must not wait for a digest sweep:
-        # a failed renewal or expiry needs immediate action, a revival checkout
-        # link is time-boxed, and renewal/cancellation confirmations are
-        # receipts. (RENEWAL_REMINDER and PRICE_MIGRATION_NOTICE are advance
-        # notices with days of slack — they stay on the digest cadence.)
-        NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
-        NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
-        NotificationType.SUBSCRIPTION_EXPIRED,
-        NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
-        NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
-    }
-)
 
 
 class NotificationData(t.NamedTuple):
@@ -157,22 +134,23 @@ def determine_delivery_channels(user: RevelUser, notification_type: str) -> list
     """
     prefs = user.notification_preferences
 
-    # Transactional notifications (ticket/payment events) always deliver on their
-    # enabled channels immediately and never wait for the digest (issue #506).
-    is_transactional = notification_type in TRANSACTIONAL_TYPES
-
-    # Otherwise, if the user is on a digest cadence, only create the in-app
-    # notification now; the email is bundled into the periodic digest sweep.
-    if not is_transactional and prefs.digest_frequency != NotificationPreference.DigestFrequency.IMMEDIATE:
-        return [DeliveryChannel.IN_APP]
-
-    # Get enabled channels for this notification type
+    # Effective channels first, so silence and per-type disables apply to every path
+    # (including digest users) and mandatory types bypass them (#1030).
     channels = prefs.get_channels_for_notification_type(notification_type)
 
     # Strip Telegram when the integration is disabled (self-host without a bot),
     # so we never enqueue a delivery that can't succeed (issue #8).
     if not settings.FEATURE_TELEGRAM:
         channels = [c for c in channels if c != DeliveryChannel.TELEGRAM]
+
+    # On a digest cadence, only the in-app notification is created now; the email is
+    # bundled into the periodic digest sweep. Mandatory types (receipts, bans, platform
+    # notices) never wait for the digest (issue #506, #1030).
+    if (
+        notification_type not in MANDATORY_TYPES
+        and prefs.digest_frequency != NotificationPreference.DigestFrequency.IMMEDIATE
+    ):
+        channels = [DeliveryChannel.IN_APP] if DeliveryChannel.IN_APP in channels else []
 
     logger.debug(
         "determined_delivery_channels",
