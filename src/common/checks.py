@@ -8,6 +8,7 @@ The rest are Warnings: they degrade links or deliverability but don't strand use
 No DB access, so the checks run before migrations.
 """
 
+import ipaddress
 import typing as t
 from urllib.parse import urlsplit
 
@@ -21,12 +22,23 @@ BASE_URL_HTTPS_CHECK_ID = "common.W002"
 FRONTEND_BASE_URL_LOCAL_CHECK_ID = "common.W003"
 FOREIGN_SENDER_DOMAIN_CHECK_ID = "common.W004"
 
-_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+# The old BASE_URL default: the demo *frontend* host, never a valid API origin (#1039).
+_OLD_DEFAULT_HOST = "demo.letsrevel.io"
 _PROJECT_DOMAIN = "letsrevel.io"
 
 
 def _host(url: str) -> str:
     return (urlsplit(url.strip()).hostname or "").lower()
+
+
+def _is_local(host: str) -> bool:
+    """Empty, ``localhost`` or any loopback IP literal (all of 127.0.0.0/8 and ::1)."""
+    if not host or host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def _on_project_domain(host: str) -> bool:
@@ -50,12 +62,13 @@ def check_deploy_urls(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]
     base_url = str(settings.BASE_URL or "")
     base_host = _host(base_url)
 
-    if not base_host or base_host in _LOCAL_HOSTS:
-        problem = (
-            "is not an absolute URL (it needs a scheme such as https://)"
-            if base_url.strip() and not urlsplit(base_url.strip()).scheme
-            else "is not a public address"
-        )
+    if _is_local(base_host) or base_host == _OLD_DEFAULT_HOST:
+        if base_host == _OLD_DEFAULT_HOST:
+            problem = "is the old default (the demo frontend host), not this instance's API"
+        elif base_url.strip() and not urlsplit(base_url.strip()).scheme:
+            problem = "is not an absolute URL (it needs a scheme such as https://)"
+        else:
+            problem = "is not a public address"
         messages.append(
             Error(
                 f"BASE_URL is {base_url!r}, which {problem}, while DEBUG is off.",
@@ -75,10 +88,10 @@ def check_deploy_urls(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]
             )
         )
 
-    if _host(str(settings.FRONTEND_BASE_URL or "")) in _LOCAL_HOSTS:
+    if _is_local(_host(str(settings.FRONTEND_BASE_URL or ""))):
         messages.append(
             Warning(
-                f"FRONTEND_BASE_URL is {settings.FRONTEND_BASE_URL!r} while DEBUG is off.",
+                f"FRONTEND_BASE_URL {settings.FRONTEND_BASE_URL!r} is not a public origin while DEBUG is off.",
                 hint=(
                     "Set FRONTEND_BASE_URL to the web app's public origin. Also check "
                     "SiteSettings.frontend_base_url in the admin: it is seeded once from this setting "
@@ -89,7 +102,8 @@ def check_deploy_urls(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]
         )
 
     if (
-        base_host not in _LOCAL_HOSTS | {""}
+        not _is_local(base_host)
+        and base_host != _OLD_DEFAULT_HOST
         and _on_project_domain(apex_email_domain())
         and not _on_project_domain(base_host)
     ):

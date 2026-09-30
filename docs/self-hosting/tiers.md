@@ -65,9 +65,9 @@ at startup. The web container runs `migrate` on start, which runs the same check
 
 | Check | Level | When |
 |---|---|---|
-| `common.E001` | Error: `check`/`migrate` fail, the API doesn't start | `BASE_URL` is empty or points at `localhost`, `127.0.0.1` or `::1` |
+| `common.E001` | Error: `check`/`migrate` fail, the API doesn't start | `BASE_URL` is empty, has no scheme, points at `localhost` or any loopback address, or is still the old default `demo.letsrevel.io` |
 | `common.W002` | Warning | `BASE_URL` is not `https://` |
-| `common.W003` | Warning | `FRONTEND_BASE_URL` points at `localhost` or `127.0.0.1` |
+| `common.W003` | Warning | `FRONTEND_BASE_URL` is empty, has no scheme, or points at `localhost` or a loopback address |
 | `common.W004` | Warning | `DEFAULT_FROM_EMAIL` is on `letsrevel.io` but `BASE_URL` isn't, so you would be sending as our domain |
 
 ### Feature flags

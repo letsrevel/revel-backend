@@ -25,11 +25,23 @@ REDACTED_QUERY_PARAMS = frozenset({"token", "sig", "ot", "et", "code", "state"})
 _URL_ATTRIBUTES = ("http.target", "http.url", "url.full", "url.query")
 
 
-def redact_url_value(value: str) -> str:
-    """Replace credential query-param values in a URL, target, or bare query string with REDACTED."""
-    base, sep, query = value.partition("?")
-    if not sep:  # ``url.query`` holds the query string without the leading "?"
-        base, query = "", value
+def redact_url_value(value: str, *, bare_query: bool = False) -> str:
+    """Replace credential query-param values in a URL, target, or bare query string with REDACTED.
+
+    Args:
+        value: A full URL, a path with query string, or (``bare_query``) just the query string.
+        bare_query: ``value`` is a query string without the leading "?" (the ``url.query``
+            attribute), so a literal "?" inside it must not be treated as the separator.
+
+    Returns:
+        ``value`` with the values of ``REDACTED_QUERY_PARAMS`` replaced by ``REDACTED``.
+    """
+    if bare_query:
+        base, sep, query = "", "", value
+    else:
+        base, sep, query = value.partition("?")
+        if not sep:  # no query at all, or a bare query string passed without the flag
+            base, query = "", value
     pairs = []
     for pair in query.split("&"):
         name, has_value, _ = pair.partition("=")
@@ -45,7 +57,7 @@ def redact_request_span(span: trace.Span, request: HttpRequest) -> None:
     for key in _URL_ATTRIBUTES:
         value = attributes.get(key)
         if isinstance(value, str) and "=" in value:
-            span.set_attribute(key, redact_url_value(value))
+            span.set_attribute(key, redact_url_value(value, bare_query=key == "url.query"))
 
 
 def init_tracing() -> None:

@@ -98,3 +98,25 @@ def test_debug_silences_every_check(settings: t.Any) -> None:
 
 def test_check_is_registered_with_djangos_registry() -> None:
     assert checks.check_deploy_urls in registry.registry.registered_checks
+
+
+@pytest.mark.parametrize("base_url", ["https://127.0.0.2", "http://127.255.255.254:8000"])
+def test_any_loopback_ip_is_an_error(settings: t.Any, base_url: str) -> None:
+    assert _ids(settings, BASE_URL=base_url) == ["common.E001"]
+
+
+def test_old_demo_default_base_url_is_an_error(settings: t.Any) -> None:
+    for key, value in {**PROD, "BASE_URL": "https://demo.letsrevel.io"}.items():
+        setattr(settings, key, value)
+    messages = checks.check_deploy_urls(app_configs=None)
+    assert [m.id for m in messages] == ["common.E001"]
+    assert "old default" in messages[0].msg
+
+
+def test_demo_api_host_is_allowed(settings: t.Any) -> None:
+    assert _ids(settings, BASE_URL="https://demo-api.letsrevel.io", FRONTEND_BASE_URL="https://demo.letsrevel.io") == []
+
+
+@pytest.mark.parametrize("frontend", ["", "events.example.org"])
+def test_empty_or_schemeless_frontend_base_url_is_a_warning(settings: t.Any, frontend: str) -> None:
+    assert _ids(settings, FRONTEND_BASE_URL=frontend) == ["common.W003"]

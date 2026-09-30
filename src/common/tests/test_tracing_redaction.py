@@ -86,3 +86,22 @@ def test_init_tracing_wires_the_redaction_hook() -> None:
         tracing.init_tracing()
 
     django_instrumentor.return_value.instrument.assert_called_once_with(request_hook=tracing.redact_request_span)
+
+
+def test_bare_query_with_literal_question_mark_still_redacts() -> None:
+    """``url.query`` has no leading "?": a literal "?" later in it must not hide the token (CodeRabbit)."""
+    assert tracing.redact_url_value("token=secret&next=?", bare_query=True) == "token=REDACTED&next=?"
+
+
+def test_hook_treats_url_query_as_bare() -> None:
+    class _Span:
+        def __init__(self) -> None:
+            self.attributes: dict[str, str] = {"url.query": "token=secret&next=?", "http.target": "/p?next=?&token=s"}
+
+        def set_attribute(self, key: str, value: str) -> None:
+            self.attributes[key] = value
+
+    span = _Span()
+    tracing.redact_request_span(span, None)  # type: ignore[arg-type]
+    assert span.attributes["url.query"] == "token=REDACTED&next=?"
+    assert "token=REDACTED" in span.attributes["http.target"]
