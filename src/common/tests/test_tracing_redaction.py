@@ -129,3 +129,22 @@ def test_hook_treats_url_query_as_bare() -> None:
     tracing.redact_request_span(span, None)  # type: ignore[arg-type]
     assert span.attributes["url.query"] == "token=REDACTED&next=?"
     assert "token=REDACTED" in span.attributes["http.target"]
+
+
+def test_hook_redacts_path_secret_in_url_path() -> None:
+    """Under OTEL_SEMCONV_STABILITY_OPT_IN=http(/dup) the path is in ``url.path`` (CodeRabbit)."""
+
+    class _Span:
+        def __init__(self) -> None:
+            self.attributes: dict[str, str] = {
+                "url.path": "/api/events/claim-invitation/s3cr3t",
+                "http.target": "/api/integrations/eventbrite/webhook/s3cr3t",
+            }
+
+        def set_attribute(self, key: str, value: str) -> None:
+            self.attributes[key] = value
+
+    span = _Span()
+    tracing.redact_request_span(span, None)  # type: ignore[arg-type]
+    assert span.attributes["url.path"] == "/api/events/claim-invitation/REDACTED"
+    assert span.attributes["http.target"] == "/api/integrations/eventbrite/webhook/REDACTED"

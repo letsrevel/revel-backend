@@ -26,8 +26,9 @@ REDACTED_QUERY_PARAMS = frozenset({"token", "sig", "ot", "et", "code", "state"})
 # (``/claim-invitation/{token}``) and the integrations webhook secret
 # (``/{provider}/webhook/{secret}``, where the path *is* the authentication).
 _SECRET_PATH_SEGMENT = re.compile(r"(?<=/claim-invitation/)[^/?#]+|(?<=/webhook/)[^/?#]+")
-# Span attributes (old and new HTTP semconv) that can hold the raw query string.
-_URL_ATTRIBUTES = ("http.target", "http.url", "url.full", "url.query")
+# Span attributes (old and new HTTP semconv) that can hold request URL data; ``url.path`` is set
+# under OTEL_SEMCONV_STABILITY_OPT_IN=http / http/dup and carries path secrets.
+_URL_ATTRIBUTES = ("http.target", "http.url", "url.full", "url.query", "url.path")
 
 
 def redact_url_value(value: str, *, bare_query: bool = False) -> str:

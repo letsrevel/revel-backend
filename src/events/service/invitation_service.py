@@ -111,8 +111,11 @@ def _charge_pending_invitation_budget(event: Event, emails: set[str]) -> None:
     try:
         spent = cache.incr(key, count)
     except ValueError:  # key expired/evicted between add() and incr(): start today's count afresh
-        cache.set(key, count, timeout=_INVITE_CAP_COUNTER_TTL_SECONDS)
-        spent = count
+        # add(), not set(): if a concurrent request recreated the key first, keep its charge.
+        if cache.add(key, count, timeout=_INVITE_CAP_COUNTER_TTL_SECONDS):
+            spent = count
+        else:
+            spent = cache.incr(key, count)
     if spent > cap:
         with contextlib.suppress(ValueError):  # key gone since incr(): nothing left to refund
             cache.decr(key, count)

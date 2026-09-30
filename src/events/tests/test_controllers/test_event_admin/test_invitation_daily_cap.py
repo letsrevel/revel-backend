@@ -134,8 +134,16 @@ def test_counter_vanishing_between_add_and_incr_starts_afresh(
 ) -> None:
     """If the key expires/evicts between add() and incr(), the charge starts a new count (no 500)."""
     settings.PENDING_INVITATION_DAILY_CAP = 5
-    monkeypatch.setattr(cache, "add", lambda *args, **kwargs: False)  # key never gets created
+    real_incr, calls = cache.incr, {"n": 0}
 
+    def vanishing_incr(k: str, delta: int = 1, **kw: t.Any) -> int:
+        calls["n"] += 1
+        if calls["n"] == 1:  # the key expired/evicted right after add()
+            cache.delete(k)
+            raise ValueError("Key not found")
+        return int(real_incr(k, delta, **kw))
+
+    monkeypatch.setattr(cache, "incr", vanishing_incr)
     response = _invite(organization_owner_client, event, ["race-1@example.com", "race-2@example.com"])
 
     assert response.status_code == 200
@@ -157,3 +165,26 @@ def test_counter_vanishing_between_incr_and_decr_still_rejects(
 
     assert response.status_code == 400, response.content
     assert not PendingEventInvitation.objects.filter(event=event).exists()
+
+
+def test_recreating_vanished_counter_keeps_a_concurrent_charge(
+    settings: t.Any, organization_owner_client: Client, event: Event, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If another request recreated the key after ours vanished, add() fails and we incr onto it."""
+    settings.PENDING_INVITATION_DAILY_CAP = 10
+    key = f"invite-cap:{event.organization_id}:{timezone.now():%Y%m%d}"
+    real_add, real_incr, calls = cache.add, cache.incr, {"n": 0}
+
+    def flaky_incr(k: str, delta: int = 1, **kw: t.Any) -> int:
+        calls["n"] += 1
+        if calls["n"] == 1:  # first incr: our key vanished, and meanwhile a concurrent request charged 3
+            cache.delete(k)
+            real_add(k, 3, timeout=60)
+            raise ValueError("Key not found")
+        return int(real_incr(k, delta, **kw))
+
+    monkeypatch.setattr(cache, "incr", flaky_incr)
+    response = _invite(organization_owner_client, event, ["conc-1@example.com", "conc-2@example.com"])
+
+    assert response.status_code == 200
+    assert cache.get(key) == 5  # 3 (concurrent) + 2 (ours), not overwritten to 2
