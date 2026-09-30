@@ -27,6 +27,7 @@ from events.models.attendee_invoice import (
 from events.models.organization import Organization
 from events.models.refund import Refund
 from events.models.ticket import Payment
+from notifications.service.org_sender import org_reply_to
 
 if t.TYPE_CHECKING:
     from uuid import UUID
@@ -381,11 +382,10 @@ def _send_org_branded_email(
         logger.warning("attendee_invoice_no_recipient", invoice_number=invoice.invoice_number)
         return False
 
-    reply_to_email = ""
-    bcc_email = ""
-    if org:
-        reply_to_email = org.billing_email or org.contact_email or ""
-        bcc_email = org.billing_email or org.contact_email or ""
+    # Reply-To only ever points at a verified contact address (#1036). The BCC copy
+    # goes to the owner-only billing_email, else the verified contact.
+    reply_to = org_reply_to(org) if org else []
+    bcc = [org.billing_email] if org and org.billing_email else reply_to
 
     send_email(
         to=to_email,
@@ -393,8 +393,8 @@ def _send_org_branded_email(
         body=body,
         html_body=html_body,
         from_email=_invoice_from_address(org_billing_name, org_slug),
-        reply_to=[reply_to_email] if reply_to_email else None,
-        bcc=[bcc_email] if bcc_email else None,
+        reply_to=reply_to or None,
+        bcc=bcc or None,
         attachment_storage_path=attachment_path,
         attachment_filename=attachment_filename,
     )

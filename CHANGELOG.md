@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > your SMTP provider. Unset, organization mail falls back to the domain of `DEFAULT_FROM_EMAIL`, so
 > this release is safe to deploy first. Ship the frontend unsubscribe page update (invitation
 > opt-out tokens) before or with it.
+>
+> **Production must set `BASE_URL`** (and `FRONTEND_BASE_URL`) explicitly. With `DEBUG` off, a
+> missing or localhost `BASE_URL` now fails Django's system checks, which stops `migrate` at startup.
 
 ### Added
 
@@ -34,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   addresses, and Revel stops emailing them. Admins can review and clear entries under **Email
   Suppressions**, and filter complaints per organization
 
+- **Daily cap on invitations to people without an account**: an organization can invite at most
+  `PENDING_INVITATION_DAILY_CAP` (default 200, `0` = unlimited) new addresses per UTC day; bigger
+  requests are rejected whole with a clear message. A single invite request takes at most 500 emails
+- **Users see when their address is suppressed**: notification preferences return
+  `email_suppression` (reason and since) when Revel has stopped emailing their address, and the
+  GDPR export includes it
+- **Deployment checks**: `manage.py check` flags a missing or non-public `BASE_URL` (error), a
+  non-HTTPS `BASE_URL`, a localhost `FRONTEND_BASE_URL`, and a self-hosted instance sending as
+  `letsrevel.io` (warnings)
+
 ### Changed
 
 - **Receipts and account notices can no longer be switched off.** Payment, ticket and subscription
@@ -46,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default `3650`, was 30), and stop working when the account's email address changes
 - Attendee invoice emails use the deployment's own domain instead of a hard-coded `letsrevel.io`
 
+- Notification admin pages use the Unfold admin like the rest of the back office; notification
+  preferences show and edit a user's muted organizations
+- Emails carry a `Message-ID` on their sending domain instead of the server's hostname
+- `BASE_URL` defaults to `http://localhost:8000` for development (was the demo host)
+
 ### Fixed
 
 - Unsubscribing no longer silences receipts and ticket mail, and re-enabling a channel afterwards
@@ -54,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arriving
 - "Notify me about announcements" on a follow did nothing; turning it off now actually stops that
   organization's announcements
+- Attendee invoice replies go only to the organization's **verified** contact address; the BCC copy
+  still goes to the billing address
+
+### Security
+
+- Password-reset, verification, unsubscribe, signed-media and OAuth callback parameters (`token`,
+  `sig`, `code`, `state`, access tokens) are redacted from tracing spans before export
 
 ## [2.17.0] - 2026-09-29
 

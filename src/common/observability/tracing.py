@@ -1,7 +1,10 @@
 """OpenTelemetry distributed tracing setup."""
 
+from urllib.parse import unquote_plus
+
 import structlog
 from django.conf import settings
+from django.http import HttpRequest
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.celery import CeleryInstrumentor
@@ -14,6 +17,35 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ParentBasedTraceIdRatio
 
 logger = structlog.get_logger(__name__)
+
+# Query params that carry credentials (email-link tokens, signed-URL signatures, org/event
+# access tokens, OAuth/OIDC callback code+state). Their values must never reach Tempo (#1042).
+REDACTED_QUERY_PARAMS = frozenset({"token", "sig", "ot", "et", "code", "state"})
+# Span attributes (old and new HTTP semconv) that can hold the raw query string.
+_URL_ATTRIBUTES = ("http.target", "http.url", "url.full", "url.query")
+
+
+def redact_url_value(value: str) -> str:
+    """Replace credential query-param values in a URL, target, or bare query string with REDACTED."""
+    base, sep, query = value.partition("?")
+    if not sep:  # ``url.query`` holds the query string without the leading "?"
+        base, query = "", value
+    pairs = []
+    for pair in query.split("&"):
+        name, has_value, _ = pair.partition("=")
+        if has_value and unquote_plus(name) in REDACTED_QUERY_PARAMS:
+            pair = f"{name}=REDACTED"
+        pairs.append(pair)
+    return f"{base}{sep}{'&'.join(pairs)}"
+
+
+def redact_request_span(span: trace.Span, request: HttpRequest) -> None:
+    """DjangoInstrumentor request_hook: scrub credential query params from the server span."""
+    attributes = getattr(span, "attributes", None) or {}
+    for key in _URL_ATTRIBUTES:
+        value = attributes.get(key)
+        if isinstance(value, str) and "=" in value:
+            span.set_attribute(key, redact_url_value(value))
 
 
 def init_tracing() -> None:
@@ -59,7 +91,7 @@ def init_tracing() -> None:
 
     # Auto-instrument frameworks
     try:
-        DjangoInstrumentor().instrument()
+        DjangoInstrumentor().instrument(request_hook=redact_request_span)
         CeleryInstrumentor().instrument()  # type: ignore[no-untyped-call]
         PsycopgInstrumentor().instrument()
         RedisInstrumentor().instrument()

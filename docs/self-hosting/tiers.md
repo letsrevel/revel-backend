@@ -52,6 +52,23 @@ just wastes RAM.
 - `API_DOMAIN` — public hostname of the API.
 - `GRAFANA_DOMAIN` — public hostname of Grafana, needed whenever the `observability` profile is
   enabled, on either tier.
+- `BASE_URL` — **required in production.** The API's public HTTPS origin (e.g.
+  `https://api.example.org`). It builds absolute backend links in emails, including the
+  `List-Unsubscribe` one-click URL. The default, `http://localhost:8000`, only suits local
+  development.
+- `FRONTEND_BASE_URL` — **required in production.** The web app's public origin, used for links
+  into the app. `SiteSettings.frontend_base_url` (admin → Site settings) is seeded once from it
+  when the row is first created, so if you change `FRONTEND_BASE_URL` later, update that field too.
+
+The setup wizard writes both from your domains. With `DEBUG` off, `manage.py check` validates them
+at startup. The web container runs `migrate` on start, which runs the same checks:
+
+| Check | Level | When |
+|---|---|---|
+| `common.E001` | Error: `check`/`migrate` fail, the API doesn't start | `BASE_URL` is empty or points at `localhost`, `127.0.0.1` or `::1` |
+| `common.W002` | Warning | `BASE_URL` is not `https://` |
+| `common.W003` | Warning | `FRONTEND_BASE_URL` points at `localhost` or `127.0.0.1` |
+| `common.W004` | Warning | `DEFAULT_FROM_EMAIL` is on `letsrevel.io` but `BASE_URL` isn't, so you would be sending as our domain |
 
 ### Feature flags
 
@@ -135,6 +152,9 @@ fewer than the reserve remain in the shared hourly budget.
   setting it before DKIM and DMARC pass makes all of that mail fail DMARC.
 - `EMAIL_WEBHOOK_SECRET` (optional) — turns on the bounce and complaint webhook (below). Unset, the
   endpoint answers 404 and nothing is suppressed automatically.
+- `PENDING_INVITATION_DAILY_CAP` (default `200`) — how many invitations each organization can
+  send per UTC day to addresses that have no Revel account yet. `0` means unlimited. See
+  [pending invitation cap](../architecture/email-sending.md#pending-invitation-cap).
 - `UNSUBSCRIBE_TOKEN_LIFETIME_DAYS` (default `3650`) — how long unsubscribe links in emails stay
   valid. Mailbox providers show the one-click unsubscribe button on old mail too, so keep it long.
 

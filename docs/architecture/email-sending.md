@@ -39,6 +39,29 @@ spike can't push password resets into spam.
 **Everything else** (verification, password reset, tickets, payments, staff notifications,
 digests) is sent from `DEFAULT_FROM_EMAIL`. Attendee invoices keep their existing
 `"<billing name>" <org-slug@<apex domain>>` sender on the apex domain, not `ORG_EMAIL_DOMAIN`.
+Their Reply-To follows the same rule as organization mail (verified contact email, else none). The
+organization's copy is BCC'd to its billing email (settable by the owner only), else to the
+verified contact email, else nobody.
+
+## Pending invitation cap
+
+An invitation to an address with no Revel account (a pending invitation) is cold mail: the
+recipient never signed up for Revel. That is the biggest spam-complaint risk on the organization
+sending domain, so each organization has a daily budget of them, `PENDING_INVITATION_DAILY_CAP`
+(default `200`, `0` means unlimited).
+
+- The cap is checked when the invitations are created (`POST /event-admin/{event_id}/invitations`,
+  `events/service/invitation_service.py`). A request that would go over the remaining budget is
+  rejected whole with a `400` that says how many it would email, how many are left and the limit.
+  Nothing is created.
+- Only addresses that would create a new pending invitation count. Addresses of existing users
+  (they get a regular invitation) and addresses already pending for that event don't. Duplicates
+  in one request count once. Addresses that opted out or are suppressed still count.
+- The budget is shared by all events of the organization and resets at midnight UTC. It is never
+  refunded: deleting a pending invitation and creating it again spends budget again.
+- The counter lives in the cache (Redis), keyed `invite-cap:<org id>:<YYYYMMDD>`. It is not turned
+  off by `DISABLE_THROTTLING`.
+- A request can list at most 500 addresses (`422` above that).
 
 ## Mail users can't opt out of
 
@@ -133,8 +156,22 @@ opt-out); replays of the same event change nothing.
 - **Feeding it**: the provider webhook at `POST /api/email-events/brevo`, inert unless
   `EMAIL_WEBHOOK_SECRET` is set (see [setup](../self-hosting/tiers.md#bounce-and-complaint-webhook)).
   Complaints keep the delivery `SENT` and set `metadata.complained`; bounces mark it `FAILED`.
-- **Clearing it**: delete the row in the admin (**Email Suppressions**). Changing a user's email
-  doesn't clear the old address; the user simply stops matching it.
+- **Telling the user**: `GET /api/notification-preferences` returns
+  `email_suppression: {"reason": ..., "since": ...}` (or `null`) for the user's current address.
+  `since` is when the row last changed. Invitation opt-outs, the provider detail, the source and
+  the organization are never exposed. It is deliberately not on `/me`, whose schema is embedded in
+  JWTs and readable by OAuth apps. The GDPR export carries the same `email_suppression` section.
+- **Clearing it**: there is no self-service clear; it is a support action with two steps:
+    1. delete the row in the admin (**Email Suppressions**), **and**
+    2. unblock the contact in Brevo (**Transactional → Blocked contacts**). If you skip this, the
+       next send is blocked again, the webhook reports it, and the row comes back.
+
+    Alternatively, the user can change their email address. Suppression is keyed by address, so
+    the new address is unaffected. A `+alias` of the same mailbox does **not** help: normalization
+    strips `+tags` (and Gmail dots), so it matches the same row. Changing the email doesn't clear
+    the old address either; the user simply stops matching it. A user whose address bounced before
+    they ever verified it can't get far enough in the app to see the notice, so they reach you as a
+    support case.
 - **Abuse triage**: filter the admin by reason "Spam complaint" and organization to count
   complaints per organization. Rows keep the organization whose mail triggered them.
 - **Retention**: rows have no link to a user account and survive account deletion, so a deleted

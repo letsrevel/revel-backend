@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from common.models import EmailLog, SiteSettings
 from common.tasks import to_safe_email_address
+from common.utils import with_message_id
 from notifications.enums import ORG_SENDER_TYPES, DeliveryChannel, DeliveryStatus
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.base import NotificationChannel
@@ -117,6 +118,7 @@ class EmailChannel(NotificationChannel):
             recipient = to_safe_email_address(notification.user.email, site_settings=site_settings)
 
             from_email, reply_to, headers = self._envelope(notification, delivery)
+            headers = with_message_id(headers, from_email)
 
             # Build email
             email_msg = EmailMultiAlternatives(

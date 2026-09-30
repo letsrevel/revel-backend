@@ -10,7 +10,8 @@ from pydantic import AwareDatetime, EmailStr, Field, field_serializer, field_val
 
 from accounts.schema import UnsubscribeJWTPayloadSchema
 from notifications.enums import NotificationType
-from notifications.models import NotificationPreference
+from notifications.models import EmailSuppression, NotificationPreference
+from notifications.service.email_policy import suppression_for
 
 ChannelType = t.Literal["in_app", "email", "telegram"]
 
@@ -51,6 +52,16 @@ class MarkReadResponseSchema(Schema):
     success: bool
 
 
+class EmailSuppressionStatusSchema(Schema):
+    """Why and since when Revel stopped emailing the user's address (#1038).
+
+    Provider detail, source and the triggering organization are deliberately omitted.
+    """
+
+    reason: EmailSuppression.Reason
+    since: AwareDatetime
+
+
 class NotificationPreferenceSchema(ModelSchema):
     """Schema for notification preferences."""
 
@@ -61,6 +72,8 @@ class NotificationPreferenceSchema(ModelSchema):
     notification_type_settings: dict[NotificationType, NotificationTypeSettings]
     # Read-only: change via PUT/DELETE /notification-preferences/muted-organizations/{id} (#1031).
     muted_organization_ids: list[UUID]
+    # Read-only; null when email to the user's address is not suppressed (#1038).
+    email_suppression: EmailSuppressionStatusSchema | None
 
     class Meta:
         model = NotificationPreference
@@ -77,6 +90,16 @@ class NotificationPreferenceSchema(ModelSchema):
     def resolve_muted_organization_ids(obj: NotificationPreference) -> list[UUID]:
         """Organizations whose announcements the user muted."""
         return list(obj.muted_organizations.values_list("id", flat=True))
+
+    @staticmethod
+    def resolve_email_suppression(obj: NotificationPreference) -> EmailSuppressionStatusSchema | None:
+        """The suppression blocking mail to the user's address (invitation opt-outs excluded)."""
+        row = suppression_for(obj.user.email) if obj.user.email else None
+        return (
+            EmailSuppressionStatusSchema(reason=EmailSuppression.Reason(row.reason), since=row.updated_at)
+            if row
+            else None
+        )
 
 
 class UpdateNotificationPreferenceSchema(Schema):

@@ -32,7 +32,10 @@ ports 80/443, and backs up any existing `.env`. It then prompts you for:
 1. **Tier** — Slim or Full, recommended from the detected hardware. The tier is only a preset: it
    sets the suggested resource limits and the default answer for observability and antivirus. Every
    optional service below is still toggled individually.
-2. **Domains** — your frontend domain and API domain.
+2. **Domains** — your frontend domain and API domain. The wizard turns them into `BASE_URL` and
+   `FRONTEND_BASE_URL`. Both are required in production. If you write `.env` by hand, set them to
+   your public HTTPS origins: with `DEBUG` off, the API refuses to start while `BASE_URL` is unset
+   or local (see [Tiers & Configuration → Domains](tiers.md#domains)).
 3. **Email** — real SMTP (host, port, username, password, from-address) or console/dry-run
    (`EMAIL_DRY_RUN=True`) for a test instance. With real SMTP it also offers an optional
    dedicated sending domain for organization mail (`ORG_EMAIL_DOMAIN`) and an optional

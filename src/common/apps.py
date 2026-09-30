@@ -17,3 +17,6 @@ class CommonConfig(AppConfig):
 
         init_tracing()
         init_profiling()
+
+        # Importing the module runs its @register() decorators.
+        import common.checks  # noqa: F401

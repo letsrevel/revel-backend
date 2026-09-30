@@ -1,7 +1,7 @@
 import functools
 import mimetypes
 import typing as t
-from email.utils import parseaddr
+from email.utils import make_msgid, parseaddr
 from io import BytesIO
 
 from django.conf import settings
@@ -258,6 +258,26 @@ def org_email_domain() -> str:
         The domain used for ``<slug>@<domain>`` org sender addresses.
     """
     return t.cast(str, settings.ORG_EMAIL_DOMAIN) or apex_email_domain()
+
+
+def with_message_id(headers: dict[str, str] | None, from_email: str) -> dict[str, str]:
+    """Return ``headers`` plus a ``Message-ID`` on the sender's domain, unless one is already set.
+
+    Django's default Message-ID uses the host's FQDN (the container name); a domain matching
+    the From address is a better deliverability signal (#1037).
+
+    Args:
+        headers: Caller-supplied extra headers (not mutated).
+        from_email: The From address actually used (``"Name <a@b>"`` or ``"a@b"``).
+
+    Returns:
+        A new headers dict with a ``Message-ID`` header.
+    """
+    result = dict(headers or {})
+    if not any(key.lower() == "message-id" for key in result):
+        domain = parseaddr(from_email)[1].rpartition("@")[2].lower() or apex_email_domain()
+        result["Message-ID"] = make_msgid(domain=domain)
+    return result
 
 
 # RFC 2142 / role mailboxes an org slug must never impersonate on our domain.

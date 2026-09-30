@@ -6,10 +6,12 @@ import typing as t
 from django import forms
 from django.contrib import admin, messages
 from django.db import transaction
+from django.db.models import Count, QuerySet
 from django.http import HttpRequest, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
+from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.forms.widgets import WysiwygWidget
 from unfold.widgets import CHECKBOX_CLASSES, UnfoldAdminTextInputWidget
 
@@ -48,7 +50,7 @@ class SystemAnnouncementForm(forms.Form):
     )
 
 
-class NotificationDeliveryInline(admin.TabularInline):  # type: ignore[type-arg]
+class NotificationDeliveryInline(TabularInline):  # type: ignore[misc]
     """Read-only inline of per-channel deliveries for a notification."""
 
     model = NotificationDelivery
@@ -62,7 +64,7 @@ class NotificationDeliveryInline(admin.TabularInline):  # type: ignore[type-arg]
 
 
 @admin.register(Notification)
-class NotificationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class NotificationAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for Notification model."""
 
     inlines = [NotificationDeliveryInline]
@@ -169,7 +171,7 @@ class NotificationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
     def get_urls(self) -> list[t.Any]:
         """Add custom URL for sending system announcements."""
-        urls = super().get_urls()
+        urls: list[t.Any] = super().get_urls()
         custom_urls = [
             path(
                 "send-announcement/",
@@ -253,7 +255,7 @@ class NotificationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
 
 @admin.register(NotificationDelivery)
-class NotificationDeliveryAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class NotificationDeliveryAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for NotificationDelivery model."""
 
     list_display = [
@@ -365,7 +367,7 @@ class NotificationDeliveryAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
 
 @admin.register(NotificationPreference)
-class NotificationPreferenceAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class NotificationPreferenceAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for NotificationPreference model."""
 
     list_display = [
@@ -374,9 +376,10 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "digest_frequency",
         "event_reminders_enabled",
         "channels_display",
+        "muted_org_count",
     ]
     list_select_related = ["user"]
-    autocomplete_fields = ["user"]
+    autocomplete_fields = ["user", "muted_organizations"]
     list_filter = [
         "silence_all_notifications",
         "digest_frequency",
@@ -420,6 +423,10 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
             {"fields": ("event_reminders_enabled",)},
         ),
         (
+            "Organization mutes",
+            {"fields": ("muted_organizations",)},
+        ),
+        (
             "Advanced",
             {
                 "fields": ("notification_type_settings",),
@@ -452,6 +459,16 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
     channels_display.short_description = "Enabled Channels"  # type: ignore[attr-defined]
 
+    def get_queryset(self, request: HttpRequest) -> QuerySet[NotificationPreference]:
+        """Annotate the org-mute count for the list column."""
+        qs: QuerySet[NotificationPreference] = super().get_queryset(request)
+        return qs.annotate(_muted_org_count=Count("muted_organizations"))
+
+    @admin.display(description="Muted orgs", ordering="_muted_org_count")
+    def muted_org_count(self, obj: NotificationPreference) -> int:
+        """Number of organizations whose announcements this user muted."""
+        return obj._muted_org_count  # type: ignore[attr-defined,no-any-return]
+
 
 class EmailSuppressionAddForm(forms.ModelForm):  # type: ignore[type-arg]
     """Admin form that lets an existing address through, so ``suppress()`` can upsert it by rank."""
@@ -465,7 +482,7 @@ class EmailSuppressionAddForm(forms.ModelForm):  # type: ignore[type-arg]
 
 
 @admin.register(EmailSuppression)
-class EmailSuppressionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class EmailSuppressionAdmin(ModelAdmin):  # type: ignore[misc]
     """Addresses Revel won't email. Deleting a row clears the suppression.
 
     Per-org complaint count (abuse triage): filter reason = "Spam complaint" + organization.

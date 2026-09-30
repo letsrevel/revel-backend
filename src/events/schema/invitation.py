@@ -31,7 +31,7 @@ class DirectInvitationCreateSchema(InvitationBaseSchema):
     Note: Notifications are sent automatically via Django signals when invitations are created.
     """
 
-    emails: list[EmailStr] = Field(..., min_length=1, description="List of email addresses to invite")
+    emails: list[EmailStr] = Field(..., min_length=1, max_length=500, description="List of email addresses to invite")
     tier_ids: list[UUID] = Field(default_factory=list, description="Ticket tiers to assign to invitations")
 
 
