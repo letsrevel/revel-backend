@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 from django.template.loader import render_to_string
 
-from notifications.enums import NotificationType
+from notifications.enums import MANDATORY_TYPES, NotificationType
 from notifications.models import Notification
 from notifications.utils import get_formatted_context_for_template
 
@@ -172,6 +172,8 @@ class NotificationTemplate(ABC):
         site_settings = SiteSettings.get_solo()
         unsubscribe_link = f"{site_settings.frontend_base_url}/unsubscribe?token={unsubscribe_token}"
         enriched_context["unsubscribe_link"] = unsubscribe_link
+        # Mandatory mail can't be opted out of (#1030): don't promise "unsubscribe" in its footer.
+        enriched_context["is_mandatory_notification"] = notification.notification_type in MANDATORY_TYPES
 
         return {
             "user": user,

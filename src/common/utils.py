@@ -258,3 +258,36 @@ def org_email_domain() -> str:
         The domain used for ``<slug>@<domain>`` org sender addresses.
     """
     return t.cast(str, settings.ORG_EMAIL_DOMAIN) or apex_email_domain()
+
+
+# RFC 2142 / role mailboxes an org slug must never impersonate on our domain.
+RESERVED_MAILBOX_LOCAL_PARTS = frozenset(
+    {
+        "abuse",
+        "postmaster",
+        "hostmaster",
+        "webmaster",
+        "security",
+        "noreply",
+        "no-reply",
+        "support",
+        "admin",
+        "root",
+        "mailer-daemon",
+        "info",
+        "billing",
+        "revel",
+    }
+)
+
+
+def is_reserved_mailbox(local_part: str) -> bool:
+    """Whether an org slug would impersonate a role mailbox (RFC 2142) if used as a local part.
+
+    Args:
+        local_part: The candidate local part (an organization slug).
+
+    Returns:
+        True if it must not be used as a sender local part on our domains.
+    """
+    return local_part.lower() in RESERVED_MAILBOX_LOCAL_PARTS

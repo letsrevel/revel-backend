@@ -1128,6 +1128,9 @@ msgstr "Si crees que se trata de un error, ponte en contacto con soporte."
 msgid "The Revel Team"
 msgstr "El equipo de Revel"
 
+msgid "Manage notification preferences"
+msgstr "Gestionar preferencias de notificación"
+
 msgid "Unsubscribe or manage notification preferences"
 msgstr "Darse de baja o gestionar las preferencias de notificación"
 
@@ -3331,6 +3334,9 @@ msgstr "Este nombre no está permitido."
 msgid "Invalid webhook credentials."
 msgstr "Credenciales del webhook no válidas."
 
+msgid "You have been unsubscribed."
+msgstr "Te has dado de baja."
+
 msgid "Immediate"
 msgstr "Inmediato"
 
@@ -3387,6 +3393,9 @@ msgid "%(counter)s new notification"
 msgid_plural "%(counter)s new notifications"
 msgstr[0] "%(counter)s notificación nueva"
 msgstr[1] "%(counter)s notificaciones nuevas"
+
+msgid "Webhook body must be a JSON object or array."
+msgstr "El cuerpo del webhook debe ser un objeto o un array JSON."
 
 msgid "Account Suspended"
 msgstr "Cuenta suspendida"
@@ -3903,6 +3912,9 @@ msgstr ""
 "coincidan, a través de todos los canales habilitados (in-app, email, "
 "Telegram). Esta acción no se puede deshacer."
 
+msgid "Manage notification preferences:"
+msgstr "Gestionar preferencias de notificación:"
+
 msgid "Unsubscribe or manage notification preferences:"
 msgstr "Cancela la suscripción o gestiona tus preferencias de notificación:"
 
@@ -4354,7 +4366,9 @@ msgid "Sign up to accept this invitation:"
 msgstr "Regístrate para aceptar esta invitación:"
 
 msgid "Don't want invitations from Revel organizers? Stop these emails:"
-msgstr "¿No quieres recibir invitaciones de organizadores de Revel? Deja de recibir estos correos:"
+msgstr ""
+"¿No quieres recibir invitaciones de organizadores de Revel? Deja de recibir "
+"estos correos:"
 
 #, python-format
 msgid ""

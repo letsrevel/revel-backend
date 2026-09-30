@@ -21,6 +21,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
+from django.utils.translation import gettext as _
 
 from events.models import Organization
 from notifications.enums import DeliveryChannel, DeliveryStatus
@@ -108,7 +109,7 @@ def load_json_body(body: bytes) -> dict[str, t.Any] | list[t.Any]:
     except ValueError:  # JSONDecodeError and UnicodeDecodeError are both ValueErrors
         payload = None
     if not isinstance(payload, dict | list):
-        raise ValidationError("Webhook body must be a JSON object or array.")
+        raise ValidationError(str(_("Webhook body must be a JSON object or array.")))
     return payload
 
 

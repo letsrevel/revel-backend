@@ -323,7 +323,7 @@ def send_notification_digests() -> dict[str, t.Any]:
         since = timezone.now() - lookback
 
         # Pending notifications, restricted to the types the user may be emailed.
-        emailable_types = [t for t in NotificationType if may_email(prefs.user, t)]
+        emailable_types = [nt for nt in NotificationType if may_email(prefs.user, nt)]
         pending = get_pending_notifications_for_digest(prefs.user, since).filter(notification_type__in=emailable_types)
 
         if not pending.exists():

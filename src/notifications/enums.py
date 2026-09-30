@@ -59,7 +59,7 @@ class NotificationType(TextChoices):
     MEMBERSHIP_REQUEST_REJECTED = "membership_request_rejected"
 
     # Organization notifications
-    ORG_ANNOUNCEMENT = "org_announcement"  # Placeholder - requires API endpoint
+    ORG_ANNOUNCEMENT = "org_announcement"
     ORG_CONTACT_MESSAGE_RECEIVED = "org_contact_message_received"  # Notify org admins of contact form submissions
 
     # Waitlist notifications

@@ -5,9 +5,10 @@ Handles the full lifecycle of attendee invoices issued on behalf of organizers.
 
 import typing as t
 from decimal import ROUND_HALF_UP, Decimal
-from email.utils import formataddr
+from email.utils import formataddr, parseaddr
 
 import structlog
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
@@ -16,7 +17,7 @@ from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
 from common.service.invoice_utils import get_next_sequential_number, render_pdf
-from common.utils import apex_email_domain
+from common.utils import apex_email_domain, is_reserved_mailbox
 from events.models.attendee_invoice import (
     AttendeeInvoice,
     AttendeeInvoiceCreditNote,
@@ -391,7 +392,7 @@ def _send_org_branded_email(
         subject=subject,
         body=body,
         html_body=html_body,
-        from_email=formataddr((org_billing_name, f"{org_slug}@{apex_email_domain()}")),
+        from_email=_invoice_from_address(org_billing_name, org_slug),
         reply_to=[reply_to_email] if reply_to_email else None,
         bcc=[bcc_email] if bcc_email else None,
         attachment_storage_path=attachment_path,
@@ -710,3 +711,10 @@ def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
         credit_note.mark_email_sent()
     else:
         credit_note.mark_email_undeliverable(AttendeeInvoiceCreditNote.DeliveryFailureReason.NO_RECIPIENT)
+
+
+def _invoice_from_address(billing_name: str, org_slug: str) -> str:
+    """``"<billing name>" <slug@apex>``, or the system address for role-mailbox slugs (RFC 2142)."""
+    if is_reserved_mailbox(org_slug):
+        return formataddr((billing_name, parseaddr(settings.DEFAULT_FROM_EMAIL)[1]))
+    return formataddr((billing_name, f"{org_slug}@{apex_email_domain()}"))

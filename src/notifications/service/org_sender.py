@@ -4,29 +4,9 @@ from email.utils import formataddr
 
 from django.conf import settings
 
-from common.utils import org_email_domain
+from common.utils import is_reserved_mailbox, org_email_domain
 from events.models import Organization
 from notifications.models import Notification
-
-# RFC 2142 / role mailboxes an org slug must never impersonate on our domain.
-_RESERVED_LOCAL_PARTS = frozenset(
-    {
-        "abuse",
-        "postmaster",
-        "hostmaster",
-        "webmaster",
-        "security",
-        "noreply",
-        "no-reply",
-        "support",
-        "admin",
-        "root",
-        "mailer-daemon",
-        "info",
-        "billing",
-        "revel",
-    }
-)
 
 _ORG_FIELDS = ("id", "name", "slug", "contact_email", "contact_email_verified")
 
@@ -62,7 +42,7 @@ def org_from_address(org: Organization) -> str:
     Returns:
         A formatted From header value.
     """
-    if org.slug.lower() in _RESERVED_LOCAL_PARTS:
+    if is_reserved_mailbox(org.slug):
         return str(settings.DEFAULT_FROM_EMAIL)
     name = org.name.replace("\r", " ").replace("\n", " ")
     return formataddr((f"{name} via Revel", f"{org.slug}@{org_email_domain()}"))

@@ -3,6 +3,7 @@
 from urllib.parse import quote
 
 from django.http import HttpResponseRedirect
+from django.utils.translation import gettext as _
 from ninja_extra import ControllerBase, api_controller, route
 
 from common.models import SiteSettings
@@ -25,7 +26,7 @@ class OneClickUnsubscribeController(ControllerBase):
         (digest), or opt an address out of invitation emails. Idempotent.
         """
         one_click_unsubscribe(token)
-        return ResponseMessage(message="You have been unsubscribed.")
+        return ResponseMessage(message=str(_("You have been unsubscribed.")))
 
     @route.get("/one-click", response={302: None}, url_name="one_click_unsubscribe_redirect")
     def one_click_redirect(self, token: str) -> HttpResponseRedirect:

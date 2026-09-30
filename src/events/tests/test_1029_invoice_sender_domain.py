@@ -31,3 +31,26 @@ def test_invoice_from_uses_apex_domain(
 
     from_email = mock_email.call_args.kwargs["from_email"]
     assert from_email.endswith(f"<{organization.slug}@selfhosted.example>")
+
+
+@patch("events.service.attendee_invoice_service.render_pdf", return_value=b"fake-pdf")
+@patch("common.tasks.send_email")
+def test_invoice_from_falls_back_for_role_mailbox_slug(
+    mock_email: t.Any,
+    mock_pdf: t.Any,
+    settings: t.Any,
+    organization: Organization,
+    event: Event,
+    member_user: RevelUser,
+) -> None:
+    """An org slugged like a role mailbox (RFC 2142) must not send as abuse@<apex>."""
+    settings.DEFAULT_FROM_EMAIL = "Revel <noreply@selfhosted.example>"
+    Organization.objects.filter(pk=organization.pk).update(slug="abuse")
+    organization.refresh_from_db()
+    inv = _create_invoice(organization, event, member_user)
+    ensure_pdf_exists(inv)
+
+    deliver_attendee_invoice(inv)
+
+    from_email = mock_email.call_args.kwargs["from_email"]
+    assert from_email.endswith("<noreply@selfhosted.example>")

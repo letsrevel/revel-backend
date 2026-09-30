@@ -350,12 +350,16 @@ class NotificationPreference(TimeStampedModel):
         Returns:
             True if the stored settings changed, False otherwise.
         """
-        existing = self.notification_type_settings.get(notification_type, {})
-        channels = [c for c in self.get_channels_for_notification_type(notification_type) if c != DeliveryChannel.EMAIL]
-        new_setting = {
-            "enabled": existing.get("enabled", True),
-            "channels": channels or [DeliveryChannel.IN_APP.value],
-        }
+        existing = t.cast(NotificationTypeSetting, self.notification_type_settings.get(notification_type, {}))
+        channels = [
+            DeliveryChannel(c)
+            for c in self.get_channels_for_notification_type(notification_type)
+            if c != DeliveryChannel.EMAIL
+        ]
+        new_setting = NotificationTypeSetting(
+            enabled=existing.get("enabled", True),
+            channels=channels or [DeliveryChannel.IN_APP],
+        )
         if existing == new_setting:
             return False
         self.notification_type_settings[notification_type] = new_setting
@@ -382,11 +386,11 @@ class NotificationPreference(TimeStampedModel):
         for notification_type, default in get_default_notification_type_settings().items():
             if channel not in default["channels"]:
                 continue
-            setting = self.notification_type_settings.get(notification_type)
+            setting = t.cast(NotificationTypeSetting | None, self.notification_type_settings.get(notification_type))
             # No override (or no channel list) falls back to enabled_channels, fixed above.
-            channels = (setting or {}).get("channels")
+            channels = setting.get("channels") if setting is not None else None
             if setting is not None and channels and channel not in channels:
-                setting["channels"] = [*channels, channel]
+                setting["channels"] = [*channels, DeliveryChannel(channel)]
                 changed = True
         return changed
 
