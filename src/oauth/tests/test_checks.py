@@ -57,6 +57,8 @@ def test_unreadable_signing_key_does_not_fail_manage_py_check(settings: t.Any) -
 
     settings.OIDC_SIGNING_KEY_ERRORS = ["/app/certs/oidc.pem: Permission denied"]
     settings.OAUTH_ISSUER = ""
+    # pytest runs with DEBUG off, so give the deploy-URL checks (#1039) a production BASE_URL.
+    settings.BASE_URL = "https://api.letsrevel.io"
     call_command("check")
 
 

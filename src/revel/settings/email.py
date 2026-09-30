@@ -22,6 +22,9 @@ DEFAULT_REPLY_TO_EMAIL = config("DEFAULT_REPLY_TO_EMAIL", default=DEFAULT_FROM_E
 ORG_EMAIL_DOMAIN = config("ORG_EMAIL_DOMAIN", default="")
 # Shared secret for the provider (Brevo) bounce/complaint webhook. Empty → endpoint disabled.
 EMAIL_WEBHOOK_SECRET = config("EMAIL_WEBHOOK_SECRET", default="")
+# Per-org, per-UTC-day budget of invitation emails to addresses without a Revel account (cold
+# mail; see events.service.invitation_service). 0 → unlimited. Not affected by DISABLE_THROTTLING.
+PENDING_INVITATION_DAILY_CAP = config("PENDING_INVITATION_DAILY_CAP", default=200, cast=int)
 
 EMAIL_DRY_RUN = config("EMAIL_DRY_RUN", default=False, cast=bool)
 

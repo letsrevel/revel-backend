@@ -301,7 +301,7 @@ def test_send_email_passes_headers() -> None:
 
     send_email(to="a@example.com", subject="s", body="b", headers={"X-Mailin-custom": "k:v"})
 
-    assert mail.outbox[-1].extra_headers == {"X-Mailin-custom": "k:v"}
+    assert mail.outbox[-1].extra_headers["X-Mailin-custom"] == "k:v"
 
 
 def test_digest_email_has_typeless_list_unsubscribe(regular_user: RevelUser) -> None:

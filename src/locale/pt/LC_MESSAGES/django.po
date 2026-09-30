@@ -2293,6 +2293,13 @@ msgstr "Tipo de token inválido"
 msgid "Ticket tiers not found: %(ids)s"
 msgstr "Tipos de bilhete não encontrados: %(ids)s"
 
+#, python-brace-format
+msgid ""
+"This would email {count} people who don't have a Revel account yet, but your "
+"organization can invite only {remaining} more today (limit {cap} per day, "
+"resets at midnight UTC). Invite fewer people or try again tomorrow."
+msgstr "Isto enviaria um e-mail a {count} pessoas que ainda não têm conta no Revel, mas a tua organização só pode convidar mais {remaining} hoje (limite de {cap} por dia, reinicia à meia-noite UTC). Convida menos pessoas ou tenta novamente amanhã."
+
 msgid "This event does not accept invitation requests."
 msgstr "Este evento não aceita pedidos de convite."
 
@@ -3290,7 +3297,7 @@ msgid "Invalid webhook credentials."
 msgstr "Credenciais do webhook inválidas."
 
 msgid "You have been unsubscribed."
-msgstr "Você cancelou a inscrição."
+msgstr "Cancelaste a inscrição."
 
 msgid "Immediate"
 msgstr "Imediato"

@@ -1,7 +1,11 @@
+import contextlib
 import typing as t
 from uuid import UUID
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -21,7 +25,17 @@ def create_direct_invitations(
     For existing users, creates EventInvitation objects.
     For non-existing users, creates PendingEventInvitation objects.
 
-    Returns a summary of created invitations.
+    Args:
+        event: The event to invite people to.
+        invitation_data: Emails, optional tiers and invitation fields.
+
+    Returns:
+        A summary of created invitations.
+
+    Raises:
+        HttpError: 400 when a tier id is unknown, or when the organization's daily budget of
+            invitation emails to people without an account would be exceeded (#1035); nothing
+            is created in either case.
     """
     # Validate tiers if provided
     tiers: list[TicketTier] = []
@@ -35,6 +49,8 @@ def create_direct_invitations(
             # unmapped and surfaced as a 500. Mirrors the other tier_ids guards
             # (ticket_service.reorder_tiers, membership.reorder_tiers).
             raise HttpError(400, str(_("Ticket tiers not found: %(ids)s")) % {"ids": ", ".join(missing)})
+
+    _charge_pending_invitation_budget(event, {str(e).strip().lower() for e in invitation_data.emails})
 
     invitation_fields = _get_invitation_fields(invitation_data)
     created_invitations = 0
@@ -61,6 +77,58 @@ def create_direct_invitations(
         "pending_invitations": pending_invitations,
         "total_invited": created_invitations + pending_invitations,
     }
+
+
+# The counter must outlive the UTC day it names; the date in the key is what resets it.
+_INVITE_CAP_COUNTER_TTL_SECONDS = 26 * 3600
+
+
+def _charge_pending_invitation_budget(event: Event, emails: set[str]) -> None:
+    """Charge the org's daily budget of invitation emails to people without a Revel account.
+
+    Only addresses that would create a NEW ``PendingEventInvitation`` count: existing users get an
+    ``EventInvitation`` instead, and an already-pending address only gets its row updated.
+    Suppressed/opted-out addresses still count. The budget is never refunded (deleting and
+    re-creating a pending invitation would otherwise resend cold mail for free).
+
+    Raises:
+        HttpError: 400 when the request would exceed the remaining budget; nothing is charged.
+    """
+    # ponytail: an error after the charge (same transaction) over-counts slightly, the safe side.
+    # A per-org override would be a nullable ``Organization`` field read in place of the setting.
+    cap = settings.PENDING_INVITATION_DAILY_CAP
+    if not cap:
+        return
+    existing = set(RevelUser.objects.filter(email__in=emails).values_list("email", flat=True))
+    pending = set(PendingEventInvitation.objects.filter(event=event, email__in=emails).values_list("email", flat=True))
+    count = len(emails - existing - pending)
+    if not count:
+        return
+    # Fail-closed by design: if Redis is unreachable this raises (500). Invitation emails go out via
+    # Celery, whose broker is the same Redis, so nothing could be sent during the outage anyway.
+    key = f"invite-cap:{event.organization_id}:{timezone.now():%Y%m%d}"
+    cache.add(key, 0, timeout=_INVITE_CAP_COUNTER_TTL_SECONDS)
+    try:
+        spent = cache.incr(key, count)
+    except ValueError:  # key expired/evicted between add() and incr(): start today's count afresh
+        # add(), not set(): if a concurrent request recreated the key first, keep its charge.
+        if cache.add(key, count, timeout=_INVITE_CAP_COUNTER_TTL_SECONDS):
+            spent = count
+        else:
+            spent = cache.incr(key, count)
+    if spent > cap:
+        with contextlib.suppress(ValueError):  # key gone since incr(): nothing left to refund
+            cache.decr(key, count)
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "This would email {count} people who don't have a Revel account yet, but your "
+                    "organization can invite only {remaining} more today (limit {cap} per day, resets "
+                    "at midnight UTC). Invite fewer people or try again tomorrow."
+                )
+            ).format(count=count, remaining=max(cap - (spent - count), 0), cap=cap),
+        )
 
 
 def _with_default_message(invitation_fields: dict[str, t.Any], display_name: str, event: Event) -> dict[str, t.Any]:

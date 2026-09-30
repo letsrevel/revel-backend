@@ -28,6 +28,7 @@ from common.thumbnails.tasks import (  # noqa: F401
     delete_orphaned_thumbnails_task,
     generate_thumbnails_task,
 )
+from common.utils import with_message_id
 
 logger = structlog.get_logger(__name__)
 
@@ -142,6 +143,7 @@ def send_email(
         recipients = [to_safe_email_address(email, site_settings=site_settings) for email in recipients]
         safe_bcc = [to_safe_email_address(email, site_settings=site_settings) for email in (bcc or [])]
         sender = from_email or settings.DEFAULT_FROM_EMAIL
+        headers = with_message_id(headers, sender)
 
         # Build the To/BCC headers:
         # - Single recipient: use as To, add explicit BCC if provided.

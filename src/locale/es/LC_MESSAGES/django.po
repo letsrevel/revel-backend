@@ -2319,6 +2319,13 @@ msgstr "Tipo de token no válido"
 msgid "Ticket tiers not found: %(ids)s"
 msgstr "Tipos de entrada no encontrados: %(ids)s"
 
+#, python-brace-format
+msgid ""
+"This would email {count} people who don't have a Revel account yet, but your "
+"organization can invite only {remaining} more today (limit {cap} per day, "
+"resets at midnight UTC). Invite fewer people or try again tomorrow."
+msgstr "Esto enviaría un correo a {count} personas que aún no tienen cuenta en Revel, pero tu organización solo puede invitar a {remaining} más hoy (límite de {cap} al día, se reinicia a medianoche UTC). Invita a menos personas o vuelve a intentarlo mañana."
+
 msgid "This event does not accept invitation requests."
 msgstr "Este evento no admite solicitudes de invitación."
 
