@@ -5,6 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 from common.models import Tag, TagAssignment
 from events.management.commands.seeder.base import BaseSeeder
 from events.models import Event, EventSeriesFollow, Organization, OrganizationFollow
+from notifications.models import NotificationPreference
 
 # Tag names
 TAG_NAMES = [
@@ -148,7 +149,28 @@ class SocialSeeder(BaseSeeder):
                 )
 
         self.batch_create(OrganizationFollow, follows_to_create, desc="Creating org follows")
+        self._mute_announcement_opt_outs(follows_to_create)
         self.log(f"  Created {len(follows_to_create)} organization follows")
+
+    def _mute_announcement_opt_outs(self, follows: list[OrganizationFollow]) -> None:
+        """Seed the per-org mute for follows opting out of announcements (#1031 facade)."""
+        opted_out = [f for f in follows if not f.notify_announcements and not f.is_archived]
+        if not opted_out:
+            return
+        prefs_by_user = dict(
+            NotificationPreference.objects.filter(user_id__in={f.user_id for f in opted_out}).values_list(
+                "user_id", "id"
+            )
+        )
+        through = NotificationPreference.muted_organizations.through
+        through.objects.bulk_create(
+            [
+                through(notificationpreference_id=prefs_by_user[f.user_id], organization_id=f.organization_id)
+                for f in opted_out
+                if f.user_id in prefs_by_user
+            ],
+            ignore_conflicts=True,
+        )
 
     def _create_event_series_follows(self) -> None:
         """Create event series follows."""

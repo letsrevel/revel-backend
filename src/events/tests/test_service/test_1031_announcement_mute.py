@@ -62,13 +62,16 @@ def _ticket(event: Event, user: RevelUser) -> None:
     )
 
 
-def _notified_ids(announcement: Announcement) -> set[t.Any]:
-    return set(
-        Notification.objects.filter(
-            notification_type=NotificationType.ORG_ANNOUNCEMENT,
-            context__announcement_id=str(announcement.id),
-        ).values_list("user_id", flat=True)
+def _announcement_rows(announcement: Announcement) -> t.Any:
+    return Notification.objects.filter(
+        notification_type=NotificationType.ORG_ANNOUNCEMENT,
+        context__announcement_id=str(announcement.id),
     )
+
+
+def _notified_ids(announcement: Announcement) -> set[t.Any]:
+    """Users the announcement was actually delivered to (muted users get a pre-read, undispatched row)."""
+    return set(_announcement_rows(announcement).filter(read_at__isnull=True).values_list("user_id", flat=True))
 
 
 def _announcement(org: Organization, **kwargs: t.Any) -> Announcement:
@@ -172,6 +175,23 @@ class TestSendSkipsMutedUsers:
         assert announcement_service.get_recipients(announcement).filter(id=user.id).exists()
         assert announcement_service.is_user_eligible_for_announcement(announcement, user)
 
+    def test_muted_user_can_still_read_without_past_visibility(
+        self, org: Organization, event: Event, revel_user_factory: RevelUserFactory
+    ) -> None:
+        """The pre-read ledger row keeps read access when past_visibility is off."""
+        user = revel_user_factory(username="reader_muted_nopast")
+        _ticket(event, user)
+        _mute(user, org)
+        announcement = _announcement(org, event=event, past_visibility=False)
+
+        assert announcement_service.send_announcement(announcement) == 0
+        announcement.refresh_from_db()
+
+        row = _announcement_rows(announcement).get(user=user)
+        assert row.read_at is not None
+        assert not row.deliveries.exists()
+        assert announcement_service.is_user_eligible_for_announcement(announcement, user)
+
     def test_recipient_count_preview_excludes_muted(
         self, org: Organization, event: Event, revel_user_factory: RevelUserFactory
     ) -> None:
@@ -229,7 +249,7 @@ class TestScheduledAndResendSkipMutedUsers:
         _mute(muted_new, org)
 
         assert announcement_service.resend_to_new_recipients(announcement) == 1
-        # Second sweep: the muted user is still in the delta but nothing is delivered.
+        # Second sweep: the muted user now holds a (pre-read) row, so nothing is left to deliver.
         with django_capture_on_commit_callbacks(execute=True):
             resend_announcements_to_new_signups()
         assert announcement_service.resend_to_new_recipients(announcement) == 0

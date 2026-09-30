@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from ninja import ModelSchema, Schema
-from pydantic import EmailStr, Field, field_serializer, field_validator
+from pydantic import AwareDatetime, EmailStr, Field, field_serializer, field_validator
 
 from accounts.schema import UnsubscribeJWTPayloadSchema
 from notifications.enums import NotificationType
@@ -123,7 +123,7 @@ class EmailOptOutJWTPayloadSchema(Schema):
     type: t.Literal["email_opt_out"] = "email_opt_out"
     email: EmailStr
     organization_id: UUID | None = None
-    exp: datetime
+    exp: AwareDatetime
     jti: str = Field(default_factory=lambda: str(uuid4()))
     aud: str = Field(default_factory=lambda: settings.JWT_AUDIENCE)
 

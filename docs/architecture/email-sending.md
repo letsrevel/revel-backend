@@ -43,7 +43,10 @@ digests) is sent from `DEFAULT_FROM_EMAIL`. Attendee invoices keep their existin
 ## Mail users can't opt out of
 
 `MANDATORY_TYPES` bypass silence-all, the email switch, per-type disables and the digest cadence.
-They always go out immediately by in-app and email, plus any other channel the user enabled:
+They always go out immediately by in-app and email, plus any other channel the user enabled.
+The one exception is a [suppressed address](#suppression-list): the provider would drop that
+email anyway, so the email delivery is marked failed and the in-app notification still arrives.
+
 
 | Types | Why |
 |---|---|

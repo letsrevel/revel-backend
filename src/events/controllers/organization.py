@@ -524,7 +524,8 @@ class OrganizationController(UserAwareController):
 
         **Parameters:**
         - `notify_new_events`: Whether to receive notifications when the organization creates new events
-        - `notify_announcements`: Whether to receive notifications for organization announcements
+        - `notify_announcements`: False mutes this organization's announcements; True never removes an
+          existing mute (the mute lives on notification preferences)
 
         **Returns:**
         - 201: The created follow relationship
@@ -558,7 +559,8 @@ class OrganizationController(UserAwareController):
 
         **Parameters:**
         - `notify_new_events`: Whether to receive new event notifications
-        - `notify_announcements`: Whether to receive announcement notifications
+        - `notify_announcements`: False mutes this organization's announcements; True unmutes them
+          (the mute lives on notification preferences)
 
         **Returns:**
         - The updated follow relationship

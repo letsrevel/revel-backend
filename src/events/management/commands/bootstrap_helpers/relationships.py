@@ -345,6 +345,8 @@ def create_follows(state: BootstrapState) -> None:
         notify_announcements=False,  # Only wants event notifications
         is_public=False,
     )
+    # notify_announcements is a facade over the per-org mute (#1031); seed the mute itself.
+    state.users["attendee_3"].notification_preferences.muted_organizations.add(state.orgs["beta"])
 
     # attendee_4 follows both orgs (not a member of either)
     OrganizationFollow.objects.create(

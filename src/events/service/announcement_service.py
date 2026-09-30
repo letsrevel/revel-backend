@@ -520,25 +520,26 @@ def _deliver_to_recipients(announcement: Announcement, recipients: list[RevelUse
     """Create notifications for the given recipients and dispatch them.
 
     Shared by the initial send, the scheduled send, and the resend-to-new-signups flow, so
-    this is the single choke point for the per-organization announcement mute (#1031):
-    users who muted the organization are dropped here. A muted user stays in the resend
-    delta (they hold no notification) but is skipped again on every sweep, never counted.
+    this is the single choke point for the per-organization announcement mute (#1031).
+    Users who muted the organization still get the ORG_ANNOUNCEMENT notification row,
+    created already read and never dispatched: that row is the read-access ledger
+    (``is_user_eligible_for_announcement``) and the resend de-dup key, so a mute stops
+    delivery without hiding the announcement or looping the resend sweep.
 
     Args:
         announcement: Announcement providing the notification context.
         recipients: Users to notify (already de-duplicated).
 
     Returns:
-        Number of notifications created.
+        Number of notifications dispatched (muted recipients are not counted).
     """
+    from notifications.models import Notification
     from notifications.tasks import dispatch_notifications_batch
 
-    if recipients:
-        # One query over the org's muters (small set) instead of one per recipient.
-        muted_ids = set(RevelUser.objects.filter(_muted_by_q(announcement)).values_list("id", flat=True))
-        recipients = [user for user in recipients if user.id not in muted_ids]
     if not recipients:
         return 0
+    # One query over the org's muters (small set) instead of one per recipient.
+    muted_ids = set(RevelUser.objects.filter(_muted_by_q(announcement)).values_list("id", flat=True))
 
     context = _build_notification_context(announcement)
     notifications_data: list[NotificationData] = [
@@ -550,9 +551,13 @@ def _deliver_to_recipients(announcement: Announcement, recipients: list[RevelUse
         for user in recipients
     ]
     created_notifications = bulk_create_notifications(notifications_data)
-    notification_ids = [str(n.id) for n in created_notifications]
-    transaction.on_commit(lambda: dispatch_notifications_batch.delay(notification_ids))
-    return len(created_notifications)
+    muted_notification_ids = [n.id for n in created_notifications if n.user_id in muted_ids]
+    if muted_notification_ids:
+        Notification.objects.filter(id__in=muted_notification_ids).update(read_at=timezone.now())
+    notification_ids = [str(n.id) for n in created_notifications if n.user_id not in muted_ids]
+    if notification_ids:
+        transaction.on_commit(lambda: dispatch_notifications_batch.delay(notification_ids))
+    return len(notification_ids)
 
 
 def _build_notification_context(announcement: Announcement) -> dict[str, t.Any]:
