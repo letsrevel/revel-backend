@@ -1,3 +1,4 @@
+import contextlib
 import typing as t
 from uuid import UUID
 
@@ -113,7 +114,8 @@ def _charge_pending_invitation_budget(event: Event, emails: set[str]) -> None:
         cache.set(key, count, timeout=_INVITE_CAP_COUNTER_TTL_SECONDS)
         spent = count
     if spent > cap:
-        cache.decr(key, count)
+        with contextlib.suppress(ValueError):  # key gone since incr(): nothing left to refund
+            cache.decr(key, count)
         raise HttpError(
             400,
             str(

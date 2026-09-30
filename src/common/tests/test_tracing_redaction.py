@@ -67,10 +67,34 @@ def test_non_credential_query_is_left_untouched(span_exporter: InMemorySpanExpor
         ("/p", "/p"),
         ("/p?to%6Ben=abc", "/p?to%6Ben=REDACTED"),  # percent-encoded name
         ("/p?token", "/p?token"),  # no value, nothing to leak
+        # Secrets carried in the path: invitation tokens and the integrations webhook secret.
+        ("/api/events/claim-invitation/abc123", "/api/events/claim-invitation/REDACTED"),
+        ("/api/organizations/claim-invitation/abc?x=1", "/api/organizations/claim-invitation/REDACTED?x=1"),
+        ("https://h/api/integrations/eventbrite/webhook/s3", "https://h/api/integrations/eventbrite/webhook/REDACTED"),
+        (
+            "/api/integrations/eventbrite/webhook/s3?token=t",
+            "/api/integrations/eventbrite/webhook/REDACTED?token=REDACTED",
+        ),
+        ("/api/events/claim-invitation/", "/api/events/claim-invitation/"),  # nothing after the prefix
+        ("/api/events/tokens/abc", "/api/events/tokens/abc"),  # token *ids* are not secrets
     ],
 )
 def test_redact_url_value(value: str, expected: str) -> None:
     assert tracing.redact_url_value(value) == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "target",
+    ["/api/events/claim-invitation/s3cr3t-value", "/api/integrations/eventbrite/webhook/s3cr3t-value"],
+)
+def test_path_secret_is_redacted_from_exported_spans(span_exporter: InMemorySpanExporter, target: str) -> None:
+    """Invitation tokens and webhook secrets travel in the path, not the query string."""
+    Client().post(target, REQUEST_URI=target)
+
+    values = _exported_values(span_exporter)
+    assert not any("s3cr3t-value" in value for value in values)
+    assert target.replace("s3cr3t-value", "REDACTED") in values
 
 
 @override_settings(FEATURE_OBSERVABILITY=True)

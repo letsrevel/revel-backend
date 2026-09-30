@@ -61,7 +61,8 @@ just wastes RAM.
   when the row is first created, so if you change `FRONTEND_BASE_URL` later, update that field too.
 
 The setup wizard writes both from your domains. With `DEBUG` off, `manage.py check` validates them
-at startup. The web container runs `migrate` on start, which runs the same checks:
+at startup. The web container runs `migrate` on start, which runs the same checks, and so does
+the `telegram` container's `run_telegram_bot` (Celery workers and beat don't):
 
 | Check | Level | When |
 |---|---|---|

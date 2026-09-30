@@ -32,8 +32,9 @@ FEATURE_OBSERVABILITY=True
 - **Prometheus** — scrapes and stores time-series metrics from the services.
 - **Loki** — aggregates and indexes logs so you can search across all containers.
 - **Tempo** — stores distributed traces for following a request across services.
-  Credential-bearing query parameters (`token`, `sig`, `ot`, `et`, `code`, `state`) are replaced
-  with `REDACTED` in span attributes before export.
+  Credential-bearing query parameters (`token`, `sig`, `ot`, `et`, `code`, `state`) and path
+  secrets (invitation-link tokens, the integrations webhook secret) are replaced with `REDACTED`
+  in span attributes before export.
 - **Pyroscope** — continuous profiling, for finding CPU/memory hot spots.
 - **Alloy** — the collection agent that ships metrics, logs, and traces into the above.
 - **Grafana** — the single UI that ties Prometheus, Loki, Tempo, and Pyroscope together with

@@ -1,5 +1,6 @@
 """OpenTelemetry distributed tracing setup."""
 
+import re
 from urllib.parse import unquote_plus
 
 import structlog
@@ -21,12 +22,16 @@ logger = structlog.get_logger(__name__)
 # Query params that carry credentials (email-link tokens, signed-URL signatures, org/event
 # access tokens, OAuth/OIDC callback code+state). Their values must never reach Tempo (#1042).
 REDACTED_QUERY_PARAMS = frozenset({"token", "sig", "ot", "et", "code", "state"})
+# Path segments that carry credentials: org/event invitation tokens
+# (``/claim-invitation/{token}``) and the integrations webhook secret
+# (``/{provider}/webhook/{secret}``, where the path *is* the authentication).
+_SECRET_PATH_SEGMENT = re.compile(r"(?<=/claim-invitation/)[^/?#]+|(?<=/webhook/)[^/?#]+")
 # Span attributes (old and new HTTP semconv) that can hold the raw query string.
 _URL_ATTRIBUTES = ("http.target", "http.url", "url.full", "url.query")
 
 
 def redact_url_value(value: str, *, bare_query: bool = False) -> str:
-    """Replace credential query-param values in a URL, target, or bare query string with REDACTED.
+    """Replace credential query-param values and secret path segments with REDACTED.
 
     Args:
         value: A full URL, a path with query string, or (``bare_query``) just the query string.
@@ -34,11 +39,13 @@ def redact_url_value(value: str, *, bare_query: bool = False) -> str:
             attribute), so a literal "?" inside it must not be treated as the separator.
 
     Returns:
-        ``value`` with the values of ``REDACTED_QUERY_PARAMS`` replaced by ``REDACTED``.
+        ``value`` with the values of ``REDACTED_QUERY_PARAMS`` and the segments matched by
+        ``_SECRET_PATH_SEGMENT`` replaced by ``REDACTED``.
     """
     if bare_query:
         base, sep, query = "", "", value
     else:
+        value = _SECRET_PATH_SEGMENT.sub("REDACTED", value)
         base, sep, query = value.partition("?")
         if not sep:  # no query at all, or a bare query string passed without the flag
             base, query = "", value
@@ -52,12 +59,15 @@ def redact_url_value(value: str, *, bare_query: bool = False) -> str:
 
 
 def redact_request_span(span: trace.Span, request: HttpRequest) -> None:
-    """DjangoInstrumentor request_hook: scrub credential query params from the server span."""
+    """DjangoInstrumentor request_hook: scrub credentials from the server span's URL attributes."""
     attributes = getattr(span, "attributes", None) or {}
     for key in _URL_ATTRIBUTES:
         value = attributes.get(key)
-        if isinstance(value, str) and "=" in value:
-            span.set_attribute(key, redact_url_value(value, bare_query=key == "url.query"))
+        if not isinstance(value, str):
+            continue
+        redacted = redact_url_value(value, bare_query=key == "url.query")
+        if redacted != value:
+            span.set_attribute(key, redacted)
 
 
 def init_tracing() -> None:

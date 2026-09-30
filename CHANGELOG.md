@@ -80,7 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Password-reset, verification, unsubscribe, signed-media and OAuth callback parameters (`token`,
-  `sig`, `code`, `state`, access tokens) are redacted from tracing spans before export
+  `sig`, `code`, `state`, access tokens), invitation-link tokens and the integrations webhook
+  secret are redacted from tracing spans before export
 
 ## [2.17.0] - 2026-09-29
 

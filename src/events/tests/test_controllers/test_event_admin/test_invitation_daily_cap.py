@@ -140,3 +140,20 @@ def test_counter_vanishing_between_add_and_incr_starts_afresh(
 
     assert response.status_code == 200
     assert _spent(event.organization) == 2
+
+
+def test_counter_vanishing_between_incr_and_decr_still_rejects(
+    settings: t.Any, organization_owner_client: Client, event: Event, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the key expires/evicts after incr(), the refund has nothing to undo: still a 400, not a 500."""
+    settings.PENDING_INVITATION_DAILY_CAP = 1
+
+    def _vanished(*args: t.Any, **kwargs: t.Any) -> int:
+        raise ValueError("Key not found.")
+
+    monkeypatch.setattr(cache, "decr", _vanished)
+
+    response = _invite(organization_owner_client, event, ["v1@example.com", "v2@example.com"])
+
+    assert response.status_code == 400, response.content
+    assert not PendingEventInvitation.objects.filter(event=event).exists()
