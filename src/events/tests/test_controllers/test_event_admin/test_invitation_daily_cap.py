@@ -127,3 +127,16 @@ def test_more_than_500_emails_is_422(organization_owner_client: Client, event: E
     response = _invite(organization_owner_client, event, [f"m{i}@example.com" for i in range(501)])
     assert response.status_code == 422
     assert not PendingEventInvitation.objects.filter(event=event).exists()
+
+
+def test_counter_vanishing_between_add_and_incr_starts_afresh(
+    settings: t.Any, organization_owner_client: Client, event: Event, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the key expires/evicts between add() and incr(), the charge starts a new count (no 500)."""
+    settings.PENDING_INVITATION_DAILY_CAP = 5
+    monkeypatch.setattr(cache, "add", lambda *args, **kwargs: False)  # key never gets created
+
+    response = _invite(organization_owner_client, event, ["race-1@example.com", "race-2@example.com"])
+
+    assert response.status_code == 200
+    assert _spent(event.organization) == 2

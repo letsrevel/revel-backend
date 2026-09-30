@@ -72,8 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arriving
 - "Notify me about announcements" on a follow did nothing; turning it off now actually stops that
   organization's announcements
-- Attendee invoice replies go only to the organization's **verified** contact address; the BCC copy
-  still goes to the billing address
+- Attendee invoice replies go only to the organization's **verified** contact address. The BCC copy
+  still goes to the billing address; an organization without a billing address now gets the copy
+  only once its contact email is verified (before, it went to the unverified address). Set a billing
+  address or verify the contact email to keep receiving invoice copies
 
 ### Security
 

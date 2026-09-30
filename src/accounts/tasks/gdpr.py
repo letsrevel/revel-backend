@@ -88,7 +88,7 @@ def _notify_user_data_export_ready(data_export: UserDataExport) -> None:
     if not data_export.file.name:
         raise ValueError(f"Data export {data_export.id} has no file to link to")
     signed_path = generate_signed_url(data_export.file.name, expires_in=DATA_EXPORT_URL_EXPIRES_IN)
-    download_url = settings.BASE_URL + signed_path
+    download_url = settings.BASE_URL.rstrip("/") + signed_path
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     subject = "Your Revel Data Export is Ready"
     body = render_to_string(

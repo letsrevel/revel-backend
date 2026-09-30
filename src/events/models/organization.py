@@ -349,7 +349,8 @@ class Organization(
     billing_email = models.EmailField(
         blank=True,
         default="",
-        help_text="Email address for invoice delivery. Falls back to contact_email if empty.",
+        help_text="Email address for invoice delivery and the attendee-invoice BCC copy. When empty, the "
+        "invoice copy falls back to the contact email only if it is verified.",
     )
     billing_name = models.CharField(
         max_length=255,

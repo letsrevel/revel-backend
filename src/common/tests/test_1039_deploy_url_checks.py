@@ -49,6 +49,15 @@ def test_local_or_empty_base_url_is_an_error(settings: t.Any, base_url: str) -> 
     assert "HTTPS" in (errors[0].hint or "")
 
 
+def test_schemeless_base_url_error_names_the_missing_scheme(settings: t.Any) -> None:
+    for key, value in {**PROD, "BASE_URL": "api.example.org"}.items():
+        setattr(settings, key, value)
+    messages = checks.check_deploy_urls(app_configs=None)
+    assert [m.id for m in messages] == ["common.E001"]
+    assert "scheme" in messages[0].msg
+    assert "not a public address" not in messages[0].msg
+
+
 def test_http_base_url_is_a_warning(settings: t.Any) -> None:
     ids = _ids(settings, BASE_URL="http://api.letsrevel.io")
     assert ids == ["common.W002"]

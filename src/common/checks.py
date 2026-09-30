@@ -51,9 +51,14 @@ def check_deploy_urls(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]
     base_host = _host(base_url)
 
     if not base_host or base_host in _LOCAL_HOSTS:
+        problem = (
+            "is not an absolute URL (it needs a scheme such as https://)"
+            if base_url.strip() and not urlsplit(base_url.strip()).scheme
+            else "is not a public address"
+        )
         messages.append(
             Error(
-                f"BASE_URL is {base_url!r}, which is not a public address, while DEBUG is off.",
+                f"BASE_URL is {base_url!r}, which {problem}, while DEBUG is off.",
                 hint=(
                     "Set BASE_URL to this API's public HTTPS origin (e.g. https://api.example.org). "
                     "It builds absolute backend links in emails, including List-Unsubscribe."

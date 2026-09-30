@@ -24,7 +24,17 @@ def create_direct_invitations(
     For existing users, creates EventInvitation objects.
     For non-existing users, creates PendingEventInvitation objects.
 
-    Returns a summary of created invitations.
+    Args:
+        event: The event to invite people to.
+        invitation_data: Emails, optional tiers and invitation fields.
+
+    Returns:
+        A summary of created invitations.
+
+    Raises:
+        HttpError: 400 when a tier id is unknown, or when the organization's daily budget of
+            invitation emails to people without an account would be exceeded (#1035); nothing
+            is created in either case.
     """
     # Validate tiers if provided
     tiers: list[TicketTier] = []
@@ -93,9 +103,15 @@ def _charge_pending_invitation_budget(event: Event, emails: set[str]) -> None:
     count = len(emails - existing - pending)
     if not count:
         return
+    # Fail-closed by design: if Redis is unreachable this raises (500). Invitation emails go out via
+    # Celery, whose broker is the same Redis, so nothing could be sent during the outage anyway.
     key = f"invite-cap:{event.organization_id}:{timezone.now():%Y%m%d}"
     cache.add(key, 0, timeout=_INVITE_CAP_COUNTER_TTL_SECONDS)
-    spent = cache.incr(key, count)
+    try:
+        spent = cache.incr(key, count)
+    except ValueError:  # key expired/evicted between add() and incr(): start today's count afresh
+        cache.set(key, count, timeout=_INVITE_CAP_COUNTER_TTL_SECONDS)
+        spent = count
     if spent > cap:
         cache.decr(key, count)
         raise HttpError(
