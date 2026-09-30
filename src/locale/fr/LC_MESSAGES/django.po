@@ -302,7 +302,9 @@ msgid "This email is already in use."
 msgstr "Cette adresse e-mail est déjà utilisée."
 
 msgid "This email change link is no longer valid. Please request a new one."
-msgstr "Ce lien de changement d'adresse e-mail n'est plus valide. Demandes-en un nouveau."
+msgstr ""
+"Ce lien de changement d'adresse e-mail n'est plus valide. Demandes-en un "
+"nouveau."
 
 msgid ""
 "You cannot delete your account while you own organizations. Please contact "
@@ -3372,6 +3374,9 @@ msgstr "Livraison de webhook malformée."
 msgid "This name is not allowed."
 msgstr "Ce nom n'est pas autorisé."
 
+msgid "Invalid webhook credentials."
+msgstr "Identifiants du webhook invalides."
+
 msgid "Immediate"
 msgstr "Immédiat"
 
@@ -3398,6 +3403,27 @@ msgstr "Visible pour les autres personnes invitées au même événement"
 
 msgid "Visible to both"
 msgstr "Visible pour les deux"
+
+msgid "Hard bounce"
+msgstr "Rebond permanent"
+
+msgid "Spam complaint"
+msgstr "Signalement de spam"
+
+msgid "Blocked"
+msgstr "Bloquée"
+
+msgid "Invalid address"
+msgstr "Adresse invalide"
+
+msgid "Opted out of invitations"
+msgstr "Désinscrit des invitations"
+
+msgid "Email provider"
+msgstr "Fournisseur d'e-mail"
+
+msgid "Recipient"
+msgstr "Destinataire"
 
 msgid "Read more..."
 msgstr "Lire la suite..."
@@ -3877,6 +3903,9 @@ msgstr "Vérification refusée : %(org)s"
 #, python-format
 msgid "Verification Update: %(org)s"
 msgstr "Mise à jour de la vérification : %(org)s"
+
+msgid "This unsubscribe link is no longer valid."
+msgstr "Ce lien de désinscription n'est plus valide."
 
 msgid "Event details have been updated."
 msgstr "Les détails de l'événement ont été mis à jour."
@@ -4365,8 +4394,17 @@ msgstr ""
 msgid "Sign Up & Accept"
 msgstr "S'inscrire & accepter"
 
+msgid "Don't want invitations from Revel organizers?"
+msgstr "Tu ne veux plus recevoir d'invitations des organisateurs Revel ?"
+
+msgid "Stop these emails"
+msgstr "Ne plus recevoir ces e-mails"
+
 msgid "Sign up to accept this invitation:"
 msgstr "Inscris-toi pour accepter cette invitation :"
+
+msgid "Don't want invitations from Revel organizers? Stop these emails:"
+msgstr "Tu ne veux plus recevoir d'invitations des organisateurs Revel ? Ne plus recevoir ces e-mails :"
 
 #, python-format
 msgid ""
@@ -6024,6 +6062,9 @@ msgstr "Distributions de notifications"
 
 msgid "Notification Preferences"
 msgstr "Préférences de notification"
+
+msgid "Email Suppressions"
+msgstr "Suppressions d'e-mails"
 
 msgid "Geography"
 msgstr "Géographie"

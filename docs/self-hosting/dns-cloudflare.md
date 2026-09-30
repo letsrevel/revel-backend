@@ -25,6 +25,24 @@ For a **Full** instance, also add the management subdomains:
 
 Add the matching AAAA records if you serve over IPv6.
 
+## Sending domain for organization mail
+
+If you set `ORG_EMAIL_DOMAIN` (for example `mail.<your-domain>`, see
+[Tiers & Configuration → Email](tiers.md#email)), authenticate that domain at your SMTP provider
+**before** you set the variable:
+
+- **DKIM**: add the records your provider generates for the domain.
+- **DMARC**: publish a `_dmarc.mail.<your-domain>` TXT record (start with `p=none` and a `rua=`
+  report address, tighten once reports are clean).
+- **SPF**: add it if your provider asks. DMARC passes on DKIM alignment alone.
+- **No MX record is needed**: Revel only sends from this domain. Do **not** publish a null MX
+  (`MX 0 .`): RFC 7505 says a domain with a null MX should not be used as a From domain, and
+  receivers may reject the mail.
+
+Send a test message and check that DKIM and DMARC pass before you set `ORG_EMAIL_DOMAIN`. Left
+unset, organization mail uses the domain of `DEFAULT_FROM_EMAIL`, which must be authenticated the
+same way.
+
 ## The Cloudflare orange-cloud caveat
 
 If your domain is on Cloudflare, the proxy ("orange cloud") interferes with Caddy's first

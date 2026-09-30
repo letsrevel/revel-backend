@@ -3283,6 +3283,9 @@ msgstr "Entrega de webhook malformada."
 msgid "This name is not allowed."
 msgstr "Este nome não é permitido."
 
+msgid "Invalid webhook credentials."
+msgstr "Credenciais do webhook inválidas."
+
 msgid "Immediate"
 msgstr "Imediato"
 
@@ -3309,6 +3312,27 @@ msgstr "Visível para os outros convidados do mesmo evento"
 
 msgid "Visible to both"
 msgstr "Visível para ambos"
+
+msgid "Hard bounce"
+msgstr "Devolução permanente"
+
+msgid "Spam complaint"
+msgstr "Denúncia de spam"
+
+msgid "Blocked"
+msgstr "Bloqueado"
+
+msgid "Invalid address"
+msgstr "Endereço inválido"
+
+msgid "Opted out of invitations"
+msgstr "Recusou receber convites"
+
+msgid "Email provider"
+msgstr "Fornecedor de e-mail"
+
+msgid "Recipient"
+msgstr "Destinatário"
 
 msgid "Read more..."
 msgstr "Ler mais..."
@@ -3789,6 +3813,9 @@ msgstr "Verificação recusada: %(org)s"
 msgid "Verification Update: %(org)s"
 msgstr "Atualização da verificação: %(org)s"
 
+msgid "This unsubscribe link is no longer valid."
+msgstr "Esta ligação para cancelar a subscrição já não é válida."
+
 msgid "Event details have been updated."
 msgstr "Os detalhes do evento foram atualizados."
 
@@ -4261,8 +4288,17 @@ msgstr "Regista-te para aceitar este convite e participar no evento:"
 msgid "Sign Up & Accept"
 msgstr "Registar e aceitar"
 
+msgid "Don't want invitations from Revel organizers?"
+msgstr "Não queres receber convites de organizadores da Revel?"
+
+msgid "Stop these emails"
+msgstr "Deixar de receber estes e-mails"
+
 msgid "Sign up to accept this invitation:"
 msgstr "Regista-te para aceitar este convite:"
+
+msgid "Don't want invitations from Revel organizers? Stop these emails:"
+msgstr "Não queres receber convites de organizadores da Revel? Deixa de receber estes e-mails:"
 
 #, python-format
 msgid ""
@@ -5907,6 +5943,9 @@ msgstr "Entregas de notificações"
 
 msgid "Notification Preferences"
 msgstr "Preferências de notificações"
+
+msgid "Email Suppressions"
+msgstr "Supressões de e-mail"
 
 msgid "Geography"
 msgstr "Geografia"

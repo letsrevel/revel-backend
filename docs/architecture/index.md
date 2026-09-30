@@ -34,6 +34,7 @@ graph LR
 | [Series Passes](series-passes.md) | Season tickets covering every event in a series, with pro-rata pricing |
 | [Protected Files](protected-files.md) | HMAC-signed URLs with Caddy (and why not S3) |
 | [Notifications](notifications.md) | Multi-channel delivery: in-app, email, Telegram |
+| [Email Sending & Opt-Out](email-sending.md) | Organization sender, mail users can't opt out of, one-click unsubscribe, per-org mute, suppression list |
 | [File Security](security.md) | EXIF stripping, ClamAV malware scanning, quarantine |
 | [Questionnaires](questionnaires.md) | LLM-powered evaluation, prompt injection protection |
 | [Billing & VAT](billing-and-vat.md) | VAT calculations, VIES validation, invoice generation, PDF rendering |

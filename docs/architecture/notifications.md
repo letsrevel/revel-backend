@@ -78,19 +78,16 @@ The following notification types are supported across all channels:
 
 ### Transactional types (bypass the digest)
 
-Four notification types are flagged **transactional** in
-`notifications/service/dispatcher.py` (`TRANSACTIONAL_TYPES`):
+The **transactional** types (`TRANSACTIONAL_TYPES` in `notifications/enums.py`) are the
+payment, ticket and subscription lifecycle types: `payment_confirmation`, `ticket_created`,
+`ticket_cancelled`, `ticket_refunded`, and the five `subscription_*` receipts and alerts.
 
-- `payment_confirmation`
-- `ticket_created`
-- `ticket_cancelled`
-- `ticket_refunded`
-
-These are time- and money-sensitive, so they **always deliver immediately on the
-user's enabled channels and bypass the digest cadence** — even for users on a
-daily/weekly digest, they are never bundled and held back. Every other type honours
-the user's digest setting (digest users get the in-app notification now and the email
-in the next digest sweep).
+These are time- and money-sensitive, so they **always deliver immediately and bypass the digest
+cadence**. Together with `account_banned` and `system_announcement` they form `MANDATORY_TYPES`,
+which users can't opt out of. See
+[Email Sending & Opt-Out Policy](email-sending.md#mail-users-cant-opt-out-of). Every other type
+honours the user's digest setting (digest users get the in-app notification now and the email in
+the next digest sweep).
 
 ### Waitlist & Availability
 
@@ -135,7 +132,7 @@ in the next digest sweep).
 | Type | Description |
 |---|---|
 | `org_announcement` | Organization-wide announcement |
-| `system_announcement` | Platform-wide announcement (e.g., privacy policy or ToC updates) |
+| `system_announcement` | Platform-wide notice (Terms of Service, privacy policy, operational). Can't be opted out of, so never promotional |
 
 !!! note "Announcements can be sent now or scheduled"
     Org announcements can be **sent immediately**, **scheduled** for a future absolute
@@ -187,6 +184,7 @@ Users configure their notification preferences per channel and per type. The pre
 - **Per-channel toggles**: Enable/disable each channel independently
 - **Per-type toggles**: Fine-grained control over which notifications to receive
 - **Digest mode**: Batch notifications into periodic summaries instead of sending individually (does not apply to the [transactional types](#transactional-types-bypass-the-digest), which always deliver immediately)
+- **Per-organization announcement mute**: Stop one organization's announcements without touching anything else
 
 !!! info "Defaults"
     New users receive most notification types on all available channels by default. Exceptions: **potluck notifications** are restricted to in-app only (no email or Telegram) and **guest users** have potluck notifications disabled entirely. Telegram notifications always require the user to have linked their Telegram account.
@@ -199,7 +197,7 @@ The notification system is implemented in `notifications/service/`, which includ
 - **Eligibility checks**: Determines which users should receive a given notification (e.g., only attendees of an event)
 - **Reminder scheduling**: Schedules event reminders via Celery Beat periodic tasks
 - **Digest batching**: Aggregates notifications into periodic digest emails
-- **Unsubscribe handling**: Manages per-type and per-channel opt-outs
+- **Unsubscribe handling**: Manages per-type and per-channel opt-outs, one-click `List-Unsubscribe`, the per-organization announcement mute and the email suppression list (see [Email Sending & Opt-Out Policy](email-sending.md))
 
 Notifications are triggered from the service layer via Django signals and direct dispatcher calls. Delivery for email and Telegram channels is always asynchronous via Celery tasks.
 

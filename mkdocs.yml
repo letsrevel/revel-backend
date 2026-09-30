@@ -78,6 +78,7 @@ nav:
       - Protected Files (HMAC): architecture/protected-files.md
       - File Security: architecture/security.md
       - Notifications: architecture/notifications.md
+      - Email Sending & Opt-Out: architecture/email-sending.md
       - Scheduled Announcements: architecture/scheduled-announcements.md
       - Questionnaires: architecture/questionnaires.md
       - Polls: architecture/polls.md

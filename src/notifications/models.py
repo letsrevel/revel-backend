@@ -209,7 +209,9 @@ class NotificationPreference(TimeStampedModel):
 
     # Global notification settings
     silence_all_notifications = models.BooleanField(
-        default=False, help_text="Master kill switch - disables ALL notifications including in-app"
+        default=False,
+        help_text="Master kill switch - disables all notifications including in-app, except mandatory types "
+        "(MANDATORY_TYPES)",
     )
 
     enabled_channels = ArrayField(
