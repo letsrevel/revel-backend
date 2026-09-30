@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.18.1] - 2026-09-30
+
+### Security
+
+- Bumped the transitive dependency `urllib3` to 2.8.0 (CVE-2026-97687, CVE-2026-97689). It reaches
+  the project through `requests`, `stripe` and `django-oauth-toolkit`
+
 ## [2.18.0] - 2026-09-30
 
 > **Deploy note:** leave `ORG_EMAIL_DOMAIN` unset until the sending domain passes DKIM and DMARC at
