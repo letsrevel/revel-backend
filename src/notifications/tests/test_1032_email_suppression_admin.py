@@ -88,11 +88,24 @@ def test_admin_add_goes_through_suppress(admin_client: Client) -> None:
 def test_admin_add_never_downgrades_existing_row(admin_client: Client) -> None:
     suppress("dup@example.com", Reason.COMPLAINT, Source.PROVIDER)
     url = reverse("admin:notifications_emailsuppression_add")
-    admin_client.post(url, {"email": "dup@example.com", "reason": Reason.INVITATION_OPT_OUT, "detail": ""})
+    response = admin_client.post(url, {"email": "dup@example.com", "reason": Reason.INVITATION_OPT_OUT, "detail": ""})
 
+    assert response.status_code == 302
     row = EmailSuppression.objects.get()
     assert row.reason == Reason.COMPLAINT
     assert row.source == Source.PROVIDER
+
+
+def test_admin_add_upgrades_existing_row(admin_client: Client) -> None:
+    """Re-adding an existing address with a stronger reason upgrades it instead of failing validation."""
+    suppress("up@example.com", Reason.INVITATION_OPT_OUT, Source.RECIPIENT)
+    url = reverse("admin:notifications_emailsuppression_add")
+    response = admin_client.post(url, {"email": "up@example.com", "reason": Reason.COMPLAINT, "detail": "manual"})
+
+    assert response.status_code == 302
+    row = EmailSuppression.objects.get()
+    assert row.reason == Reason.COMPLAINT
+    assert row.source == Source.ADMIN
 
 
 def test_admin_rows_are_not_editable(admin_client: Client) -> None:

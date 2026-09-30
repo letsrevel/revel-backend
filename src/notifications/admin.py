@@ -453,6 +453,17 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     channels_display.short_description = "Enabled Channels"  # type: ignore[attr-defined]
 
 
+class EmailSuppressionAddForm(forms.ModelForm):  # type: ignore[type-arg]
+    """Admin form that lets an existing address through, so ``suppress()`` can upsert it by rank."""
+
+    class Meta:
+        model = EmailSuppression
+        fields = ["email", "reason", "organization", "detail"]
+
+    def validate_unique(self) -> None:
+        """Skip the unique-email check; ``suppress()`` upserts (the DB constraint still holds)."""
+
+
 @admin.register(EmailSuppression)
 class EmailSuppressionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     """Addresses Revel won't email. Deleting a row clears the suppression.
@@ -465,6 +476,7 @@ class EmailSuppressionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_filter = ["reason", "source", ("organization", admin.RelatedOnlyFieldListFilter)]
     search_fields = ["email"]
     autocomplete_fields = ["organization"]
+    form = EmailSuppressionAddForm
     readonly_fields = ["created_at", "updated_at"]
     fields = ["email", "reason", "organization", "detail", "created_at", "updated_at"]
     date_hierarchy = "created_at"
