@@ -100,7 +100,9 @@ def handle_django_validation_error(request: HttpRequest, exc: Exception | t.Type
     return Response(status=400, data={"errors": error_dict})
 
 
-SENSITIVE_KEYS = {"password", "token", "x-api-key", "authorization", "authentication"}
+# Also the credential query params redacted from traces (#1042): signed-URL signatures, OAuth
+# callback codes and org/event access tokens, which the unhandled-exception log records.
+SENSITIVE_KEYS = {"password", "token", "x-api-key", "authorization", "authentication", "sig", "code", "ot", "et"}
 
 
 def obfuscate(data: dict[str, t.Any]) -> dict[str, t.Any]:
