@@ -159,7 +159,9 @@ E2E_OIDC_ENV = OIDC_PROVIDERS=keycloak \
 	OIDC_KEYCLOAK_ISSUER=http://localhost:8080/realms/revel \
 	OIDC_KEYCLOAK_CLIENT_ID=revel-backend \
 	OIDC_KEYCLOAK_CLIENT_SECRET=e2e-secret
-E2E_GUNICORN = DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES $(E2E_OIDC_ENV) uv run gunicorn revel.wsgi:application \
+# EMAIL_WEBHOOK_SECRET: fixed, test-only value so E2E specs can POST fake provider events to
+# /api/email-events/brevo (USER_JOURNEYS 15.9). The E2E backend binds 127.0.0.1 only.
+E2E_GUNICORN = DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES EMAIL_WEBHOOK_SECRET=e2e-webhook-secret $(E2E_OIDC_ENV) uv run gunicorn revel.wsgi:application \
 	--worker-class gthread \
 	--workers $${GUNICORN_WORKERS:-4} \
 	--threads $${GUNICORN_THREADS:-4} \

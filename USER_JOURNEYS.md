@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Last updated**: 2026-09-28 (Journey 20: discount-code scoping and mixed-cart behaviour, #997; OAuth 2.1 / OpenID Connect provider: Journey 28)
+> **Last updated**: 2026-09-30 (email sending posture: mandatory mail, unsubscribe & one-click, invitation opt-out, announcement mute, suppressed address, invitation cap: #1033, #1043)
 
 ---
 
@@ -213,6 +213,9 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Configure channels (in-app, email, Telegram)
 - Set digest frequency (immediate, hourly, daily, weekly)
 - Set digest send time
+- Mandatory mail (see [15.1](#151-notification-channels)) keeps arriving whatever is toggled here
+- **Turning email back on restores delivery**: `POST /notification-preferences/enable-channel/email` re-adds email globally *and* to per-type overrides whose default includes it; saving the settings page sends only changed fields, so stale per-type pins are never re-sent. Pins left by the old unsubscribe page were migrated away
+- See also [15.3](#153-notification-preferences) (organization mutes) and [15.9](#159-suppressed-email-address) (suppressed-address banner)
 
 ### 3.5 Security Settings
 - Navigate to `/account/security`
@@ -243,6 +246,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Visit org public page
 - Click "Follow" button
 - Configure: notify on new events, notify on announcements
+  - "Notify on announcements" is the **per-organization announcement mute** ([15.3](#153-notification-preferences)): turning it off mutes the org's announcements on every channel; following again with the default (on) **never un-mutes** an existing mute
 - View followed orgs in `/dashboard/following`
 
 ### 3.10 Request Organization Membership
@@ -691,6 +695,7 @@ DRAFT → OPEN → CLOSED
 - Set custom message (defaults to event's invitation_message)
 - View sent invitations and pending invitations
 - Delete invitations
+- **Daily cap on invitations to people without an account**: see [12.2](#122-pending-event-invitation-unregistered-email)
 
 ### 10.8 Manage Invitation Requests
 - View pending requests from users
@@ -831,9 +836,15 @@ DRAFT → OPEN → CLOSED
 ### 12.2 Pending Event Invitation (Unregistered Email)
 - Organizer invites email that's not registered
 - PendingEventInvitation created
-- Email sent to invitee
+- Email sent to invitee, from the organization's sender (`"<Org> via Revel"`), carrying a visible "stop these emails" link and one-click `List-Unsubscribe` ([15.8](#158-invitation-opt-out-no-account))
 - When user registers with that email → PendingEventInvitation converted to EventInvitation
 - Waivers preserved
+- **Daily cap (#1035)**: an organization can create at most `PENDING_INVITATION_DAILY_CAP` new pending invitations (default **200**, `0` = unlimited) per **UTC calendar day**, summed across all its events
+  - Only addresses that would create a **new** pending invitation count: registered users and addresses already pending for that event don't; duplicates in one request count once; opted-out/suppressed addresses **still count**
+  - Deleting and re-creating a pending invitation still counts (the budget is never refunded)
+  - Over the cap → **400** with a translated `detail` (how many more are allowed today, the limit, the reset at midnight UTC); **all-or-nothing**: nothing is created, neither pending nor direct invitations
+  - More than **500** emails in one request → **422**
+  - UI: the invite dialog keeps the entered addresses and shows the `detail` verbatim
 
 ### 12.3 Event Token (Shareable Link)
 - Organizer creates event token
@@ -945,7 +956,14 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 ### 15.1 Notification Channels
 - **In-app**: Bell icon with unread count, notification list
 - **Email**: Immediate or digest (hourly, daily, weekly)
-  - **Transactional emails always deliver immediately**, bypassing the digest: `PAYMENT_CONFIRMATION`, `TICKET_CREATED`, `TICKET_CANCELLED`, `TICKET_REFUNDED`
+  - **Mandatory mail can't be opted out of**: it always arrives by **email and in-app**, immediately (never in the digest), whatever "silence all", the channel switches or per-type settings say:
+    - `TICKET_CREATED`, `TICKET_CANCELLED`, `TICKET_REFUNDED`, `PAYMENT_CONFIRMATION`
+    - `SUBSCRIPTION_RENEWAL_SUCCEEDED`, `SUBSCRIPTION_PAYMENT_FAILED`, `SUBSCRIPTION_EXPIRED`, `SUBSCRIPTION_CANCELLATION_CONFIRMED`, `SUBSCRIPTION_REVIVAL_CHECKOUT`
+    - `ACCOUNT_BANNED`, `SYSTEM_ANNOUNCEMENT` (ToS/privacy/platform notices only, never promotional)
+    - The only exception is a suppressed address ([15.9](#159-suppressed-email-address)): the email is not sent, in-app still arrives
+    - Their footer says "Manage notification preferences" instead of "Unsubscribe"
+  - **Digests** respect "silence all", the email switch and per-type opt-outs
+  - **Organization mail** (announcements, invitations, event opened/updated/cancelled/reminder, new events from followed orgs/series) is sent as `"<Org> via Revel" <org-slug@ORG_EMAIL_DOMAIN>`, Reply-To the org's **verified** contact email, and carries one-click `List-Unsubscribe` ([15.6](#156-unsubscribe))
   - **Digest** is grouped by human-readable type label; each item carries a body, timestamp, and a "View details" link, styled to match the transactional emails
 - **Telegram**: Via connected Telegram account (unavailable when `FEATURE_TELEGRAM` is off — linking endpoints 404)
   - Globally-banned users are blocked from interacting with the bot; the bot's `/unsubscribe` command actually stops notifications (was a no-op on per-type settings)
@@ -968,11 +986,18 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 - Organization: contact message received (`ORG_CONTACT_MESSAGE_RECEIVED` — Telegram body omits subject/preview since chats aren't E2E-encrypted)
 
 ### 15.3 Notification Preferences
-- Silence all notifications (global toggle)
-- Per-channel enable/disable
+- Silence all notifications (global toggle): stops everything except mandatory mail ([15.1](#151-notification-channels))
+- Per-channel enable/disable; re-enabling email restores delivery ([3.4](#34-notification-preferences))
 - Per-notification-type settings
 - Digest frequency and send time
 - Event reminder toggle
+- **Mute an organization's announcements (#1031)**
+  - Any signed-in user can mute an organization: members, event attendees and followers alike (`PUT /notification-preferences/muted-organizations/{organization_id}`; `DELETE` unmutes; idempotent; 404 for an unknown org)
+  - Stops that org's **announcements** on every channel. Tickets, receipts, event updates and cancellations are unaffected
+  - The announcement stays **readable on the org/event page** (the muted user gets it pre-read in the inbox; nothing is emailed or pushed)
+  - Org page: a mute/unmute announcements action for non-followers; for followers the follow menu's "notify on announcements" toggle is the same mute ([3.9](#39-follow-organization))
+  - Settings: a "Muted organizations" list (`muted_organization_ids` on the preferences) with unmute
+- **Suppressed-address status**: `email_suppression` on the preferences ([15.9](#159-suppressed-email-address))
 
 ### 15.4 Announcements
 - Organizer creates and sends announcement
@@ -987,15 +1012,36 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 - Delivered via all configured notification channels in async batches
 
 ### 15.6 Unsubscribe
-- Every email has unsubscribe link
-- Click → `/unsubscribe` page
-- One-click unsubscribe (token-based, no auth needed)
+- Every email has an unsubscribe / preferences link → `/unsubscribe?token=` page (no login needed)
+- **Default submit stops email and keeps in-app**: `enabled_channels` without email, `silence_all_notifications: false`, per-type settings untouched. The page explains which mail still arrives (tickets, receipts, payment/refund notices, legal/platform notices)
+- **Scoped tokens get a one-click shortcut** above the form:
+  - "Stop these emails": turns email off for that notification type only (other channels kept)
+  - "Stop these announcements" (`org_announcement` token with an organization): mutes that one organization ([15.3](#153-notification-preferences))
+- **Invalid-link state** ("Log in to manage preferences") for: missing, malformed or expired token; revoked token (**401**); account email changed since the link was issued (**400**); deleted account (**404** from `/unsubscribe`)
+- Links issued after #1033 stay valid ~10 years (`UNSUBSCRIBE_TOKEN_LIFETIME_DAYS`); older links keep their 30-day expiry
+- **RFC 8058 one-click** (what mail apps' native "Unsubscribe" button hits): `POST /api/notification-preferences/one-click?token=…`, no auth, form body ignored, idempotent 200. Effect by token: announcement → mute that org; other org mail → email off for that type; digest → email off; invitation opt-out → [15.8](#158-invitation-opt-out-no-account). A deleted account gets 200 (nothing left to email)
+- `GET` on the same URL never changes anything: it redirects (302) to `/unsubscribe?token=…`
 
 ### 15.7 Notification Inbox
 - Navigate to notification bell / inbox
 - See all notifications (paginated, filterable)
 - Mark as read/unread
 - Mark all as read
+
+### 15.8 Invitation Opt-out (No Account)
+- Invitation emails to addresses without a Revel account ([12.2](#122-pending-event-invitation-unregistered-email)) carry an `email_opt_out` token, in the visible "stop these emails" link and in `List-Unsubscribe`
+- `/unsubscribe?token=` with that token shows a one-button confirmation ("Stop invitation emails from Revel organizers to <email>?") → `POST /api/notification-preferences/one-click?token=` → confirmation
+- Effect: the address is **suppressed for cold invitations from every organization on the instance**; it does **not** affect mail to registered users (if the person later registers, tickets and receipts still arrive)
+- **Later invitations to that address**: the organizer's request still succeeds and a `PendingEventInvitation` **is still created** (and still counts toward the daily cap); only the email is skipped. On registration it converts to an `EventInvitation` as usual
+- `POST /unsubscribe` rejects an `email_opt_out` token (400); only the one-click endpoint accepts it
+
+### 15.9 Suppressed Email Address
+- When the email provider reports a **hard bounce, invalid address, blocked address or spam complaint** (Brevo webhook `POST /api/email-events/brevo`, enabled by `EMAIL_WEBHOOK_SECRET`), Revel stops emailing that address (normalized: `+tags` and Gmail dots are stripped, so aliases stay suppressed)
+- The user's preferences expose `email_suppression: { reason: "hard_bounce" | "invalid" | "blocked" | "complaint", since }` (`null` otherwise; invitation opt-outs are never reported)
+- **Banner** (global layout and account settings): "Emails to this address can't be delivered" (or "…marked one of our emails as spam" for `complaint`), with the since-date; tickets and receipts are still in the app; actions "Change email address" and "Contact support"
+- **Changing the email address clears it** (suppression is keyed by address); support can lift it (admin **Email Suppressions** + unblocking in the provider). There is **no self-service unblock**
+- Mail to a suppressed address (mandatory included) is marked failed and never retried; in-app delivery is unaffected
+- **E2E**: the E2E backend (`make run-e2e-daemon`) sets `EMAIL_WEBHOOK_SECRET=e2e-webhook-secret`, so a spec can suppress a throwaway user with `POST /api/email-events/brevo`, header `Authorization: Bearer e2e-webhook-secret`, body `{"event": "hard_bounce", "email": "<user email>"}` (200; unset secret → 404, wrong secret → 401)
 
 ---
 
