@@ -149,6 +149,28 @@ def cache_files(ticket: Ticket, pdf_bytes: bytes | None = None, pkpass_bytes: by
     _persist_and_update(ticket, pdf_bytes=pdf_bytes, pkpass_bytes=pkpass_bytes)
 
 
+def _drop_stale_siblings(
+    ticket: Ticket, update_fields: dict[str, object], pdf_bytes: bytes | None, pkpass_bytes: bytes | None
+) -> list[str]:
+    """Clear the cached format(s) not just rendered, when the shared content hash changes.
+
+    PDF and pkpass share one ``file_content_hash``: a format we didn't just render was
+    rendered for other content, so it is dropped (DB via ``update_fields``, and the
+    in-memory ticket) instead of letting the new hash vouch for it.
+
+    Returns:
+        Storage names of the dropped files, for the caller's best-effort cleanup.
+    """
+    dropped: list[str] = []
+    for field_name, written in (("pdf_file", pdf_bytes), ("pkpass_file", pkpass_bytes)):
+        sibling = getattr(ticket, field_name)
+        if written is None and sibling:
+            dropped.append(sibling.name)
+            update_fields[field_name] = None
+            setattr(ticket, field_name, None)
+    return dropped
+
+
 def _persist_and_update(
     ticket: Ticket,
     pdf_bytes: bytes | None = None,
@@ -194,8 +216,11 @@ def _persist_and_update(
 
         if update_fields:
             content_hash = compute_content_hash(ticket)
+            if content_hash != ticket.file_content_hash:
+                old_files += _drop_stale_siblings(ticket, update_fields, pdf_bytes, pkpass_bytes)
             update_fields["file_content_hash"] = content_hash
             Ticket.objects.filter(pk=ticket.pk).update(**update_fields)
+            ticket.file_content_hash = content_hash
 
         # Phase 2: Clean up old files (best-effort, orphans cleaned by daily task)
         for old_name in old_files:
