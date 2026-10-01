@@ -17,6 +17,7 @@ import structlog
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
+from events.compliance.enforcement import ticket_fields
 from events.models import Ticket
 
 if t.TYPE_CHECKING:
@@ -39,7 +40,7 @@ def get_apple_pass_generator() -> "ApplePassGenerator":
 
 
 def compute_content_hash(ticket: Ticket) -> str:
-    """Compute a SHA-256 hash of timestamps that affect ticket file content.
+    """Compute a SHA-256 hash of everything that affects ticket file content.
 
     Callers must ensure ``ticket.event`` (and ``ticket.tier`` when present)
     are prefetched via ``select_related`` to avoid N+1 queries.
@@ -57,6 +58,11 @@ def compute_content_hash(ticket: Ticket) -> str:
     tier = ticket.tier
     if tier:
         parts.append(tier.updated_at.isoformat())
+    # Status and the printed compliance lines (number, issue time, organizer identity, price,
+    # country notices) change without bumping any timestamp above — a bulk_update numbering
+    # pass, an org billing edit, a price_paid stamp — so they are hashed by value.
+    parts.append(ticket.status)
+    parts.append("|".join(f"{field.key}={field.value}" for field in ticket_fields(ticket)))
     raw = "|".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()
 

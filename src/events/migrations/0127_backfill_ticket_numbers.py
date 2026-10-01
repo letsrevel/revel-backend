@@ -55,6 +55,10 @@ def backfill(apps: t.Any, schema_editor: t.Any) -> None:
         Ticket.objects.bulk_update(tickets, ["ticket_series", "ticket_number", "issued_at"], batch_size=_BATCH)
         sequence.save(update_fields=["last_number"])
 
+    # Cached PDFs/pkpasses of numbered tickets predate the compliance lines: invalidate them
+    # so the next download renders the number (the content hash would differ anyway).
+    Ticket.objects.filter(ticket_number__isnull=False).update(file_content_hash=None)
+
 
 class Migration(migrations.Migration):
     dependencies = [("events", "0126_eu_compliance_ticket_numbers")]
