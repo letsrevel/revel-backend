@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.19.0] - 2026-10-01
+
+> **Deploy note:** the new `events.send_org_nudges` beat task ships **disabled**. Set
+> `ORG_NUDGE_REPLY_TO` (and optionally `ORG_NUDGE_SIGNATURE`), deploy, review the dry run from
+> `python manage.py org_nudges`, then enable "Send org setup nudges" under Django admin → Periodic
+> tasks.
+
+### Added
+
+- **Setup nudges for stalled organizations**: owners get gentle reminders about a private
+  profile, forgotten drafts, no events or a dormant organization, plus a one-time personal check-in
+  - Capped and spaced: at most one nudge per organization every 14 days and a hard cap per
+    trigger, enforced by a never-pruned `OrganizationNudge` log (read-only in admin under
+    Organizations → Setup Nudges; deleting a row re-arms that trigger)
+  - New `org_setup_nudge` notification type that respects silence-all, per-type disable and
+    digest settings, with one-click List-Unsubscribe and an optional Reply-To
+    (`ORG_NUDGE_REPLY_TO`)
+  - `manage.py org_nudges` previews the plan by default; `--org <slug>` and `--send` are available
+  - Localized in en/de/it/fr/es/pt
+
 ## [2.18.1] - 2026-09-30
 
 ### Security
