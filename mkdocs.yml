@@ -101,6 +101,38 @@ nav:
           - Tickets, Pricing & Assignment: guides/seating/tiers-and-pricing.md
           - The Buyer Experience: guides/seating/buyer-experience.md
           - Box Office & Event-Day Ops: guides/seating/box-office.md
+  - Compliance:
+      - Overview: compliance/index.md
+      - Adding a Country: compliance/adding-a-country.md
+      - EU:
+          - compliance/eu/index.md
+          - Austria: compliance/eu/at.md
+          - Belgium: compliance/eu/be.md
+          - Bulgaria: compliance/eu/bg.md
+          - Croatia: compliance/eu/hr.md
+          - Cyprus: compliance/eu/cy.md
+          - Czechia: compliance/eu/cz.md
+          - Denmark: compliance/eu/dk.md
+          - Estonia: compliance/eu/ee.md
+          - Finland: compliance/eu/fi.md
+          - France: compliance/eu/fr.md
+          - Germany: compliance/eu/de.md
+          - Greece: compliance/eu/gr.md
+          - Hungary: compliance/eu/hu.md
+          - Ireland: compliance/eu/ie.md
+          - Italy: compliance/eu/it.md
+          - Latvia: compliance/eu/lv.md
+          - Lithuania: compliance/eu/lt.md
+          - Luxembourg: compliance/eu/lu.md
+          - Malta: compliance/eu/mt.md
+          - Netherlands: compliance/eu/nl.md
+          - Poland: compliance/eu/pl.md
+          - Portugal: compliance/eu/pt.md
+          - Romania: compliance/eu/ro.md
+          - Slovakia: compliance/eu/sk.md
+          - Slovenia: compliance/eu/si.md
+          - Spain: compliance/eu/es.md
+          - Sweden: compliance/eu/se.md
   - Contributing:
       - contributing/index.md
       - Code Style: contributing/code-style.md

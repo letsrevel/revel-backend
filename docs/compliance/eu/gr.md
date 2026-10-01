@@ -1,0 +1,67 @@
+# Greece
+
+Policy module: `src/events/compliance/policies/gr.py` (`GreecePolicy`, using `FiscalizedInvoicingMixin`).
+
+Issue: [#1063](https://github.com/letsrevel/revel-backend/issues/1063)
+
+## Status
+
+**Restricted: attendee invoicing blocked.**
+
+Greek-established organizers must document every B2C ticket sale with a Greek retail document whose
+data is transmitted to AADE's myDATA platform, and documents issued from software must carry a myDATA
+QR code. Revel's attendee invoices are not transmitted to myDATA. The VAT prefix `EL` resolves to
+Greece.
+
+## What Revel does
+
+- **Attendee invoicing cannot be enabled.** Switching to HYBRID or AUTO is refused (HTTP 422) for
+  organizations whose resolved country is Greece, with a translated explanation that invoices must go
+  through AADE myDATA.
+- **Generation is skipped** (invoice generation, issuing an existing draft, credit notes) whenever
+  Greece is a liable country of the sale: the organization is established there, or the event is a
+  physical event in Greece.
+- **Existing settings:** organizations in Greece that had HYBRID or AUTO were switched to NONE by the
+  data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
+  notification was sent automatically, so affected organizers should be informed out of band.
+- Paid ticketing is not restricted.
+- The [common ticket content](index.md#common-ticket-content) applies, including the "not a tax
+  invoice or receipt" notice.
+
+## Legal basis
+
+- **A.1138/2020**, as replaced by **A.1170/2023**: myDATA transmission of retail documents (types
+  11.1/11.2, refunds 11.4) and e-shop order notes; QR code on ERP-issued documents from 1.1.2024.
+  [A.1138/2020](http://elib.aade.gr/elib/DesktopModules/ViewModule/Documents/gr-ap-2020-A__1138-A__1138_2020.pdf),
+  [A.1170/2023](http://elib.aade.gr/elib/DesktopModules/ViewModule/Documents/gr-ap-2023-A__1170-A__1170_2023.pdf)
+- **A.1155/2023** (card terminal to cash system linking), with the e-commerce and payment-link
+  exclusions added by **A.1074/2024**: Revel's card-not-present online sales appear out of scope.
+  [A.1155/2023](http://elib.aade.gr/elib/DesktopModules/ViewModule/Documents/gr-ap-2023-A__1155-A__1155_2023.pdf),
+  [A.1074/2024](http://elib.aade.gr/elib/DesktopModules/ViewModule/Documents/gr-ap-2024-A__1074-A__1074_2024.pdf)
+- **A.1112/2025**: obligations of certified e-invoicing providers (optional route for organizers).
+  [A.1112/2025](http://elib.aade.gr/elib/DesktopModules/ViewModule/Documents/gr-ap-2025-A__1112-A__1112_2025.pdf)
+- **VAT Directive 2006/112/EC** art. 53: admission to an event in Greece is taxed in Greece.
+  [EUR-Lex](https://eur-lex.europa.eu/eli/dir/2006/112/oj)
+
+The organizer can meet its obligation with its own ERP, a certified provider, or AADE's free tools.
+
+## Open questions
+
+- Whether **A.1160/2025** narrowed the e-commerce exclusion in A.1155/2023; the text could not be read.
+  [A.1160/2025](https://www.aade.gr/sites/default/files/2025-11/a1160_2025fek.pdf)
+- Transmission timing for retail documents issued via ERP.
+- Whether the cash-register exemption categories of ΠΟΛ.1002/2014 cover online ticket sales.
+- Whether Law 4308/2014 applies to non-Greek organizers with a Greek VAT registration.
+- B2B e-invoicing phase-2 dates (AADE press releases not fetched:
+  [16.09.2025](https://www.aade.gr/sites/default/files/2025-09/dt_16.09.2025..pdf),
+  [17.02.2026](https://www.aade.gr/sites/default/files/2026-02/dt_17.02.2026.pdf)).
+- Ticket-specific rules (municipal levies, nominal tickets, Ministry of Culture e-ticketing) were not
+  found in official sources.
+
+## Later layers
+
+- A per-order sales export so organizers can issue retail documents in their own tool.
+- Optional myDATA integration, either Revel calling the myDATA API as the organizer's ERP or posting
+  to a certified provider chosen by the organizer, with MARK and QR code on the PDF.
+
+See [#1063](https://github.com/letsrevel/revel-backend/issues/1063).
