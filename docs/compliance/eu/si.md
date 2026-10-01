@@ -6,7 +6,7 @@ Issue: [#1062](https://github.com/letsrevel/revel-backend/issues/1062)
 
 ## Status
 
-**Restricted: attendee invoicing blocked.**
+**Restricted: attendee invoicing blocked for organizers established in Slovenia and for physical events held there.**
 
 The Fiscal Verification of Invoices Act (ZDavPR) requires every invoice paid "in cash" to be verified
 with FURS in real time. For ZDavPR, "cash" includes card payments, and current FURS guidance names
@@ -16,15 +16,17 @@ invoices are not verified with FURS.
 ## What Revel does
 
 - **Attendee invoicing cannot be enabled.** Switching to HYBRID or AUTO is refused (HTTP 422) for
-  organizations whose resolved country is Slovenia, with a translated explanation that invoices must
-  go through FURS invoice verification.
-- **Generation is skipped** (invoice generation, issuing an existing draft, credit notes) whenever
-  Slovenia is a liable country of the sale: the organization is established there, or the event is a
-  physical event in Slovenia.
+  organizations whose resolved country is Slovenia, with a translated explanation, naming Slovenia, that
+  invoices must go through FURS invoice verification.
+- **Generation is skipped** (invoice generation, issuing an existing draft, including drafts created
+  before the gate, and credit notes) for sales by organizers established in Slovenia, and for physical
+  events held in Slovenia by foreign organizers, because the law there reaches sellers of supplies made
+  in Slovenia. Virtual events held by foreign organizers are not affected. A foreign organizer can still
+  enable attendee invoicing; only the sales Slovenia reaches are skipped.
 - **Existing settings:** organizations in Slovenia that had HYBRID or AUTO were switched to NONE by
   the data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
   notification was sent automatically, so affected organizers should be informed out of band.
-- Paid ticketing is not restricted.
+- Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis

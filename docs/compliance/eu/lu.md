@@ -10,8 +10,8 @@ No research has been done for Luxembourg yet, and these docs make no claim about
 
 ## What Revel does
 
-- Organizations in Luxembourg currently resolve to the default policy: attendee invoicing and paid
-  ticketing are allowed.
+- Organizations in Luxembourg currently resolve to the default policy: attendee invoicing and
+  online/offline payments are allowed.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis

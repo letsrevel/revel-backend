@@ -6,7 +6,7 @@ Issue: [#1067](https://github.com/letsrevel/revel-backend/issues/1067)
 
 ## Status
 
-**Restricted: domestic B2B attendee invoices blocked.**
+**Restricted: domestic B2B attendee invoices blocked for organizers established in Poland.**
 
 KSeF (Krajowy System e-Faktur) is mandatory for invoices issued by taxpayers established in Poland:
 from 1 February 2026 for large taxpayers, 1 April 2026 for everyone else, and 1 January 2027 for
@@ -16,12 +16,13 @@ invoice from a Polish organizer to a Polish business buyer is not valid under KS
 ## What Revel does
 
 - **Attendee invoicing can be enabled.** HYBRID and AUTO are not refused for Polish organizations.
-- **Domestic B2B invoices are skipped.** For sales where Poland is a liable country (the organization
-  is established there, or the event is a physical event in Poland), invoice generation, issuing an
-  existing draft and credit notes are skipped only when the **buyer's VAT ID starts with `PL`**. The
-  organizer must issue that invoice in KSeF.
+- **Domestic B2B invoices are skipped.** For organizers established in Poland, invoice generation,
+  issuing an existing draft (including drafts created before the gate) and credit notes are skipped
+  only when the **buyer's VAT ID starts with `PL`**. The organizer must issue that invoice in KSeF.
 - **Consumers and cross-border business buyers** still receive Revel's PDF invoice.
-- Paid ticketing is not restricted.
+- **Foreign organizers' events held in Poland are not affected**: KSeF covers taxpayers with a seat or
+  fixed establishment in Poland.
+- Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 Revel cannot act as a Polish fiscal cash register. Organizers selling admission to discos, dance halls

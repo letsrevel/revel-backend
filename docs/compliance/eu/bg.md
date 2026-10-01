@@ -10,8 +10,8 @@ No research has been done for Bulgaria yet, and these docs make no claim about i
 
 ## What Revel does
 
-- Organizations in Bulgaria currently resolve to the default policy: attendee invoicing and paid
-  ticketing are allowed.
+- Organizations in Bulgaria currently resolve to the default policy: attendee invoicing and
+  online/offline payments are allowed.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis

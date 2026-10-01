@@ -29,11 +29,16 @@ The code lives in `src/events/compliance/`:
 | `policies/` | One module per country, auto-discovered at startup. |
 | `enforcement.py` | Country-agnostic helpers that services call. They never check a country code themselves. |
 
-A policy answers a small set of hooks:
+A policy answers a small set of hooks. Each takes the `nexus` through which the country reaches the
+sale (see [Liable countries and nexus](#liable-countries-and-nexus)):
 
-- `attendee_invoicing(buyer)`: may Revel issue (or credit) an attendee invoice for this buyer?
-- `paid_ticketing()`: may the organizer sell tickets that cost anything?
-- `extra_ticket_fields(ticket)`: country-specific lines printed on tickets, on top of the common EU set.
+- `attendee_invoicing(buyer, nexus)`: may Revel issue (or credit) an attendee invoice for this buyer?
+- `online_payment(nexus)`: may a paid ticket or series pass be sold through online (Stripe card)
+  checkout?
+- `offline_payment(nexus)`: may a paid ticket be sold for offline payment (bank transfer, at the door)
+  confirmed by the organizer? No country restricts this in layer 1.
+- `extra_ticket_fields(ticket, nexus)`: country-specific lines printed on tickets, after the common EU
+  set.
 
 Countries without a module get `DefaultEUPolicy`: everything allowed, no extra ticket lines.
 
@@ -49,27 +54,55 @@ An organization's country is resolved in this order:
 The VAT prefix `EL` is normalized to `GR`. If nothing is set, or the country has no module, the
 organization gets `DefaultEUPolicy`.
 
-For invoicing and paid ticketing, the **liable countries** of a sale are the organization's resolved country and, for
-physical (non-virtual) events, the event's VAT country (venue or city), because physical admission is
-taxed where the event takes place. A sale is refused if any liable country refuses it.
+### Liable countries and nexus
+
+A country's rules can reach a sale in two ways, modelled by the `Nexus` enum:
+
+- `ESTABLISHMENT`: the organizer is established there (the organization's resolved country).
+- `VENUE`: a physical (non-virtual) event takes place there (the event's VAT country, from its venue
+  or city).
+
+Each restriction declares which nexus it applies on, and may carry a start date. A restriction binds a
+sale only if the country reaches it through a nexus the restriction applies on, and only once the start
+date has passed. A sale is refused if any reaching country refuses it.
 
 ## What layer 1 does
 
-Layer 1 is the first, deliberately conservative step: stop Revel from producing documents that are
-not valid in a given country, and print a common set of details on every ticket.
+Layer 1 is the first step: stop Revel from producing documents that are not valid in a given country,
+and print a common set of details on every ticket.
+
+The principle is **minimal restrictions**: block strictly the non-compliant feature in each
+jurisdiction, nothing broader. Only the feature, only for the sales the law reaches, only from the date
+it takes effect.
 
 - **Common ticket content.** Every ticket PDF and Apple/Google Wallet pass carries the organizer's
   legal name and tax ID, a sequential ticket number, the issue date, the price paid (or "Free") and a
   "not a tax invoice or receipt" notice. See the [EU overview](eu/index.md#common-ticket-content).
 - **Attendee invoicing blocked** (HYBRID/AUTO cannot be enabled, generation is skipped) where Revel's
-  PDF invoices are not valid fiscal documents: Croatia, Spain, Portugal, Slovenia, Greece, Romania and
-  Hungary.
-- **Domestic B2B invoices blocked** where they must go through a national e-invoicing network:
-  Belgium (Peppol) and Poland (KSeF). Consumers and cross-border buyers still get Revel's invoice.
-- **Paid ticketing blocked** in Italy, where paid admission needs a certified fiscal ticketing system.
+  PDF invoices are not valid fiscal documents:
+    - for organizers established in Croatia, Portugal and Romania;
+    - for organizers established in Slovenia, Greece and Hungary, and for physical events held there
+      by foreign organizers;
+    - in Spain, from 1 January 2027 (Verifactu), for organizers established there. Until then attendee
+      invoicing is allowed.
+- **Domestic B2B invoices blocked** where they must go through a national e-invoicing network: Belgium
+  (Peppol) and Poland (KSeF), only for organizers established there and only when the buyer's VAT ID
+  is from the same country. Consumers, cross-border buyers and foreign organizers still get Revel's
+  invoice.
+- Credit notes and issuing pre-gate drafts follow the same invoice gate.
+- **Online payment blocked** for events held in Italy, where paid tickets sold online must be issued by
+  a ticketing system approved by the Agenzia delle Entrate. Offline, bank-transfer and at-the-door
+  payments confirmed by the organizer still work.
+- No country restricts offline payment.
 - The organization admin detail and billing-info API responses expose
-  `compliance: {country, attendee_invoicing, paid_ticketing}` so the frontend can hide what the
-  organizer cannot use.
+  `compliance: {country, attendee_invoicing, online_payment, offline_payment}` so the frontend can hide
+  what the organizer cannot use. `attendee_invoicing` is `allowed`, `blocked` or
+  `blocked_for_business_buyers`; `online_payment` and `offline_payment` are `allowed` or `blocked`.
+  Values are effective today: a future-dated restriction reads `allowed` until it starts. The payment
+  capabilities describe events held in the organization's own country; an event held elsewhere follows
+  that country's rules, and the API answers 422 when a sale is refused.
+- Refusal messages name the country in the user's language, for example "Online card payments aren't
+  available for events in Italy. ...".
 
 Later layers (native fiscalization, e-invoicing integrations, exports, record retention) are tracked
 in the GitHub issues labelled `compliance` and linked from each country page.

@@ -1,12 +1,12 @@
 # Italy
 
-Policy module: `src/events/compliance/policies/it.py` (`ItalyPolicy`, using `CertifiedTicketingMixin`).
+Policy module: `src/events/compliance/policies/it.py` (`ItalyPolicy`, using `CertifiedOnlineTicketingMixin`).
 
 Issue: [#1057](https://github.com/letsrevel/revel-backend/issues/1057)
 
 ## Status
 
-**Restricted: paid ticketing blocked.**
+**Restricted: online payment blocked for events in Italy.**
 
 Paid *intrattenimenti* (club nights, DJ sets) and *spettacoli* (concerts, theatre) must be certified
 with fiscal *titoli di accesso* issued by a system that the Agenzia delle Entrate (AdE) has recognised
@@ -15,24 +15,30 @@ AdE-approved online system. Revel is not an approved system.
 
 ## What Revel does
 
-For organizations whose resolved country is Italy, and for physical events held in Italy (by any
-organizer):
+Only **online payment** is blocked, and only for **events held in Italy** (physical events whose VAT
+country is Italy), whoever the organizer is:
 
-- **No new paid tiers.** Creating a tier that can charge anything is refused: a price above zero,
-  pay-what-you-can, or any seat-category price above zero. This applies to every payment method,
-  including offline and at-the-door payments.
-- **No turning a free tier paid.**
-- **Checkout refuses paid carts.** Tiers that were already paid before the restriction stay editable,
-  but checkout refuses any cart that costs anything, whatever the payment method. Paid series passes
-  cannot be bought.
-- **Unaffected:** free tiers, RSVPs and memberships.
-- The block applies to the liable countries of the sale: the organization's resolved country and,
-  for a physical event, the country where it takes place. Virtual events follow the organization only.
-- Attendee invoicing is not restricted.
+- **Scope.** An Italian organizer's events held abroad are not affected, and neither are virtual
+  events.
+- **Offline payment still works.** Paid tiers with offline, bank-transfer or at-the-door payment
+  methods (including pay-what-you-can with offline methods) are allowed and work as before, including
+  the organizer's payment-confirmation dashboard.
+- **No online payment method.** Creating a tier with the online payment method, or switching a tier to
+  it, is refused (HTTP 422).
+- **Existing online tiers.** Tiers that already used online payment before the restriction stay
+  editable (rename, pause, switch to offline or at-the-door), but online checkout refuses them, as it
+  refuses paid series passes sold online.
+- **Unaffected:** free tickets, RSVPs, memberships and attendee invoicing.
+- **Ticket notice.** Priced tickets for events held in Italy carry an extra line on the PDF and on
+  Apple/Google Wallet passes: "Reservation only: this isn't a fiscal access ticket (titolo d'accesso).
+  The organizer issues it."
 - The [common ticket content](index.md#common-ticket-content) applies.
 
-The refusal message tells the organizer that tickets for paid events must be issued by an AdE-approved
-fiscal ticketing system (SIAE).
+The refusal message, naming Italy in the user's language, says that online card payments aren't
+available for events in Italy, because Italian law requires paid tickets sold online to be issued by a
+ticketing system approved by the Agenzia delle Entrate, and that payment at the door or by bank
+transfer still works, with payments confirmed from the dashboard. The organizer issues the fiscal
+ticket itself.
 
 ## Legal basis
 
@@ -73,7 +79,7 @@ it correctly and transmit to SIAE. Stripe is only the payment processor.
   `src/integrations/providers/` (a "Revel" variant of an approved system, certified by an accredited
   body). Revel would register venues, organizers and events, request fiscal issuance per ticket at
   payment confirmation, store and print the fiscal data, handle cancellations as fiscal annulments, and
-  meet the online-sales rules. This is the upgrade path that would lift the paid-ticketing block.
+  meet the online-sales rules. This is the upgrade path that would lift the online-payment block.
 - **Not recommended:** Revel becoming its own approved producer and *titolare*.
 
 See [#1057](https://github.com/letsrevel/revel-backend/issues/1057).

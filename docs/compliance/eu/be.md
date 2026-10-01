@@ -6,7 +6,7 @@ Issue: [#1066](https://github.com/letsrevel/revel-backend/issues/1066)
 
 ## Status
 
-**Restricted: domestic B2B attendee invoices blocked.**
+**Restricted: domestic B2B attendee invoices blocked for organizers established in Belgium.**
 
 Since 1 January 2026, invoices between Belgian VAT-liable enterprises must be structured electronic
 invoices (EN 16931, Peppol BIS by default) exchanged over Peppol. A PDF is no longer a valid invoice
@@ -15,12 +15,14 @@ for these transactions. B2C invoices are not covered.
 ## What Revel does
 
 - **Attendee invoicing can be enabled.** HYBRID and AUTO are not refused for Belgian organizations.
-- **Domestic B2B invoices are skipped.** For sales where Belgium is a liable country (the organization
-  is established there, or the event is a physical event in Belgium), invoice generation, issuing an
-  existing draft and credit notes are skipped only when the **buyer's VAT ID starts with `BE`**. The
-  organizer must issue that invoice through Peppol with its own e-invoicing software.
+- **Domestic B2B invoices are skipped.** For organizers established in Belgium, invoice generation,
+  issuing an existing draft (including drafts created before the gate) and credit notes are skipped
+  only when the **buyer's VAT ID starts with `BE`**. The organizer must issue that invoice through
+  Peppol with its own e-invoicing software.
 - **Consumers and cross-border business buyers** still receive Revel's PDF invoice.
-- Paid ticketing is not restricted.
+- **Foreign organizers' events held in Belgium are not affected**: the Peppol mandate excludes
+  suppliers not established in Belgium.
+- Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis

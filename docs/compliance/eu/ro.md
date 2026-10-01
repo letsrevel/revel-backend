@@ -6,7 +6,7 @@ Issue: [#1064](https://github.com/letsrevel/revel-backend/issues/1064)
 
 ## Status
 
-**Restricted: attendee invoicing blocked.**
+**Restricted: attendee invoicing blocked for organizers established in Romania.**
 
 Since 1 January 2025, B2C invoices issued by organizers established in Romania must be transmitted to
 RO e-Factura. Revel's attendee invoices are PDF-only. Romania also levies a local spectacle tax with
@@ -15,15 +15,15 @@ ticket registration and ticket content rules, and a cultural stamp on ticket pri
 ## What Revel does
 
 - **Attendee invoicing cannot be enabled.** Switching to HYBRID or AUTO is refused (HTTP 422) for
-  organizations whose resolved country is Romania, with a translated explanation that invoices must go
-  through RO e-Factura.
-- **Generation is skipped** (invoice generation, issuing an existing draft, credit notes) whenever
-  Romania is a liable country of the sale: the organization is established there, or the event is a
-  physical event in Romania.
+  organizations whose resolved country is Romania, with a translated explanation, naming Romania, that
+  invoices must go through RO e-Factura.
+- **Generation is skipped** (invoice generation, issuing an existing draft, including drafts created
+  before the gate, and credit notes) for sales by organizers established in Romania. A foreign
+  organizer's event held in Romania is not affected.
 - **Existing settings:** organizations in Romania that had HYBRID or AUTO were switched to NONE by the
   data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
   notification was sent automatically, so affected organizers should be informed out of band.
-- Paid ticketing is not restricted.
+- Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies. It provides the organizer, its
   tax ID (when the organization's VAT ID is set), the price and a series plus sequential number, which
   HG 846/2002 asks electronic tickets to carry alongside venue, date and seat category.

@@ -6,7 +6,7 @@ Issue: [#1065](https://github.com/letsrevel/revel-backend/issues/1065)
 
 ## Status
 
-**Restricted: attendee invoicing blocked.**
+**Restricted: attendee invoicing blocked for organizers established in Hungary and for physical events held there.**
 
 Every invoice a Hungarian taxable person issues, B2C included, must be reported to NAV's Online
 Számla system; invoices from invoicing software must be reported immediately and automatically. Revel
@@ -15,15 +15,17 @@ has no NAV integration, so its attendee invoices would be non-compliant.
 ## What Revel does
 
 - **Attendee invoicing cannot be enabled.** Switching to HYBRID or AUTO is refused (HTTP 422) for
-  organizations whose resolved country is Hungary, with a translated explanation that invoices must go
-  through NAV Online Számla.
-- **Generation is skipped** (invoice generation, issuing an existing draft, credit notes) whenever
-  Hungary is a liable country of the sale: the organization is established there, or the event is a
-  physical event in Hungary.
+  organizations whose resolved country is Hungary, with a translated explanation, naming Hungary, that
+  invoices must go through NAV Online Számla.
+- **Generation is skipped** (invoice generation, issuing an existing draft, including drafts created
+  before the gate, and credit notes) for sales by organizers established in Hungary, and for physical
+  events held in Hungary by foreign organizers, because the law there reaches sellers of supplies made
+  in Hungary. Virtual events held by foreign organizers are not affected. A foreign organizer can still
+  enable attendee invoicing; only the sales Hungary reaches are skipped.
 - **Existing settings:** organizations in Hungary that had HYBRID or AUTO were switched to NONE by the
   data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
   notification was sent automatically, so affected organizers should be informed out of band.
-- Paid ticketing is not restricted.
+- Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies. Revel's ticket is not a
   receipt (*nyugta*): receipts must be in Hungarian, and the organizer still owes a receipt or invoice
   for every sale from its own system.

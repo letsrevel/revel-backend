@@ -15,7 +15,7 @@ reporting and declaration duties are left to later layers.
 
 ## What Revel does
 
-- Attendee invoicing and paid ticketing are allowed.
+- Attendee invoicing and online/offline payments are allowed.
 - The [common ticket content](index.md#common-ticket-content) covers the art. 290 quater ticket
   mentions: identification of the organizer, the show, the seat category (tier), the **total price paid
   or the mention of free admission**, and a **system-assigned sequential number**.

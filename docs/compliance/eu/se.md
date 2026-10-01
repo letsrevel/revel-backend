@@ -6,13 +6,13 @@ No policy module: resolves to `DefaultEUPolicy`.
 
 **No country-specific restrictions identified.**
 
-Research found no rule that requires Revel to block attendee invoicing or paid ticketing for
-organizers in Sweden. This is not a guarantee that organizers have no obligations of their own: as
+Research found no rule that requires Revel to block attendee invoicing or online or offline payments
+for organizers in Sweden. This is not a guarantee that organizers have no obligations of their own: as
 merchant of record they remain responsible for their tax and invoicing duties.
 
 ## What Revel does
 
-- No country-specific restriction: attendee invoicing and paid ticketing are allowed.
+- No country-specific restriction: attendee invoicing and online/offline payments are allowed.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis

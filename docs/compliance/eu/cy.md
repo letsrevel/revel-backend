@@ -10,8 +10,8 @@ No research has been done for Cyprus yet, and these docs make no claim about its
 
 ## What Revel does
 
-- Organizations in Cyprus currently resolve to the default policy: attendee invoicing and paid
-  ticketing are allowed.
+- Organizations in Cyprus currently resolve to the default policy: attendee invoicing and
+  online/offline payments are allowed.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis

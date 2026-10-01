@@ -6,7 +6,7 @@ Issue: [#1063](https://github.com/letsrevel/revel-backend/issues/1063)
 
 ## Status
 
-**Restricted: attendee invoicing blocked.**
+**Restricted: attendee invoicing blocked for organizers established in Greece and for physical events held there.**
 
 Greek-established organizers must document every B2C ticket sale with a Greek retail document whose
 data is transmitted to AADE's myDATA platform, and documents issued from software must carry a myDATA
@@ -16,15 +16,17 @@ Greece.
 ## What Revel does
 
 - **Attendee invoicing cannot be enabled.** Switching to HYBRID or AUTO is refused (HTTP 422) for
-  organizations whose resolved country is Greece, with a translated explanation that invoices must go
-  through AADE myDATA.
-- **Generation is skipped** (invoice generation, issuing an existing draft, credit notes) whenever
-  Greece is a liable country of the sale: the organization is established there, or the event is a
-  physical event in Greece.
+  organizations whose resolved country is Greece, with a translated explanation, naming Greece, that
+  invoices must go through myDATA.
+- **Generation is skipped** (invoice generation, issuing an existing draft, including drafts created
+  before the gate, and credit notes) for sales by organizers established in Greece, and for physical
+  events held in Greece by foreign organizers, because the law there reaches sellers of supplies made
+  in Greece. Virtual events held by foreign organizers are not affected. A foreign organizer can still
+  enable attendee invoicing; only the sales Greece reaches are skipped.
 - **Existing settings:** organizations in Greece that had HYBRID or AUTO were switched to NONE by the
   data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
   notification was sent automatically, so affected organizers should be informed out of band.
-- Paid ticketing is not restricted.
+- Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies, including the "not a tax
   invoice or receipt" notice.
 

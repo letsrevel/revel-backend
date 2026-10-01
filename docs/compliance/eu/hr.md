@@ -6,7 +6,7 @@ Issue: [#1058](https://github.com/letsrevel/revel-backend/issues/1058)
 
 ## Status
 
-**Restricted: attendee invoicing blocked.**
+**Restricted: attendee invoicing blocked for organizers established in Croatia.**
 
 Since 1 January 2026 every B2C invoice (*račun*) issued by a Croatian profit-tax or self-employed
 income-tax payer must be fiscalized in real time with the Tax Administration (Porezna uprava),
@@ -16,15 +16,15 @@ fiscalized.
 ## What Revel does
 
 - **Attendee invoicing cannot be enabled.** Switching to HYBRID or AUTO is refused (HTTP 422) for
-  organizations whose resolved country is Croatia, with a translated explanation that invoices must go
-  through Fiskalizacija (Porezna uprava).
-- **Generation is skipped** (invoice generation, issuing an existing draft, credit notes) whenever
-  Croatia is a liable country of the sale: the organization is established there, or the event is a
-  physical event in Croatia.
+  organizations whose resolved country is Croatia, with a translated explanation, naming Croatia, that
+  invoices must go through the Tax Administration's fiscalization system.
+- **Generation is skipped** (invoice generation, issuing an existing draft, including drafts created
+  before the gate, and credit notes) for sales by organizers established in Croatia. A foreign
+  organizer's event held in Croatia is not affected.
 - **Existing settings:** organizations in Croatia that had HYBRID or AUTO were switched to NONE by the
   data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
   notification was sent automatically, so affected organizers should be informed out of band.
-- Paid ticketing is not restricted.
+- Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies, including the "not a tax
   invoice or receipt" notice.
 

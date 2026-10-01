@@ -6,26 +6,30 @@ Issue: [#1059](https://github.com/letsrevel/revel-backend/issues/1059)
 
 ## Status
 
-**Restricted: attendee invoicing blocked.**
+**Upcoming restriction (from 1 January 2027): attendee invoicing.**
 
 Spain's invoicing-software rules (RRSIF, known as VERI\*FACTU) become mandatory on 1 January 2027 for
 corporate-income-tax payers and 1 July 2027 for other in-scope taxpayers. When a third party issues
 invoices on the seller's behalf, the third party's own system must comply. Revel's attendee invoicing
-would make Revel that system, and it does not comply. The Basque provinces apply their own TicketBAI
-regimes.
+would make Revel that system, and it does not comply. Revel cannot tell whether an organizer is a
+corporate taxpayer, so the earlier date applies to every organizer established in Spain. The Basque
+provinces apply their own TicketBAI regimes.
 
 ## What Revel does
 
-- **Attendee invoicing cannot be enabled.** Switching to HYBRID or AUTO is refused (HTTP 422) for
-  organizations whose resolved country is Spain, with a translated explanation that invoices must go
-  through VERI\*FACTU / TicketBAI.
-- **Generation is skipped** (invoice generation, issuing an existing draft, credit notes) whenever
-  Spain is a liable country of the sale: the organization is established there, or the event is a
-  physical event in Spain.
-- **Existing settings:** organizations in Spain that had HYBRID or AUTO were switched to NONE by the
-  data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
-  notification was sent automatically, so affected organizers should be informed out of band.
-- Paid ticketing is not restricted.
+- **Until 31 December 2026, attendee invoicing is allowed** for organizers in Spain, as in any other
+  country. The capability reported by the API reads `allowed` until then.
+- **From 1 January 2027, attendee invoicing is blocked** for organizers established in Spain:
+    - switching to HYBRID or AUTO is refused (HTTP 422), with a translated explanation, naming Spain,
+      that invoices must go through Verifactu;
+    - generation is skipped (invoice generation, issuing an existing draft, including drafts created
+      before the gate, and credit notes);
+    - the API capability switches to `blocked` on that date.
+- **Organizer-established only.** A foreign organizer's event held in Spain is not affected.
+- **Existing settings:** organizations in Spain are not switched to NONE by the data migration
+  `0128_disable_blocked_attendee_invoicing`. They keep their HYBRID or AUTO setting; from 2027 the
+  generation gate skips their invoices by itself, and the capability and flags report it.
+- Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis

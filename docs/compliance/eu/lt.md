@@ -10,8 +10,8 @@ No research has been done for Lithuania yet, and these docs make no claim about 
 
 ## What Revel does
 
-- Organizations in Lithuania currently resolve to the default policy: attendee invoicing and paid
-  ticketing are allowed.
+- Organizations in Lithuania currently resolve to the default policy: attendee invoicing and
+  online/offline payments are allowed.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis
