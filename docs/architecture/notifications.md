@@ -127,6 +127,12 @@ the next digest sweep).
 |---|---|
 | `account_banned` | User's account has been banned from the platform |
 
+### Organization setup
+
+| Type | Description |
+|---|---|
+| `org_setup_nudge` | Capped reminder to the owner of a stalled organization (forgotten draft, private profile, no events, check-in, gone quiet). Opt-out-able. See [Org setup nudges](email-sending.md#org-setup-nudges) |
+
 ### Announcements
 
 | Type | Description |

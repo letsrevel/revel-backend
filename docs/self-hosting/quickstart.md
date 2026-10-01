@@ -39,8 +39,9 @@ ports 80/443, and backs up any existing `.env`. It then prompts you for:
 3. **Email** — real SMTP (host, port, username, password, from-address) or console/dry-run
    (`EMAIL_DRY_RUN=True`) for a test instance. With real SMTP it also offers an optional
    dedicated sending domain for organization mail (`ORG_EMAIL_DOMAIN`) and an optional
-   bounce-webhook secret (`EMAIL_WEBHOOK_SECRET`); leave both blank to skip them. See
-   [Tiers & Configuration → Email](tiers.md#email).
+   bounce-webhook secret (`EMAIL_WEBHOOK_SECRET`), plus a Reply-To and signature for the
+   org setup nudges (`ORG_NUDGE_REPLY_TO`, `ORG_NUDGE_SIGNATURE`); leave them blank to skip them.
+   See [Tiers & Configuration → Email](tiers.md#email).
 4. **Optional services** — each service answer drives both its Compose profile and its `FEATURE_*`
    flag; single-org mode is a feature flag only (no Compose profile):
     - the **observability stack** (default yes on Full), and if enabled, the **Grafana domain**;

@@ -156,6 +156,11 @@ fewer than the reserve remain in the shared hourly budget.
 - `PENDING_INVITATION_DAILY_CAP` (default `200`) — how many invitations each organization can
   send per UTC day to addresses that have no Revel account yet. `0` means unlimited. See
   [pending invitation cap](../architecture/email-sending.md#pending-invitation-cap).
+- `ORG_NUDGE_REPLY_TO` (optional) — Reply-To on the [org setup nudges](../architecture/email-sending.md#org-setup-nudges),
+  so owners of stalled organizations can answer a person. Unset, the nudges have no Reply-To and
+  the personal check-in nudge never goes out. `ORG_NUDGE_SIGNATURE` (default `The Revel team`)
+  signs that check-in. The daily nudge task ships disabled; enable "Send org setup nudges" under
+  Periodic tasks in the Django admin after a dry run of `python manage.py org_nudges`.
 - `UNSUBSCRIBE_TOKEN_LIFETIME_DAYS` (default `3650`) — how long unsubscribe links in emails stay
   valid. Mailbox providers show the one-click unsubscribe button on old mail too, so keep it long.
 

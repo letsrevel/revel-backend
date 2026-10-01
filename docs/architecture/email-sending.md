@@ -43,6 +43,10 @@ Their Reply-To follows the same rule as organization mail (verified contact emai
 organization's copy is BCC'd to its billing email (settable by the owner only), else to the
 verified contact email, else nobody.
 
+**Revel's own opt-out-able mail** (`PLATFORM_LIST_UNSUBSCRIBE_TYPES`, currently only
+[`org_setup_nudge`](#org-setup-nudges)) also uses `DEFAULT_FROM_EMAIL`, but carries one-click
+`List-Unsubscribe` like organization mail, and a Reply-To of `ORG_NUDGE_REPLY_TO` when that is set.
+
 ## Pending invitation cap
 
 An invitation to an address with no Revel account (a pending invitation) is cold mail: the
@@ -115,11 +119,42 @@ browser `GET` only redirects to the frontend unsubscribe page and changes nothin
 |---|---|
 | `org_announcement` | Mutes that organization's announcements (all channels) |
 | Other organization mail (event updates, reminders, invitations, new events) | Turns email off for that type; other channels keep it |
+| `org_setup_nudge` | Turns email off for setup nudges. The planner then skips that owner entirely, in-app included |
 | Digest | Turns email off and sets the digest back to immediate |
 | Invitation to an address with no account | Suppresses the address for invitations from any organization on this instance |
 
 The invitation opt-out only blocks invitations to addresses without an account. If that person
 later registers, they still get their tickets and other mail.
+
+## Org setup nudges
+
+Owners of organizations that stalled get a few short reminders, then nothing. The logic is in
+`events/service/org_nudge_service.py`. A daily beat task (`events.send_org_nudges`, 10:00
+Europe/Vienna) runs it, and the task **ships disabled**: preview with
+`python manage.py org_nudges` (a dry run unless `--send`; `--org <slug>` narrows it), then enable
+"Send org setup nudges" under Periodic tasks in the Django admin.
+
+Each run picks at most one nudge per organization: the first trigger in this list that matches and
+still has sends left.
+
+| Trigger | When | Cap |
+|---|---|---|
+| `draft_event` | A draft (not a series template) untouched for 14 days whose start is still ahead | 2 per org |
+| `private_profile` | Visibility is `private` (the default) or `staff-only`. `members-only` and `unlisted` count as deliberate | 2 per org |
+| `no_events` | 14 days old and no event at all, not even a draft | 2 per org |
+| `check_in` | Never published an event, already had a nudge, and the triggers above are used up. Plain text from a person, signed `ORG_NUDGE_SIGNATURE`. Needs `ORG_NUDGE_REPLY_TO` | 1 per org |
+| `dormant` | Published before, the last event ended over 90 days ago, nothing upcoming | 1 per quiet spell (keyed on the last event) |
+
+- Only the owner is emailed, and only once the organization is 7 days old and the owner is active,
+  verified and not a guest.
+- At most one nudge per organization every 14 days. The second nudge for a trigger says it is the
+  last one.
+- Owners who opted out (or whose address is suppressed) are skipped **before** planning, so they
+  never use up a cap.
+- Caps are rows in `OrganizationNudge`, enforced by a unique constraint. They are not
+  `Notification` rows, which are pruned after `NOTIFICATION_RETENTION_DAYS`. The log is read-only
+  in the admin under Organizations, Setup Nudges. Deleting a row lets that trigger fire again.
+- There is no open or click tracking. Whether a nudge worked shows in the organization's state.
 
 ## Per-organization announcement mute
 
