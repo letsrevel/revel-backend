@@ -18,7 +18,9 @@ class EventAdminBaseController(UserAwareController):
         """Get the queryset based on the user."""
         # city / venue__city feed Event.effective_vat_country, read by
         # EventDetailSchema's VAT-country resolvers (#869).
-        return models.Event.objects.for_user(self.user(), include_past=True).select_related("city", "venue__city")
+        return models.Event.objects.for_user(self.user(), include_past=True).select_related(
+            "city", "venue__city", "organization__city"
+        )
 
     def get_one(self, event_id: UUID) -> models.Event:
         """Wrapper helper."""

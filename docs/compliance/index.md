@@ -98,9 +98,15 @@ it takes effect.
   `compliance: {country, attendee_invoicing, online_payment, offline_payment}` so the frontend can hide
   what the organizer cannot use. `attendee_invoicing` is `allowed`, `blocked` or
   `blocked_for_business_buyers`; `online_payment` and `offline_payment` are `allowed` or `blocked`.
-  Values are effective today: a future-dated restriction reads `allowed` until it starts. The payment
-  capabilities describe events held in the organization's own country; an event held elsewhere follows
-  that country's rules, and the API answers 422 when a sale is refused.
+  Values are effective today: a future-dated restriction reads `allowed` until it starts. The org-level
+  payment capabilities describe events held in the organization's own country.
+- The event detail response (`EventDetailSchema`, used by the event admin and public event pages)
+  exposes `compliance: {venue_country, online_payment, offline_payment, attendee_invoicing}` for that
+  specific event: the organization's establishment plus the venue country of a physical event, at
+  today's date. It is computed by `enforcement.event_compliance()` from the same decisions the tier,
+  checkout and invoicing gates take, so the tier editor and checkout can hide exactly what the API would
+  refuse. It is on detail responses only, not on event lists. The API still answers 422 if a refused
+  sale is attempted.
 - Refusal messages name the country in the user's language, for example "Online card payments aren't
   available for events in Italy. ...".
 

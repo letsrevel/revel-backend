@@ -9,6 +9,7 @@ policy's translated reason.
 
 import typing as t
 from collections import defaultdict
+from dataclasses import dataclass
 from decimal import Decimal
 
 from events.compliance.base import (
@@ -16,6 +17,7 @@ from events.compliance.base import (
     BuyerContext,
     Decision,
     Nexus,
+    PaymentChannelCapability,
     TicketComplianceField,
     common_ticket_fields,
 )
@@ -107,12 +109,55 @@ def payment_channel_decision(org: Organization, payment_method: str, events: t.I
     ONLINE is the online channel; OFFLINE and AT_THE_DOOR (staff-confirmed) the offline
     one; FREE takes no money.
     """
-    policies = [(get_policy_for_country(c), nexus) for c, nexus in sale_nexus(org, events).items()]
+    return _channel_decision(sale_nexus(org, events), payment_method)
+
+
+def _channel_decision(reach: NexusMap, payment_method: str) -> Decision:
+    policies = [(get_policy_for_country(c), nexus) for c, nexus in reach.items()]
     if payment_method == TicketTier.PaymentMethod.ONLINE:
         return _first_refusal(policy.online_payment(nexus) for policy, nexus in policies)
     if payment_method in (TicketTier.PaymentMethod.OFFLINE, TicketTier.PaymentMethod.AT_THE_DOOR):
         return _first_refusal(policy.offline_payment(nexus) for policy, nexus in policies)
     return Decision.allow()
+
+
+@dataclass(frozen=True, slots=True)
+class EventCompliance:
+    """What the countries reaching one event allow today: the per-event view of the gates.
+
+    Built from the same nexus map and decisions the tier, checkout and invoicing gates
+    use, so the frontend can disable exactly what the API would refuse.
+    """
+
+    venue_country: str
+    online_payment: PaymentChannelCapability
+    offline_payment: PaymentChannelCapability
+    attendee_invoicing: AttendeeInvoicingCapability
+
+
+def event_compliance(event: "Event") -> EventCompliance:
+    """The effective compliance capabilities of one event (org establishment + physical venue, today).
+
+    Select ``organization__city``, ``venue__city`` and ``city`` to keep this query-free.
+    """
+    reach = sale_nexus(event.organization, [event])
+    if not attendee_invoicing_for_sale(reach, None).allowed:
+        invoicing = AttendeeInvoicingCapability.BLOCKED
+    elif any(not attendee_invoicing_for_sale(reach, country).allowed for country in reach):
+        # A buyer whose VAT ID is from one of the reaching countries would be refused.
+        invoicing = AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
+    else:
+        invoicing = AttendeeInvoicingCapability.ALLOWED
+    return EventCompliance(
+        venue_country="" if event.is_virtual else normalize_country_code(event.effective_vat_country),
+        online_payment=_capability(_channel_decision(reach, TicketTier.PaymentMethod.ONLINE)),
+        offline_payment=_capability(_channel_decision(reach, TicketTier.PaymentMethod.OFFLINE)),
+        attendee_invoicing=invoicing,
+    )
+
+
+def _capability(decision: Decision) -> PaymentChannelCapability:
+    return PaymentChannelCapability.ALLOWED if decision.allowed else PaymentChannelCapability.BLOCKED
 
 
 def assert_sale_allowed(

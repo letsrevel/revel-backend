@@ -69,6 +69,7 @@ from .discount_code import (
 from .event import (
     AttendeeSchema,
     EventCreateSchema,
+    EventComplianceSchema,
     EventDetailSchema,
     EventDuplicateSchema,
     EventEditSchema,
@@ -510,6 +511,7 @@ __all__ = [
     "EventAssignmentSchema",
     "EventBookmarkSchema",
     "EventCreateSchema",
+    "EventComplianceSchema",
     "EventDetailSchema",
     "EventDietarySummarySchema",
     "EventDuplicateSchema",
