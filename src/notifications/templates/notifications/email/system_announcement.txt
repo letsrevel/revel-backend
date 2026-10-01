@@ -1,4 +1,4 @@
-{%load i18n markdown_tags %}{{ context.announcement_title }}
+{%load i18n markdown_tags %}{% autoescape off %}{{ context.announcement_title }}
 Revel
 
 {{ context.announcement_body|html_to_text }}
@@ -6,4 +6,4 @@ Revel
 {%trans "Read more:" %} {{ context.policy_url }}
 {% endif %}
 
-{% include "notifications/email/_footer.txt" %}
+{% include "notifications/email/_footer.txt" %}{% endautoescape %}
