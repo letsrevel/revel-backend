@@ -78,7 +78,7 @@ in the GitHub issues labelled `compliance` and linked from each country page.
 
 - **Ticket record retention** is not changed in layer 1. Ticket rows are still deleted (cascade)
   when the event, the tier or the user account is deleted, although France and Italy require
-  ticketing records to be kept. A follow-up issue labelled `compliance` tracks this.
+  ticketing records to be kept. [#1068](https://github.com/letsrevel/revel-backend/issues/1068) tracks this.
 - Organizations without a VAT ID have no tax-ID line on tickets; there is no separate fiscal-code
   field yet.
 
