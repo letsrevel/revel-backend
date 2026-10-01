@@ -213,3 +213,20 @@ def test_send_batches_dispatch_per_batch(
     dispatched = [call.args[0] for call in mock_dispatch.delay.call_args_list]
     assert [len(batch) for batch in dispatched] == [2, 2, 1]
     assert len({nid for batch in dispatched for nid in batch}) == 5
+
+
+def test_email_preview_text_part_is_plain_text(regular_user: RevelUser) -> None:
+    """The text/plain part carries no HTML escaping and keeps link URLs."""
+    context = system_announcement.build_context(
+        "Q&A: what's new",
+        '<p>Tom &amp; Jerry</p><p>Read <a href="https://example.com/x">this</a>.</p>',
+        "https://example.com/more",
+    )
+
+    preview = system_announcement.render_email_preview(context, regular_user)
+
+    assert preview.subject == "Revel - Q&A: what's new"
+    assert preview.text_body.startswith("Q&A: what's new\nRevel\n\nTom & Jerry\n\nRead this (https://example.com/x).")
+    assert "&amp;" not in preview.text_body
+    assert "&#x27;" not in preview.text_body
+    assert "https://example.com/more" in preview.text_body

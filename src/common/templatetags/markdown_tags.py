@@ -1,5 +1,6 @@
 """Template tags for markdown rendering in emails and notifications."""
 
+import html
 import re
 
 from django import template
@@ -70,13 +71,28 @@ def strip_leading_heading(value: str | None) -> str:
     return value[match.end() :] or value
 
 
+_LINK_RE = re.compile(r'<a\s[^>]*?href="([^"]*)"[^>]*>(.*?)</a>', flags=re.IGNORECASE | re.DOTALL)
+
+
+def _link_to_text(match: re.Match[str]) -> str:
+    """Render ``<a href="url">label</a>`` as ``label (url)``, or just ``url`` when they match."""
+    url = match.group(1)
+    label = strip_tags(match.group(2)).strip()
+    if not label or html.unescape(label) == html.unescape(url):
+        return url
+    return f"{label} ({url})"
+
+
 @register.filter
 def html_to_text(value: str | None) -> str:
     """Convert HTML to plain text, preserving line breaks for block elements.
 
     Replaces closing block tags and <br> with newlines before stripping all
-    remaining HTML tags. Useful for Telegram and plain-text email channels
-    where WYSIWYG (Trix) HTML body must be rendered as readable text.
+    remaining HTML tags, keeps link targets as "label (url)" and decodes HTML
+    entities. The result is plain text: the calling template's autoescaping
+    decides how it is escaped (the .txt email turns it off). Useful for
+    Telegram and plain-text email channels where WYSIWYG (Trix) HTML body must
+    be rendered as readable text.
 
     Usage:
         {% load markdown_tags %}
@@ -85,9 +101,11 @@ def html_to_text(value: str | None) -> str:
     if not value:
         return ""
 
-    text = re.sub(r"<br\s*/?>", "\n", value, flags=re.IGNORECASE)
-    text = re.sub(r"</(?:div|p|h[1-6]|li|blockquote)>", "\n", text, flags=re.IGNORECASE)
-    text = strip_tags(text)
+    text = _LINK_RE.sub(_link_to_text, value)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</p>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(?:div|h[1-6]|li|blockquote)>", "\n", text, flags=re.IGNORECASE)
+    text = html.unescape(strip_tags(text))
     # Collapse runs of 3+ newlines into 2, and strip trailing whitespace per line
     text = re.sub(r"[ \t]*\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)

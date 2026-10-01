@@ -2,7 +2,31 @@
 
 import pytest
 
-from common.templatetags.markdown_tags import strip_leading_heading
+from common.templatetags.markdown_tags import html_to_text, strip_leading_heading
+
+
+class TestHtmlToText:
+    """``html_to_text`` turns sanitized announcement HTML into readable plain text."""
+
+    def test_keeps_link_targets(self) -> None:
+        result = html_to_text('<p>See <a href="https://example.com/a?b=1&amp;c=2" rel="noopener">the page</a>.</p>')
+        assert result == "See the page (https://example.com/a?b=1&c=2)."
+
+    def test_bare_link_is_not_duplicated(self) -> None:
+        assert html_to_text('<a href="https://example.com">https://example.com</a>') == "https://example.com"
+
+    def test_decodes_entities_once(self) -> None:
+        assert html_to_text("<p>Tom &amp; Jerry &lt;3</p>") == "Tom & Jerry <3"
+
+    def test_paragraphs_are_separated_by_a_blank_line(self) -> None:
+        assert html_to_text("<p>One</p><p>Two</p>") == "One\n\nTwo"
+
+    def test_trix_divs_and_breaks(self) -> None:
+        result = html_to_text("<div>Line one<br>Line two</div><div><br></div><div>Next</div>")
+        assert result == "Line one\nLine two\n\nNext"
+
+    def test_empty(self) -> None:
+        assert html_to_text(None) == ""
 
 
 class TestStripLeadingHeading:
