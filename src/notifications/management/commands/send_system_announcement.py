@@ -76,6 +76,10 @@ class Command(BaseCommand):
             raise CommandError("The body is empty after sanitization.")
 
         emails: list[str] | None = options["to_email"]
+        if emails is not None:
+            emails = [email.strip() for email in emails]
+            if not all(emails):  # e.g. an unset shell variable; "" would match users with no email
+                raise CommandError("--to-email must not be blank.")
         recipients = system_announcement.get_recipients(include_guests=options["include_guests"], emails=emails)
         if emails is not None:
             self._check_all_emails_found(emails, list(recipients.values_list("email", flat=True)))
@@ -115,7 +119,7 @@ class Command(BaseCommand):
     def _check_all_emails_found(self, requested: list[str], found: list[str]) -> None:
         """Fail if any requested address is not an existing active user."""
         found_lower = {email.lower() for email in found}
-        missing = [email for email in requested if email.strip().lower() not in found_lower]
+        missing = [email for email in requested if email.lower() not in found_lower]
         if missing:
             raise CommandError(f"No active user for: {', '.join(missing)}")
 

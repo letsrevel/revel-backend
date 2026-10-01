@@ -152,6 +152,31 @@ def test_to_email_unknown_address_fails_before_sending(
 
 
 @patch(DISPATCH)
+@pytest.mark.parametrize("address", ["", "   "])
+def test_blank_to_email_is_refused(
+    mock_dispatch: MagicMock,
+    django_user_model: type[RevelUser],
+    body_file: Path,
+    address: str,
+) -> None:
+    """A blank address (e.g. an unset shell variable) must not match users with no email."""
+    django_user_model.objects.create_user(username="no-email-user", email="")
+
+    with pytest.raises(CommandError, match="must not be blank"):
+        _run("--title", "T", "--body-file", str(body_file), "--to-email", address)
+
+    assert not _announcements().exists()
+    mock_dispatch.delay.assert_not_called()
+
+
+@patch(DISPATCH)
+def test_to_email_is_stripped(mock_dispatch: MagicMock, regular_user: RevelUser, body_file: Path) -> None:
+    _run("--title", "T", "--body-file", str(body_file), "--to-email", f"  {regular_user.email}  ")
+
+    assert list(_announcements().values_list("user_id", flat=True)) == [regular_user.id]
+
+
+@patch(DISPATCH)
 def test_body_from_stdin(mock_dispatch: MagicMock, regular_user: RevelUser, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO("<p>From stdin</p>"))
 

@@ -16,6 +16,7 @@ import sys
 import typing as t
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import transaction
 
 from common.fields import sanitize_markdown
 from common.models import Legal
@@ -28,6 +29,17 @@ DOCUMENT_FIELDS: dict[str, str] = {
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _diff(document: str, current: str, stored: str) -> list[str]:
+    return list(
+        difflib.unified_diff(
+            current.splitlines(keepends=True),
+            stored.splitlines(keepends=True),
+            fromfile=f"{document} (current)",
+            tofile=f"{document} (new)",
+        )
+    )
 
 
 class Command(BaseCommand):
@@ -47,37 +59,36 @@ class Command(BaseCommand):
         field = DOCUMENT_FIELDS[document]
         new_text = self._read(options["file"])
 
-        legal = Legal.get_solo()
-        legal.refresh_from_db()  # get_solo() may be served from SOLO_CACHE; diff against the DB
-        current: str = getattr(legal, field)
         stored = sanitize_markdown(new_text)
-
+        if not stored.strip():
+            raise CommandError("Refusing to save: the document is empty after sanitization.")
         if stored != new_text:
             self.stderr.write(
                 self.style.WARNING("Sanitization changes the input; the diff shows the text as it will be stored.")
             )
 
-        diff = list(
-            difflib.unified_diff(
-                current.splitlines(keepends=True),
-                stored.splitlines(keepends=True),
-                fromfile=f"{document} (current)",
-                tofile=f"{document} (new)",
-            )
-        )
-
         if options["dry_run"]:
+            # Non-creating lookup: a dry run must not create the singleton row.
+            existing = Legal.objects.filter(pk=Legal.singleton_instance_id).first()
+            diff = _diff(document, getattr(existing, field) if existing else "", stored)
             self.stdout.write("".join(diff) if diff else "No changes.")
             self.stdout.write(self.style.WARNING("\nDRY RUN - nothing was saved."))
             return
 
-        if not diff:
-            self.stdout.write(f"No changes to {document}; nothing saved. sha256={_sha256(current)}")
-            return
+        Legal.objects.get_or_create(pk=Legal.singleton_instance_id)
+        with transaction.atomic():
+            # Lock the row so concurrent terms/privacy runs serialize, and read from the DB
+            # (not SOLO_CACHE) so the diff and the history record reflect the current state.
+            legal = Legal.objects.select_for_update().get(pk=Legal.singleton_instance_id)
+            current: str = getattr(legal, field)
+            diff = _diff(document, current, stored)
+            if not diff:
+                self.stdout.write(f"No changes to {document}; nothing saved. sha256={_sha256(current)}")
+                return
+            setattr(legal, field, new_text)
+            # Write only the targeted document; MarkdownField.pre_save still sanitizes it.
+            legal.save(update_fields=[field, "updated_at"])
 
-        setattr(legal, field, new_text)
-        legal.save()
-        legal.refresh_from_db()
         saved: str = getattr(legal, field)
         self.stdout.write(
             self.style.SUCCESS(
