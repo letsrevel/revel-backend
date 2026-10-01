@@ -610,13 +610,13 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
         effective_method = TicketTier.PaymentMethod(payload_dict.get("payment_method", tier.payment_method))
         check_online_tier_prerequisites(tier.event.organization, effective_method)
 
-    was_paid = compliance.tier_is_paid(tier)
+    was_allowed = compliance.tier_channel_decision(tier).allowed
 
     # Update regular fields
     for field, value in payload_dict.items():
         setattr(tier, field, value)
 
-    compliance.assert_tier_allowed(tier, was_paid=was_paid)
+    compliance.assert_tier_allowed(tier, was_allowed=was_allowed)
 
     if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel

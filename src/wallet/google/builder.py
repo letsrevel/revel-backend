@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.urls import reverse
 
-from events.compliance import get_policy
+from events.compliance.enforcement import ticket_fields
 from events.models import Event, HeldSeriesPass, Organization, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import format_iso_date, format_price, get_theme_hex_background
@@ -152,7 +152,7 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
         # The organizer's country policy lines (EU layer 1). The common set carries the
         # ``price`` module, formatted exactly like the Apple rail's price field.
         "textModulesData": [
-            {"id": item.key, "header": item.label, "body": item.value} for item in get_policy(org).ticket_fields(ticket)
+            {"id": item.key, "header": item.label, "body": item.value} for item in ticket_fields(ticket)
         ],
         "linksModuleData": _powered_by_links(),
     }

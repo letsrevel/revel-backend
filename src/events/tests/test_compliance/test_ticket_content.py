@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from django.template.loader import render_to_string
 
-from events.compliance import get_policy
+from events.compliance.enforcement import ticket_fields
 from events.models import Organization, Ticket, TicketTier
 from events.utils import create_ticket_pdf
 from wallet.apple.generator import ApplePassGenerator
@@ -58,7 +58,7 @@ def _google_modules(ticket: Ticket) -> dict[str, str]:
 
 class TestCommonFields:
     def test_paid_ticket_fields(self, fiscal_org: Organization, ticket: Ticket) -> None:
-        fields = {field.key: field.value for field in get_policy(fiscal_org).ticket_fields(ticket)}
+        fields = {field.key: field.value for field in ticket_fields(ticket)}
 
         assert fields["organizer"] == "Org Legal Entity Ltd"
         assert fields["tax_id"] == "ATU12345678"
@@ -73,7 +73,7 @@ class TestCommonFields:
         TicketTier.objects.filter(pk=ticket.tier_id).update(price=Decimal("0"))
         ticket.tier.refresh_from_db()
 
-        fields = {field.key: field.value for field in get_policy(organization).ticket_fields(ticket)}
+        fields = {field.key: field.value for field in ticket_fields(ticket)}
 
         assert fields["price"] == "Free"
         assert fields["organizer"] == organization.name
@@ -84,7 +84,7 @@ class TestCommonFields:
             event=ticket.event, tier=ticket.tier, user=ticket.user, status=Ticket.TicketStatus.PENDING
         )
 
-        keys = {field.key for field in get_policy(fiscal_org).ticket_fields(pending)}
+        keys = {field.key for field in ticket_fields(pending)}
 
         assert not {"ticket_number", "issued_at"} & keys
 
@@ -126,3 +126,47 @@ class TestRenderedTickets:
         assert _apple_back_fields(settings, ticket)["compliance_price"] == "Free"
         assert _google_modules(ticket)["price"] == "Free"
         assert ">Free<" in _pdf_html(ticket)
+
+
+RESERVATION = "Reservation only: this isn't a fiscal access ticket (titolo d'accesso). The organizer issues it."
+
+
+class TestItalianReservationNotice:
+    @pytest.mark.parametrize(
+        ("org_country", "event_country", "price", "shown"),
+        [
+            ("IT", "", Decimal("10"), True),  # Italian org, event in Italy (falls back to the org)
+            ("IT", "", Decimal("0"), False),  # free tier: nothing to certify
+            ("AT", "IT", Decimal("10"), True),  # territorial: foreign org, event in Italy
+            ("IT", "AT", Decimal("10"), False),  # Italian org, event abroad
+        ],
+    )
+    def test_shown_only_on_priced_tickets_for_events_in_italy(
+        self,
+        organization: Organization,
+        ticket: Ticket,
+        org_country: str,
+        event_country: str,
+        price: Decimal,
+        shown: bool,
+    ) -> None:
+        organization.vat_country_code = org_country
+        organization.save(update_fields=["vat_country_code"])
+        ticket.event.vat_country_code = event_country
+        ticket.event.save(update_fields=["vat_country_code"])
+        TicketTier.objects.filter(pk=ticket.tier_id).update(price=price)
+        ticket.tier.refresh_from_db()
+
+        values = [field.value for field in ticket_fields(ticket)]
+
+        assert (RESERVATION in values) is shown
+
+    def test_notice_reaches_the_pdf_and_both_wallet_rails(
+        self, settings: t.Any, organization: Organization, ticket: Ticket
+    ) -> None:
+        organization.vat_country_code = "IT"
+        organization.save(update_fields=["vat_country_code"])
+
+        assert RESERVATION in _pdf_html(ticket).replace("&#x27;", "'")
+        assert _apple_back_fields(settings, ticket)["compliance_it_reservation"] == RESERVATION
+        assert _google_modules(ticket)["it_reservation"] == RESERVATION

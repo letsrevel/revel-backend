@@ -1,21 +1,35 @@
 """Country-agnostic enforcement on top of the resolved policies.
 
-Services call these; none of them knows which country it is in. Refusals raise
+Services call these; none of them knows which country it is in. Every helper works
+out which countries reach a sale, and through which :class:`~events.compliance.base.Nexus`,
+then asks each of those countries' policies. Refusals raise
 :class:`~events.exceptions.CountryComplianceError` (422 ``{"detail"}``) carrying the
 policy's translated reason.
 """
 
 import typing as t
+from collections import defaultdict
 from decimal import Decimal
 
-from events.compliance.base import BuyerContext, Decision
-from events.compliance.registry import get_policy, get_policy_for_country, resolve_org_country
+from events.compliance.base import (
+    AttendeeInvoicingCapability,
+    BuyerContext,
+    Decision,
+    Nexus,
+    TicketComplianceField,
+    common_ticket_fields,
+)
+from events.compliance.registry import get_policy, get_policy_for_country, normalize_country_code, resolve_org_country
 from events.exceptions import CountryComplianceError
 from events.models import Organization, TicketTier
 from events.utils.tier_pricing import parse_price_map
 
 if t.TYPE_CHECKING:
-    from events.models import Event
+    from events.models import Event, Ticket
+
+NexusMap = dict[str, frozenset[Nexus]]
+
+_ESTABLISHMENT: t.Final = frozenset({Nexus.ESTABLISHMENT})
 
 
 def _raise_if_blocked(decision: Decision) -> None:
@@ -23,46 +37,55 @@ def _raise_if_blocked(decision: Decision) -> None:
         raise CountryComplianceError(decision.reason)
 
 
-def assert_attendee_invoicing_allowed(org: Organization) -> None:
-    """Refuse enabling attendee invoicing when the org's policy refuses a consumer invoice.
+def sale_nexus(org: Organization, events: t.Iterable["Event"] = (), venue_countries: t.Iterable[str] = ()) -> NexusMap:
+    """Which countries reach a sale, and how: the org's establishment, and each physical event's venue.
 
-    A country that only blocks domestic B2B invoices may still enable it; those sales
-    are skipped at generation time.
+    Virtual events have no venue nexus. ``venue_countries`` adds venues known only as a
+    country code (e.g. an invoice whose event was deleted).
+    """
+    reach: dict[str, set[Nexus]] = defaultdict(set)
+    if country := resolve_org_country(org):
+        reach[country].add(Nexus.ESTABLISHMENT)
+    venues = [event.effective_vat_country for event in events if not event.is_virtual]
+    for country in (normalize_country_code(c) for c in [*venues, *venue_countries]):
+        if country:
+            reach[country].add(Nexus.VENUE)
+    return {country: frozenset(how) for country, how in reach.items()}
+
+
+def _first_refusal(decisions: t.Iterable[Decision]) -> Decision:
+    return next((decision for decision in decisions if not decision.allowed), Decision.allow())
+
+
+# --- Attendee invoicing -------------------------------------------------------------
+
+
+def assert_attendee_invoicing_allowed(org: Organization) -> None:
+    """Refuse enabling attendee invoicing when the org's own country refuses a consumer invoice.
 
     Raises:
-        CountryComplianceError: If the organization's country blocks attendee invoicing.
+        CountryComplianceError: If the organization's country blocks attendee invoicing today.
     """
-    _raise_if_blocked(get_policy(org).attendee_invoicing(BuyerContext()))
+    _raise_if_blocked(get_policy(org).attendee_invoicing(BuyerContext(), _ESTABLISHMENT))
 
 
 def attendee_invoicing_active(org: Organization) -> bool:
-    """Whether the org has invoicing on and its policy issues invoices to consumers."""
+    """Whether the org has invoicing on and its country lets Revel invoice consumers today."""
     return (
         org.invoicing_mode != Organization.InvoicingMode.NONE
-        and get_policy(org).attendee_invoicing(BuyerContext()).allowed
+        and get_policy(org).attendee_invoicing_capability() != AttendeeInvoicingCapability.BLOCKED
     )
 
 
-def liable_countries(org: Organization, event: "Event | None") -> list[str]:
-    """Countries whose rules can bind a sale: the org's and, for a physical event, the venue's.
-
-    Physical admission is taxed where the event takes place (#869), so an organizer
-    selling into a restricted country is gated as well as one established there.
-    """
-    countries = [resolve_org_country(org)]
-    if event is not None and not event.is_virtual:
-        countries.append(event.effective_vat_country)
-    return countries
-
-
-def attendee_invoicing_for_sale(countries: t.Iterable[str], buyer_vat_id: str | None) -> Decision:
-    """The strictest invoicing decision among the liable countries for one buyer."""
+def attendee_invoicing_for_sale(reach: NexusMap, buyer_vat_id: str | None) -> Decision:
+    """The strictest invoicing decision among the countries reaching one sale, for one buyer."""
     buyer = BuyerContext.from_vat_id(buyer_vat_id)
-    for country in dict.fromkeys(c for c in countries if c):
-        decision = get_policy_for_country(country).attendee_invoicing(buyer)
-        if not decision.allowed:
-            return decision
-    return Decision.allow()
+    return _first_refusal(
+        get_policy_for_country(country).attendee_invoicing(buyer, nexus) for country, nexus in reach.items()
+    )
+
+
+# --- Payment channels ---------------------------------------------------------------
 
 
 def tier_is_paid(tier: TicketTier) -> bool:
@@ -78,52 +101,71 @@ def tier_is_paid(tier: TicketTier) -> bool:
     return any(price > 0 for price in parse_price_map(tier.category_prices).values())
 
 
-def assert_paid_ticketing_allowed(org: Organization, events: t.Iterable["Event"] = ()) -> None:
-    """Refuse a paid sale where any liable country's policy blocks paid ticketing.
+def payment_channel_decision(org: Organization, payment_method: str, events: t.Iterable["Event"]) -> Decision:
+    """May money be taken through this tier/pass payment method for these events?
 
-    Args:
-        org: The selling organization.
-        events: The events being sold; a physical event binds its venue's country too.
-
-    Raises:
-        CountryComplianceError: If the org's country, or a physical event's, blocks paid ticketing.
+    ONLINE is the online channel; OFFLINE and AT_THE_DOOR (staff-confirmed) the offline
+    one; FREE takes no money.
     """
-    countries = [resolve_org_country(org)]
-    countries += [country for event in events for country in liable_countries(org, event)[1:]]
-    for country in dict.fromkeys(c for c in countries if c):
-        _raise_if_blocked(get_policy_for_country(country).paid_ticketing())
+    policies = [(get_policy_for_country(c), nexus) for c, nexus in sale_nexus(org, events).items()]
+    if payment_method == TicketTier.PaymentMethod.ONLINE:
+        return _first_refusal(policy.online_payment(nexus) for policy, nexus in policies)
+    if payment_method in (TicketTier.PaymentMethod.OFFLINE, TicketTier.PaymentMethod.AT_THE_DOOR):
+        return _first_refusal(policy.offline_payment(nexus) for policy, nexus in policies)
+    return Decision.allow()
 
 
-def assert_sale_allowed(org: Organization, unit_prices: t.Iterable[Decimal], events: t.Iterable["Event"] = ()) -> None:
-    """Refuse a sale that costs anything where paid ticketing is blocked (see above).
+def assert_sale_allowed(
+    org: Organization, payment_method: str, unit_prices: t.Iterable[Decimal], events: t.Iterable["Event"]
+) -> None:
+    """Refuse a sale that costs anything through a payment channel blocked where it is reached.
 
     Args:
         org: The selling organization.
+        payment_method: The tier's / pass's payment method.
         unit_prices: What the buyer pays per ticket/pass, as priced at checkout.
         events: The events the sale admits to.
 
     Raises:
-        CountryComplianceError: If anything costs money and paid ticketing is blocked.
+        CountryComplianceError: If money would be taken through a blocked channel.
     """
     if any(price > 0 for price in unit_prices):
-        assert_paid_ticketing_allowed(org, events)
+        _raise_if_blocked(payment_channel_decision(org, payment_method, events))
 
 
-def assert_tier_allowed(tier: TicketTier, *, was_paid: bool = False) -> None:
-    """Gate a tier create or update against the paid-ticketing policy.
+def tier_channel_decision(tier: TicketTier) -> Decision:
+    """Whether a tier, as configured, would take money through a blocked channel."""
+    if not tier_is_paid(tier):
+        return Decision.allow()
+    return payment_channel_decision(tier.event.organization, tier.payment_method, [tier.event])
 
-    Refuses a new paid tier and an update that turns a free tier into a paid one. A
-    paid tier that predates the gate stays editable (rename, pause, make free):
-    checkout refuses selling it either way, so this gate is about not creating new
-    paid offerings, not about locking organizers out of their own data.
+
+def assert_tier_allowed(tier: TicketTier, *, was_allowed: bool = True) -> None:
+    """Gate a tier create or update against the payment-channel policies.
+
+    Refuses a new tier, or an update into a configuration, that would take money through
+    a blocked channel. A tier already in such a configuration before the gate stays
+    editable (rename, pause, switch to offline or free): checkout refuses selling it
+    either way, so organizers are never locked out of their own data.
 
     Args:
-        tier: The tier in its would-be state (unsaved on create, mutated on update),
-            with ``event`` set.
-        was_paid: :func:`tier_is_paid` of the stored tier before the update; False on create.
+        tier: The tier in its would-be state (unsaved on create, mutated on update), with ``event`` set.
+        was_allowed: :func:`tier_channel_decision` of the stored tier before the update; True on create.
 
     Raises:
-        CountryComplianceError: If a paid tier would be created where paid ticketing is blocked.
+        CountryComplianceError: If the tier would newly use a blocked payment channel.
     """
-    if not was_paid and tier_is_paid(tier):
-        assert_paid_ticketing_allowed(tier.event.organization, [tier.event])
+    if was_allowed:
+        _raise_if_blocked(tier_channel_decision(tier))
+
+
+# --- Ticket content -----------------------------------------------------------------
+
+
+def ticket_fields(ticket: "Ticket") -> list[TicketComplianceField]:
+    """Every compliance line for a ticket: the EU common set, then each reaching country's additions."""
+    reach = sale_nexus(ticket.event.organization, [ticket.event])
+    extras = [
+        field for c, nexus in reach.items() for field in get_policy_for_country(c).extra_ticket_fields(ticket, nexus)
+    ]
+    return [*common_ticket_fields(ticket), *extras]

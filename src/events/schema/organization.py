@@ -12,7 +12,7 @@ from common.models import SiteSettings
 from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
 from common.service.vat_utils import TWO_PLACES, b2b_vat_context
 from events import models
-from events.compliance import AttendeeInvoicingCapability, PaidTicketingCapability, get_policy
+from events.compliance import AttendeeInvoicingCapability, PaymentChannelCapability, get_policy
 from events.models import (
     MembershipRequestStatus,
     Organization,
@@ -73,20 +73,25 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
 class OrganizationComplianceSchema(Schema):
     """What the organization's country lets Revel do (EU layer 1, #1057-#1067).
 
-    Computed, read-only: the frontend hides invoicing modes and paid tiers from it.
+    Computed, read-only, and effective today (a restriction with a future start date
+    reads ``allowed`` until then). Payment channels describe events held in the org's
+    own country; an event held elsewhere follows that country (the API answers 422).
+    The frontend hides invoicing modes and payment methods from it.
     """
 
     country: str = Field(description="Resolved ISO 3166-1 alpha-2 country; empty when undeclared.")
     attendee_invoicing: AttendeeInvoicingCapability
-    paid_ticketing: PaidTicketingCapability
+    online_payment: PaymentChannelCapability
+    offline_payment: PaymentChannelCapability
 
 
 def _compliance(obj: Organization) -> OrganizationComplianceSchema:
     policy = get_policy(obj)
     return OrganizationComplianceSchema(
         country=policy.country,
-        attendee_invoicing=policy.attendee_invoicing_capability,
-        paid_ticketing=policy.paid_ticketing_capability,
+        attendee_invoicing=policy.attendee_invoicing_capability(),
+        online_payment=policy.online_payment_capability(),
+        offline_payment=policy.offline_payment_capability(),
     )
 
 

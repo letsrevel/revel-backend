@@ -7,8 +7,10 @@ import orjson
 import pytest
 from django.test.client import Client
 from django.urls import reverse
+from freezegun import freeze_time
 
 from accounts.models import RevelUser
+from events.compliance.base import country_name
 from events.exceptions import CountryComplianceError
 from events.models import Event, Organization, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
@@ -49,18 +51,18 @@ def _business_snapshot(vat_id: str) -> dict[str, t.Any]:
 
 
 class TestEnablingInvoicing:
-    @pytest.mark.parametrize("country", ["HR", "ES", "PT", "SI", "GR", "RO", "HU"])
+    @pytest.mark.parametrize("country", ["HR", "PT", "SI", "GR", "RO", "HU"])
     def test_blocked_countries_cannot_enable(self, organization: Organization, country: str) -> None:
         _ready_in(organization, country, Organization.InvoicingMode.NONE)
 
         for mode in (Organization.InvoicingMode.HYBRID, Organization.InvoicingMode.AUTO):
-            with pytest.raises(CountryComplianceError, match=country):
+            with pytest.raises(CountryComplianceError, match=country_name(country)):
                 set_invoicing_mode(organization, mode)
 
         organization.refresh_from_db()
         assert organization.invoicing_mode == Organization.InvoicingMode.NONE
 
-    @pytest.mark.parametrize("country", ["BE", "PL", "IT", "DE"])
+    @pytest.mark.parametrize("country", ["BE", "PL", "IT", "DE", "ES"])
     def test_other_countries_can_enable(self, organization: Organization, country: str) -> None:
         _ready_in(organization, country, Organization.InvoicingMode.NONE)
 
@@ -69,7 +71,7 @@ class TestEnablingInvoicing:
         assert organization.invoicing_mode == Organization.InvoicingMode.AUTO
 
     def test_none_is_always_allowed(self, organization: Organization) -> None:
-        _ready_in(organization, "ES", Organization.InvoicingMode.HYBRID)
+        _ready_in(organization, "HR", Organization.InvoicingMode.HYBRID)
 
         set_invoicing_mode(organization, Organization.InvoicingMode.NONE)
 
@@ -84,7 +86,7 @@ class TestEnablingInvoicing:
         assert response.status_code == 422
         body = response.json()
         assert set(body) == {"detail"}
-        assert "PT" in body["detail"]
+        assert "Portugal" in body["detail"]
 
 
 @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
@@ -98,7 +100,7 @@ class TestGenerationGate:
         member_user: RevelUser,
     ) -> None:
         """An org that enabled invoicing before the gate gets no invoice, and nothing crashes."""
-        _ready_in(organization, "ES", Organization.InvoicingMode.AUTO)
+        _ready_in(organization, "RO", Organization.InvoicingMode.AUTO)
         _create_payment(
             user=member_user, event=event, tier=event_ticket_tier, buyer_billing_snapshot=_consumer_snapshot()
         )
@@ -123,6 +125,43 @@ class TestGenerationGate:
         )
 
         assert generate_attendee_invoice("cs_test_123") is None
+
+    def test_foreign_org_selling_into_an_establishment_only_country_is_invoiced(
+        self,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Croatian fiscalization binds Croatian taxpayers, not an AT org's event in Zagreb (minimal scope)."""
+        _ready_in(organization, "AT", Organization.InvoicingMode.AUTO)
+        event.vat_country_code = "HR"
+        event.save(update_fields=["vat_country_code"])
+        _create_payment(
+            user=member_user, event=event, tier=event_ticket_tier, buyer_billing_snapshot=_consumer_snapshot()
+        )
+
+        assert generate_attendee_invoice("cs_test_123") is not None
+
+    @pytest.mark.parametrize(("today", "issued"), [("2026-10-01", True), ("2027-01-01 12:00", False)])
+    def test_spain_is_gated_from_2027(
+        self,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+        today: str,
+        issued: bool,
+    ) -> None:
+        _ready_in(organization, "ES", Organization.InvoicingMode.AUTO)
+        _create_payment(
+            user=member_user, event=event, tier=event_ticket_tier, buyer_billing_snapshot=_consumer_snapshot()
+        )
+
+        with freeze_time(today):
+            assert (generate_attendee_invoice("cs_test_123") is not None) is issued
 
     @pytest.mark.parametrize("country", ["BE", "PL"])
     def test_b2b_country_skips_domestic_business_buyer(
@@ -197,7 +236,7 @@ class TestExistingDocuments:
         draft.seller_vat_country = "HR"
         draft.save(update_fields=["seller_vat_country"])
 
-        with pytest.raises(CountryComplianceError, match="HR"):
+        with pytest.raises(CountryComplianceError, match="Croatia"):
             issue_draft_invoice(draft)
 
         draft.refresh_from_db()

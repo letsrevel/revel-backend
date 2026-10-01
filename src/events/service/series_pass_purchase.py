@@ -146,7 +146,9 @@ class SeriesPassPurchaseService:
             # cleanup keys off Payment rows.
             raise SeriesPassNotPurchasableError(str(_("This pass has no upcoming events to purchase.")))
         # A paid pass is paid admission to every covered event (EU layer 1, #1057).
-        compliance.assert_sale_allowed(self.org, [quote.price], [link.event for link in future_links])
+        compliance.assert_sale_allowed(
+            self.org, self.series_pass.payment_method, [quote.price], [link.event for link in future_links]
+        )
 
         # Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService).
         locked_tiers = {

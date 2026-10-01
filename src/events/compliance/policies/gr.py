@@ -3,7 +3,7 @@
 Docs: https://docs.letsrevel.io/compliance/eu/gr/ (docs/compliance/eu/gr.md).
 """
 
-from events.compliance.base import DefaultEUPolicy, FiscalizedInvoicingMixin
+from events.compliance.base import ALL_NEXUS, DefaultEUPolicy, FiscalizedInvoicingMixin
 from events.compliance.registry import register
 
 
@@ -11,4 +11,6 @@ from events.compliance.registry import register
 class GreecePolicy(FiscalizedInvoicingMixin, DefaultEUPolicy):
     """Greece (VAT prefix ``EL``): see the module docstring."""
 
-    fiscal_system = "AADE myDATA"
+    fiscal_system = "myDATA"
+    # Sellers that must issue Greek retail documents for an event held here are in scope too.
+    fiscal_invoicing_applies_on = ALL_NEXUS

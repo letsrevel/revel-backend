@@ -19,7 +19,8 @@ from zoneinfo import ZoneInfo
 import structlog
 from django.conf import settings
 
-from events.compliance import TicketComplianceField, get_policy
+from events.compliance import TicketComplianceField
+from events.compliance.enforcement import ticket_fields
 from events.models import HeldSeriesPass, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import (
@@ -359,7 +360,7 @@ class ApplePassGenerator:
             venue_name=location.venue_name,
             sector_name=location.sector.name if location.sector else None,
             seat_label=location.seat_label,
-            compliance_fields=get_policy(org).ticket_fields(ticket),
+            compliance_fields=ticket_fields(ticket),
         )
 
     def _generate_files(self, pass_json: bytes, colors: PassColors, logo_image: bytes) -> dict[str, bytes]:

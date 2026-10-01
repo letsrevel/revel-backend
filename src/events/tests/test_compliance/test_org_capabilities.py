@@ -18,10 +18,37 @@ _disable_blocked = importlib.import_module("events.migrations.0128_disable_block
 @pytest.mark.parametrize(
     ("country", "expected"),
     [
-        ("IT", {"country": "IT", "attendee_invoicing": "allowed", "paid_ticketing": "blocked"}),
-        ("ES", {"country": "ES", "attendee_invoicing": "blocked", "paid_ticketing": "allowed"}),
-        ("BE", {"country": "BE", "attendee_invoicing": "blocked_for_business_buyers", "paid_ticketing": "allowed"}),
-        ("", {"country": "", "attendee_invoicing": "allowed", "paid_ticketing": "allowed"}),
+        (
+            "IT",
+            {
+                "country": "IT",
+                "attendee_invoicing": "allowed",
+                "online_payment": "blocked",
+                "offline_payment": "allowed",
+            },
+        ),
+        (
+            "HR",
+            {
+                "country": "HR",
+                "attendee_invoicing": "blocked",
+                "online_payment": "allowed",
+                "offline_payment": "allowed",
+            },
+        ),
+        (
+            "BE",
+            {
+                "country": "BE",
+                "attendee_invoicing": "blocked_for_business_buyers",
+                "online_payment": "allowed",
+                "offline_payment": "allowed",
+            },
+        ),
+        (
+            "",
+            {"country": "", "attendee_invoicing": "allowed", "online_payment": "allowed", "offline_payment": "allowed"},
+        ),
     ],
 )
 def test_org_admin_detail_exposes_compliance(
@@ -61,7 +88,7 @@ def test_tier_invoicing_flag_follows_the_policy(
 
 def test_migration_switches_blocked_countries_to_none(organization: Organization) -> None:
     orgs = {"HR": organization}
-    for country in ("EL", "BE", "AT"):
+    for country in ("EL", "BE", "AT", "ES"):
         orgs[country] = Organization.objects.create(
             name=f"Org {country}", slug=f"org-{country.lower()}", owner=organization.owner
         )
@@ -69,6 +96,7 @@ def test_migration_switches_blocked_countries_to_none(organization: Organization
     orgs["EL"].vat_id = "EL123456789"  # Greece via the VAT prefix
     orgs["BE"].vat_country_code = "BE"
     orgs["AT"].vat_country_code = "AT"
+    orgs["ES"].vat_country_code = "ES"  # VERI*FACTU only from 2027: left alone
     for org in orgs.values():
         org.invoicing_mode = Organization.InvoicingMode.HYBRID
         org.save()
@@ -81,4 +109,5 @@ def test_migration_switches_blocked_countries_to_none(organization: Organization
         "EL": Organization.InvoicingMode.NONE,
         "BE": Organization.InvoicingMode.HYBRID,
         "AT": Organization.InvoicingMode.HYBRID,
+        "ES": Organization.InvoicingMode.HYBRID,
     }

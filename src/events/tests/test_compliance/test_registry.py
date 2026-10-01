@@ -14,7 +14,8 @@ from events.compliance import (
     CountryCompliancePolicy,
     Decision,
     DefaultEUPolicy,
-    PaidTicketingCapability,
+    Nexus,
+    PaymentChannelCapability,
     TicketComplianceField,
     get_policy,
     get_policy_for_country,
@@ -23,6 +24,8 @@ from events.compliance import (
     registry,
 )
 from events.compliance import policies as policies_package
+from events.compliance.base import ALL_NEXUS
+from events.compliance.enforcement import ticket_fields
 from events.compliance.registry import resolve_country
 from events.models import Organization, Ticket
 from geo.models import City
@@ -62,7 +65,7 @@ class TestCountryResolution:
         organization.save()
 
         assert get_policy(organization).country == "HR"
-        assert get_policy(organization).attendee_invoicing_capability == AttendeeInvoicingCapability.BLOCKED
+        assert get_policy(organization).attendee_invoicing_capability() == AttendeeInvoicingCapability.BLOCKED
 
 
 class TestRegistry:
@@ -73,8 +76,9 @@ class TestRegistry:
         for code in ("DE", "US", "", None):
             policy = get_policy_for_country(code)
             assert type(policy) is DefaultEUPolicy
-            assert policy.attendee_invoicing(BuyerContext(vat_country="DE")).allowed
-            assert policy.paid_ticketing().allowed
+            assert policy.attendee_invoicing(BuyerContext(vat_country="DE"), ALL_NEXUS).allowed
+            assert policy.online_payment(ALL_NEXUS).allowed
+            assert policy.offline_payment(ALL_NEXUS).allowed
 
     def test_policy_is_bound_to_the_resolved_country(self) -> None:
         assert get_policy_for_country("el").country == "GR"
@@ -101,14 +105,12 @@ class TestRegistry:
 
         @register("XK")
         class _NewCountryPolicy(DefaultEUPolicy):
-            paid_ticketing_capability = PaidTicketingCapability.BLOCKED
-
-            def paid_ticketing(self) -> Decision:
+            def online_payment(self, nexus: frozenset[Nexus]) -> Decision:
                 return Decision.block("nope")
 
         policy = get_policy_for_country("xk")
         assert isinstance(policy, _NewCountryPolicy)
-        assert policy.paid_ticketing() == Decision.block("nope")
+        assert policy.online_payment_capability() == PaymentChannelCapability.BLOCKED
 
 
 @pytest.mark.parametrize("code", sorted(EXPECTED_COUNTRIES))
@@ -121,46 +123,45 @@ class TestPolicyContract:
         assert not inspect.isabstract(cls)
         assert cls.__module__ == f"events.compliance.policies.{code.lower()}"
 
-    def test_capabilities_are_declared(self, code: str) -> None:
+    def test_capabilities_are_derived_not_overridden(self, code: str) -> None:
+        """The FE capabilities are computed from the hooks, so they can never disagree with enforcement."""
         cls = registered_policies()[code]
-        assert isinstance(cls.attendee_invoicing_capability, AttendeeInvoicingCapability)
-        assert isinstance(cls.paid_ticketing_capability, PaidTicketingCapability)
+        for name in ("attendee_invoicing_capability", "online_payment_capability", "offline_payment_capability"):
+            assert name not in vars(cls), name
+        policy = cls(code)
+        assert isinstance(policy.attendee_invoicing_capability(), AttendeeInvoicingCapability)
+        assert isinstance(policy.online_payment_capability(), PaymentChannelCapability)
+        assert isinstance(policy.offline_payment_capability(), PaymentChannelCapability)
 
-    def test_decisions_are_well_formed(self, code: str) -> None:
+    @pytest.mark.parametrize("nexus", [frozenset({Nexus.ESTABLISHMENT}), frozenset({Nexus.VENUE}), ALL_NEXUS])
+    def test_decisions_are_well_formed(self, code: str, nexus: frozenset[Nexus]) -> None:
         policy = get_policy_for_country(code)
         for decision in (
-            policy.attendee_invoicing(BuyerContext()),
-            policy.attendee_invoicing(BuyerContext(vat_country=code)),
-            policy.paid_ticketing(),
+            policy.attendee_invoicing(BuyerContext(), nexus),
+            policy.attendee_invoicing(BuyerContext(vat_country=code), nexus),
+            policy.online_payment(nexus),
+            policy.offline_payment(nexus),
         ):
             assert isinstance(decision, Decision)
             # A refusal always explains itself to the user.
             assert decision.allowed or decision.reason
 
-    def test_common_ticket_fields_cannot_be_dropped(self, code: str, ticket: Ticket) -> None:
-        cls = registered_policies()[code]
-        assert "ticket_fields" not in vars(cls), "countries add lines via extra_ticket_fields, never replace the set"
-        fields = cls(code).ticket_fields(ticket)
+    def test_extra_ticket_fields_are_well_formed(self, code: str, ticket: Ticket) -> None:
+        fields = get_policy_for_country(code).extra_ticket_fields(ticket, ALL_NEXUS)
         assert all(isinstance(field, TicketComplianceField) for field in fields)
-        assert {"organizer", "price", "notice"} <= {field.key for field in fields}
+        assert not {"organizer", "price", "notice"} & {field.key for field in fields}
 
 
-def test_capability_matches_decisions() -> None:
-    """The capability the frontend reads agrees with what the hooks decide."""
+def test_common_ticket_fields_always_come_first(ticket: Ticket) -> None:
+    """Countries add lines; the common set is assembled outside any policy, so none can drop it."""
+    keys = [field.key for field in ticket_fields(ticket)]
+    assert keys[0] == "organizer"
+    assert {"organizer", "price", "notice"} <= set(keys)
+
+
+def test_offline_payment_is_never_restricted_in_layer_1() -> None:
     for code in EXPECTED_COUNTRIES:
-        policy = get_policy_for_country(code)
-        consumer_ok = policy.attendee_invoicing(BuyerContext()).allowed
-        domestic_b2b_ok = policy.attendee_invoicing(BuyerContext(vat_country=code)).allowed
-        expected: dict[tuple[bool, bool], AttendeeInvoicingCapability] = {
-            (True, True): AttendeeInvoicingCapability.ALLOWED,
-            (False, False): AttendeeInvoicingCapability.BLOCKED,
-            (True, False): AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS,
-        }
-        assert policy.attendee_invoicing_capability == expected[(consumer_ok, domestic_b2b_ok)], code
-        paid_ok = policy.paid_ticketing().allowed
-        assert policy.paid_ticketing_capability == (
-            PaidTicketingCapability.ALLOWED if paid_ok else PaidTicketingCapability.BLOCKED
-        ), code
+        assert get_policy_for_country(code).offline_payment_capability() == PaymentChannelCapability.ALLOWED
 
 
 def test_registry_holds_the_module_classes() -> None:

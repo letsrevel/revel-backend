@@ -3,17 +3,27 @@
 A country module subclasses :class:`DefaultEUPolicy` (usually through one of the
 mixins below) and registers itself with :func:`events.compliance.registry.register`.
 Call sites only ever talk to the resolved policy object.
+
+Restrictions are deliberately minimal: each mixin blocks exactly the one feature a
+country's law makes non-compliant, only for the sales that law reaches (see
+:class:`Nexus`), and only from the date it takes effect.
 """
 
 import abc
+import datetime
 import enum
+import gettext
 import typing as t
 from dataclasses import dataclass
 from decimal import Decimal
 
+import pycountry
+from django.utils import timezone, translation
 from django.utils.translation import gettext_lazy as _
 
 if t.TYPE_CHECKING:
+    from django_stubs_ext import StrPromise
+
     from events.models import Ticket
 
 
@@ -26,11 +36,21 @@ class AttendeeInvoicingCapability(enum.StrEnum):
     BLOCKED_FOR_BUSINESS_BUYERS = "blocked_for_business_buyers"
 
 
-class PaidTicketingCapability(enum.StrEnum):
-    """Whether the organizer may sell paid tickets through Revel."""
+class PaymentChannelCapability(enum.StrEnum):
+    """Whether a payment channel (online card checkout, or offline/at-the-door) may be used."""
 
     ALLOWED = "allowed"
     BLOCKED = "blocked"
+
+
+class Nexus(enum.StrEnum):
+    """Why a country's rules reach a sale."""
+
+    ESTABLISHMENT = "establishment"  # the organizer is established there
+    VENUE = "venue"  # the physical event takes place there
+
+
+ALL_NEXUS: t.Final = frozenset(Nexus)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,18 +95,35 @@ class TicketComplianceField:
 
 
 ATTENDEE_INVOICING_BLOCKED_MESSAGE = _(
-    "Revel cannot issue attendee invoices for organizers in {country}: invoices there must go through "
-    "{system}. Please issue them from your own compliant invoicing software."
+    "Revel can't issue invoices to your attendees in {country}. The law there requires invoices to go "
+    "through {system}, and Revel isn't connected to it yet. Please issue invoices from your own invoicing "
+    "software."
 )
 DOMESTIC_B2B_INVOICING_BLOCKED_MESSAGE = _(
-    "Revel cannot issue this invoice: invoices between businesses in {country} must be exchanged as "
-    "structured e-invoices via {system}. Please issue it from your own e-invoicing software."
+    "Invoices to customers with a {country} VAT ID must be sent as e-invoices through {system}. Revel won't "
+    "create those. Issue this one from your e-invoicing software; invoices to everyone else work as usual."
 )
-PAID_TICKETING_BLOCKED_MESSAGE = _(
-    "Paid tickets are not available for organizers in {country}: tickets for paid events there must be "
-    "issued by {system}. Free tickets and RSVPs remain available."
+ONLINE_PAYMENT_BLOCKED_MESSAGE = _(
+    "Online card payments aren't available for events in {country}. The law there requires paid tickets "
+    "sold online to be issued by {system}, and Revel isn't approved yet. You can still sell paid tickets "
+    "with payment at the door or by bank transfer, and confirm payments from your dashboard."
 )
 NOT_A_TAX_DOCUMENT_NOTICE = _("This ticket is not a tax invoice or receipt.")
+
+
+def country_name(code: str) -> str:
+    """The country's English name, translated to the active language (``Italia`` for ``IT`` in Italian)."""
+    country = pycountry.countries.get(alpha_2=code) if code else None
+    if country is None:
+        return code
+    lang = translation.get_language() or "en"
+    try:
+        catalog = gettext.translation(
+            "iso3166-1", pycountry.LOCALES_DIR, languages=[lang.replace("-", "_"), lang.split("-")[0]]
+        )
+    except OSError:  # no catalog for this language (e.g. English): the source name is the answer
+        return str(country.name)
+    return catalog.gettext(country.name)
 
 
 def format_ticket_price(amount: Decimal | int | float, currency: str) -> str:
@@ -123,114 +160,156 @@ def common_ticket_fields(ticket: "Ticket") -> list[TicketComplianceField]:
     return fields
 
 
+def in_force(nexus: frozenset[Nexus], applies_on: frozenset[Nexus], since: datetime.date | None) -> bool:
+    """Whether a restriction binds this sale: a reaching nexus, and its start date has passed.
+
+    The one generic gate every mixin uses, so any restriction can carry a scope and a
+    start date without country-specific code at the call sites.
+    """
+    return bool(nexus & applies_on) and (since is None or timezone.localdate() >= since)
+
+
 class CountryCompliancePolicy(abc.ABC):
     """The hooks every country policy answers. Call sites use nothing else.
 
-    Capabilities are class-level facts (exposed to the frontend); the decision hooks
-    may refine them per call. Add a hook here — with a permissive default in
-    :class:`DefaultEUPolicy` — when a later layer needs one (fiscalization provider,
-    retention period, exports); existing countries then inherit it unchanged.
-    """
+    Every hook takes the ``nexus`` through which this country reaches the sale. The
+    capabilities exposed to the frontend are derived from the hooks (for the org's own
+    country, at today's date), so they can never disagree with what is enforced.
 
-    attendee_invoicing_capability: t.ClassVar[AttendeeInvoicingCapability]
-    paid_ticketing_capability: t.ClassVar[PaidTicketingCapability]
+    Add a hook here, with a permissive default in :class:`DefaultEUPolicy`, when a later
+    layer needs one (fiscalization provider, retention period, exports). Existing
+    countries then inherit it unchanged.
+    """
 
     def __init__(self, country: str = "") -> None:
         """Bind the policy to the resolved ISO 3166-1 country (empty when unknown)."""
         self.country = country
 
     @abc.abstractmethod
-    def attendee_invoicing(self, buyer: BuyerContext) -> Decision:
+    def attendee_invoicing(self, buyer: BuyerContext, nexus: frozenset[Nexus]) -> Decision:
         """May Revel issue (or credit) an attendee invoice for this buyer?"""
 
     @abc.abstractmethod
-    def paid_ticketing(self) -> Decision:
-        """May the organizer sell tickets that cost anything?"""
+    def online_payment(self, nexus: frozenset[Nexus]) -> Decision:
+        """May a paid ticket or pass be sold through online (Stripe) checkout?"""
 
     @abc.abstractmethod
-    def extra_ticket_fields(self, ticket: "Ticket") -> list[TicketComplianceField]:
-        """Country-specific ticket lines, appended after the common set."""
+    def offline_payment(self, nexus: frozenset[Nexus]) -> Decision:
+        """May a paid ticket be sold for offline / at-the-door payment confirmed by staff?"""
+
+    @abc.abstractmethod
+    def extra_ticket_fields(self, ticket: "Ticket", nexus: frozenset[Nexus]) -> list[TicketComplianceField]:
+        """Country-specific ticket lines, printed after the EU common set (never instead of it)."""
 
     @t.final
-    def ticket_fields(self, ticket: "Ticket") -> list[TicketComplianceField]:
-        """Every compliance line for a ticket: the EU common set, then the country's additions.
+    def attendee_invoicing_capability(self) -> AttendeeInvoicingCapability:
+        """Invoicing as it applies to an organizer established here, today."""
+        if not self.attendee_invoicing(BuyerContext(), ALL_NEXUS).allowed:
+            return AttendeeInvoicingCapability.BLOCKED
+        if not self.attendee_invoicing(BuyerContext(vat_country=self.country), ALL_NEXUS).allowed:
+            return AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
+        return AttendeeInvoicingCapability.ALLOWED
 
-        Final on purpose: a country can add lines, never drop the common ones.
-        """
-        return [*common_ticket_fields(ticket), *self.extra_ticket_fields(ticket)]
+    @t.final
+    def online_payment_capability(self) -> PaymentChannelCapability:
+        """Online checkout for events held in this country, today."""
+        return _capability(self.online_payment(ALL_NEXUS))
+
+    @t.final
+    def offline_payment_capability(self) -> PaymentChannelCapability:
+        """Offline / at-the-door payment for events held in this country, today."""
+        return _capability(self.offline_payment(ALL_NEXUS))
+
+
+def _capability(decision: Decision) -> PaymentChannelCapability:
+    return PaymentChannelCapability.ALLOWED if decision.allowed else PaymentChannelCapability.BLOCKED
 
 
 class DefaultEUPolicy(CountryCompliancePolicy):
     """No restriction: the policy for every country without a module of its own."""
 
-    attendee_invoicing_capability: t.ClassVar[AttendeeInvoicingCapability] = AttendeeInvoicingCapability.ALLOWED
-    paid_ticketing_capability: t.ClassVar[PaidTicketingCapability] = PaidTicketingCapability.ALLOWED
-
-    def attendee_invoicing(self, buyer: BuyerContext) -> Decision:
+    def attendee_invoicing(self, buyer: BuyerContext, nexus: frozenset[Nexus]) -> Decision:
         """Allowed."""
         return Decision.allow()
 
-    def paid_ticketing(self) -> Decision:
+    def online_payment(self, nexus: frozenset[Nexus]) -> Decision:
         """Allowed."""
         return Decision.allow()
 
-    def extra_ticket_fields(self, ticket: "Ticket") -> list[TicketComplianceField]:
+    def offline_payment(self, nexus: frozenset[Nexus]) -> Decision:
+        """Allowed."""
+        return Decision.allow()
+
+    def extra_ticket_fields(self, ticket: "Ticket", nexus: frozenset[Nexus]) -> list[TicketComplianceField]:
         """None beyond the common set."""
         return []
 
 
 class FiscalizedInvoicingMixin:
-    """Revel's PDF invoices are not valid here: block attendee invoicing outright.
+    """Revel's unfiscalized PDF invoices are not valid here: block attendee invoicing.
 
-    Set ``fiscal_system`` to the national system the organizer must use instead.
+    Set ``fiscal_system``. ``fiscal_invoicing_applies_on`` says which sales the rule
+    reaches (default: organizers established here) and ``fiscal_invoicing_from`` when
+    it starts (default: already in force).
     """
 
     country: str
-    fiscal_system: t.ClassVar[str]
-    attendee_invoicing_capability: t.ClassVar[AttendeeInvoicingCapability] = AttendeeInvoicingCapability.BLOCKED
+    fiscal_system: t.ClassVar["str | StrPromise"]
+    fiscal_invoicing_applies_on: t.ClassVar[frozenset[Nexus]] = frozenset({Nexus.ESTABLISHMENT})
+    fiscal_invoicing_from: t.ClassVar[datetime.date | None] = None
 
-    def attendee_invoicing(self, buyer: BuyerContext) -> Decision:
-        """Blocked for every buyer."""
+    def attendee_invoicing(self, buyer: BuyerContext, nexus: frozenset[Nexus]) -> Decision:
+        """Blocked for every buyer, within scope and once in force."""
+        if not in_force(nexus, self.fiscal_invoicing_applies_on, self.fiscal_invoicing_from):
+            return Decision.allow()
         return Decision.block(
-            str(ATTENDEE_INVOICING_BLOCKED_MESSAGE).format(country=self.country, system=self.fiscal_system)
+            str(ATTENDEE_INVOICING_BLOCKED_MESSAGE).format(
+                country=country_name(self.country), system=self.fiscal_system
+            )
         )
 
 
 class DomesticB2BEInvoicingMixin:
     """Domestic B2B invoices must be structured e-invoices: block only those.
 
-    Consumer and cross-border buyers keep Revel's PDF invoice. Set ``e_invoicing_network``.
+    Consumer and cross-border buyers keep Revel's PDF invoice, and only organizers
+    established here are bound. Set ``e_invoicing_network`` (and optionally
+    ``e_invoicing_from``).
     """
 
     country: str
-    e_invoicing_network: t.ClassVar[str]
-    attendee_invoicing_capability: t.ClassVar[AttendeeInvoicingCapability] = (
-        AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
-    )
+    e_invoicing_network: t.ClassVar["str | StrPromise"]
+    e_invoicing_from: t.ClassVar[datetime.date | None] = None
 
-    def attendee_invoicing(self, buyer: BuyerContext) -> Decision:
-        """Blocked when the buyer's VAT ID is from this country."""
-        if buyer.vat_country and buyer.vat_country == self.country:
-            return Decision.block(
-                str(DOMESTIC_B2B_INVOICING_BLOCKED_MESSAGE).format(
-                    country=self.country, system=self.e_invoicing_network
-                )
-            )
-        return Decision.allow()
-
-
-class CertifiedTicketingMixin:
-    """Paid admission needs a certified fiscal ticketing system Revel is not: block paid tickets.
-
-    Set ``certified_system``. Free tickets, RSVPs and memberships are unaffected.
-    """
-
-    country: str
-    certified_system: t.ClassVar[str]
-    paid_ticketing_capability: t.ClassVar[PaidTicketingCapability] = PaidTicketingCapability.BLOCKED
-
-    def paid_ticketing(self) -> Decision:
-        """Blocked."""
+    def attendee_invoicing(self, buyer: BuyerContext, nexus: frozenset[Nexus]) -> Decision:
+        """Blocked when an established seller invoices a buyer whose VAT ID is from here."""
+        domestic_b2b = bool(buyer.vat_country) and buyer.vat_country == self.country
+        if not domestic_b2b or not in_force(nexus, frozenset({Nexus.ESTABLISHMENT}), self.e_invoicing_from):
+            return Decision.allow()
         return Decision.block(
-            str(PAID_TICKETING_BLOCKED_MESSAGE).format(country=self.country, system=self.certified_system)
+            str(DOMESTIC_B2B_INVOICING_BLOCKED_MESSAGE).format(
+                country=country_name(self.country), system=self.e_invoicing_network
+            )
+        )
+
+
+class CertifiedOnlineTicketingMixin:
+    """Tickets sold online must come from a certified fiscal system Revel is not: block online checkout.
+
+    Offline and at-the-door payments confirmed by staff, free tickets, RSVPs and
+    memberships are unaffected. Set ``certified_system``; the rule reaches events held
+    here (``online_ticketing_applies_on``) from ``online_ticketing_from``.
+    """
+
+    country: str
+    certified_system: t.ClassVar["str | StrPromise"]
+    online_ticketing_applies_on: t.ClassVar[frozenset[Nexus]] = frozenset({Nexus.VENUE})
+    online_ticketing_from: t.ClassVar[datetime.date | None] = None
+
+    def online_payment(self, nexus: frozenset[Nexus]) -> Decision:
+        """Blocked for events within scope, once in force."""
+        if not in_force(nexus, self.online_ticketing_applies_on, self.online_ticketing_from):
+            return Decision.allow()
+        return Decision.block(
+            str(ONLINE_PAYMENT_BLOCKED_MESSAGE).format(country=country_name(self.country), system=self.certified_system)
         )

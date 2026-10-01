@@ -355,7 +355,10 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # Country gate on what the buyer would actually pay (EU layer 1, #1057): catches
         # paid tiers that predate the tier-level gate, on every payment method.
         compliance.assert_sale_allowed(
-            self.event.organization, (line.unit_price for rg in resolved for line in rg.pricing.lines), [self.event]
+            self.event.organization,
+            locked_payment_method,
+            (line.unit_price for rg in resolved for line in rg.pricing.lines),
+            [self.event],
         )
 
         # Log the batch purchase attempt for audit trail

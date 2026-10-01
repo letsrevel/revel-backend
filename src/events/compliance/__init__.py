@@ -18,8 +18,9 @@ from events.compliance.base import (
     BuyerContext,
     CountryCompliancePolicy,
     Decision,
+    Nexus,
     DefaultEUPolicy,
-    PaidTicketingCapability,
+    PaymentChannelCapability,
     TicketComplianceField,
 )
 from events.compliance.registry import (
@@ -35,8 +36,9 @@ __all__ = [
     "BuyerContext",
     "CountryCompliancePolicy",
     "Decision",
+    "Nexus",
     "DefaultEUPolicy",
-    "PaidTicketingCapability",
+    "PaymentChannelCapability",
     "TicketComplianceField",
     "get_policy",
     "get_policy_for_country",

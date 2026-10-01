@@ -3,6 +3,8 @@
 Docs: https://docs.letsrevel.io/compliance/eu/pt/ (docs/compliance/eu/pt.md).
 """
 
+from django.utils.translation import gettext_lazy as _
+
 from events.compliance.base import DefaultEUPolicy, FiscalizedInvoicingMixin
 from events.compliance.registry import register
 
@@ -11,4 +13,4 @@ from events.compliance.registry import register
 class PortugalPolicy(FiscalizedInvoicingMixin, DefaultEUPolicy):
     """Portugal: see the module docstring."""
 
-    fiscal_system = "AT-certified invoicing software"
+    fiscal_system = _("certified invoicing software")

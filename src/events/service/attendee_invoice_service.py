@@ -20,6 +20,7 @@ from common.service.invoice_utils import get_next_sequential_number, render_pdf
 from common.utils import apex_email_domain, is_reserved_mailbox
 from events.compliance import Decision
 from events.compliance import enforcement as compliance
+from events.compliance.base import ALL_NEXUS
 from events.models.attendee_invoice import (
     AttendeeInvoice,
     AttendeeInvoiceCreditNote,
@@ -206,7 +207,7 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     event = first_payment.ticket.event
     # The buyer's VAT-ID prefix (empty for consumers) decides the BE/PL domestic-B2B case.
     if not compliance.attendee_invoicing_for_sale(
-        compliance.liable_countries(org, event), billing_snapshot.get("vat_id")
+        compliance.sale_nexus(org, [event]), billing_snapshot.get("vat_id")
     ).allowed:
         # Defense in depth for orgs that enabled invoicing before the gate, moved
         # country, or sell into a restricted country (EU layer 1, #1057-#1067).
@@ -302,9 +303,13 @@ def invoice_compliance_decision(invoice: AttendeeInvoice) -> Decision:
     For invoices that predate the gate: HYBRID drafts awaiting issue and issued invoices
     about to receive a credit note.
     """
-    org = invoice.organization
-    countries = [invoice.seller_vat_country, *(compliance.liable_countries(org, invoice.event) if org else [])]
-    return compliance.attendee_invoicing_for_sale(countries, invoice.buyer_vat_id)
+    org, event = invoice.organization, invoice.event
+    if org is None:  # organization deleted: only the seller country snapshot is left
+        reach = {invoice.seller_vat_country.upper(): ALL_NEXUS}
+    else:
+        # The event's venue, or the seller-country snapshot when the event is gone.
+        reach = compliance.sale_nexus(org, [event] if event else [], [] if event else [invoice.seller_vat_country])
+    return compliance.attendee_invoicing_for_sale(reach, invoice.buyer_vat_id)
 
 
 # ---------------------------------------------------------------------------

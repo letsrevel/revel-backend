@@ -1,9 +1,14 @@
 """Switch attendee invoicing off where the country policy now blocks it (EU layer 1).
 
-Organizations established in HR, ES, PT, SI, GR, RO or HU with HYBRID/AUTO invoicing
-are moved to NONE, so the stored setting matches what Revel will actually do (the
-generation gate already refuses those invoices). Existing invoices are untouched. BE
-and PL keep their mode: only domestic B2B invoices are skipped there.
+Organizations established in HR, PT, SI, GR, RO or HU with HYBRID/AUTO invoicing are
+moved to NONE, so the stored setting matches what Revel will actually do (the generation
+gate already refuses those invoices). Existing invoices are untouched. BE and PL keep
+their mode: only domestic B2B invoices are skipped there.
+
+ES is deliberately left alone: VERI*FACTU applies only from 2027-01-01, and until then
+Spanish organizers may keep invoicing. From that date the policy's effective-from gate
+skips generation by itself, and the org capabilities and the tier ``invoicing_available``
+flag report it, so no second migration is needed.
 
 The country is resolved like ``events.compliance.registry.resolve_country`` at the time
 of writing: declared VAT country, then VAT ID prefix, then the organization's city.
@@ -13,7 +18,7 @@ import typing as t
 
 from django.db import migrations
 
-_BLOCKED = frozenset({"HR", "ES", "PT", "SI", "GR", "RO", "HU"})
+_BLOCKED = frozenset({"HR", "PT", "SI", "GR", "RO", "HU"})
 
 
 def _country(vat_country_code: str, vat_id: str, city_iso2: str | None) -> str:
