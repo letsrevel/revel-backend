@@ -18,6 +18,7 @@ from .invitation import (
     PendingEventInvitation,
 )
 from .invoice import PlatformFeeCreditNote, PlatformFeeInvoice
+from .nudge import OrganizationNudge
 from .misc import AdditionalResource
 from .mixins import ResourceVisibility
 from .organization import (
@@ -116,6 +117,8 @@ __all__ = [
     # Follows
     "EventSeriesFollow",
     "OrganizationFollow",
+    # Nudges
+    "OrganizationNudge",
     # Preferences
     "BaseUserPreferences",
     "GeneralUserPreferences",

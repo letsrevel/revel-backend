@@ -12,7 +12,13 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event, Organization
-from notifications.enums import ORG_SENDER_TYPES, DeliveryChannel, DeliveryStatus, NotificationType
+from notifications.enums import (
+    ORG_SENDER_TYPES,
+    PLATFORM_LIST_UNSUBSCRIBE_TYPES,
+    DeliveryChannel,
+    DeliveryStatus,
+    NotificationType,
+)
 from notifications.models import EmailSuppression, Notification, NotificationDelivery
 from notifications.service.channels.email import EmailChannel
 from notifications.service.email_policy import suppress
@@ -185,6 +191,14 @@ def test_deliver_sender_by_type(
         assert payload["organization_id"] == str(organization.id)
         assert headers["Feedback-ID"] == f"test-org:{notification_type}:revel"
         assert headers["X-Mailin-custom"] == f"delivery:{delivery.id}|org:{organization.id}"
+    elif notification_type in PLATFORM_LIST_UNSUBSCRIBE_TYPES:
+        assert msg.from_email == DEFAULT_FROM
+        assert msg.reply_to == []  # ORG_NUDGE_REPLY_TO unset
+        assert headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+        payload = _decode(headers["List-Unsubscribe"].split("token=", 1)[1].rstrip(">"))
+        assert payload["notification_type"] == notification_type
+        assert payload["organization_id"] is None
+        assert "Feedback-ID" not in headers
     else:
         assert msg.from_email == DEFAULT_FROM
         assert msg.reply_to == []

@@ -1,0 +1,26 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+{% if context.trigger == "draft_event" %}
+<p>{% blocktranslate with event=context.event_name %}You started an event called "{{ event }}" a while ago. It's still a draft, so nobody can see it yet.{% endblocktranslate %}</p>
+<p>{% trans "If it's still happening, pick up where you left off and publish it when it's ready. If plans changed, you can delete the draft or ignore this email." %}</p>
+<center><a href="{{ context.action_url }}" class="button">{% trans "Open the draft" %}</a></center>
+{% if context.is_last %}<p>{% trans "This is the last reminder we'll send about drafts." %}</p>{% endif %}
+{% elif context.trigger == "private_profile" %}
+<p>{% blocktranslate with org=context.organization_name %}{{ org }} is hidden from the public right now. New organizations on Revel start out private.{% endblocktranslate %}</p>
+<p>{% trans "When you're ready for people to find you, change the visibility in your organization settings. If you're keeping it private on purpose, you can ignore this email." %}</p>
+<center><a href="{{ context.action_url }}" class="button">{% trans "Open settings" %}</a></center>
+{% if context.is_last %}<p>{% trans "This is the last reminder we'll send about this." %}</p>{% endif %}
+{% elif context.trigger == "no_events" %}
+<p>{% blocktranslate with org=context.organization_name %}You set up {{ org }} on Revel a while ago, and there are no events in it yet.{% endblocktranslate %}</p>
+<p>{% trans "You can start with a draft. Nobody sees it until you publish it." %}</p>
+<center><a href="{{ context.action_url }}" class="button">{% trans "Create an event" %}</a></center>
+{% if context.is_last %}<p>{% trans "This is the last reminder we'll send about this." %}</p>{% endif %}
+{% elif context.trigger == "dormant" %}
+<p>{% blocktranslate with org=context.organization_name event=context.event_name %}The last event on {{ org }} was "{{ event }}", and nothing new is scheduled.{% endblocktranslate %}</p>
+<p>{% trans "When you start planning the next one, you can duplicate a past event instead of setting everything up again." %}</p>
+<center><a href="{{ context.action_url }}" class="button">{% trans "Create an event" %}</a></center>
+{% endif %}
+{% if context.can_reply %}<p>{% trans "If you have questions or feedback, reply to this email. A person reads every reply." %}</p>{% endif %}
+{% endblock %}

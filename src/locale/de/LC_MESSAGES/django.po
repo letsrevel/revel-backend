@@ -2365,7 +2365,11 @@ msgid ""
 "This would email {count} people who don't have a Revel account yet, but your "
 "organization can invite only {remaining} more today (limit {cap} per day, "
 "resets at midnight UTC). Invite fewer people or try again tomorrow."
-msgstr "Damit würden {count} Personen ohne Revel-Konto eine E-Mail bekommen, aber deine Organisation kann heute nur noch {remaining} einladen (Limit {cap} pro Tag, Zurücksetzung um Mitternacht UTC). Lade weniger Personen ein oder versuche es morgen erneut."
+msgstr ""
+"Damit würden {count} Personen ohne Revel-Konto eine E-Mail bekommen, aber "
+"deine Organisation kann heute nur noch {remaining} einladen (Limit {cap} pro "
+"Tag, Zurücksetzung um Mitternacht UTC). Lade weniger Personen ein oder "
+"versuche es morgen erneut."
 
 msgid "This event does not accept invitation requests."
 msgstr "Dieses Event akzeptiert keine Einladungsanfragen."
@@ -3620,6 +3624,30 @@ msgid "New contact message: %(org)s"
 msgstr "Neue Kontaktnachricht: %(org)s"
 
 #, python-format
+msgid "Your draft \"%(event)s\" is still waiting"
+msgstr "Dein Entwurf \"%(event)s\" wartet noch"
+
+#, python-format
+msgid "Only you can see %(org)s on Revel"
+msgstr "Auf Revel kannst nur du %(org)s sehen"
+
+#, python-format
+msgid "Your first event on %(org)s"
+msgstr "Das erste Event von %(org)s"
+
+#, python-format
+msgid "A quick question about %(org)s"
+msgstr "Eine kurze Frage zu %(org)s"
+
+#, python-format
+msgid "Planning the next %(org)s event?"
+msgstr "Planst du schon das nächste Event von %(org)s?"
+
+#, python-format
+msgid "A note about %(org)s"
+msgstr "Ein Hinweis zu %(org)s"
+
+#, python-format
 msgid "%(actor)s added %(item)s"
 msgstr "%(actor)s hat %(item)s hinzugefügt"
 
@@ -4371,6 +4399,104 @@ msgstr "%(sender)s hat eine Nachricht an %(org)s gesendet."
 
 msgid "View this message:"
 msgstr "Diese Nachricht anzeigen:"
+
+#, python-format
+msgid ""
+"You started an event called \"%(event)s\" a while ago. It's still a draft, "
+"so nobody can see it yet."
+msgstr ""
+"Du hast vor einiger Zeit ein Event namens \"%(event)s\" angefangen. Es ist "
+"noch ein Entwurf, deshalb kann es noch niemand sehen."
+
+msgid ""
+"If it's still happening, pick up where you left off and publish it when it's "
+"ready. If plans changed, you can delete the draft or ignore this email."
+msgstr ""
+"Wenn es noch stattfindet, mach dort weiter, wo du aufgehört hast, und "
+"veröffentliche es, sobald es fertig ist. Falls sich die Pläne geändert "
+"haben, kannst du den Entwurf löschen oder diese E-Mail ignorieren."
+
+msgid "Open the draft"
+msgstr "Entwurf öffnen"
+
+msgid "This is the last reminder we'll send about drafts."
+msgstr "Das ist die letzte Erinnerung, die wir dir zu Entwürfen schicken."
+
+#, python-format
+msgid ""
+"%(org)s is hidden from the public right now. New organizations on Revel "
+"start out private."
+msgstr ""
+"%(org)s ist im Moment nicht öffentlich sichtbar. Neue Organisationen auf "
+"Revel sind anfangs privat."
+
+msgid ""
+"When you're ready for people to find you, change the visibility in your "
+"organization settings. If you're keeping it private on purpose, you can "
+"ignore this email."
+msgstr ""
+"Wenn du gefunden werden willst, ändere die Sichtbarkeit in den Einstellungen "
+"deiner Organisation. Falls du sie bewusst privat hältst, kannst du diese E-"
+"Mail ignorieren."
+
+msgid "Open settings"
+msgstr "Einstellungen öffnen"
+
+msgid "This is the last reminder we'll send about this."
+msgstr "Das ist die letzte Erinnerung, die wir dir dazu schicken."
+
+#, python-format
+msgid ""
+"You set up %(org)s on Revel a while ago, and there are no events in it yet."
+msgstr ""
+"Du hast %(org)s vor einiger Zeit auf Revel angelegt, aber es gibt noch keine "
+"Events."
+
+msgid "You can start with a draft. Nobody sees it until you publish it."
+msgstr ""
+"Du kannst mit einem Entwurf anfangen. Niemand sieht ihn, bevor du ihn "
+"veröffentlichst."
+
+msgid "Create an event"
+msgstr "Event erstellen"
+
+#, python-format
+msgid ""
+"The last event on %(org)s was \"%(event)s\", and nothing new is scheduled."
+msgstr ""
+"Das letzte Event von %(org)s war \"%(event)s\", und seitdem ist nichts Neues "
+"geplant."
+
+msgid ""
+"When you start planning the next one, you can duplicate a past event instead "
+"of setting everything up again."
+msgstr ""
+"Wenn du das nächste planst, kannst du ein vergangenes Event duplizieren und "
+"musst nicht alles neu einrichten."
+
+msgid ""
+"If you have questions or feedback, reply to this email. A person reads every "
+"reply."
+msgstr ""
+"Wenn du Fragen oder Feedback hast, antworte einfach auf diese E-Mail. Jede "
+"Antwort liest ein Mensch."
+
+#, python-format
+msgid ""
+"I saw that %(org)s hasn't published an event on Revel yet, and I'd like to "
+"know what's in the way."
+msgstr ""
+"Mir ist aufgefallen, dass %(org)s noch kein Event auf Revel veröffentlicht "
+"hat, und ich würde gern wissen, woran es hakt."
+
+msgid ""
+"If something is missing or doesn't work the way you expected, reply to this "
+"email. It comes straight to me. If Revel isn't the right fit for you, that's "
+"useful to hear too."
+msgstr ""
+"Wenn etwas fehlt oder nicht so funktioniert, wie du es erwartet hast, "
+"antworte auf diese E-Mail. Sie landet direkt bei mir. Falls Revel nicht das "
+"Richtige für dich ist, hilft mir auch das weiter."
 
 #, python-format
 msgid ""
@@ -5945,6 +6071,9 @@ msgstr "Neue Kontaktnachricht"
 
 msgid "Followers"
 msgstr "Follower:innen"
+
+msgid "Setup Nudges"
+msgstr "Setup-Erinnerungen"
 
 msgid "Venues & Seating"
 msgstr "Veranstaltungsorte & Sitzplätze"

@@ -12,7 +12,7 @@ from django.utils import timezone
 from common.models import EmailLog, SiteSettings
 from common.tasks import to_safe_email_address
 from common.utils import with_message_id
-from notifications.enums import ORG_SENDER_TYPES, DeliveryChannel, DeliveryStatus
+from notifications.enums import ORG_SENDER_TYPES, PLATFORM_LIST_UNSUBSCRIBE_TYPES, DeliveryChannel, DeliveryStatus
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.base import NotificationChannel
 from notifications.service.email_policy import may_email, suppression_for
@@ -198,11 +198,18 @@ class EmailChannel(NotificationChannel):
 
         Org-sender types whose organization resolves go out as ``"<Org> via Revel"``
         with the org's verified Reply-To, one-click List-Unsubscribe and a Feedback-ID;
-        everything else uses the system sender. ``X-Mailin-custom`` lets provider
-        webhooks correlate bounces/complaints back to the delivery (and org).
+        everything else uses the system sender. Platform list types (Revel's own opt-out-able
+        nudges) keep the system sender but add one-click List-Unsubscribe and a human Reply-To.
+        ``X-Mailin-custom`` lets provider webhooks correlate bounces/complaints back to the
+        delivery (and org).
         """
         headers = {"X-Mailin-custom": f"delivery:{delivery.id}"}
         notification_type = notification.notification_type
+        if notification_type in PLATFORM_LIST_UNSUBSCRIBE_TYPES:
+            token = generate_unsubscribe_token(notification.user, notification_type=notification_type)
+            headers.update(build_list_unsubscribe_headers(token))
+            reply_to = [settings.ORG_NUDGE_REPLY_TO] if settings.ORG_NUDGE_REPLY_TO else []
+            return settings.DEFAULT_FROM_EMAIL, reply_to, headers
         org = resolve_sender_org(notification) if notification_type in ORG_SENDER_TYPES else None
         if org is None:
             return settings.DEFAULT_FROM_EMAIL, [], headers

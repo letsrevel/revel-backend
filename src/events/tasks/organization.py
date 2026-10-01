@@ -228,3 +228,24 @@ def notify_admin_new_organization_discord(self: t.Any, organization_id: str) -> 
             "discord_exception", channel="organization_created", organization_id=organization_id, error=str(e)
         )
         raise
+
+
+class OrgNudgeCounters(t.TypedDict):
+    """Telemetry counters returned by ``send_org_nudges``."""
+
+    sent: int
+
+
+@shared_task(name="events.send_org_nudges")
+def send_org_nudges() -> OrgNudgeCounters:
+    """Send today's setup nudges to owners of stalled organizations.
+
+    Runs daily via Celery beat (migration 0125), which ships DISABLED — preview with
+    ``manage.py org_nudges`` and enable it in the admin. Caps, spacing and opt-outs
+    are enforced by ``events.service.org_nudge_service``.
+    """
+    from events.service import org_nudge_service
+
+    sent = org_nudge_service.send_nudges()
+    logger.info("send_org_nudges_done", sent=len(sent))
+    return OrgNudgeCounters(sent=len(sent))

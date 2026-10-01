@@ -31,6 +31,7 @@ from events.admin.invoice import (
     PlatformFeeCreditNoteAdmin,
     PlatformFeeInvoiceAdmin,
 )
+from events.admin.nudge import OrganizationNudgeAdmin
 from events.admin.organization import (
     MembershipTierAdmin,
     OrganizationAdmin,
@@ -85,6 +86,8 @@ __all__ = [
     # Follows
     "OrganizationFollowAdmin",
     "EventSeriesFollowAdmin",
+    # Nudges
+    "OrganizationNudgeAdmin",
     # Questionnaire join
     "EventQuestionnaireSubmissionAdmin",
     # Event

@@ -20,6 +20,10 @@ DEFAULT_REPLY_TO_EMAIL = config("DEFAULT_REPLY_TO_EMAIL", default=DEFAULT_FROM_E
 # Domain for org-sent mail ("<Org> via Revel" <slug@ORG_EMAIL_DOMAIN>). Empty → falls back to
 # the apex domain of DEFAULT_FROM_EMAIL (see common.utils.org_email_domain).
 ORG_EMAIL_DOMAIN = config("ORG_EMAIL_DOMAIN", default="")
+# Reply-To on Revel's org-setup nudges (events.service.org_nudge_service) so replies reach a
+# human. Empty → no Reply-To. ORG_NUDGE_SIGNATURE signs the personal check-in nudge.
+ORG_NUDGE_REPLY_TO = config("ORG_NUDGE_REPLY_TO", default="")
+ORG_NUDGE_SIGNATURE = config("ORG_NUDGE_SIGNATURE", default="The Revel team")
 # Shared secret for the provider (Brevo) bounce/complaint webhook. Empty → endpoint disabled.
 EMAIL_WEBHOOK_SECRET = config("EMAIL_WEBHOOK_SECRET", default="")
 # Per-org, per-UTC-day budget of invitation emails to addresses without a Revel account (cold

@@ -177,6 +177,11 @@ UNFOLD = {
                         "icon": "person_add",
                         "link": reverse_lazy("admin:events_organizationfollow_changelist"),
                     },
+                    {
+                        "title": _("Setup Nudges"),
+                        "icon": "notifications_active",
+                        "link": reverse_lazy("admin:events_organizationnudge_changelist"),
+                    },
                 ],
             },
             {

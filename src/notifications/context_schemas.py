@@ -450,6 +450,19 @@ class OrgContactMessageReceivedContext(BaseNotificationContext):
     admin_url: str
 
 
+class OrgSetupNudgeContext(BaseNotificationContext):
+    """Context for ORG_SETUP_NUDGE notification (to the org owner)."""
+
+    trigger: str  # events.OrganizationNudge.Trigger value; templates branch on it
+    is_last: bool  # the final nudge for this trigger ("this is the last one")
+    organization_name: str
+    organization_slug: str
+    action_url: str  # the one deep link the email carries ("" for the plain-text check-in)
+    can_reply: bool  # ORG_NUDGE_REPLY_TO is set, so "reply to this email" reaches a person
+    event_name: t.NotRequired[str]  # draft_event: the forgotten draft; dormant: the last event
+    signature: t.NotRequired[str]  # check_in: the human name signing it (settings.ORG_NUDGE_SIGNATURE)
+
+
 class SystemAnnouncementContext(BaseNotificationContext):
     """Context for SYSTEM_ANNOUNCEMENT notification."""
 
@@ -754,6 +767,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.ACCOUNT_BANNED: AccountBannedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
     NotificationType.ORG_CONTACT_MESSAGE_RECEIVED: OrgContactMessageReceivedContext,
+    NotificationType.ORG_SETUP_NUDGE: OrgSetupNudgeContext,
     NotificationType.SYSTEM_ANNOUNCEMENT: SystemAnnouncementContext,
     NotificationType.WAITLIST_SPOT_AVAILABLE: WaitlistSpotAvailableContext,
     NotificationType.WHITELIST_REQUEST_CREATED: WhitelistRequestCreatedContext,
