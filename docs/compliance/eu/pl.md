@@ -1,33 +1,30 @@
 # Poland
 
-Policy module: `src/events/compliance/policies/pl.py` (`PolandPolicy`, using `DomesticB2BEInvoicingMixin`).
+Policy module: `src/events/compliance/policies/pl.py` (`PolandPolicy`, using `B2BEInvoicingMixin` with `b2b_buyer_scope = ANY_BUSINESS`).
 
 Issue: [#1067](https://github.com/letsrevel/revel-backend/issues/1067)
 
 ## Status
 
-**Restricted: domestic B2B attendee invoices blocked for organizers established in Poland.**
+**Restricted: attendee invoices to business buyers blocked for organizers established in Poland.**
 
 KSeF (Krajowy System e-Faktur) is mandatory for invoices issued by taxpayers established in Poland:
 from 1 February 2026 for large taxpayers, 1 April 2026 for everyone else, and 1 January 2027 for
 small taxpayers, when financial penalties also start. Invoices to consumers are excluded. A PDF
-invoice from a Polish organizer to a Polish business buyer is not valid under KSeF.
+invoice from a Polish organizer to a business buyer, Polish or foreign, is not valid under KSeF: the
+exclusions cover consumers and sellers without a Polish establishment, not foreign buyers.
 
 ## What Revel does
 
 - **Attendee invoicing can be enabled.** HYBRID and AUTO are not refused for Polish organizations.
-- **Domestic B2B invoices are skipped.** For organizers established in Poland, invoice generation,
-  issuing an existing draft (including drafts created before the gate) and credit notes are skipped
-  only when the **buyer's VAT ID starts with `PL`** and VIES confirmed it as valid at checkout or
-  could not be reached. A VAT ID that VIES rejected (a typo, a made-up number) makes the buyer a
-  consumer, who gets Revel's invoice as usual. The organizer must issue that invoice in KSeF.
-- **Consumers** still receive Revel's PDF invoice; KSeF excludes invoices to consumers.
-- **Known gap: foreign business buyers.** Revel still issues its PDF invoice to a business buyer
-  with a non-Polish VAT ID. That is Revel's current behaviour, not a KSeF exemption: KSeF's
-  exclusions cover consumers and sellers without a Polish establishment, not foreign buyers, so a
-  Polish organizer may still have to issue that invoice in KSeF. Affected organizers should issue
-  every invoice KSeF requires from their own system.
+- **B2B invoices are skipped.** For organizers established in Poland, invoice generation, issuing an
+  existing draft (including drafts created before the gate) and credit notes are skipped whenever
+  the buyer is a business: a VAT ID from **any country** that VIES confirmed as valid at checkout or
+  could not check. A VAT ID that VIES rejected (a typo, a made-up number) makes the buyer a
+  consumer, who gets Revel's invoice as usual. The organizer must issue business invoices in KSeF
+  from its own system.
   [KSeF: zakres obowiązkowego KSeF](https://ksef.podatki.gov.pl/informacje-ogolne-ksef-20/zakres-obowiazkowego-ksef/)
+- **Consumers** still receive Revel's PDF invoice; KSeF excludes invoices to consumers.
 - **Foreign organizers' events held in Poland are not affected**: KSeF covers taxpayers with a seat or
   fixed establishment in Poland.
 - Online and offline payments are not restricted.

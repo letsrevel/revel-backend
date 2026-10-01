@@ -26,7 +26,7 @@ from geo.schema import CitySchema
 
 from .event_series import MinimalEventSeriesSchema
 from .mixins import CityEditMixin, LogoCoverArtThumbnailMixin, TaggableSchemaMixin
-from .organization import MinimalOrganizationSchema
+from .organization import ComplianceNoticeSchema, MinimalOrganizationSchema, compliance_notices
 from .venue import VenueSchema
 
 # Re-export the pydantic settings model as the API schema (single source of truth),
@@ -311,6 +311,7 @@ class EventComplianceSchema(Schema):
     online_payment: PaymentChannelCapability
     offline_payment: PaymentChannelCapability
     attendee_invoicing: AttendeeInvoicingCapability
+    notices: list[ComplianceNoticeSchema]
 
 
 class EventDetailSchema(EventBaseSchema):
@@ -340,6 +341,7 @@ class EventDetailSchema(EventBaseSchema):
             online_payment=result.online_payment,
             offline_payment=result.offline_payment,
             attendee_invoicing=result.attendee_invoicing,
+            notices=compliance_notices(result.notices),
         )
 
     @staticmethod

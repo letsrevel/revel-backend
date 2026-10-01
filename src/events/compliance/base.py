@@ -102,6 +102,21 @@ class BuyerContext:
         return cls(vat_country=normalize_country_code((snapshot.get("vat_id") or "").strip()[:2]))
 
 
+class NoticeTopic(enum.StrEnum):
+    """The organizer setting a non-blocking compliance notice belongs next to."""
+
+    OFFLINE_PAYMENT = "offline_payment"
+
+
+@dataclass(frozen=True, slots=True)
+class ComplianceNotice:
+    """A non-blocking, translated hint for the organizer (nothing is refused)."""
+
+    key: str
+    applies_to: NoticeTopic
+    message: str
+
+
 @dataclass(frozen=True, slots=True)
 class TicketComplianceField:
     """One extra line printed on the ticket PDF and wallet passes."""
@@ -119,6 +134,10 @@ ATTENDEE_INVOICING_BLOCKED_MESSAGE = _(
 DOMESTIC_B2B_INVOICING_BLOCKED_MESSAGE = _(
     "Invoices to customers with a {country} VAT ID must be sent as e-invoices through {system}. Revel won't "
     "create those. Issue this one from your e-invoicing software; invoices to everyone else work as usual."
+)
+ANY_B2B_INVOICING_BLOCKED_MESSAGE = _(
+    "Invoices to business customers of organizers in {country} must be issued through {system}. Revel won't "
+    "create those. Issue this one from your e-invoicing software; invoices to consumers work as usual."
 )
 ONLINE_PAYMENT_BLOCKED_MESSAGE = _(
     "Online card payments aren't available for events in {country}. The law there requires paid tickets "
@@ -218,6 +237,10 @@ class CountryCompliancePolicy(abc.ABC):
     def extra_ticket_fields(self, ticket: "Ticket", nexus: frozenset[Nexus]) -> list[TicketComplianceField]:
         """Country-specific ticket lines, printed after the EU common set (never instead of it)."""
 
+    @abc.abstractmethod
+    def organizer_notices(self, nexus: frozenset[Nexus]) -> list[ComplianceNotice]:
+        """Non-blocking hints for the organizer, shown next to the setting they concern."""
+
     @t.final
     def attendee_invoicing_capability(self) -> AttendeeInvoicingCapability:
         """Invoicing as it applies to an organizer established here, today."""
@@ -262,6 +285,10 @@ class DefaultEUPolicy(CountryCompliancePolicy):
         """None beyond the common set."""
         return []
 
+    def organizer_notices(self, nexus: frozenset[Nexus]) -> list[ComplianceNotice]:
+        """None."""
+        return []
+
 
 class FiscalizedInvoicingMixin:
     """Revel's unfiscalized PDF invoices are not valid here: block attendee invoicing.
@@ -287,28 +314,41 @@ class FiscalizedInvoicingMixin:
         )
 
 
-class DomesticB2BEInvoicingMixin:
-    """Domestic B2B invoices must be structured e-invoices: block only those.
+class B2BBuyerScope(enum.StrEnum):
+    """Which business buyers a B2B e-invoicing mandate covers."""
 
-    Consumer and cross-border buyers keep Revel's PDF invoice, and only organizers
-    established here are bound. Set ``e_invoicing_network`` (and optionally
+    DOMESTIC = "domestic"  # only buyers with a VAT ID from the seller's country (BE Peppol)
+    ANY_BUSINESS = "any_business"  # every business buyer, domestic or foreign (PL KSeF)
+
+
+class B2BEInvoicingMixin:
+    """B2B invoices must be structured e-invoices: block only those, for established sellers.
+
+    A business buyer is one whose VAT ID VIES accepted or could not check (see
+    :meth:`BuyerContext.from_billing_snapshot`); consumers and VIES-rejected IDs keep
+    Revel's PDF invoice. ``b2b_buyer_scope`` says whether only domestic business buyers
+    are covered or all of them. Set ``e_invoicing_network`` (and optionally
     ``e_invoicing_from``).
     """
 
     country: str
     e_invoicing_network: t.ClassVar["str | StrPromise"]
+    b2b_buyer_scope: t.ClassVar[B2BBuyerScope] = B2BBuyerScope.DOMESTIC
     e_invoicing_from: t.ClassVar[datetime.date | None] = None
 
     def attendee_invoicing(self, buyer: BuyerContext, nexus: frozenset[Nexus]) -> Decision:
-        """Blocked when an established seller invoices a buyer whose VAT ID is from here."""
-        domestic_b2b = bool(buyer.vat_country) and buyer.vat_country == self.country
-        if not domestic_b2b or not in_force(nexus, frozenset({Nexus.ESTABLISHMENT}), self.e_invoicing_from):
-            return Decision.allow()
-        return Decision.block(
-            str(DOMESTIC_B2B_INVOICING_BLOCKED_MESSAGE).format(
-                country=country_name(self.country), system=self.e_invoicing_network
-            )
+        """Blocked when an established seller invoices a business buyer within the scope."""
+        covered = bool(buyer.vat_country) and (
+            self.b2b_buyer_scope == B2BBuyerScope.ANY_BUSINESS or buyer.vat_country == self.country
         )
+        if not covered or not in_force(nexus, frozenset({Nexus.ESTABLISHMENT}), self.e_invoicing_from):
+            return Decision.allow()
+        message = (
+            ANY_B2B_INVOICING_BLOCKED_MESSAGE
+            if self.b2b_buyer_scope == B2BBuyerScope.ANY_BUSINESS
+            else DOMESTIC_B2B_INVOICING_BLOCKED_MESSAGE
+        )
+        return Decision.block(str(message).format(country=country_name(self.country), system=self.e_invoicing_network))
 
 
 class CertifiedOnlineTicketingMixin:

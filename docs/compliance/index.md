@@ -39,6 +39,8 @@ sale (see [Liable countries and nexus](#liable-countries-and-nexus)):
   confirmed by the organizer? No country restricts this in layer 1.
 - `extra_ticket_fields(ticket, nexus)`: country-specific lines printed on tickets, after the common EU
   set.
+- `organizer_notices(nexus)`: non-blocking, translated hints for the organizer (`key`, `applies_to`,
+  `message`). Default: none.
 
 Countries without a module get `DefaultEUPolicy`: everything allowed, no extra ticket lines.
 
@@ -85,10 +87,12 @@ it takes effect.
       by foreign organizers;
     - in Spain, from 1 January 2027 (Verifactu), for organizers established there. Until then attendee
       invoicing is allowed.
-- **Domestic B2B invoices blocked** where they must go through a national e-invoicing network: Belgium
-  (Peppol) and Poland (KSeF), only for organizers established there and only when the buyer's VAT ID
-  is from the same country. Consumers, cross-border buyers and foreign organizers still get Revel's
-  invoice.
+- **B2B invoices blocked** where they must go through a national e-invoicing network, only for
+  organizers established there: Belgium (Peppol) for buyers with a Belgian VAT ID, Poland (KSeF) for
+  business buyers from any country. A business buyer has a VAT ID that VIES accepted or could not
+  check; consumers and VIES-rejected IDs still get Revel's invoice.
+- **Organizer notices, no gates**: Austria (door payments go through the organizer's own
+  Registrierkasse) and Denmark (covered businesses record Revel sales in their own system).
 - Credit notes and issuing pre-gate drafts follow the same invoice gate.
 - **Online payment blocked** for events held in Italy, where paid tickets sold online must be issued by
   a ticketing system approved by the Agenzia delle Entrate. Offline, bank-transfer and at-the-door
@@ -100,6 +104,10 @@ it takes effect.
   `blocked_for_business_buyers`; `online_payment` and `offline_payment` are `allowed` or `blocked`.
   Values are effective today: a future-dated restriction reads `allowed` until it starts. The org-level
   payment capabilities describe events held in the organization's own country.
+  Both objects also carry `notices: [{key, applies_to, message}]`: non-blocking, translated hints
+  (for example Austria's cash-register hint) that the frontend shows next to the setting named in
+  `applies_to` (today only `offline_payment`) as information with `role="status"`. Notices never
+  block anything.
 - The event detail response (`EventDetailSchema`, used by the event admin and public event pages)
   exposes `compliance: {venue_country, online_payment, offline_payment, attendee_invoicing}` for that
   specific event: the organization's establishment plus the venue country of a physical event, at

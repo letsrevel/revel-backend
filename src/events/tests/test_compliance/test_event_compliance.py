@@ -90,7 +90,7 @@ class TestAttendeeInvoicing:
 
 
 def test_event_detail_endpoints_expose_it(client: Client, organization: Organization, public_event: Event) -> None:
-    _place(organization, public_event, "AT", "IT")
+    _place(organization, public_event, "DE", "IT")
     TicketTier.objects.create(event=public_event, name="Door", price=Decimal("5"))
 
     response = client.get(reverse("api:get_event", kwargs={"event_id": public_event.pk}))
@@ -101,4 +101,5 @@ def test_event_detail_endpoints_expose_it(client: Client, organization: Organiza
         "online_payment": "blocked",
         "offline_payment": "allowed",
         "attendee_invoicing": "allowed",
+        "notices": [],
     }

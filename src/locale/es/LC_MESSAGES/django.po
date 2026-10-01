@@ -1160,6 +1160,17 @@ msgstr ""
 
 #, python-brace-format
 msgid ""
+"Invoices to business customers of organizers in {country} must be issued "
+"through {system}. Revel won't create those. Issue this one from your e-"
+"invoicing software; invoices to consumers work as usual."
+msgstr ""
+"Las facturas a clientes empresariales de organizadores en {country} deben "
+"emitirse a través de {system}. Revel no las crea. Emite esta desde tu "
+"software de facturación electrónica; las facturas a particulares funcionan "
+"como siempre."
+
+#, python-brace-format
+msgid ""
 "Online card payments aren't available for events in {country}. The law there "
 "requires paid tickets sold online to be issued by {system}, and Revel isn't "
 "approved yet. You can still sell paid tickets with payment at the door or by "
@@ -1194,6 +1205,23 @@ msgstr "Precio"
 
 msgid "Tax notice"
 msgstr "Aviso fiscal"
+
+msgid ""
+"Payments you take at the door go through your own registered cash register "
+"(Registrierkasse) once you pass the legal thresholds. Revel's online sales "
+"are exempt."
+msgstr ""
+"Los pagos que cobres en la puerta pasan por tu propia caja registradora "
+"registrada (Registrierkasse) una vez superes los umbrales legales. Las "
+"ventas online en Revel están exentas."
+
+msgid ""
+"If your business must record sales digitally (for example cafés, bars and "
+"discos), record your Revel ticket and door sales there too."
+msgstr ""
+"Si tu negocio debe registrar las ventas de forma digital (por ejemplo cafés, "
+"bares y discotecas), registra allí también tus ventas de entradas de Revel y "
+"en la puerta."
 
 msgid "the Tax Administration's fiscalization system"
 msgstr "el sistema de fiscalización de la Administración tributaria"

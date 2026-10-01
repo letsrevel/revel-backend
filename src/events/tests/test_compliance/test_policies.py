@@ -40,13 +40,17 @@ def test_fiscalized_invoicing_reaches_venues_only_where_the_law_does(code: str, 
     assert get_policy_for_country(code).attendee_invoicing(BuyerContext(), VENUE).allowed is not binds_venue
 
 
-@pytest.mark.parametrize("code", B2B_BLOCKED)
-def test_e_invoicing_countries_block_only_domestic_business_buyers_of_established_sellers(code: str) -> None:
+@pytest.mark.parametrize(("code", "foreign_business_blocked"), [("BE", False), ("PL", True)])
+def test_e_invoicing_countries_block_business_buyers_of_established_sellers(
+    code: str, foreign_business_blocked: bool
+) -> None:
+    """BE (Peppol) covers domestic business buyers only; PL (KSeF) covers every business buyer."""
     policy = get_policy_for_country(code)
     assert policy.attendee_invoicing_capability() == AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
     domestic = BuyerContext(vat_country=code)
+    foreign = BuyerContext(vat_country="DE")
     assert policy.attendee_invoicing(BuyerContext(), EST).allowed  # consumer
-    assert policy.attendee_invoicing(BuyerContext(vat_country="DE"), EST).allowed  # cross-border B2B
+    assert policy.attendee_invoicing(foreign, EST).allowed is not foreign_business_blocked
     assert policy.attendee_invoicing(domestic, VENUE).allowed  # seller not established here
     refused = policy.attendee_invoicing(domestic, EST)
     assert not refused.allowed

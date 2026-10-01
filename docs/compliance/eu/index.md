@@ -55,13 +55,13 @@ See [Billing & VAT](../../architecture/billing-and-vat.md) for the details.
 
 | Country | Status | Layer 1 restriction | Issue |
 |---|---|---|---|
-| [Austria](at.md) | No country-specific restrictions identified | None (door payments are the organizer's own cash-register matter) | |
+| [Austria](at.md) | No country-specific restrictions identified | None; organizer notice on door payments (own Registrierkasse) | |
 | [Belgium](be.md) | Restricted | Invoices to buyers with a BE VAT ID blocked, for organizers established in Belgium (Peppol) | [#1066](https://github.com/letsrevel/revel-backend/issues/1066) |
 | [Bulgaria](bg.md) | Not yet researched | None (default policy) | |
 | [Croatia](hr.md) | Restricted | Attendee invoicing blocked for organizers established in Croatia (fiscalization) | [#1058](https://github.com/letsrevel/revel-backend/issues/1058) |
 | [Cyprus](cy.md) | Not yet researched | None (default policy) | |
 | [Czechia](cz.md) | No country-specific restrictions identified | None | |
-| [Denmark](dk.md) | No country-specific restrictions identified | None (covered businesses, e.g. discos, record sales in their own system) | |
+| [Denmark](dk.md) | No country-specific restrictions identified | None; organizer notice on digital sales registration (e.g. discos) | |
 | [Estonia](ee.md) | Not yet researched | None (default policy) | |
 | [Finland](fi.md) | No country-specific restrictions identified | None | |
 | [France](fr.md) | No blocking restrictions (ticket content requirements covered) | None | [#1061](https://github.com/letsrevel/revel-backend/issues/1061) |
@@ -75,7 +75,7 @@ See [Billing & VAT](../../architecture/billing-and-vat.md) for the details.
 | [Luxembourg](lu.md) | Not yet researched | None (default policy) | |
 | [Malta](mt.md) | Not yet researched | None (default policy) | |
 | [Netherlands](nl.md) | No country-specific restrictions identified | None | |
-| [Poland](pl.md) | Restricted | Invoices to buyers with a PL VAT ID blocked, for organizers established in Poland (KSeF) | [#1067](https://github.com/letsrevel/revel-backend/issues/1067) |
+| [Poland](pl.md) | Restricted | Invoices to business buyers (any country) blocked, for organizers established in Poland (KSeF) | [#1067](https://github.com/letsrevel/revel-backend/issues/1067) |
 | [Portugal](pt.md) | Restricted | Attendee invoicing blocked for organizers established in Portugal (certified invoicing software) | [#1060](https://github.com/letsrevel/revel-backend/issues/1060) |
 | [Romania](ro.md) | Restricted | Attendee invoicing blocked for organizers established in Romania (RO e-Factura) | [#1064](https://github.com/letsrevel/revel-backend/issues/1064) |
 | [Slovakia](sk.md) | No country-specific restrictions identified | None | |

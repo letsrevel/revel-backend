@@ -12,7 +12,14 @@ from common.models import SiteSettings
 from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
 from common.service.vat_utils import TWO_PLACES, b2b_vat_context
 from events import models
-from events.compliance import AttendeeInvoicingCapability, PaymentChannelCapability, get_policy
+from events.compliance import (
+    AttendeeInvoicingCapability,
+    ComplianceNotice,
+    NoticeTopic,
+    PaymentChannelCapability,
+    get_policy,
+)
+from events.compliance.base import ALL_NEXUS
 from events.models import (
     MembershipRequestStatus,
     Organization,
@@ -70,6 +77,19 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     default_requires_membership_approval: bool = False
 
 
+class ComplianceNoticeSchema(Schema):
+    """A non-blocking compliance hint for the organizer; show it next to ``applies_to``."""
+
+    key: str
+    applies_to: NoticeTopic
+    message: str
+
+
+def compliance_notices(notices: list[ComplianceNotice]) -> list[ComplianceNoticeSchema]:
+    """Serialize policy notices."""
+    return [ComplianceNoticeSchema(key=n.key, applies_to=n.applies_to, message=n.message) for n in notices]
+
+
 class OrganizationComplianceSchema(Schema):
     """What the organization's country lets Revel do (EU layer 1, #1057-#1067).
 
@@ -83,6 +103,7 @@ class OrganizationComplianceSchema(Schema):
     attendee_invoicing: AttendeeInvoicingCapability
     online_payment: PaymentChannelCapability
     offline_payment: PaymentChannelCapability
+    notices: list[ComplianceNoticeSchema]
 
 
 def _compliance(obj: Organization) -> OrganizationComplianceSchema:
@@ -93,6 +114,7 @@ def _compliance(obj: Organization) -> OrganizationComplianceSchema:
         attendee_invoicing=policy.attendee_invoicing_capability(),
         online_payment=policy.online_payment_capability(),
         offline_payment=policy.offline_payment_capability(),
+        notices=compliance_notices(policy.organizer_notices(ALL_NEXUS)),
     )
 
 

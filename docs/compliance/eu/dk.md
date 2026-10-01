@@ -1,6 +1,6 @@
 # Denmark
 
-No policy module: resolves to `DefaultEUPolicy`.
+Policy module: `src/events/compliance/policies/dk.py` (`DenmarkPolicy`: no restriction, one organizer notice).
 
 ## Status
 
@@ -14,6 +14,9 @@ merchant of record they remain responsible for their tax and invoicing duties.
 ## What Revel does
 
 - No country-specific restriction: attendee invoicing and online/offline payments are allowed.
+- **Organizer notice (non-blocking)**, for organizers established in Denmark, shown next to the
+  offline / at-the-door payment setting: "If your business must record sales digitally (for example
+  cafés, bars and discos), record your Revel ticket and door sales there too."
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis
@@ -42,7 +45,7 @@ merchant of record they remain responsible for their tax and invoicing duties.
   covered, do entry tickets sold through Revel (a third-party portal) have to be recorded in its
   sales-registration system? Skattestyrelsen's guidance says online sales through third-party portals
   must be recorded, which points to yes, but the official texts reviewed do not mention admission or
-  tickets explicitly. No Revel gate is planned; at most, guidance for Danish organizers.
+  tickets explicitly. No Revel gate; Danish organizers get a non-blocking notice instead.
 - **Door sales recorded in Revel** by a covered business would also have to go through its own
   system.
 - Ticket-specific or event-specific rules (for example local levies) were not part of this review.

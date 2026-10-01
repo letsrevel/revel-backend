@@ -11,10 +11,12 @@ from django.core.exceptions import ImproperlyConfigured
 from events.compliance import (
     AttendeeInvoicingCapability,
     BuyerContext,
+    ComplianceNotice,
     CountryCompliancePolicy,
     Decision,
     DefaultEUPolicy,
     Nexus,
+    NoticeTopic,
     PaymentChannelCapability,
     TicketComplianceField,
     get_policy,
@@ -32,7 +34,7 @@ from geo.models import City
 
 pytestmark = pytest.mark.django_db
 
-EXPECTED_COUNTRIES = {"BE", "ES", "FR", "GR", "HR", "HU", "IT", "PL", "PT", "RO", "SI"}
+EXPECTED_COUNTRIES = {"AT", "BE", "DK", "ES", "FR", "GR", "HR", "HU", "IT", "PL", "PT", "RO", "SI"}
 
 
 class TestCountryResolution:
@@ -145,6 +147,12 @@ class TestPolicyContract:
             assert isinstance(decision, Decision)
             # A refusal always explains itself to the user.
             assert decision.allowed or decision.reason
+
+    @pytest.mark.parametrize("nexus", [frozenset({Nexus.ESTABLISHMENT}), frozenset({Nexus.VENUE}), ALL_NEXUS])
+    def test_organizer_notices_are_well_formed(self, code: str, nexus: frozenset[Nexus]) -> None:
+        notices = get_policy_for_country(code).organizer_notices(nexus)
+        assert all(isinstance(n, ComplianceNotice) and n.key and n.message for n in notices)
+        assert all(isinstance(n.applies_to, NoticeTopic) for n in notices)
 
     def test_extra_ticket_fields_are_well_formed(self, code: str, ticket: Ticket) -> None:
         fields = get_policy_for_country(code).extra_ticket_fields(ticket, ALL_NEXUS)

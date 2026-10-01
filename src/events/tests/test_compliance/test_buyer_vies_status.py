@@ -61,9 +61,16 @@ def test_status_decides_the_domestic_b2b_gate(
     assert decision.allowed is not domestic_business, label
 
 
-@pytest.mark.parametrize("code", ["BE", "PL"])
-def test_foreign_prefix_is_never_domestic(code: str) -> None:
+@pytest.mark.parametrize(("code", "blocked"), [("BE", False), ("PL", True)])
+def test_foreign_business_buyer(code: str, blocked: bool) -> None:
+    """A valid foreign VAT ID: outside Peppol's domestic scope, inside KSeF's."""
     buyer = BuyerContext.from_billing_snapshot(_snapshot("DE123456789", vat_id_status="valid"))
+    assert get_policy_for_country(code).attendee_invoicing(buyer, EST).allowed is not blocked
+
+
+@pytest.mark.parametrize("code", ["BE", "PL"])
+def test_vies_invalid_foreign_id_is_a_consumer(code: str) -> None:
+    buyer = BuyerContext.from_billing_snapshot(_snapshot("DE123456789", vat_id_status="invalid"))
     assert get_policy_for_country(code).attendee_invoicing(buyer, EST).allowed
 
 

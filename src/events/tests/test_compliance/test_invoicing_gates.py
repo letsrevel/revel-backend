@@ -189,7 +189,6 @@ class TestGenerationGate:
             ("BE", _consumer_snapshot()),
             ("BE", _business_snapshot("DE123456789")),
             ("PL", _consumer_snapshot()),
-            ("PL", _business_snapshot("NL123456789B01")),
         ],
     )
     def test_b2b_country_still_invoices_consumers_and_foreign_businesses(
@@ -209,6 +208,25 @@ class TestGenerationGate:
 
         assert invoice is not None
         assert invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED
+
+    def test_poland_skips_foreign_business_buyers_too(
+        self,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """KSeF covers every business buyer of a Polish-established seller, not just domestic ones."""
+        _ready_in(organization, "PL", Organization.InvoicingMode.AUTO)
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            buyer_billing_snapshot=_business_snapshot("NL123456789B01"),
+        )
+
+        assert generate_attendee_invoice("cs_test_123") is None
 
     def test_unrestricted_country_generates(
         self,

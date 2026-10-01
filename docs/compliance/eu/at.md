@@ -1,6 +1,6 @@
 # Austria
 
-No policy module: resolves to `DefaultEUPolicy`.
+Policy module: `src/events/compliance/policies/at.py` (`AustriaPolicy`: no restriction, one organizer notice).
 
 ## Status
 
@@ -14,6 +14,10 @@ merchant of record they remain responsible for their tax and invoicing duties.
 ## What Revel does
 
 - No country-specific restriction: attendee invoicing and online/offline payments are allowed.
+- **Organizer notice (non-blocking)**, for organizers established in Austria and events held there,
+  shown next to the offline / at-the-door payment setting: "Payments you take at the door go through
+  your own registered cash register (Registrierkasse) once you pass the legal thresholds. Revel's
+  online sales are exempt."
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis
@@ -42,9 +46,9 @@ merchant of record they remain responsible for their tax and invoicing duties.
 
 - **Door sales recorded in Revel.** When an organizer marks an *at the door* or *offline* ticket as
   paid in Revel after taking cash or card on site, that payment still has to go through the
-  organizer's RKSV cash register (above the thresholds). Should Revel tell Austrian organizers this
-  when they enable those payment methods? Revel has no obligation of its own here and no code gate
-  is planned; this is guidance.
+  organizer's RKSV cash register (above the thresholds). Revel has no obligation of its own here, so
+  there is no gate; the organizer notice above tells them. Whether a deeper integration (e.g. exporting
+  door sales to a Registrierkasse) is worth building is open.
 - Relief for non-profit associations (*begünstigte Körperschaften*, e.g. small club events) and the
   outdoor-sales rule may exempt some organizers; not assessed per organizer.
 - Ticket-specific or event-specific rules (for example local levies) were not part of this review.

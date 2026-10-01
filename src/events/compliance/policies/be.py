@@ -3,12 +3,12 @@
 Docs: https://docs.letsrevel.io/compliance/eu/be/ (docs/compliance/eu/be.md).
 """
 
-from events.compliance.base import DefaultEUPolicy, DomesticB2BEInvoicingMixin
+from events.compliance.base import B2BEInvoicingMixin, DefaultEUPolicy
 from events.compliance.registry import register
 
 
 @register("BE")
-class BelgiumPolicy(DomesticB2BEInvoicingMixin, DefaultEUPolicy):
+class BelgiumPolicy(B2BEInvoicingMixin, DefaultEUPolicy):
     """Belgium: see the module docstring."""
 
     e_invoicing_network = "Peppol"

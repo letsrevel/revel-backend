@@ -1,6 +1,6 @@
 # Belgium
 
-Policy module: `src/events/compliance/policies/be.py` (`BelgiumPolicy`, using `DomesticB2BEInvoicingMixin`).
+Policy module: `src/events/compliance/policies/be.py` (`BelgiumPolicy`, using `B2BEInvoicingMixin` with the default `b2b_buyer_scope = DOMESTIC`).
 
 Issue: [#1066](https://github.com/letsrevel/revel-backend/issues/1066)
 

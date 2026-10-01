@@ -15,6 +15,7 @@ from decimal import Decimal
 from events.compliance.base import (
     AttendeeInvoicingCapability,
     BuyerContext,
+    ComplianceNotice,
     Decision,
     Nexus,
     PaymentChannelCapability,
@@ -129,6 +130,12 @@ def _channel_decision(reach: NexusMap, payment_method: str) -> Decision:
     return Decision.allow()
 
 
+def organizer_notices(reach: NexusMap) -> list[ComplianceNotice]:
+    """Every reaching country's non-blocking organizer notices, once each (by key)."""
+    notices = [n for c, nexus in reach.items() for n in get_policy_for_country(c).organizer_notices(nexus)]
+    return list({notice.key: notice for notice in notices}.values())
+
+
 @dataclass(frozen=True, slots=True)
 class EventCompliance:
     """What the countries reaching one event allow today: the per-event view of the gates.
@@ -141,6 +148,7 @@ class EventCompliance:
     online_payment: PaymentChannelCapability
     offline_payment: PaymentChannelCapability
     attendee_invoicing: AttendeeInvoicingCapability
+    notices: list[ComplianceNotice]
 
 
 def event_compliance(event: "Event") -> EventCompliance:
@@ -161,6 +169,7 @@ def event_compliance(event: "Event") -> EventCompliance:
         online_payment=channel_capability(_channel_decision(reach, TicketTier.PaymentMethod.ONLINE)),
         offline_payment=channel_capability(_channel_decision(reach, TicketTier.PaymentMethod.OFFLINE)),
         attendee_invoicing=invoicing,
+        notices=organizer_notices(reach),
     )
 
 

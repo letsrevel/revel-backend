@@ -63,7 +63,7 @@ a territorial ticketing rule applies on `{VENUE}`.
 | Mixin | Effect | Class attributes |
 |---|---|---|
 | `FiscalizedInvoicingMixin` | Blocks Revel-issued attendee invoices for every buyer. | `fiscal_system`; `fiscal_invoicing_applies_on` (default `{ESTABLISHMENT}`); `fiscal_invoicing_from` (default `None`) |
-| `DomesticB2BEInvoicingMixin` | Blocks attendee invoices only when the buyer's VAT ID is from the same country. Applies to `ESTABLISHMENT` only. | `e_invoicing_network`; `e_invoicing_from` (default `None`) |
+| `B2BEInvoicingMixin` | Blocks attendee invoices to business buyers (VAT ID valid in VIES or unverifiable). `b2b_buyer_scope`: `DOMESTIC` (same-country VAT ID only, e.g. Belgium) or `ANY_BUSINESS` (e.g. Poland). Applies to `ESTABLISHMENT` only. | `e_invoicing_network`; `b2b_buyer_scope` (default `DOMESTIC`); `e_invoicing_from` (default `None`) |
 | `CertifiedOnlineTicketingMixin` | Blocks online (Stripe card) payment for paid tickets and series passes. Offline and at-the-door payments, free tickets, RSVPs and memberships are unaffected. | `certified_system`; `online_ticketing_applies_on` (default `{VENUE}`); `online_ticketing_from` (default `None`) |
 
 The system or network attribute is interpolated into the translated refusal message, together with
@@ -89,6 +89,10 @@ If no mixin fits, override the hooks directly:
 - `online_payment(nexus: frozenset[Nexus]) -> Decision`
 - `offline_payment(nexus: frozenset[Nexus]) -> Decision`
 - `extra_ticket_fields(ticket, nexus: frozenset[Nexus]) -> list[TicketComplianceField]`
+- `organizer_notices(nexus: frozenset[Nexus]) -> list[ComplianceNotice]`: non-blocking hints
+  (`key`, `applies_to: NoticeTopic`, translated `message`), exposed in the org and event
+  `compliance` objects. Use them when the law puts a duty on the organizer that Revel can't and
+  shouldn't enforce (Austria, Denmark).
 
 Return `Decision.block(reason)` with a translated, user-facing reason when refusing.
 

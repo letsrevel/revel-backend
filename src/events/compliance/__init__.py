@@ -16,9 +16,11 @@ from events.compliance import policies as _policies  # noqa: F401  (registers ev
 from events.compliance.base import (
     AttendeeInvoicingCapability,
     BuyerContext,
+    ComplianceNotice,
     CountryCompliancePolicy,
     Decision,
     Nexus,
+    NoticeTopic,
     DefaultEUPolicy,
     PaymentChannelCapability,
     TicketComplianceField,
@@ -34,9 +36,11 @@ from events.compliance.registry import (
 __all__ = [
     "AttendeeInvoicingCapability",
     "BuyerContext",
+    "ComplianceNotice",
     "CountryCompliancePolicy",
     "Decision",
     "Nexus",
+    "NoticeTopic",
     "DefaultEUPolicy",
     "PaymentChannelCapability",
     "TicketComplianceField",
