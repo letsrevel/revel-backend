@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `manage.py org_nudges` previews the plan by default; `--org <slug>` and `--send` are available
   - Localized in en/de/it/fr/es/pt
 
+### Security
+
+- Bumped the transitive dependency `tornado` to 6.5.10 (GHSA-chx6-46f5-w4vp, GHSA-c2m8-h5v5-343r,
+  GHSA-3hv7-mjh2-fv65). It reaches the project through `flower`
+- Bumped the dev-only transitive dependency `virtualenv` to 21.14.2 (PYSEC-2026-4011 to
+  PYSEC-2026-4014). It reaches the project through `pre-commit` and is not part of the image
+
 ## [2.18.1] - 2026-09-30
 
 ### Security
