@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events import models as events_models
+from events.service import ticket_number_service
 
 from .base import BootstrapState
 
@@ -424,7 +425,8 @@ def _sell_seated_concert_tickets(tier: events_models.TicketTier, occupancy: floa
                 seat=seat,
             )
         )
-    events_models.Ticket.objects.bulk_create(tickets)
+    created = events_models.Ticket.objects.bulk_create(tickets)
+    ticket_number_service.assign_ticket_numbers(created)  # bulk_create skips the numbering signal
     tier.quantity_sold = len(tickets)
     tier.save(update_fields=["quantity_sold"])
     logger.info(f"  {tier.event.name} / {tier.name}: {len(tickets)} active tickets sold")

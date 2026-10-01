@@ -188,7 +188,7 @@ def handle_ticket_visibility_and_potluck(
 
 @receiver(post_save, sender=Ticket)
 def assign_ticket_number_on_issue(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
-    """Give a ticket its gap-free fiscal number once it is issued (ACTIVE/CHECKED_IN).
+    """Give a ticket its fiscal number (assigned without gaps) once it is issued (ACTIVE/CHECKED_IN).
 
     Covers every ``save()`` path; the bulk writers that skip signals call
     ``ticket_number_service.assign_ticket_numbers`` themselves.

@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from events.management.commands.seeder.base import BaseSeeder
 from events.models import CancellationSource, Payment, Ticket, TicketAttribution, TicketTier
+from events.service import ticket_number_service
 
 # Ticket tier name templates
 TIER_NAMES = [
@@ -254,7 +255,8 @@ class TicketSeeder(BaseSeeder):
                     )
                     tickets_to_create.append(ticket)
 
-        self.batch_create(Ticket, tickets_to_create, desc="Creating tickets")
+        created = self.batch_create(Ticket, tickets_to_create, desc="Creating tickets")
+        ticket_number_service.assign_ticket_numbers(created)  # bulk_create skips the numbering signal
         self.log(f"  Created {len(tickets_to_create)} tickets")
 
         self._update_tier_quantities()

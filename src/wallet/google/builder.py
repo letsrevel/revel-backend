@@ -113,7 +113,7 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
 
     Venue, sector and seat come from :func:`wallet.resolution.resolve_ticket_location`
     and the price (with the other fiscal lines) from the organizer's compliance policy,
-    which resolves it with :func:`wallet.pricing.resolve_ticket_price` — the same
+    which resolves it with :func:`events.service.ticket_price.resolve_ticket_price` — the same
     helpers ``ApplePassGenerator._build_pass_data`` uses, so both rails show the
     same data (pinned by ``wallet/tests/test_cross_rail_parity.py``).
 

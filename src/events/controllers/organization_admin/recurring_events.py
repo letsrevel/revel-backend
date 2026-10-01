@@ -149,7 +149,10 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         """Manually generate events for the series within the rolling window."""
         series = self._get_series(slug, series_id)
         until = payload.until if payload else None
-        return recurrence_service.generate_series_events(series, until_override=until)
+        events = recurrence_service.generate_series_events(series, until_override=until)
+        # Re-fetch with full() so EventDetailSchema (incl. compliance) doesn't query per event.
+        fetched = models.Event.objects.full().in_bulk([event.pk for event in events])
+        return [fetched[event.pk] for event in events]
 
     @route.get(
         "/event-series/{series_id}",

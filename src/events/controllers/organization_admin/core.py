@@ -263,4 +263,5 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     def create_event(self, slug: str, payload: schema.EventCreateSchema) -> models.Event:
         """Create a new event."""
         organization = self.get_one(slug)
-        return event_service.create_event(organization, payload)
+        event = event_service.create_event(organization, payload)
+        return models.Event.objects.full().get(pk=event.pk)
