@@ -44,7 +44,7 @@ def test_fiscalized_invoicing_reaches_venues_only_where_the_law_does(code: str, 
 def test_e_invoicing_countries_block_only_domestic_business_buyers_of_established_sellers(code: str) -> None:
     policy = get_policy_for_country(code)
     assert policy.attendee_invoicing_capability() == AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
-    domestic = BuyerContext.from_vat_id(f"{code}0123456789")
+    domestic = BuyerContext(vat_country=code)
     assert policy.attendee_invoicing(BuyerContext(), EST).allowed  # consumer
     assert policy.attendee_invoicing(BuyerContext(vat_country="DE"), EST).allowed  # cross-border B2B
     assert policy.attendee_invoicing(domestic, VENUE).allowed  # seller not established here
@@ -102,22 +102,26 @@ def test_only_italy_restricts_a_payment_channel() -> None:
         assert policy.offline_payment_capability() == PaymentChannelCapability.ALLOWED, code
 
 
+def _buyer(vat_id: str) -> BuyerContext:
+    return BuyerContext.from_billing_snapshot({"vat_id": vat_id})
+
+
 class TestStrictestReachingCountryWins:
     def test_any_blocking_country_blocks_the_sale(self) -> None:
-        assert not attendee_invoicing_for_sale({"AT": EST, "HR": EST}, None).allowed
+        assert not attendee_invoicing_for_sale({"AT": EST, "HR": EST}, BuyerContext()).allowed
 
     def test_venue_only_reach_respects_the_policy_scope(self) -> None:
-        assert attendee_invoicing_for_sale({"AT": EST, "HR": VENUE}, None).allowed
-        assert not attendee_invoicing_for_sale({"AT": EST, "SI": VENUE}, None).allowed
+        assert attendee_invoicing_for_sale({"AT": EST, "HR": VENUE}, BuyerContext()).allowed
+        assert not attendee_invoicing_for_sale({"AT": EST, "SI": VENUE}, BuyerContext()).allowed
 
     def test_b2b_block_needs_an_established_seller_and_domestic_vat_id(self) -> None:
-        assert attendee_invoicing_for_sale({"BE": EST}, "DE123456789").allowed
-        assert attendee_invoicing_for_sale({"BE": EST}, "").allowed
-        assert attendee_invoicing_for_sale({"AT": EST, "BE": VENUE}, "BE0123456789").allowed
-        assert not attendee_invoicing_for_sale({"BE": EST}, "BE0123456789").allowed
+        assert attendee_invoicing_for_sale({"BE": EST}, _buyer("DE123456789")).allowed
+        assert attendee_invoicing_for_sale({"BE": EST}, _buyer("")).allowed
+        assert attendee_invoicing_for_sale({"AT": EST, "BE": VENUE}, _buyer("BE0123456789")).allowed
+        assert not attendee_invoicing_for_sale({"BE": EST}, _buyer("BE0123456789")).allowed
 
     def test_greek_vat_prefix_is_normalized(self) -> None:
-        assert not attendee_invoicing_for_sale({"GR": EST}, "EL123456789").allowed
+        assert not attendee_invoicing_for_sale({"GR": EST}, _buyer("EL123456789")).allowed
 
 
 def test_refusals_name_the_country_in_the_active_language() -> None:

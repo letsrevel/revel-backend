@@ -18,7 +18,7 @@ from ninja.errors import HttpError
 from common.constants import EU_MEMBER_STATES
 from common.service.invoice_utils import get_next_sequential_number, render_pdf
 from common.utils import apex_email_domain, is_reserved_mailbox
-from events.compliance import Decision
+from events.compliance import BuyerContext, Decision
 from events.compliance import enforcement as compliance
 from events.compliance.base import ALL_NEXUS
 from events.models.attendee_invoice import (
@@ -205,10 +205,9 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         return None
 
     event = first_payment.ticket.event
-    # The buyer's VAT-ID prefix (empty for consumers) decides the BE/PL domestic-B2B case.
-    if not compliance.attendee_invoicing_for_sale(
-        compliance.sale_nexus(org, [event]), billing_snapshot.get("vat_id")
-    ).allowed:
+    # The buyer (VAT-ID prefix + checkout VIES outcome) decides the BE/PL domestic-B2B case.
+    buyer = BuyerContext.from_billing_snapshot(billing_snapshot)
+    if not compliance.attendee_invoicing_for_sale(compliance.sale_nexus(org, [event]), buyer).allowed:
         # Defense in depth for orgs that enabled invoicing before the gate, moved
         # country, or sell into a restricted country (EU layer 1, #1057-#1067).
         logger.warning("attendee_invoice_skipped_country_compliance", org_slug=org.slug, session_id=stripe_session_id)
@@ -309,7 +308,20 @@ def invoice_compliance_decision(invoice: AttendeeInvoice) -> Decision:
     else:
         # The event's venue, or the seller-country snapshot when the event is gone.
         reach = compliance.sale_nexus(org, [event] if event else [], [] if event else [invoice.seller_vat_country])
-    return compliance.attendee_invoicing_for_sale(reach, invoice.buyer_vat_id)
+    return compliance.attendee_invoicing_for_sale(reach, _invoice_buyer(invoice))
+
+
+def _invoice_buyer(invoice: AttendeeInvoice) -> BuyerContext:
+    """The buyer of an existing invoice, with the checkout VIES outcome when it still applies.
+
+    A draft's buyer VAT ID can be edited after checkout; the recorded VIES status only
+    belongs to the ID it was taken for, so an edited ID is read from its prefix alone.
+    """
+    payment = Payment.objects.filter(stripe_session_id=invoice.stripe_session_id).only("buyer_billing_snapshot").first()
+    snapshot: t.Mapping[str, t.Any] = (payment.buyer_billing_snapshot if payment else None) or {}
+    if snapshot.get("vat_id") != invoice.buyer_vat_id:
+        snapshot = {"vat_id": invoice.buyer_vat_id}
+    return BuyerContext.from_billing_snapshot(snapshot)
 
 
 # ---------------------------------------------------------------------------

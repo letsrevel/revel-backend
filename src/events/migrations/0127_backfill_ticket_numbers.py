@@ -4,6 +4,12 @@ Numbers every ACTIVE/CHECKED_IN ticket per organization in ``created_at`` order 
 seeds each organization's sequence, so new tickets continue the series without gaps.
 ``issued_at`` is set to ``created_at`` (the real activation time was never recorded).
 Cancelled tickets stay unnumbered: whether they were ever issued is unknown.
+
+Deliberately irreversible. Once numbers are on delivered tickets (PDFs, wallet passes),
+clearing them and the per-org counters would let a re-apply, or the live numbering,
+hand the same number to a different ticket. Refusing the rollback is the only option
+that can never produce two tickets with one number; a no-op reverse would not help,
+because rolling back 0126 drops the columns anyway.
 """
 
 import re
@@ -50,15 +56,8 @@ def backfill(apps: t.Any, schema_editor: t.Any) -> None:
         sequence.save(update_fields=["last_number"])
 
 
-def unbackfill(apps: t.Any, schema_editor: t.Any) -> None:
-    """Clear every ticket number and sequence."""
-    Ticket = apps.get_model("events", "Ticket")
-    TicketNumberSequence = apps.get_model("events", "TicketNumberSequence")
-    Ticket.objects.update(ticket_series="", ticket_number=None, issued_at=None)
-    TicketNumberSequence.objects.all().delete()
-
-
 class Migration(migrations.Migration):
     dependencies = [("events", "0126_eu_compliance_ticket_numbers")]
 
-    operations = [migrations.RunPython(backfill, reverse_code=unbackfill)]
+    # No reverse_code: irreversible on purpose (see the module docstring).
+    operations = [migrations.RunPython(backfill)]

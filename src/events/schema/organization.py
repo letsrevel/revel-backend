@@ -86,6 +86,7 @@ class OrganizationComplianceSchema(Schema):
 
 
 def _compliance(obj: Organization) -> OrganizationComplianceSchema:
+    """Org-level capabilities for the organization's own country, effective today."""
     policy = get_policy(obj)
     return OrganizationComplianceSchema(
         country=policy.country,

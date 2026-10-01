@@ -78,11 +78,28 @@ class BuyerContext:
     vat_country: str = ""
 
     @classmethod
-    def from_vat_id(cls, vat_id: str | None) -> "BuyerContext":
-        """Build from the buyer's VAT ID (its two-letter prefix, ``EL`` normalized to ``GR``)."""
-        from events.compliance.registry import normalize_country_code
+    def from_billing_snapshot(cls, snapshot: t.Mapping[str, t.Any] | None) -> "BuyerContext":
+        """Build from a buyer billing snapshot: the one way callers turn buyer data into a context.
 
-        return cls(vat_country=normalize_country_code((vat_id or "").strip()[:2]))
+        The buyer counts as a business of the country in its VAT-ID prefix (``EL`` read
+        as ``GR``) unless VIES rejected the ID (``vat_id_status == "invalid"``): a
+        mistyped or made-up VAT ID makes the buyer a consumer, so a domestic-B2B gate
+        never skips their invoice. ``valid`` and ``unavailable`` (VIES down, or never
+        checked) count as business, the conservative reading. Legacy snapshots without
+        ``vat_id_status`` fall back to the prefix alone (business whether or not
+        ``vat_id_validated`` is set), as before the status was recorded.
+
+        Args:
+            snapshot: A ``BuyerBillingSnapshot`` (or any mapping with ``vat_id`` and,
+                optionally, ``vat_id_status``); ``None`` for no billing info.
+        """
+        from events.compliance.registry import normalize_country_code
+        from events.models.attendee_invoice import VatIdStatus
+
+        snapshot = snapshot or {}
+        if snapshot.get("vat_id_status") == VatIdStatus.INVALID:
+            return cls()
+        return cls(vat_country=normalize_country_code((snapshot.get("vat_id") or "").strip()[:2]))
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,15 +230,16 @@ class CountryCompliancePolicy(abc.ABC):
     @t.final
     def online_payment_capability(self) -> PaymentChannelCapability:
         """Online checkout for events held in this country, today."""
-        return _capability(self.online_payment(ALL_NEXUS))
+        return channel_capability(self.online_payment(ALL_NEXUS))
 
     @t.final
     def offline_payment_capability(self) -> PaymentChannelCapability:
         """Offline / at-the-door payment for events held in this country, today."""
-        return _capability(self.offline_payment(ALL_NEXUS))
+        return channel_capability(self.offline_payment(ALL_NEXUS))
 
 
-def _capability(decision: Decision) -> PaymentChannelCapability:
+def channel_capability(decision: Decision) -> PaymentChannelCapability:
+    """The payment-channel capability a decision amounts to (``allowed`` / ``blocked``)."""
     return PaymentChannelCapability.ALLOWED if decision.allowed else PaymentChannelCapability.BLOCKED
 
 

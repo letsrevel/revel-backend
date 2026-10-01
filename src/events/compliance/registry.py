@@ -34,6 +34,7 @@ def register(country: str) -> t.Callable[[_P], _P]:
         raise ImproperlyConfigured(f"Compliance policy country must be ISO 3166-1 alpha-2, got {country!r}.")
 
     def decorator(cls: _P) -> _P:
+        """Record ``cls`` as the policy for ``code``."""
         existing = _REGISTRY.get(code)
         if existing is not None and existing is not cls:
             raise ImproperlyConfigured(f"Two compliance policies for {code}: {existing!r} and {cls!r}.")

@@ -23,4 +23,5 @@ class TicketNumberSequence(models.Model):
     last_number = models.PositiveBigIntegerField(default=0)
 
     def __str__(self) -> str:  # pragma: no cover
+        """Series and last number handed out."""
         return f"{self.series} @ {self.last_number}"

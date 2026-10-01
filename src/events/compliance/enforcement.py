@@ -19,6 +19,7 @@ from events.compliance.base import (
     Nexus,
     PaymentChannelCapability,
     TicketComplianceField,
+    channel_capability,
     common_ticket_fields,
 )
 from events.compliance.registry import get_policy, get_policy_for_country, normalize_country_code, resolve_org_country
@@ -35,6 +36,7 @@ _ESTABLISHMENT: t.Final = frozenset({Nexus.ESTABLISHMENT})
 
 
 def _raise_if_blocked(decision: Decision) -> None:
+    """Raise ``CountryComplianceError`` with the policy's reason when the decision refuses."""
     if not decision.allowed:
         raise CountryComplianceError(decision.reason)
 
@@ -56,6 +58,7 @@ def sale_nexus(org: Organization, events: t.Iterable["Event"] = (), venue_countr
 
 
 def _first_refusal(decisions: t.Iterable[Decision]) -> Decision:
+    """The first refusal among ``decisions`` (the strictest country wins), else an approval."""
     return next((decision for decision in decisions if not decision.allowed), Decision.allow())
 
 
@@ -79,9 +82,13 @@ def attendee_invoicing_active(org: Organization) -> bool:
     )
 
 
-def attendee_invoicing_for_sale(reach: NexusMap, buyer_vat_id: str | None) -> Decision:
-    """The strictest invoicing decision among the countries reaching one sale, for one buyer."""
-    buyer = BuyerContext.from_vat_id(buyer_vat_id)
+def attendee_invoicing_for_sale(reach: NexusMap, buyer: BuyerContext) -> Decision:
+    """The strictest invoicing decision among the countries reaching one sale, for one buyer.
+
+    Args:
+        reach: The countries reaching the sale (see :func:`sale_nexus`).
+        buyer: Who the invoice is for; build it with :meth:`BuyerContext.from_billing_snapshot`.
+    """
     return _first_refusal(
         get_policy_for_country(country).attendee_invoicing(buyer, nexus) for country, nexus in reach.items()
     )
@@ -113,6 +120,7 @@ def payment_channel_decision(org: Organization, payment_method: str, events: t.I
 
 
 def _channel_decision(reach: NexusMap, payment_method: str) -> Decision:
+    """Ask every reaching country's policy about the channel ``payment_method`` uses."""
     policies = [(get_policy_for_country(c), nexus) for c, nexus in reach.items()]
     if payment_method == TicketTier.PaymentMethod.ONLINE:
         return _first_refusal(policy.online_payment(nexus) for policy, nexus in policies)
@@ -141,23 +149,19 @@ def event_compliance(event: "Event") -> EventCompliance:
     Select ``organization__city``, ``venue__city`` and ``city`` to keep this query-free.
     """
     reach = sale_nexus(event.organization, [event])
-    if not attendee_invoicing_for_sale(reach, None).allowed:
+    if not attendee_invoicing_for_sale(reach, BuyerContext()).allowed:
         invoicing = AttendeeInvoicingCapability.BLOCKED
-    elif any(not attendee_invoicing_for_sale(reach, country).allowed for country in reach):
+    elif any(not attendee_invoicing_for_sale(reach, BuyerContext(vat_country=country)).allowed for country in reach):
         # A buyer whose VAT ID is from one of the reaching countries would be refused.
         invoicing = AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
     else:
         invoicing = AttendeeInvoicingCapability.ALLOWED
     return EventCompliance(
         venue_country="" if event.is_virtual else normalize_country_code(event.effective_vat_country),
-        online_payment=_capability(_channel_decision(reach, TicketTier.PaymentMethod.ONLINE)),
-        offline_payment=_capability(_channel_decision(reach, TicketTier.PaymentMethod.OFFLINE)),
+        online_payment=channel_capability(_channel_decision(reach, TicketTier.PaymentMethod.ONLINE)),
+        offline_payment=channel_capability(_channel_decision(reach, TicketTier.PaymentMethod.OFFLINE)),
         attendee_invoicing=invoicing,
     )
-
-
-def _capability(decision: Decision) -> PaymentChannelCapability:
-    return PaymentChannelCapability.ALLOWED if decision.allowed else PaymentChannelCapability.BLOCKED
 
 
 def assert_sale_allowed(

@@ -33,7 +33,7 @@ from common.service.stripe_connect_service import (
 # Re-exported: the confirm path (stripe_webhooks) raises the same money invariant.
 from events.exceptions import SessionTotalMismatchError as SessionTotalMismatchError
 from events.models import Event, HeldSeriesPass, Organization, Payment, Ticket, TicketTier
-from events.models.attendee_invoice import BuyerBillingSnapshot
+from events.models.attendee_invoice import BuyerBillingSnapshot, VatIdStatus
 
 # Re-exported: the pending-checkout batch cleanup lives in its own module (file-length
 # limit) but callers and tests keep addressing it via the stripe_service namespace.
@@ -136,13 +136,19 @@ def _build_billing_snapshot(
     billing_info: "BuyerBillingInfoSchema",
     vat_id_validated: bool,
     reverse_charge: bool,
+    vat_id_status: str,
 ) -> BuyerBillingSnapshot:
-    """Build a buyer billing snapshot dict from checkout billing info."""
+    """Build a buyer billing snapshot dict from checkout billing info.
+
+    ``vat_id_status`` records the tri-state VIES outcome (valid / invalid / unavailable),
+    which the compliance gates read to tell real business buyers from mistyped VAT IDs.
+    """
     return BuyerBillingSnapshot(
         billing_name=billing_info.billing_name,
         vat_id=billing_info.vat_id,
         vat_country_code=billing_info.vat_country_code,
         vat_id_validated=vat_id_validated,
+        vat_id_status=vat_id_status,
         billing_address=billing_info.billing_address,
         billing_email=billing_info.billing_email,
         reverse_charge=reverse_charge,
@@ -433,6 +439,7 @@ def _create_payment_records(
     total_fee_vat: "PlatformFeeVATResult",
     billing_info: "BuyerBillingInfoSchema | None",
     buyer_vat_validated: bool,
+    vat_id_status: str,
     expires_at: datetime,
     reservation_id: UUID,
 ) -> None:
@@ -464,7 +471,7 @@ def _create_payment_records(
     billing_snapshot: BuyerBillingSnapshot | None = None
     if billing_info:
         is_reverse_charge = amounts[0].reverse_charge if amounts else False
-        billing_snapshot = _build_billing_snapshot(billing_info, buyer_vat_validated, is_reverse_charge)
+        billing_snapshot = _build_billing_snapshot(billing_info, buyer_vat_validated, is_reverse_charge, vat_id_status)
 
     payments = [
         Payment(
@@ -522,7 +529,11 @@ def resolve_attendee_vat_for_reserve(
         vat_country_code=billing_info.vat_country_code,
         timeout=VIES_CHECKOUT_TIMEOUT_SECONDS,
     )
-    return BuyerVATContext(buyer_country=buyer_country, buyer_vat_validated=bool(vat_id_valid))
+    return BuyerVATContext(
+        buyer_country=buyer_country,
+        buyer_vat_validated=bool(vat_id_valid),
+        vat_id_status=VatIdStatus.from_vies(billing_info.vat_id, vat_id_valid),
+    )
 
 
 @transaction.atomic
@@ -605,6 +616,7 @@ def reserve_batch_payments(
         total_fee_vat=total_fee_vat,
         billing_info=billing_info,
         buyer_vat_validated=buyer_vat_validated,
+        vat_id_status=buyer_vat_context.vat_id_status if buyer_vat_context else VatIdStatus.NONE,
         expires_at=expires_at,
         reservation_id=reservation_id,
     )
@@ -821,7 +833,8 @@ def reserve_series_pass_payments(
     # admission, IR 282/2011 Art. 32), so there is nothing to re-resolve per buyer.
     billing_snapshot: BuyerBillingSnapshot | None = None
     if billing_info:
-        billing_snapshot = _build_billing_snapshot(billing_info, False, False)
+        status = VatIdStatus.from_vies(billing_info.vat_id, None)  # never VIES-checked on this path
+        billing_snapshot = _build_billing_snapshot(billing_info, False, False, status)
 
     tier_map = TicketTier.objects.in_bulk([ticket.tier_id for ticket in tickets])
     payments = []
