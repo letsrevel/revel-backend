@@ -264,7 +264,7 @@ class TestSendSystemAnnouncementAdminView:
         assert response.status_code == 302
         assert response.url == reverse("admin:index")  # type: ignore[attr-defined]
 
-    @patch("notifications.admin.dispatch_notifications_batch")
+    @patch("notifications.service.system_announcement.dispatch_notifications_batch")
     def test_post_creates_and_dispatches(
         self,
         mock_dispatch: t.Any,
@@ -298,7 +298,7 @@ class TestSendSystemAnnouncementAdminView:
 
         mock_dispatch.delay.assert_called_once()
 
-    @patch("notifications.admin.dispatch_notifications_batch")
+    @patch("notifications.service.system_announcement.dispatch_notifications_batch")
     def test_post_with_url_sets_policy_url(
         self,
         mock_dispatch: t.Any,
@@ -321,7 +321,7 @@ class TestSendSystemAnnouncementAdminView:
         assert notif is not None
         assert notif.context["policy_url"] == "https://example.com/policy"
 
-    @patch("notifications.admin.dispatch_notifications_batch")
+    @patch("notifications.service.system_announcement.dispatch_notifications_batch")
     def test_post_without_url_omits_policy_url(
         self,
         mock_dispatch: t.Any,
@@ -337,7 +337,7 @@ class TestSendSystemAnnouncementAdminView:
         assert notif is not None
         assert "policy_url" not in notif.context
 
-    @patch("notifications.admin.dispatch_notifications_batch")
+    @patch("notifications.service.system_announcement.dispatch_notifications_batch")
     def test_post_with_include_guests(
         self,
         mock_dispatch: t.Any,
@@ -361,7 +361,7 @@ class TestSendSystemAnnouncementAdminView:
         assert regular_user.id in notified_users
         assert guest_user.id in notified_users
 
-    @patch("notifications.admin.dispatch_notifications_batch")
+    @patch("notifications.service.system_announcement.dispatch_notifications_batch")
     def test_post_excludes_guests_by_default(
         self,
         mock_dispatch: t.Any,
@@ -391,7 +391,7 @@ class TestSendSystemAnnouncementAdminView:
         assert response.status_code == 200
         assert response.context["form"].errors
 
-    @patch("notifications.admin.dispatch_notifications_batch")
+    @patch("notifications.service.system_announcement.dispatch_notifications_batch")
     def test_post_with_no_active_users_shows_info(
         self,
         mock_dispatch: t.Any,

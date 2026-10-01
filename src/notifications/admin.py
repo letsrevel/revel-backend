@@ -1,11 +1,9 @@
 """Django admin for notification models."""
 
-import functools
 import typing as t
 
 from django import forms
 from django.contrib import admin, messages
-from django.db import transaction
 from django.db.models import Count, QuerySet
 from django.http import HttpRequest, HttpResponseRedirect
 from django.template.response import TemplateResponse
@@ -15,15 +13,8 @@ from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.forms.widgets import WysiwygWidget
 from unfold.widgets import CHECKBOX_CLASSES, UnfoldAdminTextInputWidget
 
-from accounts.models import RevelUser
-from common.fields import sanitize_html
-from notifications.context_schemas import SystemAnnouncementContext
-from notifications.enums import NotificationType
 from notifications.models import EmailSuppression, Notification, NotificationDelivery, NotificationPreference
-from notifications.service.dispatcher import NotificationData, bulk_create_notifications
-from notifications.tasks import dispatch_notifications_batch
-
-BATCH_SIZE = 500
+from notifications.service import system_announcement
 
 
 class SystemAnnouncementForm(forms.Form):
@@ -192,49 +183,20 @@ class NotificationAdmin(ModelAdmin):  # type: ignore[misc]
         form = SystemAnnouncementForm(request.POST or None)
 
         if request.method == "POST" and form.is_valid():
-            title: str = form.cleaned_data["title"]
-            body: str = form.cleaned_data["body"]
-            url: str = form.cleaned_data.get("url") or ""
-            include_guests: bool = form.cleaned_data["include_guests"]
-
-            # Build context
-            context: SystemAnnouncementContext = {
-                "announcement_title": title,
-                "announcement_body": sanitize_html(body),
-            }
-            if url:
-                context["policy_url"] = url
-
-            # Query target users (exclude the sender)
-            users = RevelUser.objects.filter(is_active=True).exclude(pk=request.user.pk)
-            if not include_guests:
-                users = users.filter(guest=False)
-
-            user_count = users.count()
-            if user_count == 0:
+            context = system_announcement.build_context(
+                title=form.cleaned_data["title"],
+                body=form.cleaned_data["body"],
+                url=form.cleaned_data.get("url") or "",
+            )
+            recipients = system_announcement.get_recipients(
+                include_guests=form.cleaned_data["include_guests"],
+                exclude_user=request.user,
+            )
+            if not recipients.exists():
                 messages.info(request, "No active users found matching the criteria.")
                 return HttpResponseRedirect(reverse("admin:notifications_notification_changelist"))
 
-            # Create and dispatch in batches
-            total_created = 0
-            for batch_start in range(0, user_count, BATCH_SIZE):
-                batch_users = users[batch_start : batch_start + BATCH_SIZE]
-                notifications_data = [
-                    NotificationData(
-                        notification_type=NotificationType.SYSTEM_ANNOUNCEMENT,
-                        user=user,
-                        context=dict(context),
-                    )
-                    for user in batch_users
-                ]
-                created = bulk_create_notifications(notifications_data)
-                batch_ids = [str(n.id) for n in created]
-                # functools.partial binds batch_ids eagerly so each deferred dispatch
-                # gets its own batch (a lambda would capture the loop variable and fire
-                # the last batch repeatedly once the request transaction commits).
-                transaction.on_commit(functools.partial(dispatch_notifications_batch.delay, batch_ids))
-                total_created += len(batch_ids)
-
+            total_created = system_announcement.send(context, recipients)
             messages.success(
                 request,
                 f"System announcement sent to {total_created} users.",
