@@ -140,20 +140,22 @@ still has sends left.
 | Trigger | When | Cap |
 |---|---|---|
 | `draft_event` | A draft (not a series template) untouched for 14 days whose start is still ahead | 2 per org |
-| `private_profile` | Visibility is `private` (the default) or `staff-only`. `members-only` and `unlisted` count as deliberate | 2 per org |
+| `private_profile` | Visibility is `private` (the default) or `staff-only` and nothing published yet. `members-only`, `unlisted`, and a private org that publishes events count as deliberate | 2 per org |
 | `no_events` | 14 days old and no event at all, not even a draft | 2 per org |
-| `check_in` | Never published an event, already had a nudge, and the triggers above are used up. Plain text from a person, signed `ORG_NUDGE_SIGNATURE`. Needs `ORG_NUDGE_REPLY_TO` | 1 per org |
+| `check_in` | Never published an event, already had a nudge, and the triggers above are used up or no longer apply. Plain text from a person, signed `ORG_NUDGE_SIGNATURE`. Needs `ORG_NUDGE_REPLY_TO` | 1 per org |
 | `dormant` | Published before, the last event ended over 90 days ago, nothing upcoming | 1 per quiet spell (keyed on the last event) |
 
 - Only the owner is emailed, and only once the organization is 7 days old and the owner is active,
-  verified and not a guest.
+  verified and not a guest. Owners on a digest cadence are skipped: the digest only bundles unread
+  notifications, so a nudge read in-app first would never be emailed.
 - At most one nudge per organization every 14 days. The second nudge for a trigger says it is the
   last one.
 - Owners who opted out (or whose address is suppressed) are skipped **before** planning, so they
   never use up a cap.
 - Caps are rows in `OrganizationNudge`, enforced by a unique constraint. They are not
   `Notification` rows, which are pruned after `NOTIFICATION_RETENTION_DAYS`. The log is read-only
-  in the admin under Organizations, Setup Nudges. Deleting a row lets that trigger fire again.
+  in the admin under Organizations, Setup Nudges. Deleting a row frees that one slot, so the
+  trigger can fire once more.
 - There is no open or click tracking. Whether a nudge worked shows in the organization's state.
 
 ## Per-organization announcement mute

@@ -343,3 +343,75 @@ def test_draft_nudge_links_to_the_draft_editor(mock_delay: MagicMock, stalled_or
     context = nudge.notification.context
     assert context["event_name"] == "Summer party"
     assert context["action_url"].endswith(f"/org/stalled/admin/events/{draft.id}/edit")
+
+
+# --- Review fixes ---
+
+
+def test_private_org_that_publishes_is_left_alone(stalled_org: Organization) -> None:
+    """An invite-only community with published events is private on purpose."""
+    _make_event(stalled_org, status=Event.EventStatus.OPEN, start_in_days=10)
+    assert _plan(stalled_org) is None
+
+
+def test_deleting_a_row_frees_exactly_that_slot(stalled_org: Organization) -> None:
+    """Admin re-arm: #1 deleted, #2 kept -> one more nudge, as sequence 1 and marked last."""
+    _record(stalled_org, Trigger.PRIVATE_PROFILE, 2, days_ago=20)
+
+    plan = _plan(stalled_org)
+
+    assert plan is not None
+    assert (plan.trigger, plan.sequence, plan.is_last) == (Trigger.PRIVATE_PROFILE, 1, True)
+
+
+@patch("notifications.tasks.dispatch_notification.delay")
+def test_rearmed_slot_sends_without_a_validation_error(mock_delay: MagicMock, stalled_org: Organization) -> None:
+    _record(stalled_org, Trigger.PRIVATE_PROFILE, 2, days_ago=20)
+
+    plan = org_nudge_service.send_nudge(stalled_org, now=NOW)
+
+    assert plan is not None
+    assert sorted(
+        OrganizationNudge.objects.filter(trigger=Trigger.PRIVATE_PROFILE).values_list("sequence", flat=True)
+    ) == [1, 2]
+
+
+def test_digest_owner_is_skipped(stalled_org: Organization, owner: RevelUser) -> None:
+    """The digest only bundles unread notifications: a nudge read in-app would burn a cap unseen."""
+    NotificationPreference.objects.filter(user=owner).update(
+        digest_frequency=NotificationPreference.DigestFrequency.DAILY
+    )
+    assert _plan(stalled_org) is None
+
+
+@patch("notifications.tasks.dispatch_notification.delay")
+def test_send_rechecks_owner_reachability_under_the_lock(
+    mock_delay: MagicMock, stalled_org: Organization, owner: RevelUser
+) -> None:
+    """An owner who opts out between planning and sending burns no cap."""
+    assert _plan(stalled_org) is not None
+    NotificationPreference.objects.filter(user=owner).update(silence_all_notifications=True)
+
+    assert org_nudge_service.send_nudge(stalled_org, now=NOW) is None
+    assert not OrganizationNudge.objects.exists()
+
+
+@patch("notifications.tasks.dispatch_notification.delay")
+def test_one_failing_org_does_not_stop_the_batch(mock_delay: MagicMock, stalled_org: Organization) -> None:
+    other_owner = RevelUser.objects.create_user(username="other@example.com", email="other@example.com")
+    other_owner.email_verified = True
+    other_owner.save(update_fields=["email_verified"])
+    other = Organization.objects.create(name="Other", slug="other", owner=other_owner)
+    _backdate(other, 21)
+    real_send = org_nudge_service.send_nudge
+
+    def flaky(org: Organization, now: datetime.datetime | None = None) -> org_nudge_service.PlannedNudge | None:
+        if org.pk == stalled_org.pk:
+            raise RuntimeError("boom")
+        return real_send(org, now)
+
+    with patch.object(org_nudge_service, "send_nudge", side_effect=flaky):
+        sent = org_nudge_service.send_nudges(now=NOW)
+
+    assert [plan.organization.pk for plan in sent] == [other.pk]
+    assert OrganizationNudge.objects.filter(organization=other).exists()

@@ -18,10 +18,12 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from accounts.models import RevelUser
 from accounts.utils.email_normalization import normalize_email_for_matching
 from common.models import SiteSettings
 from events.models import Event, Organization, OrganizationNudge
 from notifications.enums import NotificationType
+from notifications.models import NotificationPreference
 from notifications.service.dispatcher import create_notification
 from notifications.service.email_policy import may_email, suppressed_addresses
 
@@ -60,13 +62,9 @@ class PlannedNudge:
     organization: Organization
     trigger: str
     sequence: int
+    is_last: bool  # the final send left for this trigger (the copy says so)
     episode_key: str = ""
     target_event: Event | None = None
-
-    @property
-    def is_last(self) -> bool:
-        """Whether this is the final nudge for its trigger (the copy says so)."""
-        return self.sequence >= CAPS[self.trigger]
 
 
 def _real_events(org: Organization) -> "QuerySet[Event]":
@@ -85,8 +83,16 @@ def _draft_event(org: Organization, now: datetime.datetime) -> _Match | None:
 
 
 def _private_profile(org: Organization, now: datetime.datetime) -> _Match | None:
-    """Profile hidden from everyone but staff (PRIVATE is the default). MEMBERS_ONLY/UNLISTED are deliberate."""
-    return _Match() if org.visibility in _HIDDEN_VISIBILITIES else None
+    """Profile hidden from everyone but staff (PRIVATE is the default) and nothing published yet.
+
+    MEMBERS_ONLY/UNLISTED are deliberate. So is PRIVATE on an org that already publishes
+    events: that is an invite-only community, not a forgotten setting.
+    """
+    if org.visibility not in _HIDDEN_VISIBILITIES:
+        return None
+    if _real_events(org).filter(status__in=_PUBLISHED_STATUSES).exists():
+        return None
+    return _Match()
 
 
 def _no_events(org: Organization, now: datetime.datetime) -> _Match | None:
@@ -136,34 +142,44 @@ def _plan_for_org(org: Organization, now: datetime.datetime) -> PlannedNudge | N
         match = rule(org, now)
         if match is None:
             continue
-        sent = org.nudges.filter(trigger=trigger, episode_key=match.episode_key).count()
-        if sent >= CAPS[trigger]:
+        used = set(org.nudges.filter(trigger=trigger, episode_key=match.episode_key).values_list("sequence", flat=True))
+        # First free slot, not count()+1: deleting a row in the admin re-arms exactly that slot.
+        free = [sequence for sequence in range(1, CAPS[trigger] + 1) if sequence not in used]
+        if not free:
             continue
-        return PlannedNudge(org, trigger, sent + 1, match.episode_key, match.target_event)
+        return PlannedNudge(org, trigger, free[0], len(free) == 1, match.episode_key, match.target_event)
     return None
+
+
+def _owner_reachable(owner: RevelUser, suppressed: set[str]) -> bool:
+    """Whether a nudge would actually reach the owner by email, right now.
+
+    Checked before planning (and again under the lock) so an unreachable owner never
+    burns a cap. Digest owners are skipped: the digest only bundles *unread* notifications,
+    so a nudge read in-app first would use a cap without ever being emailed.
+    """
+    return (
+        owner.is_active
+        and not owner.guest
+        and owner.email_verified
+        and owner.notification_preferences.digest_frequency == NotificationPreference.DigestFrequency.IMMEDIATE
+        and may_email(owner, NotificationType.ORG_SETUP_NUDGE)
+        and normalize_email_for_matching(owner.email) not in suppressed
+    )
 
 
 def _eligible_organizations(now: datetime.datetime, organization: Organization | None) -> list[Organization]:
     """Orgs past the grace period whose owner is a real, reachable, opted-in user."""
-    qs = Organization.objects.filter(
-        created_at__lte=now - NEW_ORG_GRACE,
-        owner__is_active=True,
-        owner__guest=False,
-        owner__email_verified=True,
-    ).select_related("owner__notification_preferences")
+    qs = Organization.objects.filter(created_at__lte=now - NEW_ORG_GRACE).select_related(
+        "owner__notification_preferences"
+    )
     if organization is not None:
         qs = qs.filter(pk=organization.pk)
     # ponytail: per-org rule queries (~5 each) — fine for hundreds of orgs on a daily beat;
     # batch the rule queries with annotations if this ever runs over thousands.
     orgs = list(qs)
     suppressed = suppressed_addresses(org.owner.email for org in orgs)
-    return [
-        org
-        for org in orgs
-        # Check opt-out/suppression up front so an unreachable owner never burns a cap.
-        if may_email(org.owner, NotificationType.ORG_SETUP_NUDGE)
-        and normalize_email_for_matching(org.owner.email) not in suppressed
-    ]
+    return [org for org in orgs if _owner_reachable(org.owner, suppressed)]
 
 
 def plan_nudges(now: datetime.datetime | None = None, organization: Organization | None = None) -> list[PlannedNudge]:
@@ -210,8 +226,8 @@ def _context(plan: PlannedNudge) -> dict[str, t.Any]:
 def send_nudge(organization: Organization, now: datetime.datetime | None = None) -> PlannedNudge | None:
     """Re-plan one org under a row lock and send its nudge, if it still has one.
 
-    The lock serialises overlapping runs (spacing and caps are re-checked inside it);
-    the unique constraint on OrganizationNudge is the backstop.
+    The lock serialises overlapping runs: owner reachability, spacing and caps are all
+    re-checked inside it. The unique constraint on OrganizationNudge is the backstop.
 
     Args:
         organization: The organization to nudge.
@@ -224,7 +240,13 @@ def send_nudge(organization: Organization, now: datetime.datetime | None = None)
 
     now = now or timezone.now()
     with transaction.atomic():
-        org = Organization.objects.select_for_update().select_related("owner").get(pk=organization.pk)
+        org = (
+            Organization.objects.select_for_update(of=("self",))  # lock the org row only (outer joins)
+            .select_related("owner__notification_preferences")
+            .get(pk=organization.pk)
+        )
+        if not _owner_reachable(org.owner, suppressed_addresses([org.owner.email])):
+            return None
         plan = _plan_for_org(org, now)
         if plan is None:
             return None
@@ -258,5 +280,15 @@ def send_nudges(now: datetime.datetime | None = None, organization: Organization
         The nudges actually sent.
     """
     now = now or timezone.now()
-    sent = [send_nudge(plan.organization, now) for plan in plan_nudges(now, organization)]
-    return [plan for plan in sent if plan is not None]
+    sent: list[PlannedNudge] = []
+    for planned in plan_nudges(now, organization):
+        # Isolate failures per org: one broken org would otherwise stop the batch every
+        # day (it plans first again tomorrow). The error is still logged with its org.
+        try:
+            plan = send_nudge(planned.organization, now)
+        except Exception:
+            logger.exception("org_nudge_failed", organization_id=str(planned.organization.id))
+            continue
+        if plan is not None:
+            sent.append(plan)
+    return sent

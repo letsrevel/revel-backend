@@ -12,7 +12,7 @@ from events.admin.base import OrganizationLinkMixin
 class OrganizationNudgeAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Read-only log of setup nudges sent to org owners.
 
-    Deleting a row is allowed on purpose: it re-arms that trigger's cap for the org.
+    Deleting a row is allowed on purpose: it frees that sequence slot, so the trigger can fire once more.
     """
 
     list_display = ["__str__", "organization_link", "trigger", "sequence", "episode_key", "created_at"]
