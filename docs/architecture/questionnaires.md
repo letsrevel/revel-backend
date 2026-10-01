@@ -380,7 +380,7 @@ The LLM provider is configured via Django settings (see `revel/settings/llm.py`)
 ```bash
 # Model identifier including provider prefix: "provider/model-name"
 LLM_DEFAULT_MODEL="ollama/llama3.1:8b"  # Ollama (default for local dev)
-# LLM_DEFAULT_MODEL="openai/gpt-4o-mini"  # OpenAI (production)
+# LLM_DEFAULT_MODEL="openai/gpt-4o-mini"  # OpenAI (hosted provider example)
 
 # API key — not needed for local providers like Ollama
 # LLM_API_KEY=sk-...

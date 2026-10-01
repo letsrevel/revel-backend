@@ -164,7 +164,7 @@ The LLM system is configured via environment variables:
 ```bash
 # Model identifier including provider prefix: "provider/model-name"
 LLM_DEFAULT_MODEL="ollama/llama3.1:8b"  # Local dev (default)
-# LLM_DEFAULT_MODEL="openai/gpt-4o-mini"  # Production
+# LLM_DEFAULT_MODEL="openai/gpt-4o-mini"  # Hosted provider example
 LLM_MAX_RETRIES=3
 
 # API key — not needed for local providers like Ollama
