@@ -30,6 +30,7 @@ from events.tasks.organization import (
     notify_admin_new_organization_pushover,
     reset_demo_data,
     send_organization_contact_email_verification,
+    send_org_nudges,
     send_organization_contact_message_email,
 )
 from events.tasks.payments import cleanup_expired_payments, cleanup_ticket_file_cache
@@ -96,6 +97,7 @@ __all__ = [
     "send_guest_ticket_confirmation",
     "send_invoice_email_task",
     "send_organization_contact_email_verification",
+    "send_org_nudges",
     "send_organization_contact_message_email",
     "send_scheduled_announcements",
     "send_scheduled_revenue_reports_task",

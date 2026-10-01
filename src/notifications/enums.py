@@ -61,6 +61,7 @@ class NotificationType(TextChoices):
     # Organization notifications
     ORG_ANNOUNCEMENT = "org_announcement"
     ORG_CONTACT_MESSAGE_RECEIVED = "org_contact_message_received"  # Notify org admins of contact form submissions
+    ORG_SETUP_NUDGE = "org_setup_nudge"  # Revel nudges a stalled org's owner (private profile, forgotten draft, ...)
 
     # Waitlist notifications
     WAITLIST_SPOT_AVAILABLE = "waitlist_spot_available"
@@ -127,6 +128,10 @@ MANDATORY_TYPES: frozenset[str] = TRANSACTIONAL_TYPES | {
     NotificationType.ACCOUNT_BANNED,
     NotificationType.SYSTEM_ANNOUNCEMENT,
 }
+
+# Revel-written, opt-out-able mail that isn't org-sent but should still carry one-click
+# List-Unsubscribe (bulk-sender rules for promotional-ish mail).
+PLATFORM_LIST_UNSUBSCRIBE_TYPES: frozenset[str] = frozenset({NotificationType.ORG_SETUP_NUDGE})
 
 # Org-written AND org-pushed mail: sent as "<Org> via Revel" <slug@ORG_EMAIL_DOMAIN>, with List-Unsubscribe.
 ORG_SENDER_TYPES: frozenset[str] = frozenset(

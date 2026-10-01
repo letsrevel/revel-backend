@@ -39,6 +39,43 @@ class OrgContactMessageReceivedTemplate(NotificationTemplate):
         return _("New contact message: %(org)s") % {"org": org_name}
 
 
+class OrgSetupNudgeTemplate(NotificationTemplate):
+    """Template for ORG_SETUP_NUDGE (to the org owner); copy branches on ``context.trigger``.
+
+    The ``check_in`` trigger is a personal, plain-text note (no HTML alternative, no button)
+    so it reads like the founder wrote it, not like a campaign.
+    """
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return self.get_email_subject(notification)
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        ctx = notification.context
+        params = {"org": ctx.get("organization_name", ""), "event": ctx.get("event_name", "")}
+        match ctx.get("trigger"):
+            case "draft_event":
+                return _('Your draft "%(event)s" is still waiting') % params
+            case "private_profile":
+                return _("Only you can see %(org)s on Revel") % params
+            case "no_events":
+                return _("Your first event on %(org)s") % params
+            case "check_in":
+                return _("A quick question about %(org)s") % params
+            case "dormant":
+                return _("Planning the next %(org)s event?") % params
+            case _:
+                return _("A note about %(org)s") % params
+
+    def get_email_html_body(self, notification: Notification) -> str | None:
+        """Plain text only for the personal check-in; branded HTML otherwise."""
+        if notification.context.get("trigger") == "check_in":
+            return None
+        return super().get_email_html_body(notification)
+
+
 # Register templates
 register_template(NotificationType.ORG_ANNOUNCEMENT, OrgAnnouncementTemplate())
 register_template(NotificationType.ORG_CONTACT_MESSAGE_RECEIVED, OrgContactMessageReceivedTemplate())
+register_template(NotificationType.ORG_SETUP_NUDGE, OrgSetupNudgeTemplate())

@@ -1,0 +1,37 @@
+{%load i18n %}{%trans "Hello"%} {{user.display_name}},
+
+{%if context.trigger == "check_in"%}{%blocktranslate with org=context.organization_name %}I saw that {{ org }} hasn't published an event on Revel yet, and I'd like to know what's in the way.{%endblocktranslate%}
+
+{%trans "If something is missing or doesn't work the way you expected, reply to this email. It comes straight to me. If Revel isn't the right fit for you, that's useful to hear too."%}
+
+{{context.signature}}
+{%elif context.trigger == "draft_event"%}{%blocktranslate with event=context.event_name %}You started an event called "{{ event }}" a while ago. It's still a draft, so nobody can see it yet.{%endblocktranslate%}
+
+{%trans "If it's still happening, pick up where you left off and publish it when it's ready. If plans changed, you can delete the draft or ignore this email."%}
+
+{%trans "Open the draft"%}: {{context.action_url}}
+{%if context.is_last%}
+{%trans "This is the last reminder we'll send about drafts."%}
+{%endif%}{%elif context.trigger == "private_profile"%}{%blocktranslate with org=context.organization_name %}{{ org }} is hidden from the public right now. New organizations on Revel start out private.{%endblocktranslate%}
+
+{%trans "When you're ready for people to find you, change the visibility in your organization settings. If you're keeping it private on purpose, you can ignore this email."%}
+
+{%trans "Open settings"%}: {{context.action_url}}
+{%if context.is_last%}
+{%trans "This is the last reminder we'll send about this."%}
+{%endif%}{%elif context.trigger == "no_events"%}{%blocktranslate with org=context.organization_name %}You set up {{ org }} on Revel a while ago, and there are no events in it yet.{%endblocktranslate%}
+
+{%trans "You can start with a draft. Nobody sees it until you publish it."%}
+
+{%trans "Create an event"%}: {{context.action_url}}
+{%if context.is_last%}
+{%trans "This is the last reminder we'll send about this."%}
+{%endif%}{%elif context.trigger == "dormant"%}{%blocktranslate with org=context.organization_name event=context.event_name %}The last event on {{ org }} was "{{ event }}", and nothing new is scheduled.{%endblocktranslate%}
+
+{%trans "When you start planning the next one, you can duplicate a past event instead of setting everything up again."%}
+
+{%trans "Create an event"%}: {{context.action_url}}
+{%endif%}{%if context.can_reply and context.trigger != "check_in"%}
+{%trans "If you have questions or feedback, reply to this email. A person reads every reply."%}
+{%endif%}
+{% include "notifications/email/_footer.txt" %}
