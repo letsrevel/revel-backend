@@ -51,6 +51,7 @@ class Nexus(enum.StrEnum):
 
 
 ALL_NEXUS: t.Final = frozenset(Nexus)
+ESTABLISHMENT_ONLY: t.Final = frozenset({Nexus.ESTABLISHMENT})
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,9 +209,13 @@ def in_force(nexus: frozenset[Nexus], applies_on: frozenset[Nexus], since: datet
 class CountryCompliancePolicy(abc.ABC):
     """The hooks every country policy answers. Call sites use nothing else.
 
-    Every hook takes the ``nexus`` through which this country reaches the sale. The
-    capabilities exposed to the frontend are derived from the hooks (for the org's own
-    country, at today's date), so they can never disagree with what is enforced.
+    Every hook takes the ``nexus`` through which this country reaches the sale.
+
+    The org-level capabilities exposed to the frontend are these hooks evaluated for the
+    organization's own country, today: payment channels for events held there
+    (establishment + venue), and attendee invoicing for the organization's establishment
+    (the same probe ``enforcement.assert_attendee_invoicing_allowed`` uses). Events held
+    elsewhere are evaluated by ``enforcement.event_compliance``.
 
     Add a hook here, with a permissive default in :class:`DefaultEUPolicy`, when a later
     layer needs one (fiscalization provider, retention period, exports). Existing
@@ -244,9 +249,9 @@ class CountryCompliancePolicy(abc.ABC):
     @t.final
     def attendee_invoicing_capability(self) -> AttendeeInvoicingCapability:
         """Invoicing as it applies to an organizer established here, today."""
-        if not self.attendee_invoicing(BuyerContext(), ALL_NEXUS).allowed:
+        if not self.attendee_invoicing(BuyerContext(), ESTABLISHMENT_ONLY).allowed:
             return AttendeeInvoicingCapability.BLOCKED
-        if not self.attendee_invoicing(BuyerContext(vat_country=self.country), ALL_NEXUS).allowed:
+        if not self.attendee_invoicing(BuyerContext(vat_country=self.country), ESTABLISHMENT_ONLY).allowed:
             return AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
         return AttendeeInvoicingCapability.ALLOWED
 

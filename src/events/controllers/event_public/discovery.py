@@ -246,6 +246,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         response={
             200: schema.EventRSVPSchema | schema.BatchCheckoutResponse,
             400: EventUserEligibility | ErrorDetail,
+            422: ErrorDetail,
         },
         throttle=WriteThrottle(),
     )
@@ -258,6 +259,8 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         to prevent reuse. Returns the created RSVP or BatchCheckoutResponse with tickets on success.
         Returns 400 if token is invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
         Returns 403 if the tier's purchase rule or sale window rejects the buyer at confirmation time.
+        Returns 422 if the tier was switched to a payment channel blocked where the event is held
+        after the token was minted (``CountryComplianceError``).
         """
         from events.service.guest_hold_session import GUEST_HOLD_COOKIE, resolve_guest_session
 

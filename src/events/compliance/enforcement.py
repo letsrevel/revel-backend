@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from events.compliance.base import (
+    ESTABLISHMENT_ONLY,
     AttendeeInvoicingCapability,
     BuyerContext,
     ComplianceNotice,
@@ -32,8 +33,6 @@ if t.TYPE_CHECKING:
     from events.models import Event, Ticket
 
 NexusMap = dict[str, frozenset[Nexus]]
-
-_ESTABLISHMENT: t.Final = frozenset({Nexus.ESTABLISHMENT})
 
 
 def _raise_if_blocked(decision: Decision) -> None:
@@ -72,7 +71,7 @@ def assert_attendee_invoicing_allowed(org: Organization) -> None:
     Raises:
         CountryComplianceError: If the organization's country blocks attendee invoicing today.
     """
-    _raise_if_blocked(get_policy(org).attendee_invoicing(BuyerContext(), _ESTABLISHMENT))
+    _raise_if_blocked(get_policy(org).attendee_invoicing(BuyerContext(), ESTABLISHMENT_ONLY))
 
 
 def attendee_invoicing_active(org: Organization) -> bool:
@@ -201,14 +200,17 @@ def tier_channel_decision(tier: TicketTier) -> Decision:
 def assert_tier_allowed(tier: TicketTier, *, was_allowed: bool = True) -> None:
     """Gate a tier create or update against the payment-channel policies.
 
-    Refuses a new tier, or an update into a configuration, that would take money through
-    a blocked channel. A tier already in such a configuration before the gate stays
-    editable (rename, pause, switch to offline or free): checkout refuses selling it
-    either way, so organizers are never locked out of their own data.
+    Refuses a new tier, an update into a configuration, or resuming sales of a tier,
+    when the result would take money through a blocked channel. Resuming counts as a
+    create (#945: "200 on resume, then a dead checkout" is a bug). A tier already in such
+    a configuration before the gate otherwise stays editable (rename, pause, switch to
+    offline or free): checkout refuses selling it either way, so organizers are never
+    locked out of their own data.
 
     Args:
         tier: The tier in its would-be state (unsaved on create, mutated on update), with ``event`` set.
-        was_allowed: :func:`tier_channel_decision` of the stored tier before the update; True on create.
+        was_allowed: :func:`tier_channel_decision` of the stored tier before the update; True on
+            create and when the update resumes sales.
 
     Raises:
         CountryComplianceError: If the tier would newly use a blocked payment channel.

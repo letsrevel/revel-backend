@@ -173,8 +173,14 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         stripe_session_id: The Stripe checkout session ID.
 
     Returns:
-        The created AttendeeInvoice, or None if conditions aren't met.
+        The created (or already existing) AttendeeInvoice, or None if conditions aren't met.
     """
+    # Idempotency first: a retry for a session that already has its invoice returns it, even if
+    # the compliance gate below would now refuse (e.g. the event's VAT country changed since).
+    # The in-transaction check further down still guards the concurrent-creation race.
+    if existing := AttendeeInvoice.objects.filter(stripe_session_id=stripe_session_id).first():
+        return existing
+
     payments = list(
         Payment.objects.filter(
             stripe_session_id=stripe_session_id,
