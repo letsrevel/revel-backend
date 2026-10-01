@@ -19,12 +19,14 @@ Every ticket PDF and Apple/Google Wallet pass carries the following, whatever th
 
 - **Organizer**: the organization's billing name, or its display name if no billing name is set.
 - **Tax ID**: the organization's VAT ID, when one is set.
-- **Ticket number**: a gap-free sequential number per organization, in the form `SERIES-000123`.
+- **Ticket number**: a sequential number per organization, in the form `SERIES-000123`.
     - The series is derived from the organization's slug when its first ticket is numbered, and never
       changes afterwards.
     - The number is assigned atomically when the ticket is first issued (it becomes ACTIVE or
       CHECKED_IN), never while it is pending.
-    - Numbers are never reused, and cancelled tickets keep theirs.
+    - Numbers are assigned without gaps and never reused, and cancelled tickets keep theirs. Holes
+      appear only if numbered tickets are later deleted, because tickets are still removed when their
+      event, tier or user account is deleted ([#1068](https://github.com/letsrevel/revel-backend/issues/1068)).
 - **Issued**: the issue date and time.
 - **Price**: the price paid including VAT (for example `EUR 25.00`), or "Free" for zero-price tickets.
 - **Tax notice**: "This ticket is not a tax invoice or receipt."

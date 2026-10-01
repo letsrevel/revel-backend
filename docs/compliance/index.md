@@ -94,6 +94,9 @@ it takes effect.
 - **Organizer notices, no gates**: Austria (door payments go through the organizer's own
   Registrierkasse) and Denmark (covered businesses record Revel sales in their own system).
 - Credit notes and issuing pre-gate drafts follow the same invoice gate.
+  When a credit note is skipped, the organizer still learns of the refund through the
+  `TICKET_REFUNDED` notification (sent to the ticket holder and the organization's staff and owners)
+  and must correct the invoice in its own system.
 - **Online payment blocked** for events held in Italy, where paid tickets sold online must be issued by
   a ticketing system approved by the Agenzia delle Entrate. Offline, bank-transfer and at-the-door
   payments confirmed by the organizer still work.
