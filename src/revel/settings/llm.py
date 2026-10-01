@@ -7,7 +7,7 @@ from decouple import config
 # Local development (Ollama — default, no API key needed):
 #   LLM_DEFAULT_MODEL=ollama/llama3.1:8b
 #
-# Production (OpenAI):
+# Hosted provider, e.g. OpenAI:
 #   LLM_DEFAULT_MODEL=openai/gpt-4o-mini
 #   LLM_API_KEY=sk-...
 #
