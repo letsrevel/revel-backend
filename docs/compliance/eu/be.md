@@ -17,7 +17,9 @@ for these transactions. B2C invoices are not covered.
 - **Attendee invoicing can be enabled.** HYBRID and AUTO are not refused for Belgian organizations.
 - **Domestic B2B invoices are skipped.** For organizers established in Belgium, invoice generation,
   issuing an existing draft (including drafts created before the gate) and credit notes are skipped
-  only when the **buyer's VAT ID starts with `BE`**. The organizer must issue that invoice through
+  only when the **buyer's VAT ID starts with `BE`** and VIES confirmed it as valid at checkout or
+  could not be reached. A VAT ID that VIES rejected (a typo, a made-up number) makes the buyer a
+  consumer, who gets Revel's invoice as usual. The organizer must issue that invoice through
   Peppol with its own e-invoicing software.
 - **Consumers and cross-border business buyers** still receive Revel's PDF invoice.
 - **Foreign organizers' events held in Belgium are not affected**: the Peppol mandate excludes
