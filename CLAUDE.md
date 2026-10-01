@@ -384,7 +384,7 @@ Non-negotiable, project-specific:
 - **Do not run the full test suit. Run the tests that cover the code you modified..**
 - **Never commit to `main`.** Feature branches: `feature/issue-number-description` /
   `fix/issue-number-description`. Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `chore:`).
-- **Always ask before committing** — show `git status` and draft the message first.
+- **On any branch other than `main`, commit and push freely** — no approval needed (decided 2026-10-01). Never commit or push to `main`.
 - **Always discuss the approach before writing code for non-trivial changes** (Principle #1).
 - **UV, never pip.** **Models never import services.**
 - **Avoid circular dependencies.**
