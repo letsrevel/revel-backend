@@ -14,6 +14,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.compliance import enforcement as compliance
 from events.exceptions import (
     BillingInfoRequiredError,
     StripeNotConnectedError,
@@ -503,6 +504,8 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
     payload_dict = payload.model_dump(exclude_unset=True, mode="json")
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
     _drop_null_category_prices(payload_dict)
+    # Before the write: a handled exception does not roll back under ATOMIC_REQUESTS.
+    compliance.assert_tier_allowed(TicketTier(event=event, **payload_dict))
 
     # Append new tiers at the bottom of the list unless the caller pinned an explicit
     # position. Model ordering is ["event", "display_order", "name"], so a new tier left
@@ -607,9 +610,13 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
         effective_method = TicketTier.PaymentMethod(payload_dict.get("payment_method", tier.payment_method))
         check_online_tier_prerequisites(tier.event.organization, effective_method)
 
+    was_paid = compliance.tier_is_paid(tier)
+
     # Update regular fields
     for field, value in payload_dict.items():
         setattr(tier, field, value)
+
+    compliance.assert_tier_allowed(tier, was_paid=was_paid)
 
     if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel

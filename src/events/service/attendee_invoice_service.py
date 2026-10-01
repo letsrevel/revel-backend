@@ -18,6 +18,8 @@ from ninja.errors import HttpError
 from common.constants import EU_MEMBER_STATES
 from common.service.invoice_utils import get_next_sequential_number, render_pdf
 from common.utils import apex_email_domain, is_reserved_mailbox
+from events.compliance import Decision
+from events.compliance import enforcement as compliance
 from events.models.attendee_invoice import (
     AttendeeInvoice,
     AttendeeInvoiceCreditNote,
@@ -67,9 +69,15 @@ def validate_invoicing_prerequisites(org: Organization) -> None:
 def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> Organization:
     """Set the invoicing mode for an organization.
 
-    Setting to NONE is always allowed. HYBRID or AUTO requires validation.
+    Setting to NONE is always allowed. HYBRID or AUTO requires validation and a
+    country whose compliance policy allows Revel-issued attendee invoices.
+
+    Raises:
+        CountryComplianceError: If the organization's country blocks attendee invoicing.
+        HttpError 422: If any other prerequisite is not met.
     """
     if mode != Organization.InvoicingMode.NONE:
+        compliance.assert_attendee_invoicing_allowed(org)
         validate_invoicing_prerequisites(org)
 
     org.invoicing_mode = mode
@@ -172,7 +180,7 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             status=Payment.PaymentStatus.SUCCEEDED,
         )
         .select_related(
-            "ticket__event__organization",
+            "ticket__event__organization__city",
             "ticket__event__venue__city",
             "ticket__event__city",
             "ticket__tier",
@@ -195,6 +203,16 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     if not org or org.invoicing_mode == Organization.InvoicingMode.NONE:
         return None
 
+    event = first_payment.ticket.event
+    # The buyer's VAT-ID prefix (empty for consumers) decides the BE/PL domestic-B2B case.
+    if not compliance.attendee_invoicing_for_sale(
+        compliance.liable_countries(org, event), billing_snapshot.get("vat_id")
+    ).allowed:
+        # Defense in depth for orgs that enabled invoicing before the gate, moved
+        # country, or sell into a restricted country (EU layer 1, #1057-#1067).
+        logger.warning("attendee_invoice_skipped_country_compliance", org_slug=org.slug, session_id=stripe_session_id)
+        return None
+
     # Determine initial status based on invoicing mode
     initial_status = (
         AttendeeInvoice.InvoiceStatus.ISSUED
@@ -202,7 +220,6 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         else AttendeeInvoice.InvoiceStatus.DRAFT
     )
 
-    event = first_payment.ticket.event
     line_items = _build_line_items(payments)
 
     # Aggregate totals from payments
@@ -277,6 +294,17 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     )
 
     return invoice
+
+
+def invoice_compliance_decision(invoice: AttendeeInvoice) -> Decision:
+    """Whether the country policies still allow issuing (or crediting) this existing invoice.
+
+    For invoices that predate the gate: HYBRID drafts awaiting issue and issued invoices
+    about to receive a credit note.
+    """
+    org = invoice.organization
+    countries = [invoice.seller_vat_country, *(compliance.liable_countries(org, invoice.event) if org else [])]
+    return compliance.attendee_invoicing_for_sale(countries, invoice.buyer_vat_id)
 
 
 # ---------------------------------------------------------------------------
@@ -531,6 +559,27 @@ def _build_from_refund_rows(
     )
 
 
+def _no_credit_note_for(invoice: AttendeeInvoice) -> bool:
+    """Handle the invoices that never get a credit note; True when there is nothing more to do.
+
+    A draft is deleted instead of credited. An invoice whose country policy now refuses
+    Revel-issued documents is left to the organizer, who corrects the sale in its own
+    compliant system (EU layer 1).
+    """
+    if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
+        # Imported here, not at module scope: the draft module imports
+        # _generate_and_save_pdf from this one, so a top-level import would close
+        # the cycle. Same pattern as issue_and_deliver's task import.
+        from events.service.attendee_invoice_draft_service import delete_draft_invoice
+
+        delete_draft_invoice(invoice)
+        return True
+    if not invoice_compliance_decision(invoice).allowed:
+        logger.warning("attendee_credit_note_skipped_country_compliance", invoice_number=invoice.invoice_number)
+        return True
+    return False
+
+
 def generate_attendee_credit_note(
     stripe_session_id: str,
     refunded_payment_ids: list["UUID"],
@@ -560,14 +609,7 @@ def generate_attendee_credit_note(
     if not invoice:
         return None
 
-    # If invoice is still a draft, just delete it instead of creating a credit note
-    if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
-        # Imported here, not at module scope: the draft module imports
-        # _generate_and_save_pdf from this one, so a top-level import would close
-        # the cycle. Same pattern as issue_and_deliver's task import.
-        from events.service.attendee_invoice_draft_service import delete_draft_invoice
-
-        delete_draft_invoice(invoice)
+    if _no_credit_note_for(invoice):
         return None
 
     refund_rows: list[Refund] = []

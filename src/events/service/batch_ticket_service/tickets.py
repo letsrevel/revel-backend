@@ -12,6 +12,7 @@ from django.db import transaction
 from events.models import Ticket, TicketSaleSource, TicketTier, VenueSeat
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
+from events.service import ticket_number_service
 from events.service.batch_ticket_service.context import BatchTicketContext
 from events.service.seating.pricing import TicketPrice
 from events.tasks import build_attendee_visibility_flags
@@ -101,7 +102,10 @@ class TicketWriterMixin(BatchTicketContext):
             ticket.clean()
             tickets.append(ticket)
 
-        return Ticket.objects.bulk_create(tickets)
+        created = Ticket.objects.bulk_create(tickets)
+        # bulk_create skips post_save, so number the tickets issued right away (free / reroute).
+        ticket_number_service.assign_ticket_numbers(created)
+        return created
 
     def _default_guest_name(self) -> str:
         """Holder-name fallback when the buyer omitted one (flag off).

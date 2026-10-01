@@ -1127,6 +1127,60 @@ msgstr "Cancelar a subscrição ou gerir as preferências de notificação"
 msgid "Already a member."
 msgstr "Já és membro."
 
+#, python-brace-format
+msgid ""
+"Revel cannot issue attendee invoices for organizers in {country}: invoices "
+"there must go through {system}. Please issue them from your own compliant "
+"invoicing software."
+msgstr ""
+"A Revel não pode emitir faturas a participantes para organizadores em "
+"{country}: aí as faturas têm de passar por {system}. Emite-as no teu próprio "
+"software de faturação conforme."
+
+#, python-brace-format
+msgid ""
+"Revel cannot issue this invoice: invoices between businesses in {country} "
+"must be exchanged as structured e-invoices via {system}. Please issue it "
+"from your own e-invoicing software."
+msgstr ""
+"A Revel não pode emitir esta fatura: em {country}, as faturas entre empresas "
+"têm de ser trocadas como faturas eletrónicas estruturadas através de "
+"{system}. Emite-a no teu próprio software de faturação eletrónica."
+
+#, python-brace-format
+msgid ""
+"Paid tickets are not available for organizers in {country}: tickets for paid "
+"events there must be issued by {system}. Free tickets and RSVPs remain "
+"available."
+msgstr ""
+"Os bilhetes pagos não estão disponíveis para organizadores em {country}: aí "
+"os bilhetes para eventos pagos têm de ser emitidos por {system}. Os bilhetes "
+"gratuitos e os RSVP continuam disponíveis."
+
+msgid "This ticket is not a tax invoice or receipt."
+msgstr "Este bilhete não é uma fatura nem um recibo fiscal."
+
+msgid "Free"
+msgstr "Gratuito"
+
+msgid "Organizer"
+msgstr "Organizador"
+
+msgid "Tax ID"
+msgstr "NIF"
+
+msgid "Ticket no."
+msgstr "Bilhete n.º"
+
+msgid "Issued"
+msgstr "Emitido"
+
+msgid "Price"
+msgstr "Preço"
+
+msgid "Tax notice"
+msgstr "Aviso fiscal"
+
 msgid "Invoice PDF not available."
 msgstr "PDF da fatura não disponível."
 

@@ -12,6 +12,7 @@ from common.models import SiteSettings
 from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
 from common.service.vat_utils import TWO_PLACES, b2b_vat_context
 from events import models
+from events.compliance import AttendeeInvoicingCapability, PaidTicketingCapability, get_policy
 from events.models import (
     MembershipRequestStatus,
     Organization,
@@ -69,6 +70,26 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     default_requires_membership_approval: bool = False
 
 
+class OrganizationComplianceSchema(Schema):
+    """What the organization's country lets Revel do (EU layer 1, #1057-#1067).
+
+    Computed, read-only: the frontend hides invoicing modes and paid tiers from it.
+    """
+
+    country: str = Field(description="Resolved ISO 3166-1 alpha-2 country; empty when undeclared.")
+    attendee_invoicing: AttendeeInvoicingCapability
+    paid_ticketing: PaidTicketingCapability
+
+
+def _compliance(obj: Organization) -> OrganizationComplianceSchema:
+    policy = get_policy(obj)
+    return OrganizationComplianceSchema(
+        country=policy.country,
+        attendee_invoicing=policy.attendee_invoicing_capability,
+        paid_ticketing=policy.paid_ticketing_capability,
+    )
+
+
 class OrganizationBillingInfoSchema(Schema):
     """Read-only schema for organization billing info and VAT settings."""
 
@@ -81,6 +102,12 @@ class OrganizationBillingInfoSchema(Schema):
     billing_address: str
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
+    compliance: OrganizationComplianceSchema
+
+    @staticmethod
+    def resolve_compliance(obj: Organization) -> OrganizationComplianceSchema:
+        """Country-compliance capabilities for the organization."""
+        return _compliance(obj)
 
 
 class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
@@ -238,6 +265,12 @@ class OrganizationAdminDetailSchema(
     # applies to Revel's platform fee so net-payout previews can account for it.
     platform_fee_vat_rate: str
     platform_fee_reverse_charge: bool
+    compliance: OrganizationComplianceSchema
+
+    @staticmethod
+    def resolve_compliance(obj: Organization) -> OrganizationComplianceSchema:
+        """Country-compliance capabilities for the organization."""
+        return _compliance(obj)
 
     @staticmethod
     def resolve_platform_fee_vat_rate(obj: Organization, context: t.Any) -> str:

@@ -84,6 +84,9 @@
                     {% if venue_name %}
                     <tr><td class="label">Venue</td><td>{{ venue_name }}{% if sector_name %} &middot; {{ sector_name }}{% endif %}</td></tr>
                     {% endif %}
+                    {% for field in compliance_fields %}
+                    <tr><td class="label">{{ field.label }}</td><td>{{ field.value }}</td></tr>
+                    {% endfor %}
                 </table>
             </div>
 

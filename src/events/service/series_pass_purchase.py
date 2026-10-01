@@ -13,6 +13,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.compliance import enforcement as compliance
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
     HeldSeriesPass,
@@ -144,6 +145,9 @@ class SeriesPassPurchaseService:
             # no tickets and no Payment rows — unreclaimable, since the beat-task
             # cleanup keys off Payment rows.
             raise SeriesPassNotPurchasableError(str(_("This pass has no upcoming events to purchase.")))
+        # A paid pass is paid admission to every covered event (EU layer 1, #1057).
+        compliance.assert_sale_allowed(self.org, [quote.price], [link.event for link in future_links])
+
         # Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService).
         locked_tiers = {
             tier.pk: tier

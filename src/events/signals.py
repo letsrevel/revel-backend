@@ -29,7 +29,7 @@ from events.models import (
     TicketTier,
 )
 from events.models.organization import MembershipTier
-from events.service import permission_snapshot
+from events.service import permission_snapshot, ticket_number_service
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import unclaim_user_potluck_items
@@ -184,6 +184,17 @@ def handle_ticket_visibility_and_potluck(
 
     if instance.status == Ticket.TicketStatus.CANCELLED:
         unclaim_user_potluck_items(instance.event_id, instance.user_id)
+
+
+@receiver(post_save, sender=Ticket)
+def assign_ticket_number_on_issue(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
+    """Give a ticket its gap-free fiscal number once it is issued (ACTIVE/CHECKED_IN).
+
+    Covers every ``save()`` path; the bulk writers that skip signals call
+    ``ticket_number_service.assign_ticket_numbers`` themselves.
+    """
+    if not kwargs.get("raw"):
+        ticket_number_service.assign_ticket_numbers([instance])
 
 
 @receiver(post_delete, sender=Ticket)

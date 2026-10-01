@@ -140,6 +140,13 @@ class EventRefundsStartedError(Exception):
     """Raised on an un-cancel attempt after the bulk refund sweep already started."""
 
 
+class CountryComplianceError(Exception):
+    """Raised when an action is not available in the organizer's country (EU layer 1, #1057-#1067).
+
+    Carries a translated, user-facing message — see :mod:`events.compliance`.
+    """
+
+
 class GuestActionErrorCode(str, enum.Enum):
     """Stable discriminators for guest RSVP/checkout refusals (#905).
 

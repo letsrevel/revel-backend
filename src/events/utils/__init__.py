@@ -361,6 +361,8 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
     """
     from weasyprint import HTML
 
+    from events.compliance import get_policy
+
     event = ticket.event
 
     qr_code_base64 = _qr_code_base64(str(ticket.id))
@@ -392,6 +394,9 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "seat_label": ticket.seat.label if ticket.seat else None,
         "seat_row": ticket.seat.row_label if ticket.seat else None,
         "seat_number": ticket.seat.number if ticket.seat else None,
+        # Fiscal lines the organizer's country policy requires (EU layer 1): organizer
+        # legal identity, price or "Free", sequential number, not-a-tax-document notice.
+        "compliance_fields": get_policy(event.organization).ticket_fields(ticket),
         # Brand assets (absolute paths for WeasyPrint file:// resolution)
         "font_dir": str(settings.BASE_DIR / "fonts"),
         "brand_mark": str(settings.BASE_DIR / "assets" / "brand" / "revel-mark.svg"),

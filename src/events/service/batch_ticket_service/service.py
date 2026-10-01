@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from events.compliance import enforcement as compliance
 from events.models import Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.capacity import CapacityMixin
@@ -258,6 +259,8 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
             HttpError: If validation fails or ticket creation fails.
             UserIsIneligibleError: If a tier is gated to membership tiers the buyer
                 does not hold.
+            CountryComplianceError: If the cart costs anything and the organizer's
+                country blocks paid ticketing.
         """
         self._resolve_single_group(items, pwyc_amount)
 
@@ -348,6 +351,12 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         seats_per_group = self.resolve_cart_seats(self.groups)
 
         resolved = self._price_cart(locked_tiers, seats_per_group)
+
+        # Country gate on what the buyer would actually pay (EU layer 1, #1057): catches
+        # paid tiers that predate the tier-level gate, on every payment method.
+        compliance.assert_sale_allowed(
+            self.event.organization, (line.unit_price for rg in resolved for line in rg.pricing.lines), [self.event]
+        )
 
         # Log the batch purchase attempt for audit trail
         logger.info(

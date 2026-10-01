@@ -24,7 +24,7 @@ def _set_billing_info(
     org: Organization,
     *,
     name: str = "Test Legal Entity S.r.l.",
-    country: str = "IT",
+    country: str = "AT",
     address: str = "Via Roma 1, 00100 Roma",
 ) -> None:
     """Set billing info on an organization."""

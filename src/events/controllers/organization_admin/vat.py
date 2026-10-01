@@ -11,6 +11,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
+from common.schema import ErrorDetail
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
@@ -136,7 +137,9 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     @route.patch(
         "/invoicing",
         url_name="set_invoicing_mode",
-        response=schema.OrganizationBillingInfoSchema,
+        # 422 ``{detail}``: prerequisites missing, or the organization's country blocks
+        # Revel-issued attendee invoices (``CountryComplianceError``).
+        response={200: schema.OrganizationBillingInfoSchema, 422: ErrorDetail},
         throttle=WriteThrottle(),
     )
     def set_invoicing_mode(self, slug: str, payload: schema.InvoicingModeUpdateSchema) -> models.Organization:
@@ -216,7 +219,8 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     @route.post(
         "/attendee-invoices/{invoice_id}/issue",
         url_name="issue_attendee_invoice",
-        response=schema.AttendeeInvoiceDetailSchema,
+        # 422 ``{detail}``: unreconciled totals, or the country policy now forbids issuing it.
+        response={200: schema.AttendeeInvoiceDetailSchema, 422: ErrorDetail},
         throttle=WriteThrottle(),
     )
     def issue_attendee_invoice(self, slug: str, invoice_id: UUID) -> models.AttendeeInvoice:

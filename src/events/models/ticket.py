@@ -900,6 +900,12 @@ class Ticket(TimeStampedModel):
         "Online (Stripe) refunds are tracked on Payment.refund_amount instead.",
     )
 
+    # Fiscal ticket number (EU layer 1): gap-free per organization, assigned when the ticket is
+    # first issued (ACTIVE/CHECKED_IN) by events.service.ticket_number_service. Never reused.
+    ticket_series = models.CharField(max_length=16, blank=True, default="", editable=False)
+    ticket_number = models.PositiveBigIntegerField(null=True, blank=True, editable=False)
+    issued_at = models.DateTimeField(null=True, blank=True, editable=False)
+
     # Cached ticket files (generated on-demand, cleaned up after event ends)
     pdf_file = ProtectedFileField(upload_to="tickets/pdf/", null=True, blank=True)
     pkpass_file = ProtectedFileField(upload_to="tickets/pkpass/", null=True, blank=True)

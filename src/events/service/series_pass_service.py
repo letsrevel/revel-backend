@@ -38,7 +38,7 @@ from events.models import (
 )
 from events.models.ticket import CancellationSource
 from events.schema.series_pass import SeriesPassCreateSchema
-from events.service import refund_service
+from events.service import refund_service, ticket_number_service
 from events.service.vat_service import distribute_amount_across_items
 from events.tasks import materialize_series_pass_holders
 from notifications.signals.series_pass import send_series_pass_cancelled, send_series_pass_purchased
@@ -337,7 +337,9 @@ def materialize_tickets(
         for link in links
         if link.event_id not in existing_event_ids
     ]
-    return Ticket.objects.bulk_create(tickets)
+    created = Ticket.objects.bulk_create(tickets)
+    ticket_number_service.assign_ticket_numbers(created)  # bulk_create skips the post_save numbering
+    return created
 
 
 def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
@@ -744,6 +746,7 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.price_paid = share
         Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid"])
+        ticket_number_service.assign_ticket_numbers(pending_tickets)
 
     # Catch up on events linked to the pass while it sat PENDING (the extension
     # task only materializes for ACTIVE holders).

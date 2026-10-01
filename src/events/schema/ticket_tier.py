@@ -11,6 +11,7 @@ from pydantic import UUID4, AwareDatetime, Field, model_validator
 
 from common.schema import OneToOneFiftyString, StrippedString, viewer_from_context
 from events import models
+from events.compliance.enforcement import attendee_invoicing_active
 from events.models import TicketTier
 from events.models.ticket import MAX_CHECK_IN_OFFSET
 from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
@@ -207,14 +208,15 @@ class TicketTierSchema(ModelSchema):
 
     @staticmethod
     def resolve_invoicing_available(obj: TicketTier) -> bool:
-        """True when the org has attendee invoicing enabled and this tier uses online payment."""
+        """True when the org has attendee invoicing enabled and this tier uses online payment.
+
+        False where the org's country blocks Revel-issued invoices (EU layer 1), even if a
+        mode was enabled before the gate.
+        """
         org = obj.event.organization if obj.event else None
         if not org:
             return False
-        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
-            models.Organization.InvoicingMode.HYBRID,
-            models.Organization.InvoicingMode.AUTO,
-        )
+        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and attendee_invoicing_active(org)
 
     @staticmethod
     def resolve_seat_pricing(obj: TicketTier) -> TierSeatPricingSchema | None:
@@ -500,14 +502,15 @@ class TicketTierDetailSchema(ModelSchema):
 
     @staticmethod
     def resolve_invoicing_available(obj: TicketTier) -> bool:
-        """True when the org has attendee invoicing enabled and this tier uses online payment."""
+        """True when the org has attendee invoicing enabled and this tier uses online payment.
+
+        False where the org's country blocks Revel-issued invoices (EU layer 1), even if a
+        mode was enabled before the gate.
+        """
         org = obj.event.organization if obj.event else None
         if not org:
             return False
-        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
-            models.Organization.InvoicingMode.HYBRID,
-            models.Organization.InvoicingMode.AUTO,
-        )
+        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and attendee_invoicing_active(org)
 
     @staticmethod
     def resolve_pricing_gaps(obj: TicketTier) -> list[TierPricingGapSchema]:

@@ -65,6 +65,7 @@ from .ticket import (
     TicketSaleSource,
     TicketTier,
 )
+from .ticket_number import TicketNumberSequence
 from .venue import PriceCategory, Venue, VenueSeat, VenueSector
 
 __all__ = [
@@ -86,6 +87,7 @@ __all__ = [
     "Refund",
     "Ticket",
     "TicketAttribution",
+    "TicketNumberSequence",
     "TicketSaleSource",
     "TicketTier",
     # Organizations

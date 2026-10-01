@@ -30,7 +30,7 @@ def stripe_org(organization: Organization) -> Organization:
     organization.stripe_account_id = "acct_multitier"
     organization.stripe_charges_enabled = True
     organization.stripe_details_submitted = True
-    organization.vat_country_code = "IT"
+    organization.vat_country_code = "AT"
     organization.vat_rate = Decimal("22.00")
     organization.save()
     return organization
