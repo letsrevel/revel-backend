@@ -319,6 +319,12 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         payment_intent_id = session.get("payment_intent")
         raw_response = dict(event)
 
+        # Series passes first: their backfill locks TicketTier rows, and the ticket
+        # activation below takes Ticket + TicketNumberSequence locks. The canonical lock
+        # order is parent row -> TicketTier (pk) -> Ticket -> TicketNumberSequence
+        # (docs/engineering-notes.md), so tiers must be locked before any numbering.
+        self._activate_series_passes(session_id)
+
         # Update all payments and tickets
         for payment in payments:
             if payment.status == Payment.PaymentStatus.SUCCEEDED:
@@ -343,8 +349,6 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
                 continue
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.save(update_fields=["status"])
-
-        self._activate_series_passes(session_id)
 
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(

@@ -219,6 +219,25 @@ for now (capped-plan checkout traffic is a fraction of a hot tier's on-sale rush
 subscribe-path docstring carries the same NOTE). The reserve/session split is the upgrade
 path if a capped plan ever sees rush-level traffic.
 
+## Lock order for tickets and ticket numbers
+
+One canonical order, everywhere a transaction locks more than one of these:
+
+**parent row (Event / SeriesPass / HeldSeriesPass / Payment) → `TicketTier` (pk order) →
+`Ticket` → `TicketNumberSequence` (org-id order)**
+
+`ticket_number_service.assign_ticket_numbers` locks the issued tickets and then the
+organization's `TicketNumberSequence`, and the sequence lock is held until commit. So
+any path that also locks tiers must lock them **before** it issues (numbers) tickets.
+Checkout already does (`create_batch` locks tiers, then writes tickets). The series-pass
+paths call `backfill_missing_tickets` (which locks tiers) before activating the pass's
+pending tickets, both in `confirm_held_pass_payment` and in the Stripe
+`checkout.session.completed` handler (`_activate_series_passes` runs before the
+payments loop). Reversing either would let two transactions wait on each other.
+
+Don't do network I/O after numbering: the per-org sequence lock serializes ticket
+issuance for that organization until the transaction commits.
+
 ## Row locks across Stripe calls (refund paths)
 
 Unlike the reserve/session split above, the single-refund paths deliberately do **not**

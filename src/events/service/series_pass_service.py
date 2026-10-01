@@ -733,6 +733,13 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
     held_pass.status = HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
     held_pass.save(update_fields=["status"])
 
+    # Catch up on events linked to the pass while it sat PENDING (the extension
+    # task only materializes for ACTIVE holders). Before the activation below: the
+    # backfill locks TicketTier rows, and the canonical lock order is parent row ->
+    # TicketTier (pk) -> Ticket -> TicketNumberSequence (docs/engineering-notes.md).
+    # It skips events this pass already has (PENDING) tickets for.
+    backfill_missing_tickets(held_pass)
+
     # .update() can't assign a different price_paid per row, so pull the PENDING
     # tickets and set each one's share individually. Ordered by event start (then pk)
     # so the distribution — and which ticket absorbs any rounding remainder — is
@@ -748,8 +755,5 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
         Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid"])
         ticket_number_service.assign_ticket_numbers(pending_tickets)
 
-    # Catch up on events linked to the pass while it sat PENDING (the extension
-    # task only materializes for ACTIVE holders).
-    backfill_missing_tickets(held_pass)
     transaction.on_commit(lambda: send_series_pass_purchased(held_pass.id))
     return held_pass

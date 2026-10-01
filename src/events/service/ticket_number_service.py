@@ -1,10 +1,15 @@
-"""Gap-free, per-organization fiscal ticket numbering (EU layer 1, #1060/#1061/#1064).
+"""Per-organization fiscal ticket numbering (EU layer 1, #1060/#1061/#1064).
+
+Numbers are assigned without gaps and never reused. Holes appear only if numbered
+tickets are later deleted (event / tier / user cascade, see #1068).
 
 A ticket gets its number when it is first *issued* — the moment it becomes ACTIVE or
 CHECKED_IN — never while PENDING: abandoned online checkouts are deleted, which would
 leave holes in the series. Numbers are handed out under a row lock on the
 organization's :class:`~events.models.TicketNumberSequence`, inside the caller's
-transaction, so a rollback returns both the tickets and the counter: no gaps, no reuse.
+transaction, so a rollback returns both the tickets and the counter. That relies on
+every production entry point running atomically: requests (ATOMIC_REQUESTS), the
+Django admin, and the series-pass Celery task.
 
 Entry points: the ``Ticket`` post_save receiver (every ``save()`` path) and the bulk
 writers that bypass signals (batch checkout, series-pass materialization/activation).
@@ -33,12 +38,21 @@ def format_ticket_number(ticket: Ticket) -> str:
 
 
 def _series_for(org: Organization) -> str:
-    """Derive an organization's series from its slug (letters and digits, upper-cased)."""
+    """Derive an organization's series from its slug (letters and digits, upper-cased).
+
+    The series is unique per organization, not globally: two orgs can share one. Any
+    future lookup by ticket number must be scoped to an organization.
+    """
     return re.sub(r"[^A-Z0-9]", "", org.slug.upper())[:_SERIES_SLUG_CHARS] or "T"
 
 
 def _lock_sequence(org_id: UUID) -> TicketNumberSequence:
-    """Get-or-create the org's sequence row and lock it (race-safe: INSERT ... ON CONFLICT DO NOTHING)."""
+    """Get-or-create the org's sequence row and lock it.
+
+    Race-safe via INSERT ... ON CONFLICT DO NOTHING. ``get_or_create_with_race_protection``
+    is not used because the row must be locked anyway, so the locking SELECT doubles as
+    the get.
+    """
     org = Organization.objects.only("slug").get(pk=org_id)
     TicketNumberSequence.objects.bulk_create(
         [TicketNumberSequence(organization_id=org_id, series=_series_for(org))], ignore_conflicts=True
@@ -52,8 +66,12 @@ def assign_ticket_numbers(tickets: t.Iterable[Ticket]) -> None:
     Idempotent and safe to call on any mix of tickets: pending, cancelled and
     already-numbered ones are skipped. The passed instances are updated in place.
 
-    Lock order is tickets first, then the per-org sequence rows in org-id order, so
-    two concurrent callers can never wait on each other in a cycle.
+    Locks follow the canonical order parent row -> TicketTier (pk) -> Ticket ->
+    TicketNumberSequence (docs/engineering-notes.md): callers must lock any tiers before
+    numbering; here the tickets are locked, then the per-org sequence rows in org-id order.
+
+    The per-org sequence lock is held until the caller's transaction commits, so callers
+    must not do network I/O after numbering.
 
     Args:
         tickets: Saved ``Ticket`` instances.
