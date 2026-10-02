@@ -1,7 +1,7 @@
 {% extends "emails/base.html" %}
 {% load i18n %}
 {% block content %}
-<h2>{% blocktranslate with org=context.organization_name %}Invoices to issue yourself for {{ org }}{% endblocktranslate %}</h2>
+<h2>{% blocktranslate with org=context.organization_name %}Documents to issue yourself for {{ org }}{% endblocktranslate %}</h2>
 
 <p>{% blocktranslate count counter=context.document_count|default:0 %}Revel did not issue this document because the law requires it to go through a national e-invoicing or fiscalization system (such as Peppol, KSeF or Verifactu). Issue it from your own system.{% plural %}Revel did not issue these documents because the law requires them to go through a national e-invoicing or fiscalization system (such as Peppol, KSeF or Verifactu). Issue them from your own system.{% endblocktranslate %}</p>
 
@@ -18,5 +18,5 @@
 
 {% if not context.is_owner %}<p>{% trans "The organization owner sees the full list with buyer details under Billing; the ticket list flags these sales." %}</p>{% endif %}
 
-<p><a href="{{ context.action_url }}">{% if context.is_owner %}{% trans "Open the invoices to issue yourself" %}{% else %}{% trans "Open the ticket list" %}{% endif %}</a></p>
+<p><a href="{{ context.action_url }}">{% if context.is_owner %}{% trans "Open the documents to issue yourself" %}{% else %}{% trans "Open the ticket list" %}{% endif %}</a></p>
 {% endblock %}

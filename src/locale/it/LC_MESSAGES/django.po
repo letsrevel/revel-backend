@@ -4334,8 +4334,8 @@ msgid "View updated event details:"
 msgstr "Visualizza i dettagli aggiornati dell'evento:"
 
 #, python-format
-msgid "Invoices to issue yourself for %(org)s"
-msgstr "Fatture da emettere in proprio per %(org)s"
+msgid "Documents to issue yourself for %(org)s"
+msgstr "Documenti da emettere in proprio per %(org)s"
 
 msgid ""
 "Revel did not issue this document because the law requires it to go through "
@@ -4379,8 +4379,8 @@ msgstr ""
 "Il titolare dell'organizzazione vede l'elenco completo con i dati degli "
 "acquirenti in Fatturazione; l'elenco dei biglietti segnala queste vendite."
 
-msgid "Open the invoices to issue yourself"
-msgstr "Apri le fatture da emettere in proprio"
+msgid "Open the documents to issue yourself"
+msgstr "Apri i documenti da emettere in proprio"
 
 msgid "Open the ticket list"
 msgstr "Apri l'elenco dei biglietti"

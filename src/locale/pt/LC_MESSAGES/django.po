@@ -3712,8 +3712,8 @@ msgstr "Uma nota sobre %(org)s"
 #, python-format
 msgid "%(org)s: %(count)d document to issue yourself"
 msgid_plural "%(org)s: %(count)d documents to issue yourself"
-msgstr[0] "%(org)s: %(count)d documento a emitir por si"
-msgstr[1] "%(org)s: %(count)d documentos a emitir por si"
+msgstr[0] "%(org)s: %(count)d documento a emitir por ti"
+msgstr[1] "%(org)s: %(count)d documentos a emitir por ti"
 
 #, python-format
 msgid "%(actor)s added %(item)s"
@@ -4279,8 +4279,8 @@ msgid "View updated event details:"
 msgstr "Ver os detalhes atualizados do evento:"
 
 #, python-format
-msgid "Invoices to issue yourself for %(org)s"
-msgstr "Faturas a emitir por si para %(org)s"
+msgid "Documents to issue yourself for %(org)s"
+msgstr "Documentos a emitir por ti para %(org)s"
 
 msgid ""
 "Revel did not issue this document because the law requires it to go through "
@@ -4293,11 +4293,11 @@ msgid_plural ""
 msgstr[0] ""
 "A Revel não emitiu este documento porque a lei exige que passe por um "
 "sistema nacional de faturação eletrónica ou de fiscalização (como Peppol, "
-"KSeF ou Verifactu). Emita-o no seu próprio sistema."
+"KSeF ou Verifactu). Emite-o no teu próprio sistema."
 msgstr[1] ""
 "A Revel não emitiu estes documentos porque a lei exige que passem por um "
 "sistema nacional de faturação eletrónica ou de fiscalização (como Peppol, "
-"KSeF ou Verifactu). Emita-os no seu próprio sistema."
+"KSeF ou Verifactu). Emite-os no teu próprio sistema."
 
 #, python-format
 msgid ""
@@ -4324,8 +4324,8 @@ msgstr ""
 "O proprietário da organização vê a lista completa com os dados dos "
 "compradores em Faturação; a lista de bilhetes assinala estas vendas."
 
-msgid "Open the invoices to issue yourself"
-msgstr "Abrir as faturas a emitir por si"
+msgid "Open the documents to issue yourself"
+msgstr "Abrir os documentos a emitir por ti"
 
 msgid "Open the ticket list"
 msgstr "Abrir a lista de bilhetes"

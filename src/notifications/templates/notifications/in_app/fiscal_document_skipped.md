@@ -1,4 +1,4 @@
-{% load i18n %}**{% blocktranslate with org=context.organization_name %}Invoices to issue yourself for {{ org }}{% endblocktranslate %}**
+{% load i18n %}**{% blocktranslate with org=context.organization_name %}Documents to issue yourself for {{ org }}{% endblocktranslate %}**
 
 {% blocktranslate count counter=context.document_count|default:0 %}Revel did not issue this document because the law requires it to go through a national e-invoicing or fiscalization system (such as Peppol, KSeF or Verifactu). Issue it from your own system.{% plural %}Revel did not issue these documents because the law requires them to go through a national e-invoicing or fiscalization system (such as Peppol, KSeF or Verifactu). Issue them from your own system.{% endblocktranslate %}
 
@@ -9,4 +9,4 @@
 
 {% if not context.is_owner %}{% trans "The organization owner sees the full list with buyer details under Billing; the ticket list flags these sales." %}
 
-{% endif %}[{% if context.is_owner %}{% trans "Open the invoices to issue yourself" %}{% else %}{% trans "Open the ticket list" %}{% endif %}]({{ context.action_url }})
+{% endif %}[{% if context.is_owner %}{% trans "Open the documents to issue yourself" %}{% else %}{% trans "Open the ticket list" %}{% endif %}]({{ context.action_url }})

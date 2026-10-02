@@ -319,7 +319,7 @@ class TestRendering:
             body = template.get_in_app_body(digest)
         assert "Revel did not issue this document" in body
         assert "Invoices: 1 (EUR 100.00). Credit notes: 0 (-)." in body
-        assert "Open the invoices to issue yourself" in body
+        assert "Open the documents to issue yourself" in body
 
     def test_translated_copy(self, organization: Organization, sale: t.Callable[..., Payment]) -> None:
         _ready_in(organization, "BE")
