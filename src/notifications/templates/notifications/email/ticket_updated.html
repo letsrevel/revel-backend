@@ -30,7 +30,6 @@
     </div>
 
     {% include "notifications/email/_wallet_badges.html" %}
-    {% include "notifications/email/_tax_notice.html" %}
 
     {% if context.update_reason %}
     <div class="card card--warning">
@@ -38,6 +37,7 @@
         <p>{{ context.update_reason }}</p>
     </div>
     {% endif %}
+    {% include "notifications/email/_tax_notice.html" %}
 {% endif %}
 
 <center>

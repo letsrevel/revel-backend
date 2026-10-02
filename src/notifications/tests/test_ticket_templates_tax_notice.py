@@ -121,3 +121,16 @@ def test_notice_partial_runs_no_queries(
         rendered = render_to_string(f"notifications/email/{partial}")
 
     assert str(NOT_A_TAX_DOCUMENT_NOTICE) in rendered
+
+
+@pytest.mark.parametrize("notification_type", [NotificationType.TICKET_CANCELLED, NotificationType.TICKET_REFUNDED])
+def test_cancelled_and_refunded_emails_do_not_carry_the_notice(
+    notification_type: NotificationType,
+    ticket_holder: RevelUser,
+    active_ticket: Ticket,
+) -> None:
+    """Both reuse TicketUpdatedTemplate but render their own templates, which stay notice-free."""
+    html, text = _render(TicketUpdatedTemplate(), notification_type, {}, ticket_holder, active_ticket)
+
+    assert str(NOT_A_TAX_DOCUMENT_NOTICE) not in html
+    assert str(NOT_A_TAX_DOCUMENT_NOTICE) not in text
