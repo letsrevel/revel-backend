@@ -6,9 +6,9 @@ e-invoicing mandates (BE Peppol, PL KSeF) and fiscalized invoicing (HR, PT, RO,
 SI, GR, HU, and ES from 2027). The organizer must then issue the document from
 its own compliant system; these rows tell it which sales those are.
 
-Append-only and snapshotted when the skip is decided: the decision depends on
-today's date (``in_force``), billing data can change, and ``Payment`` rows cascade
-with their user, so nothing here can be recomputed later.
+Snapshotted when the skip is decided; only the resolution fields change afterwards.
+The decision depends on today's date (``in_force``), billing data can change, and
+``Payment`` rows cascade with their user, so nothing here can be recomputed later.
 """
 
 from django.conf import settings

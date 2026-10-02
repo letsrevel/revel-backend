@@ -648,7 +648,8 @@ def _record_skipped_credit_note(
     """Record the credit note a policy refused, once per refund (or legacy payment) set (#1091).
 
     Refunds already credited by a Revel credit note, or already in an earlier skipped
-    record for ``source``, are left out, so retries and superset retries record nothing new.
+    record for ``source``, are left out: a retry records nothing twice, and a superset retry
+    records only its new refunds.
     """
     with transaction.atomic():
         # Serialize concurrent retries on the document being corrected.

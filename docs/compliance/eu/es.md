@@ -26,7 +26,7 @@ provinces apply their own TicketBAI regimes.
       before the gate, and credit notes);
     - the API capability switches to `blocked` on that date;
     - every skipped invoice and credit note is recorded for the organizer to issue from its own
-      Verifactu system, including credit notes for refunds of invoices Revel issued in 2026
+      RRSIF-compliant invoicing system (VERI\*FACTU or NO VERI\*FACTU mode), including credit notes for refunds of invoices Revel issued in 2026
       ([#1091](https://github.com/letsrevel/revel-backend/issues/1091), see
       [Skipped documents](../index.md#skipped-documents)).
 - **Organizer-established only.** A foreign organizer's event held in Spain is not affected.

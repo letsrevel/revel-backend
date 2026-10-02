@@ -246,6 +246,17 @@ class TestTicketFlag:
         results: list[dict[str, t.Any]] = response.json()["results"]
         return results
 
+    def test_buyer_dashboard_does_not_offer_the_organizer_filter(
+        self, event: Event, member_user: RevelUser, skipped: SkippedFiscalDocument
+    ) -> None:
+        """``invoice_skipped`` is admin-only: the buyer's ticket list ignores it rather than 500."""
+        response = _client_for(member_user).get(
+            reverse("api:dashboard_tickets"), {"invoice_skipped": "true", "include_past": "true"}
+        )
+
+        assert response.status_code == 200
+        assert "invoice_skipped" not in response.json()["results"][0]
+
     def test_list_flags_and_filters_skipped_sales(
         self,
         ticket_staff_client: Client,

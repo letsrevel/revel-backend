@@ -33,8 +33,9 @@ exclusions cover consumers and sellers without a Polish establishment, not forei
   and the revenue report has an *Invoices to issue yourself* sheet.
 - **Payment evidence (poz. 42).** The revenue report's Transactions sheet lists every online sale
   with its ticket number and `stripe_payment_intent_id`, the key that joins it to Stripe's payout
-  reconciliation report. That link from each payment to its sale is what the bank-payment
-  exemption asks for. Stripe payout IDs themselves are not stored in Revel.
+  reconciliation report. For consumer sales (VAT Act art. 111(1)) where the organizer relies on the
+  bank-payment exemption, that link from each payment to its sale is the exemption's condition. Stripe
+  payout IDs themselves are not stored in Revel.
 - **Foreign organizers' events held in Poland are not affected**: KSeF covers taxpayers with a seat or
   fixed establishment in Poland.
 - Online and offline payments are not restricted.

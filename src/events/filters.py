@@ -194,8 +194,6 @@ class TicketFilterSchema(FilterSchema):
     tier__payment_method: t.Annotated[TicketTier.PaymentMethod | None, FilterLookup(q="tier__payment_method")] = None
     utm_source: t.Annotated[str | None, FilterLookup(q="attribution__utm_source")] = None
     utm_campaign: t.Annotated[str | None, FilterLookup(q="attribution__utm_campaign")] = None
-    # Needs the ``invoice_skipped`` annotation (``skipped_fiscal_document_service.invoice_skipped_annotation``).
-    invoice_skipped: bool | None = None
     include_past: bool = False
 
     def filter_include_past(self, include_past: bool) -> Q:
@@ -207,6 +205,13 @@ class TicketFilterSchema(FilterSchema):
         if not include_past:
             return Q(event__end__gt=timezone.now())
         return Q()
+
+
+class AdminTicketFilterSchema(TicketFilterSchema):
+    """Ticket filters for the event admin list, which annotates organizer-only fields."""
+
+    # Needs the ``invoice_skipped`` annotation (``skipped_fiscal_document_service.invoice_skipped_annotation``).
+    invoice_skipped: bool | None = None
 
 
 class DashboardOrganizationsFiltersSchema(Schema):

@@ -213,7 +213,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     def list_tickets(
         self,
         event_id: UUID,
-        params: t.Annotated[filters.TicketFilterSchema, Query(...)],
+        params: t.Annotated[filters.AdminTicketFilterSchema, Query(...)],
         source: t.Annotated[t.Literal["pass", "direct"] | None, Query(None)] = None,
         order_by: TicketOrdering = "-created_at",
     ) -> QuerySet[models.Ticket]:
