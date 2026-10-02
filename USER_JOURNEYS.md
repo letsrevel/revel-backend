@@ -1763,7 +1763,8 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   |---|---|---|---|---|---|
   | `compliance-it` | `IT` | `allowed` | `blocked` | `allowed` | `[]` |
   | `compliance-hr` | `HR` | `blocked` | `allowed` | `allowed` | `[]` |
-  | `compliance-be` / `-pl` | `BE` / `PL` | `blocked_for_business_buyers` | `allowed` | `allowed` | `[]` |
+  | `compliance-be` | `BE` | `blocked_for_business_buyers` | `allowed` | `allowed` | `[]` |
+  | `compliance-pl` | `PL` | `blocked_for_business_buyers` | `allowed` | `allowed` | one: `pl_kasa_fiskalna` |
   | `compliance-es` (before 2027-01-01) | `ES` | `allowed` | `allowed` | `allowed` | `[]` |
   | `compliance-at` | `AT` | `allowed` | `allowed` | `allowed` | one: `at_registrierkasse` |
   | `compliance-dk` | `DK` | `allowed` | `allowed` | `allowed` | one: `dk_sales_registration` |
@@ -1827,13 +1828,14 @@ Every ticket PDF, Apple pass (back fields `compliance_<key>`) and Google pass (`
 
 The labels and the "Free" / notice text are translated. A cached PDF or pass regenerates once the ticket is numbered.
 
-- **Web ticket page (FE #1001):** show the same price, ticket-number and notice lines once the API exposes them. Wallet passes installed before #1069 don't refresh (#1074).
+- **Web ticket page (FE #1001):** show the same lines from `UserTicketSchema.compliance_lines` (`key`, `label`, `value`; #1077). Wallet passes installed before #1069 don't refresh (#1074).
 
 ### 29.7 Organizer Notices (Organization Owner)
-- **Notices are non-blocking:** nothing is disabled. They render as `role="status"` info next to the setting named in `applies_to` (today only `offline_payment`: the offline / at-the-door / bank-transfer selector).
+- **Notices are non-blocking:** nothing is disabled. They render as `role="status"` info next to the setting named in `applies_to`: `offline_payment` is the offline / at-the-door / bank-transfer selector; `ticket_sales` (#1067) is the ticket-tier sales settings, for rules that cover online sales too.
 - **AT** (`compliance-at` org card; `at-gig-vienna` and also `at-gig-in-italy` event objects): key `at_registrierkasse`, message "Payments you take at the door go through your own registered cash register (Registrierkasse) once you pass the legal thresholds. Revel's online sales are exempt."
   - A non-Austrian org's event held in Austria also gets it.
 - **DK** (`compliance-dk`, organizer established in Denmark only): key `dk_sales_registration`, message "If your business must record sales digitally (for example cafés, bars and discos), record your Revel ticket and door sales there too."
+- **PL** (`compliance-pl` org card; also any event held in Poland, whoever organizes it): key `pl_kasa_fiskalna`, `applies_to: ticket_sales`, message "Admission to discos, dance halls and circus performances must be recorded on your own fiscal cash register (kasa fiskalna), even when attendees pay online. For other events, keep records that link each payment to its sale."
 - **Other countries:** `notices: []`.
 
 ### 29.8 Invoices That Can No Longer Be Issued (Organization Owner)

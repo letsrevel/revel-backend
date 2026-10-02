@@ -1229,6 +1229,16 @@ msgstr "um sistema de bilhética aprovado pela Agenzia delle Entrate"
 msgid "Notice"
 msgstr "Aviso"
 
+msgid ""
+"Admission to discos, dance halls and circus performances must be recorded on"
+" your own fiscal cash register (kasa fiskalna), even when attendees pay "
+"online. For other events, keep records that link each payment to its sale."
+msgstr ""
+"A entrada em discotecas, salões de dança e espetáculos de circo tem de ser "
+"registada na tua própria caixa registadora fiscal (kasa fiskalna), mesmo "
+"quando os participantes pagam online. Para outros eventos, guarda registos "
+"que liguem cada pagamento à respetiva venda."
+
 msgid "certified invoicing software"
 msgstr "software de faturação certificado"
 

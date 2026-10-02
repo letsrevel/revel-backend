@@ -107,6 +107,8 @@ class NoticeTopic(enum.StrEnum):
     """The organizer setting a non-blocking compliance notice belongs next to."""
 
     OFFLINE_PAYMENT = "offline_payment"
+    # Selling tickets at all, online included: show it next to the tier/sales settings.
+    TICKET_SALES = "ticket_sales"
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,4 @@
-"""Non-blocking organizer notices (AT cash register, DK sales registration)."""
+"""Non-blocking organizer notices (AT cash register, DK sales registration, PL kasa fiskalna)."""
 
 import pytest
 from django.test.client import Client
@@ -16,21 +16,26 @@ VENUE = frozenset({Nexus.VENUE})
 
 
 @pytest.mark.parametrize(
-    ("code", "nexus", "keys"),
+    ("code", "nexus", "keys", "topic"),
     [
-        ("AT", EST, ["at_registrierkasse"]),
-        ("AT", VENUE, ["at_registrierkasse"]),
-        ("DK", EST, ["dk_sales_registration"]),
-        ("DK", VENUE, []),  # the duty follows the Danish business, not the venue
-        ("DE", ALL_NEXUS, []),  # default: none
-        ("IT", ALL_NEXUS, []),
+        ("AT", EST, ["at_registrierkasse"], NoticeTopic.OFFLINE_PAYMENT),
+        ("AT", VENUE, ["at_registrierkasse"], NoticeTopic.OFFLINE_PAYMENT),
+        ("DK", EST, ["dk_sales_registration"], NoticeTopic.OFFLINE_PAYMENT),
+        ("DK", VENUE, [], None),  # the duty follows the Danish business, not the venue
+        # Online sales too, so it sits with ticket sales, not offline payment (#1067).
+        ("PL", EST, ["pl_kasa_fiskalna"], NoticeTopic.TICKET_SALES),
+        ("PL", VENUE, ["pl_kasa_fiskalna"], NoticeTopic.TICKET_SALES),
+        ("DE", ALL_NEXUS, [], None),  # default: none
+        ("IT", ALL_NEXUS, [], None),
     ],
 )
-def test_notices_per_country_and_nexus(code: str, nexus: frozenset[Nexus], keys: list[str]) -> None:
+def test_notices_per_country_and_nexus(
+    code: str, nexus: frozenset[Nexus], keys: list[str], topic: NoticeTopic | None
+) -> None:
     notices = get_policy_for_country(code).organizer_notices(nexus)
 
     assert [n.key for n in notices] == keys
-    assert all(n.applies_to == NoticeTopic.OFFLINE_PAYMENT for n in notices)
+    assert all(n.applies_to == topic for n in notices)
 
 
 def test_notices_never_block_anything(organization: Organization, event: Event) -> None:
@@ -79,3 +84,20 @@ def test_org_and_event_payloads_expose_notices(
 
     assert org_response.json()["compliance"]["notices"] == expected
     assert event_response.json()["compliance"]["notices"] == expected
+
+
+def test_pl_notice_reaches_a_foreign_orgs_event_in_poland(
+    client: Client, organization: Organization, public_event: Event
+) -> None:
+    """A German org's event in Warsaw carries the Polish hint, keyed for the ticket-sales settings."""
+    organization.vat_country_code = "DE"
+    organization.save(update_fields=["vat_country_code"])
+    public_event.vat_country_code = "PL"
+    public_event.save(update_fields=["vat_country_code"])
+
+    response = client.get(reverse("api:get_event", kwargs={"event_id": public_event.pk}))
+
+    [notice] = response.json()["compliance"]["notices"]
+    assert notice["key"] == "pl_kasa_fiskalna"
+    assert notice["applies_to"] == "ticket_sales"
+    assert "kasa fiskalna" in notice["message"]
