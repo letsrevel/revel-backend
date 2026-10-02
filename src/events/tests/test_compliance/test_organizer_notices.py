@@ -1,12 +1,17 @@
-"""Non-blocking organizer notices (AT cash register, DK sales registration, PL kasa fiskalna, fiscal invoicing)."""
+"""Non-blocking organizer notices (AT, DK, PL; HR/SI/GR/HU fiscal invoicing; the ES Verifactu heads-up)."""
+
+import datetime
+from unittest.mock import patch
 
 import pytest
 from django.test.client import Client
 from django.urls import reverse
+from freezegun import freeze_time
 
 from events.compliance import Nexus, NoticeTopic, get_policy_for_country
 from events.compliance.base import ALL_NEXUS
 from events.compliance.enforcement import event_compliance, payment_channel_decision
+from events.compliance.policies.es import UPCOMING_BLOCK_NOTICE, SpainPolicy
 from events.models import Event, Organization, TicketTier
 
 pytestmark = pytest.mark.django_db
@@ -152,3 +157,50 @@ def test_hr_notice_follows_the_croatian_organizer(organization: Organization, ev
     event.vat_country_code = "HR"
     event.save(update_fields=["vat_country_code"])
     assert event_compliance(event).notices == []
+
+
+class TestSpainUpcomingBlockNotice:
+    """Spain warns before the Verifactu block (#1087); from that date the block itself explains."""
+
+    @pytest.mark.parametrize(
+        ("today", "keys"),
+        [
+            ("2026-12-31 12:00", ["es_verifactu"]),
+            ("2027-01-01 12:00", []),
+            ("2027-07-01 12:00", []),
+        ],
+    )
+    def test_shown_only_before_the_block(self, today: str, keys: list[str]) -> None:
+        """Present on the last day before the block, gone from its first day and after the July date."""
+        with freeze_time(today):
+            notices = get_policy_for_country("ES").organizer_notices(ALL_NEXUS)
+
+        assert [n.key for n in notices] == keys
+        assert all(n.applies_to == NoticeTopic.ATTENDEE_INVOICING for n in notices)
+
+    @freeze_time("2026-12-31 12:00")
+    def test_follows_the_spanish_organizer_only(self) -> None:
+        """Like the block, it reaches organizers established in Spain, not events held there."""
+        policy = get_policy_for_country("ES")
+
+        assert [n.key for n in policy.organizer_notices(EST)] == ["es_verifactu"]
+        assert policy.organizer_notices(VENUE) == []
+
+    def test_copy_names_the_block_date(self) -> None:
+        """The message spells out the date the gate uses; keep the two together."""
+        assert SpainPolicy.fiscal_invoicing_from == datetime.date(2027, 1, 1)
+        assert "1 January 2027" in str(UPCOMING_BLOCK_NOTICE)
+
+    def test_org_card_payload(self, owner_client: Client, organization: Organization) -> None:
+        """A Spanish org card reads `allowed` today and carries the heads-up next to the invoicing setting."""
+        organization.vat_country_code = "ES"
+        organization.save(update_fields=["vat_country_code"])
+
+        # Only the policy's "today" moves: freezing the clock would expire the client's JWT.
+        with patch("events.compliance.base.timezone.localdate", return_value=datetime.date(2026, 10, 2)):
+            response = owner_client.get(reverse("api:get_organization_admin", kwargs={"slug": organization.slug}))
+
+        assert response.json()["compliance"]["attendee_invoicing"] == "allowed"
+        assert response.json()["compliance"]["notices"] == [
+            {"key": "es_verifactu", "applies_to": "attendee_invoicing", "message": str(UPCOMING_BLOCK_NOTICE)}
+        ]

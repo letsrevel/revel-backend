@@ -98,7 +98,8 @@ it takes effect.
 - **Organizer notices with the invoicing block**: Croatia, Slovenia, Greece and Hungary also tell the
   organizer, next to the attendee-invoicing setting, that invoices go through the national system
   (fiscalization with the Porezna uprava, FURS, myDATA, NAV Online Számla) and must come from the
-  organizer's own software. The notice reaches the same sales as each country's block.
+  organizer's own software. The notice reaches the same sales as each country's block. Spain warns
+  its organizers, under the same topic, until its block starts on 1 January 2027.
 - Credit notes and issuing pre-gate drafts follow the same invoice gate. A refund on a sale whose
   invoice was skipped skips its credit note too. The organizer learns of the skip through the daily
   digest below, and of the refund through
