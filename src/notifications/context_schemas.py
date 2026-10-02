@@ -184,7 +184,9 @@ class FiscalDocumentSkippedContext(BaseNotificationContext):
     document_count: int
     invoice_count: int
     credit_note_count: int
-    totals: list[str]  # gross per currency, e.g. ["EUR 135.00"]
+    # Gross per currency, each kind on its own (credit notes are refunds): e.g. ["EUR 120.00"]
+    invoice_totals: list[str]
+    credit_note_totals: list[str]
     items: list[SkippedFiscalDocumentItem]  # the most recent ones, capped
     more_count: int  # documents beyond ``items``
     is_owner: bool

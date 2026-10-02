@@ -189,9 +189,12 @@ def notify_skipped_documents() -> int:
 
     For the daily beat task. Rows with ``notified_at`` unset are claimed under a row
     lock (``skip_locked``, so an overlapping run skips them), notified and stamped in
-    the same transaction: a failure rolls the stamp back, and the notifications'
-    dispatch waits for the commit (``notification_requested`` uses ``on_commit``).
-    Rows whose organization is gone are never notified.
+    the same transaction, and the notifications' dispatch waits for the commit
+    (``notification_requested`` uses ``on_commit``). An exception raised here rolls the
+    stamp back; one inside the notification handler is logged and swallowed by it, like
+    for every other type. Rows are stamped even when every recipient muted the type, so
+    re-enabling it does not replay old digests. Rows whose organization is gone are never
+    notified.
 
     Returns:
         The number of organizations notified.
@@ -226,10 +229,13 @@ def _send_digest(organization: Organization, docs: list[SkippedFiscalDocument]) 
     base = SiteSettings.get_solo().frontend_base_url
     admin = f"{base}/org/{organization.slug}/admin"
     items = [_digest_item(doc, admin) for doc in docs[:_DIGEST_ITEMS]]
-    gross: dict[str, Decimal] = defaultdict(Decimal)
+    gross: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     for doc in docs:
-        gross[doc.currency] += doc.total_gross
+        gross[doc.kind][doc.currency] += doc.total_gross
     invoices = sum(doc.kind == SkippedFiscalDocument.Kind.INVOICE for doc in docs)
+
+    def totals(kind: str) -> list[str]:
+        return [f"{currency} {amount:.2f}" for currency, amount in sorted(gross[kind].items())]
 
     def context(is_owner: bool, action_url: str) -> FiscalDocumentSkippedContext:
         return FiscalDocumentSkippedContext(
@@ -238,7 +244,8 @@ def _send_digest(organization: Organization, docs: list[SkippedFiscalDocument]) 
             document_count=len(docs),
             invoice_count=invoices,
             credit_note_count=len(docs) - invoices,
-            totals=[f"{currency} {amount:.2f}" for currency, amount in sorted(gross.items())],
+            invoice_totals=totals(SkippedFiscalDocument.Kind.INVOICE),
+            credit_note_totals=totals(SkippedFiscalDocument.Kind.CREDIT_NOTE),
             items=items,
             more_count=len(docs) - len(items),
             is_owner=is_owner,

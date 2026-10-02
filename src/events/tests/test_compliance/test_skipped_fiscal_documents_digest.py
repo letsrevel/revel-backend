@@ -161,7 +161,7 @@ class TestSkipPathsReachTheOrganizer:
         (digest,) = _digests()
         context = digest.context
         assert (context["invoice_count"], context["credit_note_count"]) == (1, 1)
-        assert context["totals"] == ["EUR 200.00"]
+        assert (context["invoice_totals"], context["credit_note_totals"]) == (["EUR 100.00"], ["EUR 100.00"])
         assert {item["kind"] for item in context["items"]} == {"invoice", "credit_note"}
 
 
@@ -203,7 +203,8 @@ class TestSweep:
         assert digest.context["invoice_count"] == 12
         assert len(digest.context["items"]) == 10
         assert digest.context["more_count"] == 2
-        assert digest.context["totals"] == [f"EUR {Decimal('1200.00')}"]
+        assert digest.context["invoice_totals"] == [f"EUR {Decimal('1200.00')}"]
+        assert digest.context["credit_note_totals"] == []
 
     def test_documents_of_a_deleted_organization_are_not_notified(
         self, organization: Organization, sale: t.Callable[..., Payment]
@@ -317,7 +318,7 @@ class TestRendering:
             assert template.get_email_subject(digest) == f"{organization.name}: 1 document to issue yourself"
             body = template.get_in_app_body(digest)
         assert "Revel did not issue this document" in body
-        assert "Invoices: 1. Credit notes: 0. Total: EUR 100.00." in body
+        assert "Invoices: 1 (EUR 100.00). Credit notes: 0 (-)." in body
         assert "Open the invoices to issue yourself" in body
 
     def test_translated_copy(self, organization: Organization, sale: t.Callable[..., Payment]) -> None:

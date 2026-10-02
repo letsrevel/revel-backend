@@ -4352,9 +4352,11 @@ msgstr[1] ""
 
 #, python-format
 msgid ""
-"Invoices: %(invoices)s. Credit notes: %(credit_notes)s. Total: %(total)s."
+"Invoices: %(invoices)s (%(invoice_total)s). Credit notes: %(credit_notes)s "
+"(%(credit_note_total)s)."
 msgstr ""
-"Facturas: %(invoices)s. Notas de crédito: %(credit_notes)s. Total: %(total)s."
+"Facturas: %(invoices)s (%(invoice_total)s). Notas de crédito: "
+"%(credit_notes)s (%(credit_note_total)s)."
 
 msgid "Credit note"
 msgstr "Nota de crédito"
