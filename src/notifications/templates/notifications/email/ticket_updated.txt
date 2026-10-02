@@ -38,7 +38,9 @@
 
 {% if context.reason %}
 {% trans "Reason:" %} {{ context.reason }}
-{% endif %}{% endif %}{% endif %}
+{% endif %}{% endif %}
+{% include "notifications/email/_tax_notice.txt" %}
+{% endif %}
 
 {% trans "View event details:" %} {{ context.event_url }}
 

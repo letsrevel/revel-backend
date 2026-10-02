@@ -1,0 +1,1 @@
+{% load i18n %}{% trans "This ticket is not a tax invoice or receipt." %}

@@ -17,6 +17,7 @@
 - {% trans "Ticket ID:" %} {{ context.ticket_id }}
 
 {% trans "Your ticket is now active and attached to this email. Present it at the event entrance." %}
+{% include "notifications/email/_tax_notice.txt" %}
 
 {% if context.apple_wallet_signed_url %}
 {% trans "Add to Apple Wallet:" %} {{ context.apple_wallet_signed_url }}

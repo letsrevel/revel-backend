@@ -57,6 +57,8 @@ when they are profit-tax payers.
 - Whether a given association is a profit-tax payer is decided case by case.
 - Whether receipts must be in Croatian; whether any ticket-specific rules exist.
 - Whether price-showing documents (Stripe receipts, confirmation emails) need the čl. 29 statement.
+  Ticket emails now carry the generic "not a tax invoice or receipt" notice in the recipient's
+  language, not the literal "OVO NIJE FISKALIZIRANI RAČUN" text.
 - Which payment-method code ("kartica" or "ostalo") applies to Stripe card and wallet payments.
 
 ## Later layers
