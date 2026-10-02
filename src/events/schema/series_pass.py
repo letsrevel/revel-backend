@@ -46,9 +46,9 @@ class SeriesPassSchema(ModelSchema):
 class SeriesPassComplianceSchema(Schema):
     """What the countries reaching a pass's upcoming covered events allow today (#1081).
 
-    ``online_payment`` is the decision the checkout gate makes for this pass at its quoted
-    price: ``blocked`` means ``POST /series-passes/{pass_id}/checkout`` answers 422. An
-    offline or free pass reads ``allowed``.
+    ``online_payment`` is the decision the checkout gate makes for an ONLINE pass at its
+    quoted price: ``blocked`` means ``POST /series-passes/{pass_id}/checkout`` answers 422.
+    Offline and free passes don't use the online channel and read ``allowed``.
     """
 
     online_payment: PaymentChannelCapability

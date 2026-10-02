@@ -5,6 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.contrib.gis.geos import Point
 from django.db import connection
 from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
@@ -17,6 +18,7 @@ from events.compliance import PaymentChannelCapability
 from events.management.commands.bootstrap_helpers.compliance import create_compliance_fixtures
 from events.models import EventSeries, Organization, SeriesPass, TicketTier
 from events.tests.test_series_pass.test_backfill import _make_covered_event, _make_pass
+from geo.models import City
 
 pytestmark = pytest.mark.django_db
 
@@ -89,9 +91,18 @@ def test_quote_compliance_matches_the_checkout_gate(
 def test_quote_query_count_does_not_grow_with_covered_events(
     organization: Organization, event_series: EventSeries
 ) -> None:
-    """The decision reads each covered event's venue country from the one tier-links query."""
+    """The decision reads the org country and each covered event's venue country without extra queries."""
+    city = City.objects.create(
+        name="Milan",
+        ascii_name="Milan",
+        country="Italy",
+        iso2="IT",
+        iso3="ITA",
+        city_id=91081,
+        location=Point(9.19, 45.46),
+    )
     Organization.objects.filter(pk=organization.pk).update(
-        vat_country_code="IT", visibility=Organization.Visibility.PUBLIC
+        vat_country_code="IT", city=city, visibility=Organization.Visibility.PUBLIC
     )
     series_pass = _make_pass(organization, event_series, TicketTier.PaymentMethod.ONLINE, "count")
     url = reverse("api:get_series_pass_quote", kwargs={"pass_id": series_pass.pk})
@@ -104,3 +115,6 @@ def test_quote_query_count_does_not_grow_with_covered_events(
         assert Client().get(url).status_code == 200
 
     assert len(five_events) == len(two_events)
+    # The org's city arrives joined to the pass, never as a query of its own.
+    assert not any('FROM "geo_city"' in query["sql"] for query in five_events.captured_queries)
+    assert Client().get(url).json()["compliance"]["online_payment"] == PaymentChannelCapability.BLOCKED

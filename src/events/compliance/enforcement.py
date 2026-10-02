@@ -203,7 +203,8 @@ def series_pass_online_payment(
 ) -> PaymentChannelCapability:
     """Whether a pass checkout at ``price`` for ``events`` takes money online where it is allowed (#1081).
 
-    The same decision the pass checkout gate makes; an offline or free pass reads ``allowed``.
+    For an ONLINE pass this is the decision the pass checkout gate makes. Offline and free
+    passes don't use the online channel and read ``allowed``.
     """
     if payment_method != TicketTier.PaymentMethod.ONLINE:
         return PaymentChannelCapability.ALLOWED

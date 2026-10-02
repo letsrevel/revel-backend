@@ -64,7 +64,11 @@ class SeriesPassQuote:
 
 
 def get_quote(series_pass: SeriesPass, now: datetime | None = None) -> SeriesPassQuote:
-    """Current pro-rata price and purchasability for a pass. Pure given ``now``."""
+    """Current pro-rata price, purchasability and online-payment capability for a pass.
+
+    Select ``event_series__organization__city`` on the pass to keep the compliance decision
+    query-free (the covered events' venue countries come with the tier links).
+    """
     now = now or timezone.now()
     links = series_pass.tier_links.select_related("event__venue__city", "event__city", "event__organization")
     upcoming = [link.event for link in links if link.event.start >= now]
