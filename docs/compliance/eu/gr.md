@@ -31,8 +31,8 @@ Greece.
   `gr_mydata`, topic `attendee_invoicing`): "Revel can't issue attendee invoices where Greek rules apply:
   receipts and invoices must be transmitted to AADE's myDATA. If you must issue Greek documents, issue
   them from your own software, a certified e-invoicing provider or AADE's free tools (timologio,
-  myDATAapp). Invoices to Greek businesses must be e-invoices issued through a provider or AADE's tools
-  (for smaller businesses from 2 November 2026)." Conditional, because whether Law 4308/2014 reaches
+  myDATAapp). Invoices to Greek businesses must be e-invoices issued through a provider or AADE's tools:
+  since 2 March 2026 if your 2023 income was over €1 million, otherwise from 2 November 2026." Conditional, because whether Law 4308/2014 reaches
   non-Greek organizers is an open question (below).
 - Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies, including the "not a tax
