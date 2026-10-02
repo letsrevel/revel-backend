@@ -26,9 +26,13 @@ from django.utils import timezone
 from common.service.vat_utils import calculate_vat_inclusive
 from events.models import MembershipPayment, Organization, Payment, Refund, Ticket, TicketTier
 from events.service.seating.pricing import recorded_or_resolved_price
+from events.service.ticket_number_service import format_ticket_number
 from events.utils import get_organization_timezone
 
 ZERO = Decimal("0.00")
+# Bump whenever the report workbook layout changes, so cached reports regenerate even when no row
+# changed (e.g. the ticket_number column, #1090).
+REPORT_FORMAT_VERSION = 2
 _REVERSE_CHARGE_LABEL = "0% / reverse-charge"
 
 
@@ -73,6 +77,7 @@ class TxnRow:
     currency: str
     stripe_session_id: str
     stripe_payout_id: str
+    ticket_number: str  # formatted fiscal number (#1090, needed for FR CGI 290 quater); empty until issued
 
 
 @dataclass(frozen=True)
@@ -374,6 +379,7 @@ def _process_payment(
                 currency=currency,
                 stripe_session_id=payment.stripe_session_id,
                 stripe_payout_id="",
+                ticket_number=format_ticket_number(payment.ticket),
             )
         )
 
@@ -425,6 +431,7 @@ def _process_ticket(
                 currency=currency,
                 stripe_session_id="",
                 stripe_payout_id="",
+                ticket_number=format_ticket_number(ticket),
             )
         )
 
@@ -605,6 +612,8 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
                     payment.updated_at.isoformat(),
                     payment.status,
                     payment.refund_status or "",
+                    # Numbers are bulk-assigned without bumping ``updated_at`` (#1090).
+                    format_ticket_number(payment.ticket),
                 ]
             )
         )
@@ -616,6 +625,7 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
                     ticket.updated_at.isoformat(),
                     ticket.status,
                     str(ticket.offline_refund_amount),
+                    format_ticket_number(ticket),
                 ]
             )
         )
@@ -631,7 +641,7 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
             )
         )
     scope_key = (
-        f"{scope.org.id}:{scope.event_id}:{scope.date_from}:{scope.date_to}"
+        f"v{REPORT_FORMAT_VERSION}:{scope.org.id}:{scope.event_id}:{scope.date_from}:{scope.date_to}"
         f":{str(scope.org.vat_rate)}:{scope.org.vat_country_code}"
     )
     raw = scope_key + "||" + "\n".join(parts)

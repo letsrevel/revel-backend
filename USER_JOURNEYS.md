@@ -1576,7 +1576,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ### 25.2 Downloadable Revenue & VAT Report
 - `POST /organization-admin/{slug}/revenue-report` kicks off generation; poll via `GET /organization-admin/{slug}/revenue-reports/{id}`
 - Output is a **ZIP** bundling:
-  - an **XLSX** (Summary + Transactions sheets)
+  - an **XLSX** (Summary + Transactions sheets); each Transactions row ends with the ticket's fiscal `ticket_number` (`SERIES-000123`, empty while the ticket is not yet issued)
   - a **PDF** (per-VAT-rate table, refunds, net taxable turnover)
 - Cached and reused unless `?refresh=true`
 

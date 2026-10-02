@@ -2,6 +2,7 @@
 
 import datetime as dt
 import io
+import re
 import typing as t
 import zipfile
 from decimal import Decimal
@@ -79,6 +80,10 @@ def test_xlsx_has_summary_and_transactions_sheets(report_data: svc.RevenueReport
     assert wb.sheetnames == ["Summary", "Transactions", "Membership payments"]
     headers = [c.value for c in wb["Transactions"][1]]
     assert "payment_id" in headers and "vat_rate" in headers and "stripe_payout_id" in headers
+    # Fiscal ticket number (#1090) is appended last so existing column positions are unchanged.
+    assert headers[-1] == "ticket_number"
+    ticket_number = wb["Transactions"].cell(row=2, column=len(headers)).value
+    assert isinstance(ticket_number, str) and re.fullmatch(r"ORG-\d{6}", ticket_number)
 
 
 @pytest.mark.django_db
