@@ -47,9 +47,9 @@ has no NAV integration, so its attendee invoices would be non-compliant.
   immediately, without human intervention, in XML (Annex 10).
   [NAV](https://nav.gov.hu/ado/afa/A_szamlakibocsatok_sz20201231),
   [Online Számla](https://onlineszamla.nav.gov.hu/)
-- **Receipt data reporting from 1 September 2026**, introduced by **Act LIV of 2025**: §35 adds
-  257/G. § to the Áfa tv. (paragraph (3): data on receipts not issued by an online or e-cash register),
-  and §41 with Annex 3 adds Annex 11 Part B (point 1: daily totals by VAT rate within 3 calendar days);
+- **Receipt data reporting from 1 September 2026**, introduced by **Act LIV of 2025**: §35 amends
+  257/G. § of the Áfa tv. (paragraph (3): data on receipts not issued by an online or e-cash register),
+  and §41 with Annex 3 replaces Annex 11 (Part B, point 1: daily totals by VAT rate within 3 calendar days);
   both in force from 1 September 2026 (§153(10)). Online and e-cash registers already report
   automatically. Under 257/G. § (4), non-established sellers using OSS report by making their OSS
   records available. NAV announced on 4 August 2026 that fines apply only from 1 January 2027, with

@@ -32,8 +32,9 @@ Greece.
   receipts and invoices must be transmitted to AADE's myDATA. If you must issue Greek documents, issue
   them from your own software, a certified e-invoicing provider or AADE's free tools (timologio,
   myDATAapp). Invoices to Greek businesses must be e-invoices issued through a provider or AADE's tools:
-  since 2 March 2026 if your 2023 income was over €1 million, otherwise from 2 November 2026." Conditional, because whether Law 4308/2014 reaches
-  non-Greek organizers is an open question (below).
+  since 2 March 2026 if your 2023 gross revenue was over €1 million, otherwise from 2 November 2026."
+  Conditional, because whether Law 4308/2014 reaches non-Greek organizers is an open question (below).
+  The notice gives the legal start dates; the optional phase-in periods (below) are left out for brevity.
 - Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies, including the "not a tax
   invoice or receipt" notice.
@@ -61,11 +62,13 @@ Greece.
 The organizer can meet its obligation with its own ERP, a certified provider, or AADE's free tools
 (timologio, myDATAapp). B2B e-invoicing is set by joint decision **A.1128/2025** (ΦΕΚ Β΄4937), amended
 by **A.1044/2026** and **A.1197/2026**, and covers domestic B2B, non-EU B2B and B2G invoices (not
-intra-EU supplies). It is mandatory since 2 March 2026 for businesses with 2023 gross income over €1M
+intra-EU supplies). It is mandatory since 2 March 2026 for businesses with 2023 gross revenue over €1M
 (A.1044/2026, ΦΕΚ Β΄880/17-02-2026, which moved the start from 2 February and allowed a gradual phase-in
 until 3 May 2026), and from 2 November 2026 for everyone else (A.1197/2026, ΦΕΚ Β΄5905/30-09-2026, with a
-phase-in until 31 January 2027). These invoices must be issued through a certified provider or AADE's
-tools, so an own ERP alone no longer suffices for them.
+phase-in until 31 January 2027). During each phase-in, a business that filed the required declaration on
+time ("Δήλωση Έναρξης Ηλεκτρονικής Έκδοσης Στοιχείων") may keep issuing in parallel through its ERP or the
+special form; after it ends (3 May 2026 for phase 1, 31 January 2027 for phase 2), these invoices must be
+issued exclusively through a certified provider or AADE's tools, so an own ERP alone no longer suffices.
 [A.1044/2026](https://www.taxheaven.gr/circulars/52245/a-1044-2026),
 [A.1197/2026](https://www.taxheaven.gr/circulars/55463/a-1197-2026)
 
