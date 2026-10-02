@@ -10,6 +10,7 @@ from pydantic import AwareDatetime, ConfigDict, Field
 
 from accounts.schema import MemberUserSchema
 from common.schema import OneToOneFiftyString, StrippedString
+from events.compliance import PaymentChannelCapability
 from events.models import HeldSeriesPass, SeriesPass
 from events.models.ticket import TicketTier
 from events.schema.attribution import AttributionPayloadMixin
@@ -42,6 +43,17 @@ class SeriesPassSchema(ModelSchema):
         ]
 
 
+class SeriesPassComplianceSchema(Schema):
+    """What the countries reaching a pass's upcoming covered events allow today (#1081).
+
+    ``online_payment`` is the decision the checkout gate makes for this pass at its quoted
+    price: ``blocked`` means ``POST /series-passes/{pass_id}/checkout`` answers 422. An
+    offline or free pass reads ``allowed``.
+    """
+
+    online_payment: PaymentChannelCapability
+
+
 class SeriesPassQuoteSchema(Schema):
     """Current pro-rata price and purchasability for a series pass."""
 
@@ -51,6 +63,7 @@ class SeriesPassQuoteSchema(Schema):
     currency: str
     purchasable: bool
     reason: str | None = None
+    compliance: SeriesPassComplianceSchema
 
 
 class SeriesPassSeriesInfoSchema(Schema):

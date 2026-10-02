@@ -121,6 +121,10 @@ it takes effect.
   checkout and invoicing gates take, so the tier editor and checkout can hide exactly what the API would
   refuse. It is on detail responses only, not on event lists. The API still answers 422 if a refused
   sale is attempted.
+- The series-pass quote (`GET /series-passes/{pass_id}/quote`) exposes `compliance: {online_payment}`:
+  the decision the pass checkout gate takes for that pass at its quoted price over its upcoming
+  covered events (`enforcement.series_pass_online_payment()`). `blocked` means the checkout answers 422;
+  an offline, free or zero-priced pass reads `allowed`. Values are effective today, as above.
 - Refusal messages name the country in the user's language, for example "Online card payments aren't
   available for events in Italy. ...".
 

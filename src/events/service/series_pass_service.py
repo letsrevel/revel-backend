@@ -20,6 +20,8 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.compliance import PaymentChannelCapability
+from events.compliance.enforcement import series_pass_online_payment
 from events.exceptions import SeriesPassCoverageError, SeriesPassHasHoldersError
 from events.models import (
     Event,
@@ -58,14 +60,16 @@ class SeriesPassQuote:
     currency: str
     purchasable: bool
     reason: str | None
+    online_payment: PaymentChannelCapability
 
 
 def get_quote(series_pass: SeriesPass, now: datetime | None = None) -> SeriesPassQuote:
     """Current pro-rata price and purchasability for a pass. Pure given ``now``."""
     now = now or timezone.now()
-    links = series_pass.tier_links.select_related("event")
-    passed = sum(1 for link in links if link.event.start < now)
-    remaining = links.count() - passed
+    links = series_pass.tier_links.select_related("event__venue__city", "event__city", "event__organization")
+    upcoming = [link.event for link in links if link.event.start >= now]
+    passed = len(links) - len(upcoming)
+    remaining = len(upcoming)
     price = max(series_pass.price - passed * series_pass.pro_rata_discount, _ZERO).quantize(Decimal("0.01"))
 
     reason: str | None = None
@@ -87,6 +91,10 @@ def get_quote(series_pass: SeriesPass, now: datetime | None = None) -> SeriesPas
         currency=series_pass.currency,
         purchasable=reason is None,
         reason=reason,
+        # Same price and covered events the checkout gate is asked about (#1081).
+        online_payment=series_pass_online_payment(
+            series_pass.event_series.organization, series_pass.payment_method, price, upcoming
+        ),
     )
 
 

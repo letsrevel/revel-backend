@@ -107,6 +107,7 @@ class SeriesPassController(UserAwareController):
             currency=quote.currency,
             purchasable=quote.purchasable,
             reason=quote.reason,
+            compliance=schema.SeriesPassComplianceSchema(online_payment=quote.online_payment),
         )
 
     @route.post(
