@@ -1742,6 +1742,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 > - Owner: `test.compliance@example.com` / `password123`.
 > - One public, Stripe-flagged, invoicing-ready org per country: `compliance-it`, `-at`, `-hr`, `-es`, `-be`, `-pl`, `-dk`, `-us` (non-EU) and `-unknown` (no country).
 > - `compliance-es-pv` (#1086): ES VAT ID, city **Bilbao** (`admin_name` "Basque Country"), so its jurisdiction is the Basque Country (`ES-PV`, TicketBAI).
+> - `compliance-es-nc` (#1086): ES VAT ID, city **Pamplona** (`admin_name` "Navarre"), so its jurisdiction is Navarre (`ES-NC`, NaTicket; Spain's 2027 date).
 > - `compliance-it` / event `it-club-night` has these tiers:
 >   - *Door* (at the door, €10)
 >   - *Bank transfer* (offline, €15)
@@ -1774,13 +1775,14 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   | `compliance-pl` | `PL` | `blocked_for_business_buyers` | `allowed` | `allowed` | one: `pl_kasa_fiskalna` |
   | `compliance-es` (before 2027-01-01) | `ES` | `allowed` | `allowed` | `allowed` | one: `es_verifactu` |
   | `compliance-es-pv` (`region: "ES-PV"`) | `ES` | `blocked` | `allowed` | `allowed` | `[]` (no `es_verifactu`: already blocked) |
+  | `compliance-es-nc` (`region: "ES-NC"`, before 2027-01-01) | `ES` | `allowed` | `allowed` | `allowed` | one: `es_nc_naticket` (never `es_verifactu`) |
   | `compliance-at` | `AT` | `allowed` | `allowed` | `allowed` | one: `at_registrierkasse` |
   | `compliance-dk` | `DK` | `allowed` | `allowed` | `allowed` | one: `dk_sales_registration` |
   | `compliance-us` | `US` | `allowed` | `allowed` | `allowed` | `[]` (non-EU: show the out-of-scope copy) |
   | `compliance-unknown` | `""` | `allowed` | `allowed` | `allowed` | `[]` (show the "add your VAT ID or city" copy) |
 
 - **UI:** the "Country rules" card with the localized country name (never the ISO code), a bullet per restriction, and the "Learn more" link to `https://docs.letsrevel.io/compliance/eu/<cc>/`.
-  - `region: "ES-PV"` names the Basque Country and TicketBAI instead of Spain and Verifactu; `region: "ES-NC"` (Navarre, backend-only, no seeded org) names Navarre and NaTicket (#1086).
+  - `region: "ES-PV"` names the Basque Country and TicketBAI instead of Spain and Verifactu; `region: "ES-NC"` (Navarre, `compliance-es-nc`) names Navarre and NaTicket (#1086); no Verifactu text anywhere.
 - **Values are effective today.** A restriction with a future start date reads `allowed` until it starts.
 
 ### 29.2 Attendee Invoicing Modes (Organization Owner)
@@ -1801,7 +1803,10 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   - On `compliance-es-pv`, `Hybrid` and `Automatic` are disabled and `None` stays selected, as on `compliance-hr`. There is no `es_verifactu` notice.
   - Forcing it with `PATCH /organization-admin/compliance-es-pv/invoicing` `{"mode": "auto"}` returns **422** with `detail`: "Revel can't issue invoices to your attendees in the Basque Country. The law there requires invoices to go through TicketBAI (Batuz in Bizkaia), and Revel isn't connected to it. Please issue invoices from your own TicketBAI-compliant invoicing software."
   - Skipped invoices and credit notes are recorded with `policy_country: "ES"` (29.9).
-  - **Navarre** (`region: "ES-NC"`, backend-only) keeps the ES 2027 date. Its notice (key `es_nc_naticket`) and its refusal name Navarre and NaTicket, never Verifactu.
+- **Navarre (#1086), Spain's 2027 date, NaTicket wording:**
+  - Before 2027-01-01, `compliance-es-nc` shows `attendee_invoicing: allowed`, the modes work, and the org card carries the `es_nc_naticket` notice (29.7) instead of `es_verifactu`. No Verifactu text appears anywhere.
+  - From 2027-01-01 the capability reads `blocked`, and `PATCH /organization-admin/compliance-es-nc/invoicing` `{"mode": "auto"}` returns **422** with `detail`: "Revel doesn't issue invoices to attendees for organizers in Spain, Navarre included. Navarre is bringing in its own invoicing-software rules (NaTicket), and Revel isn't connected to them. Please issue invoices from your own invoicing software."
+  - E2E can't move the server clock: read `attendee_invoicing` from the API and assert the branch it reports, as for `compliance-es`. The flip itself is backend-tested (`test_subdivisions.py`).
 
 ### 29.3 Ticket Tier Editor in Italy (Organization Owner)
 - **Preconditions:** `compliance-it` → `it-club-night` → Tickets.
@@ -1863,6 +1868,7 @@ The labels and the "Free" / notice text are translated. A cached PDF or pass reg
   - **GR** (organizers established in Greece, VAT prefix `EL` included, and any physical event held there): key `gr_mydata`, message "Revel can't issue attendee invoices where Greek rules apply: receipts and invoices must be transmitted to AADE's myDATA. If you must issue Greek documents, issue them from your own software, a certified e-invoicing provider or AADE's free tools (timologio, myDATAapp). Invoices to businesses must go through a provider or AADE's tools."
   - **HU** (organizers established in Hungary and any physical event held there): key `hu_nav`, message "Revel can't issue attendee invoices where Hungarian rules apply: invoices from invoicing software must be reported to NAV Online Számla in real time. If this applies to you, issue a receipt (nyugta) or invoice for every paid sale from your own system. Since 1 September 2026, data on receipts not issued by an online or e-cash register must also be reported to NAV."
   - **ES, until 2026-12-31** (`compliance-es` org card; organizers established in Spain only, gone from 2027-01-01 when the block starts; **not** shown to Basque organizers like `compliance-es-pv`, who are blocked already, and replaced by `es_nc_naticket` in Navarre): key `es_verifactu`, message "From 1 January 2027, Revel stops issuing attendee invoices for organizers in Spain, because it can't meet Spain's invoicing-software rules (Verifactu), which start applying in 2027. If you use attendee invoicing, set up your own invoicing software before then."
+  - **Navarre, until 2026-12-31** (`compliance-es-nc` org card; replaces `es_verifactu` for Navarre organizers): key `es_nc_naticket`, `applies_to: attendee_invoicing`, message "From 1 January 2027, Revel stops issuing attendee invoices for organizers in Spain, Navarre included. Navarre is bringing in its own invoicing-software rules (NaTicket), and Revel won't be connected to them. If you use attendee invoicing, set up your own invoicing software before then."
   - SI, GR and HU have no seeded org; E2E covers the placement with `compliance-hr`, the rest is backend-tested (`test_organizer_notices.py`).
 - **Other countries:** `notices: []`.
 
