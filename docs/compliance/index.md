@@ -123,8 +123,9 @@ it takes effect.
   sale is attempted.
 - The series-pass quote (`GET /series-passes/{pass_id}/quote`) exposes `compliance: {online_payment}`:
   the decision the pass checkout gate takes for that pass at its quoted price over its upcoming
-  covered events (`enforcement.series_pass_online_payment()`). `blocked` means the checkout answers 422;
-  an offline, free or zero-priced pass reads `allowed`. Values are effective today, as above.
+  covered events (`enforcement.series_pass_online_payment()`). `blocked` means the checkout answers 422
+  once it reaches the compliance gate (buyer-eligibility or purchasability checks can answer 403 or 409
+  first); an offline, free or zero-priced pass reads `allowed`. Values are effective today, as above.
 - Refusal messages name the country in the user's language, for example "Online card payments aren't
   available for events in Italy. ...".
 
