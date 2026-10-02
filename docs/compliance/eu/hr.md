@@ -1,6 +1,6 @@
 # Croatia
 
-Policy module: `src/events/compliance/policies/hr.py` (`CroatiaPolicy`, using `FiscalizedInvoicingMixin`).
+Policy module: `src/events/compliance/policies/hr.py` (`CroatiaPolicy`, using `FiscalizedInvoicingMixin`, plus one organizer notice).
 
 Issue: [#1058](https://github.com/letsrevel/revel-backend/issues/1058)
 
@@ -24,6 +24,11 @@ fiscalized.
 - **Existing settings:** organizations in Croatia that had HYBRID or AUTO were switched to NONE by the
   data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
   notification was sent automatically, so affected organizers should be informed out of band.
+- **Organizer notice (non-blocking)**, for organizers established in Croatia, shown next to the
+  attendee-invoicing setting (key `hr_fiscalization`, topic `attendee_invoicing`): "Revel can't issue
+  your attendee invoices. In Croatia, invoices to consumers must be fiscalized in real time with the Tax
+  Administration (Porezna uprava). If this applies to you, issue and fiscalize them from your own
+  software." "If this applies to you" because associations are obligors only when they pay profit tax.
 - Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies, including the "not a tax
   invoice or receipt" notice.
@@ -63,8 +68,9 @@ when they are profit-tax payers.
 
 ## Later layers
 
-- Organizer guidance for Croatia and a revenue/VAT export that organizers can feed into their own
-  fiscalization software.
+- Fuller organizer guidance for Croatia (registering online-sales premises) and a revenue/VAT export
+  that organizers can feed into their own fiscalization software. The in-app notice above shipped in
+  [#1092](https://github.com/letsrevel/revel-backend/issues/1092).
 - Optional native fiscalization: per-organization certificate storage, Croatian numbering, ZKI/JIR
   fields on invoices and credit notes, a signed SOAP submission task with retries, and fiscal data on
   the PDF.

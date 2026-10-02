@@ -1,12 +1,14 @@
 """Capabilities exposed to the frontend, and the invoicing-mode data migration (EU layer 1)."""
 
 import importlib
+import typing as t
 
 import pytest
 from django.apps import apps as django_apps
 from django.test.client import Client
 from django.urls import reverse
 
+from events.compliance.policies.hr import FISCALIZATION_NOTICE
 from events.models import Organization, TicketTier
 from events.schema import TicketTierSchema
 
@@ -34,6 +36,13 @@ _disable_blocked = importlib.import_module("events.migrations.0128_disable_block
                 "attendee_invoicing": "blocked",
                 "online_payment": "allowed",
                 "offline_payment": "allowed",
+                "notices": [
+                    {
+                        "key": "hr_fiscalization",
+                        "applies_to": "attendee_invoicing",
+                        "message": str(FISCALIZATION_NOTICE),
+                    }
+                ],
             },
         ),
         (
@@ -58,7 +67,7 @@ _disable_blocked = importlib.import_module("events.migrations.0128_disable_block
     ],
 )
 def test_org_admin_detail_exposes_compliance(
-    owner_client: Client, organization: Organization, country: str, expected: dict[str, str]
+    owner_client: Client, organization: Organization, country: str, expected: dict[str, t.Any]
 ) -> None:
     organization.vat_country_code = country
     organization.save(update_fields=["vat_country_code"])

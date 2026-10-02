@@ -121,6 +121,8 @@ class NoticeTopic(enum.StrEnum):
     OFFLINE_PAYMENT = "offline_payment"
     # Selling tickets at all, online included: show it next to the tier/sales settings.
     TICKET_SALES = "ticket_sales"
+    # Who issues attendee invoices: show it next to the organization's attendee-invoicing mode.
+    ATTENDEE_INVOICING = "attendee_invoicing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,7 +316,8 @@ class FiscalizedInvoicingMixin:
 
     Set ``fiscal_system``. ``fiscal_invoicing_applies_on`` says which sales the rule
     reaches (default: organizers established here) and ``fiscal_invoicing_from`` when
-    it starts (default: already in force).
+    it starts (default: already in force). A country's organizer notice about the block
+    scopes itself with :meth:`fiscal_invoicing_in_force`, so it reaches the same sales.
     """
 
     country: str
@@ -322,9 +325,13 @@ class FiscalizedInvoicingMixin:
     fiscal_invoicing_applies_on: t.ClassVar[frozenset[Nexus]] = frozenset({Nexus.ESTABLISHMENT})
     fiscal_invoicing_from: t.ClassVar[datetime.date | None] = None
 
+    def fiscal_invoicing_in_force(self, nexus: frozenset[Nexus]) -> bool:
+        """Whether the block binds a sale reached through ``nexus``, today (also scopes the country's notice)."""
+        return in_force(nexus, self.fiscal_invoicing_applies_on, self.fiscal_invoicing_from)
+
     def attendee_invoicing(self, buyer: BuyerContext, nexus: frozenset[Nexus]) -> Decision:
         """Blocked for every buyer, within scope and once in force."""
-        if not in_force(nexus, self.fiscal_invoicing_applies_on, self.fiscal_invoicing_from):
+        if not self.fiscal_invoicing_in_force(nexus):
             return Decision.allow()
         return Decision.block(
             str(ATTENDEE_INVOICING_BLOCKED_MESSAGE).format(

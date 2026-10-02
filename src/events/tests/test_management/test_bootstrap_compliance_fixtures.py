@@ -40,6 +40,7 @@ def test_seed_matches_the_journey_preconditions() -> None:
     )
     assert [n.key for n in event_compliance(Event.objects.get(slug="at-gig-vienna")).notices] == ["at_registrierkasse"]
     assert [n.key for n in event_compliance(Event.objects.get(slug="pl-dance-night")).notices] == ["pl_kasa_fiskalna"]
+    assert [n.key for n in event_compliance(Event.objects.get(slug="hr-concert")).notices] == ["hr_fiscalization"]
     assert SeriesPass.objects.get(name="IT Season Pass").tier_links.count() == 2
 
     draft = AttendeeInvoice.objects.get(stripe_session_id="cs_e2e_compliance_hr_draft")
