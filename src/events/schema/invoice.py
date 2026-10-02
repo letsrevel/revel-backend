@@ -6,11 +6,16 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime, ConfigDict
+from pydantic import AwareDatetime, ConfigDict, StringConstraints
 
 from events.models.attendee_invoice import AttendeeInvoiceStatus
 from events.models.invoice import PlatformFeeInvoice
 from events.models.organization import Organization
+from events.models.skipped_fiscal_document import (
+    SkippedFiscalDocument,
+    SkippedFiscalDocumentKind,
+    SkippedFiscalDocumentReason,
+)
 
 
 class PlatformFeeInvoiceSchema(Schema):
@@ -129,6 +134,15 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     buyer_vat_id: str
     buyer_vat_country: str
     buyer_address: str
+    # Drafts only (#1091): the country policy's reason this draft can no longer be issued, else "".
+    issue_blocked_reason: str = ""
+
+    @staticmethod
+    def resolve_issue_blocked_reason(obj: t.Any) -> str:
+        """Ask the country policies; query-free on querysets built with ``with_issue_context``."""
+        from events.service.attendee_invoice_service import issue_blocked_reason
+
+        return issue_blocked_reason(obj)
 
 
 class BuyerAttendeeInvoiceSchema(AttendeeInvoiceSchema):
@@ -181,6 +195,64 @@ class AttendeeInvoiceCreditNoteSchema(Schema):
     def resolve_invoice_number(obj: t.Any) -> str:
         """Resolve invoice number from the related invoice."""
         return str(obj.invoice.invoice_number)
+
+
+class SkippedFiscalDocumentSchema(Schema):
+    """An attendee invoice or credit note Revel skipped under a country policy (#1091).
+
+    The organizer issues it from its own compliant system, then resolves it here.
+    Amounts are positive on credit notes too.
+    """
+
+    id: UUID
+    kind: SkippedFiscalDocumentKind
+    reason_code: SkippedFiscalDocumentReason
+    policy_country: str
+    reason: str
+    event_id: UUID | None = None
+    event_name: str | None = None
+    stripe_session_id: str
+    ticket_ids: list[UUID]
+    # Credit notes: the Revel invoice they would correct, or the skipped invoice record.
+    invoice_id: UUID | None = None
+    invoice_number: str | None = None
+    parent_id: UUID | None = None
+    buyer_name: str
+    buyer_email: str
+    buyer_vat_id: str
+    buyer_vat_country: str
+    buyer_vat_id_status: str
+    buyer_address: str
+    currency: str
+    total_gross: Decimal
+    total_net: Decimal
+    total_vat: Decimal
+    line_items: list[InvoiceLineItemSchema]
+    vat_breakdown: list[InvoiceVatBucketSchema]
+    decided_at: AwareDatetime
+    resolved_at: AwareDatetime | None = None
+    external_reference: str
+
+    @staticmethod
+    def resolve_event_name(obj: SkippedFiscalDocument) -> str | None:
+        """The event's name while it exists."""
+        return obj.event.name if obj.event else None
+
+    @staticmethod
+    def resolve_invoice_number(obj: SkippedFiscalDocument) -> str | None:
+        """The corrected Revel invoice's number, for credit notes on an issued invoice."""
+        return obj.invoice.invoice_number if obj.invoice else None
+
+    @staticmethod
+    def resolve_ticket_ids(obj: SkippedFiscalDocument) -> list[UUID]:
+        """The tickets of the covered payments (prefetched by the list query)."""
+        return [payment.ticket_id for payment in obj.payments.all()]
+
+
+class ResolveSkippedFiscalDocumentSchema(Schema):
+    """Mark a skipped document as issued in the organizer's own system."""
+
+    external_reference: t.Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 
 
 BuyerAttendeeInvoiceSchema.model_rebuild()

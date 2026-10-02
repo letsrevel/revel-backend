@@ -72,8 +72,13 @@ Generates a workbook with two sheets:
 Unlike the attendee and questionnaire exports, this one bundles **multiple files into a ZIP**
 (`build_zip` → `build_xlsx` + `build_pdf`):
 
-- **XLSX** — two sheets: **Summary** (per currency, one row per VAT rate, a Refunds row, and a
-  bold Net-taxable-turnover total) and **Transactions** (one row per sale/refund line).
+- **XLSX** — **Summary** (per currency, one row per VAT rate, a Refunds row, and a bold
+  Net-taxable-turnover total), **Transactions** (one row per sale/refund line), **Membership
+  payments**, and **Invoices to issue yourself** (attendee invoices and credit notes a country policy
+  made Revel skip, decided in the period, #1091). On Transactions, `buyer_country` is the buyer's VAT
+  country, `stripe_payment_intent_id` joins each sale to Stripe's payout reconciliation report, and
+  `stripe_payout_id` is always empty: Revel does not store payout IDs, and the column stays only so
+  existing column positions don't move.
 - **PDF** — rendered with WeasyPrint (`reports/revenue_vat_report.html`): per-VAT-rate table,
   refunds, and net taxable turnover.
 

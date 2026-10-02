@@ -25,6 +25,7 @@ from events.models import (
     TicketTier,
     WhitelistRequest,
 )
+from events.models.skipped_fiscal_document import SkippedFiscalDocumentKind, SkippedFiscalDocumentReason
 from questionnaires.models import QuestionnaireEvaluation
 
 
@@ -193,6 +194,8 @@ class TicketFilterSchema(FilterSchema):
     tier__payment_method: t.Annotated[TicketTier.PaymentMethod | None, FilterLookup(q="tier__payment_method")] = None
     utm_source: t.Annotated[str | None, FilterLookup(q="attribution__utm_source")] = None
     utm_campaign: t.Annotated[str | None, FilterLookup(q="attribution__utm_campaign")] = None
+    # Needs the ``invoice_skipped`` annotation (``skipped_fiscal_document_service.invoice_skipped_annotation``).
+    invoice_skipped: bool | None = None
     include_past: bool = False
 
     def filter_include_past(self, include_past: bool) -> Q:
@@ -428,3 +431,16 @@ class DiscountCodeFilterSchema(FilterSchema):
 
     is_active: bool | None = None
     discount_type: DiscountCode.DiscountType | None = None
+
+
+class SkippedFiscalDocumentFilterSchema(FilterSchema):
+    """Filters for the organization's skipped fiscal documents (#1091)."""
+
+    kind: SkippedFiscalDocumentKind | None = None
+    reason_code: SkippedFiscalDocumentReason | None = None
+    event_id: UUID | None = None
+    resolved: bool | None = None
+
+    def filter_resolved(self, resolved: bool | None) -> Q:
+        """Resolved (issued by the organizer) or still open."""
+        return Q() if resolved is None else Q(resolved_at__isnull=not resolved)

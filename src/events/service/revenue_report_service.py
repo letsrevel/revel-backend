@@ -99,7 +99,38 @@ _TXN_HEADERS = [
     "stripe_payout_id",
     # Appended last so existing column positions (and parsers keyed on them) stay put.
     "ticket_number",
+    "stripe_payment_intent_id",
 ]
+
+
+_SKIPPED_HEADERS = [
+    "decided_on",
+    "document",
+    "reason",
+    "policy_country",
+    "event",
+    "buyer_name",
+    "buyer_email",
+    "buyer_vat_id",
+    "buyer_vat_country",
+    "vat_id_status",
+    "vat_rates",
+    "net",
+    "vat_amount",
+    "gross",
+    "currency",
+    "corrects_invoice",
+    "stripe_session_id",
+    "resolved_on",
+    "external_reference",
+]
+
+# Below the skipped-documents rows, so whoever opens the sheet knows what to do with them.
+_SKIPPED_NOTE = (
+    "Revel did not issue these invoices and credit notes because the law requires them to go through a "
+    "national e-invoicing or fiscalization system (see the reason column). Issue each one from your own "
+    "compliant system. Credit notes show the refunded amount as positive values."
+)
 
 
 _MEMBERSHIP_TXN_HEADERS = [
@@ -133,7 +164,7 @@ def report_filename(scope: ReportScope, ext: str = "zip") -> str:
 
 
 def build_xlsx(data: RevenueReportData) -> bytes:
-    """Build the XLSX workbook (Summary + Transactions + Membership payments) and return raw bytes."""
+    """Build the XLSX workbook (Summary, Transactions, Membership payments, skipped invoices); return raw bytes."""
     wb = Workbook()
     summary = wb.active
     assert summary is not None  # Workbook() always creates a default sheet
@@ -185,6 +216,7 @@ def build_xlsx(data: RevenueReportData) -> bytes:
                     row.stripe_session_id,
                     row.stripe_payout_id,
                     row.ticket_number,
+                    row.stripe_payment_intent_id,
                 ]
             )
     _format_numeric_columns(txns, money_cols=(7, 8, 10, 11, 12), percent_cols=(9,))
@@ -221,12 +253,52 @@ def build_xlsx(data: RevenueReportData) -> bytes:
     memberships.append([])
     memberships.append([_MEMBERSHIP_VAT_NOTE])
 
+    _append_skipped_sheet(wb, data)
+
     buf = io.BytesIO()
     wb.save(buf)
     out = buf.getvalue()
     buf.close()
     wb.close()
     return out
+
+
+def _append_skipped_sheet(wb: Workbook, data: RevenueReportData) -> None:
+    """The "Invoices to issue yourself" sheet: documents a country policy made Revel skip (#1091)."""
+    tz = organization_timezone(data.scope.org)
+    sheet = wb.create_sheet("Invoices to issue yourself")
+    sheet.append(_SKIPPED_HEADERS)
+    for doc in data.skipped_documents:
+        sheet.append(
+            [
+                doc.decided_at.astimezone(tz).date().isoformat(),
+                doc.kind,
+                doc.reason_code,
+                doc.policy_country,
+                doc.event.name if doc.event else "",
+                doc.buyer_name,
+                doc.buyer_email,
+                doc.buyer_vat_id,
+                doc.buyer_vat_country,
+                doc.buyer_vat_id_status,
+                ", ".join(f"{bucket['vat_rate'].normalize():f}%" for bucket in doc.vat_breakdown),
+                doc.total_net,
+                doc.total_vat,
+                doc.total_gross,
+                doc.currency,
+                doc.invoice.invoice_number if doc.invoice else "",
+                doc.stripe_session_id,
+                doc.resolved_at.astimezone(tz).date().isoformat() if doc.resolved_at else "",
+                doc.external_reference,
+            ]
+        )
+    _format_numeric_columns(sheet, money_cols=(12, 13, 14))
+    style_header_row(sheet)
+    auto_fit_columns(sheet)
+    sheet.freeze_panes = "A2"
+    # After styling, like the membership note: it must not widen columns or shift the data rows.
+    sheet.append([])
+    sheet.append([_SKIPPED_NOTE])
 
 
 def build_pdf(data: RevenueReportData) -> bytes:

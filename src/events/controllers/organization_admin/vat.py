@@ -1,10 +1,12 @@
 """Organization VAT settings, platform fee invoices, and attendee invoice endpoints."""
 
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
+from ninja import Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -14,9 +16,9 @@ from common.authentication import I18nJWTAuth
 from common.schema import ErrorDetail
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
-from events import models, schema
+from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationOwner
-from events.service import vies_service
+from events.service import attendee_invoice_service, skipped_fiscal_document_service, vies_service
 
 from .base import OrganizationAdminBaseController
 
@@ -167,7 +169,9 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     def list_attendee_invoices(self, slug: str) -> QuerySet[models.AttendeeInvoice]:
         """List attendee invoices issued by this organization."""
         organization = self.get_one(slug)
-        return models.AttendeeInvoice.objects.filter(organization=organization).order_by("-created_at")
+        return attendee_invoice_service.with_issue_context(
+            models.AttendeeInvoice.objects.filter(organization=organization)
+        ).order_by("-created_at")
 
     @route.get(
         "/attendee-invoices/{invoice_id}",
@@ -177,7 +181,11 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     def get_attendee_invoice(self, slug: str, invoice_id: UUID) -> models.AttendeeInvoice:
         """Get a specific attendee invoice."""
         organization = self.get_one(slug)
-        return get_object_or_404(models.AttendeeInvoice, id=invoice_id, organization=organization)
+        return get_object_or_404(
+            attendee_invoice_service.with_issue_context(models.AttendeeInvoice.objects.all()),
+            id=invoice_id,
+            organization=organization,
+        )
 
     @route.get(
         "/attendee-invoices/{invoice_id}/download",
@@ -266,3 +274,37 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
             .select_related("invoice")
             .order_by("-created_at")
         )
+
+    # ---- Skipped fiscal documents (#1091) ----
+
+    @route.get(
+        "/skipped-fiscal-documents",
+        url_name="list_skipped_fiscal_documents",
+        response=PaginatedResponseSchema[schema.SkippedFiscalDocumentSchema],
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["buyer_name", "buyer_email", "buyer_vat_id", "event__name"])
+    def list_skipped_fiscal_documents(
+        self, slug: str, params: t.Annotated[filters.SkippedFiscalDocumentFilterSchema, Query(...)]
+    ) -> QuerySet[models.SkippedFiscalDocument]:
+        """List the attendee invoices and credit notes Revel skipped under a country policy.
+
+        Issue each one from your own compliant system (e.g. Peppol, KSeF, a fiscalized
+        register), then resolve it with that document's number.
+        """
+        organization = self.get_one(slug)
+        return params.filter(skipped_fiscal_document_service.list_skipped_documents(organization))
+
+    @route.post(
+        "/skipped-fiscal-documents/{document_id}/resolve",
+        url_name="resolve_skipped_fiscal_document",
+        response=schema.SkippedFiscalDocumentSchema,
+        throttle=WriteThrottle(),
+    )
+    def resolve_skipped_fiscal_document(
+        self, slug: str, document_id: UUID, payload: schema.ResolveSkippedFiscalDocumentSchema
+    ) -> models.SkippedFiscalDocument:
+        """Mark a skipped document as issued in your own system, with its number there."""
+        organization = self.get_one(slug)
+        doc = get_object_or_404(skipped_fiscal_document_service.list_skipped_documents(organization), id=document_id)
+        return skipped_fiscal_document_service.resolve_skipped_document(doc, self.user(), payload.external_reference)

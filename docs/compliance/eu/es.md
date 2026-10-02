@@ -24,7 +24,11 @@ provinces apply their own TicketBAI regimes.
       that invoices must go through Verifactu;
     - generation is skipped (invoice generation, issuing an existing draft, including drafts created
       before the gate, and credit notes);
-    - the API capability switches to `blocked` on that date.
+    - the API capability switches to `blocked` on that date;
+    - every skipped invoice and credit note is recorded for the organizer to issue from its own
+      Verifactu system, including credit notes for refunds of invoices Revel issued in 2026
+      ([#1091](https://github.com/letsrevel/revel-backend/issues/1091), see
+      [Skipped documents](../index.md#skipped-documents)).
 - **Organizer-established only.** A foreign organizer's event held in Spain is not affected.
 - **Existing settings:** organizations in Spain are not switched to NONE by the data migration
   `0128_disable_blocked_attendee_invoicing`. They keep their HYBRID or AUTO setting; from 2027 the
@@ -73,6 +77,8 @@ provinces apply their own TicketBAI regimes.
 - Optional: implement a VERI\*FACTU invoicing system (per-seller chained billing records, AEAT
   submission, QR and legend on the PDF, a published declaración responsable), only if there is demand.
   TicketBAI would be a separate product.
-- Confirm that existing revenue exports give organizers the per-sale data their own system needs.
+- Confirm that existing revenue exports give organizers the per-sale data their own system needs. The
+  *Invoices to issue yourself* sheet lists the skipped documents with buyer, amounts and VAT
+  ([#1091](https://github.com/letsrevel/revel-backend/issues/1091)).
 
 See [#1059](https://github.com/letsrevel/revel-backend/issues/1059).

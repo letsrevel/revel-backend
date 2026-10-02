@@ -5,7 +5,8 @@ country the journeys exercise. A country comes from ``vat_country_code`` (what t
 billing-info API sets); an event held elsewhere carries its own ``vat_country_code``.
 Everything here could be arranged through the API except tiers and drafts that must
 *predate* the gate (an ONLINE tier in Italy, a draft invoice in Croatia), which only
-the ORM can create, so they are seeded.
+the ORM can create, so they are seeded. So are two paid B2B sales whose invoice was
+skipped (BE domestic, PL foreign buyer, #1091): a real one needs a Stripe checkout.
 
 Idempotent: re-running reuses the rows by slug / email.
 """
@@ -16,6 +17,8 @@ from decimal import Decimal
 
 from accounts.models import RevelUser
 from events import models as events_models
+from events.compliance import BuyerContext
+from events.compliance.enforcement import attendee_invoicing_for_sale, sale_nexus
 from events.models.attendee_invoice import AttendeeInvoice
 
 OWNER_EMAIL = "test.compliance@example.com"
@@ -111,6 +114,88 @@ def _tier(event: events_models.Event, name: str, method: str, price: str, **extr
     return tier
 
 
+def _skipped_b2b_sale(
+    buyer: RevelUser, tier: events_models.TicketTier, session_id: str, vat_id: str
+) -> events_models.SkippedFiscalDocument:
+    """A paid online sale to a business buyer whose attendee invoice the country policy skipped (#1091).
+
+    Keyed on the fixed session: ``update_or_create`` re-attaches the SET_NULL foreign keys
+    after a reset (#1083) and reopens a document a previous run resolved.
+    """
+    event = tier.event
+    org = event.organization
+    rate = "20.00"
+    gross = tier.price
+    net = (gross / Decimal("1.20")).quantize(Decimal("0.01"))
+    vat = gross - net
+    snapshot: dict[str, t.Any] = {
+        "billing_name": f"E2E Business {vat_id[:2]}",
+        "vat_id": vat_id,
+        "vat_country_code": vat_id[:2],
+        "vat_id_validated": True,
+        "vat_id_status": "valid",
+        "billing_address": "Business Street 1",
+        "billing_email": f"e2e.business.{vat_id[:2].lower()}@example.com",
+        "reverse_charge": False,
+    }
+    payment = events_models.Payment.objects.filter(stripe_session_id=session_id).first()
+    if payment is None:
+        ticket = events_models.Ticket.objects.create(
+            event=event, tier=tier, user=buyer, status=events_models.Ticket.TicketStatus.ACTIVE, guest_name="E2E Buyer"
+        )
+        payment = events_models.Payment.objects.create(
+            ticket=ticket,
+            user=buyer,
+            stripe_session_id=session_id,
+            status=events_models.Payment.PaymentStatus.SUCCEEDED,
+            amount=gross,
+            net_amount=net,
+            vat_amount=vat,
+            vat_rate=Decimal(rate),
+            platform_fee=Decimal("0.00"),
+            currency="EUR",
+            buyer_billing_snapshot=snapshot,
+        )
+    decision = attendee_invoicing_for_sale(sale_nexus(org, [event]), BuyerContext.from_billing_snapshot(snapshot))
+    line = {
+        "description": f"{event.name} — {tier.name} — E2E Buyer",
+        "unit_price_gross": str(gross),
+        "discount_amount": "0.00",
+        "net_amount": str(net),
+        "vat_amount": str(vat),
+        "vat_rate": rate,
+    }
+    doc, _ = events_models.SkippedFiscalDocument.objects.update_or_create(
+        stripe_session_id=session_id,
+        kind=events_models.SkippedFiscalDocument.Kind.INVOICE,
+        defaults={
+            "reason_code": decision.code,
+            "policy_country": decision.country,
+            "reason": decision.reason,
+            "organization": org,
+            "event": event,
+            "user": buyer,
+            "buyer_name": snapshot["billing_name"],
+            "buyer_email": snapshot["billing_email"],
+            "buyer_vat_id": vat_id,
+            "buyer_vat_country": vat_id[:2],
+            "buyer_address": snapshot["billing_address"],
+            "buyer_vat_id_status": "valid",
+            "currency": "EUR",
+            "total_gross": gross,
+            "total_net": net,
+            "total_vat": vat,
+            "line_items": [line],
+            "notified_at": None,
+            "resolved_at": None,
+            "resolved_by": None,
+            "external_reference": "",
+        },
+    )
+    doc.payments.set([payment])
+    return doc
+
+
 def create_compliance_fixtures(now: datetime) -> dict[str, events_models.Organization]:
     """Seed the compliance journeys' organizations, events, tiers and one stale draft invoice.
 
@@ -171,7 +256,18 @@ def create_compliance_fixtures(now: datetime) -> dict[str, events_models.Organiz
     _tier(_event(orgs["compliance-dk"], "dk-disco-night", "DK Disco Night", start), "Door", method.AT_THE_DOOR, "9.00")
 
     # Poland: kasa fiskalna notice next to the ticket-sales settings; it covers online sales too (#1067).
-    _tier(_event(orgs["compliance-pl"], "pl-dance-night", "PL Dance Night", start), "Card", method.ONLINE, "15.00")
+    pl_card = _tier(
+        _event(orgs["compliance-pl"], "pl-dance-night", "PL Dance Night", start), "Card", method.ONLINE, "15.00"
+    )
+    # Skipped B2B invoices (#1091): a Belgian buyer of a Belgian org (Peppol), a Dutch buyer of a Polish one (KSeF).
+    be_card = _tier(
+        _event(orgs["compliance-be"], "be-business-summit", "BE Business Summit", start),
+        "Card",
+        method.ONLINE,
+        "120.00",
+    )
+    _skipped_b2b_sale(owner, be_card, "cs_e2e_compliance_be_skipped", "BE0123456789")
+    _skipped_b2b_sale(owner, pl_card, "cs_e2e_compliance_pl_skipped", "NL123456789B01")
 
     # Croatia: a HYBRID draft that predates the gate and can no longer be issued. update_or_create, not
     # get_or_create: the invoice's FKs are SET_NULL, so a reset leaves an orphan to re-attach (#1083).

@@ -48,6 +48,7 @@ from .reserved_slug_token import ReservedSlugToken
 from .rsvp import EventRSVP
 from .seating import EventSeatOverride, SeatHold
 from .series_pass import HeldSeriesPass, SeriesPass, SeriesPassTierLink
+from .skipped_fiscal_document import SkippedFiscalDocument
 from .stripe_webhook_event import StripeWebhookEvent
 from .subscription import (
     CustomerProfile,
@@ -152,6 +153,7 @@ __all__ = [
     "AttendeeInvoiceCreditNote",
     "PlatformFeeCreditNote",
     "PlatformFeeInvoice",
+    "SkippedFiscalDocument",
     # Stripe webhooks
     "StripeWebhookEvent",
     # Series Passes

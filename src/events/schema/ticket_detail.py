@@ -113,6 +113,8 @@ class AdminTicketSchema(ModelSchema):
     series_pass: TicketSeriesPassSchema | None = None
     # Organizer-only (#922): deliberately absent from UserTicketSchema.
     attribution: TicketAttribution | None = None
+    # True when a country policy made Revel skip this sale's attendee invoice (#1091).
+    invoice_skipped: bool = False
 
     class Meta:
         model = Ticket
@@ -136,6 +138,13 @@ class AdminTicketSchema(ModelSchema):
         return memberships[0] if memberships else None
 
     resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
+
+    @staticmethod
+    def resolve_invoice_skipped(obj: Ticket) -> bool:
+        """From the list's annotation; one query for a single ticket."""
+        from events.service.skipped_fiscal_document_service import ticket_invoice_skipped
+
+        return ticket_invoice_skipped(obj)
 
 
 class TicketAttributionBucketSchema(Schema):

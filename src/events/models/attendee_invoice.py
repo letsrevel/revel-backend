@@ -115,6 +115,52 @@ class InvoiceVatBucketDict(t.TypedDict):
     gross_amount: Decimal
 
 
+def vat_breakdown_of(items: list[InvoiceLineItemDict]) -> list[InvoiceVatBucketDict]:
+    """Group invoice-shaped line items by VAT rate, ascending by rate.
+
+    Shared by :attr:`AttendeeInvoice.vat_breakdown` and the skipped-document records,
+    which store the same line items.
+    """
+    buckets: dict[Decimal, InvoiceVatBucketDict] = {}
+    for item in items:
+        # Group on the parsed Decimal, never the raw string: "22.0" and
+        # "22.00" are one rate, and comparing strings reported such a cart
+        # as mixed. Pad to 2dp (the column's decimal_places) so the bucket
+        # key -- and thus the serialized rate -- doesn't depend on which
+        # exponent happened to be seen first, but NEVER round: a rate with
+        # genuine sub-cent precision (reachable only through a hand-edited
+        # draft, since InvoiceLineItemSchema does not bound the scale) keeps
+        # its own bucket. Merging 22.003 with 22.004 would label the bucket
+        # 22.00 -- a rate neither line carries -- and report a genuinely
+        # mixed invoice as single-rate, the exact falsification this
+        # property exists to prevent.
+        raw_rate = Decimal(item["vat_rate"])
+        try:
+            padded_rate = raw_rate.quantize(Decimal("0.01"))
+        except InvalidOperation:
+            # A magnitude too large to express at 2dp in the default context
+            # (e.g. "1E+30"). Absurd, and only a hand-edited draft can store
+            # it -- but this property is on EVERY read path for the invoice
+            # (schema, admin, PDF), so raising here would leave the row
+            # permanently unreadable AND unrepairable: the PATCH that would
+            # fix it renders the same schema. Bucket it as-is instead.
+            padded_rate = raw_rate
+        rate = padded_rate if padded_rate == raw_rate else raw_rate
+        bucket = buckets.setdefault(
+            rate,
+            InvoiceVatBucketDict(
+                vat_rate=rate,
+                net_amount=Decimal("0.00"),
+                vat_amount=Decimal("0.00"),
+                gross_amount=Decimal("0.00"),
+            ),
+        )
+        bucket["net_amount"] += Decimal(item["net_amount"])
+        bucket["vat_amount"] += Decimal(item["vat_amount"])
+        bucket["gross_amount"] += Decimal(item["unit_price_gross"])
+    return [buckets[rate] for rate in sorted(buckets)]
+
+
 class AttendeeInvoiceStatus(models.TextChoices):
     """Status of an :class:`AttendeeInvoice`.
 
@@ -252,45 +298,7 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         lets an organizer rewrite ``line_items`` on a DRAFT invoice, and a stored
         breakdown would go stale on exactly those rows.
         """
-        items: list[InvoiceLineItemDict] = self.line_items
-        buckets: dict[Decimal, InvoiceVatBucketDict] = {}
-        for item in items:
-            # Group on the parsed Decimal, never the raw string: "22.0" and
-            # "22.00" are one rate, and comparing strings reported such a cart
-            # as mixed. Pad to 2dp (the column's decimal_places) so the bucket
-            # key -- and thus the serialized rate -- doesn't depend on which
-            # exponent happened to be seen first, but NEVER round: a rate with
-            # genuine sub-cent precision (reachable only through a hand-edited
-            # draft, since InvoiceLineItemSchema does not bound the scale) keeps
-            # its own bucket. Merging 22.003 with 22.004 would label the bucket
-            # 22.00 -- a rate neither line carries -- and report a genuinely
-            # mixed invoice as single-rate, the exact falsification this
-            # property exists to prevent.
-            raw_rate = Decimal(item["vat_rate"])
-            try:
-                padded_rate = raw_rate.quantize(Decimal("0.01"))
-            except InvalidOperation:
-                # A magnitude too large to express at 2dp in the default context
-                # (e.g. "1E+30"). Absurd, and only a hand-edited draft can store
-                # it -- but this property is on EVERY read path for the invoice
-                # (schema, admin, PDF), so raising here would leave the row
-                # permanently unreadable AND unrepairable: the PATCH that would
-                # fix it renders the same schema. Bucket it as-is instead.
-                padded_rate = raw_rate
-            rate = padded_rate if padded_rate == raw_rate else raw_rate
-            bucket = buckets.setdefault(
-                rate,
-                InvoiceVatBucketDict(
-                    vat_rate=rate,
-                    net_amount=Decimal("0.00"),
-                    vat_amount=Decimal("0.00"),
-                    gross_amount=Decimal("0.00"),
-                ),
-            )
-            bucket["net_amount"] += Decimal(item["net_amount"])
-            bucket["vat_amount"] += Decimal(item["vat_amount"])
-            bucket["gross_amount"] += Decimal(item["unit_price_gross"])
-        return [buckets[rate] for rate in sorted(buckets)]
+        return vat_breakdown_of(self.line_items)
 
     @property
     def has_mixed_vat_rates(self) -> bool:

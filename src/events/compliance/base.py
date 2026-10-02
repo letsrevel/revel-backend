@@ -54,12 +54,24 @@ ALL_NEXUS: t.Final = frozenset(Nexus)
 ESTABLISHMENT_ONLY: t.Final = frozenset({Nexus.ESTABLISHMENT})
 
 
+# Stable codes a refusal of attendee invoicing carries (``Decision.code``). Persisted as
+# ``SkippedFiscalDocument.ReasonCode``, whose values must stay equal to these.
+B2B_E_INVOICING: t.Final = "b2b_e_invoicing"
+FISCALIZED_INVOICING: t.Final = "fiscalized_invoicing"
+
+
 @dataclass(frozen=True, slots=True)
 class Decision:
-    """A policy verdict; ``reason`` is the translated, user-facing explanation when refused."""
+    """A policy verdict; ``reason`` is the translated, user-facing explanation when refused.
+
+    A refusal may also carry a stable machine ``code`` (e.g. :data:`B2B_E_INVOICING`) and the
+    ``country`` whose policy refused, so a skipped document can be recorded with both.
+    """
 
     allowed: bool
     reason: str = ""
+    code: str = ""
+    country: str = ""
 
     @classmethod
     def allow(cls) -> "Decision":
@@ -67,9 +79,9 @@ class Decision:
         return cls(allowed=True)
 
     @classmethod
-    def block(cls, reason: str) -> "Decision":
-        """A refusal carrying its explanation."""
-        return cls(allowed=False, reason=reason)
+    def block(cls, reason: str, code: str = "", country: str = "") -> "Decision":
+        """A refusal carrying its explanation, and optionally its code and refusing country."""
+        return cls(allowed=False, reason=reason, code=code, country=country)
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,7 +329,9 @@ class FiscalizedInvoicingMixin:
         return Decision.block(
             str(ATTENDEE_INVOICING_BLOCKED_MESSAGE).format(
                 country=country_name(self.country), system=self.fiscal_system
-            )
+            ),
+            code=FISCALIZED_INVOICING,
+            country=self.country,
         )
 
 
@@ -355,7 +369,11 @@ class B2BEInvoicingMixin:
             if self.b2b_buyer_scope == B2BBuyerScope.ANY_BUSINESS
             else DOMESTIC_B2B_INVOICING_BLOCKED_MESSAGE
         )
-        return Decision.block(str(message).format(country=country_name(self.country), system=self.e_invoicing_network))
+        return Decision.block(
+            str(message).format(country=country_name(self.country), system=self.e_invoicing_network),
+            code=B2B_E_INVOICING,
+            country=self.country,
+        )
 
 
 class CertifiedOnlineTicketingMixin:

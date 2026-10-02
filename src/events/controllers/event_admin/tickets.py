@@ -21,6 +21,7 @@ from events.service import (
     member_scan_service,
     refund_service,
     revenue_aggregation,
+    skipped_fiscal_document_service,
     ticket_guest_name_service,
     ticket_service,
 )
@@ -222,6 +223,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         - status: Filter by ticket status (PENDING, ACTIVE, CANCELLED, CHECKED_IN)
         - tier__payment_method: Filter by payment method (ONLINE, OFFLINE, AT_THE_DOOR, FREE)
         - source: Filter by origin ("pass" for series-pass-derived tickets, "direct" for standalone purchases)
+        - invoice_skipped: Only sales whose attendee invoice a country policy made Revel skip (#1091)
 
         Ordering (prefix with '-' for descending):
         - created_at: Purchase date (default: -created_at, newest first)
@@ -234,7 +236,12 @@ class EventAdminTicketsController(EventAdminBaseController):
         event = self.get_one(event_id)
         # Use full() for AdminTicketSchema (includes user, tier, venue, sector, seat, payment)
         # with_org_membership() prefetches user's membership for "Make Member" feature
-        qs = models.Ticket.objects.full().with_org_membership(event.organization_id).filter(event=event)
+        qs = (
+            models.Ticket.objects.full()
+            .with_org_membership(event.organization_id)
+            .filter(event=event)
+            .annotate(invoice_skipped=skipped_fiscal_document_service.invoice_skipped_annotation())
+        )
         if source is not None:
             qs = qs.filter(held_pass__isnull=(source == "direct"))
         qs = params.filter(qs).annotate(effective_price_paid=EFFECTIVE_PRICE_PAID)

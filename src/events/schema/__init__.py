@@ -148,6 +148,8 @@ from .invoice import (
     InvoicingModeUpdateSchema,
     PlatformFeeCreditNoteSchema,
     PlatformFeeInvoiceSchema,
+    ResolveSkippedFiscalDocumentSchema,
+    SkippedFiscalDocumentSchema,
     UpdateAttendeeInvoiceSchema,
 )
 
@@ -677,6 +679,7 @@ __all__ = [
     "RefundWindowSchema",
     "ReleaseSeatsRequest",
     "ReorderSchema",
+    "ResolveSkippedFiscalDocumentSchema",
     "RevenueReportRequestSchema",
     "RevivalRequestSchema",
     "RevivalResponseSchema",
@@ -700,6 +703,7 @@ __all__ = [
     "SeriesPassTierLinkAdminSchema",
     "SeriesPassTierLinkInputSchema",
     "SeriesPassUpdateSchema",
+    "SkippedFiscalDocumentSchema",
     "SocialMediaSchemaEditMixin",
     "SocialMediaSchemaRetrieveMixin",
     "StaffRevivalResponseSchema",

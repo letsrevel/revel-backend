@@ -25,6 +25,16 @@ exclusions cover consumers and sellers without a Polish establishment, not forei
   from its own system.
   [KSeF: zakres obowiązkowego KSeF](https://ksef.podatki.gov.pl/informacje-ogolne-ksef-20/zakres-obowiazkowego-ksef/)
 - **Consumers** still receive Revel's PDF invoice; KSeF excludes invoices to consumers.
+- **Skipped documents are recorded** ([#1091](https://github.com/letsrevel/revel-backend/issues/1091)).
+  Each skipped invoice or credit note is stored with the buyer, amounts, VAT breakdown and the
+  policy's reason. The owner sees them under *Invoices to issue yourself*
+  (`GET /organization-admin/{slug}/skipped-fiscal-documents`) and marks each one done with the number
+  from its own system (`POST …/{id}/resolve`). The ticket list flags those sales (`invoice_skipped`),
+  and the revenue report has an *Invoices to issue yourself* sheet.
+- **Payment evidence (poz. 42).** The revenue report's Transactions sheet lists every online sale
+  with its ticket number and `stripe_payment_intent_id`, the key that joins it to Stripe's payout
+  reconciliation report. That link from each payment to its sale is what the bank-payment
+  exemption asks for. Stripe payout IDs themselves are not stored in Revel.
 - **Foreign organizers' events held in Poland are not affected**: KSeF covers taxpayers with a seat or
   fixed establishment in Poland.
 - Online and offline payments are not restricted.
@@ -69,7 +79,8 @@ exclusions cover consumers and sellers without a Polish establishment, not forei
 
 - Optional KSeF API integration: FA(3) XML, per-organizer authentication, KSeF number and QR code,
   credit notes as corrective invoices.
-- A per-transaction payment evidence export linking each payment and Stripe charge to ticket, event,
-  amount, VAT and payout.
+- Storing Stripe payout IDs in Revel. The per-transaction payment evidence (ticket number and
+  payment intent per sale) is in the revenue report since
+  [#1091](https://github.com/letsrevel/revel-backend/issues/1091).
 
 See [#1067](https://github.com/letsrevel/revel-backend/issues/1067).
