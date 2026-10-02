@@ -38,14 +38,22 @@ mandatory ATCUD and AT QR code.
   implied one counter per show; DL 23/2014 dropped that link and moved the capacity rule to art. 8(2).
   A per-event number is not built unless a Portuguese lawyer or IGAC says otherwise
   ([#1088](https://github.com/letsrevel/revel-backend/issues/1088)).
-- **Inspection (art. 8(5)).** The promoter must keep the art. 8(1) details available for inspection.
-  Organizers can produce them from Revel's exports: the attendee export (attendee, tier, seat,
+- **Inspection (art. 8(5)).** When access is checked by one of the means art. 8(5) lists (such as
+  barcode or card readers) or without a ticket, the promoter must keep the art. 8(1) details available
+  for inspection. Revel's exports cover most of them: the attendee export (attendee, tier, seat,
   payment) and the revenue report, whose Transactions sheet carries each ticket's sequential number
   next to the transaction amounts ([#1090](https://github.com/letsrevel/revel-backend/issues/1090)).
-- **No data transmission.** The ticket-data transmission under DL 125/2003 applies to cinemas only
-  (art. 5(3)), so it does not apply to the events Revel sells.
-- **Gaps:** the age classification on tickets and event pages (art. 6(4), 8(3)) is not supported
-  ([#1108](https://github.com/letsrevel/revel-backend/issues/1108)); organizers without a VAT ID get no
+  Neither carries the promoter's NIF, which organizers without a VAT ID set must take from their own
+  records.
+- **No data transmission.** The ticket-data transmission under DL 125/2003 art. 5(3) applies to
+  cinema tickets and sessions only, so it does not apply to the events Revel sells. The one exception
+  is DL 125/2003 art. 3-B (added by DL 65/2026, in force since 10 March 2026): promoters at
+  public-sector venues must send IGAC and INR data on the free companion tickets they issue. Like the
+  rest of DL 65/2026's companion-ticket rules, this falls outside Revel's typical customers.
+- **Gaps:** age classification is not supported
+  ([#1108](https://github.com/letsrevel/revel-backend/issues/1108)): neither the classification
+  shown on the event's website (art. 8(3)), nor the "aguarda classificação etária" notice on tickets
+  sold before a classification is assigned (art. 6(4)). Organizers without a VAT ID get no
   NIF line ([#1078](https://github.com/letsrevel/revel-backend/issues/1078)).
 
 ## Legal basis

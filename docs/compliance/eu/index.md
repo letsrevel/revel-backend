@@ -27,8 +27,8 @@ Every ticket PDF and Apple/Google Wallet pass carries the following, whatever th
     - Numbers are assigned without gaps and never reused, and cancelled tickets keep theirs. Holes
       appear only if numbered tickets are later deleted, because tickets are still removed when their
       event, tier or user account is deleted ([#1068](https://github.com/letsrevel/revel-backend/issues/1068)).
-    - A per-organization counter is enough where the law asks for sequential numbering without
-      saying per what, as in Portugal ([pt.md](pt.md)).
+    - In Portugal, Revel reads the per-organization counter as meeting DL 23/2014's sequential
+      numbering, pending any contrary view from a Portuguese lawyer or IGAC ([pt.md](pt.md)).
 - **Issued**: the issue date and time.
 - **Price**: the price paid including VAT (for example `EUR 25.00`), or "Free" for zero-price tickets.
 - **Tax notice**: "This ticket is not a tax invoice or receipt." The ticket emails to the buyer
