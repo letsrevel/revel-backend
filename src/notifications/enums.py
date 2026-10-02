@@ -62,6 +62,8 @@ class NotificationType(TextChoices):
     ORG_ANNOUNCEMENT = "org_announcement"
     ORG_CONTACT_MESSAGE_RECEIVED = "org_contact_message_received"  # Notify org admins of contact form submissions
     ORG_SETUP_NUDGE = "org_setup_nudge"  # Revel nudges a stalled org's owner (private profile, forgotten draft, ...)
+    # Daily digest of invoices/credit notes a country policy made Revel skip (#1073, staff only)
+    FISCAL_DOCUMENT_SKIPPED = "fiscal_document_skipped"
 
     # Waitlist notifications
     WAITLIST_SPOT_AVAILABLE = "waitlist_spot_available"

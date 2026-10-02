@@ -170,6 +170,18 @@ def redispatch_undelivered_invoices_task() -> UndeliveredInvoiceSweepResult:
     return result
 
 
+@shared_task(name="events.notify_skipped_fiscal_documents")
+def notify_skipped_fiscal_documents_task() -> int:
+    """Daily digest of the invoices and credit notes a country policy made Revel skip (#1073).
+
+    Returns:
+        The number of organizations notified.
+    """
+    from events.service.skipped_fiscal_document_service import notify_skipped_documents
+
+    return notify_skipped_documents()
+
+
 class MonthlyInvoiceGenerationResult(t.TypedDict):
     """Telemetry counters returned by ``generate_monthly_invoices_task``."""
 

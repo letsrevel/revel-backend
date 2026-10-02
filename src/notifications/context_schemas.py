@@ -158,6 +158,41 @@ class EventRefundSummaryContext(BaseNotificationContext):
     still_active: int
 
 
+class SkippedFiscalDocumentItem(t.TypedDict):
+    """One skipped invoice or credit note listed in a FISCAL_DOCUMENT_SKIPPED digest."""
+
+    kind: str  # SkippedFiscalDocument.Kind value: "invoice" or "credit_note"
+    event_name: str
+    buyer_name: str
+    buyer_vat_id: str
+    amount: str  # "EUR 120.00"
+    policy_country: str
+    # Event ticket admin; filtered on ``invoice_skipped`` for invoices.
+    tickets_url: str
+
+
+class FiscalDocumentSkippedContext(BaseNotificationContext):
+    """Context for FISCAL_DOCUMENT_SKIPPED (to the owner and ``manage_tickets`` staff, #1073).
+
+    A daily per-organization digest of the attendee invoices and credit notes Revel skipped
+    under a country policy since the last one. ``action_url`` is the owner-only skipped-documents
+    list for the owner, and the first item's ticket list for staff.
+    """
+
+    organization_id: str
+    organization_name: str
+    document_count: int
+    invoice_count: int
+    credit_note_count: int
+    # Gross per currency, each kind on its own (credit notes are refunds): e.g. ["EUR 120.00"]
+    invoice_totals: list[str]
+    credit_note_totals: list[str]
+    items: list[SkippedFiscalDocumentItem]  # the most recent ones, capped
+    more_count: int  # documents beyond ``items``
+    is_owner: bool
+    action_url: str
+
+
 class TicketCheckedInContext(BaseNotificationContext):
     """Context for TICKET_CHECKED_IN notification."""
 
@@ -740,6 +775,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.PAYMENT_CONFIRMATION: PaymentConfirmationContext,
     NotificationType.REFUND_UNMATCHED: RefundUnmatchedContext,
     NotificationType.EVENT_REFUND_SUMMARY: EventRefundSummaryContext,
+    NotificationType.FISCAL_DOCUMENT_SKIPPED: FiscalDocumentSkippedContext,
     NotificationType.EVENT_OPEN: EventOpenContext,
     NotificationType.EVENT_UPDATED: EventUpdatedContext,
     NotificationType.EVENT_REMINDER: EventReminderContext,
