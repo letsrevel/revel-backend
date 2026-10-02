@@ -6,7 +6,7 @@ from django.utils import timezone
 from events.compliance import AttendeeInvoicingCapability, PaymentChannelCapability, get_policy
 from events.compliance.enforcement import event_compliance
 from events.management.commands.bootstrap_helpers.compliance import OWNER_EMAIL, create_compliance_fixtures
-from events.models import Event, SeriesPass, TicketTier
+from events.models import Event, Organization, SeriesPass, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
 from events.service.attendee_invoice_service import invoice_compliance_decision
 
@@ -55,3 +55,18 @@ def test_seed_is_idempotent() -> None:
     create_compliance_fixtures(now)
 
     assert (Event.objects.count(), TicketTier.objects.count(), AttendeeInvoice.objects.count()) == counts
+
+
+def test_reseed_reattaches_the_hr_draft_after_a_reset() -> None:
+    """A reset deletes the orgs; the draft survives orphaned (SET_NULL) and the next seed must re-attach it (#1083)."""
+    now = timezone.now()
+    create_compliance_fixtures(now)
+    Organization.objects.filter(slug="compliance-hr").delete()
+    assert AttendeeInvoice.objects.get(stripe_session_id="cs_e2e_compliance_hr_draft").organization is None
+
+    create_compliance_fixtures(now)
+
+    draft = AttendeeInvoice.objects.get(stripe_session_id="cs_e2e_compliance_hr_draft")
+    assert draft.organization is not None and draft.organization.slug == "compliance-hr"
+    assert draft.event is not None and draft.event.slug == "hr-concert"
+    assert draft.status == AttendeeInvoice.InvoiceStatus.DRAFT
