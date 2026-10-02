@@ -30,7 +30,7 @@ class _CancellationResult(t.TypedDict):
     ninja always re-validates whatever a route returns against its declared ``response``
     schema, wrapping it in a fresh resolver-aware getter. Handing it an already-built
     ``UserTicketSchema`` would make that revalidation pass run ``UserTicketSchema``'s
-    resolvers (``series_pass``, ``payment``, ``pdf_url``, ``pkpass_url``) against the
+    resolvers (``series_pass``, ``payment``, ``pdf_url``, ``pkpass_url``, ``compliance_lines``) against the
     *schema* instance instead of the ``Ticket`` model they expect. A raw dict keeps
     ``ticket`` as the ORM instance all the way to that single validation pass, so the
     resolvers see what they expect.
