@@ -1768,7 +1768,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   | Org | `country` | `attendee_invoicing` | `online_payment` | `offline_payment` | `notices` |
   |---|---|---|---|---|---|
   | `compliance-it` | `IT` | `allowed` | `blocked` | `allowed` | `[]` |
-  | `compliance-hr` | `HR` | `blocked` | `allowed` | `allowed` | `[]` |
+  | `compliance-hr` | `HR` | `blocked` | `allowed` | `allowed` | one: `hr_fiscalization` |
   | `compliance-be` | `BE` | `blocked_for_business_buyers` | `allowed` | `allowed` | `[]` |
   | `compliance-pl` | `PL` | `blocked_for_business_buyers` | `allowed` | `allowed` | one: `pl_kasa_fiskalna` |
   | `compliance-es` (before 2027-01-01) | `ES` | `allowed` | `allowed` | `allowed` | `[]` |
@@ -1844,11 +1844,17 @@ The labels and the "Free" / notice text are translated. A cached PDF or pass reg
   - Wallet passes installed before #1069 don't refresh (#1074).
 
 ### 29.7 Organizer Notices (Organization Owner)
-- **Notices are non-blocking:** nothing is disabled. They render as `role="status"` info next to the setting named in `applies_to`: `offline_payment` is the offline / at-the-door / bank-transfer selector; `ticket_sales` (#1067) is the ticket-tier sales settings, for rules that cover online sales too.
+- **Notices are non-blocking:** nothing is disabled. They render as `role="status"` info next to the setting named in `applies_to`: `offline_payment` is the offline / at-the-door / bank-transfer selector; `ticket_sales` (#1067) is the ticket-tier sales settings, for rules that cover online sales too; `attendee_invoicing` (#1092) is the attendee-invoicing mode selector (Journey 29.2).
 - **AT** (`compliance-at` org card; `at-gig-vienna` and also `at-gig-in-italy` event objects): key `at_registrierkasse`, message "Payments you take at the door go through your own registered cash register (Registrierkasse) once you pass the legal thresholds. Revel's online sales are exempt."
   - A non-Austrian org's event held in Austria also gets it.
 - **DK** (`compliance-dk`, organizer established in Denmark only): key `dk_sales_registration`, message "If your business must record sales digitally (for example cafés, bars and discos), record your Revel ticket and door sales there too."
 - **PL** (`compliance-pl` org card and `pl-dance-night` → Tickets, next to the tier sales settings; also any event held in Poland, whoever organizes it): key `pl_kasa_fiskalna`, `applies_to: ticket_sales`, message "Admission sold to consumers for discos, dance halls, amusement and theme parks, and circus performances must be recorded on your own fiscal cash register (kasa fiskalna), even when paid online. For other events, the online-payment exemption applies only if your records link each payment to its sale."
+- **Where Revel can't issue attendee invoices** (`applies_to: attendee_invoicing`, #1092), shown next to the invoicing-mode selector, which stays on `None` as in 29.2. Each reaches the same sales as that country's invoicing block:
+  - **HR** (`compliance-hr` org card and `hr-concert`; organizers established in Croatia only, so a foreign org's event in Croatia gets none): key `hr_fiscalization`, message "Revel can't issue your attendee invoices. In Croatia, invoices to consumers must be fiscalized in real time with the Tax Administration (Porezna uprava). If this applies to you, issue and fiscalize them from your own software."
+  - **SI** (organizers established in Slovenia and any physical event held there): key `si_furs`, message "Revel can't issue attendee invoices where Slovenian rules apply: invoices for card and online payments, which FURS guidance says include payments through Stripe, must be verified with FURS in real time. If you must issue invoices, issue a FURS-verified invoice for every paid sale from your own software, even with attendee invoicing turned off."
+  - **GR** (organizers established in Greece, VAT prefix `EL` included, and any physical event held there): key `gr_mydata`, message "Revel can't issue attendee invoices where Greek rules apply: receipts and invoices must be transmitted to AADE's myDATA. If you must issue Greek documents, issue them from your own software, a certified e-invoicing provider or AADE's free tools."
+  - **HU** (organizers established in Hungary and any physical event held there): key `hu_nav`, message "Revel can't issue attendee invoices where Hungarian rules apply: invoices from invoicing software must be reported to NAV Online Számla in real time. If this applies to you, issue a receipt (nyugta) or invoice for every paid sale from your own system. Since 1 September 2026, data on receipts not issued by an online cash register must also be reported to NAV."
+  - SI, GR and HU have no seeded org; E2E covers the placement with `compliance-hr`, the rest is backend-tested (`test_organizer_notices.py`).
 - **Other countries:** `notices: []`.
 
 ### 29.8 Invoices That Can No Longer Be Issued (Organization Owner)

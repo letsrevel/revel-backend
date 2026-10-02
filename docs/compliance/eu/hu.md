@@ -1,6 +1,6 @@
 # Hungary
 
-Policy module: `src/events/compliance/policies/hu.py` (`HungaryPolicy`, using `FiscalizedInvoicingMixin`).
+Policy module: `src/events/compliance/policies/hu.py` (`HungaryPolicy`, using `FiscalizedInvoicingMixin`, plus one organizer notice).
 
 Issue: [#1065](https://github.com/letsrevel/revel-backend/issues/1065)
 
@@ -25,6 +25,13 @@ has no NAV integration, so its attendee invoices would be non-compliant.
 - **Existing settings:** organizations in Hungary that had HYBRID or AUTO were switched to NONE by the
   data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
   notification was sent automatically, so affected organizers should be informed out of band.
+- **Organizer notice (non-blocking)**, for organizers established in Hungary and physical events held
+  there (the same sales the block reaches), shown next to the attendee-invoicing setting (key `hu_nav`,
+  topic `attendee_invoicing`): "Revel can't issue attendee invoices where Hungarian rules apply: invoices
+  from invoicing software must be reported to NAV Online Számla in real time. If this applies to you,
+  issue a receipt (nyugta) or invoice for every paid sale from your own system. Since 1 September 2026,
+  data on receipts not issued by an online cash register must also be reported to NAV." A foreign
+  organizer is in scope only when it becomes a Hungarian taxable person, hence "if this applies to you".
 - Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies. Revel's ticket is not a
   receipt (*nyugta*): receipts must be in Hungarian, and the organizer still owes a receipt or invoice
@@ -56,7 +63,6 @@ has no NAV integration, so its attendee invoices would be non-compliant.
 
 ## Later layers
 
-- Organizer guidance on receipts and the September 2026 receipt-data reporting.
 - An optional daily VAT-rate aggregate export for manual KOBAK entry.
 - Optional NAV Online Számla v3 integration (per-organizer technical user, real-time submission,
   credit notes as modifying invoices).

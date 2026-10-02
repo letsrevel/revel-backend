@@ -1,6 +1,6 @@
 # Slovenia
 
-Policy module: `src/events/compliance/policies/si.py` (`SloveniaPolicy`, using `FiscalizedInvoicingMixin`).
+Policy module: `src/events/compliance/policies/si.py` (`SloveniaPolicy`, using `FiscalizedInvoicingMixin`, plus one organizer notice).
 
 Issue: [#1062](https://github.com/letsrevel/revel-backend/issues/1062)
 
@@ -26,6 +26,16 @@ invoices are not verified with FURS.
 - **Existing settings:** organizations in Slovenia that had HYBRID or AUTO were switched to NONE by
   the data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
   notification was sent automatically, so affected organizers should be informed out of band.
+- **Organizer notice (non-blocking)**, for organizers established in Slovenia and physical events held
+  there (the same sales the block reaches), shown next to the attendee-invoicing setting (key `si_furs`,
+  topic `attendee_invoicing`): "Revel can't issue attendee invoices where Slovenian rules apply: invoices
+  for card and online payments, which FURS guidance says include payments through Stripe, must be
+  verified with FURS in real time. If you must issue invoices, issue a FURS-verified invoice for every
+  paid sale from your own software, even with attendee invoicing turned off." The Stripe point is
+  attributed to the FURS guidance because FURS hasn't confirmed it for Stripe specifically (open
+  questions below). It also covers paid sales while invoicing is NONE, where Revel issues nothing
+  and the organizer's own verified invoice is the only one. "If you must issue invoices" leaves room for
+  those not liable (ZDavPR Art. 3 and the FURS conditions) and the Art. 81.a association exemption.
 - Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
@@ -66,8 +76,9 @@ invoices are not verified with FURS.
 
 ## Later layers
 
-- Organizer guidance for Slovenia (FURS certificate, internal act, premises type, the association
-  exemption) and possibly a self-declared exemption flag.
+- Fuller organizer guidance for Slovenia (FURS certificate, internal act, premises type, the association
+  exemption) and possibly a self-declared exemption flag. The in-app notice above shipped in
+  [#1092](https://github.com/letsrevel/revel-backend/issues/1092).
 - Optional native FURS verification: per-organization certificate and premises configuration,
   Slovenian numbering, a verification client computing ZOI and storing EOR, verified credit notes,
   and fiscal data with QR code on the PDF.

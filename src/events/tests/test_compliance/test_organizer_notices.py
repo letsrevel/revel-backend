@@ -1,4 +1,4 @@
-"""Non-blocking organizer notices (AT cash register, DK sales registration, PL kasa fiskalna)."""
+"""Non-blocking organizer notices (AT cash register, DK sales registration, PL kasa fiskalna, fiscal invoicing)."""
 
 import pytest
 from django.test.client import Client
@@ -25,6 +25,15 @@ VENUE = frozenset({Nexus.VENUE})
         # Online sales too, so it sits with ticket sales, not offline payment (#1067).
         ("PL", EST, ["pl_kasa_fiskalna"], NoticeTopic.TICKET_SALES),
         ("PL", VENUE, ["pl_kasa_fiskalna"], NoticeTopic.TICKET_SALES),
+        # Revel can't issue attendee invoices: scoped like each country's invoicing block (#1092).
+        ("HR", EST, ["hr_fiscalization"], NoticeTopic.ATTENDEE_INVOICING),
+        ("HR", VENUE, [], None),  # the Croatian block follows the business, not the venue
+        ("SI", EST, ["si_furs"], NoticeTopic.ATTENDEE_INVOICING),
+        ("SI", VENUE, ["si_furs"], NoticeTopic.ATTENDEE_INVOICING),
+        ("GR", EST, ["gr_mydata"], NoticeTopic.ATTENDEE_INVOICING),
+        ("GR", VENUE, ["gr_mydata"], NoticeTopic.ATTENDEE_INVOICING),
+        ("HU", EST, ["hu_nav"], NoticeTopic.ATTENDEE_INVOICING),
+        ("HU", VENUE, ["hu_nav"], NoticeTopic.ATTENDEE_INVOICING),
         ("DE", ALL_NEXUS, [], None),  # default: none
         ("IT", ALL_NEXUS, [], None),
     ],
@@ -101,3 +110,45 @@ def test_pl_notice_reaches_a_foreign_orgs_event_in_poland(
     assert notice["key"] == "pl_kasa_fiskalna"
     assert notice["applies_to"] == "ticket_sales"
     assert "kasa fiskalna" in notice["message"]
+
+
+def test_si_notice_on_org_card_and_foreign_orgs_event_in_slovenia(
+    owner_client: Client, client: Client, organization: Organization, public_event: Event
+) -> None:
+    """The FURS hint sits next to the invoicing setting, for SI orgs and for any event held in Slovenia."""
+    expected = [
+        {
+            "key": "si_furs",
+            "applies_to": "attendee_invoicing",
+            "message": "Revel can't issue attendee invoices where Slovenian rules apply: invoices for card and online "
+            "payments, which FURS guidance says include payments through Stripe, must be verified with FURS in real "
+            "time. If you must issue invoices, issue a FURS-verified invoice for every paid sale from your own "
+            "software, even with attendee invoicing turned off.",
+        }
+    ]
+    organization.vat_country_code = "SI"
+    organization.save(update_fields=["vat_country_code"])
+    org_response = owner_client.get(reverse("api:get_organization_admin", kwargs={"slug": organization.slug}))
+    assert org_response.json()["compliance"]["notices"] == expected
+
+    organization.vat_country_code = "DE"
+    organization.save(update_fields=["vat_country_code"])
+    public_event.vat_country_code = "SI"
+    public_event.save(update_fields=["vat_country_code"])
+    event_response = client.get(reverse("api:get_event", kwargs={"event_id": public_event.pk}))
+    assert event_response.json()["compliance"]["notices"] == expected
+
+
+def test_hr_notice_follows_the_croatian_organizer(organization: Organization, event: Event) -> None:
+    """A Croatian org's event abroad keeps the HR hint; a foreign org's event in Croatia gets none."""
+    organization.vat_country_code = "HR"
+    organization.save(update_fields=["vat_country_code"])
+    event.vat_country_code = "DE"
+    event.save(update_fields=["vat_country_code"])
+    assert [n.key for n in event_compliance(event).notices] == ["hr_fiscalization"]
+
+    organization.vat_country_code = "DE"
+    organization.save(update_fields=["vat_country_code"])
+    event.vat_country_code = "HR"
+    event.save(update_fields=["vat_country_code"])
+    assert event_compliance(event).notices == []

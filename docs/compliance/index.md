@@ -95,6 +95,10 @@ it takes effect.
   Registrierkasse), Denmark (covered businesses record Revel sales in their own system) and Poland
   (admission sold to consumers for discos, dance halls, amusement and theme parks, and circus performances goes through the
   organizer's own fiscal cash register, even when paid online).
+- **Organizer notices with the invoicing block**: Croatia, Slovenia, Greece and Hungary also tell the
+  organizer, next to the attendee-invoicing setting, that invoices go through the national system
+  (fiscalization with the Porezna uprava, FURS, myDATA, NAV Online Számla) and must come from the
+  organizer's own software. The notice reaches the same sales as each country's block.
 - Credit notes and issuing pre-gate drafts follow the same invoice gate. A refund on a sale whose
   invoice was skipped skips its credit note too. The organizer also learns of the refund through
   the `TICKET_REFUNDED` notification (sent to the ticket holder and the organization's staff and
@@ -114,8 +118,8 @@ it takes effect.
   Both objects also carry `notices: [{key, applies_to, message}]`: non-blocking, translated hints
   (for example Austria's cash-register hint) that the frontend shows next to the setting named in
   `applies_to` (`offline_payment`: the offline / at-the-door selector; `ticket_sales`: the ticket-tier
-  sales settings, for rules that cover online sales too) as information with `role="status"`. Notices
-  never block anything.
+  sales settings, for rules that cover online sales too; `attendee_invoicing`: the organization's
+  attendee-invoicing mode) as information with `role="status"`. Notices never block anything.
 - The event detail response (`EventDetailSchema`, used by the event admin and public event pages)
   exposes `compliance: {venue_country, online_payment, offline_payment, attendee_invoicing}` for that
   specific event: the organization's establishment plus the venue country of a physical event, at

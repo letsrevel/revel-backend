@@ -1,6 +1,6 @@
 # Greece
 
-Policy module: `src/events/compliance/policies/gr.py` (`GreecePolicy`, using `FiscalizedInvoicingMixin`).
+Policy module: `src/events/compliance/policies/gr.py` (`GreecePolicy`, using `FiscalizedInvoicingMixin`, plus one organizer notice).
 
 Issue: [#1063](https://github.com/letsrevel/revel-backend/issues/1063)
 
@@ -26,6 +26,12 @@ Greece.
 - **Existing settings:** organizations in Greece that had HYBRID or AUTO were switched to NONE by the
   data migration `0128_disable_blocked_attendee_invoicing`. Existing invoices were not touched. No
   notification was sent automatically, so affected organizers should be informed out of band.
+- **Organizer notice (non-blocking)**, for organizers established in Greece and physical events held
+  there (the same sales the block reaches), shown next to the attendee-invoicing setting (key
+  `gr_mydata`, topic `attendee_invoicing`): "Revel can't issue attendee invoices where Greek rules apply:
+  receipts and invoices must be transmitted to AADE's myDATA. If you must issue Greek documents, issue
+  them from your own software, a certified e-invoicing provider or AADE's free tools." Conditional,
+  because whether Law 4308/2014 reaches non-Greek organizers is an open question (below).
 - Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies, including the "not a tax
   invoice or receipt" notice.
