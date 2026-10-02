@@ -6,6 +6,7 @@ from django.utils import timezone
 from events.compliance import AttendeeInvoicingCapability, PaymentChannelCapability, get_policy
 from events.compliance.base import ALL_NEXUS
 from events.compliance.enforcement import event_compliance
+from events.compliance.policies.es import NavarrePolicy
 from events.management.commands.bootstrap_helpers.compliance import OWNER_EMAIL, create_compliance_fixtures
 from events.models import Event, Organization, SeriesPass, SkippedFiscalDocument, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
@@ -23,6 +24,7 @@ def test_seed_matches_the_journey_preconditions() -> None:
         "compliance-hr": "HR",
         "compliance-es": "ES",
         "compliance-es-pv": "ES-PV",
+        "compliance-es-nc": "ES-NC",
         "compliance-be": "BE",
         "compliance-pl": "PL",
         "compliance-dk": "DK",
@@ -35,6 +37,15 @@ def test_seed_matches_the_journey_preconditions() -> None:
     basque = get_policy(orgs["compliance-es-pv"])
     assert basque.attendee_invoicing_capability() == AttendeeInvoicingCapability.BLOCKED
     assert basque.organizer_notices(ALL_NEXUS) == []
+    # Navarre: Spain's 2027 date, NaTicket wording, never the Verifactu notice.
+    navarre = get_policy(orgs["compliance-es-nc"])
+    block_from = NavarrePolicy.fiscal_invoicing_from
+    assert block_from is not None
+    before_block = timezone.localdate() < block_from  # stays valid across the date
+    assert navarre.attendee_invoicing_capability() == (
+        AttendeeInvoicingCapability.ALLOWED if before_block else AttendeeInvoicingCapability.BLOCKED
+    )
+    assert [n.key for n in navarre.organizer_notices(ALL_NEXUS)] == (["es_nc_naticket"] if before_block else [])
 
     club = Event.objects.get(slug="it-club-night")
     assert event_compliance(club).online_payment == PaymentChannelCapability.BLOCKED

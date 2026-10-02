@@ -45,6 +45,8 @@ ORG_SPECS: t.Final[tuple[ComplianceOrgSpec, ...]] = (
     ComplianceOrgSpec("compliance-es", "ES", "ESB12345678"),
     # Basque Country (#1086): an ES org whose city is Bilbao falls under TicketBAI.
     ComplianceOrgSpec("compliance-es-pv", "ES", "ESB87654321", region="ES-PV"),
+    # Navarre (#1086): Spain's 2027 block, worded for NaTicket instead of Verifactu.
+    ComplianceOrgSpec("compliance-es-nc", "ES", "ESB11223344", region="ES-NC"),
     ComplianceOrgSpec("compliance-be", "BE", "BE0123456789"),
     ComplianceOrgSpec("compliance-pl", "PL", "PL1234567890"),
     ComplianceOrgSpec("compliance-dk", "DK", "DK12345678"),
@@ -86,7 +88,26 @@ def _bilbao() -> City:
     return city
 
 
-REGION_CITIES: t.Final[dict[str, t.Callable[[], City]]] = {"ES-PV": _bilbao}
+def _pamplona() -> City:
+    """Pamplona, Navarre: the full city data has it; the e2e mini fixture may not."""
+    city = City.objects.filter(ascii_name="Pamplona", iso2="ES", admin_name="Navarre").first()
+    if city is None:
+        city, _ = City.objects.get_or_create(
+            city_id=9724000002,  # not a worldcities id: never collides with real data
+            defaults={
+                "name": "Pamplona",
+                "ascii_name": "Pamplona",
+                "country": "Spain",
+                "iso2": "ES",
+                "iso3": "ESP",
+                "admin_name": "Navarre",
+                "location": Point(-1.6432, 42.8125),
+            },
+        )
+    return city
+
+
+REGION_CITIES: t.Final[dict[str, t.Callable[[], City]]] = {"ES-PV": _bilbao, "ES-NC": _pamplona}
 
 
 def _org(owner: RevelUser, spec: ComplianceOrgSpec) -> events_models.Organization:
