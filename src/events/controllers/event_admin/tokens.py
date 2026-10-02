@@ -1,7 +1,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Query
 from ninja_extra import api_controller, route
@@ -184,7 +184,9 @@ class EventAdminTokensController(EventAdminBaseController):
         qs = (
             models.EventToken.objects.filter(event_id=event_id)
             .select_related("event", "event__organization")
-            .prefetch_related("ticket_tiers")
+            .prefetch_related(
+                Prefetch("ticket_tiers", queryset=models.TicketTier.objects.get_queryset().with_event_compliance())
+            )
         )
         return params.filter(qs).distinct()
 

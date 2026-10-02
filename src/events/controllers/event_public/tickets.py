@@ -79,6 +79,9 @@ class EventPublicTicketsController(EventPublicBaseController):
             }
         for tier in visible_tiers:
             tier._can_purchase = tier.id in eligible_ids  # type: ignore[attr-defined]
+            # Share the one event instance, so the per-event invoicing flag (#1107) loads the org's
+            # and venue's cities once, not per tier, without widening the DISTINCT above (#880).
+            tier.event = event
         return visible_tiers
 
     @route.get(

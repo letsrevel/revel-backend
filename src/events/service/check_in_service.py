@@ -130,8 +130,9 @@ def check_in_ticket(
     # seat/sector feed the seat display. Trims ~4 queries per scan.
     ticket_qs = Ticket.objects.select_related(
         "user",
-        "tier__event__organization",
+        "tier__event__organization__city",
         "tier__event__city",
+        "tier__event__venue__city",
         "tier__venue",
         "tier__sector",
         "held_pass__series_pass",

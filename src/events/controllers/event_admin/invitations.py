@@ -13,6 +13,7 @@ from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import EventPermission
+from events.models.invitation import tiers_prefetch
 from events.service.invitation_service import create_direct_invitations, delete_invitation
 from oauth.permissions import RequireScope
 
@@ -66,7 +67,7 @@ class EventAdminInvitationsController(EventAdminBaseController):
     ) -> QuerySet[models.PendingEventInvitation]:
         """List all pending invitations for unregistered users."""
         event = self.get_one(event_id)
-        return models.PendingEventInvitation.objects.prefetch_related("tiers").filter(event=event).distinct()
+        return models.PendingEventInvitation.objects.prefetch_related(tiers_prefetch()).filter(event=event).distinct()
 
     @route.delete(
         "/invitations/{invitation_type}/{invitation_id}",

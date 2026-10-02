@@ -207,16 +207,16 @@ class TicketTierSchema(ModelSchema):
         return t.cast(TicketTier, obj).effective_check_in_window()[1]
 
     @staticmethod
-    def resolve_invoicing_available(obj: TicketTier) -> bool:
+    def resolve_invoicing_available(obj: "TicketTier | TicketTierSchema") -> bool:
         """True when the org has attendee invoicing enabled and this tier uses online payment.
 
-        False where the org's country blocks Revel-issued invoices (EU layer 1), even if a
-        mode was enabled before the gate.
+        False where a country reaching the event (the org's establishment or the event's
+        venue) blocks Revel-issued invoices (EU layer 1, #1107), even if a mode was enabled
+        before the gate. An already-built schema (ninja's re-validation pass) keeps its value.
         """
-        org = obj.event.organization if obj.event else None
-        if not org:
-            return False
-        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and attendee_invoicing_active(org)
+        if isinstance(obj, TicketTierSchema):
+            return obj.invoicing_available
+        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and attendee_invoicing_active(obj.event)
 
     @staticmethod
     def resolve_seat_pricing(obj: TicketTier) -> TierSeatPricingSchema | None:
@@ -501,16 +501,16 @@ class TicketTierDetailSchema(ModelSchema):
         ]
 
     @staticmethod
-    def resolve_invoicing_available(obj: TicketTier) -> bool:
+    def resolve_invoicing_available(obj: "TicketTier | TicketTierDetailSchema") -> bool:
         """True when the org has attendee invoicing enabled and this tier uses online payment.
 
-        False where the org's country blocks Revel-issued invoices (EU layer 1), even if a
-        mode was enabled before the gate.
+        False where a country reaching the event (the org's establishment or the event's
+        venue) blocks Revel-issued invoices (EU layer 1, #1107), even if a mode was enabled
+        before the gate. An already-built schema (ninja's re-validation pass) keeps its value.
         """
-        org = obj.event.organization if obj.event else None
-        if not org:
-            return False
-        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and attendee_invoicing_active(org)
+        if isinstance(obj, TicketTierDetailSchema):
+            return obj.invoicing_available
+        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and attendee_invoicing_active(obj.event)
 
     @staticmethod
     def resolve_pricing_gaps(obj: TicketTier) -> list[TierPricingGapSchema]:

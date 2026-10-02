@@ -83,6 +83,10 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         """Select venue and sector for serialization (not for transactional queries)."""
         return self.select_related("venue", "sector")
 
+    def with_event_compliance(self) -> t.Self:
+        """Select what the ``invoicing_available`` flag reads: the event's org, venue and cities."""
+        return self.select_related("event__organization__city", "event__city", "event__venue__city")
+
     def for_user(self, user: "RevelUser | AnonymousUser") -> t.Self:
         """Return ticket tiers visible to a given user, combining event and tier-level access.
 
@@ -706,7 +710,9 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
             "tier__sector",
             "tier__event",
             "tier__event__organization",
+            "tier__event__organization__city",
             "tier__event__city",
+            "tier__event__venue__city",
             "venue",
             "venue__city",
             "seat",
