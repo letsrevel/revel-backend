@@ -93,8 +93,8 @@ it takes effect.
   check; consumers and VIES-rejected IDs still get Revel's invoice.
 - **Organizer notices, no gates**: Austria (door payments go through the organizer's own
   Registrierkasse), Denmark (covered businesses record Revel sales in their own system) and Poland
-  (admission to discos, dance halls and circus performances goes through the organizer's own fiscal
-  cash register, even when paid online).
+  (admission sold to consumers for discos, dance halls and circus performances goes through the
+  organizer's own fiscal cash register, even when paid online).
 - Credit notes and issuing pre-gate drafts follow the same invoice gate.
   When a credit note is skipped, the organizer still learns of the refund through the
   `TICKET_REFUNDED` notification (sent to the ticket holder and the organization's staff and owners)
