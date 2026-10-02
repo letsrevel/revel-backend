@@ -53,8 +53,10 @@ mandatory ATCUD and AT QR code.
 - **Gaps:** age classification is not supported
   ([#1108](https://github.com/letsrevel/revel-backend/issues/1108)): neither the classification
   shown on the event's website (art. 8(3)), nor the "aguarda classificação etária" notice on tickets
-  sold before a classification is assigned (art. 6(4)). Organizers without a VAT ID get no
-  NIF line ([#1078](https://github.com/letsrevel/revel-backend/issues/1078)).
+  sold before a classification is assigned (art. 6(4)). The point-of-sale information list in
+  art. 6(1), age classification included, binds only sales platforms run by companies established in
+  Portugal, so it does not bind Revel directly. Organizers without a VAT ID get no NIF line
+  ([#1078](https://github.com/letsrevel/revel-backend/issues/1078)).
 
 ## Legal basis
 
