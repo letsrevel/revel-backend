@@ -9,7 +9,7 @@ from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
-from events.models import Event, Organization, TicketTier, Venue
+from events.models import Event, EventToken, Organization, PendingEventInvitation, TicketTier, Venue
 from events.schema import TicketTierDetailSchema, TicketTierSchema
 from geo.models import City
 
@@ -101,5 +101,36 @@ def test_tier_list_query_count_is_stable(placed_event: Event, owner_client: Clie
 
     tiers = body["results"] if admin else body
     assert len(tiers) == len(before["results"] if admin else before) + 3
+    assert all(tier["invoicing_available"] is False for tier in tiers)
+    assert scaled == baseline
+
+
+def _add_pending_invitation(event: Event, tier: TicketTier, n: int) -> None:
+    PendingEventInvitation.objects.create(event=event, email=f"guest{n}@example.com").tiers.add(tier)
+
+
+def _add_token(event: Event, tier: TicketTier, n: int) -> None:
+    EventToken.objects.create(event=event, issuer=event.organization.owner).ticket_tiers.add(tier)
+
+
+@pytest.mark.parametrize(
+    ("url_name", "add"),
+    [("api:list_pending_invitations", _add_pending_invitation), ("api:list_event_tokens", _add_token)],
+)
+def test_nested_tier_lists_query_count_is_stable(
+    placed_event: Event, owner_client: Client, url_name: str, add: t.Callable[[Event, TicketTier, int], None]
+) -> None:
+    """Lists nesting ``TicketTierSchema`` prefetch what the flag reads, so it costs no query per row."""
+    url = reverse(url_name, kwargs={"event_id": placed_event.pk})
+    add(placed_event, _tier(placed_event, name="Tier 0"), 0)
+    _count(owner_client, url)  # warm up per-request caches
+    baseline, _ = _count(owner_client, url)
+
+    for i in range(1, 4):
+        add(placed_event, _tier(placed_event, name=f"Tier {i}"), i)
+    scaled, body = _count(owner_client, url)
+
+    tiers = [tier for row in body["results"] for tier in row.get("tiers", row.get("ticket_tiers", []))]
+    assert len(tiers) == 4
     assert all(tier["invoicing_available"] is False for tier in tiers)
     assert scaled == baseline

@@ -10,11 +10,21 @@ from common.models import TagAssignment, TimeStampedModel
 
 from .mixins import TokenMixin, UserRequestMixin
 
+if t.TYPE_CHECKING:
+    from .ticket import TicketTierQuerySet
+
+
+def tiers_prefetch() -> "Prefetch[str, TicketTierQuerySet, str]":
+    """Prefetch ``tiers`` with what the nested ``TicketTierSchema`` reads per tier (#1107)."""
+    from .ticket import TicketTier
+
+    return Prefetch("tiers", queryset=TicketTier.objects.get_queryset().with_event_compliance())
+
 
 class EventInvitationQueryset(models.QuerySet["EventInvitation"]):
     def with_related(self) -> t.Self:
         """Prefetch related objects for invitations."""
-        return self.select_related("event", "user").prefetch_related("tiers")
+        return self.select_related("event", "user").prefetch_related(tiers_prefetch())
 
     def with_event_details(self) -> t.Self:
         """Prefetch event with its nested relations for list views."""
@@ -25,7 +35,7 @@ class EventInvitationQueryset(models.QuerySet["EventInvitation"]):
             "event__city",
             "user",
         ).prefetch_related(
-            "tiers",
+            tiers_prefetch(),
             Prefetch(
                 "event__tags",
                 queryset=TagAssignment.objects.select_related("tag"),
