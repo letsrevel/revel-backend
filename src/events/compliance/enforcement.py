@@ -24,7 +24,12 @@ from events.compliance.base import (
     channel_capability,
     common_ticket_fields,
 )
-from events.compliance.registry import get_policy, get_policy_for_country, normalize_country_code, resolve_org_country
+from events.compliance.registry import (
+    get_policy,
+    get_policy_for_country,
+    normalize_country_code,
+    resolve_org_jurisdiction,
+)
 from events.exceptions import CountryComplianceError
 from events.models import Organization, TicketTier
 from events.utils.tier_pricing import parse_price_map
@@ -44,11 +49,13 @@ def _raise_if_blocked(decision: Decision) -> None:
 def sale_nexus(org: Organization, events: t.Iterable["Event"] = (), venue_countries: t.Iterable[str] = ()) -> NexusMap:
     """Which countries reach a sale, and how: the org's establishment, and each physical event's venue.
 
-    Virtual events have no venue nexus. ``venue_countries`` adds venues known only as a
-    country code (e.g. an invoice whose event was deleted).
+    The establishment is keyed by the org's jurisdiction, which may be a subdivision with
+    its own policy (``ES-PV``); venues are always plain countries. Virtual events have no
+    venue nexus. ``venue_countries`` adds venues known only as a country code (e.g. an
+    invoice whose event was deleted).
     """
     reach: dict[str, set[Nexus]] = defaultdict(set)
-    if country := resolve_org_country(org):
+    if country := resolve_org_jurisdiction(org):
         reach[country].add(Nexus.ESTABLISHMENT)
     venues = [event.effective_vat_country for event in events if not event.is_virtual]
     for country in (normalize_country_code(c) for c in [*venues, *venue_countries]):
@@ -164,8 +171,8 @@ def event_compliance(event: "Event") -> EventCompliance:
     reach = sale_nexus(event.organization, [event])
     if not attendee_invoicing_for_sale(reach, BuyerContext()).allowed:
         invoicing = AttendeeInvoicingCapability.BLOCKED
-    elif any(not attendee_invoicing_for_sale(reach, BuyerContext(vat_country=country)).allowed for country in reach):
-        # A buyer whose VAT ID is from one of the reaching countries would be refused.
+    elif any(not attendee_invoicing_for_sale(reach, BuyerContext(vat_country=code[:2])).allowed for code in reach):
+        # A buyer whose VAT ID is from one of the reaching countries (a subdivision's: its country) would be refused.
         invoicing = AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
     else:
         invoicing = AttendeeInvoicingCapability.ALLOWED

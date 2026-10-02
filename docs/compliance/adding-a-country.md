@@ -39,6 +39,24 @@ class NarniaPolicy(FiscalizedInvoicingMixin, DefaultEUPolicy):
 The mixin goes **before** `DefaultEUPolicy` so its hooks win. Registering two policies for the same
 country, or a malformed code, raises `ImproperlyConfigured` at startup.
 
+### A region with its own rules
+
+When part of a country has its own regime, register a second policy in the **same country module**
+under the ISO 3166-2 code, with the `City.admin_name` spellings that place an organization there:
+
+```python
+@register("ES-PV", admin_names=("Basque Country", "País Vasco", "Pais Vasco", "Euskadi"))
+class BasqueCountryPolicy(FiscalizedInvoicingMixin, DefaultEUPolicy):
+    fiscal_system = "TicketBAI"
+    fiscal_invoicing_message = BASQUE_BLOCKED_MESSAGE  # names the region, not the country
+```
+
+A subdivision needs at least one admin name, and a country takes none. Unregistered subdivisions fall
+back to the country's policy. The policy's `country` stays the two-letter code, so decisions and
+skipped documents record `ES`; `FiscalizedInvoicingMixin.fiscal_invoicing_message` lets the copy name
+the region instead. A subdivision may also subclass the country policy to keep its dates and only
+change the wording (`NavarrePolicy`). See [Subdivisions](index.md#subdivisions).
+
 ### Nexus and effective dates
 
 Every hook receives `nexus: frozenset[Nexus]`: the ways this country reaches the sale being decided.
@@ -120,7 +138,7 @@ for example, adds its notice only for events held there).
   automatically that every registered policy is concrete, returns well-formed decisions for every
   nexus, does not override the derived capabilities, keeps the common ticket lines first, and lives in
   a module named after its country. Add the new code to its
-  `EXPECTED_COUNTRIES` set.
+  `EXPECTED_COUNTRIES` set (a subdivision to `EXPECTED_SUBDIVISIONS`).
 - Add a per-country decision test in `src/events/tests/test_compliance/test_policies.py` that asserts
   what the policy allows and blocks (for example: a consumer buyer, a domestic business buyer, a
   foreign business buyer, online and offline payment, each nexus, and the day before and on the start
