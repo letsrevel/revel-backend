@@ -39,8 +39,8 @@ from events.utils import get_organization_timezone
 
 ZERO = Decimal("0.00")
 # Bump whenever the report workbook layout changes, so cached reports regenerate even when no row
-# changed (e.g. the ticket_number column, #1090; the skipped-documents sheet, #1091).
-REPORT_FORMAT_VERSION = 3
+# changed (e.g. the ticket_number column, #1090; the skipped-documents sheet, #1091, renamed in v4).
+REPORT_FORMAT_VERSION = 4
 _REVERSE_CHARGE_LABEL = "0% / reverse-charge"
 
 

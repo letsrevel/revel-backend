@@ -24,10 +24,10 @@ for these transactions. B2C invoices are not covered.
 - **Consumers and cross-border business buyers** still receive Revel's PDF invoice.
 - **Skipped documents are recorded** ([#1091](https://github.com/letsrevel/revel-backend/issues/1091)).
   Each skipped invoice or credit note is stored with the buyer, amounts, VAT breakdown and the
-  policy's reason. The owner sees them under *Invoices to issue yourself*
+  policy's reason. The owner sees them under *Documents to issue yourself*
   (`GET /organization-admin/{slug}/skipped-fiscal-documents`) and marks each one done with the number
   from its own system (`POST …/{id}/resolve`). The ticket list flags those sales (`invoice_skipped`),
-  and the revenue report has an *Invoices to issue yourself* sheet.
+  and the revenue report has an *Documents to issue yourself* sheet.
 - **Foreign organizers' events held in Belgium are not affected**: the Peppol mandate excludes
   suppliers not established in Belgium.
 - Online and offline payments are not restricted.

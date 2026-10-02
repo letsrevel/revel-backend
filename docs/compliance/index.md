@@ -163,7 +163,7 @@ retries.
   `{"external_reference": "…"}` records that the organizer issued it, and under which number.
 - The event ticket list (`AdminTicketSchema.invoice_skipped`, filter `invoice_skipped`) flags the
   sales, so staff who can manage tickets see them too.
-- The revenue report's *Invoices to issue yourself* sheet lists those decided in the period.
+- The revenue report's *Documents to issue yourself* sheet lists those decided in the period.
 - A daily digest, `FISCAL_DOCUMENT_SKIPPED`
   ([#1073](https://github.com/letsrevel/revel-backend/issues/1073)), tells the owner and staff with
   `manage_tickets` about the documents skipped since the last one (beat task

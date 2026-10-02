@@ -27,10 +27,10 @@ exclusions cover consumers and sellers without a Polish establishment, not forei
 - **Consumers** still receive Revel's PDF invoice; KSeF excludes invoices to consumers.
 - **Skipped documents are recorded** ([#1091](https://github.com/letsrevel/revel-backend/issues/1091)).
   Each skipped invoice or credit note is stored with the buyer, amounts, VAT breakdown and the
-  policy's reason. The owner sees them under *Invoices to issue yourself*
+  policy's reason. The owner sees them under *Documents to issue yourself*
   (`GET /organization-admin/{slug}/skipped-fiscal-documents`) and marks each one done with the number
   from its own system (`POST …/{id}/resolve`). The ticket list flags those sales (`invoice_skipped`),
-  and the revenue report has an *Invoices to issue yourself* sheet.
+  and the revenue report has an *Documents to issue yourself* sheet.
 - **Payment evidence (poz. 42).** The revenue report's Transactions sheet lists every online sale
   with its ticket number and `stripe_payment_intent_id`, the key that joins it to Stripe's payout
   reconciliation report. For consumer sales (VAT Act art. 111(1)) where the organizer relies on the

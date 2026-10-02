@@ -264,9 +264,9 @@ def build_xlsx(data: RevenueReportData) -> bytes:
 
 
 def _append_skipped_sheet(wb: Workbook, data: RevenueReportData) -> None:
-    """The "Invoices to issue yourself" sheet: documents a country policy made Revel skip (#1091)."""
+    """The "Documents to issue yourself" sheet: documents a country policy made Revel skip (#1091)."""
     tz = organization_timezone(data.scope.org)
-    sheet = wb.create_sheet("Invoices to issue yourself")
+    sheet = wb.create_sheet("Documents to issue yourself")
     sheet.append(_SKIPPED_HEADERS)
     for doc in data.skipped_documents:
         sheet.append(
