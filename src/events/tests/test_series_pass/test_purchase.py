@@ -12,6 +12,7 @@ from django.utils import timezone
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.compliance import PaymentChannelCapability
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
     Blacklist,
@@ -394,6 +395,7 @@ class TestNotPurchasable:
             currency="EUR",
             purchasable=True,
             reason=None,
+            online_payment=PaymentChannelCapability.ALLOWED,
         )
         with patch.object(series_pass_service, "get_quote", return_value=stale_quote):
             with pytest.raises(SeriesPassNotPurchasableError):
@@ -474,6 +476,7 @@ class TestTotalQuantityCap:
             currency="EUR",
             purchasable=True,
             reason=None,
+            online_payment=PaymentChannelCapability.ALLOWED,
         )
         # The winner committed between our quote and our locks.
         SeriesPass.objects.filter(pk=purchasable_free_pass.pk).update(quantity_sold=1)

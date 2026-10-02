@@ -186,8 +186,29 @@ def assert_sale_allowed(
     Raises:
         CountryComplianceError: If money would be taken through a blocked channel.
     """
+    _raise_if_blocked(sale_decision(org, payment_method, unit_prices, events))
+
+
+def sale_decision(
+    org: Organization, payment_method: str, unit_prices: t.Iterable[Decimal], events: t.Iterable["Event"]
+) -> Decision:
+    """The decision :func:`assert_sale_allowed` enforces: free sales are always allowed."""
     if any(price > 0 for price in unit_prices):
-        _raise_if_blocked(payment_channel_decision(org, payment_method, events))
+        return payment_channel_decision(org, payment_method, events)
+    return Decision.allow()
+
+
+def series_pass_online_payment(
+    org: Organization, payment_method: str, price: Decimal, events: t.Iterable["Event"]
+) -> PaymentChannelCapability:
+    """Whether a pass checkout at ``price`` for ``events`` takes money online where it is allowed (#1081).
+
+    For an ONLINE pass this is the decision the pass checkout gate makes. Offline and free
+    passes don't use the online channel and read ``allowed``.
+    """
+    if payment_method != TicketTier.PaymentMethod.ONLINE:
+        return PaymentChannelCapability.ALLOWED
+    return channel_capability(sale_decision(org, payment_method, [price], events))
 
 
 def tier_channel_decision(tier: TicketTier) -> Decision:

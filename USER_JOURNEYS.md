@@ -1602,7 +1602,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 
 ### 26.2 Browse & Quote (Buyer)
 - `GET /series-passes/event-series/{series_id}` — visible passes (visibility-filtered)
-- `GET /series-passes/{pass_id}/quote` — current pro-rata price, passed/remaining event counts, purchasability + reason
+- `GET /series-passes/{pass_id}/quote` — current pro-rata price, passed/remaining event counts, purchasability + reason, and `compliance.online_payment` (`allowed` / `blocked`, the checkout gate's decision — see [29.4](#294-checkout-refusals-event-attendee--guest-attendee))
 
 ### 26.3 Purchase
 - `POST /series-passes/{pass_id}/checkout` (authenticated)
@@ -1807,7 +1807,8 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - **Authenticated:** `POST /events/{event_id}/checkout` on *Card (legacy)* returns **422** with the online-payment `detail` from 29.3. No ticket is created and `quantity_sold` stays the same.
 - **Guest:** `POST /events/{event_id}/checkout/public` → the same **422**.
   - A guest whose emailed confirmation token was minted for an offline tier that the organizer later switched to ONLINE gets **422** on `POST /events/guest-actions/confirm`.
-- **Series pass:** `POST /series-passes/{pass_id}/checkout` for *IT Season Pass* returns **422** with the same `detail`.
+- **Series pass:** `GET /series-passes/{pass_id}/quote` for *IT Season Pass* returns `compliance.online_payment: "blocked"`, so the pass card shows "Not available online" up front and offers no card checkout. If checkout is attempted anyway, `POST /series-passes/{pass_id}/checkout` still returns **422** with the same `detail` (the inline fallback).
+  - The same pass switched to `offline` (or priced at 0) reads `allowed` and checks out.
 - **FE:** render `detail` (`role="alert"`) and never a generic error. The fallback copy is used only if `detail` is missing.
 
 ### 29.5 Offline Reservation in Italy (Event Attendee)

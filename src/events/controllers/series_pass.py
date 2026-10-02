@@ -52,7 +52,8 @@ class SeriesPassController(UserAwareController):
         series_pass = t.cast(
             models.SeriesPass,
             self.get_object_or_exception(
-                models.SeriesPass.objects.select_related("event_series", "event_series__organization"),
+                # organization__city: the quote's compliance decision resolves the org country.
+                models.SeriesPass.objects.select_related("event_series", "event_series__organization__city"),
                 pk=pass_id,
                 is_active=True,
             ),
@@ -107,6 +108,7 @@ class SeriesPassController(UserAwareController):
             currency=quote.currency,
             purchasable=quote.purchasable,
             reason=quote.reason,
+            compliance=schema.SeriesPassComplianceSchema(online_payment=quote.online_payment),
         )
 
     @route.post(
