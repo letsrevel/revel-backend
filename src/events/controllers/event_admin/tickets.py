@@ -120,7 +120,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         # No .distinct(): all joins are to-one (#880).
         return (
             models.TicketTier.objects.with_venue_and_sector()
-            .select_related("event__organization")
+            .select_related("event__organization__city", "event__city", "event__venue__city")
             .prefetch_related("platform_links__event_link__connection")
             .filter(event_id=event_id)
         )

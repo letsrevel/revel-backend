@@ -74,11 +74,17 @@ def assert_attendee_invoicing_allowed(org: Organization) -> None:
     _raise_if_blocked(get_policy(org).attendee_invoicing(BuyerContext(), ESTABLISHMENT_ONLY))
 
 
-def attendee_invoicing_active(org: Organization) -> bool:
-    """Whether the org has invoicing on and its country lets Revel invoice consumers today."""
+def attendee_invoicing_active(event: "Event") -> bool:
+    """Whether the event's org has invoicing on and Revel may invoice a consumer for this event today.
+
+    The same decision invoice generation makes: the org's establishment and the event's
+    venue both reach the sale (#1107). Select ``organization__city``, ``venue__city`` and
+    ``city`` to keep this query-free.
+    """
+    org = event.organization
     return (
         org.invoicing_mode != Organization.InvoicingMode.NONE
-        and get_policy(org).attendee_invoicing_capability() != AttendeeInvoicingCapability.BLOCKED
+        and attendee_invoicing_for_sale(sale_nexus(org, [event]), BuyerContext()).allowed
     )
 
 
