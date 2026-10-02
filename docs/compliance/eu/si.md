@@ -29,10 +29,12 @@ invoices are not verified with FURS.
 - **Organizer notice (non-blocking)**, for organizers established in Slovenia and physical events held
   there (the same sales the block reaches), shown next to the attendee-invoicing setting (key `si_furs`,
   topic `attendee_invoicing`): "Revel can't issue attendee invoices where Slovenian rules apply: invoices
-  for card and online payments, which FURS guidance says include payments through Stripe, must be
-  verified with FURS in real time. If you must issue invoices, issue a FURS-verified invoice for every
+  for card and online payments, which under FURS guidance generally include payments through Stripe,
+  must be verified with FURS in real time. If you must issue invoices, issue a FURS-verified invoice for every
   paid sale from your own software, even with attendee invoicing turned off." The Stripe point is
-  attributed to the FURS guidance because FURS hasn't confirmed it for Stripe specifically (open
+  attributed to the FURS guidance, and hedged with "generally": the FURS description (4th ed., August
+  2026, §3.2.4 and §3.3) lists Stripe but makes the outcome depend on the provider's payment-service
+  status and on batched payouts, and FURS hasn't confirmed it for Stripe specifically (open
   questions below). It also covers paid sales while invoicing is NONE, where Revel issues nothing
   and the organizer's own verified invoice is the only one. "If you must issue invoices" leaves room for
   those not liable (ZDavPR Art. 3 and the FURS conditions) and the Art. 81.a association exemption.

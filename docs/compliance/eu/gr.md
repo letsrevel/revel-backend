@@ -30,7 +30,8 @@ Greece.
   there (the same sales the block reaches), shown next to the attendee-invoicing setting (key
   `gr_mydata`, topic `attendee_invoicing`): "Revel can't issue attendee invoices where Greek rules apply:
   receipts and invoices must be transmitted to AADE's myDATA. If you must issue Greek documents, issue
-  them from your own software, a certified e-invoicing provider or AADE's free tools." Conditional,
+  them from your own software, a certified e-invoicing provider or AADE's free tools (timologio,
+  myDATAapp). Invoices to businesses must go through a provider or AADE's tools." Conditional,
   because whether Law 4308/2014 reaches non-Greek organizers is an open question (below).
 - Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies, including the "not a tax
@@ -51,7 +52,10 @@ Greece.
 - **VAT Directive 2006/112/EC** art. 53: admission to an event in Greece is taxed in Greece.
   [EUR-Lex](https://eur-lex.europa.eu/eli/dir/2006/112/oj)
 
-The organizer can meet its obligation with its own ERP, a certified provider, or AADE's free tools.
+The organizer can meet its obligation with its own ERP, a certified provider, or AADE's free tools
+(timologio, myDATAapp). B2B invoices are mandatory e-invoices since 2 February 2026 (businesses with 2023
+gross income over €1M) and 1 October 2026 (everyone else); they must go through a certified provider or
+AADE's tools, so an own ERP alone no longer suffices for them.
 
 ## Open questions
 

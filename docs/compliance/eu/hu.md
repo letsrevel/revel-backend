@@ -30,7 +30,7 @@ has no NAV integration, so its attendee invoices would be non-compliant.
   topic `attendee_invoicing`): "Revel can't issue attendee invoices where Hungarian rules apply: invoices
   from invoicing software must be reported to NAV Online Számla in real time. If this applies to you,
   issue a receipt (nyugta) or invoice for every paid sale from your own system. Since 1 September 2026,
-  data on receipts not issued by an online cash register must also be reported to NAV." A foreign
+  data on receipts not issued by an online or e-cash register must also be reported to NAV." A foreign
   organizer is in scope only when it becomes a Hungarian taxable person, hence "if this applies to you".
 - Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies. Revel's ticket is not a
@@ -48,7 +48,9 @@ has no NAV integration, so its attendee invoices would be non-compliant.
   [NAV](https://nav.gov.hu/ado/afa/A_szamlakibocsatok_sz20201231),
   [Online Számla](https://onlineszamla.nav.gov.hu/)
 - **Receipt data reporting from 1 September 2026** (257/G. §, Annex 11 Part B): daily totals by VAT
-  rate within 3 calendar days for receipts not issued by an online cash register.
+  rate within 3 calendar days for handwritten and computer-generated receipts (online and e-cash
+  registers already report automatically). NAV treats 1 September to 31 December 2026 as a transition
+  period with guidance rather than penalties.
   [NAV](https://nav.gov.hu/ado/enyugta/nyugtaadat-szolgaltatas),
   [NAV Q&A](https://nav.gov.hu/ado/enyugta/kerdesek-es-valaszok/e-penztargep-hasznalat-adatszolgaltatas)
 - **Cash register (48/2013 NGM, Annex 1)**: ticket and event admission is not listed, so no online
