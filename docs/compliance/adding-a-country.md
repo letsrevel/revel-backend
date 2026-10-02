@@ -92,7 +92,8 @@ If no mixin fits, override the hooks directly:
 - `organizer_notices(nexus: frozenset[Nexus]) -> list[ComplianceNotice]`: non-blocking hints
   (`key`, `applies_to: NoticeTopic`, translated `message`), exposed in the org and event
   `compliance` objects. Use them when the law puts a duty on the organizer that Revel can't and
-  shouldn't enforce (Austria, Denmark).
+  shouldn't enforce (Austria, Denmark, Poland). Pick the `NoticeTopic` of the setting the duty concerns:
+  `offline_payment` for money taken at the venue, `ticket_sales` when it covers online sales too.
 
 Return `Decision.block(reason)` with a translated, user-facing reason when refusing.
 

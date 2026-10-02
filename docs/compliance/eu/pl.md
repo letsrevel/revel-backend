@@ -1,6 +1,6 @@
 # Poland
 
-Policy module: `src/events/compliance/policies/pl.py` (`PolandPolicy`, using `B2BEInvoicingMixin` with `b2b_buyer_scope = ANY_BUSINESS`).
+Policy module: `src/events/compliance/policies/pl.py` (`PolandPolicy`, using `B2BEInvoicingMixin` with `b2b_buyer_scope = ANY_BUSINESS`, plus one organizer notice).
 
 Issue: [#1067](https://github.com/letsrevel/revel-backend/issues/1067)
 
@@ -28,11 +28,16 @@ exclusions cover consumers and sellers without a Polish establishment, not forei
 - **Foreign organizers' events held in Poland are not affected**: KSeF covers taxpayers with a seat or
   fixed establishment in Poland.
 - Online and offline payments are not restricted.
+- **Organizer notice (non-blocking)**, for organizers established in Poland and events held there,
+  shown next to the ticket-sales settings (topic `ticket_sales`, since the rule covers online sales
+  too): "Admission sold to consumers for discos, dance halls, amusement and theme parks, and circus
+  performances must be recorded on your own fiscal cash register (kasa fiskalna), even when paid online. For other events, the
+  online-payment exemption applies only if your records link each payment to its sale." The duty
+  covers sales to consumers only (VAT Act art. 111(1)); the payment-to-sale link is the condition of
+  the bank-payment exemption (annex poz. 42), not a separate duty. Revel cannot act as a Polish fiscal
+  cash register and cannot tell a disco from a concert, so the notice goes to every sale Poland
+  reaches; the duty is the organizer's.
 - The [common ticket content](index.md#common-ticket-content) applies.
-
-Revel cannot act as a Polish fiscal cash register. Organizers selling admission to discos, dance halls
-or circus performances must register those B2C sales on a cash register regardless of payment method;
-this is the organizer's obligation.
 
 ## Legal basis
 
@@ -40,6 +45,8 @@ this is the organizer's obligation.
   [KSeF rules](https://ksef.podatki.gov.pl/ksef-news/zasady-obowiazywania-ksef-i-przepisy-prawne/)
 - **VAT Act art. 106ga ust. 2 pkt 4**: no obligation to issue structured invoices to consumers.
   [KSeF Q&A](https://ksef.podatki.gov.pl/pytania-i-odpowiedzi-ksef-20/)
+- **VAT Act art. 111(1)**: the cash-register duty covers sales to individuals not conducting business
+  (and lump-sum farmers).
 - **Cash-register exemptions**, Rozporządzenie MF of 17 December 2024 (Dz.U. 2024 poz. 1902, amended by
   Dz.U. 2026 poz. 420): bank-mediated B2C payments are exempt if each payment is identifiable (annex
   poz. 42); turnover exemption up to PLN 20,000 a year (§3 ust. 1 pkt 1); no exemption for admission to
@@ -62,7 +69,6 @@ this is the organizer's obligation.
 
 - Optional KSeF API integration: FA(3) XML, per-organizer authentication, KSeF number and QR code,
   credit notes as corrective invoices.
-- Cash-register guidance for Polish organizers.
 - A per-transaction payment evidence export linking each payment and Stripe charge to ticket, event,
   amount, VAT and payout.
 

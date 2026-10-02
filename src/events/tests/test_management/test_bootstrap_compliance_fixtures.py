@@ -39,6 +39,7 @@ def test_seed_matches_the_journey_preconditions() -> None:
         event_compliance(Event.objects.get(slug="at-gig-in-italy")).online_payment == PaymentChannelCapability.BLOCKED
     )
     assert [n.key for n in event_compliance(Event.objects.get(slug="at-gig-vienna")).notices] == ["at_registrierkasse"]
+    assert [n.key for n in event_compliance(Event.objects.get(slug="pl-dance-night")).notices] == ["pl_kasa_fiskalna"]
     assert SeriesPass.objects.get(name="IT Season Pass").tier_links.count() == 2
 
     draft = AttendeeInvoice.objects.get(stripe_session_id="cs_e2e_compliance_hr_draft")
