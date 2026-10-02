@@ -21,8 +21,10 @@ from events.compliance.registry import register
 MYDATA_NOTICE = _(
     "Revel can't issue attendee invoices where Greek rules apply: receipts and invoices must be transmitted to "
     "AADE's myDATA. If you must issue Greek documents, issue them from your own software, a certified "
-    "e-invoicing provider or AADE's free tools (timologio, myDATAapp). Invoices to businesses must go through a "
-    "provider or AADE's tools."
+    "e-invoicing provider or AADE's free tools (timologio, myDATAapp). Invoices to Greek businesses must be "
+    "e-invoices issued through a provider or AADE's tools: since 2 March 2026 if your 2023 gross revenue was "
+    "over €1 million, otherwise from 2 November 2026 (with a phase-in until 31 January 2027 if you file the "
+    "declaration in time)."
 )
 
 

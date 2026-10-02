@@ -125,10 +125,11 @@ def test_si_notice_on_org_card_and_foreign_orgs_event_in_slovenia(
         {
             "key": "si_furs",
             "applies_to": "attendee_invoicing",
-            "message": "Revel can't issue attendee invoices where Slovenian rules apply: invoices for card and online "
-            "payments, which under FURS guidance generally include payments through Stripe, must be verified with "
-            "FURS in real time. If you must issue invoices, issue a FURS-verified invoice for every paid sale from "
-            "your own software, even with attendee invoicing turned off.",
+            "message": "Revel can't issue attendee invoices where Slovenian rules apply: invoices paid by card or "
+            "online must be verified with FURS in real time. FURS treats card payments, and online payments paid out "
+            "to you in batches (as Stripe usually does), as cash payments. If you must issue invoices, issue a "
+            "FURS-verified invoice for every paid sale from your own software, even with attendee invoicing turned "
+            "off.",
         }
     ]
     organization.vat_country_code = "SI"
@@ -142,6 +143,19 @@ def test_si_notice_on_org_card_and_foreign_orgs_event_in_slovenia(
     public_event.save(update_fields=["vat_country_code"])
     event_response = client.get(reverse("api:get_event", kwargs={"event_id": public_event.pk}))
     assert event_response.json()["compliance"]["notices"] == expected
+
+
+def test_gr_notice_names_the_b2b_e_invoicing_date() -> None:
+    """The myDATA hint pins the B2B e-invoicing dates: 2 March 2026 above €1M gross revenue, else 2 November 2026."""
+    [notice] = get_policy_for_country("GR").organizer_notices(EST)
+    assert notice.message == (
+        "Revel can't issue attendee invoices where Greek rules apply: receipts and invoices must be transmitted to "
+        "AADE's myDATA. If you must issue Greek documents, issue them from your own software, a certified "
+        "e-invoicing provider or AADE's free tools (timologio, myDATAapp). Invoices to Greek businesses must be "
+        "e-invoices issued through a provider or AADE's tools: since 2 March 2026 if your 2023 gross revenue was "
+        "over €1 million, otherwise from 2 November 2026 (with a phase-in until 31 January 2027 if you file the "
+        "declaration in time)."
+    )
 
 
 def test_hr_notice_follows_the_croatian_organizer(organization: Organization, event: Event) -> None:

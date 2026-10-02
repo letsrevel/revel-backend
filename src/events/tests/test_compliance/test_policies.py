@@ -134,3 +134,20 @@ def test_refusals_name_the_country_in_the_active_language() -> None:
         assert country_name("HR") == "Croazia"
     assert "Croazia" in reason
     assert country_name("XX") == "XX"
+
+
+@pytest.mark.parametrize(
+    ("language", "code", "expected"),
+    [
+        # The fiscal system is translated, and reads after "passino per" (#1062).
+        ("it", "SI", "le fatture passino per la verifica delle fatture della FURS"),
+        ("de", "SI", "die Rechnungsverifizierung der FURS"),
+        # Country names are bracketed, so no article or gender agreement depends on them.
+        ("fr", "PT", "dans ce pays (Portugal)"),
+        ("pt", "HR", "passem por um sistema de fiscalização da Administração Fiscal"),
+    ],
+)
+def test_refusal_copy_reads_for_any_country_and_system(language: str, code: str, expected: str) -> None:
+    with translation.override(language):
+        reason = get_policy_for_country(code).attendee_invoicing(BuyerContext(), EST).reason
+    assert expected in reason

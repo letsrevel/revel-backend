@@ -24,6 +24,8 @@ Docs: https://docs.letsrevel.io/compliance/eu/xx/ (docs/compliance/eu/xx.md).
 
 import datetime
 
+from django.utils.translation import gettext_lazy as _
+
 from events.compliance.base import DefaultEUPolicy, FiscalizedInvoicingMixin
 from events.compliance.registry import register
 
@@ -32,7 +34,7 @@ from events.compliance.registry import register
 class NarniaPolicy(FiscalizedInvoicingMixin, DefaultEUPolicy):
     """Narnia: see the module docstring."""
 
-    fiscal_system = "the national fiscalization service"
+    fiscal_system = _("the national fiscalization service")
     fiscal_invoicing_from = datetime.date(2027, 7, 1)
 ```
 
@@ -85,7 +87,10 @@ a territorial ticketing rule applies on `{VENUE}`.
 | `CertifiedOnlineTicketingMixin` | Blocks online (Stripe card) payment for paid tickets and series passes. Offline and at-the-door payments, free tickets, RSVPs and memberships are unaffected. | `certified_system`; `online_ticketing_applies_on` (default `{VENUE}`); `online_ticketing_from` (default `None`) |
 
 The system or network attribute is interpolated into the translated refusal message, together with
-the localized country name.
+the localized country name. Wrap a descriptive name in `_()` so it is translated too (Croatia, Portugal,
+Slovenia); a proper name such as `"TicketBAI"` or `"KSeF"` stays a plain string. The copy must read
+whether or not the name starts with an article, and must not depend on the country name's gender or
+article: the translations put it in brackets, as in French "dans ce pays ({country})".
 
 ### Capabilities are derived
 
