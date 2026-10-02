@@ -211,8 +211,19 @@ class EventManager(models.Manager["Event"]):
         return self.get_queryset().with_user_bookmark(user)
 
     def full(self) -> EventQuerySet:
-        """Returns a queryset prefetching the full events."""
-        return self.get_queryset().with_organization().with_city().with_tags().with_venue()
+        """Returns a queryset prefetching the full events.
+
+        ``venue__city`` and ``organization__city`` feed ``EventDetailSchema.compliance``
+        (the event's venue country and the org's resolved country).
+        """
+        return (
+            self.get_queryset()
+            .with_organization()
+            .with_city()
+            .with_tags()
+            .with_venue()
+            .select_related("venue__city", "organization__city")
+        )
 
     def for_user(
         self, user: RevelUser | AnonymousUser, include_past: bool = False, allowed_ids: list[UUID] | None = None

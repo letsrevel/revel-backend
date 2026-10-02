@@ -112,7 +112,7 @@ class SeriesPassController(UserAwareController):
     @route.post(
         "/{pass_id}/checkout",
         url_name="checkout_series_pass",
-        response=schema.SeriesPassCheckoutResponseSchema,
+        response={200: schema.SeriesPassCheckoutResponseSchema, 422: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
@@ -137,6 +137,8 @@ class SeriesPassController(UserAwareController):
         - 404: The pass itself isn't visible to the user (e.g. a MEMBERS_ONLY-*visibility*
           pass and the user isn't a member) — raised earlier, by ``_get_visible_pass``.
         - 409: Not currently purchasable (sold out, outside sales window, already held).
+        - 422: A paid pass whose payment channel is blocked where a covered event is held
+          (``CountryComplianceError``, e.g. online payment for events in Italy).
         - 429: A covered future event's tier just sold out.
         """
         series_pass = self._get_visible_pass(pass_id)

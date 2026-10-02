@@ -103,7 +103,7 @@ def _make_stripe_connected(org: Organization) -> None:
     org.stripe_charges_enabled = True
     org.stripe_details_submitted = True
     org.billing_name = "Test Legal Entity S.r.l."
-    org.vat_country_code = "IT"
+    org.vat_country_code = "AT"  # not IT: Italy blocks online payment for events held there
     org.billing_address = "Via Roma 1, 00100 Roma"
     org.save()
 

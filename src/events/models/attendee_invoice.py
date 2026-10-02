@@ -5,6 +5,7 @@ for online ticket purchases. The organizer is the legal seller; Revel acts
 as an intermediary generating and delivering invoices.
 """
 
+import enum
 import typing as t
 from decimal import Decimal, InvalidOperation
 
@@ -15,13 +16,33 @@ from common.fields import ProtectedFileField
 from common.models import EmailDeliverableMixin, TimeStampedModel
 
 
+class VatIdStatus(enum.StrEnum):
+    """Outcome of the checkout VIES check of a buyer's VAT ID."""
+
+    NONE = ""  # no VAT ID given
+    VALID = "valid"
+    INVALID = "invalid"  # VIES rejected it, or it is malformed
+    UNAVAILABLE = "unavailable"  # VIES could not be reached, or the ID was never checked
+
+    @classmethod
+    def from_vies(cls, vat_id: str | None, valid: bool | None) -> "VatIdStatus":
+        """Map a VIES result (``None`` = not checked / unavailable) for ``vat_id`` to a status."""
+        if not vat_id:
+            return cls.NONE
+        if valid is None:
+            return cls.UNAVAILABLE
+        return cls.VALID if valid else cls.INVALID
+
+
 class BuyerBillingSnapshot(t.TypedDict):
     """Typed structure for Payment.buyer_billing_snapshot."""
 
     billing_name: str
     vat_id: str
     vat_country_code: str
-    vat_id_validated: bool
+    vat_id_validated: bool  # kept for backward compatibility; see vat_id_status
+    # Tri-state VIES outcome (a VatIdStatus value). Absent on snapshots written before it existed.
+    vat_id_status: t.NotRequired[str]
     billing_address: str
     billing_email: str
     reverse_charge: bool

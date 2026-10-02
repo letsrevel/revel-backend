@@ -20,6 +20,7 @@ from events.utils.visibility import get_invited_event_ids, get_valid_member_org_
 
 from .mixins import VisibilityMixin
 from .organization import MembershipTier, OrganizationMember
+from .ticket_number import PreserveTicketNumberMixin
 from .venue import Venue, VenueSeat, VenueSector
 
 if t.TYPE_CHECKING:
@@ -695,6 +696,7 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
         return self.select_related(
             "event",
             "event__organization",
+            "event__organization__city",
             "event__city",
             "event__venue",
             "event__venue__city",
@@ -762,7 +764,7 @@ class TicketManager(models.Manager["Ticket"]):
         return self.get_queryset().with_org_membership(organization_id)
 
 
-class Ticket(TimeStampedModel):
+class Ticket(PreserveTicketNumberMixin, TimeStampedModel):
     """A ticket for a specific user to a specific event."""
 
     class TicketStatus(models.TextChoices):
@@ -899,6 +901,12 @@ class Ticket(TimeStampedModel):
         "null means nothing was collected (or the ticket is not cancelled). "
         "Online (Stripe) refunds are tracked on Payment.refund_amount instead.",
     )
+
+    # Fiscal ticket number (EU layer 1): per organization, assigned without gaps when the ticket is
+    # first issued (ACTIVE/CHECKED_IN), never reused; holes only if numbered tickets are deleted (#1068).
+    ticket_series = models.CharField(max_length=16, blank=True, default="", editable=False)
+    ticket_number = models.PositiveBigIntegerField(null=True, blank=True, editable=False)
+    issued_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     # Cached ticket files (generated on-demand, cleaned up after event ends)
     pdf_file = ProtectedFileField(upload_to="tickets/pdf/", null=True, blank=True)

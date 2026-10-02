@@ -14,6 +14,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.compliance import enforcement as compliance
 from events.exceptions import (
     BillingInfoRequiredError,
     StripeNotConnectedError,
@@ -503,6 +504,8 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
     payload_dict = payload.model_dump(exclude_unset=True, mode="json")
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
     _drop_null_category_prices(payload_dict)
+    # Before the write: a handled exception does not roll back under ATOMIC_REQUESTS.
+    compliance.assert_tier_allowed(TicketTier(event=event, **payload_dict))
 
     # Append new tiers at the bottom of the list unless the caller pinned an explicit
     # position. Model ordering is ["event", "display_order", "name"], so a new tier left
@@ -599,7 +602,8 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     _drop_null_category_prices(payload_dict)
 
     # Resuming a paused tier is the other way to put an ONLINE tier on sale (the Eventbrite import
-    # creates paid tiers paused when the org has no Stripe Connect), so gate it like a create (#945).
+    # creates paid tiers paused when the org has no Stripe Connect), so gate it like a create (#945):
+    # both the Stripe prerequisites here and the country payment-channel gate below.
     # ``payload.payment_method`` defaults to OFFLINE on the schema, so only ``payload_dict`` (built
     # with ``exclude_unset``) can tell a sent value from the default; fall back to the stored one.
     resuming = payload.sales_paused is False and tier.sales_paused
@@ -607,9 +611,15 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
         effective_method = TicketTier.PaymentMethod(payload_dict.get("payment_method", tier.payment_method))
         check_online_tier_prerequisites(tier.event.organization, effective_method)
 
+    was_allowed = compliance.tier_channel_decision(tier).allowed
+
     # Update regular fields
     for field, value in payload_dict.items():
         setattr(tier, field, value)
+
+    # Resuming sales counts as a create for the country gate (as for Stripe prerequisites,
+    # #945): a paused tier on a blocked channel may be edited, but not put back on sale.
+    compliance.assert_tier_allowed(tier, was_allowed=was_allowed or resuming)
 
     if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel

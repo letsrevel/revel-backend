@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Last updated**: 2026-09-30 (email sending posture: mandatory mail, unsubscribe & one-click, invitation opt-out, announcement mute, suppressed address, invitation cap: #1033, #1043)
+> **Last updated**: 2026-10-02 (EU country compliance: per-country gates, `compliance` objects, ticket fiscal lines, organizer notices: #1069; Journey 29)
 
 ---
 
@@ -38,6 +38,7 @@ This document maps every user journey through the Revel platform, organized by p
 - [Journey 26: Series Passes (Season Tickets)](#journey-26-series-passes-season-tickets)
 - [Journey 27: Membership Applications (Join Eligibility & Apply)](#journey-27-membership-applications-join-eligibility--apply)
 - [Journey 28: Third-Party Apps (OAuth 2.1 / OpenID Connect)](#journey-28-third-party-apps-oauth-21--openid-connect)
+- [Journey 29: EU Country Compliance](#journey-29-eu-country-compliance)
 - [Cross-Cutting Concerns](#cross-cutting-concerns)
 - [Gap-Fill Interview Questions](#gap-fill-interview-questions)
 
@@ -384,6 +385,7 @@ When the event opts in via `waitlist_time_window`:
 - Complete payment → webhook fires → ticket PENDING → ACTIVE
 - Receive confirmation notification
 - Can apply discount code at checkout
+- EU country rules: may be refused with 422 where the event is held (online payment in Italy) — see [Journey 29](#journey-29-eu-country-compliance)
 
 ### 6.4 Purchase — Fixed Price (Offline)
 - Select tier → ticket created with status PENDING
@@ -420,6 +422,7 @@ See [Journey 19: Venue & Seating](#journey-19-venue--seating) for the full chart
 - Download ticket as PDF
 - Add ticket to Apple Wallet (.pkpass)
 - View ticket QR code for check-in
+- PDF and wallet passes carry the EU fiscal lines (organizer, VAT ID, ticket number, issue time, price or "Free", "not a tax invoice" notice) — see [29.6](#296-ticket-content-event-attendee)
 
 ### 6.10 Check-In
 - Arrive at event
@@ -467,6 +470,7 @@ Opt-in per tier via `allow_user_cancellation`, `cancellation_deadline_hours`, an
 - Provide: name, email
 - Follow payment flow for tier type
 - Guest RevelUser created with ticket
+- EU country rules: may be refused with 422 where the event is held (online payment in Italy) — see [Journey 29](#journey-29-eu-country-compliance)
 
 ### 7.3 Guest-to-User Conversion
 - Guest later registers with same email
@@ -517,6 +521,7 @@ Opt-in per tier via `allow_user_cancellation`, `cancellation_deadline_hours`, an
 - Set VAT rate
 - View platform fee invoices
 - Access live financials and downloadable revenue & VAT reports (see [Journey 25](#journey-25-revenue--vat-reporting))
+- See the country card (`compliance` object) — see [29.1](#291-organization-country-card-organization-owner)
 
 ### 8.5 Staff Management
 - Navigate to `/org/[slug]/admin/members` → Staff tab
@@ -661,6 +666,7 @@ DRAFT → OPEN → CLOSED
   - Seat assignment mode: NONE, USER_CHOICE, BEST_AVAILABLE — validated per mode: both seated modes require a seated sector, NONE requires neither; pricing is the `category_prices` zone map in both (see [Journey 19.3](#193-tier-seating-configuration-organizer))
   - VAT rate
 - Reorder tiers (display_order)
+- Payment methods allowed for the event's country come from `event.compliance` (card payment disabled for events in Italy) — see [29.3](#293-ticket-tier-editor-in-italy-organization-owner)
 
 ### 10.5 Manage Tickets
 - View all tickets with status, search, filters; list is **sortable**
@@ -1402,6 +1408,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   - **HYBRID**: Invoices created as DRAFT, org admin reviews and issues manually
   - **AUTO**: Invoices created as ISSUED and emailed immediately
 - Prerequisites: EU-based org with VIES-validated VAT ID, billing name, and billing address
+- Country gates: refused (422) in HR, PT, RO, SI, GR, HU (ES from 2027-01-01); BE/PL skip business-buyer invoices — see [29.2](#292-attendee-invoicing-modes-organization-owner)
 
 ### 22.2 VAT Preview (Buyer)
 - During ticket checkout, buyer can enter billing info (name, address, country, VAT ID)
@@ -1427,6 +1434,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - Edit buyer-facing fields (buyer name, address, VAT ID) — seller info is immutable
 - Issue draft: sets status to ISSUED, regenerates PDF, sends email to buyer
 - Delete draft: removes invoice and PDF entirely
+- A draft that a country gate now forbids can't be issued (422) — see [29.8](#298-invoices-that-can-no-longer-be-issued-organization-owner)
 
 ### 22.5 View Invoices (Buyer)
 - Navigate to `/account/invoices`
@@ -1439,6 +1447,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - If invoice is ISSUED: credit note created with refunded amounts
 - If total credits >= invoice total: invoice marked as CANCELLED
 - Credit note PDF generated and emailed
+- Skipped where a country gate forbids Revel-issued documents; the organizer corrects the invoice itself — see [29.8](#298-invoices-that-can-no-longer-be-issued-organization-owner)
 
 ### 22.7 Delivery Reliability (Behind the Scenes)
 - Financial documents (attendee invoices, credit notes, payout statements) record when their email was sent; delivery errors surface in the admin
@@ -1597,6 +1606,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 
 ### 26.3 Purchase
 - `POST /series-passes/{pass_id}/checkout` (authenticated)
+- An online paid pass covering events in Italy → 422 — see [29.4](#294-checkout-refusals-event-attendee--guest-attendee)
 - Blacklist + members-only checks, then all-or-nothing capacity check across every covered future event (one sold-out tier → 429)
 - Free → pass ACTIVE immediately; offline → PENDING until staff confirms (`POST .../held/{held_pass_id}/confirm-payment`); online → one Stripe session, price split penny-exact into per-event `Payment` rows honoring each tier's VAT rate
 - One non-cancelled pass per user per product; duplicate purchase races → 409
@@ -1721,6 +1731,117 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ### 28.7 MCP Hosts & Dynamic Registration (Connected App)
 - A host pointed at the API origin gets a 401 with `resource_metadata`, discovers the authorization server (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`), self-registers at `/o/register`, then runs 28.2
 - Dynamically registered apps have no owner, are never verified (the consent screen always warns), and are pruned after `OAUTH_DCR_UNUSED_TTL_HOURS` (default 24) if never used; registration is IP-throttled with a daily instance-wide cap (429)
+
+## Journey 29: EU Country Compliance
+
+> Revel blocks **only** the feature a country's law makes non-compliant, only for the sales that law reaches, and only from the date it applies. Policies are per country (`src/events/compliance/policies/<cc>.py`, docs in `docs/compliance/`). Everything a frontend needs is in two read-only `compliance` objects: one **org-level** object on `GET /organization-admin/{slug}` and on the billing info, and one **event-level** object on the event detail (`GET /events/{event_id}`, the event admin detail). A refused write answers **422 `{"detail": "…"}`**, with the country named in the user's language. Shipped in #1069; the frontend work is letsrevel/revel-frontend#1001.
+>
+> **How the country is set.** The org's country comes from its declared VAT country (`PATCH /organization-admin/{slug}/billing-info` with `vat_country_code`), else the VAT ID prefix, else the org's city. An event held elsewhere carries its own `vat_country_code` (`PUT /event-admin/{event_id}`, along with `is_virtual`); otherwise its venue city or event city applies, falling back to the org's country. Non-EU countries are out of scope: they get the default policy (nothing restricted).
+>
+> **E2E fixtures** (`bootstrap_test_events` → `create_compliance_fixtures`, part of `make e2e-seed`):
+> - Owner: `test.compliance@example.com` / `password123`.
+> - One public, Stripe-flagged, invoicing-ready org per country: `compliance-it`, `-at`, `-hr`, `-es`, `-be`, `-pl`, `-dk`, `-us` (non-EU) and `-unknown` (no country).
+> - `compliance-it` / event `it-club-night` has these tiers:
+>   - *Door* (at the door, €10)
+>   - *Bank transfer* (offline, €15)
+>   - *Pay what you can (offline)*
+>   - *Free entry*
+>   - *Card (legacy)*: ONLINE €20, predates the gate
+>   - *Card (paused)*: ONLINE, `sales_paused`
+> - `compliance-it` also has a virtual event `it-online-talk` (ONLINE *Stream*), and series `it-season` with the ONLINE pass *IT Season Pass* covering `it-season-0` and `it-season-1`.
+> - `compliance-at` has `at-gig-in-italy` (event `vat_country_code: "IT"`) and `at-gig-vienna`. `compliance-dk` has `dk-disco-night`.
+> - `compliance-hr` has a pre-gate HYBRID **draft** invoice `COMPLIANCEHR-2026-000001`.
+> - Pre-gate tiers and drafts can only be made through the ORM, which is why they are seeded. Everything else can also be arranged through the API above.
+> - Mutating specs must restore what they change (e.g. un-pause, switch a method back).
+
+### 29.1 Organization Country Card (Organization Owner)
+- **Preconditions:** log in as `test.compliance@example.com` and open org settings → Billing.
+- **Where:** `GET /organization-admin/{slug}` → `compliance` (the same object is on `GET /organization-admin/{slug}/billing-info`).
+- **Expected `compliance` per org:**
+
+  | Org | `country` | `attendee_invoicing` | `online_payment` | `offline_payment` | `notices` |
+  |---|---|---|---|---|---|
+  | `compliance-it` | `IT` | `allowed` | `blocked` | `allowed` | `[]` |
+  | `compliance-hr` | `HR` | `blocked` | `allowed` | `allowed` | `[]` |
+  | `compliance-be` / `-pl` | `BE` / `PL` | `blocked_for_business_buyers` | `allowed` | `allowed` | `[]` |
+  | `compliance-es` (before 2027-01-01) | `ES` | `allowed` | `allowed` | `allowed` | `[]` |
+  | `compliance-at` | `AT` | `allowed` | `allowed` | `allowed` | one: `at_registrierkasse` |
+  | `compliance-dk` | `DK` | `allowed` | `allowed` | `allowed` | one: `dk_sales_registration` |
+  | `compliance-us` | `US` | `allowed` | `allowed` | `allowed` | `[]` (non-EU: show the out-of-scope copy) |
+  | `compliance-unknown` | `""` | `allowed` | `allowed` | `allowed` | `[]` (show the "add your VAT ID or city" copy) |
+
+- **UI:** the "Country rules" card with the localized country name (never the ISO code), a bullet per restriction, and the "Learn more" link to `https://docs.letsrevel.io/compliance/eu/<cc>/`.
+- **Values are effective today.** A restriction with a future start date reads `allowed` until it starts.
+
+### 29.2 Attendee Invoicing Modes (Organization Owner)
+- **Blocked (HR, PT, RO, SI, GR, HU):**
+  - On `compliance-hr`, `Hybrid` and `Automatic` are disabled and `None` stays selected.
+  - Forcing it with `PATCH /organization-admin/compliance-hr/invoicing` `{"mode": "auto"}` returns **422** with `detail`: "Revel can't issue invoices to your attendees in Croatia. The law there requires invoices to go through the Tax Administration's fiscalization system, and Revel isn't connected to it yet. Please issue invoices from your own invoicing software."
+  - `{"mode": "none"}` always succeeds.
+- **Blocked for business buyers:**
+  - **BE**, domestic only: on `compliance-be` the modes stay enabled and the info notice shows. No invoice is generated for a buyer whose VAT ID is Belgian and either VIES-valid or could not be checked. Consumers, VIES-rejected IDs and foreign business buyers still get Revel's invoice.
+  - **PL**, any business buyer: on `compliance-pl` the same applies to buyers with a VAT ID from **any** country that is VIES-valid or could not be checked. Consumers and VIES-rejected IDs still get Revel's invoice.
+  - Skipped invoices are silent, with no 422 at checkout.
+  - The VIES outcome is in the checkout billing snapshot (`vat_id_status`: `valid` / `invalid` / `unavailable` / `""`). E2E can't control VIES, so the valid / invalid / unavailable cases are backend-only. This is covered in `test_buyer_vies_status.py`.
+- **ES date gate:**
+  - Before 2027-01-01, `compliance-es` shows `attendee_invoicing: allowed` and the modes work. The FE shows the "from 1 January 2027" warning for `country == "ES"`.
+  - From that date the capability reads `blocked`, the modes are refused like HR's (system name "Verifactu"), and generation is skipped.
+  - E2E can't move the server clock, so the flip is **backend-only** (freezegun tests in `test_policies.py` and `test_invoicing_gates.py`). E2E asserts the pre-2027 state and the banner.
+
+### 29.3 Ticket Tier Editor in Italy (Organization Owner)
+- **Preconditions:** `compliance-it` → `it-club-night` → Tickets.
+- **Up front:** the event detail has `compliance.online_payment: "blocked"` and `venue_country: "IT"`. The card / online option is disabled, with the notice linked through `aria-describedby`. Offline, bank transfer, at the door, PWYC with an offline method, and free all stay enabled.
+- **Create an online tier anyway:** `POST /event-admin/{event_id}/ticket-tier` `{"name": "Card", "price": "10.00", "payment_method": "online"}` returns **422** with `detail`: "Online card payments aren't available for events in Italy. The law there requires paid tickets sold online to be issued by a ticketing system approved by the Agenzia delle Entrate, and Revel isn't approved yet. You can still sell paid tickets with payment at the door or by bank transfer, and confirm payments from your dashboard."
+- **Create an offline, at-the-door or PWYC-offline tier:** 200.
+- **Existing online tier (*Card (legacy)*):**
+  - The banner "This tier uses online card payment…" shows, with **Change payment method**.
+  - Renaming or pausing it → 200.
+  - Switching it to `at_the_door` → 200.
+- **Resume a paused blocked tier (*Card (paused)*):** `PUT …/ticket-tier/{tier_id}` `{"sales_paused": false}` returns **422** with the same `detail`.
+  - Switching to at-the-door and then resuming → 200, in two calls or one payload `{"payment_method": "at_the_door", "sales_paused": false}`.
+- **Austrian org's event held in Italy (`compliance-at` / `at-gig-in-italy`):** the event shows `compliance.online_payment: "blocked"` and `venue_country: "IT"`, while the org card says `allowed`. The tier editor reads the **event** field.
+- **Italian org's virtual event (`it-online-talk`):** `compliance.online_payment: "allowed"` and `venue_country: ""`. Its online tier works.
+
+### 29.4 Checkout Refusals (Event Attendee / Guest Attendee)
+- **Authenticated:** `POST /events/{event_id}/checkout` on *Card (legacy)* returns **422** with the online-payment `detail` from 29.3. No ticket is created and `quantity_sold` stays the same.
+- **Guest:** `POST /events/{event_id}/checkout/public` → the same **422**.
+  - A guest whose emailed confirmation token was minted for an offline tier that the organizer later switched to ONLINE gets **422** on `POST /events/guest-actions/confirm`.
+- **Series pass:** `POST /series-passes/{pass_id}/checkout` for *IT Season Pass* returns **422** with the same `detail`.
+- **FE:** render `detail` (`role="alert"`) and never a generic error. The fallback copy is used only if `detail` is missing.
+
+### 29.5 Offline Reservation in Italy (Event Attendee)
+- Buy *Bank transfer* on `it-club-night` → the ticket is **PENDING** and the manual payment instructions show (see [6.4](#64-purchase--fixed-price-offline)).
+- The event page shows "You'll pay the organizer directly. Your Revel ticket is a reservation; the organizer gives you the fiscal ticket."
+- The owner confirms the payment in the dashboard → the ticket is **ACTIVE** and **numbered** (29.6).
+- *Door* (at the door) → ACTIVE immediately (see [6.5](#65-purchase--at-the-door)).
+
+### 29.6 Ticket Content (Event Attendee)
+Every ticket PDF, Apple pass (back fields `compliance_<key>`) and Google pass (`textModulesData` ids) carries, in this order:
+- `organizer`: billing name ("Compliance IT Legal Entity").
+- `tax_id`: the org VAT ID ("IT12345678901"), present only when the org has a VAT ID.
+- `ticket_number`: `SERIES-000123`, e.g. `COMPLIANCEIT-000001`. It is assigned when the ticket becomes ACTIVE or CHECKED_IN, so a PENDING ticket has none. It is never reused, and a cancelled ticket keeps its number.
+- `issued_at`: the issue time, in the event's time zone.
+- `price`: e.g. `EUR 10.00`, or **"Free"** for zero-price tickets.
+- `notice`: "This ticket is not a tax invoice or receipt."
+- On priced tickets for **events held in Italy**, `it_reservation`: "Reservation only: this isn't a fiscal access ticket (titolo d'accesso). The organizer issues it." It is absent on free tiers, on an Italian org's events abroad and on virtual events.
+
+The labels and the "Free" / notice text are translated. A cached PDF or pass regenerates once the ticket is numbered.
+
+- **Web ticket page (FE #1001):** show the same price, ticket-number and notice lines once the API exposes them. Wallet passes installed before #1069 don't refresh (#1074).
+
+### 29.7 Organizer Notices (Organization Owner)
+- **Notices are non-blocking:** nothing is disabled. They render as `role="status"` info next to the setting named in `applies_to` (today only `offline_payment`: the offline / at-the-door / bank-transfer selector).
+- **AT** (`compliance-at` org card; `at-gig-vienna` and also `at-gig-in-italy` event objects): key `at_registrierkasse`, message "Payments you take at the door go through your own registered cash register (Registrierkasse) once you pass the legal thresholds. Revel's online sales are exempt."
+  - A non-Austrian org's event held in Austria also gets it.
+- **DK** (`compliance-dk`, organizer established in Denmark only): key `dk_sales_registration`, message "If your business must record sales digitally (for example cafés, bars and discos), record your Revel ticket and door sales there too."
+- **Other countries:** `notices: []`.
+
+### 29.8 Invoices That Can No Longer Be Issued (Organization Owner)
+- **Preconditions:** `compliance-hr` → Attendee invoices → draft `COMPLIANCEHR-2026-000001`.
+- **Issue:** `POST /organization-admin/compliance-hr/attendee-invoices/{invoice_id}/issue` returns **422** with the HR invoicing `detail` from 29.2. The draft stays DRAFT.
+  - Static helper text: "This invoice can't be issued from Revel anymore. Issue it from your own invoicing software."
+- **Credit notes** (docs only, not testable without Stripe refunds): when an issued invoice's refund falls under a gate (e.g. Spanish invoices refunded from 2027), Revel skips the credit note. The organizer learns of the refund via `TICKET_REFUNDED` and corrects the invoice in its own system. A dedicated notification is #1073.
+- **Idempotency:** an invoice that already exists for a checkout is returned as-is even if the gate would now refuse it.
 
 ---
 

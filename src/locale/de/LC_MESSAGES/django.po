@@ -1150,6 +1150,113 @@ msgstr "Abbestellen oder Benachrichtigungseinstellungen verwalten"
 msgid "Already a member."
 msgstr "Bereits Mitglied."
 
+#, python-brace-format
+msgid ""
+"Revel can't issue invoices to your attendees in {country}. The law there "
+"requires invoices to go through {system}, and Revel isn't connected to it "
+"yet. Please issue invoices from your own invoicing software."
+msgstr ""
+"Revel kann in {country} keine Rechnungen an deine Teilnehmenden ausstellen. "
+"Das Gesetz dort verlangt, dass Rechnungen über {system} laufen, und Revel "
+"ist noch nicht daran angebunden. Bitte stelle Rechnungen mit deiner eigenen "
+"Rechnungssoftware aus."
+
+#, python-brace-format
+msgid ""
+"Invoices to customers with a {country} VAT ID must be sent as e-invoices "
+"through {system}. Revel won't create those. Issue this one from your e-"
+"invoicing software; invoices to everyone else work as usual."
+msgstr ""
+"Rechnungen an Kund:innen mit einer Umsatzsteuer-ID aus {country} müssen als "
+"E-Rechnung über {system} verschickt werden. Revel erstellt diese nicht. "
+"Stelle diese Rechnung mit deiner E-Rechnungssoftware aus; Rechnungen an alle "
+"anderen funktionieren wie gewohnt."
+
+#, python-brace-format
+msgid ""
+"Invoices to business customers of organizers in {country} must be issued "
+"through {system}. Revel won't create those. Issue this one from your e-"
+"invoicing software; invoices to consumers work as usual."
+msgstr ""
+"Rechnungen an Geschäftskund:innen von Veranstaltern in {country} müssen über "
+"{system} ausgestellt werden. Revel erstellt diese nicht. Stelle diese "
+"Rechnung mit deiner E-Rechnungssoftware aus; Rechnungen an Privatpersonen "
+"funktionieren wie gewohnt."
+
+#, python-brace-format
+msgid ""
+"Online card payments aren't available for events in {country}. The law there "
+"requires paid tickets sold online to be issued by {system}, and Revel isn't "
+"approved yet. You can still sell paid tickets with payment at the door or by "
+"bank transfer, and confirm payments from your dashboard."
+msgstr ""
+"Online-Kartenzahlungen sind für Veranstaltungen in {country} nicht "
+"verfügbar. Das Gesetz dort verlangt, dass online verkaufte kostenpflichtige "
+"Tickets von {system} ausgestellt werden, und Revel ist noch nicht "
+"zugelassen. Du kannst weiterhin kostenpflichtige Tickets mit Zahlung an der "
+"Abendkasse oder per Überweisung verkaufen und Zahlungen in deinem Dashboard "
+"bestätigen."
+
+msgid "This ticket is not a tax invoice or receipt."
+msgstr "Dieses Ticket ist keine Rechnung und kein Steuerbeleg."
+
+msgid "Free"
+msgstr "Kostenlos"
+
+msgid "Organizer"
+msgstr "Veranstalter"
+
+msgid "Tax ID"
+msgstr "Steuernummer"
+
+msgid "Ticket no."
+msgstr "Ticket-Nr."
+
+msgid "Issued"
+msgstr "Ausgestellt"
+
+msgid "Price"
+msgstr "Preis"
+
+msgid "Tax notice"
+msgstr "Steuerhinweis"
+
+msgid ""
+"Payments you take at the door go through your own registered cash register "
+"(Registrierkasse) once you pass the legal thresholds. Revel's online sales "
+"are exempt."
+msgstr ""
+"Zahlungen, die du an der Abendkasse annimmst, laufen über deine eigene "
+"Registrierkasse, sobald du die gesetzlichen Grenzen überschreitest. Die "
+"Online-Verkäufe über Revel sind davon ausgenommen."
+
+msgid ""
+"If your business must record sales digitally (for example cafés, bars and "
+"discos), record your Revel ticket and door sales there too."
+msgstr ""
+"Wenn dein Betrieb Verkäufe digital erfassen muss (zum Beispiel Cafés, Bars "
+"und Diskotheken), erfasse dort auch deine Revel-Ticket- und "
+"Abendkassenverkäufe."
+
+msgid "the Tax Administration's fiscalization system"
+msgstr "das Fiskalisierungssystem der Steuerverwaltung"
+
+msgid ""
+"Reservation only: this isn't a fiscal access ticket (titolo d'accesso). The "
+"organizer issues it."
+msgstr ""
+"Nur Reservierung: Dies ist kein steuerliches Zutrittsticket (titolo "
+"d'accesso). Der Veranstalter stellt es aus."
+
+msgid "a ticketing system approved by the Agenzia delle Entrate"
+msgstr "ein von der Agenzia delle Entrate zugelassenes Ticketsystem"
+
+msgid "Notice"
+msgstr "Hinweis"
+
+msgid "certified invoicing software"
+msgstr "zertifizierte Rechnungssoftware"
+
 msgid "Invoice PDF not available."
 msgstr "Rechnungs-PDF nicht verfügbar."
 

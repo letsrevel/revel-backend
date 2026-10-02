@@ -12,6 +12,7 @@ from django.utils import timezone
 from accounts.models import ReferralApplication, ReferralCode, RevelUser
 from common.models import SiteSettings, Tag
 from events import models as events_models
+from events.management.commands.bootstrap_helpers.compliance import create_compliance_fixtures
 from events.management.commands.bootstrap_helpers.logos import attach_logo
 from events.management.commands.seeder.tickets import ATTRIBUTION_CAMPAIGNS
 from geo.models import City
@@ -74,6 +75,9 @@ class Command(BaseCommand):
         # Referral program: a referrer, applications in every state, an open invite
         self._create_referral_program_fixtures()
 
+        # EU country compliance (Journey 29): one org per country, pre-gate tiers and a stale draft
+        create_compliance_fixtures(self.now)
+
         logger.info("Eligibility test events bootstrap complete!")
         logger.info("\n=== Test Users Created ===")
         logger.info(f"Random User (no org): {self.random_user.email} / password123")
@@ -89,6 +93,7 @@ class Command(BaseCommand):
             REFERRAL_OPEN_INVITE_ID,
         )
         logger.info(f"\nOrganization: {self.org.name} (slug: {self.org.slug})")
+        logger.info("Compliance (Journey 29): test.compliance@example.com / password123, orgs compliance-<cc>")
 
     def _create_users(self) -> None:
         """Create test users for eligibility testing."""

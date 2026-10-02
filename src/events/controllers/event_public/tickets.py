@@ -118,7 +118,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout",
         url_name="ticket_checkout",
-        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail},
+        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail, 422: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
@@ -213,7 +213,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout/pwyc",
         url_name="ticket_pwyc_checkout",
-        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail},
+        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail, 422: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
@@ -308,7 +308,13 @@ class EventPublicTicketsController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/checkout",
         url_name="multi_tier_checkout",
-        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail, 404: ErrorDetail},
+        response={
+            200: schema.BatchCheckoutResponse,
+            400: EventUserEligibility | ErrorDetail,
+            404: ErrorDetail,
+            # Paid cart for an organizer whose country blocks paid ticketing (EU layer 1).
+            422: ErrorDetail,
+        },
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],

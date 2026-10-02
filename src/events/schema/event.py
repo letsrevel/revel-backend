@@ -17,6 +17,8 @@ from common.schema import (
     validate_country_code,
     viewer_from_context,
 )
+from events.compliance import AttendeeInvoicingCapability, PaymentChannelCapability
+from events.compliance.enforcement import event_compliance
 from events.models import Event, ResourceVisibility
 from events.utils.schedule import EventScheduleSession
 from events.utils.visibility_settings import EventVisibilitySettings
@@ -24,7 +26,7 @@ from geo.schema import CitySchema
 
 from .event_series import MinimalEventSeriesSchema
 from .mixins import CityEditMixin, LogoCoverArtThumbnailMixin, TaggableSchemaMixin
-from .organization import MinimalOrganizationSchema
+from .organization import ComplianceNoticeSchema, MinimalOrganizationSchema, compliance_notices
 from .venue import VenueSchema
 
 # Re-export the pydantic settings model as the API schema (single source of truth),
@@ -297,6 +299,21 @@ class EventInListSchema(EventBaseSchema):
     city: CitySchema | None = None
 
 
+class EventComplianceSchema(Schema):
+    """What the countries reaching this event allow today (EU layer 1, #1057-#1067).
+
+    Unlike the org-level capabilities, this accounts for where the event is held, so the
+    tier editor and checkout can hide exactly what the API would refuse. Detail-only:
+    list endpoints don't carry it.
+    """
+
+    venue_country: str = Field(description="ISO country of a physical event's venue; empty for virtual events.")
+    online_payment: PaymentChannelCapability
+    offline_payment: PaymentChannelCapability
+    attendee_invoicing: AttendeeInvoicingCapability
+    notices: list[ComplianceNoticeSchema]
+
+
 class EventDetailSchema(EventBaseSchema):
     city: CitySchema | None = None
     address: str | None = None
@@ -312,6 +329,20 @@ class EventDetailSchema(EventBaseSchema):
         description="Organizer warning (#869): the event's VAT country differs from the organization's — "
         "a local VAT registration or OSS may be needed; ask a tax adviser.",
     )
+
+    compliance: EventComplianceSchema
+
+    @staticmethod
+    def resolve_compliance(obj: Event) -> EventComplianceSchema:
+        """The event's effective compliance capabilities (same decisions the gates enforce)."""
+        result = event_compliance(obj)
+        return EventComplianceSchema(
+            venue_country=result.venue_country,
+            online_payment=result.online_payment,
+            offline_payment=result.offline_payment,
+            attendee_invoicing=result.attendee_invoicing,
+            notices=compliance_notices(result.notices),
+        )
 
     @staticmethod
     def resolve_vat_country_mismatch(obj: Event) -> bool:

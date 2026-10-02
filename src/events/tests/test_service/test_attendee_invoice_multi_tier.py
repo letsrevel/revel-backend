@@ -38,8 +38,8 @@ def invoicing_org(organization: Organization) -> Organization:
     organization.stripe_account_id = "acct_mixed_cart"
     organization.stripe_charges_enabled = True
     organization.stripe_details_submitted = True
-    organization.vat_country_code = "IT"
-    organization.vat_id = "IT12345678901"
+    organization.vat_country_code = "AT"
+    organization.vat_id = "ATU12345678"
     organization.vat_id_validated = True
     organization.vat_rate = Decimal("22.00")
     organization.billing_name = "ACME SRL"

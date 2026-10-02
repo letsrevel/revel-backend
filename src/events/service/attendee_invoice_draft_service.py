@@ -16,13 +16,14 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from events.exceptions import CountryComplianceError
 from events.models.attendee_invoice import (
     AttendeeInvoice,
     DerivedTotals,
     InvoiceLineItemDict,
     SubmittedLineItem,
 )
-from events.service.attendee_invoice_service import _generate_and_save_pdf
+from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
 
 logger = structlog.get_logger(__name__)
 
@@ -247,6 +248,7 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
 
     Raises:
         HttpError 409: If the invoice is CANCELLED.
+        CountryComplianceError: If a DRAFT may no longer be issued under the country policy.
         HttpError 422: If a DRAFT's header totals do not reconcile with its line
             items -- such an invoice must not become a legal document (#911).
     """
@@ -259,6 +261,12 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
 
         if invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED:
             raise HttpError(409, str(_("Cancelled invoices cannot be issued.")))
+
+        if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
+            # A draft generated before the country gate must not become a legal document.
+            decision = invoice_compliance_decision(invoice)
+            if not decision.allowed:
+                raise CountryComplianceError(decision.reason)
 
         if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
             # Only on the DRAFT -> ISSUED transition: re-issuing an already-ISSUED

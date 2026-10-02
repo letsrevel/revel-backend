@@ -130,7 +130,9 @@ class EventAdminTicketsController(EventAdminBaseController):
         # ONLINE tiers are gated on the online-payment prerequisites: 400 when the
         # organization has no Stripe Connect, 422 (``{detail}``, via the static
         # ``BillingInfoRequiredError`` handler) when platform fees apply but its
-        # billing info is incomplete.
+        # billing info is incomplete. Also 422 ``{detail}`` (``CountryComplianceError``)
+        # when the tier would take money through a payment channel blocked where the
+        # event is held (e.g. online payment for events in Italy).
         response={
             200: schema.TicketTierDetailSchema,
             400: ValidationErrorResponse | ErrorDetail,
@@ -145,7 +147,8 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.put(
         "/ticket-tier/{tier_id}",
         url_name="update_ticket_tier",
-        # Same gate as create when the update switches the tier to ONLINE payment.
+        # Same gates as create when the update switches the tier to ONLINE payment or resumes
+        # sales; 422 ``CountryComplianceError`` when it moves onto (or resumes) a blocked channel.
         response={
             200: schema.TicketTierDetailSchema,
             400: ValidationErrorResponse | ErrorDetail,

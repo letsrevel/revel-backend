@@ -12,13 +12,15 @@ import io
 import json
 import typing as t
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import structlog
 from django.conf import settings
 
+from events.compliance import TicketComplianceField
+from events.compliance.enforcement import ticket_fields
 from events.models import HeldSeriesPass, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import (
@@ -84,6 +86,8 @@ class PassData:
     venue_name: str | None = None  # Venue name for front of pass
     sector_name: str | None = None
     seat_label: str | None = None
+    # Fiscal lines from the organizer's country policy (EU layer 1); tickets only.
+    compliance_fields: list[TicketComplianceField] = field(default_factory=list)
 
 
 @dataclass
@@ -356,6 +360,7 @@ class ApplePassGenerator:
             venue_name=location.venue_name,
             sector_name=location.sector.name if location.sector else None,
             seat_label=location.seat_label,
+            compliance_fields=ticket_fields(ticket),
         )
 
     def _generate_files(self, pass_json: bytes, colors: PassColors, logo_image: bytes) -> dict[str, bytes]:
@@ -562,6 +567,11 @@ class ApplePassGenerator:
                     "value": "\n".join(seating_parts),
                 }
             )
+
+        fields.extend(
+            {"key": f"compliance_{item.key}", "label": item.label, "value": item.value}
+            for item in data.compliance_fields
+        )
 
         fields.append({"key": "powered_by", "label": POWERED_BY_LABEL, "value": POWERED_BY_VALUE})
 

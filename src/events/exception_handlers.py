@@ -25,6 +25,7 @@ from common.exception_handlers import (
 from events.exceptions import (
     AlreadyMemberError,
     BillingInfoRequiredError,
+    CountryComplianceError,
     DuplicateDiscountCodeError,
     EventRefundsStartedError,
     GuestActionError,
@@ -217,6 +218,9 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     ),
     # Stripe refund API failure → 502 (mirrors the public cancel endpoint's mapping).
     StripeRefundFailed: make_simple_handler(502),
+    # Action unavailable in the organizer's country (EU layer 1, #1057-#1067) → 422,
+    # carrying the translated, country-specific explanation.
+    CountryComplianceError: make_simple_handler(422),
 }
 
 

@@ -62,6 +62,7 @@ class BuyerVATContext:
 
     buyer_country: str | None
     buyer_vat_validated: bool
+    vat_id_status: str = ""  # a VatIdStatus value: the tri-state VIES outcome for the billing snapshot
 
 
 def _normalize_country(code: str) -> str:

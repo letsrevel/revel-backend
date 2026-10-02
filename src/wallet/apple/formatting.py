@@ -188,8 +188,9 @@ def format_price(price: Decimal | int | float, currency: str) -> str:
         currency: Currency code (e.g., "EUR", "USD").
 
     Returns:
-        Formatted string like "EUR 25.00" or "Free".
+        Formatted string like "EUR 25.00" or the translated "Free" — the same text the
+        ticket PDF prints (see ``events.compliance.base.format_ticket_price``).
     """
-    if price == 0:
-        return "Free"
-    return f"{currency.upper()} {float(price):.2f}"
+    from events.compliance.base import format_ticket_price
+
+    return format_ticket_price(price, currency)

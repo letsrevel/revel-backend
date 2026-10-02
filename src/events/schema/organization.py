@@ -12,6 +12,14 @@ from common.models import SiteSettings
 from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
 from common.service.vat_utils import TWO_PLACES, b2b_vat_context
 from events import models
+from events.compliance import (
+    AttendeeInvoicingCapability,
+    ComplianceNotice,
+    NoticeTopic,
+    PaymentChannelCapability,
+    get_policy,
+)
+from events.compliance.base import ALL_NEXUS
 from events.models import (
     MembershipRequestStatus,
     Organization,
@@ -69,6 +77,47 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     default_requires_membership_approval: bool = False
 
 
+class ComplianceNoticeSchema(Schema):
+    """A non-blocking compliance hint for the organizer; show it next to ``applies_to``."""
+
+    key: str
+    applies_to: NoticeTopic
+    message: str
+
+
+def compliance_notices(notices: list[ComplianceNotice]) -> list[ComplianceNoticeSchema]:
+    """Serialize policy notices."""
+    return [ComplianceNoticeSchema(key=n.key, applies_to=n.applies_to, message=n.message) for n in notices]
+
+
+class OrganizationComplianceSchema(Schema):
+    """What the organization's country lets Revel do (EU layer 1, #1057-#1067).
+
+    Computed, read-only, and effective today (a restriction with a future start date
+    reads ``allowed`` until then). Payment channels describe events held in the org's
+    own country; an event held elsewhere follows that country (the API answers 422).
+    The frontend hides invoicing modes and payment methods from it.
+    """
+
+    country: str = Field(description="Resolved ISO 3166-1 alpha-2 country; empty when undeclared.")
+    attendee_invoicing: AttendeeInvoicingCapability
+    online_payment: PaymentChannelCapability
+    offline_payment: PaymentChannelCapability
+    notices: list[ComplianceNoticeSchema]
+
+
+def _compliance(obj: Organization) -> OrganizationComplianceSchema:
+    """Org-level capabilities for the organization's own country, effective today."""
+    policy = get_policy(obj)
+    return OrganizationComplianceSchema(
+        country=policy.country,
+        attendee_invoicing=policy.attendee_invoicing_capability(),
+        online_payment=policy.online_payment_capability(),
+        offline_payment=policy.offline_payment_capability(),
+        notices=compliance_notices(policy.organizer_notices(ALL_NEXUS)),
+    )
+
+
 class OrganizationBillingInfoSchema(Schema):
     """Read-only schema for organization billing info and VAT settings."""
 
@@ -81,6 +130,12 @@ class OrganizationBillingInfoSchema(Schema):
     billing_address: str
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
+    compliance: OrganizationComplianceSchema
+
+    @staticmethod
+    def resolve_compliance(obj: Organization) -> OrganizationComplianceSchema:
+        """Country-compliance capabilities for the organization."""
+        return _compliance(obj)
 
 
 class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
@@ -238,6 +293,12 @@ class OrganizationAdminDetailSchema(
     # applies to Revel's platform fee so net-payout previews can account for it.
     platform_fee_vat_rate: str
     platform_fee_reverse_charge: bool
+    compliance: OrganizationComplianceSchema
+
+    @staticmethod
+    def resolve_compliance(obj: Organization) -> OrganizationComplianceSchema:
+        """Country-compliance capabilities for the organization."""
+        return _compliance(obj)
 
     @staticmethod
     def resolve_platform_fee_vat_rate(obj: Organization, context: t.Any) -> str:

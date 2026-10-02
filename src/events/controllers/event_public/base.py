@@ -65,7 +65,9 @@ class EventPublicBaseController(UserAwareController):
         # venue__city feeds Event.effective_vat_country, read by
         # EventDetailSchema's VAT-country resolvers (#869); city is already
         # selected via full().
-        qs = self.get_queryset(include_past=True).with_organization().select_related("venue__city")
+        qs = (
+            self.get_queryset(include_past=True).with_organization().select_related("venue__city", "organization__city")
+        )
         try:
             return t.cast(models.Event, self.get_object_or_exception(qs, pk=event_id))
         except NotFound:
@@ -74,7 +76,9 @@ class EventPublicBaseController(UserAwareController):
 
     def get_one_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:
         """Wrapper helper."""
-        qs = self.get_queryset(include_past=True).with_organization().select_related("venue__city")
+        qs = (
+            self.get_queryset(include_past=True).with_organization().select_related("venue__city", "organization__city")
+        )
         try:
             return t.cast(
                 models.Event,

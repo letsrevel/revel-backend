@@ -1137,6 +1137,111 @@ msgstr "Darse de baja o gestionar las preferencias de notificación"
 msgid "Already a member."
 msgstr "Ya eres miembro."
 
+#, python-brace-format
+msgid ""
+"Revel can't issue invoices to your attendees in {country}. The law there "
+"requires invoices to go through {system}, and Revel isn't connected to it "
+"yet. Please issue invoices from your own invoicing software."
+msgstr ""
+"Revel no puede emitir facturas a tus asistentes en {country}. Allí la ley "
+"exige que las facturas pasen por {system}, y Revel todavía no está "
+"conectado. Emite las facturas desde tu propio software de facturación."
+
+#, python-brace-format
+msgid ""
+"Invoices to customers with a {country} VAT ID must be sent as e-invoices "
+"through {system}. Revel won't create those. Issue this one from your e-"
+"invoicing software; invoices to everyone else work as usual."
+msgstr ""
+"Las facturas a clientes con un NIF-IVA de {country} deben enviarse como "
+"facturas electrónicas a través de {system}. Revel no las crea. Emite esta "
+"desde tu software de facturación electrónica; las facturas a todos los demás "
+"funcionan como siempre."
+
+#, python-brace-format
+msgid ""
+"Invoices to business customers of organizers in {country} must be issued "
+"through {system}. Revel won't create those. Issue this one from your e-"
+"invoicing software; invoices to consumers work as usual."
+msgstr ""
+"Las facturas a clientes empresariales de organizadores en {country} deben "
+"emitirse a través de {system}. Revel no las crea. Emite esta desde tu "
+"software de facturación electrónica; las facturas a particulares funcionan "
+"como siempre."
+
+#, python-brace-format
+msgid ""
+"Online card payments aren't available for events in {country}. The law there "
+"requires paid tickets sold online to be issued by {system}, and Revel isn't "
+"approved yet. You can still sell paid tickets with payment at the door or by "
+"bank transfer, and confirm payments from your dashboard."
+msgstr ""
+"Los pagos online con tarjeta no están disponibles para eventos en {country}. "
+"Allí la ley exige que las entradas de pago vendidas online las emita "
+"{system}, y Revel todavía no está aprobado. Puedes seguir vendiendo entradas "
+"de pago con pago en la puerta o por transferencia bancaria, y confirmar los "
+"pagos desde tu panel."
+
+msgid "This ticket is not a tax invoice or receipt."
+msgstr "Esta entrada no es una factura ni un recibo fiscal."
+
+msgid "Free"
+msgstr "Gratis"
+
+msgid "Organizer"
+msgstr "Organizador"
+
+msgid "Tax ID"
+msgstr "NIF"
+
+msgid "Ticket no."
+msgstr "Entrada n.º"
+
+msgid "Issued"
+msgstr "Emitida"
+
+msgid "Price"
+msgstr "Precio"
+
+msgid "Tax notice"
+msgstr "Aviso fiscal"
+
+msgid ""
+"Payments you take at the door go through your own registered cash register "
+"(Registrierkasse) once you pass the legal thresholds. Revel's online sales "
+"are exempt."
+msgstr ""
+"Los pagos que cobres en la puerta pasan por tu propia caja registradora "
+"registrada (Registrierkasse) una vez superes los umbrales legales. Las "
+"ventas online en Revel están exentas."
+
+msgid ""
+"If your business must record sales digitally (for example cafés, bars and "
+"discos), record your Revel ticket and door sales there too."
+msgstr ""
+"Si tu negocio debe registrar las ventas de forma digital (por ejemplo cafés, "
+"bares y discotecas), registra allí también tus ventas de entradas de Revel y "
+"en la puerta."
+
+msgid "the Tax Administration's fiscalization system"
+msgstr "el sistema de fiscalización de la Administración tributaria"
+
+msgid ""
+"Reservation only: this isn't a fiscal access ticket (titolo d'accesso). The "
+"organizer issues it."
+msgstr ""
+"Solo reserva: esta no es una entrada fiscal (titolo d'accesso). La emite el "
+"organizador."
+
+msgid "a ticketing system approved by the Agenzia delle Entrate"
+msgstr "un sistema de venta de entradas aprobado por la Agenzia delle Entrate"
+
+msgid "Notice"
+msgstr "Aviso"
+
+msgid "certified invoicing software"
+msgstr "un software de facturación certificado"
+
 msgid "Invoice PDF not available."
 msgstr "El PDF de la factura no está disponible."
 

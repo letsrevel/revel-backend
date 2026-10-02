@@ -58,8 +58,8 @@ ZERO = Decimal("0.00")
 
 @pytest.fixture
 def vat_org(seated_org: Organization) -> Organization:
-    """The seated org, VAT-registered in Italy at 22%."""
-    seated_org.vat_country_code = "IT"
+    """The seated org, VAT-registered in Austria (at a 22% test rate)."""
+    seated_org.vat_country_code = "AT"
     seated_org.vat_rate = VAT_RATE
     seated_org.save()
     return seated_org
@@ -158,7 +158,7 @@ def pct10(vat_org: Organization) -> DiscountCode:
 
 def _domestic() -> BuyerBillingInfoSchema:
     """An Italian consumer buying from an Italian seller: full 22% VAT, gross = list."""
-    return BuyerBillingInfoSchema(billing_name="Mario Rossi", vat_country_code="IT")  # type: ignore[call-arg]
+    return BuyerBillingInfoSchema(billing_name="Mario Rossi", vat_country_code="AT")  # type: ignore[call-arg]
 
 
 def _non_eu() -> BuyerBillingInfoSchema:
@@ -455,7 +455,7 @@ class TestWireShape:
             reverse("api:vat_preview", kwargs={"event_id": str(seated_event.pk)}),
             data=orjson.dumps(
                 {
-                    "billing_info": {"billing_name": "ACME SRL", "vat_country_code": "IT"},
+                    "billing_info": {"billing_name": "ACME SRL", "vat_country_code": "AT"},
                     "items": [
                         {
                             "tier_id": str(online_tier.pk),
@@ -726,7 +726,7 @@ class TestModeAgnosticResponseShape:
             reverse("api:vat_preview", kwargs={"event_id": str(seated_event.pk)}),
             data=orjson.dumps(
                 {
-                    "billing_info": {"billing_name": "ACME SRL", "vat_country_code": "IT"},
+                    "billing_info": {"billing_name": "ACME SRL", "vat_country_code": "AT"},
                     "items": [{"tier_id": str(ba_tier.pk), "count": 2, "price_category_id": str(premium.pk)}],
                 }
             ),

@@ -15,11 +15,11 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.urls import reverse
 
+from events.compliance.enforcement import ticket_fields
 from events.models import Event, HeldSeriesPass, Organization, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import format_iso_date, format_price, get_theme_hex_background
 from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD, POWERED_BY_URL
-from wallet.pricing import resolve_ticket_price
 from wallet.resolution import resolve_series_window, resolve_ticket_location
 
 
@@ -112,7 +112,8 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
     """Build the fat-JWT payload for a ticket.
 
     Venue, sector and seat come from :func:`wallet.resolution.resolve_ticket_location`
-    and the price from :func:`wallet.pricing.resolve_ticket_price` — the same
+    and the price (with the other fiscal lines) from the organizer's compliance policy,
+    which resolves it with :func:`events.service.ticket_price.resolve_ticket_price` — the same
     helpers ``ApplePassGenerator._build_pass_data`` uses, so both rails show the
     same data (pinned by ``wallet/tests/test_cross_rail_parity.py``).
 
@@ -127,7 +128,6 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
     tz = get_event_timezone(event)
 
     location = resolve_ticket_location(ticket)
-    price, currency = resolve_ticket_price(ticket)
 
     cls = _build_class(
         class_id=_pass_id("event", event.id),
@@ -149,7 +149,11 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
         "barcode": {"type": "QR_CODE", "value": str(ticket.id)},
         "ticketType": _localized(ticket.tier.name),
         "validTimeInterval": {"end": {"date": format_iso_date(event.end + PASS_EXPIRATION_GRACE_PERIOD, tz=tz)}},
-        "textModulesData": [{"id": "price", "header": "Price", "body": format_price(price, currency)}],
+        # The organizer's country policy lines (EU layer 1). The common set carries the
+        # ``price`` module, formatted exactly like the Apple rail's price field.
+        "textModulesData": [
+            {"id": item.key, "header": item.label, "body": item.value} for item in ticket_fields(ticket)
+        ],
         "linksModuleData": _powered_by_links(),
     }
     if ticket.guest_name:

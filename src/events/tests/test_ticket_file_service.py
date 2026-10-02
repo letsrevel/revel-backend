@@ -542,3 +542,63 @@ class TestUserTicketSchemaResolvers:
         assert url is not None
         assert "exp=" in url
         assert "sig=" in url
+
+
+# ---------------------------------------------------------------------------
+# Shared hash: regenerating one format must not vouch for the other
+# ---------------------------------------------------------------------------
+
+
+class TestSiblingFormatInvalidation:
+    """PDF and pkpass share ``file_content_hash``; a stale sibling must not be served."""
+
+    @staticmethod
+    def _fresh(ticket: Ticket) -> Ticket:
+        return Ticket.objects.full().get(pk=ticket.pk)
+
+    @staticmethod
+    def _generator(payload: bytes) -> MagicMock:
+        generator = MagicMock()
+        generator.generate_pass.return_value = payload
+        return generator
+
+    def test_pdf_regeneration_drops_the_stale_pkpass(self, org: Organization, ticket_with_tier: Ticket) -> None:
+        """Cache both, change a compliance field, download the PDF, then the pkpass: pkpass is rebuilt."""
+        ticket_file_service.cache_files(ticket_with_tier, pdf_bytes=b"%PDF-old", pkpass_bytes=b"PK-old")
+        Organization.objects.filter(pk=org.pk).update(vat_id="ATU99999999")
+
+        with patch("events.utils.create_ticket_pdf", return_value=b"%PDF-new"):
+            assert ticket_file_service.get_or_generate_pdf(self._fresh(ticket_with_tier)) == b"%PDF-new"
+        with patch(
+            "events.service.ticket_file_service.get_apple_pass_generator", return_value=self._generator(b"PK-new")
+        ):
+            assert ticket_file_service.get_or_generate_pkpass(self._fresh(ticket_with_tier)) == b"PK-new"
+
+    def test_pkpass_regeneration_drops_the_stale_pdf(self, org: Organization, ticket_with_tier: Ticket) -> None:
+        """The same in reverse: download the pkpass first, then the PDF is rebuilt."""
+        ticket_file_service.cache_files(ticket_with_tier, pdf_bytes=b"%PDF-old", pkpass_bytes=b"PK-old")
+        Organization.objects.filter(pk=org.pk).update(vat_id="ATU99999999")
+
+        with patch(
+            "events.service.ticket_file_service.get_apple_pass_generator", return_value=self._generator(b"PK-new")
+        ):
+            assert ticket_file_service.get_or_generate_pkpass(self._fresh(ticket_with_tier)) == b"PK-new"
+        stale_dropped = self._fresh(ticket_with_tier)
+        assert not stale_dropped.pdf_file
+        with patch("events.utils.create_ticket_pdf", return_value=b"%PDF-new"):
+            assert ticket_file_service.get_or_generate_pdf(stale_dropped) == b"%PDF-new"
+
+    def test_caching_both_formats_keeps_both(self, ticket_with_tier: Ticket) -> None:
+        ticket_file_service.cache_files(ticket_with_tier, pdf_bytes=b"%PDF-a", pkpass_bytes=b"PK-a")
+
+        fresh = self._fresh(ticket_with_tier)
+        assert fresh.pdf_file and fresh.pkpass_file
+        assert ticket_file_service.is_cache_valid(fresh)
+
+    def test_regenerating_with_unchanged_content_keeps_the_sibling(self, ticket_with_tier: Ticket) -> None:
+        """Only a hash change drops the sibling; a valid sibling is not thrown away."""
+        ticket_file_service.cache_files(ticket_with_tier, pdf_bytes=b"%PDF-a", pkpass_bytes=b"PK-a")
+
+        ticket_file_service.cache_files(self._fresh(ticket_with_tier), pdf_bytes=b"%PDF-b")
+
+        assert self._fresh(ticket_with_tier).pkpass_file
