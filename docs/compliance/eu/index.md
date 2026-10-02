@@ -77,7 +77,7 @@ See [Billing & VAT](../../architecture/billing-and-vat.md) for the details.
 | [Luxembourg](lu.md) | Not yet researched | None (default policy) | |
 | [Malta](mt.md) | Not yet researched | None (default policy) | |
 | [Netherlands](nl.md) | No country-specific restrictions identified | None | |
-| [Poland](pl.md) | Restricted | Invoices to business buyers (any country) blocked, for organizers established in Poland (KSeF); organizer notice on the fiscal cash register (consumer admission to discos, dance halls, circus) | [#1067](https://github.com/letsrevel/revel-backend/issues/1067) |
+| [Poland](pl.md) | Restricted | Invoices to business buyers (any country) blocked, for organizers established in Poland (KSeF); organizer notice on the fiscal cash register (consumer admission to discos, dance halls, amusement and theme parks, circus) | [#1067](https://github.com/letsrevel/revel-backend/issues/1067) |
 | [Portugal](pt.md) | Restricted | Attendee invoicing blocked for organizers established in Portugal (certified invoicing software) | [#1060](https://github.com/letsrevel/revel-backend/issues/1060) |
 | [Romania](ro.md) | Restricted | Attendee invoicing blocked for organizers established in Romania (RO e-Factura) | [#1064](https://github.com/letsrevel/revel-backend/issues/1064) |
 | [Slovakia](sk.md) | No country-specific restrictions identified | None | |

@@ -30,8 +30,8 @@ exclusions cover consumers and sellers without a Polish establishment, not forei
 - Online and offline payments are not restricted.
 - **Organizer notice (non-blocking)**, for organizers established in Poland and events held there,
   shown next to the ticket-sales settings (topic `ticket_sales`, since the rule covers online sales
-  too): "Admission sold to consumers for discos, dance halls and circus performances must be recorded
-  on your own fiscal cash register (kasa fiskalna), even when paid online. For other events, the
+  too): "Admission sold to consumers for discos, dance halls, amusement and theme parks, and circus
+  performances must be recorded on your own fiscal cash register (kasa fiskalna), even when paid online. For other events, the
   online-payment exemption applies only if your records link each payment to its sale." The duty
   covers sales to consumers only (VAT Act art. 111(1)); the payment-to-sale link is the condition of
   the bank-payment exemption (annex poz. 42), not a separate duty. Revel cannot act as a Polish fiscal
