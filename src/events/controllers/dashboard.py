@@ -240,9 +240,7 @@ class DashboardController(UserAwareController):
 
         Clearing the name is only allowed when the event does not require names.
         """
-        ticket = get_object_or_404(
-            models.Ticket.objects.select_related("event", "tier", "user"), id=ticket_id, user=self.user()
-        )
+        ticket = get_object_or_404(models.Ticket.objects.full(), id=ticket_id, user=self.user())
         return ticket_guest_name_service.update_guest_name(ticket, payload.guest_name)
 
     @route.get(
