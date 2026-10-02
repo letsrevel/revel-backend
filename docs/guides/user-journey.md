@@ -775,7 +775,7 @@ reaches and only from the date it applies:
 - business-buyer invoices in Belgium and Poland.
 
 Austria, Denmark and Poland get non-blocking organizer notices; Croatia, Slovenia, Greece and Hungary
-add one next to the attendee-invoicing setting.
+add one next to the attendee-invoicing setting, and Spain does until its 2027 block starts.
 
 The organization and event-detail responses expose a `compliance` object, so the UI can hide what
 would be refused. Refused writes answer `422 {"detail"}`.

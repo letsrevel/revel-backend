@@ -1771,7 +1771,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   | `compliance-hr` | `HR` | `blocked` | `allowed` | `allowed` | one: `hr_fiscalization` |
   | `compliance-be` | `BE` | `blocked_for_business_buyers` | `allowed` | `allowed` | `[]` |
   | `compliance-pl` | `PL` | `blocked_for_business_buyers` | `allowed` | `allowed` | one: `pl_kasa_fiskalna` |
-  | `compliance-es` (before 2027-01-01) | `ES` | `allowed` | `allowed` | `allowed` | `[]` |
+  | `compliance-es` (before 2027-01-01) | `ES` | `allowed` | `allowed` | `allowed` | one: `es_verifactu` |
   | `compliance-at` | `AT` | `allowed` | `allowed` | `allowed` | one: `at_registrierkasse` |
   | `compliance-dk` | `DK` | `allowed` | `allowed` | `allowed` | one: `dk_sales_registration` |
   | `compliance-us` | `US` | `allowed` | `allowed` | `allowed` | `[]` (non-EU: show the out-of-scope copy) |
@@ -1791,9 +1791,9 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   - There is no 422 at checkout. Each skipped invoice is recorded for the owner (see [29.9](#299-invoices-to-issue-yourself-organization-owner)).
   - The VIES outcome is in the checkout billing snapshot (`vat_id_status`: `valid` / `invalid` / `unavailable` / `""`). E2E can't control VIES, so the valid / invalid / unavailable cases are backend-only. This is covered in `test_buyer_vies_status.py`.
 - **ES date gate:**
-  - Before 2027-01-01, `compliance-es` shows `attendee_invoicing: allowed` and the modes work. The FE shows the "from 1 January 2027" warning for `country == "ES"`.
-  - From that date the capability reads `blocked`, the modes are refused like HR's (system name "Verifactu"), and generation is skipped.
-  - E2E can't move the server clock, so the flip is **backend-only** (freezegun tests in `test_policies.py` and `test_invoicing_gates.py`). E2E asserts the pre-2027 state and the banner.
+  - Before 2027-01-01, `compliance-es` shows `attendee_invoicing: allowed` and the modes work. The org card carries the `es_verifactu` notice (29.7), next to the invoicing-mode selector (#1087).
+  - From that date the capability reads `blocked`, the modes are refused like HR's (system name "Verifactu"), generation is skipped, and the `es_verifactu` notice is gone.
+  - E2E can't move the server clock, so the flip is **backend-only** (freezegun tests in `test_policies.py` and `test_invoicing_gates.py`). E2E asserts the pre-2027 state and the notice.
 
 ### 29.3 Ticket Tier Editor in Italy (Organization Owner)
 - **Preconditions:** `compliance-it` → `it-club-night` → Tickets.
@@ -1854,6 +1854,7 @@ The labels and the "Free" / notice text are translated. A cached PDF or pass reg
   - **SI** (organizers established in Slovenia and any physical event held there): key `si_furs`, message "Revel can't issue attendee invoices where Slovenian rules apply: invoices for card and online payments, which FURS guidance says include payments through Stripe, must be verified with FURS in real time. If you must issue invoices, issue a FURS-verified invoice for every paid sale from your own software, even with attendee invoicing turned off."
   - **GR** (organizers established in Greece, VAT prefix `EL` included, and any physical event held there): key `gr_mydata`, message "Revel can't issue attendee invoices where Greek rules apply: receipts and invoices must be transmitted to AADE's myDATA. If you must issue Greek documents, issue them from your own software, a certified e-invoicing provider or AADE's free tools."
   - **HU** (organizers established in Hungary and any physical event held there): key `hu_nav`, message "Revel can't issue attendee invoices where Hungarian rules apply: invoices from invoicing software must be reported to NAV Online Számla in real time. If this applies to you, issue a receipt (nyugta) or invoice for every paid sale from your own system. Since 1 September 2026, data on receipts not issued by an online cash register must also be reported to NAV."
+  - **ES, until 2026-12-31** (`compliance-es` org card; organizers established in Spain only, gone from 2027-01-01 when the block starts): key `es_verifactu`, message "From 1 January 2027, Revel stops issuing attendee invoices for organizers in Spain, because it can't meet Spain's invoicing-software rules (Verifactu), which start applying in 2027. If you use attendee invoicing, set up your own invoicing software before then."
   - SI, GR and HU have no seeded org; E2E covers the placement with `compliance-hr`, the rest is backend-tested (`test_organizer_notices.py`).
 - **Other countries:** `notices: []`.
 

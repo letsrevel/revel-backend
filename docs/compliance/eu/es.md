@@ -1,6 +1,6 @@
 # Spain
 
-Policy module: `src/events/compliance/policies/es.py` (`SpainPolicy`, using `FiscalizedInvoicingMixin`).
+Policy module: `src/events/compliance/policies/es.py` (`SpainPolicy`, using `FiscalizedInvoicingMixin`, plus one organizer notice until the block starts).
 
 Issue: [#1059](https://github.com/letsrevel/revel-backend/issues/1059)
 
@@ -30,6 +30,16 @@ provinces apply their own TicketBAI regimes.
       ([#1091](https://github.com/letsrevel/revel-backend/issues/1091), see
       [Skipped documents](../index.md#skipped-documents)).
 - **Organizer-established only.** A foreign organizer's event held in Spain is not affected.
+- **Organizer notice (non-blocking), until 31 December 2026**, for organizers established in Spain,
+  shown next to the attendee-invoicing setting (key `es_verifactu`, topic `attendee_invoicing`):
+  "From 1 January 2027, Revel stops issuing attendee invoices for organizers in Spain, because it can't
+  meet Spain's invoicing-software rules (Verifactu), which start applying in 2027. If you use attendee
+  invoicing, set up your own invoicing software before then." The copy says why Revel stops rather
+  than claiming Verifactu binds every reader: foral organizers (TicketBAI, Navarra) also get it, since
+  the block covers all of Spain.
+  It is gated on the policy's `fiscal_invoicing_from`, so it disappears on the day the block starts;
+  from then on the block's own explanation takes over. It shows whatever the organization's invoicing
+  mode, so organizers who might switch invoicing on also learn the date.
 - **Existing settings:** organizations in Spain are not switched to NONE by the data migration
   `0128_disable_blocked_attendee_invoicing`. They keep their HYBRID or AUTO setting; from 2027 the
   generation gate skips their invoices by itself, and the capability and flags report it.
