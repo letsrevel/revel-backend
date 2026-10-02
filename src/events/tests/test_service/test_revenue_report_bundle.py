@@ -77,12 +77,12 @@ def report_data(db: t.Any) -> svc.RevenueReportData:
 @pytest.mark.django_db
 def test_xlsx_has_summary_and_transactions_sheets(report_data: svc.RevenueReportData) -> None:
     wb = load_workbook(io.BytesIO(svc.build_xlsx(report_data)))
-    assert wb.sheetnames == ["Summary", "Transactions", "Membership payments"]
+    assert wb.sheetnames == ["Summary", "Transactions", "Membership payments", "Invoices to issue yourself"]
     headers = [c.value for c in wb["Transactions"][1]]
     assert "payment_id" in headers and "vat_rate" in headers and "stripe_payout_id" in headers
-    # Fiscal ticket number (#1090) is appended last so existing column positions are unchanged.
-    assert headers[-1] == "ticket_number"
-    ticket_number = wb["Transactions"].cell(row=2, column=len(headers)).value
+    # Fiscal ticket number (#1090) then the payment intent (#1091) are appended so existing positions stay put.
+    assert headers[-2:] == ["ticket_number", "stripe_payment_intent_id"]
+    ticket_number = wb["Transactions"].cell(row=2, column=len(headers) - 1).value
     assert isinstance(ticket_number, str) and re.fullmatch(r"ORG-\d{6}", ticket_number)
 
 

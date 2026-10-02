@@ -11,6 +11,7 @@ import structlog
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -29,7 +30,9 @@ from events.models.attendee_invoice import (
 )
 from events.models.organization import Organization
 from events.models.refund import Refund
+from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
+from events.service import skipped_fiscal_document_service
 from notifications.service.org_sender import org_reply_to
 
 if t.TYPE_CHECKING:
@@ -180,6 +183,11 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     # The in-transaction check further down still guards the concurrent-creation race.
     if existing := AttendeeInvoice.objects.filter(stripe_session_id=stripe_session_id).first():
         return existing
+    # Likewise, a session whose invoice was already skipped stays skipped (#1091).
+    if SkippedFiscalDocument.objects.filter(
+        stripe_session_id=stripe_session_id, kind=SkippedFiscalDocument.Kind.INVOICE
+    ).exists():
+        return None
 
     payments = list(
         Payment.objects.filter(
@@ -213,9 +221,12 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     event = first_payment.ticket.event
     # The buyer (VAT-ID prefix + checkout VIES outcome) decides the BE/PL domestic-B2B case.
     buyer = BuyerContext.from_billing_snapshot(billing_snapshot)
-    if not compliance.attendee_invoicing_for_sale(compliance.sale_nexus(org, [event]), buyer).allowed:
+    decision = compliance.attendee_invoicing_for_sale(compliance.sale_nexus(org, [event]), buyer)
+    if not decision.allowed:
         # Defense in depth for orgs that enabled invoicing before the gate, moved
         # country, or sell into a restricted country (EU layer 1, #1057-#1067).
+        # Recorded so the organizer knows to issue it from its own system (#1091).
+        skipped_fiscal_document_service.record_skipped_invoice(payments, _build_line_items(payments), decision)
         logger.warning("attendee_invoice_skipped_country_compliance", org_slug=org.slug, session_id=stripe_session_id)
         return None
 
@@ -317,17 +328,41 @@ def invoice_compliance_decision(invoice: AttendeeInvoice) -> Decision:
     return compliance.attendee_invoicing_for_sale(reach, _invoice_buyer(invoice))
 
 
+_NOT_ANNOTATED = object()
+
+
 def _invoice_buyer(invoice: AttendeeInvoice) -> BuyerContext:
     """The buyer of an existing invoice, with the checkout VIES outcome when it still applies.
 
     A draft's buyer VAT ID can be edited after checkout; the recorded VIES status only
     belongs to the ID it was taken for, so an edited ID is read from its prefix alone.
     """
-    payment = Payment.objects.filter(stripe_session_id=invoice.stripe_session_id).only("buyer_billing_snapshot").first()
-    snapshot: t.Mapping[str, t.Any] = (payment.buyer_billing_snapshot if payment else None) or {}
+    annotated = getattr(invoice, "checkout_billing_snapshot", _NOT_ANNOTATED)  # set by with_issue_context
+    if annotated is not _NOT_ANNOTATED:
+        snapshot: t.Mapping[str, t.Any] = t.cast("t.Mapping[str, t.Any] | None", annotated) or {}
+    else:
+        payment = (
+            Payment.objects.filter(stripe_session_id=invoice.stripe_session_id).only("buyer_billing_snapshot").first()
+        )
+        snapshot = (payment.buyer_billing_snapshot if payment else None) or {}
     if snapshot.get("vat_id") != invoice.buyer_vat_id:
         snapshot = {"vat_id": invoice.buyer_vat_id}
     return BuyerContext.from_billing_snapshot(snapshot)
+
+
+def with_issue_context(qs: QuerySet[AttendeeInvoice]) -> QuerySet[AttendeeInvoice]:
+    """Select what :func:`issue_blocked_reason` reads, so listing invoices costs no per-row query."""
+    snapshot = Payment.objects.filter(stripe_session_id=OuterRef("stripe_session_id")).values("buyer_billing_snapshot")
+    return qs.select_related("organization__city", "event__venue__city", "event__city", "event__organization").annotate(
+        checkout_billing_snapshot=Subquery(snapshot[:1])
+    )
+
+
+def issue_blocked_reason(invoice: AttendeeInvoice) -> str:
+    """Why a draft can no longer be issued under the country policies (#1091); empty otherwise."""
+    if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
+        return ""
+    return invoice_compliance_decision(invoice).reason
 
 
 # ---------------------------------------------------------------------------
@@ -582,25 +617,84 @@ def _build_from_refund_rows(
     )
 
 
-def _no_credit_note_for(invoice: AttendeeInvoice) -> bool:
-    """Handle the invoices that never get a credit note; True when there is nothing more to do.
+def _load_refunded(
+    stripe_session_id: str, refunded_payment_ids: list["UUID"], refund_ids: list["UUID"] | None
+) -> tuple[list[Refund], list[Payment]] | None:
+    """The refund rows (amount-aware path) or refunded payments (legacy path) to credit; None when none match."""
+    if refund_ids:
+        refund_rows = list(
+            Refund.objects.filter(
+                pk__in=refund_ids,
+                status=Refund.RefundStatus.SUCCEEDED,
+                payment__stripe_session_id=stripe_session_id,
+            ).select_related("payment__ticket__event", "payment__ticket__tier")
+        )
+        return (refund_rows, []) if refund_rows else None
+    refunded_payments = list(
+        Payment.objects.filter(
+            id__in=refunded_payment_ids,
+            stripe_session_id=stripe_session_id,
+        ).select_related("ticket__event", "ticket__tier")
+    )
+    return ([], refunded_payments) if refunded_payments else None
 
-    A draft is deleted instead of credited. An invoice whose country policy now refuses
-    Revel-issued documents is left to the organizer, who corrects the sale in its own
-    compliant system (EU layer 1).
+
+def _record_skipped_credit_note(
+    source: AttendeeInvoice | SkippedFiscalDocument,
+    decision: Decision,
+    refund_rows: list[Refund],
+    refunded_payments: list[Payment],
+) -> None:
+    """Record the credit note a policy refused, once per refund (or legacy payment) set (#1091).
+
+    Refunds already credited by a Revel credit note, or already in an earlier skipped
+    record for ``source``, are left out: a retry records nothing twice, and a superset retry
+    records only its new refunds.
     """
-    if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
-        # Imported here, not at module scope: the draft module imports
-        # _generate_and_save_pdf from this one, so a top-level import would close
-        # the cycle. Same pattern as issue_and_deliver's task import.
-        from events.service.attendee_invoice_draft_service import delete_draft_invoice
+    with transaction.atomic():
+        # Serialize concurrent retries on the document being corrected.
+        source = type(source).objects.select_for_update().get(pk=source.pk)
+        prior = list(source.skipped_credit_notes.prefetch_related("payments", "refunds"))
+        existing_cns = (
+            list(AttendeeInvoiceCreditNote.objects.filter(invoice=source).prefetch_related("payments", "refunds"))
+            if isinstance(source, AttendeeInvoice)
+            else []
+        )
+        # A record without refund rows (legacy path) covers its payments in full.
+        covered_payment_ids = {p.id for doc in prior if not doc.refunds.all() for p in doc.payments.all()}
+        build: AttendeeInvoiceCreditNote | _CreditNoteBuild | None = None
+        if refund_rows:
+            covered_refund_ids = {r.id for doc in prior for r in doc.refunds.all()}
+            rows = [
+                r for r in refund_rows if r.id not in covered_refund_ids and r.payment_id not in covered_payment_ids
+            ]
+            build = _build_from_refund_rows(rows, existing_cns) if rows else None
+        else:
+            covered_payment_ids |= {p.id for doc in prior for p in doc.payments.all()}
+            payments = [p for p in refunded_payments if p.id not in covered_payment_ids]
+            build = _build_from_payments(payments, existing_cns) if payments else None
+        if isinstance(build, _CreditNoteBuild):
+            skipped_fiscal_document_service.record_skipped_credit_note(
+                source=source,
+                decision=decision,
+                line_items=build.line_items,
+                payments=build.payments,
+                refunds=build.refund_rows,
+            )
 
-        delete_draft_invoice(invoice)
-        return True
-    if not invoice_compliance_decision(invoice).allowed:
-        logger.warning("attendee_credit_note_skipped_country_compliance", invoice_number=invoice.invoice_number)
-        return True
-    return False
+
+def _record_credit_note_for_skipped_invoice(
+    stripe_session_id: str, refunded_payment_ids: list["UUID"], refund_ids: list["UUID"] | None
+) -> None:
+    """A refund on a sale whose invoice was skipped: its credit note is skipped too, for the same reason."""
+    parent = SkippedFiscalDocument.objects.filter(
+        stripe_session_id=stripe_session_id, kind=SkippedFiscalDocument.Kind.INVOICE
+    ).first()
+    if parent is None or (loaded := _load_refunded(stripe_session_id, refunded_payment_ids, refund_ids)) is None:
+        return
+    decision = Decision.block(parent.reason, code=parent.reason_code, country=parent.policy_country)
+    _record_skipped_credit_note(parent, decision, *loaded)
+    logger.warning("attendee_credit_note_skipped_invoice_skipped", session_id=stripe_session_id)
 
 
 def generate_attendee_credit_note(
@@ -609,6 +703,11 @@ def generate_attendee_credit_note(
     refund_ids: list["UUID"] | None = None,
 ) -> AttendeeInvoiceCreditNote | None:
     """Generate a credit note for refunded payments on an invoiced session.
+
+    A draft invoice is deleted instead of credited. When a country policy refuses
+    Revel-issued documents (EU layer 1), or the sale's invoice was itself skipped, no
+    credit note is issued and the skip is recorded instead (#1091): the organizer
+    corrects the sale in its own compliant system.
 
     Args:
         stripe_session_id: The Stripe session ID of the original purchase.
@@ -630,32 +729,28 @@ def generate_attendee_credit_note(
     """
     invoice = AttendeeInvoice.objects.filter(stripe_session_id=stripe_session_id).first()
     if not invoice:
+        _record_credit_note_for_skipped_invoice(stripe_session_id, refunded_payment_ids, refund_ids)
         return None
 
-    if _no_credit_note_for(invoice):
+    if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
+        # Imported here, not at module scope: the draft module imports
+        # _generate_and_save_pdf from this one, so a top-level import would close
+        # the cycle. Same pattern as issue_and_deliver's task import.
+        from events.service.attendee_invoice_draft_service import delete_draft_invoice
+
+        delete_draft_invoice(invoice)
         return None
 
-    refund_rows: list[Refund] = []
-    refunded_payments: list[Payment] = []
-    if refund_ids:
-        refund_rows = list(
-            Refund.objects.filter(
-                pk__in=refund_ids,
-                status=Refund.RefundStatus.SUCCEEDED,
-                payment__stripe_session_id=stripe_session_id,
-            ).select_related("payment__ticket__event", "payment__ticket__tier")
-        )
-        if not refund_rows:
-            return None
-    else:
-        refunded_payments = list(
-            Payment.objects.filter(
-                id__in=refunded_payment_ids,
-                stripe_session_id=stripe_session_id,
-            ).select_related("ticket__event", "ticket__tier")
-        )
-        if not refunded_payments:
-            return None
+    loaded = _load_refunded(stripe_session_id, refunded_payment_ids, refund_ids)
+    if loaded is None:
+        return None
+    refund_rows, refunded_payments = loaded
+
+    decision = invoice_compliance_decision(invoice)
+    if not decision.allowed:
+        logger.warning("attendee_credit_note_skipped_country_compliance", invoice_number=invoice.invoice_number)
+        _record_skipped_credit_note(invoice, decision, refund_rows, refunded_payments)
+        return None
 
     with transaction.atomic():
         # Lock the invoice row to serialize concurrent credit note creation

@@ -37,6 +37,7 @@ from events.models import (
     Organization,
     OrganizationMember,
     OrganizationMembershipRequest,
+    SkippedFiscalDocument,
     Ticket,
     TicketTier,
 )
@@ -334,6 +335,38 @@ def test_attendee_invoice_credit_notes_exported(
     assert note_data["credit_note_number"] == "CN-2026-1"
     (invoice_data,) = data["attendee_invoices"]
     assert invoice_data["invoice_number"] == "INV-2026-1"
+
+
+@pytest.mark.django_db
+def test_skipped_fiscal_documents_exported_without_the_resolver(
+    user: RevelUser, organization: Organization, revel_user_factory: RevelUserFactory
+) -> None:
+    """The buyer's skipped-invoice snapshot is theirs (#1091); the organizer who resolved it is not."""
+    buyer = revel_user_factory(username="b2b@example.com", email="b2b@example.com")
+    doc = SkippedFiscalDocument.objects.create(
+        kind=SkippedFiscalDocument.Kind.INVOICE,
+        reason_code=SkippedFiscalDocument.ReasonCode.B2B_E_INVOICING,
+        policy_country="BE",
+        reason="Peppol",
+        organization=organization,
+        user=buyer,
+        stripe_session_id="cs_skip",
+        buyer_vat_id="BE0123456789",
+        currency="EUR",
+        total_gross=Decimal("12.00"),
+        total_net=Decimal("10.00"),
+        total_vat=Decimal("2.00"),
+        resolved_by=user,
+        resolved_at=timezone.now(),
+    )
+
+    data, raw = _export(buyer)
+
+    (doc_data,) = data["skipped_fiscal_documents"]
+    assert doc_data["id"] == str(doc.id)
+    assert doc_data["buyer_vat_id"] == "BE0123456789"
+    assert "resolved_by" not in doc_data
+    assert str(user.id) not in raw
 
 
 @pytest.mark.django_db

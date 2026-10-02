@@ -1751,6 +1751,12 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 > - `compliance-it` also has a virtual event `it-online-talk` (ONLINE *Stream*), and series `it-season` with the ONLINE pass *IT Season Pass* covering `it-season-0` and `it-season-1`.
 > - `compliance-at` has `at-gig-in-italy` (event `vat_country_code: "IT"`) and `at-gig-vienna`. `compliance-dk` has `dk-disco-night`. `compliance-pl` has `pl-dance-night` (ONLINE *Card*, €15).
 > - `compliance-hr` has a pre-gate HYBRID **draft** invoice `COMPLIANCEHR-2026-000001`.
+> - Two paid online B2B sales whose invoice was skipped (#1091), both bought by the compliance owner:
+>   - `compliance-be` / event `be-business-summit`, *Card* €120: buyer "E2E Business BE", VAT ID
+>     `BE0123456789` (domestic, Peppol), session `cs_e2e_compliance_be_skipped`;
+>   - `compliance-pl` / `pl-dance-night`, *Card* €15: buyer "E2E Business NL", VAT ID `NL123456789B01`
+>     (foreign, KSeF), session `cs_e2e_compliance_pl_skipped`.
+>   - A reseed reopens them (resolution cleared), so the resolve spec can run again.
 > - Pre-gate tiers and drafts can only be made through the ORM, which is why they are seeded. Everything else can also be arranged through the API above.
 > - Mutating specs must restore what they change (e.g. un-pause, switch a method back).
 
@@ -1782,7 +1788,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 - **Blocked for business buyers:**
   - **BE**, domestic only: on `compliance-be` the modes stay enabled and the info notice shows. No invoice is generated for a buyer whose VAT ID is Belgian and either VIES-valid or could not be checked. Consumers, VIES-rejected IDs and foreign business buyers still get Revel's invoice.
   - **PL**, any business buyer: on `compliance-pl` the same applies to buyers with a VAT ID from **any** country that is VIES-valid or could not be checked. Consumers and VIES-rejected IDs still get Revel's invoice.
-  - Skipped invoices are silent, with no 422 at checkout.
+  - There is no 422 at checkout. Each skipped invoice is recorded for the owner (see [29.9](#299-invoices-to-issue-yourself-organization-owner)).
   - The VIES outcome is in the checkout billing snapshot (`vat_id_status`: `valid` / `invalid` / `unavailable` / `""`). E2E can't control VIES, so the valid / invalid / unavailable cases are backend-only. This is covered in `test_buyer_vies_status.py`.
 - **ES date gate:**
   - Before 2027-01-01, `compliance-es` shows `attendee_invoicing: allowed` and the modes work. The FE shows the "from 1 January 2027" warning for `country == "ES"`.
@@ -1849,8 +1855,24 @@ The labels and the "Free" / notice text are translated. A cached PDF or pass reg
 - **Preconditions:** `compliance-hr` → Attendee invoices → draft `COMPLIANCEHR-2026-000001`.
 - **Issue:** `POST /organization-admin/compliance-hr/attendee-invoices/{invoice_id}/issue` returns **422** with the HR invoicing `detail` from 29.2. The draft stays DRAFT.
   - Static helper text: "This invoice can't be issued from Revel anymore. Issue it from your own invoicing software."
-- **Credit notes** (docs only, not testable without Stripe refunds): when an issued invoice's refund falls under a gate (e.g. Spanish invoices refunded from 2027), Revel skips the credit note. The organizer learns of the refund via `TICKET_REFUNDED` and corrects the invoice in its own system. A dedicated notification is #1073.
+- **Up front (#1091):** the draft in `GET /organization-admin/compliance-hr/attendee-invoices` (and the detail) carries `issue_blocked_reason` with the same HR `detail` text; it is `""` for drafts that can be issued and for non-drafts. Show it next to the disabled **Issue** button instead of letting the owner hit the 422.
+- **Credit notes** (docs only, not testable without Stripe refunds): when an issued invoice's refund falls under a gate (e.g. Spanish invoices refunded from 2027), Revel skips the credit note and records it under *Invoices to issue yourself* (29.9), linked to the invoice (`invoice_number`). A refund on a sale whose invoice was skipped is recorded as a skipped credit note too (`parent_id`). The organizer also learns of the refund via `TICKET_REFUNDED`. A dedicated notification is #1073.
 - **Idempotency:** an invoice that already exists for a checkout is returned as-is even if the gate would now refuse it.
+
+### 29.9 Invoices to Issue Yourself (Organization Owner)
+- **Preconditions:** log in as `test.compliance@example.com`; open `compliance-be` → Attendee invoices → *Invoices to issue yourself* (then the same on `compliance-pl`).
+- **List:** `GET /organization-admin/compliance-be/skipped-fiscal-documents` returns one row:
+  - `kind: "invoice"`, `reason_code: "b2b_e_invoicing"`, `policy_country: "BE"`, and `reason` with the Peppol text from `DOMESTIC_B2B_INVOICING_BLOCKED_MESSAGE` (translated as of when the skip was decided);
+  - `event_name: "BE Business Summit"`, `buyer_name: "E2E Business BE"`, `buyer_vat_id: "BE0123456789"`, `buyer_vat_id_status: "valid"`;
+  - `total_gross: "120.00"`, `total_net: "100.00"`, `total_vat: "20.00"`, `currency: "EUR"`, plus `line_items` and `vat_breakdown`;
+  - `ticket_ids` (one), `stripe_session_id`, `resolved_at: null`, `external_reference: ""`.
+  - On `compliance-pl` the row has `policy_country: "PL"`, the KSeF text and `buyer_vat_id: "NL123456789B01"` (any business buyer).
+- **Filters:** `kind` (`invoice` / `credit_note`), `reason_code`, `event_id`, `resolved` (`true` / `false`) and `search` (buyer name, email, VAT ID, event name). Paginated like the other admin lists.
+- **Resolve:** `POST …/skipped-fiscal-documents/{id}/resolve` `{"external_reference": "PEPPOL-2026-0042"}` → 200 with `resolved_at` set and the trimmed reference. A blank reference → **422**. Resolving again updates the reference. With `resolved=false` the row is gone; with `resolved=true` it is back.
+- **Owner only:** staff, even with `manage_tickets`, get **403** on both endpoints. The FE hides the section for non-owners.
+- **Ticket list:** `compliance-be` → `be-business-summit` → Tickets: the seeded sale has `invoice_skipped: true` (every other ticket `false`); `?invoice_skipped=true` lists only those. Staff with `manage_tickets` see the flag, which is how they find these sales without the owner-only list. Show a badge such as "Invoice to issue yourself".
+- **Revenue report:** the XLSX has a sheet *Invoices to issue yourself* with one row per document decided in the period (date, document, reason, country, event, buyer, VAT ID and status, VAT rates, net / VAT / gross, currency, corrected invoice, session, resolved date and reference), and a note under the rows. The Transactions sheet now ends with `stripe_payment_intent_id`, and `buyer_country` is the buyer's VAT country.
+- **What creates rows (backend-only, no Stripe in E2E):** the skip at invoice generation (BE domestic B2B, PL any B2B, the fiscalized countries, ES from 2027), a credit note refused on an issued invoice, and a refund on a sale whose invoice was skipped. Covered by `test_skipped_fiscal_documents.py`.
 
 ---
 

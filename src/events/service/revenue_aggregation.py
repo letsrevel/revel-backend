@@ -24,15 +24,23 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from common.service.vat_utils import calculate_vat_inclusive
-from events.models import MembershipPayment, Organization, Payment, Refund, Ticket, TicketTier
+from events.models import (
+    MembershipPayment,
+    Organization,
+    Payment,
+    Refund,
+    SkippedFiscalDocument,
+    Ticket,
+    TicketTier,
+)
 from events.service.seating.pricing import recorded_or_resolved_price
 from events.service.ticket_number_service import format_ticket_number
 from events.utils import get_organization_timezone
 
 ZERO = Decimal("0.00")
 # Bump whenever the report workbook layout changes, so cached reports regenerate even when no row
-# changed (e.g. the ticket_number column, #1090).
-REPORT_FORMAT_VERSION = 2
+# changed (e.g. the ticket_number column, #1090; the skipped-documents sheet, #1091).
+REPORT_FORMAT_VERSION = 3
 _REVERSE_CHARGE_LABEL = "0% / reverse-charge"
 
 
@@ -76,8 +84,10 @@ class TxnRow:
     refund_amount: Decimal
     currency: str
     stripe_session_id: str
-    stripe_payout_id: str
+    stripe_payout_id: str  # always empty: payout IDs aren't stored; join on stripe_payment_intent_id instead
     ticket_number: str  # formatted fiscal number (#1090, needed for FR CGI 290 quater); empty until issued
+    # Join key with Stripe's payout reconciliation report (PL poz. 42 payment evidence, #1091).
+    stripe_payment_intent_id: str
 
 
 @dataclass(frozen=True)
@@ -125,6 +135,8 @@ class RevenueReportData:
     generated_at: datetime
     membership_payments: list[MembershipTxnRow] = field(default_factory=list)
     memberships: list["MembershipFinancials"] = field(default_factory=list)
+    # Invoices and credit notes Revel skipped under a country policy, decided in the period (#1091).
+    skipped_documents: list[SkippedFiscalDocument] = field(default_factory=list)
 
 
 def resolve_period(
@@ -368,7 +380,7 @@ def _process_payment(
                 payment_id=str(payment.id),
                 event=payment.ticket.event.name,
                 tier=payment.ticket.tier.name if payment.ticket.tier else "",
-                buyer_country=str((payment.buyer_billing_snapshot or {}).get("country", "")),
+                buyer_country=str((payment.buyer_billing_snapshot or {}).get("vat_country_code", "")),
                 reverse_charge=rc,
                 gross=payment.amount,
                 net=net,
@@ -380,6 +392,7 @@ def _process_payment(
                 stripe_session_id=payment.stripe_session_id,
                 stripe_payout_id="",
                 ticket_number=format_ticket_number(payment.ticket),
+                stripe_payment_intent_id=payment.stripe_payment_intent_id or "",
             )
         )
 
@@ -432,6 +445,7 @@ def _process_ticket(
                 stripe_session_id="",
                 stripe_payout_id="",
                 ticket_number=format_ticket_number(ticket),
+                stripe_payment_intent_id="",
             )
         )
 
@@ -504,6 +518,14 @@ def _aggregate_memberships(scope: ReportScope, *, include_transactions: bool = T
                 )
             )
     return currencies
+
+
+def _skipped_documents(scope: ReportScope) -> QuerySet[SkippedFiscalDocument]:
+    """The org's skipped fiscal documents (one event's, for an event-scoped report), oldest first."""
+    qs = SkippedFiscalDocument.objects.select_related("event", "invoice").filter(organization=scope.org)
+    if scope.event_id is not None:
+        qs = qs.filter(event_id=scope.event_id)
+    return qs.order_by("decided_at", "id")
 
 
 class _EventAgg:
@@ -592,12 +614,16 @@ def build_revenue_report_data(scope: ReportScope) -> RevenueReportData:
         (row for _, acc in membership_accs for row in acc.transactions),
         key=lambda r: r.date,
     )
+    tz = organization_timezone(scope.org)
     return RevenueReportData(
         scope=scope,
         sections=sections,
         generated_at=timezone.now(),
         membership_payments=membership_rows,
         memberships=[_membership_financials(cur, acc) for cur, acc in membership_accs],
+        skipped_documents=[
+            doc for doc in _skipped_documents(scope) if _in_period(_local_date(doc.decided_at, tz), scope)
+        ],
     )
 
 
@@ -640,6 +666,8 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
                 ]
             )
         )
+    # ``updated_at`` moves when the organizer resolves a document.
+    parts.extend(f"skipped:{doc.id}|{doc.updated_at.isoformat()}" for doc in _skipped_documents(scope))
     scope_key = (
         f"v{REPORT_FORMAT_VERSION}:{scope.org.id}:{scope.event_id}:{scope.date_from}:{scope.date_to}"
         f":{str(scope.org.vat_rate)}:{scope.org.vat_country_code}"

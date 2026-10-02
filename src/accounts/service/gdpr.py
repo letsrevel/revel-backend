@@ -475,6 +475,9 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "customer_profiles": ExportRule(include=True),
     "seat_holds": ExportRule(include=True),
     "attendee_invoices": ExportRule(include=True),
+    # The buyer's own skipped invoice/credit-note snapshot (#1091). ``resolved_by`` is the
+    # organizer who resolved it (third party); the M2M payments/refunds are exported on their own.
+    "skipped_fiscal_documents": ExportRule(include=True, exclude_fields=("resolved_by", "payments", "refunds")),
     "sent_contact_messages": ExportRule(include=True),
     "general_preferences": ExportRule(include=True),
     "potluck_items": ExportRule(include=True, exclude_fields=("created_by",)),
@@ -495,6 +498,7 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "cancelled_tickets": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "recorded_membership_payments": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "initiated_refunds": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "resolved_fiscal_documents": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "eventtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
     "organizationtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
     "created_announcements": ExportRule(include=False, reason="organization content authored in staff capacity"),

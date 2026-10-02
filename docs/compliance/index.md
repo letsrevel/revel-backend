@@ -95,10 +95,12 @@ it takes effect.
   Registrierkasse), Denmark (covered businesses record Revel sales in their own system) and Poland
   (admission sold to consumers for discos, dance halls, amusement and theme parks, and circus performances goes through the
   organizer's own fiscal cash register, even when paid online).
-- Credit notes and issuing pre-gate drafts follow the same invoice gate.
-  When a credit note is skipped, the organizer still learns of the refund through the
-  `TICKET_REFUNDED` notification (sent to the ticket holder and the organization's staff and owners)
-  and must correct the invoice in its own system.
+- Credit notes and issuing pre-gate drafts follow the same invoice gate. A refund on a sale whose
+  invoice was skipped skips its credit note too. The organizer also learns of the refund through
+  the `TICKET_REFUNDED` notification (sent to the ticket holder and the organization's staff and
+  owners) and must correct the invoice in its own system. A draft that can no longer be issued
+  carries the policy's reason in `issue_blocked_reason` on the attendee-invoice responses.
+- **Skipped documents are recorded** (see [below](#skipped-documents)).
 - **Online payment blocked** for events held in Italy, where paid tickets sold online must be issued by
   a ticketing system approved by the Agenzia delle Entrate. Offline, bank-transfer and at-the-door
   payments confirmed by the organizer still work.
@@ -131,6 +133,32 @@ it takes effect.
 
 Later layers (native fiscalization, e-invoicing integrations, exports, record retention) are tracked
 in the GitHub issues labelled `compliance` and linked from each country page.
+
+### Skipped documents
+
+Every attendee invoice or credit note a policy refuses is recorded as a `SkippedFiscalDocument`
+([#1091](https://github.com/letsrevel/revel-backend/issues/1091)), snapshotted when the skip is decided:
+the decision depends on today's date, billing data can change and payments are deleted with their
+user, so nothing can be recomputed later. A row holds:
+
+- `kind` (`invoice` or `credit_note`), `reason_code` (`b2b_e_invoicing` or `fiscalized_invoicing`),
+  the refusing `policy_country` and its translated `reason`;
+- the buyer snapshot (name, email, address, VAT ID and country, checkout VIES status), the totals,
+  line items and VAT breakdown;
+- the checkout session, the payments and refunds it covers, and, for a credit note, the Revel invoice
+  it would correct or the skipped invoice record.
+
+Recording is idempotent: one invoice record per checkout session, and a credit note only for refunds
+no earlier record (or Revel credit note) covers. A session whose invoice was skipped stays skipped on
+retries.
+
+- `GET /organization-admin/{slug}/skipped-fiscal-documents` (owner only) lists them, filterable by
+  `kind`, `reason_code`, `event_id`, `resolved` and a text `search`.
+- `POST /organization-admin/{slug}/skipped-fiscal-documents/{id}/resolve` with
+  `{"external_reference": "…"}` records that the organizer issued it, and under which number.
+- The event ticket list (`AdminTicketSchema.invoice_skipped`, filter `invoice_skipped`) flags the
+  sales, so staff who can manage tickets see them too.
+- The revenue report's *Invoices to issue yourself* sheet lists those decided in the period.
 
 ### Known gaps
 
