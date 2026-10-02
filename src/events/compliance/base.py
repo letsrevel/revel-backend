@@ -342,7 +342,9 @@ class FiscalizedInvoicingMixin:
         if not self.fiscal_invoicing_in_force(nexus):
             return Decision.allow()
         return Decision.block(
-            str(self.fiscal_invoicing_message).format(country=country_name(self.country), system=self.fiscal_system),
+            str(self.fiscal_invoicing_message).format(
+                country=country_name(self.country), system=str(self.fiscal_system)
+            ),
             code=FISCALIZED_INVOICING,
             country=self.country,
         )
