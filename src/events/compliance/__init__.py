@@ -2,8 +2,9 @@
 
 - :mod:`.base` — the :class:`CountryCompliancePolicy` hooks, the permissive
   :class:`DefaultEUPolicy`, and the reusable restriction mixins.
-- :mod:`.registry` — ``@register("XX")`` and :func:`get_policy` (organization →
-  resolved country → policy; unknown or unset country → the EU default).
+- :mod:`.registry` — ``@register("XX")`` (or ``"XX-YY"`` for a subdivision) and
+  :func:`get_policy` (organization → resolved country, refined to a registered
+  subdivision by its city → policy; unknown or unset country → the EU default).
 - :mod:`.policies` — one module per country, auto-discovered.
 - :mod:`.enforcement` — country-agnostic helpers the services call.
 
@@ -31,6 +32,7 @@ from events.compliance.registry import (
     register,
     registered_policies,
     resolve_org_country,
+    resolve_org_jurisdiction,
 )
 
 __all__ = [
@@ -49,4 +51,5 @@ __all__ = [
     "register",
     "registered_policies",
     "resolve_org_country",
+    "resolve_org_jurisdiction",
 ]

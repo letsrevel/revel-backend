@@ -238,9 +238,14 @@ class CountryCompliancePolicy(abc.ABC):
     countries then inherit it unchanged.
     """
 
-    def __init__(self, country: str = "") -> None:
-        """Bind the policy to the resolved ISO 3166-1 country (empty when unknown)."""
-        self.country = country
+    def __init__(self, jurisdiction: str = "") -> None:
+        """Bind the policy to the resolved jurisdiction (empty when unknown).
+
+        ``jurisdiction`` is an ISO 3166-1 country or, for a subdivision with its own
+        policy, an ISO 3166-2 code (``ES-PV``); ``country`` is always the ISO 3166-1 part.
+        """
+        self.jurisdiction = jurisdiction
+        self.country = jurisdiction[:2]
 
     @abc.abstractmethod
     def attendee_invoicing(self, buyer: BuyerContext, nexus: frozenset[Nexus]) -> Decision:
@@ -318,10 +323,13 @@ class FiscalizedInvoicingMixin:
     reaches (default: organizers established here) and ``fiscal_invoicing_from`` when
     it starts (default: already in force). A country's organizer notice about the block
     scopes itself with :meth:`fiscal_invoicing_in_force`, so it reaches the same sales.
+    ``fiscal_invoicing_message`` is the refusal copy, formatted with ``{country}`` and
+    ``{system}``; a subdivision overrides it to name its own region.
     """
 
     country: str
     fiscal_system: t.ClassVar["str | StrPromise"]
+    fiscal_invoicing_message: t.ClassVar["StrPromise"] = ATTENDEE_INVOICING_BLOCKED_MESSAGE
     fiscal_invoicing_applies_on: t.ClassVar[frozenset[Nexus]] = frozenset({Nexus.ESTABLISHMENT})
     fiscal_invoicing_from: t.ClassVar[datetime.date | None] = None
 
@@ -334,9 +342,7 @@ class FiscalizedInvoicingMixin:
         if not self.fiscal_invoicing_in_force(nexus):
             return Decision.allow()
         return Decision.block(
-            str(ATTENDEE_INVOICING_BLOCKED_MESSAGE).format(
-                country=country_name(self.country), system=self.fiscal_system
-            ),
+            str(self.fiscal_invoicing_message).format(country=country_name(self.country), system=self.fiscal_system),
             code=FISCALIZED_INVOICING,
             country=self.country,
         )

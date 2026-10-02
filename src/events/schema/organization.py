@@ -101,6 +101,10 @@ class OrganizationComplianceSchema(Schema):
     """
 
     country: str = Field(description="Resolved ISO 3166-1 alpha-2 country; empty when undeclared.")
+    region: str = Field(
+        description="ISO 3166-2 subdivision with its own rules (e.g. ES-PV, the Basque Country), from the "
+        "organization's city; empty otherwise."
+    )
     attendee_invoicing: AttendeeInvoicingCapability
     online_payment: PaymentChannelCapability
     offline_payment: PaymentChannelCapability
@@ -112,6 +116,7 @@ def _compliance(obj: Organization) -> OrganizationComplianceSchema:
     policy = get_policy(obj)
     return OrganizationComplianceSchema(
         country=policy.country,
+        region=policy.jurisdiction if policy.jurisdiction != policy.country else "",
         attendee_invoicing=policy.attendee_invoicing_capability(),
         online_payment=policy.online_payment_capability(),
         offline_payment=policy.offline_payment_capability(),

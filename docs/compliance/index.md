@@ -25,7 +25,7 @@ The code lives in `src/events/compliance/`:
 | Module | Role |
 |---|---|
 | `base.py` | The `CountryCompliancePolicy` contract, `DefaultEUPolicy` and the reusable restriction mixins. |
-| `registry.py` | The `@register("XX")` decorator and the lookups `get_policy(org)` / `get_policy_for_country(code)`. |
+| `registry.py` | The `@register("XX")` decorator (`"XX-YY"` for a subdivision) and the lookups `get_policy(org)` / `get_policy_for_country(code)`. |
 | `policies/` | One module per country, auto-discovered at startup. |
 | `enforcement.py` | Country-agnostic helpers that services call. They never check a country code themselves. |
 
@@ -56,11 +56,26 @@ An organization's country is resolved in this order:
 The VAT prefix `EL` is normalized to `GR`. If nothing is set, or the country has no module, the
 organization gets `DefaultEUPolicy`.
 
+### Subdivisions
+
+A few regions have their own fiscal rules (Spain's Basque Country, `ES-PV`, and Navarre, `ES-NC`). A
+policy registered under an ISO 3166-2 code covers such a region. The organization's **jurisdiction**
+is its resolved country, refined to a registered subdivision when the organization's city is in that
+country and its `City.admin_name` is one the subdivision registered. A city in another country never
+refines it. `get_policy_for_country` tries the exact code, then the two-letter country, then the
+default. The policy's `country` is always the ISO 3166-1 part (what a decision, a skipped document and
+a buyer's VAT country use); `jurisdiction` is the full code.
+
+The establishment nexus is keyed by jurisdiction; venues stay plain countries (an event's venue is only
+known as a country). The org `compliance` object carries the subdivision as `region` (empty when
+none).
+
 ### Liable countries and nexus
 
 A country's rules can reach a sale in two ways, modelled by the `Nexus` enum:
 
-- `ESTABLISHMENT`: the organizer is established there (the organization's resolved country).
+- `ESTABLISHMENT`: the organizer is established there (the organization's resolved jurisdiction:
+  its country, or its subdivision, see [Subdivisions](#subdivisions)).
 - `VENUE`: a physical (non-virtual) event takes place there (the event's VAT country, from its venue
   or city).
 
@@ -86,7 +101,9 @@ it takes effect.
     - for organizers established in Slovenia, Greece and Hungary, and for physical events held there
       by foreign organizers;
     - in Spain, from 1 January 2027 (Verifactu), for organizers established there. Until then attendee
-      invoicing is allowed.
+      invoicing is allowed;
+    - in the Basque Country, from today (TicketBAI), for organizers established there. Navarre keeps
+      Spain's 2027 date, with copy naming its own system (NaTicket).
 - **B2B invoices blocked** where they must go through a national e-invoicing network, only for
   organizers established there: Belgium (Peppol) for buyers with a Belgian VAT ID, Poland (KSeF) for
   business buyers from any country. A business buyer has a VAT ID that VIES accepted or could not
@@ -99,7 +116,8 @@ it takes effect.
   organizer, next to the attendee-invoicing setting, that invoices go through the national system
   (fiscalization with the Porezna uprava, FURS, myDATA, NAV Online Számla) and must come from the
   organizer's own software. The notice reaches the same sales as each country's block. Spain warns
-  its organizers, under the same topic, until its block starts on 1 January 2027.
+  its organizers, under the same topic, until its block starts on 1 January 2027 (Navarre with its own
+  wording; the Basque Country, already blocked, gets no notice).
 - Credit notes and issuing pre-gate drafts follow the same invoice gate. A refund on a sale whose
   invoice was skipped skips its credit note too. The organizer learns of the skip through the daily
   digest below, and of the refund through

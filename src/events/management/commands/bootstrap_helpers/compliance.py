@@ -7,6 +7,7 @@ Everything here could be arranged through the API except tiers and drafts that m
 *predate* the gate (an ONLINE tier in Italy, a draft invoice in Croatia), which only
 the ORM can create, so they are seeded. So are two paid B2B sales whose invoice was
 skipped (BE domestic, PL foreign buyer, #1091): a real one needs a Stripe checkout.
+A subdivision with its own policy (the Basque Country, #1086) comes from the org's city.
 
 Idempotent: re-running reuses the rows by slug / email.
 """
@@ -15,21 +16,25 @@ import typing as t
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from django.contrib.gis.geos import Point
+
 from accounts.models import RevelUser
 from events import models as events_models
 from events.compliance import BuyerContext
 from events.compliance.enforcement import attendee_invoicing_for_sale, sale_nexus
 from events.models.attendee_invoice import AttendeeInvoice
+from geo.models import City
 
 OWNER_EMAIL = "test.compliance@example.com"
 
 
 class ComplianceOrgSpec(t.NamedTuple):
-    """One seeded organization: slug suffix, country and whether it has a validated VAT ID."""
+    """One seeded organization: slug, country, validated VAT ID, and a subdivision placed by its city."""
 
     slug: str
     country: str
     vat_id: str
+    region: str = ""
 
 
 # slug -> country. Empty country = "unknown"; US = non-EU (out of scope, default policy).
@@ -38,6 +43,8 @@ ORG_SPECS: t.Final[tuple[ComplianceOrgSpec, ...]] = (
     ComplianceOrgSpec("compliance-at", "AT", "ATU12345678"),
     ComplianceOrgSpec("compliance-hr", "HR", "HR12345678901"),
     ComplianceOrgSpec("compliance-es", "ES", "ESB12345678"),
+    # Basque Country (#1086): an ES org whose city is Bilbao falls under TicketBAI.
+    ComplianceOrgSpec("compliance-es-pv", "ES", "ESB87654321", region="ES-PV"),
     ComplianceOrgSpec("compliance-be", "BE", "BE0123456789"),
     ComplianceOrgSpec("compliance-pl", "PL", "PL1234567890"),
     ComplianceOrgSpec("compliance-dk", "DK", "DK12345678"),
@@ -60,19 +67,43 @@ def _owner() -> RevelUser:
     return owner
 
 
+def _bilbao() -> City:
+    """Bilbao, Basque Country: the full city data has it; the e2e mini fixture may not."""
+    city = City.objects.filter(ascii_name="Bilbao", iso2="ES", admin_name="Basque Country").first()
+    if city is None:
+        city, _ = City.objects.get_or_create(
+            city_id=9724000001,  # not a worldcities id: never collides with real data
+            defaults={
+                "name": "Bilbao",
+                "ascii_name": "Bilbao",
+                "country": "Spain",
+                "iso2": "ES",
+                "iso3": "ESP",
+                "admin_name": "Basque Country",
+                "location": Point(-2.9236, 43.2569),
+            },
+        )
+    return city
+
+
+REGION_CITIES: t.Final[dict[str, t.Callable[[], City]]] = {"ES-PV": _bilbao}
+
+
 def _org(owner: RevelUser, spec: ComplianceOrgSpec) -> events_models.Organization:
     """A public, Stripe-connected (fake account), invoicing-ready organization in ``spec.country``."""
+    city = {"city": REGION_CITIES[spec.region]()} if spec.region else {}
     org, _ = events_models.Organization.objects.update_or_create(
         slug=spec.slug,
         defaults={
-            "name": f"Compliance {spec.country or 'Unknown'} Org",
+            **city,
+            "name": f"Compliance {spec.region or spec.country or 'Unknown'} Org",
             "owner": owner,
             "visibility": events_models.Organization.Visibility.PUBLIC,
             "vat_country_code": spec.country,
             "vat_id": spec.vat_id,
             "vat_id_validated": bool(spec.vat_id),
             "vat_rate": Decimal("20.00"),
-            "billing_name": f"Compliance {spec.country or 'Unknown'} Legal Entity",
+            "billing_name": f"Compliance {spec.region or spec.country or 'Unknown'} Legal Entity",
             "billing_address": "Main Street 1",
             "billing_email": f"billing+{spec.slug}@example.com",
             "stripe_account_id": f"acct_e2e_{spec.slug.replace('-', '_')}",

@@ -86,7 +86,7 @@ See [Billing & VAT](../../architecture/billing-and-vat.md) for the details.
 | [Romania](ro.md) | Restricted | Attendee invoicing blocked for organizers established in Romania (RO e-Factura) | [#1064](https://github.com/letsrevel/revel-backend/issues/1064) |
 | [Slovakia](sk.md) | No country-specific restrictions identified | None | |
 | [Slovenia](si.md) | Restricted | Attendee invoicing blocked for organizers established in Slovenia and for physical events held there (FURS invoice verification); organizer notice to issue verified invoices from their own software, invoicing off included | [#1062](https://github.com/letsrevel/revel-backend/issues/1062) |
-| [Spain](es.md) | Upcoming (1 Jan 2027) | Attendee invoicing blocked from 1 January 2027 for organizers established in Spain (Verifactu); allowed until then, with an organizer notice announcing the date | [#1059](https://github.com/letsrevel/revel-backend/issues/1059) |
+| [Spain](es.md) | Upcoming (1 Jan 2027); Basque Country in force | Attendee invoicing blocked from 1 January 2027 for organizers established in Spain (Verifactu); allowed until then, with an organizer notice announcing the date. Organizers in the Basque Country are blocked now (TicketBAI, no notice); Navarre keeps the 2027 date with its own wording (NaTicket) | [#1059](https://github.com/letsrevel/revel-backend/issues/1059), [#1086](https://github.com/letsrevel/revel-backend/issues/1086) |
 | [Sweden](se.md) | No country-specific restrictions identified | None | |
 
 "No country-specific restrictions identified" means research found no rule that requires Revel to

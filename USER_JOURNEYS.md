@@ -1408,7 +1408,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   - **HYBRID**: Invoices created as DRAFT, org admin reviews and issues manually
   - **AUTO**: Invoices created as ISSUED and emailed immediately
 - Prerequisites: EU-based org with VIES-validated VAT ID, billing name, and billing address
-- Country gates: refused (422) in HR, PT, RO, SI, GR, HU (ES from 2027-01-01); BE/PL skip business-buyer invoices — see [29.2](#292-attendee-invoicing-modes-organization-owner)
+- Country gates: refused (422) in HR, PT, RO, SI, GR, HU and the Basque Country (rest of ES from 2027-01-01); BE/PL skip business-buyer invoices — see [29.2](#292-attendee-invoicing-modes-organization-owner)
 
 ### 22.2 VAT Preview (Buyer)
 - During ticket checkout, buyer can enter billing info (name, address, country, VAT ID)
@@ -1741,6 +1741,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 > **E2E fixtures** (`bootstrap_test_events` → `create_compliance_fixtures`, part of `make e2e-seed`):
 > - Owner: `test.compliance@example.com` / `password123`.
 > - One public, Stripe-flagged, invoicing-ready org per country: `compliance-it`, `-at`, `-hr`, `-es`, `-be`, `-pl`, `-dk`, `-us` (non-EU) and `-unknown` (no country).
+> - `compliance-es-pv` (#1086): ES VAT ID, city **Bilbao** (`admin_name` "Basque Country"), so its jurisdiction is the Basque Country (`ES-PV`, TicketBAI).
 > - `compliance-it` / event `it-club-night` has these tiers:
 >   - *Door* (at the door, €10)
 >   - *Bank transfer* (offline, €15)
@@ -1763,7 +1764,7 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
 ### 29.1 Organization Country Card (Organization Owner)
 - **Preconditions:** log in as `test.compliance@example.com` and open org settings → Billing.
 - **Where:** `GET /organization-admin/{slug}` → `compliance` (the same object is on `GET /organization-admin/{slug}/billing-info`).
-- **Expected `compliance` per org:**
+- **Expected `compliance` per org** (every object also has `region`: `""` except where noted):
 
   | Org | `country` | `attendee_invoicing` | `online_payment` | `offline_payment` | `notices` |
   |---|---|---|---|---|---|
@@ -1772,12 +1773,14 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   | `compliance-be` | `BE` | `blocked_for_business_buyers` | `allowed` | `allowed` | `[]` |
   | `compliance-pl` | `PL` | `blocked_for_business_buyers` | `allowed` | `allowed` | one: `pl_kasa_fiskalna` |
   | `compliance-es` (before 2027-01-01) | `ES` | `allowed` | `allowed` | `allowed` | one: `es_verifactu` |
+  | `compliance-es-pv` (`region: "ES-PV"`) | `ES` | `blocked` | `allowed` | `allowed` | `[]` (no `es_verifactu`: already blocked) |
   | `compliance-at` | `AT` | `allowed` | `allowed` | `allowed` | one: `at_registrierkasse` |
   | `compliance-dk` | `DK` | `allowed` | `allowed` | `allowed` | one: `dk_sales_registration` |
   | `compliance-us` | `US` | `allowed` | `allowed` | `allowed` | `[]` (non-EU: show the out-of-scope copy) |
   | `compliance-unknown` | `""` | `allowed` | `allowed` | `allowed` | `[]` (show the "add your VAT ID or city" copy) |
 
 - **UI:** the "Country rules" card with the localized country name (never the ISO code), a bullet per restriction, and the "Learn more" link to `https://docs.letsrevel.io/compliance/eu/<cc>/`.
+  - `region: "ES-PV"` names the Basque Country and TicketBAI instead of Spain and Verifactu; `region: "ES-NC"` (Navarre, backend-only, no seeded org) names Navarre and NaTicket (#1086).
 - **Values are effective today.** A restriction with a future start date reads `allowed` until it starts.
 
 ### 29.2 Attendee Invoicing Modes (Organization Owner)
@@ -1794,6 +1797,11 @@ Set on the ticket tier (see [Journey 10.4](#104-ticket-tier-management)); the mo
   - Before 2027-01-01, `compliance-es` shows `attendee_invoicing: allowed` and the modes work. The org card carries the `es_verifactu` notice (29.7), next to the invoicing-mode selector (#1087).
   - From that date the capability reads `blocked`, the modes are refused like HR's (system name "Verifactu"), generation is skipped, and the `es_verifactu` notice is gone.
   - E2E can't move the server clock, so the flip is **backend-only** (freezegun tests in `test_policies.py` and `test_invoicing_gates.py`). E2E asserts the pre-2027 state and the notice.
+- **Basque Country, blocked now (#1086):**
+  - On `compliance-es-pv`, `Hybrid` and `Automatic` are disabled and `None` stays selected, as on `compliance-hr`. There is no `es_verifactu` notice.
+  - Forcing it with `PATCH /organization-admin/compliance-es-pv/invoicing` `{"mode": "auto"}` returns **422** with `detail`: "Revel can't issue invoices to your attendees in the Basque Country. The law there requires invoices to go through TicketBAI (Batuz in Bizkaia), and Revel isn't connected to it. Please issue invoices from your own TicketBAI-compliant invoicing software."
+  - Skipped invoices and credit notes are recorded with `policy_country: "ES"` (29.9).
+  - **Navarre** (`region: "ES-NC"`, backend-only) keeps the ES 2027 date. Its notice (key `es_nc_naticket`) and its refusal name Navarre and NaTicket, never Verifactu.
 
 ### 29.3 Ticket Tier Editor in Italy (Organization Owner)
 - **Preconditions:** `compliance-it` → `it-club-night` → Tickets.
@@ -1854,7 +1862,7 @@ The labels and the "Free" / notice text are translated. A cached PDF or pass reg
   - **SI** (organizers established in Slovenia and any physical event held there): key `si_furs`, message "Revel can't issue attendee invoices where Slovenian rules apply: invoices for card and online payments, which FURS guidance says include payments through Stripe, must be verified with FURS in real time. If you must issue invoices, issue a FURS-verified invoice for every paid sale from your own software, even with attendee invoicing turned off."
   - **GR** (organizers established in Greece, VAT prefix `EL` included, and any physical event held there): key `gr_mydata`, message "Revel can't issue attendee invoices where Greek rules apply: receipts and invoices must be transmitted to AADE's myDATA. If you must issue Greek documents, issue them from your own software, a certified e-invoicing provider or AADE's free tools."
   - **HU** (organizers established in Hungary and any physical event held there): key `hu_nav`, message "Revel can't issue attendee invoices where Hungarian rules apply: invoices from invoicing software must be reported to NAV Online Számla in real time. If this applies to you, issue a receipt (nyugta) or invoice for every paid sale from your own system. Since 1 September 2026, data on receipts not issued by an online cash register must also be reported to NAV."
-  - **ES, until 2026-12-31** (`compliance-es` org card; organizers established in Spain only, gone from 2027-01-01 when the block starts): key `es_verifactu`, message "From 1 January 2027, Revel stops issuing attendee invoices for organizers in Spain, because it can't meet Spain's invoicing-software rules (Verifactu), which start applying in 2027. If you use attendee invoicing, set up your own invoicing software before then."
+  - **ES, until 2026-12-31** (`compliance-es` org card; organizers established in Spain only, gone from 2027-01-01 when the block starts; **not** shown to Basque organizers like `compliance-es-pv`, who are blocked already, and replaced by `es_nc_naticket` in Navarre): key `es_verifactu`, message "From 1 January 2027, Revel stops issuing attendee invoices for organizers in Spain, because it can't meet Spain's invoicing-software rules (Verifactu), which start applying in 2027. If you use attendee invoicing, set up your own invoicing software before then."
   - SI, GR and HU have no seeded org; E2E covers the placement with `compliance-hr`, the rest is backend-tested (`test_organizer_notices.py`).
 - **Other countries:** `notices: []`.
 

@@ -4,6 +4,7 @@ import pytest
 from django.utils import timezone
 
 from events.compliance import AttendeeInvoicingCapability, PaymentChannelCapability, get_policy
+from events.compliance.base import ALL_NEXUS
 from events.compliance.enforcement import event_compliance
 from events.management.commands.bootstrap_helpers.compliance import OWNER_EMAIL, create_compliance_fixtures
 from events.models import Event, Organization, SeriesPass, SkippedFiscalDocument, TicketTier
@@ -16,11 +17,12 @@ pytestmark = pytest.mark.django_db
 def test_seed_matches_the_journey_preconditions() -> None:
     orgs = create_compliance_fixtures(timezone.now())
 
-    assert {slug: get_policy(org).country for slug, org in orgs.items()} == {
+    assert {slug: get_policy(org).jurisdiction for slug, org in orgs.items()} == {
         "compliance-it": "IT",
         "compliance-at": "AT",
         "compliance-hr": "HR",
         "compliance-es": "ES",
+        "compliance-es-pv": "ES-PV",
         "compliance-be": "BE",
         "compliance-pl": "PL",
         "compliance-dk": "DK",
@@ -29,6 +31,10 @@ def test_seed_matches_the_journey_preconditions() -> None:
     }
     assert all(org.owner.email == OWNER_EMAIL for org in orgs.values())
     assert get_policy(orgs["compliance-hr"]).attendee_invoicing_capability() == AttendeeInvoicingCapability.BLOCKED
+    # Basque Country (#1086): blocked from today (TicketBAI), with no Verifactu heads-up.
+    basque = get_policy(orgs["compliance-es-pv"])
+    assert basque.attendee_invoicing_capability() == AttendeeInvoicingCapability.BLOCKED
+    assert basque.organizer_notices(ALL_NEXUS) == []
 
     club = Event.objects.get(slug="it-club-night")
     assert event_compliance(club).online_payment == PaymentChannelCapability.BLOCKED

@@ -35,6 +35,9 @@ from geo.models import City
 pytestmark = pytest.mark.django_db
 
 EXPECTED_COUNTRIES = {"AT", "BE", "DK", "ES", "FR", "GR", "HR", "HU", "IT", "PL", "PT", "RO", "SI"}
+# ISO 3166-2 subdivisions with their own policy, defined in their country's module (#1086).
+EXPECTED_SUBDIVISIONS = {"ES-NC", "ES-PV"}
+EXPECTED_CODES = EXPECTED_COUNTRIES | EXPECTED_SUBDIVISIONS
 
 
 class TestCountryResolution:
@@ -72,7 +75,7 @@ class TestCountryResolution:
 
 class TestRegistry:
     def test_every_researched_country_is_registered(self) -> None:
-        assert set(registered_policies()) == EXPECTED_COUNTRIES
+        assert set(registered_policies()) == EXPECTED_CODES
 
     def test_unknown_or_unset_country_gets_the_default(self) -> None:
         for code in ("DE", "US", "", None):
@@ -86,9 +89,9 @@ class TestRegistry:
         assert get_policy_for_country("el").country == "GR"
 
     def test_every_policy_module_is_auto_discovered(self) -> None:
-        """Each module in ``policies/`` registers exactly the country it is named after."""
+        """Each module in ``policies/`` registers the country it is named after (plus that country's subdivisions)."""
         modules = [m.name for m in pkgutil.iter_modules(policies_package.__path__)]
-        assert sorted(code.lower() for code in registered_policies()) == sorted(modules)
+        assert sorted({code[:2].lower() for code in registered_policies()}) == sorted(modules)
 
     def test_duplicate_registration_is_refused(self) -> None:
         with pytest.raises(ImproperlyConfigured):
@@ -115,7 +118,7 @@ class TestRegistry:
         assert policy.online_payment_capability() == PaymentChannelCapability.BLOCKED
 
 
-@pytest.mark.parametrize("code", sorted(EXPECTED_COUNTRIES))
+@pytest.mark.parametrize("code", sorted(EXPECTED_CODES))
 class TestPolicyContract:
     """Every registered policy implements every hook with the right types."""
 
@@ -123,7 +126,7 @@ class TestPolicyContract:
         cls = registered_policies()[code]
         assert issubclass(cls, CountryCompliancePolicy)
         assert not inspect.isabstract(cls)
-        assert cls.__module__ == f"events.compliance.policies.{code.lower()}"
+        assert cls.__module__ == f"events.compliance.policies.{code[:2].lower()}"
 
     def test_capabilities_are_derived_not_overridden(self, code: str) -> None:
         """The FE capabilities are computed from the hooks, so they can never disagree with enforcement."""
@@ -140,7 +143,7 @@ class TestPolicyContract:
         policy = get_policy_for_country(code)
         for decision in (
             policy.attendee_invoicing(BuyerContext(), nexus),
-            policy.attendee_invoicing(BuyerContext(vat_country=code), nexus),
+            policy.attendee_invoicing(BuyerContext(vat_country=code[:2]), nexus),
             policy.online_payment(nexus),
             policy.offline_payment(nexus),
         ):

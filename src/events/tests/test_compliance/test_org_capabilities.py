@@ -75,7 +75,7 @@ def test_org_admin_detail_exposes_compliance(
     response = owner_client.get(reverse("api:get_organization_admin", kwargs={"slug": organization.slug}))
 
     assert response.status_code == 200
-    assert response.json()["compliance"] == {"notices": [], **expected}
+    assert response.json()["compliance"] == {"notices": [], "region": "", **expected}
 
 
 def test_billing_info_exposes_compliance(owner_client: Client, organization: Organization) -> None:
