@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.20.0] - 2026-10-02
+
+> **Deploy note:** the EU compliance layer must ship together with the updated Terms of Service
+> (publish it with `manage.py update_legal`). Migrations `0127` (ticket-number backfill, deliberately
+> irreversible) and `0128` (switches attendee invoicing to `NONE` for organizations in HR, PT, SI,
+> GR, RO and HU) are data migrations. The new `events.notify_skipped_fiscal_documents` beat task
+> ships **enabled** (daily, 07:00 UTC). The privacy policy must disclose organization acquisition
+> attribution before the frontend starts sending tags.
+
+### Added
+
+- **EU fiscal compliance (layer 1)**: per-country policies that block only the feature a
+  country's law makes non-compliant, only for the sales that law reaches, and only from the date
+  it applies; refusals return 422 and name the country in the user's language
+  - Online card payment is refused for paid tiers and series passes at events held in Italy;
+    offline, bank-transfer and at-the-door sales keep working
+  - Attendee invoices (and the matching credit notes) are no longer issued for organizers
+    established in HR, PT and RO, for organizers established in or events held in SI, GR and HU,
+    for Basque organizers (TicketBAI), and for Spanish organizers from 2027-01-01 (Verifactu);
+    in BE and PL only invoices to business buyers are skipped (Belgian VAT IDs in BE, any VAT ID
+    in PL)
+  - Every ticket PDF and Apple/Google pass carries the organizer's legal name and VAT ID, a
+    gap-free per-organization ticket number (`SERIES-000123`), the issue time, the price or
+    "Free", and a "not a tax invoice or receipt" notice; priced tickets for events in Italy add a
+    reservation notice. Ticket emails now carry the same notice
+  - `compliance` capabilities on the organization admin/billing responses and on the event detail,
+    including a `region` for Spanish subdivisions; `compliance_lines` on `UserTicketSchema`; and
+    `compliance.online_payment` on the series-pass quote, so the UI can disable a blocked option
+    up front
+  - Non-blocking organizer notices (`notices`) where the duty is the organizer's own: AT and DK
+    cash-register rules, the PL fiscal cash register for disco/dance/circus admission, real-time
+    invoicing systems in HR, SI, GR and HU, and a heads-up before the 2027 Spanish block
+    (a Navarre-specific variant for NaTicket)
+- **Skipped fiscal documents**: every invoice or credit note a country policy skipped is recorded
+  so the organizer can issue it from their own system
+  - Owner-only list with filters and search
+    (`GET /organization-admin/{slug}/skipped-fiscal-documents`) and a resolve action that stores
+    the organizer's external reference
+  - `invoice_skipped` flag and filter on the admin ticket list
+  - A "Documents to issue yourself" sheet in the revenue report, which also gains trailing
+    `ticket_number` and `stripe_payment_intent_id` columns on the Transactions sheet
+  - Daily `FISCAL_DOCUMENT_SKIPPED` digest to organization staff with `manage_tickets` (email,
+    in-app, Telegram), following digest settings and the per-type opt-out
+- **Organization acquisition attribution**: `POST /organizations/` accepts optional `utm_*` tags,
+  stored on the organization with no cookies and nothing on the visitor's device; the admin gains
+  a sortable Source column and an acquisition-source filter
+- `manage.py update_legal` (dry-run diff, SHA-256 of the stored text) and
+  `manage.py send_system_announcement` (dry run, `--to-email` previews, `--confirm` for a full
+  broadcast) for publishing legal documents and announcements from the command line
+
+### Changed
+
+- System-announcement plain-text emails render links as `label (url)`, separate paragraphs and
+  decode entities; Telegram announcements are no longer double-escaped
+- Ticket, invoice and revenue-report PDFs use the designer's official logo files (fixes a wrong
+  apostrophe in the "let's" wordmark)
+
+### Fixed
+
+- System announcements could skip a recipient or notify one twice, because batches were sliced
+  from an unordered queryset
+- The revenue report's `buyer_country` column was always empty
+- A ticket tier advertised attendee invoicing (and the checkout showed the billing form) for an
+  event held in a country that blocks it
+- Corrected EU compliance copy in fr/es/pt/it, including sentences that came out ungrammatical
+  for some country names
+
 ## [2.19.0] - 2026-10-01
 
 > **Deploy note:** the new `events.send_org_nudges` beat task ships **disabled**. Set
