@@ -74,7 +74,7 @@ Unlike the attendee and questionnaire exports, this one bundles **multiple files
 
 - **XLSX** — **Summary** (per currency, one row per VAT rate, a Refunds row, and a bold
   Net-taxable-turnover total), **Transactions** (one row per sale/refund line), **Membership
-  payments**, and **Invoices to issue yourself** (attendee invoices and credit notes a country policy
+  payments**, and **Documents to issue yourself** (attendee invoices and credit notes a country policy
   made Revel skip, decided in the period, #1091). On Transactions, `buyer_country` is the buyer's VAT
   country, `stripe_payment_intent_id` joins each sale to Stripe's payout reconciliation report, and
   `stripe_payout_id` is always empty: Revel does not store payout IDs, and the column stays only so

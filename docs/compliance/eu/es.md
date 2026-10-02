@@ -78,7 +78,7 @@ provinces apply their own TicketBAI regimes.
   submission, QR and legend on the PDF, a published declaración responsable), only if there is demand.
   TicketBAI would be a separate product.
 - Confirm that existing revenue exports give organizers the per-sale data their own system needs. The
-  *Invoices to issue yourself* sheet lists the skipped documents with buyer, amounts and VAT
+  *Documents to issue yourself* sheet lists the skipped documents with buyer, amounts and VAT
   ([#1091](https://github.com/letsrevel/revel-backend/issues/1091)).
 
 See [#1059](https://github.com/letsrevel/revel-backend/issues/1059).

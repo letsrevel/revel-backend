@@ -379,7 +379,7 @@ class TestRevenueReport:
     ) -> None:
         wb = load_workbook(io.BytesIO(report.build_xlsx(report.build_revenue_report_data(_wide(organization)))))
 
-        sheet = wb["Invoices to issue yourself"]
+        sheet = wb["Documents to issue yourself"]
         headers = [c.value for c in sheet[1]]
         row = dict(zip(headers, [c.value for c in sheet[2]], strict=False))
         assert row["document"] == "invoice"

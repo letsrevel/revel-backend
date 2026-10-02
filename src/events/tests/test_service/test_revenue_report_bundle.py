@@ -77,7 +77,7 @@ def report_data(db: t.Any) -> svc.RevenueReportData:
 @pytest.mark.django_db
 def test_xlsx_has_summary_and_transactions_sheets(report_data: svc.RevenueReportData) -> None:
     wb = load_workbook(io.BytesIO(svc.build_xlsx(report_data)))
-    assert wb.sheetnames == ["Summary", "Transactions", "Membership payments", "Invoices to issue yourself"]
+    assert wb.sheetnames == ["Summary", "Transactions", "Membership payments", "Documents to issue yourself"]
     headers = [c.value for c in wb["Transactions"][1]]
     assert "payment_id" in headers and "vat_rate" in headers and "stripe_payout_id" in headers
     # Fiscal ticket number (#1090) then the payment intent (#1091) are appended so existing positions stay put.
