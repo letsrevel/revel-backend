@@ -1,6 +1,7 @@
 """Templates for organization-related notifications."""
 
 from django.utils.translation import gettext as _
+from django.utils.translation import ngettext
 
 from notifications.enums import NotificationType
 from notifications.models import Notification
@@ -75,7 +76,26 @@ class OrgSetupNudgeTemplate(NotificationTemplate):
         return super().get_email_html_body(notification)
 
 
+class FiscalDocumentSkippedTemplate(NotificationTemplate):
+    """Template for FISCAL_DOCUMENT_SKIPPED (daily digest to the owner and ticket staff, #1073)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return self.get_email_subject(notification)
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        ctx = notification.context
+        count = int(ctx.get("document_count", 0))
+        return ngettext(
+            "%(org)s: %(count)d document to issue yourself",
+            "%(org)s: %(count)d documents to issue yourself",
+            count,
+        ) % {"org": ctx.get("organization_name", ""), "count": count}
+
+
 # Register templates
 register_template(NotificationType.ORG_ANNOUNCEMENT, OrgAnnouncementTemplate())
 register_template(NotificationType.ORG_CONTACT_MESSAGE_RECEIVED, OrgContactMessageReceivedTemplate())
 register_template(NotificationType.ORG_SETUP_NUDGE, OrgSetupNudgeTemplate())
+register_template(NotificationType.FISCAL_DOCUMENT_SKIPPED, FiscalDocumentSkippedTemplate())

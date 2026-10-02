@@ -3755,6 +3755,12 @@ msgid "A note about %(org)s"
 msgstr "Una nota sobre %(org)s"
 
 #, python-format
+msgid "%(org)s: %(count)d document to issue yourself"
+msgid_plural "%(org)s: %(count)d documents to issue yourself"
+msgstr[0] "%(org)s: %(count)d documento que debes emitir tú"
+msgstr[1] "%(org)s: %(count)d documentos que debes emitir tú"
+
+#, python-format
 msgid "%(actor)s added %(item)s"
 msgstr "%(actor)s ha añadido %(item)s"
 
@@ -4322,6 +4328,56 @@ msgstr "Mensaje del equipo organizador:"
 
 msgid "View updated event details:"
 msgstr "Ver los detalles actualizados del evento:"
+
+#, python-format
+msgid "Invoices to issue yourself for %(org)s"
+msgstr "Facturas que debes emitir tú para %(org)s"
+
+msgid ""
+"Revel did not issue this document because the law requires it to go through "
+"a national e-invoicing or fiscalization system (such as Peppol, KSeF or "
+"Verifactu). Issue it from your own system."
+msgid_plural ""
+"Revel did not issue these documents because the law requires them to go "
+"through a national e-invoicing or fiscalization system (such as Peppol, KSeF "
+"or Verifactu). Issue them from your own system."
+msgstr[0] ""
+"Revel no ha emitido este documento porque la ley exige que pase por un "
+"sistema nacional de facturación electrónica o de fiscalización (como Peppol, "
+"KSeF o Verifactu). Emítelo desde tu propio sistema."
+msgstr[1] ""
+"Revel no ha emitido estos documentos porque la ley exige que pasen por un "
+"sistema nacional de facturación electrónica o de fiscalización (como Peppol, "
+"KSeF o Verifactu). Emítelos desde tu propio sistema."
+
+#, python-format
+msgid ""
+"Invoices: %(invoices)s. Credit notes: %(credit_notes)s. Total: %(total)s."
+msgstr ""
+"Facturas: %(invoices)s. Notas de crédito: %(credit_notes)s. Total: %(total)s."
+
+msgid "Credit note"
+msgstr "Nota de crédito"
+
+msgid "Invoice"
+msgstr "Factura"
+
+#, python-format
+msgid "…and %(more)s more."
+msgstr "…y %(more)s más."
+
+msgid ""
+"The organization owner sees the full list with buyer details under Billing; "
+"the ticket list flags these sales."
+msgstr ""
+"La persona propietaria de la organización ve la lista completa con los datos "
+"del comprador en Facturación; la lista de entradas marca estas ventas."
+
+msgid "Open the invoices to issue yourself"
+msgstr "Abrir las facturas que debes emitir tú"
+
+msgid "Open the ticket list"
+msgstr "Abrir la lista de entradas"
 
 msgid "View Details"
 msgstr "Ver detalles"

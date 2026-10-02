@@ -100,7 +100,8 @@ it takes effect.
   (fiscalization with the Porezna uprava, FURS, myDATA, NAV Online Számla) and must come from the
   organizer's own software. The notice reaches the same sales as each country's block.
 - Credit notes and issuing pre-gate drafts follow the same invoice gate. A refund on a sale whose
-  invoice was skipped skips its credit note too. The organizer also learns of the refund through
+  invoice was skipped skips its credit note too. The organizer learns of the skip through the daily
+  digest below, and of the refund through
   the `TICKET_REFUNDED` notification (sent to the ticket holder and the organization's staff and
   owners) and must correct the invoice in its own system. A draft that can no longer be issued
   carries the policy's reason in `issue_blocked_reason` on the attendee-invoice responses.
@@ -163,6 +164,12 @@ retries.
 - The event ticket list (`AdminTicketSchema.invoice_skipped`, filter `invoice_skipped`) flags the
   sales, so staff who can manage tickets see them too.
 - The revenue report's *Invoices to issue yourself* sheet lists those decided in the period.
+- A daily digest, `FISCAL_DOCUMENT_SKIPPED`
+  ([#1073](https://github.com/letsrevel/revel-backend/issues/1073)), tells the owner and staff with
+  `manage_tickets` about the documents skipped since the last one (beat task
+  `events.notify_skipped_fiscal_documents`, 07:00 UTC). The owner's link opens the list above, the
+  staff's link the flagged ticket list. It follows the digest and per-type preferences like any
+  non-transactional notification.
 
 ### Known gaps
 
