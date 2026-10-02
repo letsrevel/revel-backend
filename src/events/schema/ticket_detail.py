@@ -12,6 +12,7 @@ from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
 from common.schema import StrippedString
 from common.signing import get_file_url
 from events import models
+from events.compliance.enforcement import ticket_fields
 from events.models import DiscountCode, Payment, Ticket, TicketAttribution, TicketSaleSource
 
 from .event import MinimalEventSchema
@@ -61,6 +62,19 @@ class TicketSeriesPassSchema(Schema):
     held_pass_id: UUID
     series_pass_id: UUID
     name: str
+
+
+class TicketComplianceLineSchema(Schema):
+    """One compliance line printed on the ticket PDF and wallet passes (#1077).
+
+    ``key`` is stable (``organizer``, ``tax_id``, ``ticket_number``, ``issued_at``, ``price``,
+    ``notice``, plus country additions such as ``it_reservation``); ``label`` and ``value``
+    are translated to the request language.
+    """
+
+    key: str
+    label: str
+    value: str
 
 
 def _resolve_ticket_series_pass(obj: Ticket) -> TicketSeriesPassSchema | None:
@@ -158,6 +172,8 @@ class UserTicketSchema(ModelSchema):
     pdf_url: str | None = None
     pkpass_url: str | None = None
     series_pass: TicketSeriesPassSchema | None = None
+    # Same lines as the PDF and wallet passes; select what ``Ticket.objects.full()`` does.
+    compliance_lines: list[TicketComplianceLineSchema]
 
     class Meta:
         model = Ticket
@@ -189,6 +205,18 @@ class UserTicketSchema(ModelSchema):
     def resolve_pkpass_url(obj: Ticket) -> str | None:
         """Resolve cached pkpass file to signed URL."""
         return get_file_url(obj.pkpass_file)
+
+    @staticmethod
+    def resolve_compliance_lines(obj: "Ticket | UserTicketSchema") -> list[TicketComplianceLineSchema]:
+        """Resolve the ticket's compliance lines from the shared PDF/wallet source.
+
+        A response wrapping an already-built ``UserTicketSchema`` (``BatchCheckoutResponse``,
+        ``GuestCheckoutResponseSchema``, ...) re-runs resolvers on the schema instance, not
+        the ``Ticket``: keep the lines it already resolved.
+        """
+        if isinstance(obj, UserTicketSchema):
+            return obj.compliance_lines
+        return [TicketComplianceLineSchema(key=f.key, label=f.label, value=f.value) for f in ticket_fields(obj)]
 
     resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
 
