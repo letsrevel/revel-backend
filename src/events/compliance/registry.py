@@ -39,7 +39,8 @@ def register(code: str, admin_names: t.Iterable[str] = ()) -> t.Callable[[_P], _
 
     Raises:
         ImproperlyConfigured: On a malformed code, a subdivision without admin names (or
-            a country with them), or a second policy for the same code.
+            a country with them), a second policy for the same code, or an admin name another
+            subdivision already claimed.
     """
     key = normalize_country_code(code)
     if not _CODE_RE.fullmatch(key):
@@ -53,6 +54,8 @@ def register(code: str, admin_names: t.Iterable[str] = ()) -> t.Callable[[_P], _
         existing = _REGISTRY.get(key)
         if existing is not None and existing is not cls:
             raise ImproperlyConfigured(f"Two compliance policies for {key}: {existing!r} and {cls!r}.")
+        if clash := {name for name in names if _SUBDIVISIONS.get((key[:2], name), key) != key}:
+            raise ImproperlyConfigured(f"Compliance policy {key}: admin names already claimed: {sorted(clash)}.")
         _REGISTRY[key] = cls
         _SUBDIVISIONS.update({(key[:2], name): key for name in names})
         return cls

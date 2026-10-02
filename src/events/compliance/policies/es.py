@@ -30,7 +30,7 @@ from events.compliance.registry import register
 if t.TYPE_CHECKING:
     from django_stubs_ext import StrPromise
 
-# Names the date of ``SpainPolicy.fiscal_invoicing_from``; change both together.
+# Both notices name the date of ``SpainPolicy.fiscal_invoicing_from`` (Navarre inherits it); change them together.
 UPCOMING_BLOCK_NOTICE = _(
     "From 1 January 2027, Revel stops issuing attendee invoices for organizers in Spain, because it can't meet "
     "Spain's invoicing-software rules (Verifactu), which start applying in 2027. If you use attendee invoicing, "

@@ -160,6 +160,18 @@ class TestRegistry:
             class _Another(DefaultEUPolicy):
                 pass
 
+    def test_admin_name_claimed_by_another_subdivision_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(registry, "_REGISTRY", dict(registry._REGISTRY))
+        monkeypatch.setattr(registry, "_SUBDIVISIONS", dict(registry._SUBDIVISIONS))
+
+        with pytest.raises(ImproperlyConfigured, match="already claimed"):
+
+            @register("ES-XX", admin_names=("euskadi",))
+            class _Clash(DefaultEUPolicy):
+                pass
+
+        assert "ES-XX" not in registry._REGISTRY
+
     def test_a_new_subdivision_needs_only_a_registration(
         self, monkeypatch: pytest.MonkeyPatch, organization: Organization
     ) -> None:
@@ -211,7 +223,8 @@ class TestNavarrePolicy:
         assert not decision.allowed
         for text in (notices[0].message, decision.reason):
             assert "Navarre" in text and "NaTicket" in text and "Verifactu" not in text
-        assert NavarrePolicy.fiscal_invoicing_from == SpainPolicy.fiscal_invoicing_from
+        assert NavarrePolicy.fiscal_invoicing_from == SpainPolicy.fiscal_invoicing_from == datetime.date(2027, 1, 1)
+        assert "1 January 2027" in notices[0].message
 
 
 class TestOrganizationPayload:

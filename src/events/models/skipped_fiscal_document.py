@@ -3,7 +3,7 @@
 Since EU layer 1 (#1069) an attendee invoice or credit note is skipped when the
 policy of a country reaching the sale refuses Revel-issued documents: B2B
 e-invoicing mandates (BE Peppol, PL KSeF) and fiscalized invoicing (HR, PT, RO,
-SI, GR, HU, and ES from 2027). The organizer must then issue the document from
+SI, GR, HU, the Basque Country, and the rest of ES from 2027). The organizer must then issue the document from
 its own compliant system; these rows tell it which sales those are.
 
 Snapshotted when the skip is decided; only the resolution fields change afterwards.

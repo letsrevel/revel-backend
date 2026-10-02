@@ -139,6 +139,8 @@ Foral de Navarra has announced its own system, NaTicket, without a start date. R
 - The Basque Country is detected from the organization's city, a proxy for tax domicile. An
   organizer with a Basque city but a common-territory domicile (or a large company under the
   Concierto's volume rule) is blocked anyway; one without a city is treated as common territory.
+- An invoice whose organization was deleted keeps only its seller country (`ES`), so it is judged by
+  the common-territory rule, not TicketBAI.
 - When NaTicket gets a date, Navarre's block may need to move.
 - Regional *espectáculos públicos* laws: no platform-certification requirement found, not researched
   in depth.
