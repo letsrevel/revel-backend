@@ -30,7 +30,8 @@ Greece.
   there (the same sales the block reaches), shown next to the attendee-invoicing setting (key
   `gr_mydata`, topic `attendee_invoicing`): "Revel can't issue attendee invoices where Greek rules apply:
   receipts and invoices must be transmitted to AADE's myDATA. If you must issue Greek documents, issue
-  them from your own software, a certified e-invoicing provider or AADE's free tools." Conditional,
+  them from your own software, a certified e-invoicing provider or AADE's free tools (timologio,
+  myDATAapp). Invoices to businesses must go through a provider or AADE's tools." Conditional,
   because whether Law 4308/2014 reaches non-Greek organizers is an open question (below).
 - Online and offline payments are not restricted.
 - The [common ticket content](index.md#common-ticket-content) applies, including the "not a tax
@@ -51,7 +52,12 @@ Greece.
 - **VAT Directive 2006/112/EC** art. 53: admission to an event in Greece is taxed in Greece.
   [EUR-Lex](https://eur-lex.europa.eu/eli/dir/2006/112/oj)
 
-The organizer can meet its obligation with its own ERP, a certified provider, or AADE's free tools.
+The organizer can meet its obligation with its own ERP, a certified provider, or AADE's free tools
+(timologio, myDATAapp). B2B invoices are mandatory e-invoices since 2 March 2026 for businesses with 2023
+gross income over €1M (joint decision A.1044/2026, ΦΕΚ Β΄880/17-02-2026, which moved the start from
+2 February and allowed a gradual phase-in until 3 May 2026), and from 1 October 2026 for everyone else.
+They must go through a certified provider or AADE's tools, so an own ERP alone no longer suffices for them.
+[A.1044/2026](https://www.taxheaven.gr/circulars/52245/a-1044-2026)
 
 ## Open questions
 
@@ -60,9 +66,6 @@ The organizer can meet its obligation with its own ERP, a certified provider, or
 - Transmission timing for retail documents issued via ERP.
 - Whether the cash-register exemption categories of ΠΟΛ.1002/2014 cover online ticket sales.
 - Whether Law 4308/2014 applies to non-Greek organizers with a Greek VAT registration.
-- B2B e-invoicing phase-2 dates (AADE press releases not fetched:
-  [16.09.2025](https://www.aade.gr/sites/default/files/2025-09/dt_16.09.2025..pdf),
-  [17.02.2026](https://www.aade.gr/sites/default/files/2026-02/dt_17.02.2026.pdf)).
 - Ticket-specific rules (municipal levies, nominal tickets, Ministry of Culture e-ticketing) were not
   found in official sources.
 

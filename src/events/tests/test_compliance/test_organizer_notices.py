@@ -126,9 +126,9 @@ def test_si_notice_on_org_card_and_foreign_orgs_event_in_slovenia(
             "key": "si_furs",
             "applies_to": "attendee_invoicing",
             "message": "Revel can't issue attendee invoices where Slovenian rules apply: invoices for card and online "
-            "payments, which FURS guidance says include payments through Stripe, must be verified with FURS in real "
-            "time. If you must issue invoices, issue a FURS-verified invoice for every paid sale from your own "
-            "software, even with attendee invoicing turned off.",
+            "payments, which under FURS guidance generally include payments through Stripe, must be verified with "
+            "FURS in real time. If you must issue invoices, issue a FURS-verified invoice for every paid sale from "
+            "your own software, even with attendee invoicing turned off.",
         }
     ]
     organization.vat_country_code = "SI"

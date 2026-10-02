@@ -2,7 +2,7 @@
 
 Organizers get a notice, next to the attendee-invoicing setting, that every paid sale
 still needs a receipt or invoice from their own system, and that data on receipts not
-issued by an online cash register goes to NAV from 1 September 2026 (#1092).
+issued by an online or e-cash register goes to NAV from 1 September 2026 (#1092).
 
 Docs: https://docs.letsrevel.io/compliance/eu/hu/ (docs/compliance/eu/hu.md).
 """
@@ -22,8 +22,8 @@ from events.compliance.registry import register
 NAV_NOTICE = _(
     "Revel can't issue attendee invoices where Hungarian rules apply: invoices from invoicing software must be "
     "reported to NAV Online Számla in real time. If this applies to you, issue a receipt (nyugta) or invoice for "
-    "every paid sale from your own system. Since 1 September 2026, data on receipts not issued by an online "
-    "cash register must also be reported to NAV."
+    "every paid sale from your own system. Since 1 September 2026, data on receipts not issued by an online or "
+    "e-cash register must also be reported to NAV."
 )
 
 

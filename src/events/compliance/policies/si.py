@@ -22,9 +22,9 @@ from events.compliance.registry import register
 
 FURS_NOTICE = _(
     "Revel can't issue attendee invoices where Slovenian rules apply: invoices for card and online payments, "
-    "which FURS guidance says include payments through Stripe, must be verified with FURS in real time. If you "
-    "must issue invoices, issue a FURS-verified invoice for every paid sale from your own software, even with "
-    "attendee invoicing turned off."
+    "which under FURS guidance generally include payments through Stripe, must be verified with FURS in real "
+    "time. If you must issue invoices, issue a FURS-verified invoice for every paid sale from your own software, "
+    "even with attendee invoicing turned off."
 )
 
 
