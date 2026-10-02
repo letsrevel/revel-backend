@@ -30,6 +30,9 @@ from events.service.ticket_number_service import format_ticket_number
 from events.utils import get_organization_timezone
 
 ZERO = Decimal("0.00")
+# Bump whenever the report workbook layout changes, so cached reports regenerate even when no row
+# changed (e.g. the ticket_number column, #1090).
+REPORT_FORMAT_VERSION = 2
 _REVERSE_CHARGE_LABEL = "0% / reverse-charge"
 
 
@@ -638,7 +641,7 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
             )
         )
     scope_key = (
-        f"{scope.org.id}:{scope.event_id}:{scope.date_from}:{scope.date_to}"
+        f"v{REPORT_FORMAT_VERSION}:{scope.org.id}:{scope.event_id}:{scope.date_from}:{scope.date_to}"
         f":{str(scope.org.vat_rate)}:{scope.org.vat_country_code}"
     )
     raw = scope_key + "||" + "\n".join(parts)

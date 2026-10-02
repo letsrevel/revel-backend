@@ -99,3 +99,14 @@ def test_new_payment_invalidates_cache(org_scope: t.Any) -> None:
     )
     nxt = svc.get_or_generate_revenue_report(org, scope, requested_by=user)
     assert nxt.id != first.id  # data_hash changed → miss
+
+
+@pytest.mark.django_db
+def test_data_hash_changes_with_report_format_version(org_scope: t.Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A layout change must invalidate cached reports even when no row changed (#1090)."""
+    from events.service import revenue_aggregation
+
+    _org, _user, scope = org_scope
+    hash_before = svc.compute_revenue_data_hash(scope)
+    monkeypatch.setattr(revenue_aggregation, "REPORT_FORMAT_VERSION", revenue_aggregation.REPORT_FORMAT_VERSION + 1)
+    assert svc.compute_revenue_data_hash(scope) != hash_before
