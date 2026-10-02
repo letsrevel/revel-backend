@@ -23,7 +23,8 @@ MYDATA_NOTICE = _(
     "AADE's myDATA. If you must issue Greek documents, issue them from your own software, a certified "
     "e-invoicing provider or AADE's free tools (timologio, myDATAapp). Invoices to Greek businesses must be "
     "e-invoices issued through a provider or AADE's tools: since 2 March 2026 if your 2023 gross revenue was "
-    "over €1 million, otherwise from 2 November 2026."
+    "over €1 million, otherwise from 2 November 2026 (with a phase-in until 31 January 2027 if you file the "
+    "declaration in time)."
 )
 
 
