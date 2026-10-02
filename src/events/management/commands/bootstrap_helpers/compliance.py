@@ -173,10 +173,11 @@ def create_compliance_fixtures(now: datetime) -> dict[str, events_models.Organiz
     # Poland: kasa fiskalna notice next to the ticket-sales settings; it covers online sales too (#1067).
     _tier(_event(orgs["compliance-pl"], "pl-dance-night", "PL Dance Night", start), "Card", method.ONLINE, "15.00")
 
-    # Croatia: a HYBRID draft that predates the gate and can no longer be issued.
+    # Croatia: a HYBRID draft that predates the gate and can no longer be issued. update_or_create, not
+    # get_or_create: the invoice's FKs are SET_NULL, so a reset leaves an orphan to re-attach (#1083).
     hr_org = orgs["compliance-hr"]
     hr_event = _event(hr_org, "hr-concert", "HR Concert", start)
-    AttendeeInvoice.objects.get_or_create(
+    AttendeeInvoice.objects.update_or_create(
         stripe_session_id="cs_e2e_compliance_hr_draft",
         defaults={
             "organization": hr_org,
