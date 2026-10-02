@@ -97,6 +97,8 @@ _TXN_HEADERS = [
     "currency",
     "stripe_session_id",
     "stripe_payout_id",
+    # Appended last so existing column positions (and parsers keyed on them) stay put.
+    "ticket_number",
 ]
 
 
@@ -182,6 +184,7 @@ def build_xlsx(data: RevenueReportData) -> bytes:
                     row.currency,
                     row.stripe_session_id,
                     row.stripe_payout_id,
+                    row.ticket_number,
                 ]
             )
     _format_numeric_columns(txns, money_cols=(7, 8, 10, 11, 12), percent_cols=(9,))

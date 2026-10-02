@@ -380,3 +380,66 @@ def test_data_hash_changes_when_a_refund_is_recorded(
     payment.save()
     after = svc.compute_revenue_data_hash(_scope(org))
     assert before != after
+
+
+def _paid_online_ticket(
+    event: Event, tier: TicketTier, user: RevelUser, status: Ticket.TicketStatus = Ticket.TicketStatus.ACTIVE
+) -> Ticket:
+    ticket = Ticket.objects.create(event=event, tier=tier, user=user, status=status, guest_name="Ann")
+    Payment.objects.create(
+        ticket=ticket,
+        user=user,
+        status=Payment.PaymentStatus.SUCCEEDED,
+        amount=Decimal("120.00"),
+        currency="EUR",
+        net_amount=Decimal("100.00"),
+        vat_amount=Decimal("20.00"),
+        vat_rate=Decimal("20.00"),
+        platform_fee=Decimal("0.00"),
+        stripe_session_id=f"cs_test_{ticket.pk}",
+    )
+    return ticket
+
+
+@pytest.mark.django_db
+def test_transaction_rows_carry_the_formatted_ticket_number(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """Issued tickets show their fiscal number (#1090); a not-yet-issued one shows an empty cell."""
+    org, event, tier, user = org_event_tier
+    issued = _paid_online_ticket(event, tier, user)
+    # Paid but still PENDING (e.g. the activation hasn't landed yet): no number assigned.
+    _paid_online_ticket(event, tier, user, Ticket.TicketStatus.PENDING)
+    offline = _offline_ticket(event, user, Ticket.TicketStatus.ACTIVE)
+    issued.refresh_from_db()
+    offline.refresh_from_db()
+
+    data = svc.build_revenue_report_data(_scope(org))
+    section = next(s for s in data.sections if s.currency == "EUR")
+
+    numbers = sorted(row.ticket_number for row in section.transactions)
+    assert numbers == sorted(["", f"ORG-{issued.ticket_number:06d}", f"ORG-{offline.ticket_number:06d}"])
+
+
+@pytest.mark.django_db
+def test_ticket_number_adds_no_per_row_queries(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """The number lives on the already-joined Ticket, so query count is flat in the row count."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    org, event, tier, user = org_event_tier
+    door = _offline_ticket(event, user, Ticket.TicketStatus.ACTIVE).tier
+    _paid_online_ticket(event, tier, user)
+    with CaptureQueriesContext(connection) as one_each:
+        svc.build_revenue_report_data(_scope(org))
+
+    for _ in range(3):
+        _paid_online_ticket(event, tier, user)
+        Ticket.objects.create(event=event, tier=door, user=user, status=Ticket.TicketStatus.ACTIVE, guest_name="Bob")
+    with CaptureQueriesContext(connection) as four_each:
+        data = svc.build_revenue_report_data(_scope(org))
+
+    assert len(four_each) == len(one_each)
+    assert all(row.ticket_number for s in data.sections for row in s.transactions)

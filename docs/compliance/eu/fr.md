@@ -19,6 +19,8 @@ reporting and declaration duties are left to later layers.
 - The [common ticket content](index.md#common-ticket-content) covers the art. 290 quater ticket
   mentions: identification of the organizer, the show, the seat category (tier), the **total price paid
   or the mention of free admission**, and a **system-assigned sequential number**.
+- The revenue report's Transactions sheet carries each ticket's sequential number (`ticket_number`
+  column), so organizers can reconcile it with their ticketing records (#1090).
 - `FrancePolicy` exists, with no restriction, so later layers have a place to hook in.
 
 Not done in layer 1: the operation journal and record retention (ticket rows are still deleted with

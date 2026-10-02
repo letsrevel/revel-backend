@@ -26,6 +26,7 @@ from django.utils import timezone
 from common.service.vat_utils import calculate_vat_inclusive
 from events.models import MembershipPayment, Organization, Payment, Refund, Ticket, TicketTier
 from events.service.seating.pricing import recorded_or_resolved_price
+from events.service.ticket_number_service import format_ticket_number
 from events.utils import get_organization_timezone
 
 ZERO = Decimal("0.00")
@@ -73,6 +74,7 @@ class TxnRow:
     currency: str
     stripe_session_id: str
     stripe_payout_id: str
+    ticket_number: str  # formatted fiscal number (CGI 290 quater, #1090); empty while unassigned
 
 
 @dataclass(frozen=True)
@@ -374,6 +376,7 @@ def _process_payment(
                 currency=currency,
                 stripe_session_id=payment.stripe_session_id,
                 stripe_payout_id="",
+                ticket_number=format_ticket_number(payment.ticket),
             )
         )
 
@@ -425,6 +428,7 @@ def _process_ticket(
                 currency=currency,
                 stripe_session_id="",
                 stripe_payout_id="",
+                ticket_number=format_ticket_number(ticket),
             )
         )
 
