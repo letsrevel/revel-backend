@@ -242,3 +242,40 @@ def test_changelist_orders_by_payment_volume(admin_client: Client, revel_user_fa
     ordered = [org.name for org in _changelist(admin_client, f"?o=-{_payments_column_index(admin_client)}").queryset]
 
     assert ordered == ["Busy", "Quiet", "Dormant"]
+
+
+@pytest.fixture
+def attributed_orgs(revel_user_factory: RevelUserFactory) -> dict[str, Organization]:
+    """Two tagged sources plus an untagged (direct) org (#1075)."""
+    owner = revel_user_factory()
+    return {
+        "landing": _org(owner, "Landing", attribution={"utm_source": "revel", "utm_medium": "landing"}),
+        "newsletter": _org(owner, "Newsletter", attribution={"utm_source": "newsletter"}),
+        "direct": _org(owner, "Direct"),
+    }
+
+
+@NO_MANIFEST_STORAGE
+def test_acquisition_source_filter(admin_client: Client, attributed_orgs: dict[str, Organization]) -> None:
+    """Each utm_source narrows to its orgs; the direct bucket holds the untagged ones."""
+    assert _names(admin_client, "?utm_source=revel") == {"Landing"}
+    assert _names(admin_client, "?utm_source=newsletter") == {"Newsletter"}
+    assert _names(admin_client, "?utm_source=__direct__") == {"Direct"}
+    assert _names(admin_client) == {"Landing", "Newsletter", "Direct"}
+
+
+@NO_MANIFEST_STORAGE
+def test_acquisition_source_filter_lists_distinct_sources(
+    admin_client: Client, attributed_orgs: dict[str, Organization]
+) -> None:
+    """The filter offers the direct bucket plus every source seen, sorted."""
+    spec = next(f for f in _changelist(admin_client).filter_specs if f.parameter_name == "utm_source")
+    assert [value for value, _ in spec.lookup_choices] == ["__direct__", "newsletter", "revel"]
+
+
+@NO_MANIFEST_STORAGE
+def test_acquisition_source_column(admin_client: Client, attributed_orgs: dict[str, Organization]) -> None:
+    """The changelist shows the source, or a dash for direct orgs."""
+    admin = _changelist(admin_client).model_admin
+    assert admin.acquisition_source(attributed_orgs["direct"]) == "—"
+    assert admin.acquisition_source(attributed_orgs["landing"]) == "revel"

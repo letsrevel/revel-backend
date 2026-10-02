@@ -401,6 +401,12 @@ class Organization(
     accept_membership_requests = models.BooleanField(default=False)
     contact_email = models.EmailField(blank=True, null=True)
     contact_email_verified = models.BooleanField(default=False)
+    attribution = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Campaign tags (utm_source/medium/campaign/content) the owner arrived with, "
+        "as sent by the create-organization payload (#1075). Null when the URL carried none. Never updated.",
+    )
     contact_method = models.CharField(
         max_length=10,
         choices=ContactMethod.choices,

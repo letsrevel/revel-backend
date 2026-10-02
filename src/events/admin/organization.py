@@ -86,6 +86,29 @@ class VatStatusFilter(admin.SimpleListFilter):
         return queryset
 
 
+class AcquisitionSourceFilter(admin.SimpleListFilter):
+    """Filter organizations by the ``utm_source`` they were created through (#1075)."""
+
+    title = "acquisition source"
+    parameter_name = "utm_source"
+
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:  # type: ignore[type-arg]
+        sources = (
+            models.Organization.objects.filter(attribution__utm_source__isnull=False)
+            .values_list("attribution__utm_source", flat=True)
+            .distinct()
+            .order_by("attribution__utm_source")
+        )
+        return [("__direct__", "Direct (no tags)"), *((s, s) for s in sources)]
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> QuerySet[models.Organization]:
+        if self.value() == "__direct__":
+            return queryset.filter(attribution__utm_source__isnull=True)
+        if self.value():
+            return queryset.filter(attribution__utm_source=self.value())
+        return queryset
+
+
 @admin.register(models.Organization)
 class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """Admin model for Organizations."""
@@ -119,12 +142,14 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         "stripe_connected",
         "vat_status",
         "visibility",
+        "acquisition_source",
         "created_at",
     ]
     list_filter = [
         StripeConnectedFilter,
         HasEventsFilter,
         VatStatusFilter,
+        AcquisitionSourceFilter,
         "visibility",
         ("created_at", RangeDateFilter),
     ]
@@ -133,6 +158,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     search_fields = ["name", "slug", "owner__username"]
     autocomplete_fields = ["owner", "city", "staff_members", "members"]
     prepopulated_fields = {"slug": ("name",)}
+    readonly_fields = ["attribution"]
     actions = ["bind_platform_stripe_account", "unbind_platform_stripe_account", "clear_stripe_connect_account"]
 
     tabs = [
@@ -156,6 +182,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                     "accept_membership_requests",
                     "contact_email",
                     "contact_email_verified",
+                    "attribution",
                 ],
             },
         ),
@@ -336,6 +363,10 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     @admin.display(description="Payments", ordering="_payments_count")
     def payments_count(self, obj: models.Organization) -> int:
         return t.cast(int, getattr(obj, "_payments_count", 0))
+
+    @admin.display(description="Source", ordering="attribution__utm_source")
+    def acquisition_source(self, obj: models.Organization) -> str:
+        return str((obj.attribution or {}).get("utm_source", "—"))
 
     @admin.display(description="Stripe", boolean=True)
     def stripe_connected(self, obj: models.Organization) -> bool:

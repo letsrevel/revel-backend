@@ -8,7 +8,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events import schema
 from events.exceptions import MembershipPolicyManageSubscriptionsOnlyError, RevenueReportCadenceOwnerOnlyError
-from events.models import Organization
+from events.models import Organization, TicketAttribution
 from events.service import permission_snapshot
 from events.service.organization_service.contact import (
     create_and_send_contact_email_verification,
@@ -47,6 +47,7 @@ def create_organization(
     location_maps_url: str | None = None,
     location_maps_embed: str | None = None,
     slug: str | None = None,
+    attribution: TicketAttribution | None = None,
 ) -> Organization:
     """Create a new organization.
 
@@ -60,6 +61,7 @@ def create_organization(
         location_maps_url: Optional shareable Google Maps URL
         location_maps_embed: Optional Google Maps embed URL for iframe
         slug: Optional explicit slug; when omitted the model derives one from the name.
+        attribution: Sanitised campaign tags the owner arrived with (#1075).
 
     Returns:
         The created Organization instance
@@ -97,6 +99,7 @@ def create_organization(
         address=address,
         location_maps_url=location_maps_url,
         location_maps_embed=location_maps_embed,
+        attribution=attribution,
     )
 
     # Send verification email if contact email is not auto-verified

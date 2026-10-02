@@ -1,8 +1,9 @@
-"""Purchase attribution payload field (#922).
+"""Attribution payload field: ticket purchases (#922) and organization creation (#1075).
 
-One mixin shared by every checkout payload (authenticated, guest, series pass), so the
-sanitiser has a single authority. The guest confirmation JWT carries the already-sanitised
-value as a plain field and never re-validates it.
+One mixin shared by every checkout payload (authenticated, guest, series pass) and the
+create-organization payload, so the sanitiser has a single authority. The guest
+confirmation JWT carries the already-sanitised value as a plain field and never
+re-validates it.
 """
 
 import re
@@ -46,12 +47,12 @@ def sanitize_attribution(raw: t.Mapping[str, object]) -> TicketAttribution | Non
 
 
 class AttributionPayloadMixin(Schema):
-    """Adds the optional ``attribution`` field to a checkout payload."""
+    """Adds the optional ``attribution`` field to a checkout or create-organization payload."""
 
     attribution: TicketAttribution | None = Field(
         default=None,
-        description="Campaign tags (utm_source/medium/campaign/content) read off the page URL at "
-        "checkout. Malformed values are dropped silently; omit when the URL carried none.",
+        description="Campaign tags (utm_source/medium/campaign/content) read off the page URL. "
+        "Malformed values are dropped silently; omit when the URL carried none.",
     )
 
     @field_validator("attribution", mode="before")

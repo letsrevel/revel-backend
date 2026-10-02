@@ -30,6 +30,7 @@ from events.models import (
 from events.models.organization import Organization as OrganizationModel
 from questionnaires.models import QuestionnaireEvaluation
 
+from .attribution import AttributionPayloadMixin
 from .mixins import (
     CityEditMixin,
     CityRetrieveMixin,
@@ -41,7 +42,7 @@ from .mixins import (
 )
 
 
-class OrganizationCreateSchema(CityEditMixin):
+class OrganizationCreateSchema(CityEditMixin, AttributionPayloadMixin):
     """Schema for creating a new organization."""
 
     name: OneToOneFiftyString
