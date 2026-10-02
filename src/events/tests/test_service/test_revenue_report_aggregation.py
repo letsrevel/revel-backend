@@ -443,3 +443,22 @@ def test_ticket_number_adds_no_per_row_queries(
 
     assert len(four_each) == len(one_each)
     assert all(row.ticket_number for s in data.sections for row in s.transactions)
+
+
+@pytest.mark.django_db
+def test_data_hash_changes_when_a_ticket_number_is_assigned(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """Issuing a paid ticket later must invalidate a cached report showing an empty number (#1090)."""
+    from events.service.ticket_number_service import assign_ticket_numbers
+
+    org, event, tier, user = org_event_tier
+    ticket = _paid_online_ticket(event, tier, user, Ticket.TicketStatus.PENDING)
+    before = svc.compute_revenue_data_hash(_scope(org))
+
+    Ticket.objects.filter(pk=ticket.pk).update(status=Ticket.TicketStatus.ACTIVE)
+    ticket.refresh_from_db()
+    assign_ticket_numbers([ticket])
+    assert ticket.ticket_number is not None
+
+    assert svc.compute_revenue_data_hash(_scope(org)) != before

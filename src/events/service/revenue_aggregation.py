@@ -74,7 +74,7 @@ class TxnRow:
     currency: str
     stripe_session_id: str
     stripe_payout_id: str
-    ticket_number: str  # formatted fiscal number (CGI 290 quater, #1090); empty while unassigned
+    ticket_number: str  # formatted fiscal number (#1090, needed for FR CGI 290 quater); empty until issued
 
 
 @dataclass(frozen=True)
@@ -609,6 +609,8 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
                     payment.updated_at.isoformat(),
                     payment.status,
                     payment.refund_status or "",
+                    # Numbers are bulk-assigned without bumping ``updated_at`` (#1090).
+                    format_ticket_number(payment.ticket),
                 ]
             )
         )
@@ -620,6 +622,7 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
                     ticket.updated_at.isoformat(),
                     ticket.status,
                     str(ticket.offline_refund_amount),
+                    format_ticket_number(ticket),
                 ]
             )
         )
