@@ -1829,6 +1829,8 @@ Every ticket PDF, Apple pass (back fields `compliance_<key>`) and Google pass (`
 
 The labels and the "Free" / notice text are translated. A cached PDF or pass regenerates once the ticket is numbered.
 
+- **Ticket emails (#1085):** the holder's `TICKET_CREATED` (active and pending), `TICKET_UPDATED` and `PAYMENT_CONFIRMATION` emails, HTML and plain text, end the ticket section with the same translated `notice` line. Staff copies of those emails do not carry it.
+
 - **Web ticket page (FE #1001):** every `UserTicketSchema` (`GET /dashboard/tickets`, the event `my-status` tickets, checkout responses) carries `compliance_lines: [{key, label, value}]` (#1077): the same lines, in the same order, already translated. Render them generically (e.g. a `<dl>`), keyed on `key`; unknown keys must still render.
   - Buy *Door* on `it-club-night` → the ticket view lists `organizer`, `tax_id`, `ticket_number` (`COMPLIANCEIT-…`), `issued_at`, `price` (`EUR 10.00`), `notice` and `it_reservation`.
   - Get *Free entry* → `price` reads "Free" and there is no `it_reservation` row.

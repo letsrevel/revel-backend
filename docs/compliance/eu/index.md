@@ -29,7 +29,9 @@ Every ticket PDF and Apple/Google Wallet pass carries the following, whatever th
       event, tier or user account is deleted ([#1068](https://github.com/letsrevel/revel-backend/issues/1068)).
 - **Issued**: the issue date and time.
 - **Price**: the price paid including VAT (for example `EUR 25.00`), or "Free" for zero-price tickets.
-- **Tax notice**: "This ticket is not a tax invoice or receipt."
+- **Tax notice**: "This ticket is not a tax invoice or receipt." The ticket emails to the buyer
+  (ticket created, ticket updated, payment confirmation) carry the same line
+  ([#1085](https://github.com/letsrevel/revel-backend/issues/1085)).
 
 These come on top of what tickets already showed: event name, venue and address, date and time,
 ticket tier, and sector/seat.

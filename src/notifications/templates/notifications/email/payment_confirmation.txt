@@ -23,6 +23,7 @@
 {% endif %}{% if context.google_wallet_save_url %}
 {% trans "Add to Google Wallet:" %} {{ context.google_wallet_save_url }}
 {% endif %}
+{% include "notifications/email/_tax_notice.txt" %}
 
 {% trans "View event details:" %} {{ context.event_url }}
 
