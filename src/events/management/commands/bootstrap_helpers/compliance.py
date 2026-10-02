@@ -170,6 +170,9 @@ def create_compliance_fixtures(now: datetime) -> dict[str, events_models.Organiz
     # Denmark: sales-registration notice next to the door/offline setting.
     _tier(_event(orgs["compliance-dk"], "dk-disco-night", "DK Disco Night", start), "Door", method.AT_THE_DOOR, "9.00")
 
+    # Poland: kasa fiskalna notice next to the ticket-sales settings; it covers online sales too (#1067).
+    _tier(_event(orgs["compliance-pl"], "pl-dance-night", "PL Dance Night", start), "Card", method.ONLINE, "15.00")
+
     # Croatia: a HYBRID draft that predates the gate and can no longer be issued.
     hr_org = orgs["compliance-hr"]
     hr_event = _event(hr_org, "hr-concert", "HR Concert", start)
