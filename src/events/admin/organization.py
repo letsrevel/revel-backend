@@ -99,7 +99,7 @@ class AcquisitionSourceFilter(admin.SimpleListFilter):
             .distinct()
             .order_by("attribution__utm_source")
         )
-        return [("__direct__", "Direct (no tags)"), *((s, s) for s in sources)]
+        return [("__direct__", "Direct (no source)"), *((s, s) for s in sources)]
 
     def queryset(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> QuerySet[models.Organization]:
         if self.value() == "__direct__":
@@ -366,7 +366,8 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
 
     @admin.display(description="Source", ordering="attribution__utm_source")
     def acquisition_source(self, obj: models.Organization) -> str:
-        return str((obj.attribution or {}).get("utm_source", "—"))
+        attribution: models.TicketAttribution = obj.attribution or models.TicketAttribution()
+        return attribution.get("utm_source", "—")
 
     @admin.display(description="Stripe", boolean=True)
     def stripe_connected(self, obj: models.Organization) -> bool:

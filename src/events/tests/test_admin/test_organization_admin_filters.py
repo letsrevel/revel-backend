@@ -2,7 +2,8 @@
 
 The filters exist so an operator can narrow a large organization list: which orgs
 finished Stripe onboarding, which ones actually run events, and where each stands
-on VAT. The payments column makes the list sortable by processing volume.
+on VAT, and which channel brought it in (acquisition source, #1075). The payments
+column makes the list sortable by processing volume.
 
 Each test drives the real changelist URL rather than the filter classes in
 isolation, so a filter that is implemented but never wired into ``list_filter``
@@ -276,6 +277,8 @@ def test_acquisition_source_filter_lists_distinct_sources(
 @NO_MANIFEST_STORAGE
 def test_acquisition_source_column(admin_client: Client, attributed_orgs: dict[str, Organization]) -> None:
     """The changelist shows the source, or a dash for direct orgs."""
-    admin = _changelist(admin_client).model_admin
+    changelist = _changelist(admin_client)
+    assert "acquisition_source" in changelist.list_display
+    admin = changelist.model_admin
     assert admin.acquisition_source(attributed_orgs["direct"]) == "—"
     assert admin.acquisition_source(attributed_orgs["landing"]) == "revel"
