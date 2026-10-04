@@ -374,6 +374,9 @@ msgstr ""
 msgid "This email already has a pending application; decide it instead."
 msgstr "Questa email ha già una candidatura in sospeso; decidi su quella."
 
+msgid "Bot verification failed. Please try again."
+msgstr "Verifica anti-bot non riuscita. Per favore riprova."
+
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
 msgstr "Rendiconto referral %(document_number)s (%(currency)s)"

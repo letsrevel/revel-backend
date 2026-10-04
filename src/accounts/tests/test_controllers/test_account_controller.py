@@ -1,6 +1,7 @@
 # src/accounts/tests/test_controllers/test_account_controller.py
 """test_account_controller.py: Integration tests for the AccountController."""
 
+import typing as t
 from unittest.mock import MagicMock, patch
 
 import orjson
@@ -278,3 +279,71 @@ def test_me_with_inactive_referral_code(auth_client: Client, user: RevelUser) ->
     assert response.status_code == 200
     rc = response.json()["referral_code"]
     assert rc == {"code": "DISABLED", "is_active": False}
+
+
+@pytest.fixture
+def turnstile_on(settings: t.Any) -> t.Any:
+    """Enable Turnstile with dummy keys."""
+    settings.TURNSTILE_SITE_KEY = "site-key"
+    settings.TURNSTILE_SECRET_KEY = "secret-key"
+    return settings
+
+
+@patch("accounts.service.account.register_user")
+def test_register_without_token_rejected_when_turnstile_on(
+    mock_register: MagicMock, client: Client, valid_register_payload: schema.RegisterUserSchema, turnstile_on: t.Any
+) -> None:
+    """Turnstile on + no token -> 400 and the user is never created."""
+    url = reverse("api:register-account")
+    response = client.post(url, data=valid_register_payload.model_dump_json(), content_type="application/json")
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Bot verification failed. Please try again."}
+    mock_register.assert_not_called()
+
+
+@patch("accounts.controllers.account.verify_turnstile")
+@patch("accounts.service.account.register_user")
+def test_register_verifies_token_before_creating_user(
+    mock_register: MagicMock,
+    mock_verify: MagicMock,
+    client: Client,
+    valid_register_payload: schema.RegisterUserSchema,
+    turnstile_on: t.Any,
+) -> None:
+    """A valid token reaches verify_turnstile (with the client IP) and registration proceeds."""
+    mock_register.return_value = (RevelUser(username="newuser@example.com", email="newuser@example.com"), "t")
+    payload = valid_register_payload.model_copy(update={"turnstile_token": "tok"})
+    url = reverse("api:register-account")
+    response = client.post(url, data=payload.model_dump_json(), content_type="application/json", REMOTE_ADDR="9.9.9.9")
+
+    assert response.status_code == 201
+    mock_verify.assert_called_once_with("tok", "9.9.9.9")
+
+
+def test_register_duplicate_email_gated_by_turnstile(
+    client: Client, valid_register_payload: schema.RegisterUserSchema, turnstile_on: t.Any
+) -> None:
+    """The existing-unverified-user resend branch is unreachable without a valid token."""
+    RevelUser.objects.create_user(
+        username=valid_register_payload.email, email=valid_register_payload.email, password="x-Strong-pass-1!"
+    )
+    url = reverse("api:register-account")
+    with patch("accounts.service.account.send_verification_email_for_user") as mock_send:
+        response = client.post(url, data=valid_register_payload.model_dump_json(), content_type="application/json")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Bot verification failed. Please try again."
+    mock_send.assert_not_called()
+
+
+def test_register_rejects_oversized_token(
+    client: Client, valid_register_payload: schema.RegisterUserSchema, turnstile_on: t.Any
+) -> None:
+    """Tokens longer than Cloudflare's 2048-char maximum fail schema validation (422)."""
+    body = orjson.loads(valid_register_payload.model_dump_json())
+    body["turnstile_token"] = "x" * 2049
+    url = reverse("api:register-account")
+    response = client.post(url, data=orjson.dumps(body), content_type="application/json")
+
+    assert response.status_code == 422

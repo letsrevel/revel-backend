@@ -380,6 +380,9 @@ msgstr ""
 "Für diese E-Mail-Adresse gibt es bereits einen ausstehenden Antrag; "
 "entscheide stattdessen über diesen."
 
+msgid "Bot verification failed. Please try again."
+msgstr "Bot-Überprüfung fehlgeschlagen. Bitte versuche es erneut."
+
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
 msgstr "Empfehlungsvergütung %(document_number)s (%(currency)s)"
