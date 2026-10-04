@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from accounts.exceptions import TurnstileFailedError
 from accounts.service.turnstile import SITEVERIFY_URL, is_turnstile_enabled, verify_turnstile
@@ -65,7 +66,7 @@ class TestVerifyTurnstile:
         mock_post.assert_called_once_with(
             SITEVERIFY_URL,
             data={"secret": "secret-key", "response": "tok", "remoteip": "1.2.3.4"},
-            timeout=5,
+            timeout=httpx.Timeout(5.0, connect=2.0),
         )
 
     @patch("accounts.service.turnstile.httpx.post")
@@ -94,3 +95,39 @@ class TestVerifyTurnstile:
     def test_non_json_body_fails_open(self, mock_post: MagicMock, turnstile_on: t.Any) -> None:
         mock_post.return_value = _response(200, text="<html>oops</html>")
         verify_turnstile("tok", "1.2.3.4")  # no exception
+
+    @patch("accounts.service.turnstile.httpx.post")
+    def test_client_error_status_rejected_not_bypassed(self, mock_post: MagicMock, turnstile_on: t.Any) -> None:
+        """A 4xx from siteverify must never let a registration through."""
+        mock_post.return_value = _response(400, {"success": False})
+        with capture_logs() as logs, pytest.raises(TurnstileFailedError):
+            verify_turnstile("tok", "1.2.3.4")
+        assert any(e["event"] == "turnstile_misconfigured" and e["log_level"] == "error" for e in logs)
+
+    @pytest.mark.parametrize("code", ["invalid-input-secret", "missing-input-secret"])
+    @patch("accounts.service.turnstile.httpx.post")
+    def test_secret_error_is_logged_loudly(self, mock_post: MagicMock, turnstile_on: t.Any, code: str) -> None:
+        """A wrong/missing secret is an operator problem: still rejected, but logged at error, not info."""
+        mock_post.return_value = _response(200, {"success": False, "error-codes": [code]})
+        with capture_logs() as logs, pytest.raises(TurnstileFailedError):
+            verify_turnstile("tok", "1.2.3.4")
+        assert any(e["event"] == "turnstile_misconfigured" and e["log_level"] == "error" for e in logs)
+
+    @patch("accounts.service.turnstile.httpx.post")
+    def test_visitor_rejection_logged_at_info(self, mock_post: MagicMock, turnstile_on: t.Any) -> None:
+        mock_post.return_value = _response(200, {"success": False, "error-codes": ["invalid-input-response"]})
+        with capture_logs() as logs, pytest.raises(TurnstileFailedError):
+            verify_turnstile("tok", "1.2.3.4")
+        assert [e["log_level"] for e in logs if e["event"].startswith("turnstile_")] == ["info"]
+
+    @patch("accounts.service.turnstile.httpx.post")
+    def test_internal_error_code_fails_open(self, mock_post: MagicMock, turnstile_on: t.Any) -> None:
+        """Cloudflare's own internal-error is an outage, not a verdict on the visitor."""
+        mock_post.return_value = _response(200, {"success": False, "error-codes": ["internal-error"]})
+        verify_turnstile("tok", "1.2.3.4")  # no exception
+
+    @pytest.mark.parametrize("body", [[], "x", None])
+    @patch("accounts.service.turnstile.httpx.post")
+    def test_non_object_json_fails_open(self, mock_post: MagicMock, turnstile_on: t.Any, body: t.Any) -> None:
+        mock_post.return_value = _response(200, body)
+        verify_turnstile("tok", "1.2.3.4")  # no exception, no 500
