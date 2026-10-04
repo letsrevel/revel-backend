@@ -131,3 +131,10 @@ class TestVerifyTurnstile:
     def test_non_object_json_fails_open(self, mock_post: MagicMock, turnstile_on: t.Any, body: t.Any) -> None:
         mock_post.return_value = _response(200, body)
         verify_turnstile("tok", "1.2.3.4")  # no exception, no 500
+
+    @pytest.mark.parametrize("codes", [None, "internal-error", 3])
+    @patch("accounts.service.turnstile.httpx.post")
+    def test_malformed_error_codes_fail_open(self, mock_post: MagicMock, turnstile_on: t.Any, codes: t.Any) -> None:
+        """A non-list ``error-codes`` is a malformed response (outage path), never a 500."""
+        mock_post.return_value = _response(200, {"success": False, "error-codes": codes})
+        verify_turnstile("tok", "1.2.3.4")  # no exception

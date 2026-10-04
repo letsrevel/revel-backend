@@ -60,6 +60,9 @@ def verify_turnstile(token: str | None, remote_ip: str) -> None:
         return
 
     error_codes = result.get("error-codes", [])
+    if not isinstance(error_codes, list):
+        logger.warning("turnstile_unavailable", error="malformed error-codes")
+        return
     if "internal-error" in error_codes:
         logger.warning("turnstile_unavailable", error="internal-error")
         return
