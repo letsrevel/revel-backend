@@ -2,6 +2,7 @@
 
 import typing as t
 
+from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja import File, Path
 from ninja.files import UploadedFile
@@ -17,7 +18,9 @@ from accounts.schema import (
 from accounts.service import account as account_service
 from accounts.service import oidc as oidc_service
 from accounts.service.auth import get_token_pair_for_user
+from accounts.service.turnstile import verify_turnstile
 from common.authentication import I18nJWTAuth, ScopedJWTAuth
+from common.client_ip import get_client_ip
 from common.controllers.base import UserAwareController
 from common.schema import EmailSchema, ErrorDetail, ResponseMessage
 from common.service.upload_service import safe_save_uploaded_file
@@ -137,8 +140,11 @@ class AccountController(UserAwareController):
         Creates a new account and sends a verification email. The account is created but not
         fully active until email is verified via POST /account/verify. If an unverified account
         with the same email exists, resends the verification email. Returns 400 if a verified
-        account already exists.
+        account already exists. When bot protection is configured, a valid `turnstile_token` is
+        required (400 otherwise).
         """
+        request = t.cast(HttpRequest, self.context.request)  # type: ignore[union-attr]
+        verify_turnstile(payload.turnstile_token, get_client_ip(request))
         user, _ = account_service.register_user(payload)
         return status.HTTP_201_CREATED, user
 

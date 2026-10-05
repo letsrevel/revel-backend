@@ -25,9 +25,10 @@ from accounts.exceptions import (
     ReferralApplicationError,
     ReferralApplicationsDisabledError,
     ReferralForfeitureConfirmationRequiredError,
+    TurnstileFailedError,
 )
 from accounts.service import oidc as oidc_service
-from common.exception_handlers import ExceptionHandler, register_handlers
+from common.exception_handlers import ExceptionHandler, make_simple_handler, register_handlers
 
 logger = structlog.get_logger(__name__)
 
@@ -103,6 +104,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     ReferralApplicationsDisabledError: make_referral_application_handler(404),
     ReferralApplicationConflictError: make_referral_application_handler(409),
     ReferralAlreadyActiveError: make_referral_application_handler(409),
+    TurnstileFailedError: make_simple_handler(400),
 }
 
 

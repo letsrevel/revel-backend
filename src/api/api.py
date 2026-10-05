@@ -15,6 +15,7 @@ from accounts.controllers.otp import OtpController
 from accounts.controllers.referral import ReferralController
 from accounts.controllers.referral_payouts import ReferralPayoutController
 from accounts.controllers.referral_stripe import ReferralStripeController
+from accounts.service.turnstile import is_turnstile_enabled
 from common.controllers import MediaValidationController, TagController
 from common.exception_handlers import ExceptionHandler, make_static_handler, register_handlers
 from common.models import Legal, SiteSettings
@@ -121,6 +122,7 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
         demo_booking_url=site.demo_booking_url or None,
         features=_get_features(site),
         sso_providers=[SSOProviderSchema(key=p.key, name=p.name) for p in settings.OIDC_PROVIDERS],
+        turnstile_site_key=settings.TURNSTILE_SITE_KEY if is_turnstile_enabled() else None,
     )
 
 

@@ -233,3 +233,24 @@ class TestVersionEndpointWithBanner:
 
         assert data["banner"] is not None
         assert data["banner"]["severity"] == severity.value
+
+
+class TestVersionTurnstileSiteKey:
+    """The site key is published only when Turnstile is fully configured."""
+
+    def test_null_when_disabled(self, client: Client, settings: t.Any) -> None:
+        settings.TURNSTILE_SITE_KEY = ""
+        settings.TURNSTILE_SECRET_KEY = ""
+        assert client.get(VERSION_URL).json()["turnstile_site_key"] is None
+
+    def test_null_when_half_configured(self, client: Client, settings: t.Any) -> None:
+        settings.TURNSTILE_SITE_KEY = "site-key"
+        settings.TURNSTILE_SECRET_KEY = ""
+        assert client.get(VERSION_URL).json()["turnstile_site_key"] is None
+
+    def test_exposed_when_enabled(self, client: Client, settings: t.Any) -> None:
+        settings.TURNSTILE_SITE_KEY = "site-key"
+        settings.TURNSTILE_SECRET_KEY = "secret-key"
+        data = client.get(VERSION_URL).json()
+        assert data["turnstile_site_key"] == "site-key"
+        assert "secret-key" not in str(data)

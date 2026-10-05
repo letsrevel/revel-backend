@@ -94,3 +94,7 @@ class ReferralAlreadyActiveError(ReferralApplicationError):
     """The invitee already has an active referral code (409)."""
 
     code = "already_active"
+
+
+class TurnstileFailedError(Exception):
+    """Raised when a registration's Turnstile token is missing or rejected by Cloudflare (400)."""

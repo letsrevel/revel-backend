@@ -379,6 +379,9 @@ msgid "This email already has a pending application; decide it instead."
 msgstr ""
 "Este correo ya tiene una solicitud pendiente; decide sobre ella en su lugar."
 
+msgid "Bot verification failed. Please try again."
+msgstr "La verificación anti-bots ha fallado. Inténtalo de nuevo."
+
 #, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
 msgstr "Extracto de pago de referidos %(document_number)s (%(currency)s)"

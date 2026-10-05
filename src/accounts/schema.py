@@ -183,6 +183,7 @@ class RegisterUserSchema(PasswordMixin):
     referral_code: StrippedString | None = None
     accept_toc_and_privacy: bool = Field(..., description="Must accept terms of service and privacy policy")
     return_url: VerificationReturnUrl = None
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
     @field_validator("email")
     @classmethod

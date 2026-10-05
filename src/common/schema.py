@@ -164,6 +164,7 @@ class VersionResponse(Schema):
     demo_booking_url: str | None = None
     features: FeaturesSchema
     sso_providers: list[SSOProviderSchema]
+    turnstile_site_key: str | None = None
 
 
 class ResponseOk(Schema):
