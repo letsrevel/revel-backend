@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.21.0] - 2026-10-05
+
+### Added
+- **Bot check on registration (Cloudflare Turnstile)**: when `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` are both set, `POST /api/account/register` requires a valid `turnstile_token` and answers 400 "Bot verification failed. Please try again." otherwise; the check runs before any account lookup, so the duplicate-email resend path is gated too
+  - `GET /api/version` exposes `turnstile_site_key` (null when disabled) for the frontend widget
+  - Registration stays open if Cloudflare's siteverify is unreachable or erroring; a wrong secret or a 4xx is rejected and logged as `turnstile_misconfigured` at error level
+  - Off by default; a half-configured key pair stays off and warns at startup
+
 ## [2.20.0] - 2026-10-02
 
 > **Deploy note:** the EU compliance layer must ship together with the updated Terms of Service
