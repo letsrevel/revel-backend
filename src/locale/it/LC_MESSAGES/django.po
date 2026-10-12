@@ -3977,6 +3977,14 @@ msgid "Series pass cancelled - %(pass)s"
 msgstr "Pass stagionale annullato - %(pass)s"
 
 #, python-format
+msgid "Series pass purchased: %(holder)s - %(series)s"
+msgstr "Pass stagionale acquistato: %(holder)s - %(series)s"
+
+#, python-format
+msgid "Series pass cancelled: %(holder)s - %(series)s"
+msgstr "Pass stagionale annullato: %(holder)s - %(series)s"
+
+#, python-format
 msgid "%(count)d new event scheduled for %(series)s"
 msgid_plural "%(count)d new events scheduled for %(series)s"
 msgstr[0] "%(count)d nuovo evento programmato per %(series)s"
@@ -4052,10 +4060,6 @@ msgid "Revel - %(title)s"
 msgstr "Revel - %(title)s"
 
 #, python-format
-msgid "New Ticket: %(holder)s - %(event)s"
-msgstr "Nuovo biglietto: %(holder)s - %(event)s"
-
-#, python-format
 msgid "Ticket Pending for %(event)s"
 msgstr "Biglietto in sospeso per %(event)s"
 
@@ -4070,10 +4074,6 @@ msgstr "Biglietto in sospeso - %(event)s"
 #, python-format
 msgid "Ticket Confirmed - %(event)s"
 msgstr "Biglietto confermato - %(event)s"
-
-#, python-format
-msgid "Ticket %(action)s: %(holder)s - %(event)s"
-msgstr "Biglietto %(action)s: %(holder)s - %(event)s"
 
 #, python-format
 msgid "Ticket Update for %(event)s"
@@ -4097,6 +4097,18 @@ msgstr "Check-in effettuato per %(event)s"
 #, python-format
 msgid "Checked in - %(event)s"
 msgstr "Check-in effettuato - %(event)s"
+
+#, python-format
+msgid "New Ticket: %(holder)s - %(event)s"
+msgstr "Nuovo biglietto: %(holder)s - %(event)s"
+
+#, python-format
+msgid "Ticket Cancelled: %(holder)s - %(event)s"
+msgstr "Biglietto annullato: %(holder)s - %(event)s"
+
+#, python-format
+msgid "Ticket Refunded: %(holder)s - %(event)s"
+msgstr "Biglietto rimborsato: %(holder)s - %(event)s"
 
 msgid "Refund could not be matched to a ticket"
 msgstr "Non è stato possibile associare il rimborso a un biglietto"
@@ -5279,14 +5291,6 @@ msgstr "Biglietti annullati:"
 
 #, python-format
 msgid ""
-"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
-"pass holder."
-msgstr ""
-"Un rimborso di <strong>%(amount)s %(currency)s</strong> è stato emesso al "
-"titolare del pass."
-
-#, python-format
-msgid ""
 "A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
 "your original payment method within 5-10 business days."
 msgstr ""
@@ -5296,11 +5300,6 @@ msgstr ""
 #, python-format
 msgid "Your series pass %(pass_name)s for %(series)s has been cancelled."
 msgstr "Il tuo pass stagionale %(pass_name)s per %(series)s è stato annullato."
-
-#, python-format
-msgid "A refund of %(amount)s %(currency)s has been issued to the pass holder."
-msgstr ""
-"Un rimborso di %(amount)s %(currency)s è stato emesso al titolare del pass."
 
 #, python-format
 msgid ""
@@ -5369,6 +5368,146 @@ msgstr "Il tuo pass stagionale %(pass_name)s per %(series)s è ora attivo."
 
 msgid "Pass Details:"
 msgstr "Dettagli del pass:"
+
+#, python-format
+msgid ""
+"The series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> held by <strong>%(holder)s</strong> has been cancelled."
+msgstr ""
+"Il pass stagionale <strong>%(pass_name)s</strong> per "
+"<strong>%(series)s</strong> intestato a <strong>%(holder)s</strong> è "
+"stato annullato."
+
+msgid "Holder:"
+msgstr "Titolare:"
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
+"pass holder."
+msgstr ""
+"Un rimborso di <strong>%(amount)s %(currency)s</strong> è stato emesso al "
+"titolare del pass."
+
+#, python-format
+msgid ""
+"The series pass %(pass_name)s for %(series)s held by %(holder)s has been "
+"cancelled."
+msgstr ""
+"Il pass stagionale %(pass_name)s per %(series)s intestato a %(holder)s è "
+"stato annullato."
+
+#, python-format
+msgid "A refund of %(amount)s %(currency)s has been issued to the pass holder."
+msgstr ""
+"Un rimborso di %(amount)s %(currency)s è stato emesso al titolare del pass."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong> purchased the series pass <strong>%(pass_name)s</"
+"strong> for <strong>%(series)s</strong>."
+msgstr ""
+"<strong>%(holder)s</strong> ha acquistato il pass stagionale "
+"<strong>%(pass_name)s</strong> per <strong>%(series)s</strong>."
+
+#, python-format
+msgid "%(holder)s purchased the series pass %(pass_name)s for %(series)s."
+msgstr ""
+"%(holder)s ha acquistato il pass stagionale %(pass_name)s per %(series)s."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong> cancelled their ticket for <strong>%(event)s</"
+"strong>."
+msgstr ""
+"<strong>%(holder)s</strong> ha annullato il proprio biglietto per "
+"<strong>%(event)s</strong>."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> was "
+"refunded via the Stripe dashboard."
+msgstr ""
+"Il biglietto di <strong>%(holder)s</strong> per <strong>%(event)s</strong> è "
+"stato rimborsato tramite la dashboard di Stripe."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
+"cancelled."
+msgstr ""
+"Il biglietto di <strong>%(holder)s</strong> per <strong>%(event)s</strong> è "
+"stato annullato."
+
+msgid "Ticket Holder"
+msgstr "Titolare del biglietto"
+
+msgid "Cancelled Ticket"
+msgstr "Biglietto annullato"
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
+"ticket holder."
+msgstr ""
+"Un rimborso di <strong>%(amount)s %(currency)s</strong> è stato emesso al "
+"titolare del biglietto."
+
+#, python-format
+msgid "%(holder)s cancelled their ticket for %(event)s."
+msgstr "%(holder)s ha annullato il proprio biglietto per %(event)s."
+
+#, python-format
+msgid ""
+"%(holder)s's ticket for %(event)s was refunded via the Stripe dashboard."
+msgstr ""
+"Il biglietto di %(holder)s per %(event)s è stato rimborsato tramite la "
+"dashboard di Stripe."
+
+#, python-format
+msgid "%(holder)s's ticket for %(event)s has been cancelled."
+msgstr "Il biglietto di %(holder)s per %(event)s è stato annullato."
+
+msgid "Ticket Holder:"
+msgstr "Titolare del biglietto:"
+
+msgid "Cancelled Ticket:"
+msgstr "Biglietto annullato:"
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s has been issued to the ticket holder."
+msgstr ""
+"Un rimborso di %(amount)s %(currency)s è stato emesso al titolare del "
+"biglietto."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong> has registered for <strong>%(event)s</strong>."
+msgstr ""
+"<strong>%(holder)s</strong> si è registrato per <strong>%(event)s</strong>."
+
+msgid "Ticket Details"
+msgstr "Dettagli biglietto"
+
+#, python-format
+msgid "%(holder)s has registered for %(event)s."
+msgstr "%(holder)s si è registrato per %(event)s."
+
+msgid "Ticket Details:"
+msgstr "Dettagli biglietto:"
+
+#, python-format
+msgid ""
+"The ticket of <strong>%(holder)s</strong> for <strong>%(event)s</strong> has "
+"been refunded."
+msgstr ""
+"Il biglietto di <strong>%(holder)s</strong> per "
+"<strong>%(event)s</strong> è stato rimborsato."
+
+#, python-format
+msgid "The ticket of %(holder)s for %(event)s has been refunded."
+msgstr "Il biglietto di %(holder)s per %(event)s è stato rimborsato."
 
 msgid "Subscription Cancelled"
 msgstr "Abbonamento annullato"
@@ -5644,30 +5783,6 @@ msgid "Read more:"
 msgstr "Leggi di più:"
 
 #, python-format
-msgid ""
-"<strong>%(holder)s</strong> cancelled their ticket for <strong>%(event)s</"
-"strong>."
-msgstr ""
-"<strong>%(holder)s</strong> ha annullato il proprio biglietto per "
-"<strong>%(event)s</strong>."
-
-#, python-format
-msgid ""
-"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> was "
-"refunded via the Stripe dashboard."
-msgstr ""
-"Il biglietto di <strong>%(holder)s</strong> per <strong>%(event)s</strong> è "
-"stato rimborsato tramite la dashboard di Stripe."
-
-#, python-format
-msgid ""
-"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
-"cancelled."
-msgstr ""
-"Il biglietto di <strong>%(holder)s</strong> per <strong>%(event)s</strong> è "
-"stato annullato."
-
-#, python-format
 msgid "You cancelled your ticket for <strong>%(event)s</strong>."
 msgstr "Hai annullato il tuo biglietto per <strong>%(event)s</strong>."
 
@@ -5682,38 +5797,6 @@ msgstr ""
 msgid "Your ticket for <strong>%(event)s</strong> has been cancelled."
 msgstr "Il tuo biglietto per <strong>%(event)s</strong> è stato annullato."
 
-msgid "Ticket Holder"
-msgstr "Titolare del biglietto"
-
-msgid "Cancelled Ticket"
-msgstr "Biglietto annullato"
-
-#, python-format
-msgid ""
-"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
-"ticket holder."
-msgstr ""
-"Un rimborso di <strong>%(amount)s %(currency)s</strong> è stato emesso al "
-"titolare del biglietto."
-
-#, python-format
-msgid "%(holder)s cancelled their ticket for %(event)s."
-msgstr "%(holder)s ha annullato il proprio biglietto per %(event)s."
-
-#, python-format
-msgid ""
-"%(holder)s's ticket for %(event)s was refunded via the Stripe dashboard."
-msgstr ""
-"Il biglietto di %(holder)s per %(event)s è stato rimborsato tramite la "
-"dashboard di Stripe."
-
-#, python-format
-msgid "%(holder)s's ticket for %(event)s has been cancelled."
-msgstr "Il biglietto di %(holder)s per %(event)s è stato annullato."
-
-msgid "Ticket Holder:"
-msgstr "Titolare del biglietto:"
-
 #, python-format
 msgid "You cancelled your ticket for %(event)s."
 msgstr "Hai annullato il tuo biglietto per %(event)s."
@@ -5726,16 +5809,6 @@ msgstr "Il tuo biglietto per %(event)s è stato annullato e rimborsato."
 msgid "Your ticket for %(event)s has been cancelled."
 msgstr "Il tuo biglietto per %(event)s è stato annullato."
 
-msgid "Cancelled Ticket:"
-msgstr "Biglietto annullato:"
-
-#, python-format
-msgid ""
-"A refund of %(amount)s %(currency)s has been issued to the ticket holder."
-msgstr ""
-"Un rimborso di %(amount)s %(currency)s è stato emesso al titolare del "
-"biglietto."
-
 #, python-format
 msgid "You have been checked in for <strong>%(event)s</strong>!"
 msgstr "Hai effettuato il check-in per <strong>%(event)s</strong>!"
@@ -5746,18 +5819,6 @@ msgstr "Buon evento!"
 #, python-format
 msgid "You have been checked in for %(event)s!"
 msgstr "Hai effettuato il check-in per %(event)s!"
-
-#, python-format
-msgid ""
-"<strong>%(holder)s</strong> has registered for <strong>%(event)s</strong>."
-msgstr ""
-"<strong>%(holder)s</strong> si è registrato per <strong>%(event)s</strong>."
-
-msgid "Ticket Details"
-msgstr "Dettagli biglietto"
-
-msgid "Holder:"
-msgstr "Titolare:"
 
 #, python-format
 msgid ""
@@ -5780,13 +5841,6 @@ msgstr ""
 #, python-format
 msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"
 msgstr "Il tuo biglietto per <strong>%(event)s</strong> è confermato! 🎉"
-
-#, python-format
-msgid "%(holder)s has registered for %(event)s."
-msgstr "%(holder)s si è registrato per %(event)s."
-
-msgid "Ticket Details:"
-msgstr "Dettagli biglietto:"
 
 #, python-format
 msgid "Your ticket for %(event)s is pending payment confirmation."
@@ -5826,14 +5880,6 @@ msgstr ""
 
 #, python-format
 msgid ""
-"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
-"<strong>%(action)s</strong>."
-msgstr ""
-"Il biglietto di <strong>%(holder)s</strong> per <strong>%(event)s</strong> è "
-"stato <strong>%(action)s</strong>."
-
-#, python-format
-msgid ""
 "Your ticket for <strong>%(event)s</strong> has been <strong>%(action)s</"
 "strong>."
 msgstr ""
@@ -5842,10 +5888,6 @@ msgstr ""
 
 msgid "Updated Ticket Information"
 msgstr "Informazioni biglietto aggiornate"
-
-#, python-format
-msgid "%(holder)s's ticket for %(event)s has been %(action)s."
-msgstr "Il biglietto di %(holder)s per %(event)s è stato %(action)s."
 
 #, python-format
 msgid "Your ticket for %(event)s has been confirmed! 🎉"

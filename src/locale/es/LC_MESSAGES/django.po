@@ -3971,6 +3971,14 @@ msgid "Series pass cancelled - %(pass)s"
 msgstr "Pase de serie cancelado - %(pass)s"
 
 #, python-format
+msgid "Series pass purchased: %(holder)s - %(series)s"
+msgstr "Pase de serie comprado: %(holder)s - %(series)s"
+
+#, python-format
+msgid "Series pass cancelled: %(holder)s - %(series)s"
+msgstr "Pase de serie cancelado: %(holder)s - %(series)s"
+
+#, python-format
 msgid "%(count)d new event scheduled for %(series)s"
 msgid_plural "%(count)d new events scheduled for %(series)s"
 msgstr[0] "%(count)d evento nuevo programado para %(series)s"
@@ -4046,10 +4054,6 @@ msgid "Revel - %(title)s"
 msgstr "Revel - %(title)s"
 
 #, python-format
-msgid "New Ticket: %(holder)s - %(event)s"
-msgstr "Nueva entrada: %(holder)s - %(event)s"
-
-#, python-format
 msgid "Ticket Pending for %(event)s"
 msgstr "Entrada pendiente para %(event)s"
 
@@ -4064,10 +4068,6 @@ msgstr "Entrada pendiente - %(event)s"
 #, python-format
 msgid "Ticket Confirmed - %(event)s"
 msgstr "Entrada confirmada - %(event)s"
-
-#, python-format
-msgid "Ticket %(action)s: %(holder)s - %(event)s"
-msgstr "Entrada %(action)s: %(holder)s - %(event)s"
 
 #, python-format
 msgid "Ticket Update for %(event)s"
@@ -4091,6 +4091,18 @@ msgstr "Check-in realizado para %(event)s"
 #, python-format
 msgid "Checked in - %(event)s"
 msgstr "Check-in realizado - %(event)s"
+
+#, python-format
+msgid "New Ticket: %(holder)s - %(event)s"
+msgstr "Nueva entrada: %(holder)s - %(event)s"
+
+#, python-format
+msgid "Ticket Cancelled: %(holder)s - %(event)s"
+msgstr "Entrada cancelada: %(holder)s - %(event)s"
+
+#, python-format
+msgid "Ticket Refunded: %(holder)s - %(event)s"
+msgstr "Entrada reembolsada: %(holder)s - %(event)s"
 
 msgid "Refund could not be matched to a ticket"
 msgstr "No se ha podido asociar el reembolso a ninguna entrada"
@@ -5267,14 +5279,6 @@ msgstr "Entradas canceladas:"
 
 #, python-format
 msgid ""
-"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
-"pass holder."
-msgstr ""
-"Se ha emitido un reembolso de <strong>%(amount)s %(currency)s</strong> a la "
-"persona titular del pase."
-
-#, python-format
-msgid ""
 "A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
 "your original payment method within 5-10 business days."
 msgstr ""
@@ -5284,11 +5288,6 @@ msgstr ""
 #, python-format
 msgid "Your series pass %(pass_name)s for %(series)s has been cancelled."
 msgstr "Tu pase de serie %(pass_name)s para %(series)s ha sido cancelado."
-
-#, python-format
-msgid "A refund of %(amount)s %(currency)s has been issued to the pass holder."
-msgstr ""
-"Se ha emitido un reembolso de %(amount)s %(currency)s al titular del pase."
 
 #, python-format
 msgid ""
@@ -5355,6 +5354,145 @@ msgstr "Tu pase de serie %(pass_name)s para %(series)s ya está activo."
 
 msgid "Pass Details:"
 msgstr "Detalles del pase:"
+
+#, python-format
+msgid ""
+"The series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> held by <strong>%(holder)s</strong> has been cancelled."
+msgstr ""
+"El pase de serie <strong>%(pass_name)s</strong> de "
+"<strong>%(holder)s</strong> para <strong>%(series)s</strong> ha sido "
+"cancelado."
+
+msgid "Holder:"
+msgstr "Titular:"
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
+"pass holder."
+msgstr ""
+"Se ha emitido un reembolso de <strong>%(amount)s %(currency)s</strong> a la "
+"persona titular del pase."
+
+#, python-format
+msgid ""
+"The series pass %(pass_name)s for %(series)s held by %(holder)s has been "
+"cancelled."
+msgstr ""
+"El pase de serie %(pass_name)s de %(holder)s para %(series)s ha sido "
+"cancelado."
+
+#, python-format
+msgid "A refund of %(amount)s %(currency)s has been issued to the pass holder."
+msgstr ""
+"Se ha emitido un reembolso de %(amount)s %(currency)s al titular del pase."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong> purchased the series pass <strong>%(pass_name)s</"
+"strong> for <strong>%(series)s</strong>."
+msgstr ""
+"<strong>%(holder)s</strong> ha comprado el pase de serie "
+"<strong>%(pass_name)s</strong> para <strong>%(series)s</strong>."
+
+#, python-format
+msgid "%(holder)s purchased the series pass %(pass_name)s for %(series)s."
+msgstr "%(holder)s ha comprado el pase de serie %(pass_name)s para %(series)s."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong> cancelled their ticket for <strong>%(event)s</"
+"strong>."
+msgstr ""
+"<strong>%(holder)s</strong> ha cancelado su entrada para <strong>%(event)s</"
+"strong>."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> was "
+"refunded via the Stripe dashboard."
+msgstr ""
+"La entrada de <strong>%(holder)s</strong> para <strong>%(event)s</strong> ha "
+"sido reembolsada desde el panel de Stripe."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
+"cancelled."
+msgstr ""
+"La entrada de <strong>%(holder)s</strong> para <strong>%(event)s</strong> ha "
+"sido cancelada."
+
+msgid "Ticket Holder"
+msgstr "Titular de la entrada"
+
+msgid "Cancelled Ticket"
+msgstr "Entrada cancelada"
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
+"ticket holder."
+msgstr ""
+"Se ha emitido un reembolso de <strong>%(amount)s %(currency)s</strong> al "
+"titular de la entrada."
+
+#, python-format
+msgid "%(holder)s cancelled their ticket for %(event)s."
+msgstr "%(holder)s ha cancelado su entrada para %(event)s."
+
+#, python-format
+msgid ""
+"%(holder)s's ticket for %(event)s was refunded via the Stripe dashboard."
+msgstr ""
+"La entrada de %(holder)s para %(event)s ha sido reembolsada desde el panel "
+"de Stripe."
+
+#, python-format
+msgid "%(holder)s's ticket for %(event)s has been cancelled."
+msgstr "La entrada de %(holder)s para %(event)s ha sido cancelada."
+
+msgid "Ticket Holder:"
+msgstr "Titular de la entrada:"
+
+msgid "Cancelled Ticket:"
+msgstr "Entrada cancelada:"
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s has been issued to the ticket holder."
+msgstr ""
+"Se ha emitido un reembolso de %(amount)s %(currency)s al titular de la "
+"entrada."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong> has registered for <strong>%(event)s</strong>."
+msgstr ""
+"<strong>%(holder)s</strong> se ha registrado para <strong>%(event)s</strong>."
+
+msgid "Ticket Details"
+msgstr "Detalles de la entrada"
+
+#, python-format
+msgid "%(holder)s has registered for %(event)s."
+msgstr "%(holder)s se ha registrado para %(event)s."
+
+msgid "Ticket Details:"
+msgstr "Detalles de la entrada:"
+
+#, python-format
+msgid ""
+"The ticket of <strong>%(holder)s</strong> for <strong>%(event)s</strong> has "
+"been refunded."
+msgstr ""
+"La entrada de <strong>%(holder)s</strong> para <strong>%(event)s</strong> "
+"ha sido reembolsada."
+
+#, python-format
+msgid "The ticket of %(holder)s for %(event)s has been refunded."
+msgstr "La entrada de %(holder)s para %(event)s ha sido reembolsada."
 
 msgid "Subscription Cancelled"
 msgstr "Suscripción cancelada"
@@ -5623,30 +5761,6 @@ msgid "Read more:"
 msgstr "Leer más:"
 
 #, python-format
-msgid ""
-"<strong>%(holder)s</strong> cancelled their ticket for <strong>%(event)s</"
-"strong>."
-msgstr ""
-"<strong>%(holder)s</strong> ha cancelado su entrada para <strong>%(event)s</"
-"strong>."
-
-#, python-format
-msgid ""
-"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> was "
-"refunded via the Stripe dashboard."
-msgstr ""
-"La entrada de <strong>%(holder)s</strong> para <strong>%(event)s</strong> ha "
-"sido reembolsada desde el panel de Stripe."
-
-#, python-format
-msgid ""
-"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
-"cancelled."
-msgstr ""
-"La entrada de <strong>%(holder)s</strong> para <strong>%(event)s</strong> ha "
-"sido cancelada."
-
-#, python-format
 msgid "You cancelled your ticket for <strong>%(event)s</strong>."
 msgstr "Has cancelado tu entrada para <strong>%(event)s</strong>."
 
@@ -5660,38 +5774,6 @@ msgstr ""
 msgid "Your ticket for <strong>%(event)s</strong> has been cancelled."
 msgstr "Tu entrada para <strong>%(event)s</strong> ha sido cancelada."
 
-msgid "Ticket Holder"
-msgstr "Titular de la entrada"
-
-msgid "Cancelled Ticket"
-msgstr "Entrada cancelada"
-
-#, python-format
-msgid ""
-"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
-"ticket holder."
-msgstr ""
-"Se ha emitido un reembolso de <strong>%(amount)s %(currency)s</strong> al "
-"titular de la entrada."
-
-#, python-format
-msgid "%(holder)s cancelled their ticket for %(event)s."
-msgstr "%(holder)s ha cancelado su entrada para %(event)s."
-
-#, python-format
-msgid ""
-"%(holder)s's ticket for %(event)s was refunded via the Stripe dashboard."
-msgstr ""
-"La entrada de %(holder)s para %(event)s ha sido reembolsada desde el panel "
-"de Stripe."
-
-#, python-format
-msgid "%(holder)s's ticket for %(event)s has been cancelled."
-msgstr "La entrada de %(holder)s para %(event)s ha sido cancelada."
-
-msgid "Ticket Holder:"
-msgstr "Titular de la entrada:"
-
 #, python-format
 msgid "You cancelled your ticket for %(event)s."
 msgstr "Has cancelado tu entrada para %(event)s."
@@ -5704,16 +5786,6 @@ msgstr "Tu entrada para %(event)s ha sido cancelada y reembolsada."
 msgid "Your ticket for %(event)s has been cancelled."
 msgstr "Tu entrada para %(event)s ha sido cancelada."
 
-msgid "Cancelled Ticket:"
-msgstr "Entrada cancelada:"
-
-#, python-format
-msgid ""
-"A refund of %(amount)s %(currency)s has been issued to the ticket holder."
-msgstr ""
-"Se ha emitido un reembolso de %(amount)s %(currency)s al titular de la "
-"entrada."
-
 #, python-format
 msgid "You have been checked in for <strong>%(event)s</strong>!"
 msgstr "¡Has hecho el check-in en <strong>%(event)s</strong>!"
@@ -5724,18 +5796,6 @@ msgstr "¡Disfruta del evento!"
 #, python-format
 msgid "You have been checked in for %(event)s!"
 msgstr "¡Has hecho el check-in en %(event)s!"
-
-#, python-format
-msgid ""
-"<strong>%(holder)s</strong> has registered for <strong>%(event)s</strong>."
-msgstr ""
-"<strong>%(holder)s</strong> se ha registrado para <strong>%(event)s</strong>."
-
-msgid "Ticket Details"
-msgstr "Detalles de la entrada"
-
-msgid "Holder:"
-msgstr "Titular:"
 
 #, python-format
 msgid ""
@@ -5757,13 +5817,6 @@ msgstr ""
 #, python-format
 msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"
 msgstr "¡Tu entrada para <strong>%(event)s</strong> está confirmada! 🎉"
-
-#, python-format
-msgid "%(holder)s has registered for %(event)s."
-msgstr "%(holder)s se ha registrado para %(event)s."
-
-msgid "Ticket Details:"
-msgstr "Detalles de la entrada:"
 
 #, python-format
 msgid "Your ticket for %(event)s is pending payment confirmation."
@@ -5802,14 +5855,6 @@ msgstr ""
 
 #, python-format
 msgid ""
-"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
-"<strong>%(action)s</strong>."
-msgstr ""
-"La entrada de <strong>%(holder)s</strong> para <strong>%(event)s</strong> ha "
-"sido <strong>%(action)s</strong>."
-
-#, python-format
-msgid ""
 "Your ticket for <strong>%(event)s</strong> has been <strong>%(action)s</"
 "strong>."
 msgstr ""
@@ -5818,10 +5863,6 @@ msgstr ""
 
 msgid "Updated Ticket Information"
 msgstr "Información actualizada de la entrada"
-
-#, python-format
-msgid "%(holder)s's ticket for %(event)s has been %(action)s."
-msgstr "La entrada de %(holder)s para %(event)s ha sido %(action)s."
 
 #, python-format
 msgid "Your ticket for %(event)s has been confirmed! 🎉"
