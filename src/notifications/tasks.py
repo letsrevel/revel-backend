@@ -344,7 +344,12 @@ def send_notification_digests() -> dict[str, t.Any]:
 
         # Pending notifications, restricted to the types the user may be emailed.
         emailable_types = [nt for nt in NotificationType if may_email(prefs.user, nt)]
-        pending = get_pending_notifications_for_digest(prefs.user, since).filter(notification_type__in=emailable_types)
+        pending = (
+            get_pending_notifications_for_digest(prefs.user, since)
+            .filter(notification_type__in=emailable_types)
+            # ponytail: legacy staff alerts are left to dispatch_notification, which re-types them (#1131).
+            .exclude(context__has_key="staff_alert")
+        )
 
         if not pending.exists():
             continue  # No notifications to send

@@ -186,6 +186,22 @@ class TestDigestSweepExcludesOptedOutStaff:
         assert send_notification_digests()["digests_sent"] == 0
         send.assert_not_called()
 
+    def test_legacy_staff_alert_left_to_dispatch(
+        self, send: MagicMock, _now: MagicMock, organization: Organization
+    ) -> None:
+        """A not-yet-dispatched mid-rollout row (holder type + staff_alert) must not ride the digest (#1131)."""
+        owner = organization.owner
+        _daily_digest(owner)
+        prefs = owner.notification_preferences
+        prefs.notification_type_settings[NotificationType.STAFF_TICKET_CREATED] = {"enabled": False}
+        prefs.save()
+        Notification.objects.create(
+            user=owner, notification_type=NotificationType.TICKET_CREATED, context={"staff_alert": True}
+        )
+
+        assert send_notification_digests()["digests_sent"] == 0
+        send.assert_not_called()
+
     def test_opted_in_staff_get_the_digest(self, send: MagicMock, _now: MagicMock, organization: Organization) -> None:
         owner = organization.owner
         _daily_digest(owner)
