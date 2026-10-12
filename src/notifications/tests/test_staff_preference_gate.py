@@ -15,10 +15,12 @@ from accounts.models import RevelUser
 from events.models import (
     Event,
     EventInvitationRequest,
+    EventRSVP,
     Organization,
     OrganizationContactMessage,
     OrganizationMembershipRequest,
     OrganizationQuestionnaire,
+    OrganizationStaff,
 )
 from notifications.enums import NotificationType
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
@@ -119,3 +121,52 @@ def test_contact_message_respects_staff_preference(
             )
 
     assert _was_notified(send_mock, NotificationType.ORG_CONTACT_MESSAGE_RECEIVED, organization.owner) is enabled
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_rsvp_confirmation_respects_staff_preference(
+    organization: Organization,
+    public_event: Event,
+    member_user: RevelUser,
+    django_capture_on_commit_callbacks: t.Any,
+    enabled: bool,
+) -> None:
+    """RSVP_CONFIRMATION reaches the owner only while they have it enabled."""
+    _set_enabled(organization.owner, NotificationType.RSVP_CONFIRMATION, enabled)
+
+    with patch("notifications.signals.notification_requested.send") as send_mock:
+        with django_capture_on_commit_callbacks(execute=True):
+            EventRSVP.objects.create(event=public_event, user=member_user, status=EventRSVP.RsvpStatus.YES)
+
+    assert _was_notified(send_mock, NotificationType.RSVP_CONFIRMATION, organization.owner) is enabled
+
+
+def test_rsvp_does_not_notify_the_rsvping_staff_member(
+    organization: Organization,
+    public_event: Event,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A staff member RSVPing is not told about their own action, but other staff still are."""
+    with patch("notifications.signals.notification_requested.send") as send_mock:
+        with django_capture_on_commit_callbacks(execute=True):
+            EventRSVP.objects.create(event=public_event, user=organization.owner, status=EventRSVP.RsvpStatus.YES)
+
+    assert _was_notified(send_mock, NotificationType.RSVP_CONFIRMATION, organization.owner) is False
+
+
+def test_rsvp_cancellation_notifies_other_staff_only(
+    organization: Organization,
+    public_event: Event,
+    member_user: RevelUser,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """Deleting an RSVP alerts the owner, never the user who cancelled."""
+    OrganizationStaff.objects.create(organization=organization, user=member_user)
+    rsvp = EventRSVP.objects.create(event=public_event, user=member_user, status=EventRSVP.RsvpStatus.YES)
+
+    with patch("notifications.signals.notification_requested.send") as send_mock:
+        with django_capture_on_commit_callbacks(execute=True):
+            rsvp.delete()
+
+    assert _was_notified(send_mock, NotificationType.RSVP_CANCELLED, organization.owner) is True
+    assert _was_notified(send_mock, NotificationType.RSVP_CANCELLED, member_user) is False

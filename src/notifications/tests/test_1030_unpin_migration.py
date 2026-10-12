@@ -39,7 +39,9 @@ def _settings(user: RevelUser) -> dict[str, t.Any]:
 def test_frozen_defaults_match_current_defaults() -> None:
     """The migration's inline copies must equal the defaults at the time it was written."""
     assert migration.REGULAR_DEFAULTS == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
-    assert migration.GUEST_DEFAULTS == {str(k): v for k, v in _get_guest_notification_type_settings().items()}
+    # Staff alert types (#1127) postdate the frozen snapshot.
+    current_guest = {str(k): v for k, v in _get_guest_notification_type_settings().items() if "staff_" not in str(k)}
+    assert migration.GUEST_DEFAULTS == current_guest
 
 
 def test_regular_user_pin_restored_to_defaults(regular_user: RevelUser) -> None:

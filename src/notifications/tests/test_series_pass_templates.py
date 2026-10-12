@@ -39,6 +39,8 @@ from notifications.service.templates.series_pass_templates import (
     SeriesPassCancelledTemplate,
     SeriesPassExtendedTemplate,
     SeriesPassPurchasedTemplate,
+    StaffSeriesPassCancelledTemplate,
+    StaffSeriesPassPurchasedTemplate,
 )
 from notifications.signals.series_pass import send_series_pass_cancelled, send_series_pass_extended
 
@@ -205,15 +207,21 @@ class TestFreePassPurchaseNotifications:
         assert holder_notifications[0].context["event_count"] == 2
 
         owner_notifications = Notification.objects.filter(
-            user=organization.owner, notification_type=NotificationType.SERIES_PASS_PURCHASED
+            user=organization.owner, notification_type=NotificationType.STAFF_SERIES_PASS_PURCHASED
         )
         assert owner_notifications.count() == 1
+        assert not Notification.objects.filter(
+            user=organization.owner, notification_type=NotificationType.SERIES_PASS_PURCHASED
+        ).exists()
 
         staff_notifications = list(
-            Notification.objects.filter(user=staff_member, notification_type=NotificationType.SERIES_PASS_PURCHASED)
+            Notification.objects.filter(
+                user=staff_member, notification_type=NotificationType.STAFF_SERIES_PASS_PURCHASED
+            )
         )
         assert len(staff_notifications) == 1
         assert staff_notifications[0].context["holder_email"] == holder.email
+        assert "staff_alert" not in staff_notifications[0].context
 
     def test_mid_season_purchase_counts_only_granted_tickets(
         self,
@@ -421,12 +429,17 @@ class TestSendSeriesPassCancelledHelper:
         assert holder_notifications[0].context["reason"] == "event dropped"
 
         owner_notifications = Notification.objects.filter(
-            user=organization.owner, notification_type=NotificationType.SERIES_PASS_CANCELLED
+            user=organization.owner, notification_type=NotificationType.STAFF_SERIES_PASS_CANCELLED
         )
         assert owner_notifications.count() == 1
+        assert not Notification.objects.filter(
+            user=organization.owner, notification_type=NotificationType.SERIES_PASS_CANCELLED
+        ).exists()
 
         staff_notifications = list(
-            Notification.objects.filter(user=staff_member, notification_type=NotificationType.SERIES_PASS_CANCELLED)
+            Notification.objects.filter(
+                user=staff_member, notification_type=NotificationType.STAFF_SERIES_PASS_CANCELLED
+            )
         )
         assert len(staff_notifications) == 1
         assert staff_notifications[0].context["holder_email"] == holder.email
@@ -508,7 +521,11 @@ def _make_cancelled_notification(
         context["holder_name"] = "Pass Holder"
         context["holder_email"] = "holder@example.com"
     return Notification.objects.create(
-        user=user, notification_type=NotificationType.SERIES_PASS_CANCELLED, context=context
+        user=user,
+        notification_type=(
+            NotificationType.STAFF_SERIES_PASS_CANCELLED if staff_copy else NotificationType.SERIES_PASS_CANCELLED
+        ),
+        context=context,
     )
 
 
@@ -526,6 +543,12 @@ class TestSeriesPassTemplatesRegistration:
     def test_cancelled_template_registered(self) -> None:
         assert is_template_registered(NotificationType.SERIES_PASS_CANCELLED)
         assert isinstance(get_template(NotificationType.SERIES_PASS_CANCELLED), SeriesPassCancelledTemplate)
+
+
+class TestStaffSeriesPassTemplatesRegistration:
+    def test_staff_templates_registered(self) -> None:
+        assert isinstance(get_template(NotificationType.STAFF_SERIES_PASS_PURCHASED), StaffSeriesPassPurchasedTemplate)
+        assert isinstance(get_template(NotificationType.STAFF_SERIES_PASS_CANCELLED), StaffSeriesPassCancelledTemplate)
 
 
 class TestSeriesPassPurchasedTemplateRendering:
@@ -654,7 +677,9 @@ class TestSeriesPassCancelledTemplateRendering:
 
     def test_staff_copy_says_refund_issued_to_pass_holder(self, holder: RevelUser) -> None:
         notification = _make_cancelled_notification(holder, staff_copy=True)
-        template = SeriesPassCancelledTemplate()
+        template = get_template(NotificationType.STAFF_SERIES_PASS_CANCELLED)
+        assert isinstance(template, StaffSeriesPassCancelledTemplate)
+        assert "Pass Holder" in template.get_in_app_title(notification)
 
         for body in (
             template.get_in_app_body(notification),

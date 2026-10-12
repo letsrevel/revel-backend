@@ -497,8 +497,6 @@ class TestTelegramChannel:
         # Make this a ticket notification so _get_qr_data returns a ticket ID
         notification.notification_type = "ticket_created"
         notification.context["ticket_id"] = "some-ticket-id"
-        # Remove ticket_holder_name so it's treated as holder notification
-        notification.context.pop("ticket_holder_name", None)
         notification.save()
 
         mock_tg_manager = MagicMock()

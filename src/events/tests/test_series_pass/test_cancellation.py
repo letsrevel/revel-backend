@@ -566,6 +566,9 @@ class TestCancelHeldPassNotifications:
             NotificationType.TICKET_UPDATED,
             NotificationType.TICKET_CANCELLED,
             NotificationType.TICKET_REFUNDED,
+            NotificationType.STAFF_TICKET_CREATED,
+            NotificationType.STAFF_TICKET_CANCELLED,
+            NotificationType.STAFF_TICKET_REFUNDED,
         }
         with (
             patch("stripe.Refund.create") as mock_create,
@@ -605,7 +608,7 @@ class TestCancelHeldPassNotifications:
         assert context["reason"] == "event dropped"
 
         owner_notifications = Notification.objects.filter(
-            user=organization_owner_user, notification_type=NotificationType.SERIES_PASS_CANCELLED
+            user=organization_owner_user, notification_type=NotificationType.STAFF_SERIES_PASS_CANCELLED
         )
         assert owner_notifications.count() == 1
 

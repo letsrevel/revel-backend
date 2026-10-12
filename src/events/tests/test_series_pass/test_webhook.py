@@ -277,6 +277,9 @@ class TestPerTicketNotificationSuppression:
             NotificationType.TICKET_UPDATED,
             NotificationType.TICKET_CANCELLED,
             NotificationType.TICKET_REFUNDED,
+            NotificationType.STAFF_TICKET_CREATED,
+            NotificationType.STAFF_TICKET_CANCELLED,
+            NotificationType.STAFF_TICKET_REFUNDED,
         }
         offending_calls = [
             call
@@ -302,7 +305,7 @@ class TestPerTicketNotificationSuppression:
         revel_user: RevelUser,
         django_capture_on_commit_callbacks: object,
     ) -> None:
-        """Regression: a REGULAR (non-pass) ticket must still notify staff on activation."""
+        """Regression: a REGULAR (non-pass) ticket must still notify staff (STAFF_TICKET_CREATED) on activation."""
         event = Event.objects.create(
             organization=stripe_connected_organization,
             name="Regular Flood Regression Event",
@@ -347,6 +350,6 @@ class TestPerTicketNotificationSuppression:
         created_calls = [
             call
             for call in mock_notification_signal.call_args_list
-            if call.kwargs["notification_type"] == NotificationType.TICKET_CREATED
+            if call.kwargs["notification_type"] == NotificationType.STAFF_TICKET_CREATED
         ]
         assert len(created_calls) >= 1

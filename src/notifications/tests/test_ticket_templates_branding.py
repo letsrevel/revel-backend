@@ -15,6 +15,9 @@ _CANCELLATION_CHANNELS: tuple[str, ...] = (
     "notifications/email/ticket_cancelled.txt",
     "notifications/telegram/ticket_cancelled.md",
 )
+_STAFF_CANCELLATION_CHANNELS: tuple[str, ...] = tuple(
+    path.replace("ticket_cancelled", "staff_ticket_cancelled") for path in _CANCELLATION_CHANNELS
+)
 
 
 class TestTicketPdfBranding:
@@ -147,7 +150,7 @@ class TestTicketCancelledStaffTemplateBranching:
             },
         )
 
-    @pytest.mark.parametrize("template", _CANCELLATION_CHANNELS)
+    @pytest.mark.parametrize("template", _STAFF_CANCELLATION_CHANNELS)
     def test_user_source_uses_third_person_for_staff(self, template: str) -> None:
         """When holder cancels, staff sees '<holder> cancelled their ticket' — never 'You cancelled'."""
         rendered = self._render(template, source=CancellationSource.USER.value)
@@ -155,14 +158,14 @@ class TestTicketCancelledStaffTemplateBranching:
         assert "cancelled their ticket" in rendered
         assert "You cancelled your ticket" not in rendered
 
-    @pytest.mark.parametrize("template", _CANCELLATION_CHANNELS)
+    @pytest.mark.parametrize("template", _STAFF_CANCELLATION_CHANNELS)
     def test_stripe_dashboard_source_mentions_holder_for_staff(self, template: str) -> None:
         rendered = self._render(template, source=CancellationSource.STRIPE_DASHBOARD.value)
         assert "Alice Holder" in rendered
         assert "Stripe dashboard" in rendered
         assert "Your ticket" not in rendered
 
-    @pytest.mark.parametrize("template", _CANCELLATION_CHANNELS)
+    @pytest.mark.parametrize("template", _STAFF_CANCELLATION_CHANNELS)
     def test_organizer_source_addresses_staff_in_third_person(self, template: str) -> None:
         rendered = self._render(template, source=CancellationSource.ORGANIZER.value)
         assert "Alice Holder" in rendered
@@ -170,8 +173,15 @@ class TestTicketCancelledStaffTemplateBranching:
         assert "Your ticket" not in rendered
         assert "You cancelled" not in rendered
 
-    @pytest.mark.parametrize("template", _CANCELLATION_CHANNELS)
+    @pytest.mark.parametrize("template", _STAFF_CANCELLATION_CHANNELS)
     def test_staff_view_includes_holder_email(self, template: str) -> None:
         """Staff need the holder's email to identify the user; ensure it's surfaced."""
         rendered = self._render(template, source=CancellationSource.USER.value)
         assert "alice@example.com" in rendered
+
+    @pytest.mark.parametrize("template", _CANCELLATION_CHANNELS)
+    def test_buyer_templates_do_not_branch_on_holder(self, template: str) -> None:
+        """The holder-facing templates stay second person even if a holder name is in the context."""
+        rendered = self._render(template, source=CancellationSource.USER.value)
+        assert "You cancelled your ticket" in rendered
+        assert "alice@example.com" not in rendered

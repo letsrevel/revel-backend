@@ -57,7 +57,7 @@ class TestCreateNotificationPreferences:
     ) -> None:
         """Test that guest users get restricted notification types.
 
-        Guest users get 17 notification types disabled (only event participation
+        Guest users get 22 notification types disabled (only event participation
         essentials like TICKET_CREATED, EVENT_REMINDER, etc. remain enabled).
         """
         # Act
@@ -75,8 +75,8 @@ class TestCreateNotificationPreferences:
         assert DeliveryChannel.IN_APP in prefs.enabled_channels
         assert DeliveryChannel.EMAIL in prefs.enabled_channels
 
-        # But have 17 notification types disabled
-        assert len(prefs.notification_type_settings) == 17
+        # But have 22 notification types disabled
+        assert len(prefs.notification_type_settings) == 22
 
         # Verify specific disabled types
         disabled_types = [
@@ -785,7 +785,7 @@ class TestStaffNotificationPreferenceGate:
         self, public_event: t.Any, organization: Organization, member_user: RevelUser
     ) -> None:
         prefs = organization.owner.notification_preferences
-        prefs.notification_type_settings[NotificationType.TICKET_CREATED] = {"enabled": False}
+        prefs.notification_type_settings[NotificationType.STAFF_TICKET_CREATED] = {"enabled": False}
         prefs.save(update_fields=["notification_type_settings"])
 
         tier = TicketTier.objects.create(
