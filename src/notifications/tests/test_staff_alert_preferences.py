@@ -19,7 +19,7 @@ from notifications.service.dispatcher import determine_delivery_channels
 from notifications.service.email_policy import may_email
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.service.templates.registry import get_template
-from notifications.tasks import send_notification_digests
+from notifications.tasks import dispatch_notification, send_notification_digests
 
 pytestmark = pytest.mark.django_db
 
@@ -192,3 +192,41 @@ class TestDigestSweepExcludesOptedOutStaff:
         _notify(owner, NotificationType.STAFF_SERIES_PASS_PURCHASED)
 
         assert send_notification_digests()["digests_sent"] == 1
+
+
+@pytest.mark.parametrize(
+    ("legacy_type", "staff_type"),
+    [
+        (NotificationType.TICKET_CREATED, NotificationType.STAFF_TICKET_CREATED),
+        (NotificationType.TICKET_REFUNDED, NotificationType.STAFF_TICKET_REFUNDED),
+        (NotificationType.SERIES_PASS_CANCELLED, NotificationType.STAFF_SERIES_PASS_CANCELLED),
+    ],
+)
+def test_dispatch_retypes_legacy_staff_alert(
+    regular_user: RevelUser, legacy_type: NotificationType, staff_type: NotificationType
+) -> None:
+    """A row an old container wrote mid-rollout (holder type + staff_alert) is re-typed, not mandatory (#1131)."""
+    notification = Notification.objects.create(
+        user=regular_user, notification_type=legacy_type, context={"staff_alert": True, "k": "v"}
+    )
+
+    with patch("notifications.service.dispatcher.determine_delivery_channels", return_value=[]) as channels_mock:
+        dispatch_notification(str(notification.id))
+
+    notification.refresh_from_db()
+    assert notification.notification_type == staff_type
+    assert notification.context == {"k": "v"}
+    channels_mock.assert_called_once_with(regular_user, staff_type)
+
+
+def test_dispatch_leaves_holder_receipt_alone(regular_user: RevelUser) -> None:
+    notification = Notification.objects.create(
+        user=regular_user, notification_type=NotificationType.TICKET_CREATED, context={"k": "v"}
+    )
+
+    with patch("notifications.service.dispatcher.determine_delivery_channels", return_value=[]):
+        dispatch_notification(str(notification.id))
+
+    notification.refresh_from_db()
+    assert notification.notification_type == NotificationType.TICKET_CREATED
+    assert notification.context == {"k": "v"}
