@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.21.1] - 2026-10-12
+
+### Fixed
+- Organization staff and owners who switched off notification channels were still emailed on every ticket sale, confirmation, cancellation and refund; these staff alerts now follow their notification preferences again, while buyers' own tickets and receipts stay mandatory.
+
+### Security
+- Upgraded `multidict` and `werkzeug` to versions that patch published vulnerabilities, along with a general dependency refresh.
+
 ## [2.21.0] - 2026-10-05
 
 ### Added
