@@ -16,6 +16,10 @@ class BaseNotificationContext(t.TypedDict):
     # Frontend URL for deep linking
     frontend_url: t.NotRequired[str]
 
+    # Set by notify_org_staff: the recipient is org staff being alerted, not the person the
+    # transaction belongs to, so mandatory delivery does not apply (see Notification.is_mandatory)
+    staff_alert: t.NotRequired[bool]
+
 
 # ===== Ticket Contexts =====
 

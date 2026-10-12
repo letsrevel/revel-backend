@@ -13,7 +13,7 @@ from notifications.enums import DeliveryChannel
 from notifications.models import EmailSuppression
 
 
-def may_email(user: RevelUser, notification_type: str) -> bool:
+def may_email(user: RevelUser, notification_type: str, *, staff_alert: bool = False) -> bool:
     """Whether the user's preferences allow emailing them this notification type.
 
     Preferences only — no DB access beyond ``user.notification_preferences`` and no
@@ -22,13 +22,16 @@ def may_email(user: RevelUser, notification_type: str) -> bool:
     Args:
         user: Recipient.
         notification_type: Notification type value.
+        staff_alert: True for an org-staff alert, which is never mandatory.
 
     Returns:
         True if the user has an address and EMAIL is an effective channel for the type.
     """
     if not user.email:
         return False
-    channels = user.notification_preferences.get_channels_for_notification_type(notification_type)
+    channels = user.notification_preferences.get_channels_for_notification_type(
+        notification_type, staff_alert=staff_alert
+    )
     return DeliveryChannel.EMAIL in channels
 
 
