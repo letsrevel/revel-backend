@@ -70,7 +70,9 @@ def dispatch_notification(notification_id: str) -> dict[str, t.Any]:
     # Determine delivery channels
     from notifications.service.dispatcher import determine_delivery_channels
 
-    channels = determine_delivery_channels(notification.user, notification.notification_type)
+    channels = determine_delivery_channels(
+        notification.user, notification.notification_type, staff_alert=notification.is_staff_alert
+    )
 
     # Create delivery records
     deliveries = []

@@ -122,12 +122,14 @@ def bulk_create_notifications(
     return created_notifications
 
 
-def determine_delivery_channels(user: RevelUser, notification_type: str) -> list[str]:
+def determine_delivery_channels(user: RevelUser, notification_type: str, *, staff_alert: bool = False) -> list[str]:
     """Determine which channels should receive this notification.
 
     Args:
         user: User to notify
         notification_type: Type of notification
+        staff_alert: True for an org-staff alert; respects preferences like any non-mandatory
+            type but, being transactional, still bypasses the digest.
 
     Returns:
         List of channel names to deliver to
@@ -135,8 +137,8 @@ def determine_delivery_channels(user: RevelUser, notification_type: str) -> list
     prefs = user.notification_preferences
 
     # Effective channels first, so silence and per-type disables apply to every path
-    # (including digest users) and mandatory types bypass them (#1030).
-    channels = prefs.get_channels_for_notification_type(notification_type)
+    # (including digest users) and mandatory types bypass them (#1030) unless it's a staff alert.
+    channels = prefs.get_channels_for_notification_type(notification_type, staff_alert=staff_alert)
 
     # Strip Telegram when the integration is disabled (self-host without a bot),
     # so we never enqueue a delivery that can't succeed (issue #8).

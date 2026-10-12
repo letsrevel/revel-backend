@@ -250,7 +250,7 @@ class TestNotifyOrgStaff:
             sender=Ticket,
             user=organization.owner,
             notification_type=NotificationType.TICKET_CREATED,
-            context={"ticket_id": "abc"},
+            context={"ticket_id": "abc", "staff_alert": True},
         )
 
     def test_skips_staff_who_disabled_the_type(self, organization: Organization) -> None:
