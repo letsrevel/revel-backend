@@ -1,0 +1,19 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+
+<p>{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong> has registered for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>
+
+<div class="card">
+    <h3 style="margin-top: 0;">{% trans "Ticket Details" %}</h3>
+    <div class="info-row"><span class="label">{% trans "Holder:" %}</span> {{ context.ticket_holder_name }} ({{ context.ticket_holder_email }})</div>
+    <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Status:" %}</span> {{ context.ticket_status }}</div>
+    <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
+</div>
+
+<center>
+    <a href="{{ context.event_url }}" class="button">{% trans "View Event Details" %}</a>
+</center>
+{% endblock %}

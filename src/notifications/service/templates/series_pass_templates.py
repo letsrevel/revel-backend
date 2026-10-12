@@ -10,7 +10,7 @@ from notifications.service.templates.registry import register_template
 
 
 class SeriesPassPurchasedTemplate(NotificationTemplate):
-    """Template for SERIES_PASS_PURCHASED notification (to holder + org staff/owners)."""
+    """Template for SERIES_PASS_PURCHASED notification (to the pass holder)."""
 
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
@@ -47,7 +47,7 @@ class SeriesPassExtendedTemplate(NotificationTemplate):
 
 
 class SeriesPassCancelledTemplate(NotificationTemplate):
-    """Template for SERIES_PASS_CANCELLED notification (to holder + org staff/owners)."""
+    """Template for SERIES_PASS_CANCELLED notification (to the pass holder)."""
 
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
@@ -64,7 +64,39 @@ class SeriesPassCancelledTemplate(NotificationTemplate):
         return _("Series pass cancelled - %(pass)s") % {"pass": pass_name}
 
 
+class StaffSeriesPassPurchasedTemplate(NotificationTemplate):
+    """Template for STAFF_SERIES_PASS_PURCHASED notification (to org staff/owners)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("Series pass purchased: %(holder)s - %(series)s") % {
+            "holder": notification.context.get("holder_name", ""),
+            "series": notification.context.get("series_name", ""),
+        }
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return self.get_in_app_title(notification)
+
+
+class StaffSeriesPassCancelledTemplate(NotificationTemplate):
+    """Template for STAFF_SERIES_PASS_CANCELLED notification (to org staff/owners)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("Series pass cancelled: %(holder)s - %(series)s") % {
+            "holder": notification.context.get("holder_name", ""),
+            "series": notification.context.get("series_name", ""),
+        }
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return self.get_in_app_title(notification)
+
+
 # Register templates
 register_template(NotificationType.SERIES_PASS_PURCHASED, SeriesPassPurchasedTemplate())
 register_template(NotificationType.SERIES_PASS_EXTENDED, SeriesPassExtendedTemplate())
 register_template(NotificationType.SERIES_PASS_CANCELLED, SeriesPassCancelledTemplate())
+register_template(NotificationType.STAFF_SERIES_PASS_PURCHASED, StaffSeriesPassPurchasedTemplate())
+register_template(NotificationType.STAFF_SERIES_PASS_CANCELLED, StaffSeriesPassCancelledTemplate())

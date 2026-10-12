@@ -10,7 +10,7 @@ class NotificationType(TextChoices):
     are handled separately in the accounts app and are NOT part of this system.
     """
 
-    # Ticket notifications (need 1 version for recipients, one for owners/staff)
+    # Ticket notifications (holder-facing; staff get the STAFF_TICKET_* types below)
     TICKET_CREATED = "ticket_created"
     TICKET_UPDATED = "ticket_updated"
     TICKET_CANCELLED = "ticket_cancelled"
@@ -19,6 +19,11 @@ class NotificationType(TextChoices):
     PAYMENT_CONFIRMATION = "payment_confirmation"
     # Inbound Stripe refund Revel refused to auto-match to a ticket (staff only)
     REFUND_UNMATCHED = "refund_unmatched"
+    # Org staff/owner alerts about ticket sales, cancellations and refunds (#1127). Separate
+    # types from the holder receipts so mandatory delivery never overrides staff preferences.
+    STAFF_TICKET_CREATED = "staff_ticket_created"
+    STAFF_TICKET_CANCELLED = "staff_ticket_cancelled"
+    STAFF_TICKET_REFUNDED = "staff_ticket_refunded"
 
     # Event notifications
     EVENT_OPEN = "event_open"
@@ -89,9 +94,13 @@ class NotificationType(TextChoices):
     SERIES_EVENTS_GENERATED = "series_events_generated"  # Digest: N events generated for a series
 
     # Series pass notifications
-    SERIES_PASS_PURCHASED = "series_pass_purchased"  # Notify holder + org staff/owners when a pass activates
+    SERIES_PASS_PURCHASED = "series_pass_purchased"  # Notify the holder when a pass activates
     SERIES_PASS_EXTENDED = "series_pass_extended"  # Notify holder when their pass gains newly-covered events
-    SERIES_PASS_CANCELLED = "series_pass_cancelled"  # Notify holder + org staff/owners when a pass is cancelled
+    SERIES_PASS_CANCELLED = "series_pass_cancelled"  # Notify the holder when a pass is cancelled
+    # Org staff/owner alerts about series pass purchases/cancellations (#1127)
+    STAFF_SERIES_PASS_PURCHASED = "staff_series_pass_purchased"
+    STAFF_SERIES_PASS_CANCELLED = "staff_series_pass_cancelled"
+
     # Subscription notifications
     SUBSCRIPTION_RENEWAL_SUCCEEDED = "subscription_renewal_succeeded"
     SUBSCRIPTION_PAYMENT_FAILED = "subscription_payment_failed"
@@ -103,15 +112,17 @@ class NotificationType(TextChoices):
 
 
 # Transactional notification types are time-/money-sensitive (a ticket sale, a payment,
-# a cancellation or a refund): they bypass the digest cadence (#506). Via MANDATORY_TYPES
-# below they also bypass silence and per-type disables and always include in-app + email,
-# except when sent to org staff as alerts (see Notification.is_mandatory).
+# a cancellation or a refund): they bypass the digest cadence (#506). This includes the staff
+# ticket alerts, which are NOT mandatory (see MANDATORY_TYPES) but still shouldn't wait for a digest.
 TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
     {
         NotificationType.PAYMENT_CONFIRMATION,
         NotificationType.TICKET_CREATED,
         NotificationType.TICKET_CANCELLED,
         NotificationType.TICKET_REFUNDED,
+        NotificationType.STAFF_TICKET_CREATED,
+        NotificationType.STAFF_TICKET_CANCELLED,
+        NotificationType.STAFF_TICKET_REFUNDED,
         # Subscription money/lifecycle events must not wait for a digest sweep:
         # a failed renewal or expiry needs immediate action, a revival checkout
         # link is time-boxed, and renewal/cancellation confirmations are
@@ -126,13 +137,24 @@ TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
 )
 
 # Types users can't opt out of: bypass silence_all, the email switch, per-type disables, and the digest.
-# Binds the person the transaction belongs to; staff alerts of these types are opt-out-able (but
-# still bypass the digest) — Notification.is_mandatory is the effective rule.
+# Binds the person the transaction belongs to; the staff alert types are never in here.
+# Defined explicitly (not derived from TRANSACTIONAL_TYPES, which holds opt-out-able staff types).
 # SYSTEM_ANNOUNCEMENT is for ToS / privacy / platform-wide notices ONLY — never promotional content.
-MANDATORY_TYPES: frozenset[str] = TRANSACTIONAL_TYPES | {
-    NotificationType.ACCOUNT_BANNED,
-    NotificationType.SYSTEM_ANNOUNCEMENT,
-}
+MANDATORY_TYPES: frozenset[str] = frozenset(
+    {
+        NotificationType.PAYMENT_CONFIRMATION,
+        NotificationType.TICKET_CREATED,
+        NotificationType.TICKET_CANCELLED,
+        NotificationType.TICKET_REFUNDED,
+        NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
+        NotificationType.SUBSCRIPTION_EXPIRED,
+        NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
+        NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
+        NotificationType.ACCOUNT_BANNED,
+        NotificationType.SYSTEM_ANNOUNCEMENT,
+    }
+)
 
 # Revel-written, opt-out-able mail that isn't org-sent but should still carry one-click
 # List-Unsubscribe (bulk-sender rules for promotional-ish mail).

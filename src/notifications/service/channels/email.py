@@ -52,8 +52,8 @@ class EmailChannel(NotificationChannel):
             return False
 
         # One shared preference check (silence, email switch, per-type disables;
-        # mandatory types bypass them unless it's a staff alert) — see email_policy.may_email (#1030).
-        if not may_email(notification.user, notification.notification_type, staff_alert=notification.is_staff_alert):
+        # mandatory types bypass them) — see email_policy.may_email (#1030).
+        if not may_email(notification.user, notification.notification_type):
             logger.debug(
                 "email_not_allowed_by_preferences",
                 notification_id=str(notification.id),

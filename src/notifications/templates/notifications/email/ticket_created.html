@@ -3,17 +3,6 @@
 {% block content %}
 <p>{% trans "Hello" %} {{ user.display_name }},</p>
 
-{% if context.ticket_holder_name %}
-    <p>{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong> has registered for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>
-
-    <div class="card">
-        <h3 style="margin-top: 0;">{% trans "Ticket Details" %}</h3>
-        <div class="info-row"><span class="label">{% trans "Holder:" %}</span> {{ context.ticket_holder_name }} ({{ context.ticket_holder_email }})</div>
-        <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
-        <div class="info-row"><span class="label">{% trans "Status:" %}</span> {{ context.ticket_status }}</div>
-        <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
-    </div>
-{% else %}
     {% if context.ticket_status == "pending" %}
         <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> is pending payment confirmation.{% endblocktranslate %}</p>
 
@@ -59,7 +48,6 @@
         {% include "notifications/email/_wallet_badges.html" %}
     {% endif %}
     {% include "notifications/email/_tax_notice.html" %}
-{% endif %}
 
 <center>
     <a href="{{ context.event_url }}" class="button">{% trans "View Event Details" %}</a>

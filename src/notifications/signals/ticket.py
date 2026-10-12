@@ -144,7 +144,8 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
     if not action:
         return  # Online payment - handled by payment service
 
-    context = _build_ticket_created_context(ticket)
+    base_context = _build_ticket_created_context(ticket)
+    context = base_context
     if ticket.status == Ticket.TicketStatus.PENDING:
         # A pending-payment email carries no attachments — the PDF/pkpass QR
         # would look like a valid pass before payment. Everything arrives with
@@ -159,18 +160,15 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
         context=context,
     )
 
-    # Notify staff/owners with additional context (no attachments for staff)
+    # Notify staff/owners with additional context (staff templates attach nothing)
     staff_context = {
-        **context,
+        **base_context,
         "ticket_holder_name": ticket.user.get_display_name(),
         "ticket_holder_email": ticket.user.email,
-        "include_pdf": False,
-        "include_ics": False,
-        "include_pkpass": False,
     }
     notify_org_staff(
         organization_id=ticket.event.organization_id,
-        notification_type=NotificationType.TICKET_CREATED,
+        notification_type=NotificationType.STAFF_TICKET_CREATED,
         context=staff_context,
         sender=Ticket,
     )
@@ -228,7 +226,7 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
         base_context["address_url"] = event.location_maps_url
 
     # Fetch staff ONCE for all tickets
-    staff_and_owners = list(get_staff_for_notification(event.organization_id, NotificationType.TICKET_CREATED))
+    staff_and_owners = list(get_staff_for_notification(event.organization_id, NotificationType.STAFF_TICKET_CREATED))
 
     # Send notifications for each ticket
     for ticket in tickets:
@@ -239,7 +237,7 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
         # Online carts never reach here (``action`` is None for them), so the
         # ``Payment``-row carve-out that helper documents cannot apply.
         ticket_price = recorded_or_resolved_price(ticket.tier, ticket.seat, ticket.price_paid)
-        ticket_context = {
+        shared_context = {
             **base_context,
             "ticket_id": str(ticket.id),
             "ticket_reference": str(ticket.id),
@@ -253,6 +251,7 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
             "total_price": str(ticket_price),
             "frontend_url": frontend_url,
         }
+        ticket_context = dict(shared_context)
         if ticket.status == Ticket.TicketStatus.PENDING:
             # Same rule as the single-ticket path: no attachments before payment.
             ticket_context["include_pdf"] = False
@@ -269,16 +268,13 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
 
         # Notify staff/owners
         staff_context = {
-            **ticket_context,
+            **shared_context,
             "ticket_holder_name": ticket.user.get_display_name(),
             "ticket_holder_email": ticket.user.email,
-            "include_pdf": False,
-            "include_ics": False,
-            "include_pkpass": False,
         }
         notify_org_staff(
             organization_id=event.organization_id,
-            notification_type=NotificationType.TICKET_CREATED,
+            notification_type=NotificationType.STAFF_TICKET_CREATED,
             context=staff_context,
             sender=Ticket,
             # Reuse the list hoisted above: one staff query for the whole batch.
@@ -320,8 +316,9 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
         ticket: The ticket being cancelled
         old_status: The previous ticket status
     """
+    base_context = _build_ticket_updated_context(ticket, old_status)
     context = {
-        **_build_ticket_updated_context(ticket, old_status),
+        **base_context,
         # A cancellation email must not carry the ticket files — the PDF/pkpass
         # QR would still look like a valid pass for a now-dead ticket.
         "include_pdf": False,
@@ -339,13 +336,13 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
 
     # Notify staff/owners with additional context
     staff_context = {
-        **context,
+        **base_context,
         "ticket_holder_name": ticket.user.get_display_name(),
         "ticket_holder_email": ticket.user.email,
     }
     notify_org_staff(
         organization_id=ticket.event.organization_id,
-        notification_type=NotificationType.TICKET_CANCELLED,
+        notification_type=NotificationType.STAFF_TICKET_CANCELLED,
         context=staff_context,
         sender=Ticket,
     )
@@ -366,13 +363,10 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
                 **context,
                 "ticket_holder_name": ticket.user.get_display_name(),
                 "ticket_holder_email": ticket.user.email,
-                "include_pdf": False,
-                "include_ics": False,
-                "include_pkpass": False,
             }
             notify_org_staff(
                 organization_id=ticket.event.organization_id,
-                notification_type=NotificationType.TICKET_CREATED,
+                notification_type=NotificationType.STAFF_TICKET_CREATED,
                 context=staff_context,
                 sender=Ticket,
             )

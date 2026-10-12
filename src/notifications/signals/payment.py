@@ -151,7 +151,7 @@ def _send_refund_notifications(payment: Payment) -> None:
 
     notify_org_staff(
         organization_id=event.organization_id,
-        notification_type=NotificationType.TICKET_REFUNDED,
+        notification_type=NotificationType.STAFF_TICKET_REFUNDED,
         context=staff_context,
         sender=_send_refund_notifications,
     )

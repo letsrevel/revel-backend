@@ -16,10 +16,6 @@ class BaseNotificationContext(t.TypedDict):
     # Frontend URL for deep linking
     frontend_url: t.NotRequired[str]
 
-    # Set by notify_org_staff: the recipient is org staff being alerted, not the person the
-    # transaction belongs to, so mandatory delivery does not apply (see Notification.is_mandatory)
-    staff_alert: t.NotRequired[bool]
-
 
 # ===== Ticket Contexts =====
 
@@ -81,9 +77,6 @@ class TicketCancelledContext(BaseNotificationContext):
     ticket_status: str
     old_status: str
     new_status: str
-    # Additional fields for staff notifications
-    ticket_holder_name: t.NotRequired[str]
-    ticket_holder_email: t.NotRequired[str]
 
 
 class PaymentConfirmationContext(BaseNotificationContext):
@@ -108,6 +101,27 @@ class TicketRefundedContext(BaseNotificationContext):
     event_name: str
     refund_amount: str
     refund_reason: t.NotRequired[str]
+
+
+class StaffTicketCreatedContext(TicketCreatedContext):
+    """Context for STAFF_TICKET_CREATED notification (to org staff/owners)."""
+
+    ticket_holder_name: str
+    ticket_holder_email: str
+
+
+class StaffTicketCancelledContext(TicketCancelledContext):
+    """Context for STAFF_TICKET_CANCELLED notification (to org staff/owners)."""
+
+    ticket_holder_name: str
+    ticket_holder_email: str
+
+
+class StaffTicketRefundedContext(TicketRefundedContext):
+    """Context for STAFF_TICKET_REFUNDED notification (to org staff/owners)."""
+
+    ticket_holder_name: str
+    ticket_holder_email: str
 
 
 class RefundUnmatchedCandidate(t.TypedDict):
@@ -644,7 +658,7 @@ class SeriesEventsGeneratedContext(BaseNotificationContext):
 
 
 class SeriesPassPurchasedContext(BaseNotificationContext):
-    """Context for SERIES_PASS_PURCHASED notification (to the holder + org staff/owners)."""
+    """Context for SERIES_PASS_PURCHASED notification (to the pass holder)."""
 
     pass_id: str
     pass_name: str
@@ -655,8 +669,6 @@ class SeriesPassPurchasedContext(BaseNotificationContext):
     event_count: int
     price_paid: str
     currency: str
-    holder_name: t.NotRequired[str]
-    holder_email: t.NotRequired[str]
 
 
 class SeriesPassExtendedContext(BaseNotificationContext):
@@ -673,7 +685,7 @@ class SeriesPassExtendedContext(BaseNotificationContext):
 
 
 class SeriesPassCancelledContext(BaseNotificationContext):
-    """Context for SERIES_PASS_CANCELLED notification (to the holder + org staff/owners)."""
+    """Context for SERIES_PASS_CANCELLED notification (to the pass holder)."""
 
     pass_id: str
     pass_name: str
@@ -685,8 +697,20 @@ class SeriesPassCancelledContext(BaseNotificationContext):
     refunded_total: str
     currency: str
     reason: str
-    holder_name: t.NotRequired[str]
-    holder_email: t.NotRequired[str]
+
+
+class StaffSeriesPassPurchasedContext(SeriesPassPurchasedContext):
+    """Context for STAFF_SERIES_PASS_PURCHASED notification (to org staff/owners)."""
+
+    holder_name: str
+    holder_email: str
+
+
+class StaffSeriesPassCancelledContext(SeriesPassCancelledContext):
+    """Context for STAFF_SERIES_PASS_CANCELLED notification (to org staff/owners)."""
+
+    holder_name: str
+    holder_email: str
 
 
 # ===== Subscription Contexts =====
@@ -775,6 +799,9 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.TICKET_UPDATED: TicketUpdatedContext,
     NotificationType.TICKET_CANCELLED: TicketCancelledContext,
     NotificationType.TICKET_REFUNDED: TicketRefundedContext,
+    NotificationType.STAFF_TICKET_CREATED: StaffTicketCreatedContext,
+    NotificationType.STAFF_TICKET_CANCELLED: StaffTicketCancelledContext,
+    NotificationType.STAFF_TICKET_REFUNDED: StaffTicketRefundedContext,
     NotificationType.TICKET_CHECKED_IN: TicketCheckedInContext,
     NotificationType.PAYMENT_CONFIRMATION: PaymentConfirmationContext,
     NotificationType.REFUND_UNMATCHED: RefundUnmatchedContext,
@@ -819,6 +846,8 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.NEW_EVENT_FROM_FOLLOWED_SERIES: NewEventFromFollowedSeriesContext,
     NotificationType.SERIES_EVENTS_GENERATED: SeriesEventsGeneratedContext,
     NotificationType.SERIES_PASS_PURCHASED: SeriesPassPurchasedContext,
+    NotificationType.STAFF_SERIES_PASS_PURCHASED: StaffSeriesPassPurchasedContext,
+    NotificationType.STAFF_SERIES_PASS_CANCELLED: StaffSeriesPassCancelledContext,
     NotificationType.SERIES_PASS_EXTENDED: SeriesPassExtendedContext,
     NotificationType.SERIES_PASS_CANCELLED: SeriesPassCancelledContext,
     NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED: SubscriptionRenewalSucceededContext,

@@ -1,13 +1,4 @@
-{% load i18n markdown_tags %}{% if context.ticket_holder_name %}
-{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<b>{{ holder }}</b> has registered for <b>{{ event }}</b>.{% endblocktranslate %}
-
-<b>{% trans "Ticket Details:" %}</b>
-• {% trans "Holder:" %} {{ context.ticket_holder_name }}
-• {% trans "Tier:" %} {{ context.tier_name }}
-• {% trans "Status:" %} {{ context.ticket_status }}
-• {% trans "Ticket ID:" %} <code>{{ context.ticket_id }}</code>
-
-{% else %}{% if context.ticket_status == "pending" %}⏳ {% blocktranslate with event=context.event_name %}Ticket Pending for <b>{{ event }}</b>{% endblocktranslate %}
+{% load i18n markdown_tags %}{% if context.ticket_status == "pending" %}⏳ {% blocktranslate with event=context.event_name %}Ticket Pending for <b>{{ event }}</b>{% endblocktranslate %}
 
 <b>{% trans "Event Details:" %}</b>
 📅 {{ context.event_start_formatted }}
@@ -29,4 +20,4 @@
 <b>{% trans "Ticket Information:" %}</b>
 • {% trans "Tier:" %} {{ context.tier_name }}
 • {% trans "Status:" %} {% trans "Active" %}
-{% endif %}{% endif %}
+{% endif %}

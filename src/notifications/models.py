@@ -99,19 +99,13 @@ class Notification(TimeStampedModel):
         return self.read_at is not None
 
     @property
-    def is_staff_alert(self) -> bool:
-        """Whether this is an org-staff alert (see ``notify_org_staff``)."""
-        return bool(self.context.get("staff_alert"))
-
-    @property
     def is_mandatory(self) -> bool:
         """Whether the recipient cannot opt out of this notification.
 
         Mandatory types (receipts, bans, platform notices) bind the person the transaction
-        belongs to. The same types sent to org staff as "a ticket was sold" alerts are
-        flagged ``staff_alert`` and follow the staff member's preferences like any other type.
+        belongs to. Staff alerts have their own (non-mandatory) types.
         """
-        return self.notification_type in MANDATORY_TYPES and not self.is_staff_alert
+        return self.notification_type in MANDATORY_TYPES
 
 
 class NotificationDelivery(TimeStampedModel):
@@ -307,14 +301,14 @@ class NotificationPreference(TimeStampedModel):
         settings = self.notification_type_settings.get(notification_type, {})
         return bool(settings.get("enabled", True))  # Default to enabled
 
-    def get_channels_for_notification_type(self, notification_type: str, *, staff_alert: bool = False) -> list[str]:
+    def get_channels_for_notification_type(self, notification_type: str) -> list[str]:
         """Get enabled channels for a specific notification type.
 
         Uses override semantics: per-type channel settings override global enabled_channels.
         This allows users to say "I generally don't want telegram, BUT for critical alerts send telegram."
 
         Hierarchy:
-            0. MANDATORY_TYPES (unless ``staff_alert``) -> base channels (steps 3/4) plus IN_APP
+            0. MANDATORY_TYPES -> base channels (steps 3/4) plus IN_APP
                and EMAIL, ignoring silence and per-type ``enabled`` (users can't opt out of these)
             1. silence_all_notifications (master kill switch) -> []
             2. notification_type enabled check -> []
@@ -323,13 +317,11 @@ class NotificationPreference(TimeStampedModel):
 
         Args:
             notification_type: Notification type
-            staff_alert: True for an org-staff alert (not the person the transaction belongs
-                to); such alerts are never mandatory.
 
         Returns:
             List of enabled channel names
         """
-        if notification_type in MANDATORY_TYPES and not staff_alert:
+        if notification_type in MANDATORY_TYPES:
             channels = self._base_channels(notification_type)
             for required in (DeliveryChannel.IN_APP, DeliveryChannel.EMAIL):
                 if required not in channels:

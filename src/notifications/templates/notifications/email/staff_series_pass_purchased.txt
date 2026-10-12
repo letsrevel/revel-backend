@@ -1,0 +1,12 @@
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
+
+{% blocktranslate with holder=context.holder_name pass_name=context.pass_name series=context.series_name %}{{ holder }} purchased the series pass {{ pass_name }} for {{ series }}.{% endblocktranslate %}
+
+{% trans "Pass Details:" %}
+- {% trans "Holder:" %} {{ context.holder_name }} ({{ context.holder_email }})
+- {% trans "Pass:" %} {{ context.pass_name }}
+- {% trans "Series:" %} {{ context.series_name }}
+- {% trans "Events covered:" %} {{ context.event_count }}
+- {% trans "Price paid:" %} {{ context.price_paid }} {{ context.currency }}
+
+{% include "notifications/email/_footer.txt" %}

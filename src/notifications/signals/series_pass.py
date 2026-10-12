@@ -64,7 +64,7 @@ def send_series_pass_purchased(held_pass_id: UUID) -> None:
     }
     notify_org_staff(
         organization_id=held_pass.series_pass.event_series.organization_id,
-        notification_type=NotificationType.SERIES_PASS_PURCHASED,
+        notification_type=NotificationType.STAFF_SERIES_PASS_PURCHASED,
         context=staff_context,
         sender=HeldSeriesPass,
     )
@@ -158,7 +158,7 @@ def send_series_pass_cancelled(held_pass_id: UUID, refunded_total: Decimal, canc
     }
     notify_org_staff(
         organization_id=held_pass.series_pass.event_series.organization_id,
-        notification_type=NotificationType.SERIES_PASS_CANCELLED,
+        notification_type=NotificationType.STAFF_SERIES_PASS_CANCELLED,
         context=staff_context,
         sender=HeldSeriesPass,
     )
