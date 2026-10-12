@@ -41,6 +41,11 @@ def _get_guest_notification_type_settings() -> dict[str, t.Any]:
         NotificationType.MEMBERSHIP_REQUEST_REJECTED,
         NotificationType.ORG_ANNOUNCEMENT,  # Not members
         NotificationType.ORG_CONTACT_MESSAGE_RECEIVED,  # For org admins, not guests
+        NotificationType.STAFF_TICKET_CREATED,  # Staff alerts: guests can't be staff
+        NotificationType.STAFF_TICKET_CANCELLED,
+        NotificationType.STAFF_TICKET_REFUNDED,
+        NotificationType.STAFF_SERIES_PASS_PURCHASED,
+        NotificationType.STAFF_SERIES_PASS_CANCELLED,
     ]
 
     return {notification_type: {"enabled": False} for notification_type in disabled_types}

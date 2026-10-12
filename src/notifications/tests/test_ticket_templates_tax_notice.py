@@ -13,6 +13,9 @@ from notifications.enums import NotificationType
 from notifications.service.templates.base import NotificationTemplate
 from notifications.service.templates.ticket_templates import (
     PaymentConfirmationTemplate,
+    StaffTicketCancelledTemplate,
+    StaffTicketCreatedTemplate,
+    StaffTicketRefundedTemplate,
     TicketCreatedTemplate,
     TicketUpdatedTemplate,
 )
@@ -93,8 +96,9 @@ def test_notice_is_translated(
 @pytest.mark.parametrize(
     ("template", "notification_type"),
     [
-        (TicketCreatedTemplate(), NotificationType.TICKET_CREATED),
-        (TicketUpdatedTemplate(), NotificationType.TICKET_UPDATED),
+        (StaffTicketCreatedTemplate(), NotificationType.STAFF_TICKET_CREATED),
+        (StaffTicketCancelledTemplate(), NotificationType.STAFF_TICKET_CANCELLED),
+        (StaffTicketRefundedTemplate(), NotificationType.STAFF_TICKET_REFUNDED),
     ],
 )
 def test_staff_ticket_emails_do_not_carry_the_notice(

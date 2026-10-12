@@ -5,7 +5,6 @@ import pytest
 from accounts.models import RevelUser
 from notifications.enums import MANDATORY_TYPES, TRANSACTIONAL_TYPES, DeliveryChannel, NotificationType
 from notifications.models import NotificationPreference
-from notifications.service import dispatcher
 
 pytestmark = pytest.mark.django_db
 
@@ -22,11 +21,19 @@ def prefs(user: RevelUser) -> NotificationPreference:
 
 
 def test_mandatory_types_contents() -> None:
-    assert TRANSACTIONAL_TYPES < MANDATORY_TYPES
+    # Mandatory is defined by type alone; the staff alert types are transactional (they skip the
+    # digest) but never mandatory (#1127), so TRANSACTIONAL is no longer a subset of MANDATORY.
+    assert MANDATORY_TYPES - TRANSACTIONAL_TYPES == {
+        NotificationType.ACCOUNT_BANNED,
+        NotificationType.SYSTEM_ANNOUNCEMENT,
+    }
+    assert TRANSACTIONAL_TYPES - MANDATORY_TYPES == {
+        NotificationType.STAFF_TICKET_CREATED,
+        NotificationType.STAFF_TICKET_CANCELLED,
+        NotificationType.STAFF_TICKET_REFUNDED,
+    }
     assert NotificationType.ACCOUNT_BANNED in MANDATORY_TYPES
     assert NotificationType.SYSTEM_ANNOUNCEMENT in MANDATORY_TYPES
-    # Kept importable from the dispatcher for existing callers.
-    assert dispatcher.TRANSACTIONAL_TYPES is TRANSACTIONAL_TYPES
 
 
 class TestMandatoryTypeChannels:

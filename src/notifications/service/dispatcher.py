@@ -7,8 +7,7 @@ import structlog
 from django.conf import settings
 
 from accounts.models import RevelUser
-from notifications.enums import MANDATORY_TYPES, DeliveryChannel, NotificationType
-from notifications.enums import TRANSACTIONAL_TYPES as TRANSACTIONAL_TYPES  # re-exported for existing callers
+from notifications.enums import MANDATORY_TYPES, TRANSACTIONAL_TYPES, DeliveryChannel, NotificationType
 from notifications.models import Notification, NotificationPreference
 
 logger = structlog.get_logger(__name__)
@@ -122,14 +121,12 @@ def bulk_create_notifications(
     return created_notifications
 
 
-def determine_delivery_channels(user: RevelUser, notification_type: str, *, staff_alert: bool = False) -> list[str]:
+def determine_delivery_channels(user: RevelUser, notification_type: str) -> list[str]:
     """Determine which channels should receive this notification.
 
     Args:
         user: User to notify
         notification_type: Type of notification
-        staff_alert: True for an org-staff alert; respects preferences like any non-mandatory
-            type but, being transactional, still bypasses the digest.
 
     Returns:
         List of channel names to deliver to
@@ -137,8 +134,8 @@ def determine_delivery_channels(user: RevelUser, notification_type: str, *, staf
     prefs = user.notification_preferences
 
     # Effective channels first, so silence and per-type disables apply to every path
-    # (including digest users) and mandatory types bypass them (#1030) unless it's a staff alert.
-    channels = prefs.get_channels_for_notification_type(notification_type, staff_alert=staff_alert)
+    # (including digest users) and mandatory types bypass them (#1030).
+    channels = prefs.get_channels_for_notification_type(notification_type)
 
     # Strip Telegram when the integration is disabled (self-host without a bot),
     # so we never enqueue a delivery that can't succeed (issue #8).
@@ -146,10 +143,10 @@ def determine_delivery_channels(user: RevelUser, notification_type: str, *, staf
         channels = [c for c in channels if c != DeliveryChannel.TELEGRAM]
 
     # On a digest cadence, only the in-app notification is created now; the email is
-    # bundled into the periodic digest sweep. Mandatory types (receipts, bans, platform
-    # notices) never wait for the digest (issue #506, #1030).
+    # bundled into the periodic digest sweep. Mandatory and transactional types (receipts,
+    # bans, platform notices, staff ticket alerts) never wait for the digest (issue #506, #1030).
     if (
-        notification_type not in MANDATORY_TYPES
+        notification_type not in MANDATORY_TYPES | TRANSACTIONAL_TYPES
         and prefs.digest_frequency != NotificationPreference.DigestFrequency.IMMEDIATE
     ):
         channels = [DeliveryChannel.IN_APP] if DeliveryChannel.IN_APP in channels else []

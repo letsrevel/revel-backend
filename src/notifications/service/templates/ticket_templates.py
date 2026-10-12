@@ -293,13 +293,8 @@ class TicketCreatedTemplate(NotificationTemplate):
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
         event_name = notification.context.get("event_name", "")
-        ticket_holder_name = notification.context.get("ticket_holder_name")
         ticket_status = notification.context.get("ticket_status", "")
 
-        if ticket_holder_name:
-            # Notification to staff/owners
-            return _("New Ticket: %(holder)s - %(event)s") % {"holder": ticket_holder_name, "event": event_name}
-        # Notification to ticket holder
         if ticket_status == "pending":
             return _("Ticket Pending for %(event)s") % {"event": event_name}
         return _("Ticket Confirmed for %(event)s") % {"event": event_name}
@@ -307,13 +302,8 @@ class TicketCreatedTemplate(NotificationTemplate):
     def get_email_subject(self, notification: Notification) -> str:
         """Get email subject."""
         event_name = notification.context.get("event_name", "")
-        ticket_holder_name = notification.context.get("ticket_holder_name")
         ticket_status = notification.context.get("ticket_status", "")
 
-        if ticket_holder_name:
-            # Notification to staff/owners
-            return _("New Ticket: %(holder)s - %(event)s") % {"holder": ticket_holder_name, "event": event_name}
-        # Notification to ticket holder
         if ticket_status == "pending":
             return _("Ticket Pending - %(event)s") % {"event": event_name}
         return _("Ticket Confirmed - %(event)s") % {"event": event_name}
@@ -344,19 +334,9 @@ class TicketUpdatedTemplate(NotificationTemplate):
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
         event_name = notification.context.get("event_name", "")
-        ticket_holder_name = notification.context.get("ticket_holder_name")
-        action = notification.context.get("action", "updated")
         old_status = notification.context.get("old_status", "")
         new_status = notification.context.get("new_status", "")
 
-        if ticket_holder_name:
-            # Notification to staff/owners
-            return _("Ticket %(action)s: %(holder)s - %(event)s") % {
-                "action": action.capitalize(),
-                "holder": ticket_holder_name,
-                "event": event_name,
-            }
-        # Notification to ticket holder
         if old_status == "pending" and new_status == "active":
             return _("Ticket Confirmed for %(event)s") % {"event": event_name}
         return _("Ticket Update for %(event)s") % {"event": event_name}
@@ -364,19 +344,9 @@ class TicketUpdatedTemplate(NotificationTemplate):
     def get_email_subject(self, notification: Notification) -> str:
         """Get email subject."""
         event_name = notification.context.get("event_name", "")
-        ticket_holder_name = notification.context.get("ticket_holder_name")
-        action = notification.context.get("action", "updated")
         old_status = notification.context.get("old_status", "")
         new_status = notification.context.get("new_status", "")
 
-        if ticket_holder_name:
-            # Notification to staff/owners
-            return _("Ticket %(action)s: %(holder)s - %(event)s") % {
-                "action": action.capitalize(),
-                "holder": ticket_holder_name,
-                "event": event_name,
-            }
-        # Notification to ticket holder
         if old_status == "pending" and new_status == "active":
             return _("Ticket Confirmed - %(event)s") % {"event": event_name}
         return _("Ticket Update - %(event)s") % {"event": event_name}
@@ -445,6 +415,51 @@ class TicketCheckedInTemplate(NotificationTemplate):
         return _("Checked in - %(event)s") % {"event": event_name}
 
 
+class StaffTicketCreatedTemplate(NotificationTemplate):
+    """Template for STAFF_TICKET_CREATED notification (to org staff/owners)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("New Ticket: %(holder)s - %(event)s") % {
+            "holder": notification.context.get("ticket_holder_name", ""),
+            "event": notification.context.get("event_name", ""),
+        }
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return self.get_in_app_title(notification)
+
+
+class StaffTicketCancelledTemplate(NotificationTemplate):
+    """Template for STAFF_TICKET_CANCELLED notification (to org staff/owners)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("Ticket Cancelled: %(holder)s - %(event)s") % {
+            "holder": notification.context.get("ticket_holder_name", ""),
+            "event": notification.context.get("event_name", ""),
+        }
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return self.get_in_app_title(notification)
+
+
+class StaffTicketRefundedTemplate(NotificationTemplate):
+    """Template for STAFF_TICKET_REFUNDED notification (to org staff/owners)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("Ticket Refunded: %(holder)s - %(event)s") % {
+            "holder": notification.context.get("ticket_holder_name", ""),
+            "event": notification.context.get("event_name", ""),
+        }
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return self.get_in_app_title(notification)
+
+
 class RefundUnmatchedTemplate(NotificationTemplate):
     """Template for REFUND_UNMATCHED notification (to org staff)."""
 
@@ -477,6 +492,9 @@ register_template(NotificationType.TICKET_CREATED, TicketCreatedTemplate())
 register_template(NotificationType.TICKET_UPDATED, TicketUpdatedTemplate())
 register_template(NotificationType.TICKET_CANCELLED, TicketUpdatedTemplate())
 register_template(NotificationType.TICKET_REFUNDED, TicketUpdatedTemplate())
+register_template(NotificationType.STAFF_TICKET_CREATED, StaffTicketCreatedTemplate())
+register_template(NotificationType.STAFF_TICKET_CANCELLED, StaffTicketCancelledTemplate())
+register_template(NotificationType.STAFF_TICKET_REFUNDED, StaffTicketRefundedTemplate())
 register_template(NotificationType.TICKET_CHECKED_IN, TicketCheckedInTemplate())
 register_template(NotificationType.PAYMENT_CONFIRMATION, PaymentConfirmationTemplate())
 register_template(NotificationType.REFUND_UNMATCHED, RefundUnmatchedTemplate())

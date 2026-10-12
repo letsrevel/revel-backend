@@ -234,12 +234,6 @@ class TelegramChannel(NotificationChannel):
         }
 
         if notification.notification_type in ticket_notification_types:
-            # Only send QR code to ticket holder, not to staff/owners
-            ticket_holder_name = notification.context.get("ticket_holder_name")
-            if ticket_holder_name:
-                # This is a notification to staff/owners, don't send QR code
-                return None
-
             ticket_id = notification.context.get("ticket_id")
             if ticket_id:
                 return str(ticket_id)

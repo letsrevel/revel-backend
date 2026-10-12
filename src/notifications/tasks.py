@@ -9,11 +9,31 @@ from celery import group, shared_task
 from django.conf import settings
 from django.utils import timezone, translation
 
-from notifications.enums import DeliveryChannel, DeliveryStatus
+from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery, NotificationPreference
 from notifications.service.channels.registry import get_channel_instance
 
 logger = structlog.get_logger(__name__)
+
+# ponytail: rolling-deploy shim (#1127). During the rollout, old containers can still write staff
+# alerts as the holder type flagged ``staff_alert`` after migration 0034 ran; re-type them so they
+# aren't delivered as mandatory receipts. Remove once a deploy has drained (#1131).
+_LEGACY_STAFF_ALERT_TYPES: dict[str, str] = {
+    NotificationType.TICKET_CREATED: NotificationType.STAFF_TICKET_CREATED,
+    NotificationType.TICKET_CANCELLED: NotificationType.STAFF_TICKET_CANCELLED,
+    NotificationType.TICKET_REFUNDED: NotificationType.STAFF_TICKET_REFUNDED,
+    NotificationType.SERIES_PASS_PURCHASED: NotificationType.STAFF_SERIES_PASS_PURCHASED,
+    NotificationType.SERIES_PASS_CANCELLED: NotificationType.STAFF_SERIES_PASS_CANCELLED,
+}
+
+
+def _retype_legacy_staff_alert(notification: Notification) -> None:
+    """Move a legacy ``staff_alert`` row onto its staff type (see ``_LEGACY_STAFF_ALERT_TYPES``)."""
+    staff_type = _LEGACY_STAFF_ALERT_TYPES.get(notification.notification_type)
+    if staff_type is None or not notification.context.pop("staff_alert", False):
+        return
+    notification.notification_type = staff_type
+    notification.save(update_fields=["notification_type", "context", "updated_at"])
 
 
 @shared_task(name="notifications.tasks.dispatch_notification")
@@ -34,6 +54,7 @@ def dispatch_notification(notification_id: str) -> dict[str, t.Any]:
         Dict with dispatch stats
     """
     notification = Notification.objects.select_related("user", "user__notification_preferences").get(pk=notification_id)
+    _retype_legacy_staff_alert(notification)
 
     # Get recipient's language preference
     user_language = getattr(notification.user, "language", settings.LANGUAGE_CODE)
@@ -70,9 +91,7 @@ def dispatch_notification(notification_id: str) -> dict[str, t.Any]:
     # Determine delivery channels
     from notifications.service.dispatcher import determine_delivery_channels
 
-    channels = determine_delivery_channels(
-        notification.user, notification.notification_type, staff_alert=notification.is_staff_alert
-    )
+    channels = determine_delivery_channels(notification.user, notification.notification_type)
 
     # Create delivery records
     deliveries = []
@@ -289,7 +308,6 @@ def send_notification_digests() -> dict[str, t.Any]:
         Dict with digest stats
     """
     from accounts.utils.email_normalization import normalize_email_for_matching
-    from notifications.enums import NotificationType
     from notifications.service.digest import (
         NotificationDigest,
         get_digest_lookback_period,
@@ -326,7 +344,12 @@ def send_notification_digests() -> dict[str, t.Any]:
 
         # Pending notifications, restricted to the types the user may be emailed.
         emailable_types = [nt for nt in NotificationType if may_email(prefs.user, nt)]
-        pending = get_pending_notifications_for_digest(prefs.user, since).filter(notification_type__in=emailable_types)
+        pending = (
+            get_pending_notifications_for_digest(prefs.user, since)
+            .filter(notification_type__in=emailable_types)
+            # ponytail: legacy staff alerts are left to dispatch_notification, which re-types them (#1131).
+            .exclude(context__has_key="staff_alert")
+        )
 
         if not pending.exists():
             continue  # No notifications to send

@@ -11,8 +11,7 @@ from events.models import Event, EventRSVP
 from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_organization_staff_and_owners
-from notifications.service.notification_helpers import format_event_datetime
-from notifications.signals import notification_requested
+from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
 
 logger = structlog.get_logger(__name__)
 
@@ -51,22 +50,21 @@ def _build_rsvp_context(rsvp: EventRSVP) -> dict[str, t.Any]:
     return context
 
 
-def _notify_staff_about_rsvp(rsvp: EventRSVP, notification_type: str, context: dict[str, t.Any]) -> None:
+def _notify_staff_about_rsvp(rsvp: EventRSVP, notification_type: NotificationType, context: dict[str, t.Any]) -> None:
     """Notify staff/owners about RSVP event.
 
     Excludes the RSVP user from notifications if they are staff/owner,
     since they already know about their own action.
     """
-    staff_and_owners = get_organization_staff_and_owners(rsvp.event.organization_id)
-    for recipient in staff_and_owners:
-        if recipient.id == rsvp.user_id:
-            continue  # Don't notify user about their own RSVP action
-        notification_requested.send(
-            sender=EventRSVP,
-            user=recipient,
-            notification_type=notification_type,
-            context=context,
-        )
+    organization_id = rsvp.event.organization_id
+    notify_org_staff(
+        organization_id=organization_id,
+        notification_type=notification_type,
+        context=context,
+        sender=EventRSVP,
+        # Don't notify user about their own RSVP action
+        recipients=list(get_organization_staff_and_owners(organization_id).exclude(id=rsvp.user_id)),
+    )
 
 
 def _send_rsvp_confirmation_notifications(rsvp: EventRSVP) -> None:
@@ -195,15 +193,13 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
             context["cancellation_reason"] = instance.cancellation_reason
 
         # Notify organization staff and owners only (user already knows they cancelled)
-        staff_and_owners = get_organization_staff_and_owners(event.organization_id)
-        for recipient in staff_and_owners:
-            if recipient.id == user.id:
-                continue  # Don't notify user about their own RSVP cancellation
-            notification_requested.send(
-                sender=sender,
-                user=recipient,
-                notification_type=notification_type,
-                context=context,
-            )
+        notify_org_staff(
+            organization_id=event.organization_id,
+            notification_type=notification_type,
+            context=context,
+            sender=sender,
+            # Don't notify user about their own RSVP cancellation
+            recipients=list(get_organization_staff_and_owners(event.organization_id).exclude(id=user.id)),
+        )
 
     transaction.on_commit(send_notifications)

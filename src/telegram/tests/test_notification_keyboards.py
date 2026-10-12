@@ -170,9 +170,20 @@ def test_organizer_action_without_request_id_has_no_keyboard(notified_user: Reve
 # --- Simple event link notifications ---
 
 
-def test_ticket_notification_gets_a_simple_event_link(notified_user: RevelUser, kb_event: Event) -> None:
-    """Ticket/RSVP types get a single "View Event" link."""
-    notification = _notify(notified_user, NotificationType.TICKET_CREATED, {"event_id": str(kb_event.pk)})
+@pytest.mark.parametrize(
+    "notification_type",
+    [
+        NotificationType.TICKET_CREATED,
+        NotificationType.STAFF_TICKET_CREATED,
+        NotificationType.STAFF_TICKET_CANCELLED,
+        NotificationType.STAFF_TICKET_REFUNDED,
+    ],
+)
+def test_ticket_notification_gets_a_simple_event_link(
+    notified_user: RevelUser, kb_event: Event, notification_type: NotificationType
+) -> None:
+    """Ticket/RSVP types (holder and staff) get a single "View Event" link."""
+    notification = _notify(notified_user, notification_type, {"event_id": str(kb_event.pk)})
 
     markup = get_notification_keyboard(notification)
 

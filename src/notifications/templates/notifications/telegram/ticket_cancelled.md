@@ -1,6 +1,4 @@
-{% load i18n %}❌ {% if context.ticket_holder_name %}{% if context.cancellation_source == "user" %}{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<b>{{ holder }}</b> cancelled their ticket for <b>{{ event }}</b>.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<b>{{ holder }}</b>'s ticket for <b>{{ event }}</b> was refunded via the Stripe dashboard.{% endblocktranslate %}{% else %}{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<b>{{ holder }}</b>'s ticket for <b>{{ event }}</b> has been cancelled.{% endblocktranslate %}{% endif %}
-
-<b>{% trans "Ticket Holder:" %}</b> {{ context.ticket_holder_name }} ({{ context.ticket_holder_email }}){% else %}{% if context.cancellation_source == "user" %}{% blocktranslate with event=context.event_name %}You cancelled your ticket for <b>{{ event }}</b>.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with event=context.event_name %}Your ticket for <b>{{ event }}</b> has been cancelled and refunded.{% endblocktranslate %}{% else %}{% blocktranslate with event=context.event_name %}Your ticket for <b>{{ event }}</b> has been cancelled.{% endblocktranslate %}{% endif %}{% endif %}
+{% load i18n %}❌ {% if context.cancellation_source == "user" %}{% blocktranslate with event=context.event_name %}You cancelled your ticket for <b>{{ event }}</b>.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with event=context.event_name %}Your ticket for <b>{{ event }}</b> has been cancelled and refunded.{% endblocktranslate %}{% else %}{% blocktranslate with event=context.event_name %}Your ticket for <b>{{ event }}</b> has been cancelled.{% endblocktranslate %}{% endif %}
 
 <b>{% trans "Event Details:" %}</b>
 📅 {{ context.event_start_formatted }}
@@ -15,7 +13,7 @@
 {% endif %}
 
 {% if context.refund_amount %}
-{% if context.ticket_holder_name %}💰 {% blocktranslate with amount=context.refund_amount currency=context.payment_currency %}Refund of {{ amount }} {{ currency }} issued to the ticket holder.{% endblocktranslate %}{% else %}💰 {% blocktranslate with amount=context.refund_amount currency=context.payment_currency %}Refund of {{ amount }} {{ currency }} will be processed within 5-10 business days.{% endblocktranslate %}{% endif %}
+💰 {% blocktranslate with amount=context.refund_amount currency=context.payment_currency %}Refund of {{ amount }} {{ currency }} will be processed within 5-10 business days.{% endblocktranslate %}
 {% endif %}
 
 <a href="{{ context.event_url }}">{% trans "View Event" %}</a>

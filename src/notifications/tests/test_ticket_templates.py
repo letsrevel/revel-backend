@@ -10,6 +10,7 @@ from accounts.models import RevelUser
 from events.models import Event, Ticket
 from events.models.ticket import CancellationSource
 from notifications.enums import NotificationType
+from notifications.service.templates.registry import get_template
 from notifications.service.templates.ticket_templates import (
     PaymentConfirmationTemplate,
     TicketCheckedInTemplate,
@@ -510,11 +511,11 @@ class TestTicketCreatedTemplate:
 
         assert "Pending" in title
 
-    def test_get_in_app_title_for_staff_notification(
+    def test_buyer_title_ignores_holder_name_in_context(
         self,
         ticket_holder: RevelUser,
     ) -> None:
-        """Should return holder name for staff notifications."""
+        """The buyer template no longer branches on ``ticket_holder_name`` (staff have their own type)."""
         notification = _create_notification_for_test(
             user=ticket_holder,
             notification_type=NotificationType.TICKET_CREATED,
@@ -523,12 +524,30 @@ class TestTicketCreatedTemplate:
                 "ticket_holder_name": "John Doe",
             },
         )
-        template = TicketCreatedTemplate()
 
-        title = template.get_in_app_title(notification)
+        title = TicketCreatedTemplate().get_in_app_title(notification)
 
-        assert "John Doe" in title
-        assert "New Ticket" in title
+        assert "John Doe" not in title
+        assert "Ticket Event" in title
+
+    def test_staff_ticket_templates_title_names_holder(self, ticket_holder: RevelUser) -> None:
+        """Each staff ticket type has its own template that names the holder and the event."""
+        for notification_type, expected in (
+            (NotificationType.STAFF_TICKET_CREATED, "New Ticket"),
+            (NotificationType.STAFF_TICKET_CANCELLED, "Ticket Cancelled"),
+            (NotificationType.STAFF_TICKET_REFUNDED, "Ticket Refunded"),
+        ):
+            notification = _create_notification_for_test(
+                user=ticket_holder,
+                notification_type=notification_type,
+                context={"event_name": "Ticket Event", "ticket_holder_name": "John Doe"},
+            )
+            template = get_template(notification_type)
+
+            for title in (template.get_in_app_title(notification), template.get_email_subject(notification)):
+                assert expected in title
+                assert "John Doe" in title
+                assert "Ticket Event" in title
 
     @patch("notifications.service.templates.ticket_templates._build_ticket_attachments")
     def test_get_email_attachments_calls_build_function(

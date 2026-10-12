@@ -64,8 +64,7 @@ def notify_org_staff(
         notification_type: The notification type being sent; also selects the
             permission required to receive it and gates each recipient's
             preference.
-        context: Notification context, sent to every recipient with ``staff_alert`` set so
-            mandatory delivery (receipts) does not override staff preferences.
+        context: Notification context, sent as-is to every recipient.
         sender: Signal ``sender`` — a model class or the calling function.
             Only used for logging, so callers pass whatever identifies them.
         recipients: Pre-materialised staff list to reuse instead of querying.
@@ -88,7 +87,7 @@ def notify_org_staff(
                 sender=sender,
                 user=staff_user,
                 notification_type=notification_type,
-                context={**context, "staff_alert": True},
+                context=context,
             )
             notified += 1
     return notified

@@ -1,12 +1,4 @@
-{% load i18n %}{% if context.ticket_holder_name %}
-{% blocktranslate with holder=context.ticket_holder_name event=context.event_name action=context.action %}<b>{{ holder }}</b>'s ticket for <b>{{ event }}</b> has been <b>{{ action }}</b>.{% endblocktranslate %}
-
-<b>{% trans "Ticket Details:" %}</b>
-• {% trans "Holder:" %} {{ context.ticket_holder_name }}
-• {% trans "Tier:" %} {{ context.tier_name }}
-• {% trans "Status:" %} {{ context.ticket_status }}
-
-{% else %}{% if context.old_status == "pending" and context.new_status == "active" %}✅ {% blocktranslate with event=context.event_name %}Ticket Confirmed for <b>{{ event }}</b>{% endblocktranslate %}
+{% load i18n %}{% if context.old_status == "pending" and context.new_status == "active" %}✅ {% blocktranslate with event=context.event_name %}Ticket Confirmed for <b>{{ event }}</b>{% endblocktranslate %}
 
 <b>{% trans "Event Details:" %}</b>
 📅 {{ context.event_start_formatted }}
@@ -29,4 +21,4 @@
 
 {% if context.reason %}
 <b>{% trans "Reason:" %}</b> {{ context.reason }}
-{% endif %}{% endif %}{% endif %}
+{% endif %}{% endif %}

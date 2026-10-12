@@ -240,7 +240,7 @@ class TestNotifyOrgStaff:
         with patch("notifications.signals.notification_requested.send") as send_mock:
             notified = notify_org_staff(
                 organization_id=organization.id,
-                notification_type=NotificationType.TICKET_CREATED,
+                notification_type=NotificationType.STAFF_TICKET_CREATED,
                 context={"ticket_id": "abc"},
                 sender=Ticket,
             )
@@ -249,18 +249,18 @@ class TestNotifyOrgStaff:
         send_mock.assert_called_once_with(
             sender=Ticket,
             user=organization.owner,
-            notification_type=NotificationType.TICKET_CREATED,
-            context={"ticket_id": "abc", "staff_alert": True},
+            notification_type=NotificationType.STAFF_TICKET_CREATED,
+            context={"ticket_id": "abc"},
         )
 
     def test_skips_staff_who_disabled_the_type(self, organization: Organization) -> None:
         """A staff member who turned the type off is silently skipped."""
-        self._disable(organization.owner, NotificationType.TICKET_CREATED)
+        self._disable(organization.owner, NotificationType.STAFF_TICKET_CREATED)
 
         with patch("notifications.signals.notification_requested.send") as send_mock:
             notified = notify_org_staff(
                 organization_id=organization.id,
-                notification_type=NotificationType.TICKET_CREATED,
+                notification_type=NotificationType.STAFF_TICKET_CREATED,
                 context={"ticket_id": "abc"},
                 sender=Ticket,
             )
@@ -278,7 +278,7 @@ class TestNotifyOrgStaff:
             with django_assert_num_queries(0):
                 notified = notify_org_staff(
                     organization_id=organization.id,
-                    notification_type=NotificationType.TICKET_CREATED,
+                    notification_type=NotificationType.STAFF_TICKET_CREATED,
                     context={"ticket_id": "abc"},
                     sender=Ticket,
                     recipients=recipients,
@@ -290,12 +290,12 @@ class TestNotifyOrgStaff:
     def test_returns_the_number_notified(self, organization: Organization, member_user: RevelUser) -> None:
         """The return value counts only the staff who actually got the notification."""
         OrganizationStaff.objects.create(organization=organization, user=member_user)
-        self._disable(member_user, NotificationType.TICKET_CREATED)
+        self._disable(member_user, NotificationType.STAFF_TICKET_CREATED)
 
         with patch("notifications.signals.notification_requested.send") as send_mock:
             notified = notify_org_staff(
                 organization_id=organization.id,
-                notification_type=NotificationType.TICKET_CREATED,
+                notification_type=NotificationType.STAFF_TICKET_CREATED,
                 context={"ticket_id": "abc"},
                 sender=Ticket,
             )
