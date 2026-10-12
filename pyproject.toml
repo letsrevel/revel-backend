@@ -119,12 +119,15 @@ dev = [
     "licensecheck>=2025.1.0",
     "pip-audit>=2.10.1",
     "pytest-split>=0.10.0",
+    "types-python-dateutil>=2.9.0.20260807",
 ]
 sentinel = [
     # torch 2.8 ships no cp314 wheel (only cp313/cp313t); 2.9+ is required to
     # resolve under Python 3.14.
     "torch>=2.9.0",
-    "transformers>=4.55.2",
+    # transformers 5 is a major rewrite and the sentinel path isn't exercised in
+    # CI (group not installed) — validate it in a dedicated PR before lifting
+    "transformers>=4.55.2,<5",
 ]
 
 [tool.uv]
