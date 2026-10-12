@@ -36,7 +36,7 @@ def handle_payment_status_change(sender: type[Payment], instance: Payment, creat
     """Handle payment status changes and send appropriate notifications.
 
     - SUCCEEDED: Send PAYMENT_CONFIRMATION to ticket holder
-    - REFUNDED: Send TICKET_REFUNDED to ticket holder and staff/owners
+    - REFUNDED: Send TICKET_REFUNDED to ticket holder and STAFF_TICKET_REFUNDED to staff/owners
     """
     # Skip if no status change
     if not hasattr(instance, "_old_status"):

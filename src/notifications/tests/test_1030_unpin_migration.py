@@ -14,6 +14,7 @@ from notifications.signals.user import _get_guest_notification_type_settings
 pytestmark = pytest.mark.django_db
 
 migration = import_module("notifications.migrations.0028_unpin_unsubscribe_overrides")
+STAFF_TYPE_FOR = import_module("notifications.migrations.0033_copy_staff_alert_preferences").STAFF_TYPE_FOR
 
 
 def _legacy_unsubscribe_pin(prefs: NotificationPreference, channels: list[str]) -> None:
@@ -40,7 +41,8 @@ def test_frozen_defaults_match_current_defaults() -> None:
     """The migration's inline copies must equal the defaults at the time it was written."""
     assert migration.REGULAR_DEFAULTS == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
     # Staff alert types (#1127) postdate the frozen snapshot.
-    current_guest = {str(k): v for k, v in _get_guest_notification_type_settings().items() if "staff_" not in str(k)}
+    staff_types = {str(v) for v in STAFF_TYPE_FOR.values()}
+    current_guest = {str(k): v for k, v in _get_guest_notification_type_settings().items() if str(k) not in staff_types}
     assert migration.GUEST_DEFAULTS == current_guest
 
 

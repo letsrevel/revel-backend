@@ -142,9 +142,9 @@ Three pass-level types (in `notifications/enums.py`), replacing per-ticket noise
 
 | Type | Audience |
 |---|---|
-| `SERIES_PASS_PURCHASED` | Holder + org staff/owners (staff gated on `manage_tickets`). |
+| `SERIES_PASS_PURCHASED` | Holder only. Org staff/owners get `STAFF_SERIES_PASS_PURCHASED` (gated on `manage_tickets`). |
 | `SERIES_PASS_EXTENDED` | Holder only. |
-| `SERIES_PASS_CANCELLED` | Holder + staff/owners; carries refunded amount and cancelled-ticket count. |
+| `SERIES_PASS_CANCELLED` | Holder only; carries refunded amount and cancelled-ticket count. Org staff/owners get `STAFF_SERIES_PASS_CANCELLED` (gated on `manage_tickets`). |
 
 Per-ticket purchase/confirm/cancel signals early-return for any ticket with `held_pass_id` (belt and suspenders on top of the `bulk_create` signal skip). Templates live in `notifications/service/templates/series_pass_templates.py` with email + in-app bodies translated de/fr/it.
 
