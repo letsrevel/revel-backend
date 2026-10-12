@@ -104,7 +104,8 @@ class NotificationType(TextChoices):
 
 # Transactional notification types are time-/money-sensitive (a ticket sale, a payment,
 # a cancellation or a refund): they bypass the digest cadence (#506). Via MANDATORY_TYPES
-# below they also bypass silence and per-type disables and always include in-app + email.
+# below they also bypass silence and per-type disables and always include in-app + email,
+# except when sent to org staff as alerts (see Notification.is_mandatory).
 TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
     {
         NotificationType.PAYMENT_CONFIRMATION,
@@ -125,6 +126,8 @@ TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
 )
 
 # Types users can't opt out of: bypass silence_all, the email switch, per-type disables, and the digest.
+# Binds the person the transaction belongs to; staff alerts of these types are opt-out-able (but
+# still bypass the digest) — Notification.is_mandatory is the effective rule.
 # SYSTEM_ANNOUNCEMENT is for ToS / privacy / platform-wide notices ONLY — never promotional content.
 MANDATORY_TYPES: frozenset[str] = TRANSACTIONAL_TYPES | {
     NotificationType.ACCOUNT_BANNED,

@@ -75,15 +75,24 @@ class TelegramChannel(NotificationChannel):
         """
         prefs = notification.user.notification_preferences
 
-        # The effective channel list is the single source of truth, as in the dispatcher and
-        # email_policy.may_email: silence, per-type disables and per-type channel overrides,
-        # with mandatory types bypassing them (#1030) unless it's a staff alert.
-        channels = prefs.get_channels_for_notification_type(
-            notification.notification_type, staff_alert=notification.is_staff_alert
-        )
-        if DeliveryChannel.TELEGRAM not in channels:
+        # Mandatory types ignore silence / per-type disables (#1030): the effective channel
+        # list is the single source of truth, as in the dispatcher.
+        if notification.is_mandatory:
+            if DeliveryChannel.TELEGRAM not in prefs.get_channels_for_notification_type(notification.notification_type):
+                return False
+        # Check if telegram channel is enabled
+        elif not prefs.is_channel_enabled(DeliveryChannel.TELEGRAM):
             logger.debug(
-                "telegram_not_allowed_by_preferences",
+                "telegram_channel_disabled",
+                notification_id=str(notification.id),
+                user_id=str(notification.user.id),
+            )
+            return False
+
+        # Check if notification type is enabled
+        elif not prefs.is_notification_type_enabled(notification.notification_type):
+            logger.debug(
+                "notification_type_disabled",
                 notification_id=str(notification.id),
                 notification_type=notification.notification_type,
                 user_id=str(notification.user.id),

@@ -137,7 +137,7 @@ def determine_delivery_channels(user: RevelUser, notification_type: str, *, staf
     prefs = user.notification_preferences
 
     # Effective channels first, so silence and per-type disables apply to every path
-    # (including digest users) and mandatory types bypass them (#1030).
+    # (including digest users) and mandatory types bypass them (#1030) unless it's a staff alert.
     channels = prefs.get_channels_for_notification_type(notification_type, staff_alert=staff_alert)
 
     # Strip Telegram when the integration is disabled (self-host without a bot),

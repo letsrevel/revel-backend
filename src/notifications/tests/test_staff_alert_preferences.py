@@ -90,8 +90,12 @@ def test_telegram_refuses_staff_alert_with_telegram_disabled(regular_user: Revel
         assert TelegramChannel().can_deliver(_notify(regular_user, staff_alert=True)) is False
 
 
-def test_telegram_honours_per_type_override_for_staff_alert(regular_user: RevelUser) -> None:
-    """Telegram enabled only via a per-type override is delivered, matching the dispatcher."""
+def test_telegram_global_switch_vetoes_per_type_override_for_staff_alert(regular_user: RevelUser) -> None:
+    """The global Telegram switch is a send-time veto for non-mandatory mail, per-type overrides included.
+
+    Seeded overrides (e.g. ORG_CONTACT_MESSAGE_RECEIVED → IN_APP + TELEGRAM) aren't stripped when
+    Telegram is unticked globally, so honouring them here would message users who opted out.
+    """
     prefs = regular_user.notification_preferences
     prefs.enabled_channels = [IN_APP]
     prefs.notification_type_settings[TICKET_CREATED] = {"enabled": True, "channels": [DeliveryChannel.TELEGRAM]}
@@ -100,7 +104,7 @@ def test_telegram_honours_per_type_override_for_staff_alert(regular_user: RevelU
     manager.filter.return_value.first.return_value = MagicMock(telegram_id=123)
 
     with patch.object(RevelUser, "telegram_users", new_callable=lambda: property(lambda self: manager)):
-        assert TelegramChannel().can_deliver(_notify(regular_user, staff_alert=True)) is True
+        assert TelegramChannel().can_deliver(_notify(regular_user, staff_alert=True)) is False
 
 
 def test_is_mandatory_and_footer_context(regular_user: RevelUser) -> None:
