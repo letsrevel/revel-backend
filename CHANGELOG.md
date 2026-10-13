@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.22.0] - 2026-10-13
+
+> **Deploy note:** notifications migrations `0032`–`0034` re-type existing staff-alert rows and copy staff members' current `ticket_*` / `series_pass_*` preferences onto the new staff types, so nobody's opt-outs change. Once the rollout has fully drained, run `SELECT count(*) FROM notifications_notification WHERE context ? 'staff_alert';` (expect 0) before removing the temporary rollout shim.
+
+### Added
+- **Dedicated staff notification types**: org owners and staff now receive `staff_ticket_created`, `staff_ticket_cancelled`, `staff_ticket_refunded`, `staff_series_pass_purchased` and `staff_series_pass_cancelled` instead of reusing the buyer's types
+  - Staff alerts have their own copy addressed to staff (who bought, cancelled or was refunded) and are controlled by their own per-type preferences
+  - Staff ticket alerts are sent immediately; staff series-pass alerts can be bundled into the email digest
+  - Only staff with the `manage_tickets` permission receive them
+
+### Changed
+- `ticket_created`, `ticket_cancelled`, `ticket_refunded` and `series_pass_*` notifications now go only to the ticket or pass holder, and the ticket ones are always delivered as receipts
+- RSVP staff alerts now respect each staff member's per-type notification preferences
+
+### Fixed
+- Organizers who switched off notifications no longer receive staff ticket alerts through the email digest
+- Series pass purchased, extended and cancelled notifications now render properly on Telegram instead of falling back to the plain in-app text
+
 ## [2.21.1] - 2026-10-12
 
 ### Fixed
