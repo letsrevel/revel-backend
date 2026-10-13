@@ -123,6 +123,15 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         )
         return initial
 
+    def save_model(
+        self, request: HttpRequest, obj: models.Organization, form: admin.forms.ModelForm, change: bool
+    ) -> None:
+        if not change:
+            site_settings = SiteSettings.get_solo()
+            obj.platform_fee_percent = site_settings.default_platform_fee_percent
+            obj.platform_fee_fixed = site_settings.default_platform_fee_fixed
+        super().save_model(request, obj, form, change)
+
     SUPERUSER_ONLY_FIELDS: t.ClassVar[tuple[str, ...]] = (
         "vat_id_validated",
         "vat_id_validated_at",

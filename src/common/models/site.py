@@ -100,7 +100,7 @@ class SiteSettings(SingletonModel):
         max_digits=5,
         decimal_places=2,
         default=settings.DEFAULT_PLATFORM_FEE_FIXED,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Default fixed platform fee for newly created organizations.",
     )
 
@@ -123,7 +123,7 @@ class SiteSettings(SingletonModel):
         max_digits=5,
         decimal_places=2,
         default=settings.STRIPE_FEE_FIXED,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text=(
             "ESTIMATE of Stripe's fixed per-transaction fee. Not charged by Revel. "
             "<a href='https://stripe.com/pricing' class='underline' target='_blank'>See Stripe's pricing</a>."
