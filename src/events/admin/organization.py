@@ -126,7 +126,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     def save_model(
         self, request: HttpRequest, obj: models.Organization, form: admin.forms.ModelForm, change: bool
     ) -> None:
-        if not change:
+        if not change and not request.user.is_superuser:
             site_settings = SiteSettings.get_solo()
             obj.platform_fee_percent = site_settings.default_platform_fee_percent
             obj.platform_fee_fixed = site_settings.default_platform_fee_fixed
