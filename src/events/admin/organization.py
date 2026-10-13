@@ -14,7 +14,7 @@ from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectFilter, RangeDateFilter
 
-from common.models import STRIPE_CONNECTED_Q
+from common.models import STRIPE_CONNECTED_Q, SiteSettings
 from events import models
 from events.admin.base import (
     EventSeriesInline,
@@ -112,6 +112,16 @@ class AcquisitionSourceFilter(admin.SimpleListFilter):
 @admin.register(models.Organization)
 class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """Admin model for Organizations."""
+
+    def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, t.Any]:
+        """Use current site fee settings as defaults on the organization add form."""
+        initial = super().get_changeform_initial_data(request)
+        site_settings = SiteSettings.get_solo()
+        initial.update(
+            platform_fee_percent=site_settings.default_platform_fee_percent,
+            platform_fee_fixed=site_settings.default_platform_fee_fixed,
+        )
+        return initial
 
     SUPERUSER_ONLY_FIELDS: t.ClassVar[tuple[str, ...]] = (
         "vat_id_validated",

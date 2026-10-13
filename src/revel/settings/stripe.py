@@ -7,6 +7,11 @@ from decouple import Csv, config
 DEFAULT_CURRENCY = config("DEFAULT_CURRENCY", "EUR")
 DEFAULT_PLATFORM_FEE_PERCENT = config("DEFAULT_PLATFORM_FEE_PERCENT", cast=Decimal, default="1.50")
 DEFAULT_PLATFORM_FEE_FIXED = config("DEFAULT_PLATFORM_FEE_FIXED", cast=Decimal, default="0.25")
+# Stripe's card-processing fee, ESTIMATED for the frontend's public fee calculator.
+# Revel never charges or settles this — Stripe withholds the real amount, which
+# varies by card country/type. Overridable per deployment (non-EEA cards cost more).
+STRIPE_FEE_PERCENT = config("STRIPE_FEE_PERCENT", cast=Decimal, default="1.50")
+STRIPE_FEE_FIXED = config("STRIPE_FEE_FIXED", cast=Decimal, default="0.25")
 STRIPE_SECRET_KEY = config("STRIPE_SECRET_KEY", default="sk_test_...")
 STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="whsec_...")
 # CSV of whsec_* signing secrets — one per Stripe webhook endpoint pointing at
