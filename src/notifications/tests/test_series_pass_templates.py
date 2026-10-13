@@ -702,3 +702,25 @@ class TestSeriesPassCancelledTemplateRendering:
         ):
             assert body is not None
             assert "A refund" not in body
+
+
+class TestSeriesPassTelegramTemplates:
+    """Holder series-pass types render their own Telegram template, not the fallback (#1132)."""
+
+    @pytest.mark.parametrize(
+        ("make_notification", "expected"),
+        [
+            (_make_purchased_notification, "is now active"),
+            (_make_extended_notification, "Extra Class 1"),
+            (_make_cancelled_notification, "has been cancelled"),
+        ],
+    )
+    def test_telegram_body_renders(
+        self, holder: RevelUser, make_notification: t.Callable[[RevelUser], Notification], expected: str
+    ) -> None:
+        notification = make_notification(holder)
+
+        body = get_template(notification.notification_type).get_telegram_body(notification)
+
+        assert "Season Pass" in body
+        assert expected in body
