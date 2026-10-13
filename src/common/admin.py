@@ -81,10 +81,6 @@ class SiteSettingsAdmin(SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  #
                 ),
             },
         ),
-        (
-            "Stripe Fee Estimates",
-            {"fields": ("stripe_fee_percent", "stripe_fee_fixed")},
-        ),
         ("Public Links", {"fields": ("demo_booking_url",)}),
         ("Referral Program", {"fields": ("referral_applications_enabled",)}),
         (

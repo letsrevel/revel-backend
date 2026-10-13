@@ -104,32 +104,6 @@ class SiteSettings(SingletonModel):
         help_text="Default fixed platform fee for newly created organizations.",
     )
 
-    # Stripe card-processing fee ESTIMATE, surfaced to the frontend's public fee
-    # calculator. The backend never charges or settles this — Stripe withholds
-    # the real amount, which varies by card country/type. These exist so a
-    # deployment can override the published default without a code change
-    # (e.g. non-EEA deployments).
-    stripe_fee_percent = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=settings.STRIPE_FEE_PERCENT,
-        validators=[MinValueValidator(0), MaxValueValidator(100)],
-        help_text=(
-            "ESTIMATE of Stripe's per-transaction percentage (e.g., 1.50 for 1.5%). Not charged by Revel. "
-            "<a href='https://stripe.com/pricing' class='underline' target='_blank'>See Stripe's pricing</a>."
-        ),
-    )
-    stripe_fee_fixed = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=settings.STRIPE_FEE_FIXED,
-        validators=[MinValueValidator(0), MaxValueValidator(100)],
-        help_text=(
-            "ESTIMATE of Stripe's fixed per-transaction fee. Not charged by Revel. "
-            "<a href='https://stripe.com/pricing' class='underline' target='_blank'>See Stripe's pricing</a>."
-        ),
-    )
-
     # Invoice settings
     platform_invoice_bcc_email = models.EmailField(
         blank=True,

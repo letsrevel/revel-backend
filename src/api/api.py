@@ -155,8 +155,8 @@ def _get_fees(site: SiteSettings) -> FeesSchema:
     intentionally omitted — this endpoint is anonymous.
     """
     return FeesSchema(
-        stripe_fee_percent=site.stripe_fee_percent,
-        stripe_fee_fixed=site.stripe_fee_fixed,
+        stripe_fee_percent=settings.STRIPE_FEE_PERCENT,
+        stripe_fee_fixed=settings.STRIPE_FEE_FIXED,
         default_platform_fee_percent=site.default_platform_fee_percent,
         default_platform_fee_fixed=site.default_platform_fee_fixed,
         vat_rate=site.platform_vat_rate,

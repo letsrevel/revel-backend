@@ -2,15 +2,7 @@
 
 import django.core.validators
 from django.db import migrations, models
-
-from src.revel import settings
-
-
-def backfill_stripe_fees(apps, schema_editor) -> None:
-    apps.get_model("common", "SiteSettings").objects.update(
-        stripe_fee_fixed=settings.STRIPE_FEE_FIXED,
-        stripe_fee_percent=settings.STRIPE_FEE_PERCENT,
-    )
+from decimal import Decimal
 
 
 class Migration(migrations.Migration):
@@ -21,81 +13,10 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="historicalsitesettings",
-            name="stripe_fee_fixed",
-            field=models.DecimalField(
-                decimal_places=2,
-                default=settings.STRIPE_FEE_FIXED,
-                help_text=(
-                    "ESTIMATE of Stripe's fixed per-transaction fee. Not charged by Revel. "
-                    "<a href='https://stripe.com/pricing' class='underline' target='_blank'>See Stripe's pricing</a>."
-                ),
-                max_digits=5,
-                validators=[
-                    django.core.validators.MinValueValidator(0), 
-                    django.core.validators.MaxValueValidator(100)
-                    ],
-            ),
-        ),
-        migrations.AddField(
-            model_name="historicalsitesettings",
-            name="stripe_fee_percent",
-            field=models.DecimalField(
-                decimal_places=2,
-                default=settings.STRIPE_FEE_PERCENT,
-                help_text=(
-                    "ESTIMATE of Stripe's per-transaction percentage (e.g., 1.50 for 1.5%). "
-                    "Not charged by Revel. <a href='https://stripe.com/pricing' class='underline' target='_blank'>"
-                    "See Stripe's pricing</a>."
-                ),
-                max_digits=5,
-                validators=[
-                    django.core.validators.MinValueValidator(0),
-                    django.core.validators.MaxValueValidator(100),
-                ],
-            ),
-        ),
-        migrations.AddField(
-            model_name="sitesettings",
-            name="stripe_fee_fixed",
-            field=models.DecimalField(
-                decimal_places=2,
-                default=settings.STRIPE_FEE_FIXED,
-                help_text=(
-                    "ESTIMATE of Stripe's fixed per-transaction fee. Not charged by Revel. "
-                    "<a href='https://stripe.com/pricing' class='underline' target='_blank'>See Stripe's pricing</a>."
-                ),
-                max_digits=5,
-                validators=[
-                    django.core.validators.MinValueValidator(0),
-                    django.core.validators.MaxValueValidator(100),
-                ],
-            ),
-        ),
-        migrations.AddField(
-            model_name="sitesettings",
-            name="stripe_fee_percent",
-            field=models.DecimalField(
-                decimal_places=2,
-                default=settings.STRIPE_FEE_PERCENT,
-                help_text=(
-                    "ESTIMATE of Stripe's per-transaction percentage (e.g., 1.50 for 1.5%). "
-                    "Not charged by Revel. <a href='https://stripe.com/pricing' class='underline' target='_blank'>"
-                    "See Stripe's pricing</a>."
-                ),
-                max_digits=5,
-                validators=[
-                    django.core.validators.MinValueValidator(0),
-                    django.core.validators.MaxValueValidator(100),
-                ],
-            ),
-        ),
-        migrations.RunPython(backfill_stripe_fees, migrations.RunPython.noop),
-        migrations.AddField(
-            model_name="historicalsitesettings",
             name="default_platform_fee_fixed",
             field=models.DecimalField(
                 decimal_places=2,
-                default=settings.DEFAULT_PLATFORM_FEE_FIXED,
+                default=Decimal("0.25"),
                 help_text="Default fixed platform fee for newly created organizations.",
                 max_digits=5,
                 validators=[
@@ -109,7 +30,7 @@ class Migration(migrations.Migration):
             name="default_platform_fee_percent",
             field=models.DecimalField(
                 decimal_places=2,
-                default=settings.DEFAULT_PLATFORM_FEE_PERCENT,
+                default=Decimal("1.50"),
                 help_text="Default percentage platform fee for newly created organizations.",
                 max_digits=5,
                 validators=[
@@ -123,7 +44,7 @@ class Migration(migrations.Migration):
             name="default_platform_fee_fixed",
             field=models.DecimalField(
                 decimal_places=2,
-                default=settings.DEFAULT_PLATFORM_FEE_FIXED,
+                default=Decimal("0.25"),
                 help_text="Default fixed platform fee for newly created organizations.",
                 max_digits=5,
                 validators=[
@@ -137,7 +58,7 @@ class Migration(migrations.Migration):
             name="default_platform_fee_percent",
             field=models.DecimalField(
                 decimal_places=2,
-                default=settings.DEFAULT_PLATFORM_FEE_PERCENT,
+                default=Decimal("1.50"),
                 help_text="Default percentage platform fee for newly created organizations.",
                 max_digits=5,
                 validators=[
