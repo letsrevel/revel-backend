@@ -14,8 +14,8 @@ from accounts.jwt import check_blacklist, create_token
 from accounts.models import RevelUser
 from accounts.service.account import token_to_payload
 from events.models import Organization
-from notifications.enums import DeliveryChannel, NotificationType
-from notifications.models import EmailSuppression, NotificationPreference
+from notifications.enums import MANDATORY_TYPES, DeliveryChannel, NotificationType
+from notifications.models import EmailSuppression, Notification, NotificationPreference
 from notifications.schema import (
     EmailOptOutJWTPayloadSchema,
     OneClickUnsubscribePayload,
@@ -52,6 +52,26 @@ def generate_unsubscribe_token(
     token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
     logger.debug("unsubscribe_token_generated", user_id=str(user.id))
     return token
+
+
+def token_for_notification(notification: Notification) -> str:
+    """Typed unsubscribe token for the email carrying ``notification``.
+
+    The organization id only matters for ORG_ANNOUNCEMENT (one-click mutes that org); it is
+    taken from the context, which always carries it, to avoid a query per render.
+
+    Args:
+        notification: The notification being emailed.
+
+    Returns:
+        The unsubscribe token.
+    """
+    is_announcement = notification.notification_type == NotificationType.ORG_ANNOUNCEMENT
+    return generate_unsubscribe_token(
+        notification.user,
+        notification_type=notification.notification_type,
+        organization_id=notification.context.get("organization_id") if is_announcement else None,
+    )
 
 
 def generate_email_opt_out_token(email: str, organization_id: UUID | None) -> str:
@@ -139,6 +159,7 @@ def one_click_unsubscribe(token: str) -> None:
     """Apply an RFC 8058 one-click unsubscribe. Idempotent.
 
     - ``email_opt_out`` → suppress the address for cold invitations.
+    - ``unsubscribe`` + a mandatory type → ignored (mandatory mail can't be opted out of).
     - ``unsubscribe`` + ORG_ANNOUNCEMENT + organization → mute that organization.
     - ``unsubscribe`` + another type → stop emailing that type.
     - ``unsubscribe`` without a type (digest) → stop email and switch the digest off.
@@ -170,6 +191,9 @@ def one_click_unsubscribe(token: str) -> None:
         logger.info("one_click_unsubscribe_unknown_user", user_id=str(payload.user_id))
         return
     _reject_if_email_changed(payload, user)
+    if payload.notification_type in MANDATORY_TYPES:
+        logger.info("one_click_unsubscribe_mandatory_ignored", user_id=str(user.id))
+        return
     prefs, _created = NotificationPreference.objects.get_or_create(user=user)
 
     if payload.notification_type == NotificationType.ORG_ANNOUNCEMENT and payload.organization_id:

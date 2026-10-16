@@ -4,6 +4,7 @@ from email.utils import formataddr
 
 from django.conf import settings
 
+from common.models import SiteSettings
 from common.utils import is_reserved_mailbox, org_email_domain
 from events.models import Organization
 from notifications.models import Notification
@@ -73,3 +74,22 @@ def build_list_unsubscribe_headers(token: str) -> dict[str, str]:
     """
     url = f"{settings.BASE_URL.rstrip('/')}/api/notification-preferences/one-click?token={token}"
     return {"List-Unsubscribe": f"<{url}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
+
+
+def build_preferences_list_unsubscribe_header(token: str) -> dict[str, str]:
+    """``List-Unsubscribe`` header for mail the recipient cannot opt out of.
+
+    Brevo injects its own one-click header into any email that lacks one, and a client
+    "Unsubscribe" click would then globally block even mandatory mail. This header points
+    at the frontend preferences page instead. There is deliberately no
+    ``List-Unsubscribe-Post``: without it clients open the URL in a browser rather than
+    POSTing silently, so nothing is switched off by the click.
+
+    Args:
+        token: Typed unsubscribe token the frontend ``/unsubscribe`` page consumes.
+
+    Returns:
+        A ``List-Unsubscribe`` header only.
+    """
+    url = f"{SiteSettings.get_solo().frontend_base_url.rstrip('/')}/unsubscribe?token={token}"
+    return {"List-Unsubscribe": f"<{url}>"}

@@ -12,17 +12,24 @@ from django.utils import timezone
 from common.models import EmailLog, SiteSettings
 from common.tasks import to_safe_email_address
 from common.utils import with_message_id
-from notifications.enums import ORG_SENDER_TYPES, PLATFORM_LIST_UNSUBSCRIBE_TYPES, DeliveryChannel, DeliveryStatus
+from notifications.enums import (
+    MANDATORY_TYPES,
+    ORG_SENDER_TYPES,
+    PLATFORM_LIST_UNSUBSCRIBE_TYPES,
+    DeliveryChannel,
+    DeliveryStatus,
+)
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.base import NotificationChannel
 from notifications.service.email_policy import may_email, suppression_for
 from notifications.service.org_sender import (
     build_list_unsubscribe_headers,
+    build_preferences_list_unsubscribe_header,
     org_from_address,
     org_reply_to,
     resolve_sender_org,
 )
-from notifications.service.unsubscribe import generate_unsubscribe_token
+from notifications.service.unsubscribe import generate_unsubscribe_token, token_for_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -200,27 +207,38 @@ class EmailChannel(NotificationChannel):
         with the org's verified Reply-To, one-click List-Unsubscribe and a Feedback-ID;
         everything else uses the system sender. Platform list types (Revel's own opt-out-able
         nudges) keep the system sender but add one-click List-Unsubscribe and a human Reply-To.
+
+        Every email carries a Revel ``List-Unsubscribe`` header, otherwise Brevo injects its own
+        one-click header and a client "Unsubscribe" click globally blocks the address (#1137).
+        Other non-mandatory types get the one-click header; mandatory types only point at the
+        preferences page, with no ``List-Unsubscribe-Post``, so a click can't switch anything off.
         ``X-Mailin-custom`` lets provider webhooks correlate bounces/complaints back to the
         delivery (and org).
         """
         headers = {"X-Mailin-custom": f"delivery:{delivery.id}"}
         notification_type = notification.notification_type
         if notification_type in PLATFORM_LIST_UNSUBSCRIBE_TYPES:
-            token = generate_unsubscribe_token(notification.user, notification_type=notification_type)
+            token = token_for_notification(notification)
             headers.update(build_list_unsubscribe_headers(token))
             reply_to = [settings.ORG_NUDGE_REPLY_TO] if settings.ORG_NUDGE_REPLY_TO else []
             return settings.DEFAULT_FROM_EMAIL, reply_to, headers
-        org = resolve_sender_org(notification) if notification_type in ORG_SENDER_TYPES else None
-        if org is None:
-            return settings.DEFAULT_FROM_EMAIL, [], headers
 
-        token = generate_unsubscribe_token(
-            notification.user, notification_type=notification_type, organization_id=org.id
-        )
-        headers.update(build_list_unsubscribe_headers(token))
-        headers["Feedback-ID"] = f"{org.slug}:{notification_type}:revel"
-        headers["X-Mailin-custom"] = f"delivery:{delivery.id}|org:{org.id}"
-        return org_from_address(org), org_reply_to(org), headers
+        org = resolve_sender_org(notification) if notification_type in ORG_SENDER_TYPES else None
+        if org is not None:
+            token = generate_unsubscribe_token(
+                notification.user, notification_type=notification_type, organization_id=org.id
+            )
+            headers.update(build_list_unsubscribe_headers(token))
+            headers["Feedback-ID"] = f"{org.slug}:{notification_type}:revel"
+            headers["X-Mailin-custom"] = f"delivery:{delivery.id}|org:{org.id}"
+            return org_from_address(org), org_reply_to(org), headers
+
+        token = token_for_notification(notification)
+        if notification_type in MANDATORY_TYPES:
+            headers.update(build_preferences_list_unsubscribe_header(token))
+        else:
+            headers.update(build_list_unsubscribe_headers(token))
+        return settings.DEFAULT_FROM_EMAIL, [], headers
 
     def should_retry(self, error: Exception) -> bool:
         """Determine if email delivery should be retried.
