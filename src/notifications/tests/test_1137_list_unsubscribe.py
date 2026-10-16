@@ -10,9 +10,12 @@ from django.test import Client
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.tasks import send_email
 from notifications.enums import MANDATORY_TYPES, ORG_SENDER_TYPES, DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.email import EmailChannel
+from notifications.service.org_sender import build_preferences_list_unsubscribe_header
+from notifications.service.unsubscribe import generate_unsubscribe_token, one_click_unsubscribe, token_for_notification
 
 pytestmark = pytest.mark.django_db
 
@@ -109,3 +112,69 @@ def test_one_click_of_staff_alert_header_disables_only_that_type(client: Client,
     assert DeliveryChannel.EMAIL not in prefs.get_channels_for_notification_type(staff_type)
     other = NotificationType.STAFF_TICKET_CANCELLED
     assert DeliveryChannel.EMAIL in prefs.get_channels_for_notification_type(other)
+
+
+def _set_frontend_base_url(url: str) -> None:
+    site = SiteSettings.get_solo()
+    site.frontend_base_url = url
+    site.save()
+
+
+def test_send_email_without_headers_gets_preferences_list_unsubscribe() -> None:
+    _set_frontend_base_url("https://app.example.test/")
+
+    send_email(to="a@example.com", subject="S", body="B")
+
+    headers = mail.outbox[-1].extra_headers
+    assert headers["List-Unsubscribe"] == "<https://app.example.test/account/notifications>"
+    assert "List-Unsubscribe-Post" not in headers
+
+
+def test_send_email_keeps_caller_list_unsubscribe() -> None:
+    own = {"list-unsubscribe": "<https://own.example.test/u>", "X-Other": "1"}
+
+    send_email(to="a@example.com", subject="S", body="B", headers=own)
+
+    headers = mail.outbox[-1].extra_headers
+    assert headers["list-unsubscribe"] == "<https://own.example.test/u>"
+    assert "List-Unsubscribe" not in headers
+    assert own == {"list-unsubscribe": "<https://own.example.test/u>", "X-Other": "1"}
+
+
+def test_preferences_header_handles_trailing_slash(regular_user: RevelUser) -> None:
+    _set_frontend_base_url("https://app.example.test/")
+
+    header = build_preferences_list_unsubscribe_header("tok")["List-Unsubscribe"]
+
+    assert header == "<https://app.example.test/unsubscribe?token=tok>"
+
+
+def test_one_click_with_mandatory_type_token_writes_no_override(regular_user: RevelUser) -> None:
+    mandatory = next(iter(MANDATORY_TYPES))
+    token = generate_unsubscribe_token(regular_user, notification_type=mandatory)
+
+    one_click_unsubscribe(token)  # idempotent, no error
+    one_click_unsubscribe(token)
+
+    prefs = regular_user.notification_preferences
+    prefs.refresh_from_db()
+    assert DeliveryChannel.EMAIL in prefs.get_channels_for_notification_type(mandatory)
+    assert not prefs.notification_type_settings.get(mandatory)
+
+
+def test_token_for_notification_scopes_org_only_for_announcements(regular_user: RevelUser) -> None:
+    org_id = "5b0c4a0e-6d0c-4d6e-9d77-3f2f2a5a1c11"
+    announcement = Notification.objects.create(
+        notification_type=NotificationType.ORG_ANNOUNCEMENT, user=regular_user, context={"organization_id": org_id}
+    )
+    other = Notification.objects.create(
+        notification_type=NotificationType.TICKET_CREATED, user=regular_user, context={"organization_id": org_id}
+    )
+
+    announcement_claims = jwt.decode(token_for_notification(announcement), options={"verify_signature": False})
+    other_claims = jwt.decode(token_for_notification(other), options={"verify_signature": False})
+
+    assert announcement_claims["organization_id"] == org_id
+    assert announcement_claims["notification_type"] == NotificationType.ORG_ANNOUNCEMENT
+    assert other_claims["organization_id"] is None
+    assert other_claims["notification_type"] == NotificationType.TICKET_CREATED

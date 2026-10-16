@@ -18,7 +18,6 @@ from notifications.enums import (
     PLATFORM_LIST_UNSUBSCRIBE_TYPES,
     DeliveryChannel,
     DeliveryStatus,
-    NotificationType,
 )
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.base import NotificationChannel
@@ -30,7 +29,7 @@ from notifications.service.org_sender import (
     org_reply_to,
     resolve_sender_org,
 )
-from notifications.service.unsubscribe import generate_unsubscribe_token
+from notifications.service.unsubscribe import generate_unsubscribe_token, token_for_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -219,31 +218,27 @@ class EmailChannel(NotificationChannel):
         headers = {"X-Mailin-custom": f"delivery:{delivery.id}"}
         notification_type = notification.notification_type
         if notification_type in PLATFORM_LIST_UNSUBSCRIBE_TYPES:
-            token = generate_unsubscribe_token(notification.user, notification_type=notification_type)
+            token = token_for_notification(notification)
             headers.update(build_list_unsubscribe_headers(token))
             reply_to = [settings.ORG_NUDGE_REPLY_TO] if settings.ORG_NUDGE_REPLY_TO else []
             return settings.DEFAULT_FROM_EMAIL, reply_to, headers
-        org = resolve_sender_org(notification) if notification_type in ORG_SENDER_TYPES else None
-        if org is None:
-            is_announcement = notification_type == NotificationType.ORG_ANNOUNCEMENT
-            token = generate_unsubscribe_token(
-                notification.user,
-                notification_type=notification_type,
-                organization_id=notification.context.get("organization_id") if is_announcement else None,
-            )
-            if notification_type in MANDATORY_TYPES:
-                headers.update(build_preferences_list_unsubscribe_header(token))
-            else:
-                headers.update(build_list_unsubscribe_headers(token))
-            return settings.DEFAULT_FROM_EMAIL, [], headers
 
-        token = generate_unsubscribe_token(
-            notification.user, notification_type=notification_type, organization_id=org.id
-        )
-        headers.update(build_list_unsubscribe_headers(token))
-        headers["Feedback-ID"] = f"{org.slug}:{notification_type}:revel"
-        headers["X-Mailin-custom"] = f"delivery:{delivery.id}|org:{org.id}"
-        return org_from_address(org), org_reply_to(org), headers
+        org = resolve_sender_org(notification) if notification_type in ORG_SENDER_TYPES else None
+        if org is not None:
+            token = generate_unsubscribe_token(
+                notification.user, notification_type=notification_type, organization_id=org.id
+            )
+            headers.update(build_list_unsubscribe_headers(token))
+            headers["Feedback-ID"] = f"{org.slug}:{notification_type}:revel"
+            headers["X-Mailin-custom"] = f"delivery:{delivery.id}|org:{org.id}"
+            return org_from_address(org), org_reply_to(org), headers
+
+        token = token_for_notification(notification)
+        if notification_type in MANDATORY_TYPES:
+            headers.update(build_preferences_list_unsubscribe_header(token))
+        else:
+            headers.update(build_list_unsubscribe_headers(token))
+        return settings.DEFAULT_FROM_EMAIL, [], headers
 
     def should_retry(self, error: Exception) -> bool:
         """Determine if email delivery should be retried.

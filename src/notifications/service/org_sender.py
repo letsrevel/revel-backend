@@ -91,5 +91,5 @@ def build_preferences_list_unsubscribe_header(token: str) -> dict[str, str]:
     Returns:
         A ``List-Unsubscribe`` header only.
     """
-    url = f"{SiteSettings.get_solo().frontend_base_url}/unsubscribe?token={token}"
+    url = f"{SiteSettings.get_solo().frontend_base_url.rstrip('/')}/unsubscribe?token={token}"
     return {"List-Unsubscribe": f"<{url}>"}
