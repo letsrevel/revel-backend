@@ -202,7 +202,7 @@ def test_deliver_sender_by_type(
     else:
         assert msg.from_email == DEFAULT_FROM
         assert msg.reply_to == []
-        assert "List-Unsubscribe" not in headers
+        assert "List-Unsubscribe" in headers  # every email carries a Revel header (#1137)
         assert "Feedback-ID" not in headers
         assert headers["X-Mailin-custom"] == f"delivery:{delivery.id}"
 
@@ -219,7 +219,7 @@ def test_deliver_org_sender_type_without_resolvable_org_uses_system_sender(
 
     msg = mail.outbox[-1]
     assert msg.from_email == DEFAULT_FROM
-    assert "List-Unsubscribe" not in msg.extra_headers
+    assert "/api/notification-preferences/one-click?token=" in msg.extra_headers["List-Unsubscribe"]
 
 
 @patch("notifications.service.templates.registry.get_template")
