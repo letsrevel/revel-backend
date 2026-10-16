@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.22.1] - 2026-10-16
+
+> **Deploy note:** this release removes the temporary `staff_alert` rollout shim from 2.22.0. Before deploying, confirm `SELECT count(*) FROM notifications_notification WHERE context ? 'staff_alert';` returns 0.
+
+### Fixed
+- Mail-client "Unsubscribe" buttons now reach Revel instead of the email provider. Every email carries Revel's own `List-Unsubscribe` header. Before this, the provider added its own header, and one click blocked the address from all email, mandatory receipts included.
+  - Optional notifications get a one-click unsubscribe that turns off only that notification type
+  - Receipts, account and legal emails link to the notification preferences page and switch nothing off
+- One-click unsubscribe links from mandatory notifications no longer store an opt-out that could never take effect
+- The "let's revel" wordmark in emails now uses a typographic apostrophe instead of an opening quote
+
 ## [2.22.0] - 2026-10-13
 
 > **Deploy note:** notifications migrations `0032`–`0034` re-type existing staff-alert rows and copy staff members' current `ticket_*` / `series_pass_*` preferences onto the new staff types, so nobody's opt-outs change. Once the rollout has fully drained, run `SELECT count(*) FROM notifications_notification WHERE context ? 'staff_alert';` (expect 0) before removing the temporary rollout shim.
