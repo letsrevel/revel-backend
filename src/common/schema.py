@@ -2,6 +2,7 @@
 
 import re
 import typing as t
+from decimal import Decimal
 
 from django.contrib.auth.models import AnonymousUser
 from ninja import ModelSchema, Schema
@@ -157,12 +158,36 @@ class SSOProviderSchema(Schema):
     name: str
 
 
+class FeesSchema(Schema):
+    """Fee rates for the public landing-page calculator.
+
+    These are *estimates* shown to prospective organizers before they sign up, not
+    settlement figures. ``stripe_fee_*`` mirror Stripe's published card-processing
+    pricing (ESTIMATED — Revel neither charges nor settles them, and the real amount
+    varies by card country/type); they live here only so a deployment can override
+    the default without a frontend release. ``default_platform_fee_*`` are the
+    Django defaults new ``Organization`` rows are created with, and ``vat_rate`` is
+    the platform's domestic rate — the calculator applies it only where no reverse
+    charge applies, which stays org-specific.
+
+    Per-organization negotiated fees are deliberately NOT exposed here: this
+    endpoint is anonymous.
+    """
+
+    stripe_fee_percent: Decimal
+    stripe_fee_fixed: Decimal
+    default_platform_fee_percent: Decimal
+    default_platform_fee_fixed: Decimal
+    vat_rate: Decimal
+
+
 class VersionResponse(Schema):
     version: str
     demo: bool = False
     banner: BannerSchema | None = None
     demo_booking_url: str | None = None
     features: FeaturesSchema
+    fees: FeesSchema
     sso_providers: list[SSOProviderSchema]
     turnstile_site_key: str | None = None
 

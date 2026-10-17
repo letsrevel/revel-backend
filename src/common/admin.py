@@ -75,6 +75,8 @@ class SiteSettingsAdmin(SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  #
                     "platform_vat_id",
                     "platform_vat_country",
                     "platform_vat_rate",
+                    "default_platform_fee_percent",
+                    "default_platform_fee_fixed",
                     "platform_invoice_bcc_email",
                 ),
             },

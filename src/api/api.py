@@ -19,7 +19,15 @@ from accounts.service.turnstile import is_turnstile_enabled
 from common.controllers import MediaValidationController, TagController
 from common.exception_handlers import ExceptionHandler, make_static_handler, register_handlers
 from common.models import Legal, SiteSettings
-from common.schema import BannerSchema, FeaturesSchema, LegalSchema, ResponseOk, SSOProviderSchema, VersionResponse
+from common.schema import (
+    BannerSchema,
+    FeaturesSchema,
+    FeesSchema,
+    LegalSchema,
+    ResponseOk,
+    SSOProviderSchema,
+    VersionResponse,
+)
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
 from events.controllers.dashboard import DashboardController
 from events.controllers.event_admin import EVENT_ADMIN_CONTROLLERS
@@ -121,6 +129,7 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
         banner=_get_active_banner(site),
         demo_booking_url=site.demo_booking_url or None,
         features=_get_features(site),
+        fees=_get_fees(site),
         sso_providers=[SSOProviderSchema(key=p.key, name=p.name) for p in settings.OIDC_PROVIDERS],
         turnstile_site_key=settings.TURNSTILE_SITE_KEY if is_turnstile_enabled() else None,
     )
@@ -134,6 +143,23 @@ def _get_features(site: SiteSettings) -> FeaturesSchema:
         llm_evaluation=settings.FEATURE_LLM_EVALUATION,
         referral_applications=site.referral_applications_enabled,
         oauth_provider=oauth_provider_enabled(),
+    )
+
+
+def _get_fees(site: SiteSettings) -> FeesSchema:
+    """Expose fee rates for the public landing-page calculator.
+
+    The Stripe pair is an estimate of Stripe's published card pricing that the
+    operator can override per deployment; the platform pair is the Django default
+    applied to newly created organizations. Per-organization negotiated fees are
+    intentionally omitted — this endpoint is anonymous.
+    """
+    return FeesSchema(
+        stripe_fee_percent=settings.STRIPE_FEE_PERCENT,
+        stripe_fee_fixed=settings.STRIPE_FEE_FIXED,
+        default_platform_fee_percent=site.default_platform_fee_percent,
+        default_platform_fee_fixed=site.default_platform_fee_fixed,
+        vat_rate=site.platform_vat_rate,
     )
 
 
