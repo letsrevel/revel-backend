@@ -11,6 +11,7 @@ effects.
 
 import importlib
 
+import certifi
 import pytest
 import stripe
 from django.conf import settings
@@ -54,9 +55,17 @@ def test_default_http_client_is_configured_with_the_settings_timeout() -> None:
 
 
 def test_configure_stripe_pins_credentials_and_api_version() -> None:
-    """``configure_stripe`` sets all three process-wide attributes and is idempotent."""
+    """``configure_stripe`` sets all process-wide attributes and is idempotent."""
     configure_stripe()
     assert stripe.api_key == settings.STRIPE_SECRET_KEY
     assert stripe.api_version == settings.STRIPE_API_VERSION
     assert isinstance(stripe.default_http_client, stripe.RequestsClient)
     assert stripe.default_http_client._timeout == settings.STRIPE_HTTP_TIMEOUT_SECONDS
+    assert stripe.ca_bundle_path == certifi.where()
+
+
+def test_ca_bundle_excludes_compromised_emudhra_root() -> None:
+    """The bundle Stripe verifies against no longer trusts the compromised eMudhra root."""
+    configure_stripe()
+    with open(stripe.ca_bundle_path) as bundle:
+        assert "emSign ECC Root CA - G3" not in bundle.read()

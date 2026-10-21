@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Outbound HTTPS no longer trusts the eMudhra root whose intermediate CA keys were compromised in October 2026. `certifi` is bumped to 2026.10.19, and Stripe calls now verify against certifi rather than stripe-python's own bundle, which still contained the root.
+
 ## [2.22.1] - 2026-10-16
 
 > **Deploy note:** this release removes the temporary `staff_alert` rollout shim from 2.22.0. Before deploying, confirm `SELECT count(*) FROM notifications_notification WHERE context ? 'staff_alert';` returns 0.
