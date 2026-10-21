@@ -14,6 +14,8 @@ import importlib
 import certifi
 import pytest
 import stripe
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
 from django.conf import settings
 
 from common.service.stripe_config import configure_stripe
@@ -39,6 +41,9 @@ STRIPE_CONFIGURING_MODULES = [
     "events.service.subscription.stripe.plan_change",
     "events.service.subscription.stripe.sync",
 ]
+
+# emSign ECC Root CA - G3, distrusted after the October 2026 eMudhra intermediate key compromise.
+EMSIGN_ECC_ROOT_G3_SHA256 = bytes.fromhex("86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b")
 
 
 @pytest.mark.parametrize("module_path", STRIPE_CONFIGURING_MODULES)
@@ -67,5 +72,7 @@ def test_configure_stripe_pins_credentials_and_api_version() -> None:
 def test_ca_bundle_excludes_compromised_emudhra_root() -> None:
     """The bundle Stripe verifies against no longer trusts the compromised eMudhra root."""
     configure_stripe()
-    with open(stripe.ca_bundle_path) as bundle:
-        assert "emSign ECC Root CA - G3" not in bundle.read()
+    with open(stripe.ca_bundle_path, "rb") as bundle:
+        certs = x509.load_pem_x509_certificates(bundle.read())
+    # Match on the certificate itself, not the PEM label comment.
+    assert EMSIGN_ECC_ROOT_G3_SHA256 not in {cert.fingerprint(hashes.SHA256()) for cert in certs}
