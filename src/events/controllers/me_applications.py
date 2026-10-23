@@ -214,10 +214,11 @@ class MeMembershipApplicationsController(UserAwareController):
         response=PaginatedResponseSchema[schema.MembershipApplicationSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_applications(self) -> QuerySet[OrganizationMembershipRequest]:
-        """List the caller's applications across organizations."""
-        return (
-            OrganizationMembershipRequest.objects.filter(user=self.user())
-            .select_related("organization", "tier", "plan", "subscription", "questionnaire_submission")
-            .order_by("-created_at")
+    def list_applications(self, organization: UUID | None = None) -> QuerySet[OrganizationMembershipRequest]:
+        """List the caller's applications across organizations, optionally only those to one organization."""
+        qs = OrganizationMembershipRequest.objects.filter(user=self.user())
+        if organization is not None:
+            qs = qs.filter(organization_id=organization)
+        return qs.select_related("organization", "tier", "plan", "subscription", "questionnaire_submission").order_by(
+            "-created_at"
         )
