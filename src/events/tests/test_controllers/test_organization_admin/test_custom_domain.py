@@ -1,7 +1,7 @@
 """Tests for the org-admin custom-domain endpoints (#1151). Cloudflare is mocked."""
 
 import typing as t
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.test.client import Client
@@ -43,6 +43,13 @@ def platform_settings(settings: t.Any) -> None:
     settings.CUSTOM_DOMAIN_CNAME_TARGET = CNAME_TARGET
     settings.CLOUDFLARE_API_TOKEN = "tok"
     settings.CLOUDFLARE_ZONE_ID = "zone"
+
+
+@pytest.fixture(autouse=True)
+def txt_published() -> t.Iterator[MagicMock]:
+    """The ownership TXT record is published in public DNS (no network)."""
+    with patch.object(cloudflare, "txt_record_published", return_value=True) as mock:
+        yield mock
 
 
 @pytest.fixture
@@ -219,6 +226,27 @@ def test_refresh_syncs_and_activates(organization_owner_client: Client, enabled_
     assert response.json()["status"] == "active"
     enabled_org.refresh_from_db()
     assert enabled_org.custom_domain == "events.example.com"
+
+
+def test_refresh_keeps_pending_until_the_ownership_txt_record_is_published(
+    organization_owner_client: Client, enabled_org: Organization, txt_published: MagicMock
+) -> None:
+    txt_published.return_value = False
+    OrganizationDomain.objects.create(
+        organization=enabled_org, hostname="events.example.com", cloudflare_hostname_id="cf-1"
+    )
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted("active", "active")):
+        response = organization_owner_client.post(_url("refresh_custom_domain", enabled_org))
+
+    assert response.status_code == 200, response.content
+    assert response.json()["status"] == "pending"
+    assert response.json()["errors"] == [
+        "Add the TXT record _cf-custom-hostname.events.example.com with value owner-token "
+        "to prove you own this hostname."
+    ]
+    enabled_org.refresh_from_db()
+    assert enabled_org.custom_domain is None
 
 
 def test_refresh_without_domain_is_404(organization_owner_client: Client, enabled_org: Organization) -> None:

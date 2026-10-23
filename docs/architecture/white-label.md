@@ -247,9 +247,19 @@ confirm-action token**, single-use, scoped to one RSVP or ticket on that organiz
 returning no auth session. That is acceptable because the owner already has authority over that
 event. Unsubscribe tokens and account links stay on the platform.
 
+### Ownership proof: dangling-CNAME re-claim
+
+Cloudflare for SaaS activates a custom hostname as soon as its CNAME points at the fallback origin
+(HTTP validation); it does not need the ownership TXT record. Without a check of our own, a domain
+that was removed (or whose organization was deleted) while its CNAME still pointed at Revel could be
+requested by **another** organization with the feature enabled, and the next sync would activate it
+for them. The same race exists when a legitimate owner sets the CNAME before requesting the domain.
+So `sync_domain_status` requires the per-hostname ownership TXT record to be visible in public DNS
+before a PENDING domain becomes ACTIVE: only whoever controls the zone can publish it.
+
 ### The password trade-off
 
-The rule above protects **tokens**. It does not, and cannot, protect the **password form**. On a
+The rule above protects **tokens in links**. It does not, and cannot, protect the **password form**. On a
 custom domain an attendee logs in on a page served under a hostname whose DNS the organization
 controls. Sessions are host-only, so each domain asks for its own login, and the password is typed
 into whatever answers on that hostname. An owner who is malicious, or whose DNS account is taken
@@ -270,7 +280,38 @@ there and how long a problem lives:
   the CNAME `moved`), which is one way a repointed hostname shows up.
   See [domain-problem alerts](../guides/white-label/operators.md#domain-problem-alerts).
 - **Account-level tokens stay off tenant links**, so a hostile domain cannot harvest reset or
-  verification tokens. The remaining exposure is the password form itself.
+  verification tokens.
+- **Sessions are bound to the domain they were issued on.** Logging in on a tenant host stores the
+  platform-wide refresh token as a host-only cookie on that host, so a repointed hostname would
+  otherwise receive it passively from every browser that visits (30 days, account-wide, and
+  refreshing skips TOTP). The refresh token (and so every access token derived from it) therefore
+  carries two claims when the login happened on an active tenant host (the frontend sets `Origin`
+  to it): `tenant_host` and `tenant_session_iat`, the unix time the session was issued. Rotation
+  carries both forward unchanged; only the password and the 2FA logins mint them, and OIDC, SSO and
+  impersonation stay platform-only. A token without `tenant_host` is a platform session and is
+  untouched.
+- **Revocation follows the live domain state.** A tenant session is valid only while its host still
+  resolves to an ACTIVE domain of an organization with the kill switch on. Removing the domain,
+  deleting the organization, switching the kill switch off, or failing the domain therefore signs
+  every session issued on it out, with no extra code per case: on a request the access token gets
+  a 401 (an optional-auth endpoint treats it as anonymous, so public pages keep working), and a
+  refresh answers 401 and blacklists the refresh token. The refresh additionally rejects a session
+  issued before the domain's current `verified_at`, which kills sessions that predate a
+  re-activation or a re-claim of the hostname. Access tokens skip that second comparison, because
+  the cached tenant resolution holds no timestamp and it would cost a query per request; such a
+  token lives at most one access-token lifetime and cannot be refreshed.
+- **`moved` fails an ACTIVE domain at once.** When Cloudflare reports the hostname `moved`, the
+  DNS no longer points at Revel, so the domain is not serving our site anyway; the sync marks it
+  FAILED, which revokes its sessions as above and alerts staff (`custom_domain_active_failed`).
+  Certificate timeouts stay record-only, because DNS still reaches us.
+
+What remains exposed:
+
+- **A password typed while the owner controls the DNS**, the attack above. Revel cannot see it.
+- **Access tokens and refresh cookies during the detection window.** Until the domain is failed, a
+  repointed host still receives whatever the browser sends it. The window is Cloudflare's detection
+  time for `moved`, plus up to 15 minutes until our next sync sweep, plus the tenant cache
+  (up to 60 seconds). A kill switch is faster: the admin invalidates the cache immediately.
 
 Operators should treat enabling a custom domain as granting the organization the ability to present
 a login page under its own name, and decide accordingly.
@@ -322,7 +363,7 @@ stateDiagram-v2
     [*] --> PENDING: request_domain
     PENDING --> ACTIVE: Cloudflare ready, or admin activates
     PENDING --> FAILED: blocked, deleted, moved, cert timeout
-    ACTIVE --> FAILED: blocked, deleted, cert deleted
+    ACTIVE --> FAILED: blocked, deleted, moved, cert deleted
     FAILED --> ACTIVE: admin activates
     PENDING --> REMOVED: delete
     ACTIVE --> REMOVED: delete
@@ -371,13 +412,17 @@ had when it was read, then re-reads the status under the organization lock and a
 transition only if it is unchanged. A concurrent delete or sync wins and the decision is dropped.
 The target is decided as follows:
 
-- hostname `blocked` or `deleted`, or certificate `deleted`: FAILED, for **PENDING or ACTIVE**
-  domains;
-- hostname `moved` or a certificate `*_timed_out` state: FAILED for **PENDING only**. On an ACTIVE
-  domain the status is kept and the message goes to `last_errors`. `moved` also means "the hostname
-  no longer points to the fallback origin", which is recoverable by restoring the CNAME until
-  Cloudflare deletes it after seven days (and then reports `deleted`);
-- hostname and certificate both `active`: ACTIVE for a PENDING domain;
+- hostname `blocked`, `deleted` or `moved`, or certificate `deleted`: FAILED, for **PENDING or
+  ACTIVE** domains. `moved` means "the hostname no longer points to the fallback origin" (or, for a
+  PENDING domain, validation was exhausted): the domain is not serving our site, and failing it
+  signs out its tenant sessions (see [the password trade-off](#the-password-trade-off));
+- a certificate `*_timed_out` state: FAILED for **PENDING only**. On an ACTIVE domain, where DNS
+  still reaches us, the status is kept and the message goes to `last_errors`;
+- hostname and certificate both `active`: ACTIVE for a PENDING domain, **but only if the ownership
+  TXT record** (`ownership_verification`) is published in public DNS (checked over DNS-over-HTTPS,
+  outside the lock). Otherwise the domain stays PENDING with a "add the TXT record" message in
+  `last_errors`. It fails closed: a missing `ownership_verification` or a failed lookup also keeps
+  it PENDING. ACTIVE domains are not re-checked, and `activate_domain` (admin, seeds) is not gated;
 - anything else (`active_redeploying`, ...): no change.
 
 `events.sync_custom_domains` calls it every 15 minutes with per-domain error isolation, and the

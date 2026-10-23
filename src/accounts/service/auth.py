@@ -18,6 +18,7 @@ from accounts import schema
 from accounts.jwt import TOTPJWTPayload, check_blacklist, create_token, validate_otp_jwt
 from accounts.jwt import blacklist as blacklist_token
 from accounts.models import RevelUser
+from accounts.service.tenant_session import tenant_claims
 
 logger = structlog.get_logger(__name__)
 
@@ -61,8 +62,15 @@ def verify_otp_jwt(token: str, otp: str) -> tuple[RevelUser, bool]:
     return user, is_valid
 
 
-def get_token_pair_for_user(user: RevelUser) -> TokenObtainPairOutputSchema:
-    """Get a token pair for the user."""
+def get_token_pair_for_user(user: RevelUser, *, tenant_host: str | None = None) -> TokenObtainPairOutputSchema:
+    """Get a token pair for the user.
+
+    Args:
+        user: The user to issue tokens for.
+        tenant_host: The active tenant host the login happened on, if any. Binds the session to it
+            (see ``accounts.service.tenant_session``). Only the interactive login paths pass it;
+            OIDC, SSO and impersonation stay platform-only.
+    """
     user.last_login = timezone.now()
     user.save(update_fields=["last_login"])
 
@@ -77,6 +85,8 @@ def get_token_pair_for_user(user: RevelUser) -> TokenObtainPairOutputSchema:
             "is_superuser": user.is_superuser,
         }
     )
+    if tenant_host:
+        token.payload.update(tenant_claims(tenant_host))
     return TokenObtainPairOutputSchema(
         username=user.username,
         access=str(token.access_token),  # type: ignore[attr-defined]

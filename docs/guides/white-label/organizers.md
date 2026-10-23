@@ -99,15 +99,18 @@ Only one domain can be pending or active at a time.
 
 ### DNS records
 
-You always create one record, and sometimes more.
+You always create two records: the CNAME and the ownership TXT record. The page may list more TXT records.
 
 | Type | Name | Value | When |
 |---|---|---|---|
 | `CNAME` | your hostname, for example `events.example.org` | the target shown on the page (for example `customers.letsrevel.io`) | Always, when the platform has configured a target |
-| `TXT` | the name shown | the value shown | Only when the page lists TXT records, for hostname ownership or certificate validation |
+| `TXT` | the name shown, for example `_cf-custom-hostname.events.example.org` | the value shown | Always. The ownership record proves the hostname is yours, and the domain does not activate without it. The page may list more TXT records for certificate validation |
 
 Create exactly the records the page shows, with exactly the values it shows. The list can be
-refreshed while the domain is pending, so if a TXT record appears later, add it. DNS providers
+refreshed while the domain is pending, so if a TXT record appears later, add it. A CNAME alone is
+not enough: until Revel finds the ownership TXT record in public DNS, the domain stays **Pending**
+and the page tells you which record to add. Once the domain is **Active** you may remove the
+ownership record. DNS providers
 differ on whether the name field wants the full hostname or only the part before your domain. If
 validation does not move, that is the first thing to check.
 
@@ -143,7 +146,7 @@ causes:
 
 | What you see | Likely cause | Fix |
 |---|---|---|
-| Stays **Pending** for hours, no error | The CNAME is missing, has the wrong name, or points somewhere else. A TXT record is missing. | Compare your DNS records to the page character by character. Check the CNAME with `dig +short events.example.org CNAME`. |
+| Stays **Pending** for hours, no error | The CNAME is missing, has the wrong name, or points somewhere else. The ownership TXT record is missing or has a different value (the page then says "Add the TXT record ... to prove you own this hostname"). | Compare your DNS records to the page character by character. Check the TXT with `dig +short TXT _cf-custom-hostname.events.example.org`. Check the CNAME with `dig +short events.example.org CNAME`. |
 | A message that the hostname "moved" or no longer points to the fallback origin | Cloudflare gave up waiting for the CNAME, or the CNAME was changed. | Restore the CNAME. A pending domain that hits this becomes **Failed**: request it again. On an **Active** domain the message is recorded as a warning and the domain stays active, so restoring the record is enough. |
 | A certificate status like `validation_timed_out` | Certificate validation did not finish in time. | Fix DNS, then request the domain again if it turned **Failed**. On an **Active** domain it is a warning. |
 | **Failed** with a blocked or deleted hostname | Cloudflare refused or removed the hostname. | Request it again. If it fails again, contact Revel support with the hostname. |

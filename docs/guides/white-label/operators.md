@@ -146,8 +146,14 @@ validates the hostname, issues and renews the certificate, and proxies traffic t
 
 When an organization requests a domain, Revel calls Cloudflare to create the custom hostname with
 **HTTP** domain-control validation and a DV certificate, so the customer normally needs only the
-CNAME. If Cloudflare also asks for TXT records (hostname ownership, certificate validation), Revel
-shows them to the organizer alongside the CNAME.
+CNAME. Revel shows the organizer the CNAME and the TXT records Cloudflare asks for (hostname
+ownership, certificate validation).
+
+Cloudflare activates a hostname on its CNAME alone, so Revel does not trust that. A PENDING domain
+only becomes ACTIVE once the **ownership TXT record** Cloudflare issued is published in public DNS,
+checked over DNS-over-HTTPS against `cloudflare-dns.com` (5 s timeout). If the record is missing,
+wrong, or the lookup fails, the domain stays PENDING and `last_errors` names the record to add;
+the next sync retries. Outbound HTTPS to `cloudflare-dns.com` must be allowed from the workers.
 
 Provisioning is on only when **both** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID` are set.
 
@@ -268,14 +274,18 @@ result:
 |---|---|---|
 | Hostname **and** certificate `active` | becomes **active** | stays active |
 | Hostname `blocked` or `deleted`, or certificate `deleted` | becomes **failed** | becomes **failed** and is withdrawn from the organization |
-| Hostname `moved` (validation exhausted, or the CNAME no longer points to the fallback origin) | becomes **failed** | stays **active**; the problem is recorded and shown to the organizer |
+| Hostname `moved` (validation exhausted, or the CNAME no longer points to the fallback origin) | becomes **failed** | becomes **failed** and is withdrawn from the organization; every tenant session issued on it is signed out |
 | A certificate `*_timed_out` status | becomes **failed** | stays **active**; the problem is recorded |
 | Anything else (for example `active_redeploying`) | unchanged | unchanged |
 
-`moved` is treated this way because it is recoverable: a customer who briefly breaks their CNAME
-should not lose a working site. Cloudflare keeps the hostname for a while and reports `deleted` if
-it finally gives up, which then fails the domain. DNS records and error messages are refreshed on
-every run either way.
+`moved` fails an **active** domain immediately because the DNS no longer points at Revel: the domain
+is not serving our site anyway, and the hostname may have been repointed at a server the organizer
+controls. Failing it withdraws the hostname, which **signs out every tenant session** issued on the
+domain (access tokens are refused and refresh tokens are blacklisted on their next use; see
+[the password trade-off](../../architecture/white-label.md#the-password-trade-off)). It is
+recoverable: once the CNAME is fixed the organizer requests the domain again. A certificate timeout
+only records the problem on an active domain, since DNS still reaches us. DNS records and error
+messages are refreshed on every run either way.
 
 The decision is a compare-and-set: before applying a transition the task re-reads the status under
 a row lock, and does nothing if the organizer removed the domain in the meantime. One domain
@@ -290,8 +300,8 @@ customer does. Two events exist:
 
 | Event | When | What fires |
 |---|---|---|
-| `custom_domain_active_problem` | An **ACTIVE** domain that had no recorded problem now has one (for example Cloudflare reports `moved`, or a certificate `*_timed_out` status). The domain stays active | A `WARNING` log line with the domain id, hostname, organization id and the problems, and one email to platform staff |
-| `custom_domain_active_failed` | An **ACTIVE** domain goes to **failed** (hostname `blocked` or `deleted`, certificate `deleted`) and is withdrawn from the organization | A `WARNING` log line and one email to platform staff |
+| `custom_domain_active_problem` | An **ACTIVE** domain that had no recorded problem now has one (a certificate `*_timed_out` status). The domain stays active | A `WARNING` log line with the domain id, hostname, organization id and the problems, and one email to platform staff |
+| `custom_domain_active_failed` | An **ACTIVE** domain goes to **failed** (hostname `blocked`, `deleted` or `moved`, certificate `deleted`) and is withdrawn from the organization | A `WARNING` log line and one email to platform staff |
 
 Alerts fire **once, on the transition**, not on every 15-minute sweep: a problem that persists does
 not alert again, and a domain that recovers and later breaks again alerts again. The email is sent
@@ -304,12 +314,12 @@ logs, search for the event names above.
 
 1. Open the domain under **Custom Domains** in the admin and read `last_errors`.
 2. For `moved` or a certificate problem, ask the organizer to check their DNS: the CNAME must still
-   point at your fallback origin. A broken CNAME is recoverable for several days before Cloudflare
-   deletes the hostname.
+   point at your fallback origin. A `moved` domain is already failed (and its sessions signed out);
+   Cloudflare keeps the hostname for several days before deleting it.
 3. If you cannot resolve it quickly, or the change looks hostile (a hostname repointed at a server
    you do not recognise), use the [kill switch](#kill-switch-runbook).
-4. For `custom_domain_active_failed`, the domain is already withdrawn and the platform URL serves
-   the organization. The organizer can request the domain again from the admin area.
+4. For `custom_domain_active_failed`, the domain is already withdrawn, its tenant sessions are signed
+   out and the platform URL serves the organization. The organizer can request the domain again from the admin area.
 
 ### Organization deletion
 

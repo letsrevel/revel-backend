@@ -2,7 +2,7 @@
 
 import importlib
 import typing as t
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.apps import apps as django_apps
@@ -23,7 +23,13 @@ Status = OrganizationDomain.Status
 
 def hosted(hostname: str, status: str = "pending", ssl_status: str = "pending_validation") -> cloudflare.CustomHostname:
     return cloudflare.CustomHostname(
-        id=f"cf-{hostname}", hostname=hostname, status=status, ssl=cloudflare.CustomHostnameSsl(status=ssl_status)
+        id=f"cf-{hostname}",
+        hostname=hostname,
+        status=status,
+        ssl=cloudflare.CustomHostnameSsl(status=ssl_status),
+        ownership_verification=cloudflare.OwnershipVerification(
+            type="txt", name=f"_cf-custom-hostname.{hostname}", value="owner-token"
+        ),
     )
 
 
@@ -34,6 +40,13 @@ def configured(settings: t.Any) -> None:
     settings.FRONTEND_BASE_URL = "https://app.letsrevel.io"
     settings.BASE_URL = "https://api.letsrevel.io"
     settings.DEBUG = False
+
+
+@pytest.fixture(autouse=True)
+def txt_published() -> t.Iterator[MagicMock]:
+    """The ownership TXT record is published in public DNS (no network); tests override ``return_value``."""
+    with patch.object(cloudflare, "txt_record_published", return_value=True) as mock:
+        yield mock
 
 
 @pytest.fixture
