@@ -31,13 +31,20 @@ from common.testing import (
 logger = structlog.get_logger(__name__)
 
 
-def _return_host_kwargs(return_host: str | None) -> dict[str, t.Any]:
-    """Task kwargs carrying the tenant return hint (white-label, #1156).
+def _email_context_kwargs(return_host: str | None, *, return_url: str | None = None) -> dict[str, t.Any]:
+    """Task kwargs carrying the optional link hints inside the ``context`` dict.
 
-    Empty without a hint, so messages for requests that have none are identical to what was queued
-    before this existed (an older worker mid-deploy keeps accepting them).
+    ``return_host`` (white-label, #1156) joins ``return_url`` in the same ``context`` dict; it is never
+    a task kwarg of its own. A worker that predates #1156 accepts the message, ignores the unknown
+    key and sends the email without the hint. Empty without any hint, so those messages keep their
+    exact pre-existing shape.
     """
-    return {"return_host": return_host} if return_host else {}
+    context: dict[str, str] = {}
+    if return_url is not None:
+        context["return_url"] = return_url
+    if return_host:
+        context["return_host"] = return_host
+    return {"context": context} if context else {}
 
 
 def _send_activation_email_for_guest(user: RevelUser, *, return_host: str | None = None) -> None:
@@ -54,7 +61,7 @@ def _send_activation_email_for_guest(user: RevelUser, *, return_host: str | None
     # is no read-after-commit race and the email must be sent despite the
     # rollback. See register_user.
     tasks.send_account_email.delay(
-        tasks.AccountEmail.ACTIVATION, user.email, token=token, **_return_host_kwargs(return_host)
+        tasks.AccountEmail.ACTIVATION, user.email, token=token, **_email_context_kwargs(return_host)
     )
     logger.info("account_activation_email_sent", user_id=str(user.id), email=user.email)
 
@@ -204,21 +211,15 @@ def send_verification_email_for_user(
     token = create_verification_token(user)
 
     def dispatch() -> None:
-        # return_url rides in the task's existing ``context`` kwarg rather than a new kwarg, so
-        # a not-yet-upgraded worker during a rolling deploy still accepts the message and just
-        # sends the normal verification email without ``returnUrl`` (graceful degradation).
-        if return_url is None:
-            tasks.send_account_email.delay(
-                tasks.AccountEmail.VERIFICATION, user.email, token=token, **_return_host_kwargs(return_host)
-            )
-        else:
-            tasks.send_account_email.delay(
-                tasks.AccountEmail.VERIFICATION,
-                user.email,
-                token=token,
-                context={"return_url": return_url},
-                **_return_host_kwargs(return_host),
-            )
+        # return_url and return_host both ride in the task's existing ``context`` kwarg, never as
+        # new task kwargs: a not-yet-upgraded worker during a rolling deploy accepts the message and
+        # drops the keys it does not know, so the email still goes out (without the hint).
+        tasks.send_account_email.delay(
+            tasks.AccountEmail.VERIFICATION,
+            user.email,
+            token=token,
+            **_email_context_kwargs(return_host, return_url=return_url),
+        )
 
     if defer:
         transaction.on_commit(dispatch)
@@ -334,7 +335,7 @@ def request_password_reset(email: str, *, return_host: str | None = None) -> str
     token = create_password_reset_token(user)
     transaction.on_commit(
         lambda: tasks.send_account_email.delay(
-            tasks.AccountEmail.PASSWORD_RESET, user.email, token=token, **_return_host_kwargs(return_host)
+            tasks.AccountEmail.PASSWORD_RESET, user.email, token=token, **_email_context_kwargs(return_host)
         )
     )
     logger.info("password_reset_email_sent", user_id=str(user.id), email=email)
@@ -355,7 +356,7 @@ def request_account_deletion(user: RevelUser, *, return_host: str | None = None)
     token = create_deletion_token(user)
     transaction.on_commit(
         lambda: tasks.send_account_email.delay(
-            tasks.AccountEmail.DELETION, user.email, token=token, **_return_host_kwargs(return_host)
+            tasks.AccountEmail.DELETION, user.email, token=token, **_email_context_kwargs(return_host)
         )
     )
     return token
@@ -485,7 +486,7 @@ def request_email_change(user: RevelUser, new_email: str, password: str, *, retu
     token = create_email_change_token(user, new_email)
     transaction.on_commit(
         lambda: tasks.send_account_email.delay(
-            tasks.AccountEmail.CHANGE_CONFIRMATION, new_email, token=token, **_return_host_kwargs(return_host)
+            tasks.AccountEmail.CHANGE_CONFIRMATION, new_email, token=token, **_email_context_kwargs(return_host)
         )
     )
     transaction.on_commit(

@@ -5,6 +5,7 @@ account-security token must never be placed on a tenant-domain link, even when t
 ``Origin`` is a perfectly valid tenant origin.
 """
 
+import inspect
 import re
 import typing as t
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,7 @@ from django.test.client import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
+from accounts.service import account as account_service
 from accounts.tasks import AccountEmail, send_account_email
 from common.models import SiteSettings
 from events.models import Organization, OrganizationDomain
@@ -209,17 +211,27 @@ def test_kill_switch_off_means_no_hint(client: Client, user: RevelUser, run_emai
 
 
 @patch("accounts.tasks.email.send_email")
-def test_task_accepts_the_old_positional_signature(mock_send: MagicMock) -> None:
-    """Messages queued before this change (no ``return_host``) still run and produce a plain link."""
+def test_task_accepts_the_old_message_shape(mock_send: MagicMock) -> None:
+    """A message queued before #1156 (no ``context`` key, no ``return_host``) runs and produces a plain link."""
     send_account_email(AccountEmail.PASSWORD_RESET, "u@example.com", token="tok")  # noqa: S106
 
     link = _action_link(mock_send)
     assert link == f"{SiteSettings.get_solo().frontend_base_url}/login/reset-password?token=tok"
 
 
+def test_task_has_no_return_host_kwarg() -> None:
+    """Rolling-deploy contract: the hint is never a task kwarg, so no worker can reject it with a TypeError."""
+    assert "return_host" not in inspect.signature(send_account_email).parameters
+
+
 @patch("accounts.tasks.email.send_email")
-def test_task_hint_is_urlencoded_and_never_changes_the_link_host(mock_send: MagicMock) -> None:
-    send_account_email(AccountEmail.DELETION, "u@example.com", token="tok", return_host="a.b/c&d=e")  # noqa: S106
+def test_task_hint_from_context_is_urlencoded_and_never_changes_the_link_host(mock_send: MagicMock) -> None:
+    send_account_email(
+        AccountEmail.DELETION,
+        "u@example.com",
+        token="tok",
+        context={"return_host": "a.b/c&d=e"},  # noqa: S106
+    )
 
     link = _action_link(mock_send)
     assert (
@@ -231,7 +243,35 @@ def test_task_hint_is_urlencoded_and_never_changes_the_link_host(mock_send: Magi
 @patch("accounts.tasks.email.send_email")
 def test_task_without_a_link_ignores_the_hint(mock_send: MagicMock) -> None:
     send_account_email(
-        AccountEmail.CHANGE_NOTICE, "u@example.com", context={"masked_new_email": "n***@example.com"}, return_host=HOST
+        AccountEmail.CHANGE_NOTICE,
+        "u@example.com",
+        context={"masked_new_email": "n***@example.com", "return_host": HOST},
     )
 
     assert "return_host" not in mock_send.call_args.kwargs["body"]
+
+
+# --- the dispatch carries the hint in ``context`` --------------------------------------------
+
+
+def test_password_reset_dispatch_carries_the_hint_in_context(user: RevelUser) -> None:
+    with patch("accounts.tasks.send_account_email.delay") as mock_delay:
+        token = account_service.request_password_reset(user.email, return_host=HOST)
+
+    mock_delay.assert_called_once_with(
+        AccountEmail.PASSWORD_RESET, user.email, token=token, context={"return_host": HOST}
+    )
+
+
+def test_verification_dispatch_merges_return_url_and_hint_in_context(user: RevelUser) -> None:
+    with patch("accounts.tasks.send_account_email.delay") as mock_delay:
+        _, token = account_service.send_verification_email_for_user(
+            user, defer=False, return_url="/oauth/authorize?client_id=x", return_host=HOST
+        )
+
+    mock_delay.assert_called_once_with(
+        AccountEmail.VERIFICATION,
+        user.email,
+        token=token,
+        context={"return_url": "/oauth/authorize?client_id=x", "return_host": HOST},
+    )
