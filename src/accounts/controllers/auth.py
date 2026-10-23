@@ -86,7 +86,7 @@ class AuthController(TokenObtainPairController):
         # untouched, so the claims are carried forward by the stock flow. No docstring on purpose:
         # it would become the OpenAPI description, which must stay identical to ninja_jwt's.
         tenant_session.revoke_refresh_if_tenant_session_invalid(refresh_token.refresh)
-        return refresh_token.to_response_schema()
+        return refresh_token.to_response_schema()  # type: ignore[no-untyped-call]
 
     @route.get("/oidc/{provider}/start", include_in_schema=False, url_name="oidc_start", response=None)
     def oidc_start(

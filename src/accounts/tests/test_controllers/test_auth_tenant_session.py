@@ -81,9 +81,7 @@ def _refresh(client: Client, refresh: str, origin: str | None = None) -> t.Any:
 def _tenant_refresh(user: RevelUser, *, issued_at: int | None = None, **extra: t.Any) -> RefreshToken:
     """A refresh token bound to HOST, issued ``issued_at`` (default: 30 minutes ago, after the 1h-old verification)."""
     token = RefreshToken.for_user(user)
-    token.payload.update(
-        {"tenant_host": HOST, "tenant_session_iat": issued_at or int(time.time()) - 1800, **extra}  # type: ignore[attr-defined]
-    )
+    token.payload.update({"tenant_host": HOST, "tenant_session_iat": issued_at or int(time.time()) - 1800, **extra})
     return token  # type: ignore[return-value]
 
 
@@ -158,7 +156,7 @@ def test_password_pair_without_tenant_origin_is_unchanged(
 
     stock = RefreshToken(str(RefreshToken.for_user(user)))  # decoded, as the pair's tokens are below
     assert set(RefreshToken(pair["refresh"]).payload) == set(stock.payload) == PLAIN_CLAIMS
-    assert set(AccessToken(pair["access"]).payload) == set(AccessToken(str(stock.access_token)).payload)  # type: ignore[attr-defined]
+    assert set(AccessToken(pair["access"]).payload) == set(AccessToken(str(stock.access_token)).payload)
 
 
 def test_pending_domain_origin_does_not_mint(client: Client, user: RevelUser, org: Organization) -> None:
@@ -321,7 +319,7 @@ def _bearer(token: str) -> Client:
 
 
 def _tenant_access(user: RevelUser, **extra: t.Any) -> str:
-    return str(_tenant_refresh(user, **extra).access_token)  # type: ignore[attr-defined]
+    return str(_tenant_refresh(user, **extra).access_token)
 
 
 def test_tenant_access_token_works_while_the_domain_is_active(user: RevelUser, domain: OrganizationDomain) -> None:

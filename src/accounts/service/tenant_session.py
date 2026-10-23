@@ -54,7 +54,7 @@ def restamp_pair_for_tenant(pair: TokenObtainPairOutputSchema, tenant_host: str)
     refresh = RefreshToken(pair.refresh, verify=False)
     refresh.payload.update(tenant_claims(tenant_host))
     pair.refresh = str(refresh)
-    pair.access = str(refresh.access_token)  # type: ignore[attr-defined]
+    pair.access = str(refresh.access_token)
 
 
 def is_tenant_session_valid(payload: t.Mapping[str, t.Any], *, check_reactivation: bool = False) -> bool:
@@ -102,5 +102,5 @@ def revoke_refresh_if_tenant_session_invalid(raw_refresh: str) -> None:
         return
     if is_tenant_session_valid(refresh.payload, check_reactivation=True):
         return
-    refresh.blacklist()  # type: ignore[attr-defined]
+    refresh.blacklist()
     raise InvalidToken
