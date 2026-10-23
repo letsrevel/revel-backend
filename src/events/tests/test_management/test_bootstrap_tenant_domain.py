@@ -100,6 +100,18 @@ def test_paid_tenant_org_uses_the_platform_stripe_account(command: Command) -> N
     assert tier.currency == "EUR"
 
 
+def test_domain_setup_org_is_enabled_for_custom_domains_without_one(command: Command) -> None:
+    """The domain-setup org is public, owned by the tenant persona, gate open, and has no domain to start with."""
+    command._create_tenant_domains()
+
+    org = Organization.objects.get(slug=tenant_orgs.TENANT_DOMAIN_SETUP_ORG_SLUG)
+    assert org.owner == command.tenant_owner
+    assert org.visibility == Organization.Visibility.PUBLIC
+    assert org.custom_domain_enabled is True
+    assert not org.domains.exists()
+    assert org.custom_domain is None
+
+
 def test_shared_fixture_orgs_get_no_custom_domain(command: Command) -> None:
     """``eligibility-test-org`` and Org Alpha must stay on the platform host: no domain, gate closed."""
     command._create_tenant_domains()
@@ -150,5 +162,11 @@ def test_tenant_domains_are_skipped_with_a_warning_without_debug(command: Comman
         command._create_tenant_domains()
 
     assert not OrganizationDomain.objects.exists()
-    assert not Organization.objects.filter(slug__in=[tenant_orgs.TENANT_ORG_SLUG, tenant_orgs.TENANT_PAID_ORG_SLUG])
+    assert not Organization.objects.filter(
+        slug__in=[
+            tenant_orgs.TENANT_ORG_SLUG,
+            tenant_orgs.TENANT_PAID_ORG_SLUG,
+            tenant_orgs.TENANT_DOMAIN_SETUP_ORG_SLUG,
+        ]
+    )
     assert {"event": "tenant_domains_skipped", "reason": "debug_disabled", "log_level": "warning"} in logs

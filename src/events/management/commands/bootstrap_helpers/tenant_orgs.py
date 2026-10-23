@@ -33,9 +33,11 @@ TENANT_PAID_EVENT_SLUG = "tenant-paid-event"
 TENANT_PAID_TIER_NAME = "Standard Ticket"
 TENANT_PAID_BRANDING = {"primary_color": "#0E7C66", "accent_color": "#F2A541"}
 
+TENANT_DOMAIN_SETUP_ORG_SLUG = "domain-setup-org"
+
 
 def create_tenant_fixtures(owner: RevelUser, city: City, now: datetime) -> None:
-    """Seed the two tenant organizations, each with an ACTIVE ``*.localhost`` custom domain.
+    """Seed the tenant organizations: two with an ACTIVE ``*.localhost`` custom domain, one with none.
 
     ``*.localhost`` hostnames are only valid under DEBUG, so this is skipped (with a warning) otherwise.
     """
@@ -44,6 +46,7 @@ def create_tenant_fixtures(owner: RevelUser, city: City, now: datetime) -> None:
         return
     _create_free_org(owner, city, now)
     _create_paid_org(owner, city, now)
+    _create_domain_setup_org(owner, city)
 
 
 def _org(owner: RevelUser, city: City, name: str, slug: str, **extra: t.Any) -> events_models.Organization:
@@ -172,3 +175,9 @@ def _create_paid_org(owner: RevelUser, city: City, now: datetime) -> None:
         total_quantity=100,
     )
     _activate_domain(org, TENANT_PAID_HOSTNAME, TENANT_PAID_BRANDING)
+
+
+def _create_domain_setup_org(owner: RevelUser, city: City) -> None:
+    """Public org with the custom-domain gate open and no domain, so its owner can request one in the admin UI."""
+    _org(owner, city, "Domain Setup Org", TENANT_DOMAIN_SETUP_ORG_SLUG, custom_domain_enabled=True)
+    logger.info("domain_setup_org_created", slug=TENANT_DOMAIN_SETUP_ORG_SLUG)
