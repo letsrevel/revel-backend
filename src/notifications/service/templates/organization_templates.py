@@ -76,6 +76,38 @@ class OrgSetupNudgeTemplate(NotificationTemplate):
         return super().get_email_html_body(notification)
 
 
+class OrgCustomDomainActiveTemplate(NotificationTemplate):
+    """Template for ORG_CUSTOM_DOMAIN_ACTIVE (to the org owner, #1148)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return self.get_email_subject(notification)
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        ctx = notification.context
+        return _("%(hostname)s is now live for %(org)s") % {
+            "hostname": ctx.get("hostname", ""),
+            "org": ctx.get("organization_name", ""),
+        }
+
+
+class OrgCustomDomainFailedTemplate(NotificationTemplate):
+    """Template for ORG_CUSTOM_DOMAIN_FAILED (to the org owner, #1148); copy branches on ``context.was_live``."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return self.get_email_subject(notification)
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        ctx = notification.context
+        params = {"hostname": ctx.get("hostname", ""), "org": ctx.get("organization_name", "")}
+        if ctx.get("was_live"):
+            return _("%(hostname)s stopped working for %(org)s") % params
+        return _("%(hostname)s could not be activated for %(org)s") % params
+
+
 class FiscalDocumentSkippedTemplate(NotificationTemplate):
     """Template for FISCAL_DOCUMENT_SKIPPED (daily digest to the owner and ticket staff, #1073)."""
 
@@ -99,3 +131,5 @@ register_template(NotificationType.ORG_ANNOUNCEMENT, OrgAnnouncementTemplate())
 register_template(NotificationType.ORG_CONTACT_MESSAGE_RECEIVED, OrgContactMessageReceivedTemplate())
 register_template(NotificationType.ORG_SETUP_NUDGE, OrgSetupNudgeTemplate())
 register_template(NotificationType.FISCAL_DOCUMENT_SKIPPED, FiscalDocumentSkippedTemplate())
+register_template(NotificationType.ORG_CUSTOM_DOMAIN_ACTIVE, OrgCustomDomainActiveTemplate())
+register_template(NotificationType.ORG_CUSTOM_DOMAIN_FAILED, OrgCustomDomainFailedTemplate())

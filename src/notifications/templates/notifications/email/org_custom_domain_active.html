@@ -1,0 +1,17 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<h2>{% blocktranslate with hostname=context.hostname org=context.organization_name %}{{ hostname }} is now live for {{ org }}{% endblocktranslate %}</h2>
+<p>{% trans "Your custom domain is verified and serves your organization. Visitors who open it see your events with your branding." %}</p>
+<center><a href="{{ context.domain_url }}" class="button">{% trans "Open your site" %}</a></center>
+<p>{% trans "Before you announce it:" %}</p>
+<div class="card card--info">
+    <ul>
+        <li>{% trans "Open the link in a private window and check that it loads." %}</li>
+        <li>{% trans "Sign up for a test account on it. Sign-up should work on your own domain." %}</li>
+        <li>{% trans "Share the new link with your audience." %}</li>
+    </ul>
+</div>
+<p><a href="{{ context.action_url }}">{% trans "Manage your custom domain" %}</a></p>
+{% endblock %}

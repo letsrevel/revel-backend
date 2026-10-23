@@ -31,6 +31,9 @@ def test_mandatory_types_contents() -> None:
         NotificationType.STAFF_TICKET_CREATED,
         NotificationType.STAFF_TICKET_CANCELLED,
         NotificationType.STAFF_TICKET_REFUNDED,
+        # Owner mail about a custom domain going live or failing (#1148): opt-out-able, but the owner waits on it.
+        NotificationType.ORG_CUSTOM_DOMAIN_ACTIVE,
+        NotificationType.ORG_CUSTOM_DOMAIN_FAILED,
     }
     assert NotificationType.ACCOUNT_BANNED in MANDATORY_TYPES
     assert NotificationType.SYSTEM_ANNOUNCEMENT in MANDATORY_TYPES

@@ -25,6 +25,7 @@ and no tenant column on other tables.
 | Guest seat-hold session (cookie and header) | `events/service/guest_hold_session.py` |
 | Org-aware URLs | `events/utils/frontend_urls.py` |
 | Tenant email sender | `notifications/service/org_sender.py` |
+| Owner emails when a domain goes live or fails | `events/service/custom_domain_notifications.py` (`org_custom_domain_active`, `org_custom_domain_failed`) |
 | Deploy checks | `events/checks.py`, `common/checks.py` |
 | E2E fixtures | `events/management/commands/bootstrap_helpers/tenant_orgs.py` |
 
@@ -490,6 +491,19 @@ follows the other operational alerts (malware, GDPR export failure), which email
 unconditionally, rather than the `SiteSettings`-gated Pushover/Discord admin notifications, so there
 is no new setting. A persisting problem does not re-alert. The operator response is in the
 [operator guide](../guides/white-label/operators.md#domain-problem-alerts).
+
+**Owner notifications.** `custom_domain_service._save_status`, the only writer of a domain's status,
+calls `custom_domain_notifications.notify_owner_of_transition` after the write, so the sync, **Check
+now** and the admin actions all go through one place. PENDING to ACTIVE sends
+`ORG_CUSTOM_DOMAIN_ACTIVE`; PENDING or ACTIVE to FAILED sends `ORG_CUSTOM_DOMAIN_FAILED` (with
+`was_live` and the current `last_errors`). REMOVED, a FAILED to ACTIVE recovery by staff and
+every no-op send nothing. The request is made from an `on_commit` hook through `notify_org_staff` with
+the owner as the only recipient, so a rolled-back transition sends nothing and the owner's
+preferences are honoured. Both types are opt-out-able and *transactional* (they skip the digest), not
+mandatory. The live link is `frontend_base_url_for_domain(hostname, True)`; the settings link is
+`<SiteSettings.frontend_base_url>/org/<slug>/admin/custom-domain`, always the platform, like every
+admin and account link. Operator view:
+[owner notifications](../guides/white-label/operators.md#owner-notifications).
 
 **Organization deletion.** Deleting an organization cascades its `OrganizationDomain` rows around
 the service, which would orphan their Cloudflare hostnames. A `pre_delete` receiver on

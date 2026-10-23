@@ -127,6 +127,25 @@ automatically, so you do not need to buy or upload a certificate.
 
 Removed domains disappear from the page. A removed hostname is free again.
 
+### Emails you get about your domain
+
+You do not have to keep the settings page open. Revel emails you, the organization owner, when the
+status of your domain changes:
+
+| When | Email | What it contains |
+|---|---|---|
+| The domain turns **Active** | "*hostname* is now live for *your organization*" | A link to your site on the new domain, a short checklist (open it in a private window, sign up for a test account, share the new link) and a link to the domain settings |
+| The domain turns **Failed**, whether it was pending or already active | "*hostname* could not be activated" or "*hostname* stopped working" | What Revel found (the same messages the settings page shows, DNS hints included) and a link to the domain settings, where you request the domain again |
+
+Each email is sent once per change. You get none when you **Remove** the domain yourself, and none
+while the domain simply stays pending. Only the owner gets them; staff do not. The link to the
+settings page always points to Revel, never to your own domain, so you can still open it when the
+domain is down.
+
+These emails follow your [notification preferences](../../architecture/notifications.md): you can
+turn each type off (they are called *Org custom domain active* and *Org custom domain failed*), and
+if you use a digest they still arrive right away. The settings page shows the same status either way.
+
 ### Timing and "Check now"
 
 DNS changes can take anywhere from a few minutes to a few hours to be visible, depending on your
