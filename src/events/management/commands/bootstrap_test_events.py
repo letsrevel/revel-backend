@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 import structlog
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -65,8 +66,7 @@ class Command(BaseCommand):
         self._create_organization()
 
         # White-label: serve the organization from tenant.localhost (needs DEBUG for *.localhost)
-        self._create_tenant_domain()
-        self._create_alpha_tenant_domain()
+        self._create_tenant_domains()
 
         # Create questionnaire
         self._create_questionnaire()
@@ -192,6 +192,14 @@ class Command(BaseCommand):
         attach_logo(self.org, key=self.org.slug, name=self.org.name)
 
         logger.info(f"Created organization: {self.org.name}")
+
+    def _create_tenant_domains(self) -> None:
+        """Seed the ``*.localhost`` tenant domains, which the hostname validator only accepts under DEBUG."""
+        if not settings.DEBUG:
+            logger.warning("tenant_domains_skipped", reason="debug_disabled")
+            return
+        self._create_tenant_domain()
+        self._create_alpha_tenant_domain()
 
     def _create_tenant_domain(self) -> None:
         """Give the test organization an ACTIVE custom domain for the white-label E2E journeys."""

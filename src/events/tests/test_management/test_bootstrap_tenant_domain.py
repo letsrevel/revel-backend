@@ -3,6 +3,7 @@
 import typing as t
 
 import pytest
+import structlog.testing
 
 from accounts.models import RevelUser
 from events.management.commands.bootstrap_test_events import (
@@ -58,3 +59,31 @@ def test_alpha_tenant_domain_skipped_without_org_alpha(settings: t.Any) -> None:
     command._create_alpha_tenant_domain()
 
     assert not OrganizationDomain.objects.filter(hostname=ORG_ALPHA_TENANT_E2E_HOSTNAME).exists()
+
+
+def test_tenant_domains_are_seeded_under_debug(settings: t.Any) -> None:
+    """Under DEBUG the bootstrap step seeds the ``*.localhost`` domains."""
+    settings.DEBUG = True
+    owner = RevelUser.objects.create_user(username="owner@test.com", email="owner@test.com", password="x")
+    command = Command()
+    command.org = Organization.objects.create(name="Org", slug="org", owner=owner)
+
+    command._create_tenant_domains()
+
+    assert command.org.domains.filter(hostname=TENANT_E2E_HOSTNAME, status=OrganizationDomain.Status.ACTIVE).exists()
+
+
+def test_tenant_domains_are_skipped_with_a_warning_without_debug(settings: t.Any) -> None:
+    """Without DEBUG ``*.localhost`` is not a valid hostname: log a skip instead of aborting the bootstrap."""
+    settings.DEBUG = False
+    owner = RevelUser.objects.create_user(username="owner@test.com", email="owner@test.com", password="x")
+    command = Command()
+    command.org = Organization.objects.create(name="Org", slug="org", owner=owner)
+
+    with structlog.testing.capture_logs() as logs:
+        command._create_tenant_domains()
+
+    assert not OrganizationDomain.objects.exists()
+    command.org.refresh_from_db()
+    assert command.org.custom_domain_enabled is False
+    assert {"event": "tenant_domains_skipped", "reason": "debug_disabled", "log_level": "warning"} in logs
