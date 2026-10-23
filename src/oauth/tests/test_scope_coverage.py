@@ -52,7 +52,7 @@ from oauth.scopes import SCOPES, UNSCOPED_KEYS, scopes_for_key
 # so it is simply not on the surface, and adding it is a deliberate edit (M3).
 APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
     {
-        # --- organization admin (12 of the 15 in ORGANIZATION_ADMIN_CONTROLLERS) ---
+        # --- organization admin (12 of the 16 in ORGANIZATION_ADMIN_CONTROLLERS) ---
         # Absent on purpose: OrganizationAdminRevenueController and OrganizationAdminVATController.
         # Both are controller-level ``IsOrganizationOwner()`` and neither is honestly covered by
         # any scope in the registry: ``org:read``'s consent label is "See your organizations,
@@ -63,6 +63,8 @@ APP_TOKEN_CONTROLLERS: frozenset[str] = frozenset(
         # financial identity, which is why ``GET /organization-admin/{slug}`` is pinned
         # session-only too (R-101). OrganizationAdminTokensController is absent too: an invitation
         # link can grant staff status, which is session-only everywhere else (R-100).
+        # OrganizationAdminCustomDomainController is absent too: owner-only, it changes the organization's
+        # public hostname, and no scope's consent label promises that.
         "OrganizationAdminCoreController",
         "OrganizationAdminMembershipRequestsController",
         "OrganizationAdminResourcesController",

@@ -6595,8 +6595,8 @@ msgstr ""
 "La generación del pase para Wallet no está disponible temporalmente. "
 "Inténtalo de nuevo más tarde."
 
-msgid "Platform gate: allows activating, resolving and advertising a custom domain for this organization."
-msgstr "Control de la plataforma: permite activar, resolver y anunciar un dominio personalizado para esta organización."
+msgid "Platform gate: allows requesting, activating, resolving and advertising a custom domain for this organization."
+msgstr "Control de la plataforma: permite solicitar, activar, resolver y anunciar un dominio personalizado para esta organización."
 
 msgid "Hostname of the active custom domain. Maintained by the domain service; do not edit."
 msgstr "Nombre de host del dominio personalizado activo. Lo gestiona el servicio de dominios; no lo edites."

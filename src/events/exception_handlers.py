@@ -181,7 +181,8 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # revenue_report_cadence is owner-only (financially sensitive); staff-grantable
     # edit_organization must not reach it → 403.
     RevenueReportCadenceOwnerOnlyError: make_static_handler(403, REVENUE_CADENCE_OWNER_ONLY_MESSAGE),
-    # Custom-domain activation is gated by the platform kill switch (custom_domain_enabled) → 403.
+    # Custom-domain requesting, viewing, refreshing and activating are gated by the platform kill switch
+    # (custom_domain_enabled) → 403.
     CustomDomainNotEnabledError: make_static_handler(403, CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE),
     # Custom-domain request collides with the org's live domain or a taken hostname → 409.
     CustomDomainConflictError: make_simple_handler(409),

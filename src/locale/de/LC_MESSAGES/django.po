@@ -6683,8 +6683,8 @@ msgstr ""
 "Die Erstellung des Wallet-Passes ist vorübergehend nicht verfügbar. Bitte "
 "versuche es später erneut."
 
-msgid "Platform gate: allows activating, resolving and advertising a custom domain for this organization."
-msgstr "Plattform-Freigabe: Erlaubt, für diese Organisation eine eigene Domain zu aktivieren, aufzulösen und anzuzeigen."
+msgid "Platform gate: allows requesting, activating, resolving and advertising a custom domain for this organization."
+msgstr "Plattform-Freigabe: Erlaubt, für diese Organisation eine eigene Domain anzufragen, zu aktivieren, aufzulösen und anzuzeigen."
 
 msgid "Hostname of the active custom domain. Maintained by the domain service; do not edit."
 msgstr "Hostname der aktiven eigenen Domain. Wird vom Domain-Service gepflegt; nicht bearbeiten."

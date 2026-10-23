@@ -441,7 +441,8 @@ class Organization(
     custom_domain_enabled = models.BooleanField(
         default=False,
         help_text=_(
-            "Platform gate: allows activating, resolving and advertising a custom domain for this organization."
+            "Platform gate: allows requesting, activating, resolving and advertising a custom domain "
+            "for this organization."
         ),
     )
     custom_domain = models.CharField(

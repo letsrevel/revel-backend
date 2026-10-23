@@ -2,7 +2,7 @@ import typing as t
 
 from django.db import migrations
 
-_TASK_NAME = "Sync pending custom domains from Cloudflare"
+_TASK_NAME = "Sync pending and active custom domains from Cloudflare"
 
 
 def create_sync_task(apps: t.Any, schema_editor: t.Any) -> None:
@@ -12,7 +12,9 @@ def create_sync_task(apps: t.Any, schema_editor: t.Any) -> None:
 
     every_15_minutes, _ = IntervalSchedule.objects.get_or_create(every=15, period="minutes")
 
-    PeriodicTask.objects.update_or_create(
+    # get_or_create, not update_or_create: re-applying must never re-enable a task an admin switched off
+    # (same precedent as 0125, #1052).
+    PeriodicTask.objects.get_or_create(
         name=_TASK_NAME,
         defaults={
             "task": "events.sync_custom_domains",
