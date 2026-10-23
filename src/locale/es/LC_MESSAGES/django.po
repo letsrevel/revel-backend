@@ -6613,6 +6613,12 @@ msgstr "Este nombre de host ya está en uso."
 msgid "This organization already has a pending or active domain."
 msgstr "Esta organización ya tiene un dominio pendiente o activo."
 
+msgid "This organization has no custom domain."
+msgstr "Esta organización no tiene un dominio personalizado."
+
+msgid "We could not reach the domain provisioning service. Please try again later."
+msgstr "No pudimos conectar con el servicio de aprovisionamiento de dominios. Inténtalo de nuevo más tarde."
+
 msgid "Custom domains are not enabled for this organization."
 msgstr "Los dominios personalizados no están habilitados para esta organización."
 

@@ -25,7 +25,9 @@ from common.exception_handlers import (
 from events.exceptions import (
     AlreadyMemberError,
     BillingInfoRequiredError,
+    CloudflareAPIError,
     CountryComplianceError,
+    CustomDomainConflictError,
     CustomDomainNotEnabledError,
     DuplicateDiscountCodeError,
     EventRefundsStartedError,
@@ -179,6 +181,12 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # revenue_report_cadence is owner-only (financially sensitive); staff-grantable
     # edit_organization must not reach it → 403.
     CustomDomainNotEnabledError: make_static_handler(403, CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE),
+    # Custom-domain request collides with the org's live domain or a taken hostname → 409.
+    CustomDomainConflictError: make_simple_handler(409),
+    # Cloudflare for SaaS failed: a bad gateway, with the provider's detail kept in the logs only → 502.
+    CloudflareAPIError: make_static_handler(
+        502, _("We could not reach the domain provisioning service. Please try again later.")
+    ),
     RevenueReportCadenceOwnerOnlyError: make_static_handler(403, REVENUE_CADENCE_OWNER_ONLY_MESSAGE),
     # membership subscription-policy fields belong to the manage_subscriptions domain;
     # staff with only edit_organization must not change them via the org-edit endpoint → 403.

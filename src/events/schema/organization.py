@@ -311,6 +311,8 @@ class OrganizationAdminDetailSchema(
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
     revenue_report_cadence: OrganizationModel.RevenueReportCadence
+    # White-label: the platform-admin gate, read-only here (editable only in the Django admin).
+    custom_domain_enabled: bool
     # Membership subscription policy
     membership_grace_period_days: int
     membership_subscription_revival_window_days: int

@@ -48,6 +48,25 @@ class CustomDomainNotEnabledError(Exception):
     """Raised when a custom domain is activated for an organization the platform has not enabled for it."""
 
 
+class CustomDomainConflictError(Exception):
+    """Raised when a custom-domain request collides with an existing domain (org already has one, or hostname taken)."""
+
+
+class CloudflareAPIError(Exception):
+    """Raised when the Cloudflare Custom Hostnames API fails (transport error, non-2xx, or ``success: false``).
+
+    Attributes:
+        status_code: The HTTP status of the response, or ``None`` when no response was received.
+        error_codes: Cloudflare error codes from the response body (e.g. ``1406`` for a duplicate hostname).
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None, error_codes: tuple[int, ...] = ()) -> None:
+        """Store the response status and Cloudflare error codes alongside the message."""
+        super().__init__(message)
+        self.status_code = status_code
+        self.error_codes = error_codes
+
+
 class TicketAlreadyCancelledError(Exception):
     """Raised when attempting to cancel/refund a ticket that is already in CANCELLED state."""
 
