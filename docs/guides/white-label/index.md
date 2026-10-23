@@ -30,7 +30,7 @@ There are two layers, with different gates.
 | What it is | A primary color and an optional accent that restyle the organization's pages, embeds, wallet passes and ticket PDFs | The whole attendee journey (organization page, events, applications, checkout) served from the organization's own hostname |
 | Who can use it | Every organization, free | Organizations a platform admin has enabled (a Django admin flag) |
 | Who sets it up | Organizers with the "edit organization" permission | The organization **owner**, once the platform has enabled it |
-| Needs DNS work | No | Yes, one CNAME record at the organization's DNS provider |
+| Needs DNS work | No | Yes, a CNAME and an ownership TXT record at the organization's DNS provider |
 
 On a custom domain the visitor sees the organization's name and logo in the header, the
 organization's colors across the whole site (login, account and legal pages included), only the
@@ -49,7 +49,7 @@ stay Revel's on purpose, and each has a reason.
 **Accounts are shared Revel accounts.** An attendee who signs up on `events.example.org` creates a
 Revel account, the same account they would get anywhere else on Revel. Revel stays the data
 controller for accounts, which is why the footer links to Revel's privacy policy and terms. Sessions
-are host-only, so each domain asks for its own login. Single sign-on buttons are hidden on custom
+are host-only, so each domain asks for its own login, and a session ends when its domain stops serving. Single sign-on buttons are hidden on custom
 domains, because the OIDC callback belongs to the platform.
 
 **Login happens on the custom domain.** An attendee types their password into a page served under
@@ -57,7 +57,9 @@ a hostname whose DNS the organization controls. Revel keeps every account-level 
 verification, password reset, deletion, unsubscribe) off tenant links, but an owner who repoints
 their DNS could still serve a look-alike login page. This is inherent to a login per domain and is
 why custom domains are enabled by a platform admin only, can be switched off at once, and raise
-alerts when a live domain develops a problem. See [the password
+alerts when a live domain develops a problem. A login made on a custom domain is also bound to that
+host: if the domain is removed, fails (including when Cloudflare reports it `moved`) or is switched
+off, those sessions stop working. See [the password
 trade-off](../../architecture/white-label.md#the-password-trade-off).
 
 **The footer says "Powered by Revel · Privacy · Terms".** Every tenant page keeps this small
@@ -97,9 +99,11 @@ flowchart LR
 
 1. The organizer requests a hostname in the admin area. The API registers it with Cloudflare and
    returns the DNS records to create.
-2. The organizer creates the records. Cloudflare validates the hostname and issues a certificate.
-3. A background task (or the organizer's "Check now") notices both are ready and marks the domain
-   **active**. Only then does the hostname resolve to the organization.
+2. The organizer creates the records (a CNAME and an ownership TXT). Cloudflare validates the hostname
+   and issues a certificate.
+3. A background task (or the organizer's "Check now") notices that Cloudflare is ready **and** that
+   the ownership TXT record is published in public DNS, and marks the domain **active**. Only then
+   does the hostname resolve to the organization.
 4. A visitor opens the hostname. Cloudflare terminates TLS and forwards to Caddy, which forwards to
    the frontend with the original host. The frontend asks the API which organization owns that host,
    then renders that organization's site with its colors.

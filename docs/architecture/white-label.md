@@ -17,8 +17,9 @@ and no tenant column on other tables.
 | Domain model | `events/models/organization_domain.py` |
 | Hostname rules | `events/utils/hostname.py` |
 | Domain lifecycle | `events/service/custom_domain_service.py` |
-| Cloudflare client | `events/service/cloudflare_custom_hostnames.py` |
+| Cloudflare client, ownership TXT lookup (`txt_record_published`) | `events/service/cloudflare_custom_hostnames.py` |
 | Tenant resolution, cache, return host | `events/service/tenant_service.py` |
+| Tenant session binding and revocation | `accounts/service/tenant_session.py`, `accounts/controllers/auth.py` (login stamping, `/auth/refresh`), `common/auth_base.py` (`register_session_validator`, `SessionRevoked`), `common/authentication.py` (`OptionalAuth`), registered in `accounts/apps.py` |
 | Sync task, problem alerts, org-delete cleanup | `events/tasks/custom_domains.py` (`events.sync_custom_domains`, `events.notify_custom_domain_problem`, `events.delete_organization_cloudflare_hostnames`) |
 | Guest seat-hold session (cookie and header) | `events/service/guest_hold_session.py` |
 | Org-aware URLs | `events/utils/frontend_urls.py` |
@@ -115,6 +116,11 @@ signal. When the static allow-list does not match, the receiver asks
 - that organization's kill switch is on.
 
 A truthy answer enables CORS for the request with the usual credentials and header settings.
+
+Protected media uses the same answer. Caddy serves it behind a `forward_auth` call to the API and
+copies the `Access-Control-Allow-Origin` header Django returned for that subrequest (dropping any
+value the client sent), so the platform origin (from `CORS_ALLOWED_ORIGINS`) and active tenant
+domains are allowed and nothing else. It is no longer pinned to `FRONTEND_DOMAIN`.
 
 ## The branding JSON blob
 
@@ -255,7 +261,10 @@ that was removed (or whose organization was deleted) while its CNAME still point
 requested by **another** organization with the feature enabled, and the next sync would activate it
 for them. The same race exists when a legitimate owner sets the CNAME before requesting the domain.
 So `sync_domain_status` requires the per-hostname ownership TXT record to be visible in public DNS
-before a PENDING domain becomes ACTIVE: only whoever controls the zone can publish it.
+before a PENDING domain becomes ACTIVE: only whoever controls the zone can publish it. The check is
+`_ownership_error` in `custom_domain_service.py`, which calls `txt_record_published` (a
+DNS-over-HTTPS query to `cloudflare-dns.com`, 5 s timeout, fails closed), so the web and Celery
+containers need outbound HTTPS to that host.
 
 ### The password trade-off
 
@@ -295,7 +304,10 @@ there and how long a problem lives:
   deleting the organization, switching the kill switch off, or failing the domain therefore signs
   every session issued on it out, with no extra code per case: on a request the access token gets
   a 401 (an optional-auth endpoint treats it as anonymous, so public pages keep working), and a
-  refresh answers 401 and blacklists the refresh token. The refresh additionally rejects a session
+  refresh answers 401 and blacklists the refresh token. The access-token check is a validator that
+  `accounts` registers on `common.auth_base` from `AccountsConfig.ready` (so `common` stays
+  app-agnostic); a refusal raises `SessionRevoked`, a 401 that `OptionalAuth` alone turns into an
+  anonymous request. The refresh additionally rejects a session
   issued before the domain's current `verified_at`, which kills sessions that predate a
   re-activation or a re-claim of the hostname. Access tokens skip that second comparison, because
   the cached tenant resolution holds no timestamp and it would cost a query per request; such a
@@ -361,7 +373,7 @@ denormalized column.
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING: request_domain
-    PENDING --> ACTIVE: Cloudflare ready, or admin activates
+    PENDING --> ACTIVE: Cloudflare ready and ownership TXT published, or admin activates
     PENDING --> FAILED: blocked, deleted, moved, cert timeout
     ACTIVE --> FAILED: blocked, deleted, moved, cert deleted
     FAILED --> ACTIVE: admin activates
@@ -436,7 +448,7 @@ and the task is a no-op; staff activate by hand.
   status is kept, a structlog WARNING `custom_domain_active_problem` is written (domain id,
   hostname, organization id, problems) and the task `events.notify_custom_domain_problem` is
   dispatched on commit.
-- *ACTIVE to FAILED* (`blocked`, `deleted`, certificate `deleted`): the same with
+- *ACTIVE to FAILED* (`blocked`, `deleted`, `moved`, certificate `deleted`): the same with
   `custom_domain_active_failed`, after the transition commits.
 
 The task emails every active superuser and staff user in one BCC'd message (hostname, organization,
@@ -587,4 +599,4 @@ See also [Demo & Seeding](../guides/demo-and-seeding.md#white-label-tenant-fixtu
 - [Organizer guide](../guides/white-label/organizers.md) and [operator guide](../guides/white-label/operators.md)
 - [Email Sending & Opt-Out](email-sending.md): sender identity for tenants
 - [Engineering notes](../engineering-notes.md): Stripe session idempotency (`idempotency_key=reservation_id`)
-- [Protected Files](protected-files.md): media served by Caddy, whose CORS must allow tenant origins
+- [Protected Files](protected-files.md): media served by Caddy, whose CORS header comes from the dynamic CORS answer above

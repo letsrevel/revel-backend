@@ -92,9 +92,12 @@ Optional. Lets an organization serve its attendee pages from its own domain, suc
 | `CUSTOM_DOMAIN_CNAME_TARGET` | empty | The fallback-origin hostname organizers CNAME to, e.g. `customers.example.com`. A bare hostname |
 | `CUSTOM_DOMAIN_URL_TEMPLATE` | `https://{hostname}` | Origin of an organization's active domain in email links. Must match the frontend's `PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE` |
 
-On the **frontend** container, multi-host serving replaces a pinned `ORIGIN` with `HOST_HEADER` and
-`PROTOCOL_HEADER` and turns tenant mode on with `PLATFORM_HOSTS` (see the operator guide for the
-full list and defaults).
+On the **frontend** container, multi-host serving removes the pinned `ORIGIN` and sets
+`HOST_HEADER=x-forwarded-host`, `PROTOCOL_HEADER=x-forwarded-proto`, `PLATFORM_HOSTS` (tenant mode is
+off while it is unset), `PLATFORM_ORIGIN` and `PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE` (see the operator
+guide for the full list and defaults). With Cloudflare provisioning on, the web and Celery
+containers also need outbound HTTPS to `api.cloudflare.com` and `cloudflare-dns.com`, because a
+domain only activates once its ownership TXT record is visible in public DNS.
 
 **Without Cloudflare**, leave the token and zone id empty. A domain request then only records the
 CNAME instruction, and a platform admin activates the domain in the Django admin once DNS and TLS
