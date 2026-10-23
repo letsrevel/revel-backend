@@ -768,6 +768,37 @@ class TestCustomDomainEndpointContracts:
         assert_detail_body_with_status(response, 403)
         assert set(response.json()) == {"detail"}
 
+    def test_invalid_hostname_returns_400_errors_body(
+        self, organization_owner_client: Client, enabled_org: Organization
+    ) -> None:
+        """A Django ``ValidationError`` reaches the global handler: ``{"errors": {field: [messages]}}``."""
+        response = self._post(organization_owner_client, enabled_org, "not a hostname")
+
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert set(body) == {"errors"}, body
+        assert all(isinstance(v, list) and v and all(isinstance(m, str) for m in v) for v in body["errors"].values())
+
+    def test_refresh_without_a_domain_returns_404_detail(
+        self, organization_owner_client: Client, enabled_org: Organization
+    ) -> None:
+        response = organization_owner_client.post(
+            reverse("api:refresh_custom_domain", kwargs={"slug": enabled_org.slug})
+        )
+
+        assert_detail_body_with_status(response, 404)
+        assert set(response.json()) == {"detail"}
+
+    def test_delete_without_a_domain_returns_404_detail(
+        self, organization_owner_client: Client, enabled_org: Organization
+    ) -> None:
+        response = organization_owner_client.delete(
+            reverse("api:delete_custom_domain", kwargs={"slug": enabled_org.slug})
+        )
+
+        assert_detail_body_with_status(response, 404)
+        assert set(response.json()) == {"detail"}
+
     def test_conflict_returns_409_detail(self, organization_owner_client: Client, enabled_org: Organization) -> None:
         assert self._post(organization_owner_client, enabled_org).status_code == 201
         response = self._post(organization_owner_client, enabled_org, "other.example.com")

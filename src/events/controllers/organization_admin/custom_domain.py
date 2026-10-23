@@ -7,6 +7,7 @@ it is deliberately absent from the app-token allow-list.
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
+from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner
@@ -44,7 +45,7 @@ class OrganizationAdminCustomDomainController(OrganizationAdminBaseController):
     @route.post(
         "/custom-domain",
         url_name="request_custom_domain",
-        response={201: schema.CustomDomainSchema},
+        response={201: schema.CustomDomainSchema, 400: ValidationErrorResponse, 409: ErrorDetail, 502: ErrorDetail},
         throttle=WriteThrottle(),
     )
     def request_custom_domain(
@@ -66,7 +67,7 @@ class OrganizationAdminCustomDomainController(OrganizationAdminBaseController):
     @route.post(
         "/custom-domain/refresh",
         url_name="refresh_custom_domain",
-        response=schema.CustomDomainSchema,
+        response={200: schema.CustomDomainSchema, 404: ErrorDetail, 502: ErrorDetail},
         throttle=WriteThrottle(),
     )
     def refresh_custom_domain(self, slug: str) -> models.OrganizationDomain:
@@ -83,7 +84,7 @@ class OrganizationAdminCustomDomainController(OrganizationAdminBaseController):
     @route.delete(
         "/custom-domain",
         url_name="delete_custom_domain",
-        response={204: None},
+        response={204: None, 404: ErrorDetail, 502: ErrorDetail},
         throttle=WriteThrottle(),
     )
     def delete_custom_domain(self, slug: str) -> tuple[int, None]:
