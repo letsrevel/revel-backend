@@ -36,12 +36,13 @@ HexColor = t.Annotated[str, AfterValidator(_validate_hex_color)]
 
 
 class OrganizationBranding(BaseModel):
-    """Org-owned presentation choices, stored in ``Organization.branding``.
+    """An organization's presentation settings, such as its brand colors.
 
-    Only presentation settings an organization admin may freely change belong here; new
-    keys must have defaults. Files, ``custom_domain`` and platform-admin flags are real
-    columns on the model, never keys of this blob.
+    Colors are ``#RRGGBB`` (stored uppercase); ``null`` means the platform default.
     """
+
+    # Boundary rule (see module docstring): org-owned presentation choices only, every new key
+    # needs a default; files, custom_domain and platform-admin flags stay real model columns.
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
