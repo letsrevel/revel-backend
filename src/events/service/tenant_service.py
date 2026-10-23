@@ -46,6 +46,8 @@ def _clean_host(hostname: str) -> str | None:
     since any well-formed hostname still gets a cache entry. What limits that is the short negative TTL:
     entries for hostnames nobody serves expire after ``NEGATIVE_TTL`` seconds.
     """
+    if len(hostname) > MAX_HOSTNAME_LENGTH + 1:  # +1: a trailing dot; checked before the (costlier) IDNA step
+        return None
     host = normalize_hostname(hostname)
     if not host or len(host) > MAX_HOSTNAME_LENGTH or not _HOST_RE.match(host):
         return None
@@ -114,7 +116,8 @@ def get_tenant_organization(hostname: str) -> Organization | None:
 def is_tenant_origin(origin_host: str) -> bool:
     """Whether ``origin_host`` is the active custom domain of some organization.
 
-    ``False`` when that organization's ``custom_domain_enabled`` kill switch is off.
+    ``False`` when that organization's ``custom_domain_enabled`` kill switch is off. Also what
+    Caddy's on-demand TLS ask endpoint (``events.controllers.tls_ask``) decides with.
 
     Args:
         origin_host: The host part of a request ``Origin`` (port already stripped).
