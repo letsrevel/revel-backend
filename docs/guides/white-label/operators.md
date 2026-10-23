@@ -247,13 +247,16 @@ block must meet these requirements:
 
 - **On-demand TLS, gated by an ask check.** Caddy obtains a Let's Encrypt certificate for a customer
   hostname the first time it is requested, over HTTP-01 only (the challenge arrives through
-  Cloudflare, so "Always Use HTTPS" must stay off). It first asks a loopback-only site, which calls
-  `GET /api/organizations/by-domain/<host>` on the API and answers 200 only for an ACTIVE domain
-  whose organization has the kill switch on; everything else is refused, so nobody can make Caddy
-  burn certificate quota on arbitrary names. Filter the hostname with a regular expression before
-  it reaches Django. A dedicated ask endpoint is planned
-  ([revel-backend#1178](https://github.com/letsrevel/revel-backend/issues/1178)): the by-domain
-  lookup works today, but it is anonymous-throttled and every ask comes from the same IP.
+  Cloudflare, so "Always Use HTTPS" must stay off). Before it does, it asks the backend through
+  `on_demand_tls { ask http://<backend>:8000/api/tls/ask }` (Caddy appends `?domain=<host>`). The
+  endpoint answers 200 only for an ACTIVE domain whose organization has the kill switch on, and 404
+  for anything else, so nobody can make Caddy burn certificate quota on arbitrary names. Point the
+  `ask` URL straight at the backend container over the internal network; the endpoint is
+  unthrottled by design (all asks come from the proxy's IP, and a throttle would let junk handshakes
+  block real tenants), cached like the by-domain lookup, and hidden from the API docs. It needs no
+  loopback shim and no hostname filter in Caddy. Caddy sends the container name as the `Host`, so
+  `ALLOWED_HOSTS` must include it (the `web` container: `web`). Deploy the backend before pointing
+  Caddy at it: an older backend answers 404 and every certificate is refused.
 - **Overwrite the forwarding headers on every frontend vhost, the catch-all included.** Proxy to the
   frontend with the same headers as the main frontend block, and set `X-Forwarded-Host {host}` and
   `X-Forwarded-Proto https`, replacing any value a client sends. The frontend trusts these to decide
@@ -389,12 +392,9 @@ runs in **manual mode**:
 - A platform admin **activates** the domain in the Django admin once DNS and TLS are ready.
 - **TLS is yours.** You need a certificate for each hostname on your own proxy. The simplest route
   is to add the hostname as a site block in your Caddyfile after the organizer creates the
-  CNAME (Caddy then obtains a Let's Encrypt certificate). Caddy's on-demand TLS also works, as in the
-  [hosted setup](#caddy), but it needs an "ask" endpoint that answers 200 only for hostnames you
-  serve. Revel does not ship a dedicated one yet
-  ([revel-backend#1178](https://github.com/letsrevel/revel-backend/issues/1178)): the by-domain
-  endpoint takes the hostname in the URL path, while Caddy's ask request puts it in a `?domain=`
-  query, so you need a small loopback site in front of it that rewrites one into the other.
+  CNAME (Caddy then obtains a Let's Encrypt certificate). Caddy's on-demand TLS also works, exactly
+  as in the [hosted setup](#caddy): point `on_demand_tls { ask ... }` at
+  `http://<backend>:8000/api/tls/ask`, which answers 200 only for the hostnames you have activated.
 - Set `CUSTOM_DOMAIN_CNAME_TARGET` to a hostname that resolves to your server (for example
   `customers.example.com` with an A record). It is the only thing organizers are told to create,
   and the instructions are empty without it.

@@ -39,6 +39,7 @@ from events.controllers.questionnaire import QuestionnaireController
 from events.controllers.series_pass import SeriesPassController
 from events.controllers.series_pass_admin import SeriesPassAdminController
 from events.controllers.stripe_webhook import StripeWebhookController
+from events.controllers.tls_ask import TlsAskController
 from events.controllers.user_preferences import UserPreferencesController
 from geo.controllers.cities import CityController
 from integrations.controllers import INTEGRATION_CONTROLLERS
@@ -198,6 +199,7 @@ api.register_controllers(
     MeMembershipApplicationsController,
     MeMembershipQuestionnaireController,
     StripeWebhookController,
+    TlsAskController,
     ExportController,
     # Common controllers
     MediaValidationController,

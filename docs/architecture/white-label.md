@@ -75,7 +75,7 @@ flowchart TD
 
 ## Public endpoints
 
-Both are anonymous and registered **before** the `/{slug}` routes, because `by-domain` is otherwise
+The two lookups below are anonymous and registered **before** the `/{slug}` routes, because `by-domain` is otherwise
 a valid slug.
 
 **`GET /api/organizations/by-domain/{hostname}`** (`TenantOrganizationSchema`) is what the tenant
@@ -102,6 +102,25 @@ organization has an ACTIVE domain and the switch is on.
 frontend can link events straight to the right host without a redirect hop. The value is a plain
 column, so lists add no queries. Organizations with a domain **stay listed in Revel discovery**;
 the `UNLISTED` visibility is the opt-out.
+
+### The TLS ask endpoint
+
+**`GET /api/tls/ask?domain=<host>`** (`events/controllers/tls_ask.py`) is for Caddy's on-demand TLS,
+for deployments that issue origin certificates without Cloudflare for SaaS. Caddy calls the URL in
+`on_demand_tls { ask ... }` with `?domain=` appended before it requests a certificate, and proceeds
+only on a 200. The endpoint answers 200 (empty body) when the host is an ACTIVE custom domain of an
+organization with the kill switch on, and 404 for everything else (unknown, pending, failed,
+removed, kill switch off, a platform host, malformed, missing or over-long). It asks
+`tenant_service.is_tenant_origin`, the same cached resolution as `by-domain`, so a repeated ask
+costs no query and negative answers are cached for `NEGATIVE_TTL` like any other. The hostname is
+normalized and length-checked before the cache or the database is touched.
+
+It is **deliberately unthrottled**. Every ask arrives from the one proxy IP, so under the anonymous
+throttle (250 per day per IP) junk SNI handshakes could use up the budget and block certificates for
+real tenants. It stays safe without one: it is a cache lookup, it needs no credentials, and it
+reveals nothing beyond the status code, which is what `by-domain` already tells anyone (whether a
+hostname is an active tenant). It is excluded from the OpenAPI schema, since only Caddy calls it.
+Point Caddy at the backend over the internal network; the public API host also serves it.
 
 ## Dynamic CORS
 

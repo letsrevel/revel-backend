@@ -383,6 +383,10 @@ if DEPLOYMENT_ENVIRONMENT == "production":
     SECURE_REDIRECT_EXEMPT = [
         r"^metrics/?$",  # Allow Prometheus to scrape metrics via HTTP
         r"^api/healthcheck/?$",  # Allow health checks via HTTP
+        # Caddy's on-demand TLS ask is a plain-HTTP call over the internal network (Caddy cannot add
+        # X-Forwarded-Proto to it), and anything but a 200 denies the certificate: a redirect would
+        # block every tenant (#1178).
+        r"^api/tls/ask/?$",
     ]
     SESSION_COOKIE_SECURE = True  # Only send session cookies over HTTPS
     CSRF_COOKIE_SECURE = True  # Only send CSRF cookies over HTTPS
