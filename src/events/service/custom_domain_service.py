@@ -21,7 +21,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events.exceptions import CloudflareAPIError, CustomDomainConflictError, CustomDomainNotEnabledError
-from events.models import Organization, OrganizationDomain
+from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 from events.schema.custom_domain import DnsRecordSchema, DnsRecordType
 from events.service import cloudflare_custom_hostnames as cloudflare
 from events.service.tenant_service import invalidate_tenant_cache
@@ -61,7 +61,7 @@ def _lock_organization(domain: OrganizationDomain) -> Organization:
 def _save_status(
     domain: OrganizationDomain,
     organization: Organization,
-    status: OrganizationDomain.Status,
+    status: OrganizationDomainStatus,
     *,
     custom_domain: str | None,
 ) -> None:
@@ -206,7 +206,7 @@ def _hosted_errors(hosted: cloudflare.CustomHostname) -> list[str]:
     return list(dict.fromkeys(messages))  # de-duplicated, order preserved
 
 
-def _target_status(current: str, hosted: cloudflare.CustomHostname) -> OrganizationDomain.Status | None:
+def _target_status(current: str, hosted: cloudflare.CustomHostname) -> OrganizationDomainStatus | None:
     """Decide the status a domain in ``current`` (PENDING or ACTIVE) should move to given Cloudflare's state."""
     ssl_status = hosted.ssl.status if hosted.ssl else None
     if hosted.status in FAILED_HOSTNAME_STATUSES or ssl_status in FAILED_SSL_STATUSES:

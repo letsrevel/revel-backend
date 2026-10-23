@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from structlog.testing import capture_logs
 
 from events.exceptions import CloudflareAPIError, CustomDomainConflictError, CustomDomainNotEnabledError
-from events.models import Organization, OrganizationDomain
+from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 from events.service import cloudflare_custom_hostnames as cloudflare
 from events.service import custom_domain_service
 
@@ -131,7 +131,7 @@ def test_request_requires_the_platform_switch(organization: Organization, config
 
 @pytest.mark.parametrize("existing", [Status.PENDING, Status.ACTIVE])
 def test_request_rejects_when_a_live_domain_exists(
-    enabled_org: Organization, configured: None, existing: OrganizationDomain.Status
+    enabled_org: Organization, configured: None, existing: OrganizationDomainStatus
 ) -> None:
     OrganizationDomain.objects.create(organization=enabled_org, hostname="old.example.com", status=existing)
 
@@ -362,7 +362,7 @@ def test_sync_marks_terminal_states_failed(
 
 @pytest.mark.parametrize("status", [Status.FAILED, Status.REMOVED])
 def test_sync_skips_domains_without_a_cloudflare_id_or_not_live(
-    enabled_org: Organization, configured: None, status: OrganizationDomain.Status
+    enabled_org: Organization, configured: None, status: OrganizationDomainStatus
 ) -> None:
     manual = pending_domain(enabled_org, cf_id=None)
 

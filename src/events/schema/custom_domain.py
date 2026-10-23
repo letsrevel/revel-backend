@@ -7,7 +7,7 @@ from django.conf import settings
 from ninja import Schema
 from pydantic import AwareDatetime, Field
 
-from events.models import OrganizationDomain
+from events.models import OrganizationDomainStatus
 
 
 class DnsRecordType(enum.StrEnum):
@@ -35,7 +35,7 @@ class CustomDomainSchema(Schema):
     """A custom domain with the DNS instructions the organization must follow."""
 
     hostname: str
-    status: OrganizationDomain.Status
+    status: OrganizationDomainStatus
     verification_records: list[DnsRecordSchema]
     cname_target: str | None = None
     verified_at: AwareDatetime | None = None

@@ -6,7 +6,7 @@ import pytest
 from django.core.exceptions import ValidationError
 
 from accounts.models import RevelUser
-from events.models import Organization, OrganizationDomain
+from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 
 pytestmark = pytest.mark.django_db
 
@@ -70,7 +70,7 @@ def test_removed_hostname_can_be_reused(organization: Organization, other_organi
 
 
 @pytest.mark.parametrize("status", [Status.PENDING, Status.ACTIVE])
-def test_one_live_domain_per_organization(organization: Organization, status: OrganizationDomain.Status) -> None:
+def test_one_live_domain_per_organization(organization: Organization, status: OrganizationDomainStatus) -> None:
     """At most one PENDING-or-ACTIVE domain per organization."""
     OrganizationDomain.objects.create(organization=organization, hostname="one.example.com", status=status)
 
@@ -80,7 +80,7 @@ def test_one_live_domain_per_organization(organization: Organization, status: Or
 
 @pytest.mark.parametrize("status", [Status.FAILED, Status.REMOVED])
 def test_dead_domains_do_not_count_towards_the_live_limit(
-    organization: Organization, status: OrganizationDomain.Status
+    organization: Organization, status: OrganizationDomainStatus
 ) -> None:
     """FAILED and REMOVED rows leave room for a new request."""
     OrganizationDomain.objects.create(organization=organization, hostname="old.example.com", status=status)

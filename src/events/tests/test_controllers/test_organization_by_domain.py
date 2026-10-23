@@ -15,6 +15,7 @@ from events.models import (
     MembershipTier,
     Organization,
     OrganizationDomain,
+    OrganizationDomainStatus,
     ResourceVisibility,
 )
 from events.schema import MinimalOrganizationSchema
@@ -136,7 +137,7 @@ def test_by_domain_has_resources_counts_public_displayed_resources_only(
 def test_by_domain_404_after_domain_leaves_active(
     client: Client,
     tenant_org: Organization,
-    terminal: OrganizationDomain.Status,
+    terminal: OrganizationDomainStatus,
     django_capture_on_commit_callbacks: t.Any,
 ) -> None:
     """Failed and removed domains stop resolving as soon as the cache is invalidated."""

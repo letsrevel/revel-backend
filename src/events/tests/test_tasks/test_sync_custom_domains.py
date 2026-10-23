@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from structlog.testing import capture_logs
 
 from events.exceptions import CloudflareAPIError, CustomDomainNotEnabledError
-from events.models import Organization, OrganizationDomain
+from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 from events.service import cloudflare_custom_hostnames as cloudflare
 from events.tasks import sync_custom_domains_task
 
@@ -43,7 +43,7 @@ def make_domain(django_user_model: t.Any) -> t.Callable[..., OrganizationDomain]
     def _make(
         hostname: str,
         *,
-        status: OrganizationDomain.Status = Status.PENDING,
+        status: OrganizationDomainStatus = Status.PENDING,
         cf_id: str | None = "set",
         enabled: bool = True,
     ) -> OrganizationDomain:
