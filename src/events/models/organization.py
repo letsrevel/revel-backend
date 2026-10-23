@@ -439,7 +439,9 @@ class Organization(
     # ``events.service.custom_domain_service`` writes it.
     custom_domain_enabled = models.BooleanField(
         default=False,
-        help_text=_("Platform gate: lets this organization request and use a custom domain."),
+        help_text=_(
+            "Platform gate: allows activating, resolving and advertising a custom domain for this organization."
+        ),
     )
     custom_domain = models.CharField(
         max_length=253,
