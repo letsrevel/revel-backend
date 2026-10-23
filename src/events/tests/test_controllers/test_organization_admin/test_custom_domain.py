@@ -7,6 +7,7 @@ import pytest
 from django.test.client import Client
 from django.urls import reverse
 
+from common.models import SiteSettings
 from events.exceptions import CloudflareAPIError
 from events.models import Organization, OrganizationDomain
 from events.service import cloudflare_custom_hostnames as cloudflare
@@ -128,14 +129,51 @@ def test_request_creates_pending_domain(organization_owner_client: Client, enabl
     assert OrganizationDomain.objects.get(hostname="events.example.com").cloudflare_hostname_id == "cf-1"
 
 
-def test_request_invalid_hostname_is_400(organization_owner_client: Client, enabled_org: Organization) -> None:
+def test_request_invalid_hostname_is_400_keyed_by_the_hostname_field(
+    organization_owner_client: Client, enabled_org: Organization
+) -> None:
     response = organization_owner_client.post(
         _url("request_custom_domain", enabled_org),
-        data={"hostname": "letsrevel.io"},
+        data={"hostname": "192.168.0.1"},
         content_type="application/json",
     )
 
     assert response.status_code == 400
+    errors = response.json()["errors"]
+    assert set(errors) == {"hostname"}
+    assert "IP addresses are not allowed" in errors["hostname"][0]
+
+
+@pytest.mark.parametrize(
+    "hostname",
+    [
+        "letsrevel.io",
+        "www.letsrevel.io",
+        "api.letsrevel.io",
+        "anything.letsrevel.io",
+        CNAME_TARGET,  # the Cloudflare fallback origin
+    ],
+)
+def test_request_platform_hostname_is_rejected_with_prod_like_settings(
+    organization_owner_client: Client, enabled_org: Organization, settings: t.Any, hostname: str
+) -> None:
+    """Locally the platform is localhost; in prod the platform's hosts (and the fallback origin) must be refused."""
+    settings.FRONTEND_BASE_URL = "https://letsrevel.io"
+    settings.BASE_URL = "https://api.letsrevel.io"
+    settings.DEBUG = False
+    site = SiteSettings.get_solo()
+    site.frontend_base_url = "https://letsrevel.io"
+    site.save()
+
+    response = organization_owner_client.post(
+        _url("request_custom_domain", enabled_org),
+        data={"hostname": hostname},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400, response.content
+    assert set(response.json()["errors"]) == {"hostname"}
+    assert not OrganizationDomain.objects.filter(organization=enabled_org).exists()
 
 
 def test_request_duplicate_is_409(organization_owner_client: Client, enabled_org: Organization) -> None:

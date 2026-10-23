@@ -5,7 +5,10 @@ import typing as t
 import pytest
 from django.core.exceptions import ValidationError
 
+from common.models import SiteSettings
 from events.utils.hostname import normalize_hostname, validate_custom_hostname
+
+pytestmark = pytest.mark.django_db  # ``platform_hosts`` reads the SiteSettings singleton
 
 
 @pytest.fixture(autouse=True)
@@ -109,3 +112,43 @@ def test_localhost_platform_urls_do_not_block_tenant_localhost(settings: t.Any) 
     settings.BASE_URL = "http://localhost:8000"
     assert validate_custom_hostname("tenant.localhost") == "tenant.localhost"
     assert validate_custom_hostname("events.example.com") == "events.example.com"
+
+
+def test_fallback_origin_cannot_be_claimed(settings: t.Any) -> None:
+    """``CUSTOM_DOMAIN_CNAME_TARGET`` is the Cloudflare fallback origin, even on an unrelated domain."""
+    settings.CUSTOM_DOMAIN_CNAME_TARGET = "fallback.cdn-example.net"
+
+    for host in ("fallback.cdn-example.net", "x.fallback.cdn-example.net"):
+        with pytest.raises(ValidationError):
+            validate_custom_hostname(host)
+    # Only the target itself is reserved, not its whole (possibly shared) apex.
+    assert validate_custom_hostname("tenant.cdn-example.net") == "tenant.cdn-example.net"
+
+
+def test_unset_fallback_origin_blocks_nothing(settings: t.Any) -> None:
+    settings.CUSTOM_DOMAIN_CNAME_TARGET = ""
+    assert validate_custom_hostname("events.example.com") == "events.example.com"
+
+
+def test_site_settings_frontend_host_is_a_platform_host(settings: t.Any) -> None:
+    """Links use ``SiteSettings.frontend_base_url``, so its host (and apex) is reserved too."""
+    site = SiteSettings.get_solo()
+    site.frontend_base_url = "https://app.revel-example.org"
+    site.save()
+
+    for host in ("app.revel-example.org", "revel-example.org", "x.revel-example.org"):
+        with pytest.raises(ValidationError):
+            validate_custom_hostname(host)
+
+
+@pytest.mark.parametrize("host", ["letsrevel.io", "www.letsrevel.io", "api.letsrevel.io", "any.letsrevel.io"])
+def test_prod_like_platform_hosts_are_rejected(settings: t.Any, host: str) -> None:
+    settings.FRONTEND_BASE_URL = "https://letsrevel.io"
+    settings.BASE_URL = "https://api.letsrevel.io"
+    settings.DEBUG = False
+    site = SiteSettings.get_solo()
+    site.frontend_base_url = "https://letsrevel.io"
+    site.save()
+
+    with pytest.raises(ValidationError):
+        validate_custom_hostname(host)

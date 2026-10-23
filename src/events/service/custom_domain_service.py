@@ -286,7 +286,11 @@ def request_domain(organization: Organization, hostname: str) -> OrganizationDom
         CloudflareAPIError: Cloudflare failed.
     """
     _require_enabled(organization)
-    hostname = validate_custom_hostname(hostname)
+    try:
+        hostname = validate_custom_hostname(hostname)
+    except DjangoValidationError as exc:
+        # Keyed by the request field, so the API answers {"errors": {"hostname": [...]}}.
+        raise DjangoValidationError({"hostname": exc.messages}) from exc
     if _live_domain_exists(organization):
         raise CustomDomainConflictError(str(_("This organization already has a pending or active domain.")))
     # ponytail: under ATOMIC_REQUESTS this retirement holds the org row lock through the Cloudflare create

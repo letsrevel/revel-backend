@@ -1,6 +1,6 @@
 """Custom-domain hostname normalization and validation (white-label, #1152).
 
-Pure helpers: no model or service imports, so the ``OrganizationDomain`` model can use
+Pure helpers: no model or service imports at module level, so the ``OrganizationDomain`` model can use
 them as a field validator. The platform's own hosts are derived from settings at call
 time (never cached at import) so ``override_settings`` and per-environment configuration
 are honoured.
@@ -48,9 +48,16 @@ def _registrable_apex(host: str) -> str | None:
 
 
 def platform_hosts() -> frozenset[str]:
-    """Hostnames a tenant domain must never equal or sit under: the platform's own and their apexes."""
+    """Hostnames a tenant domain must never equal or sit under.
+
+    The platform's own hosts (the configured frontend and API URLs, and the ``SiteSettings`` frontend
+    URL that links actually use) with their registrable apexes, plus the Cloudflare fallback origin
+    (``CUSTOM_DOMAIN_CNAME_TARGET``), so no organization can claim it.
+    """
+    from common.models import SiteSettings  # lazy: this module must stay import-light (model validator)
+
     hosts: set[str] = set()
-    for url in (settings.FRONTEND_BASE_URL, settings.BASE_URL):
+    for url in (settings.FRONTEND_BASE_URL, settings.BASE_URL, SiteSettings.get_solo().frontend_base_url):
         host = (urlsplit(url).hostname or "").lower()
         if not host or host == "localhost":
             # ``localhost`` is handled by the ``*.localhost`` rule, not the platform-host rule.
@@ -58,6 +65,8 @@ def platform_hosts() -> frozenset[str]:
         hosts.add(host)
         if apex := _registrable_apex(host):
             hosts.add(apex)
+    if fallback_origin := str(settings.CUSTOM_DOMAIN_CNAME_TARGET).strip().lower().rstrip("."):
+        hosts.add(fallback_origin)  # the target itself only: its apex may be an unrelated, shared domain
     return frozenset(hosts)
 
 
