@@ -2,8 +2,8 @@
 
 Status changes go through ``events.service.custom_domain_service`` so the denormalized
 ``Organization.custom_domain`` and the tenant cache stay in sync; the status itself is therefore
-read-only on the form and moved with the actions below. Until Cloudflare automation lands, staff
-activate domains by hand here.
+read-only on the form and moved with the actions below. Staff can still activate domains by hand here
+(e.g. when Cloudflare is not configured). "Remove" also deletes the Cloudflare custom hostname.
 """
 
 import typing as t
@@ -18,7 +18,7 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import OrganizationLinkMixin
-from events.exceptions import CustomDomainNotEnabledError
+from events.exceptions import CloudflareAPIError, CustomDomainNotEnabledError
 from events.service import custom_domain_service
 
 
@@ -32,7 +32,7 @@ class OrganizationDomainAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
     list_select_related = ["organization"]
     search_fields = ["hostname", "organization__name", "organization__slug"]
     autocomplete_fields = ["organization"]
-    readonly_fields = ["status", "verified_at", "created_at", "updated_at"]
+    readonly_fields = ["status", "verified_at", "last_errors", "created_at", "updated_at"]
     actions = ["activate_domains", "mark_domains_failed", "remove_domains"]
 
     def get_readonly_fields(self, request: HttpRequest, obj: models.OrganizationDomain | None = None) -> list[str]:
@@ -41,7 +41,7 @@ class OrganizationDomainAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
         return readonly + ["organization", "hostname"] if obj is not None else readonly
 
     def has_delete_permission(self, request: HttpRequest, obj: models.OrganizationDomain | None = None) -> bool:
-        """Deleting would skip the service's cleanup; use the "Remove" action instead."""
+        """Deleting would skip the service's cleanup (Cloudflare hostname, denormalized column); use "Remove"."""
         return False
 
     def _apply(
@@ -60,6 +60,13 @@ class OrganizationDomainAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
                 self.message_user(
                     request,
                     f"{domain.hostname}: {custom_domain_service.CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE}",
+                    level=messages.ERROR,
+                )
+            except CloudflareAPIError:
+                self.message_user(
+                    request,
+                    f"{domain.hostname}: the domain provisioning service (Cloudflare) failed; nothing was changed. "
+                    "See the logs and try again.",
                     level=messages.ERROR,
                 )
             except DjangoValidationError as exc:
@@ -81,5 +88,5 @@ class OrganizationDomainAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
 
     @admin.action(description="Remove selected domains", permissions=["change"])
     def remove_domains(self, request: HttpRequest, queryset: QuerySet[models.OrganizationDomain]) -> None:
-        """Mark domains REMOVED, freeing their hostnames."""
-        self._apply(request, queryset, custom_domain_service.remove_domain, "removed")
+        """Delete the Cloudflare custom hostnames and mark domains REMOVED, freeing their hostnames."""
+        self._apply(request, queryset, custom_domain_service.delete_domain, "removed")
