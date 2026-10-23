@@ -218,6 +218,15 @@ class TestGoogleWalletBrandFingerprintIds:
         )
         obj_id = build_membership_payload(member)["genericObjects"][0]["id"]
         assert obj_id == f"3388000000012345678.test.membercard.{member.id}-base"
+        # Object IDs of passes saved before branding existed must not move either.
+        assert (
+            build_ticket_payload(ticket)["eventTicketObjects"][0]["id"]
+            == f"3388000000012345678.test.ticket.{ticket.id}"
+        )
+        assert (
+            build_series_pass_payload(held_pass)["eventTicketObjects"][0]["id"]
+            == f"3388000000012345678.test.pass.{held_pass.id}"
+        )
 
     def test_branded_ticket_class_id_carries_suffix(
         self, google_wallet_configured_settings: None, ticket: Ticket, organization: Organization
@@ -262,6 +271,36 @@ class TestGoogleWalletBrandFingerprintIds:
         assert branded.startswith(unbranded)
         assert _SUFFIX.fullmatch(branded.removeprefix(unbranded))
         assert _GOOGLE_ID.fullmatch(branded)
+
+    def test_ticket_and_series_object_ids_follow_the_colors(
+        self,
+        google_wallet_configured_settings: None,
+        ticket: Ticket,
+        held_pass: t.Any,
+        organization: Organization,
+    ) -> None:
+        """A re-saved pass must be a new object: a new class alone leaves the stored object on the old one."""
+
+        def object_ids() -> tuple[str, str]:
+            fresh_pass = (
+                type(held_pass).objects.select_related("series_pass__event_series__organization").get(pk=held_pass.pk)
+            )
+            return (
+                str(build_ticket_payload(_reload_ticket(ticket))["eventTicketObjects"][0]["id"]),
+                str(build_series_pass_payload(fresh_pass)["eventTicketObjects"][0]["id"]),
+            )
+
+        unbranded = object_ids()
+        _set_branding(organization, BRANDED)
+        first = object_ids()
+        for before, after in zip(unbranded, first, strict=True):
+            assert after.startswith(before)
+            assert _SUFFIX.fullmatch(after.removeprefix(before))
+            assert _GOOGLE_ID.fullmatch(after)
+        assert object_ids() == first
+        _set_branding(organization, {"primary_color": "#43A047"})
+        changed = object_ids()
+        assert all(a != b for a, b in zip(changed, first, strict=True))
 
     def test_membership_object_id_carries_suffix(
         self, google_wallet_configured_settings: None, member: OrganizationMember, organization: Organization

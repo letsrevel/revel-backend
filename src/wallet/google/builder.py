@@ -35,10 +35,12 @@ def _brand_suffix(org: Organization) -> str:
 
     Google treats a save JWT whose class/object ID already exists as a no-op (the stored
     entity is served without updating it), so a pass saved before an organization set or
-    changed its branding would stay Revel purple forever. Baking this fingerprint into the
-    class/object ID mints a fresh entity whenever the colors change. Unbranded organizations
-    get no suffix, so IDs of existing saved passes and classes are untouched. The result is
-    ``-`` plus 8 hex chars, within Google's ``[A-Za-z0-9._-]`` ID charset.
+    changed its branding would stay Revel purple forever. Every pass therefore bakes this
+    fingerprint into both its class ID and its object ID: a new class alone is not enough,
+    because the stored object keeps pointing at the old class. The superseded card lingers in
+    the user's wallet until removed (its barcode stays valid). Unbranded organizations get no
+    suffix, so IDs of existing saved passes and classes are untouched. The result is ``-``
+    plus 8 hex chars, within Google's ``[A-Za-z0-9._-]`` ID charset.
     """
     if (brand := get_pass_brand_colors(org)) is None:
         return ""
@@ -146,9 +148,10 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
     tz = get_event_timezone(event)
 
     location = resolve_ticket_location(ticket)
+    brand_suffix = _brand_suffix(org)
 
     cls = _build_class(
-        class_id=_pass_id("event", f"{event.id}{_brand_suffix(org)}"),
+        class_id=_pass_id("event", f"{event.id}{brand_suffix}"),
         issuer_name=org.name,
         event_name=event.name,
         start=event.start,
@@ -162,7 +165,7 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
     )
 
     obj: dict[str, t.Any] = {
-        "id": _pass_id("ticket", ticket.id),
+        "id": _pass_id("ticket", f"{ticket.id}{brand_suffix}"),
         "classId": cls["id"],
         "state": "ACTIVE",
         "barcode": {"type": "QR_CODE", "value": str(ticket.id)},
@@ -209,9 +212,10 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
 
     window = resolve_series_window(held_pass)
     hero_url = _event_cover_url(window.representative_event) if window.representative_event else None
+    brand_suffix = _brand_suffix(org)
 
     cls = _build_class(
-        class_id=_pass_id("series", f"{series_pass.id}{_brand_suffix(org)}"),
+        class_id=_pass_id("series", f"{series_pass.id}{brand_suffix}"),
         issuer_name=org.name,
         event_name=series_pass.name,
         start=window.start,
@@ -225,7 +229,7 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
     )
 
     obj: dict[str, t.Any] = {
-        "id": _pass_id("pass", held_pass.id),
+        "id": _pass_id("pass", f"{held_pass.id}{brand_suffix}"),
         "classId": cls["id"],
         "state": "ACTIVE",
         "barcode": {"type": "QR_CODE", "value": held_pass.qr_payload},
