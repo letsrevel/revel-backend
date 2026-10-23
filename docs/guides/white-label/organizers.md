@@ -157,7 +157,7 @@ causes:
 Use **Remove** on the custom domain page. Revel deletes the hostname from Cloudflare and frees it,
 and your attendee pages go back to the Revel address. Browsers and the platform may cache the old
 redirect for a short while (the platform forgets a domain within about a minute, and permanent
-redirects to the custom domain are cached by browsers for up to an hour).
+redirects to the custom domain are cached by browsers for up to five minutes).
 
 A **Failed** domain does not need to be removed first. Request the same or a different hostname
 again and Revel retires the failed one for you. A removed domain cannot be brought back, but you
@@ -183,6 +183,10 @@ admin pages stay on Revel.
 finishes or cancels, Stripe sends them to a Revel address, which forwards them straight back to the
 same event on your domain with their payment result. They may notice the Revel address for a
 moment. They are never left on it.
+
+**Seated events and guests.** If your event has a seat map, guests (people without a Revel account)
+can pick and hold seats, check out and confirm by email on your custom domain, exactly as on the
+Revel address.
 
 ### Account emails and why they link to Revel
 

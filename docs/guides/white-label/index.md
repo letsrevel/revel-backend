@@ -52,6 +52,14 @@ controller for accounts, which is why the footer links to Revel's privacy policy
 are host-only, so each domain asks for its own login. Single sign-on buttons are hidden on custom
 domains, because the OIDC callback belongs to the platform.
 
+**Login happens on the custom domain.** An attendee types their password into a page served under
+a hostname whose DNS the organization controls. Revel keeps every account-level token (email
+verification, password reset, deletion, unsubscribe) off tenant links, but an owner who repoints
+their DNS could still serve a look-alike login page. This is inherent to a login per domain and is
+why custom domains are enabled by a platform admin only, can be switched off at once, and raise
+alerts when a live domain develops a problem. See [the password
+trade-off](../../architecture/white-label.md#the-password-trade-off).
+
 **The footer says "Powered by Revel · Privacy · Terms".** Every tenant page keeps this small
 footer, and organizers cannot turn it off.
 

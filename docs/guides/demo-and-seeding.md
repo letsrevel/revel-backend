@@ -224,10 +224,14 @@ owned by `tenant.owner@example.com`.
 
 | Organization | Slug | Domain | Brand colors | Contents |
 |---|---|---|---|---|
-| Tenant Test Org | `tenant-test-org` | `tenant.localhost` (active) | `#B0306A` / `#2E86DE` | `tenant-rsvp-event` (RSVP) and `tenant-free-ticket-event` (free "Free Ticket" tier) |
-| Tenant Paid Org | `tenant-paid-org` | `paid.localhost` (active) | `#0E7C66` / `#F2A541` | `tenant-paid-event`, an online "Standard Ticket" tier at 10 EUR |
+| Tenant Test Org | `tenant-test-org` | `tenant.localhost` (active) | `#B0306A` / `#2E86DE` | `tenant-rsvp-event` (RSVP), `tenant-free-ticket-event` (free "Free Ticket" tier) and `tenant-seated-event` (seat map, free "Seated Free" tier) |
+| Tenant Paid Org | `tenant-paid-org` | `paid.localhost` (active) | `#0E7C66` / `#F2A541` | `tenant-paid-event` (online "Standard Ticket" tier at 10 EUR) and `tenant-paid-seated-event` (seat map, online "Seated Standard" tier at 10 EUR) |
 | Domain Setup Org | `domain-setup-org` | none | none | Custom domains enabled, no domain yet, so its owner can request one in the admin UI |
 
+- The two seated events (for anonymous seat-hold and guest-checkout E2E on a custom domain) are
+  public and open to guests. Each has a venue named `<Org Name> Hall` with one seated sector `MAIN`
+  ("Main Floor"), three rows A to C of six seats (`A1` to `C6`), and a single tier where guests pick
+  their seats. The free one needs no Stripe; the paid one does.
 - `*.localhost` hostnames are valid only with `DEBUG` on. Without it the tenant fixtures are skipped
   with a warning. Run the frontend with `PLATFORM_HOSTS=localhost` and
   `PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE=http://{hostname}:5173`, and the backend with
