@@ -14,7 +14,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.management.commands.bootstrap_helpers import tenant_orgs
 from events.management.commands.bootstrap_test_events import ORG_ALPHA_SLUG, Command
-from events.models import Event, Organization, OrganizationDomain, TicketTier
+from events.models import Event, Organization, OrganizationDomain, TicketTier, VenueSector
 from events.service import tenant_service
 from geo.models import City
 
@@ -63,11 +63,15 @@ def test_dedicated_tenant_orgs_are_seeded_with_active_domains(command: Command) 
 
 
 def test_free_tenant_org_has_an_rsvp_event_and_a_free_ticket_event(command: Command) -> None:
-    """One RSVP-able event without tickets, one with a single free tier; both public, open and upcoming."""
+    """One RSVP-able event without tickets, one with a single free tier, one seated; all public, open, upcoming."""
     command._create_tenant_domains()
 
     org = Organization.objects.get(slug=tenant_orgs.TENANT_ORG_SLUG)
-    assert set(org.events.values_list("slug", flat=True)) == {"tenant-rsvp-event", "tenant-free-ticket-event"}
+    assert set(org.events.values_list("slug", flat=True)) == {
+        "tenant-rsvp-event",
+        "tenant-free-ticket-event",
+        "tenant-seated-event",
+    }
     for event in org.events.all():
         assert event.visibility == Event.Visibility.PUBLIC
         assert event.status == Event.EventStatus.OPEN
@@ -89,8 +93,7 @@ def test_paid_tenant_org_uses_the_platform_stripe_account(command: Command) -> N
     assert org.stripe_account_id == PLATFORM_ACCOUNT
     assert org.stripe_charges_enabled is True
     assert org.stripe_details_submitted is True
-    event = org.events.get()
-    assert event.slug == "tenant-paid-event"
+    event = org.events.get(slug="tenant-paid-event")
     assert event.status == Event.EventStatus.OPEN
     assert event.start > command.now
     tier = event.ticket_tiers.get()
@@ -98,6 +101,61 @@ def test_paid_tenant_org_uses_the_platform_stripe_account(command: Command) -> N
     assert tier.payment_method == TicketTier.PaymentMethod.ONLINE
     assert tier.price == 10
     assert tier.currency == "EUR"
+
+
+def _assert_seated_event(event: Event, org: Organization, tier_name: str, payment_method: str, price: int) -> None:
+    """Public, open, upcoming and guest-purchasable, with one USER_CHOICE tier over a 3 x 6 seat map (A1..C6)."""
+    assert event.organization == org
+    assert event.visibility == Event.Visibility.PUBLIC
+    assert event.status == Event.EventStatus.OPEN
+    assert event.start > timezone.now()
+    assert event.requires_ticket is True
+    assert event.can_attend_without_login is True
+    venue = event.venue
+    assert venue is not None
+    assert venue.organization == org
+
+    tier = event.ticket_tiers.get()
+    assert tier.name == tier_name
+    assert tier.payment_method == payment_method
+    assert tier.price == price
+    assert tier.currency == "EUR"
+    assert tier.seat_assignment_mode == TicketTier.SeatAssignmentMode.USER_CHOICE
+    assert tier.venue == venue
+    assert tier.total_quantity == 18
+    assert tier.visibility == TicketTier.Visibility.PUBLIC
+    assert tier.purchasable_by == TicketTier.PurchasableBy.PUBLIC
+
+    sector = venue.sectors.get()
+    assert tier.sector == sector
+    assert sector.kind == VenueSector.Kind.SEATED
+    assert (sector.name, sector.code) == ("Main Floor", "MAIN")
+    seats = sector.seats.order_by("row_order", "number")
+    assert seats.count() == 18
+    assert all(seat.is_active for seat in seats)
+    assert [(seat.row_label, seat.number, seat.label) for seat in seats] == [
+        (row, n, f"{row}{n}") for row in "ABC" for n in range(1, 7)
+    ]
+
+
+def test_free_tenant_org_has_a_seated_event_guests_can_book_for_free(command: Command) -> None:
+    """The seated tier is FREE so a guest hold -> checkout -> email confirmation completes without Stripe."""
+    command._create_tenant_domains()
+
+    org = Organization.objects.get(slug=tenant_orgs.TENANT_ORG_SLUG)
+    _assert_seated_event(
+        org.events.get(slug="tenant-seated-event"), org, "Seated Free", TicketTier.PaymentMethod.FREE, 0
+    )
+
+
+def test_paid_tenant_org_has_an_online_seated_event(command: Command) -> None:
+    """Guest ONLINE checkout of seated tiers is supported (reservation, then the Stripe session)."""
+    command._create_tenant_domains()
+
+    org = Organization.objects.get(slug=tenant_orgs.TENANT_PAID_ORG_SLUG)
+    _assert_seated_event(
+        org.events.get(slug="tenant-paid-seated-event"), org, "Seated Standard", TicketTier.PaymentMethod.ONLINE, 10
+    )
 
 
 def test_domain_setup_org_is_enabled_for_custom_domains_without_one(command: Command) -> None:

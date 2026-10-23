@@ -18,6 +18,8 @@ from events import models as events_models
 from events.service import custom_domain_service
 from geo.models import City
 
+from .venues import _build_grid_seats
+
 logger = structlog.get_logger(__name__)
 
 TENANT_ORG_SLUG = "tenant-test-org"
@@ -25,15 +27,25 @@ TENANT_HOSTNAME = "tenant.localhost"
 TENANT_RSVP_EVENT_SLUG = "tenant-rsvp-event"
 TENANT_FREE_TICKET_EVENT_SLUG = "tenant-free-ticket-event"
 TENANT_FREE_TIER_NAME = "Free Ticket"
+TENANT_SEATED_EVENT_SLUG = "tenant-seated-event"
+TENANT_SEATED_TIER_NAME = "Seated Free"
 TENANT_BRANDING = {"primary_color": "#B0306A", "accent_color": "#2E86DE"}
 
 TENANT_PAID_ORG_SLUG = "tenant-paid-org"
 TENANT_PAID_HOSTNAME = "paid.localhost"
 TENANT_PAID_EVENT_SLUG = "tenant-paid-event"
 TENANT_PAID_TIER_NAME = "Standard Ticket"
+TENANT_PAID_SEATED_EVENT_SLUG = "tenant-paid-seated-event"
+TENANT_PAID_SEATED_TIER_NAME = "Seated Standard"
 TENANT_PAID_BRANDING = {"primary_color": "#0E7C66", "accent_color": "#F2A541"}
 
 TENANT_DOMAIN_SETUP_ORG_SLUG = "domain-setup-org"
+
+# Small seat map: 1 seated sector, 3 rows x 6 seats, labels A1..C6 (row letter + seat number), no aisle.
+SEAT_MAP_ROWS = ["A", "B", "C"]
+SEAT_MAP_SEATS_PER_ROW = 6
+SEAT_MAP_SECTOR_NAME = "Main Floor"
+SEAT_MAP_SECTOR_CODE = "MAIN"
 
 
 def create_tenant_fixtures(owner: RevelUser, city: City, now: datetime) -> None:
@@ -88,6 +100,49 @@ def _configure_default_tier(event: events_models.Event, **fields: t.Any) -> None
     )
 
 
+def _create_seated_venue(org: events_models.Organization) -> events_models.Venue:
+    """Venue with one seated sector (``SEAT_MAP_ROWS`` x ``SEAT_MAP_SEATS_PER_ROW``) and materialized seats."""
+    capacity = len(SEAT_MAP_ROWS) * SEAT_MAP_SEATS_PER_ROW
+    venue = events_models.Venue.objects.create(
+        organization=org,
+        name=f"{org.name} Hall",
+        slug="tenant-hall",
+        city=org.city,
+        address="Tenant Venue, Vienna, Austria",
+        capacity=capacity,
+    )
+    sector = events_models.VenueSector.objects.create(
+        venue=venue, name=SEAT_MAP_SECTOR_NAME, code=SEAT_MAP_SECTOR_CODE, capacity=capacity, display_order=1
+    )
+    events_models.VenueSeat.objects.bulk_create(_build_grid_seats(sector, SEAT_MAP_ROWS, SEAT_MAP_SEATS_PER_ROW, []))
+    return venue
+
+
+def _create_seated_event(
+    org: events_models.Organization,
+    slug: str,
+    name: str,
+    start: datetime,
+    tier_name: str,
+    payment_method: events_models.TicketTier.PaymentMethod,
+    price: Decimal,
+) -> None:
+    """Event with a venue seat map and a single USER_CHOICE tier over its sector, open to guest checkout."""
+    venue = _create_seated_venue(org)
+    event = _event(org, slug, name, start, requires_ticket=True, can_attend_without_login=True, venue=venue)
+    _configure_default_tier(
+        event,
+        name=tier_name,
+        payment_method=payment_method,
+        price=price,
+        currency="EUR",
+        total_quantity=len(SEAT_MAP_ROWS) * SEAT_MAP_SEATS_PER_ROW,
+        venue=venue,
+        sector=venue.sectors.get(),
+        seat_assignment_mode=events_models.TicketTier.SeatAssignmentMode.USER_CHOICE,
+    )
+
+
 def _activate_domain(org: events_models.Organization, hostname: str, branding: dict[str, str]) -> None:
     """Brand ``org``, open its custom-domain gate and activate ``hostname`` for it."""
     org.branding = branding
@@ -99,7 +154,7 @@ def _activate_domain(org: events_models.Organization, hostname: str, branding: d
 
 
 def _create_free_org(owner: RevelUser, city: City, now: datetime) -> None:
-    """Public org with one RSVP-able event and one free-ticket event, served from ``tenant.localhost``."""
+    """Public org with an RSVP-able, a free-ticket and a free seated event, served from ``tenant.localhost``."""
     org = _org(owner, city, "Tenant Test Org", TENANT_ORG_SLUG)
     _event(
         org,
@@ -122,6 +177,15 @@ def _create_free_org(owner: RevelUser, city: City, now: datetime) -> None:
         price=Decimal("0.00"),
         currency="EUR",
         total_quantity=100,
+    )
+    _create_seated_event(
+        org,
+        TENANT_SEATED_EVENT_SLUG,
+        "Tenant Seated Event",
+        now + timedelta(days=33),
+        TENANT_SEATED_TIER_NAME,
+        events_models.TicketTier.PaymentMethod.FREE,
+        Decimal("0.00"),
     )
     _activate_domain(org, TENANT_HOSTNAME, TENANT_BRANDING)
 
@@ -151,7 +215,7 @@ def _platform_stripe_account() -> str | None:
 
 
 def _create_paid_org(owner: RevelUser, city: City, now: datetime) -> None:
-    """Public org with one online paid event, served from ``paid.localhost``."""
+    """Public org with an online paid event and an online paid seated event, served from ``paid.localhost``."""
     account = _platform_stripe_account()
     stripe_fields: dict[str, t.Any] = (
         {"stripe_account_id": account, "stripe_charges_enabled": True, "stripe_details_submitted": True}
@@ -173,6 +237,15 @@ def _create_paid_org(owner: RevelUser, city: City, now: datetime) -> None:
         price=Decimal("10.00"),
         currency="EUR",
         total_quantity=100,
+    )
+    _create_seated_event(
+        org,
+        TENANT_PAID_SEATED_EVENT_SLUG,
+        "Tenant Paid Seated Event",
+        now + timedelta(days=34),
+        TENANT_PAID_SEATED_TIER_NAME,
+        events_models.TicketTier.PaymentMethod.ONLINE,
+        Decimal("10.00"),
     )
     _activate_domain(org, TENANT_PAID_HOSTNAME, TENANT_PAID_BRANDING)
 
