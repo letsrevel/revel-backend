@@ -433,6 +433,23 @@ class Organization(
         help_text=_("When True, every membership application requires manual staff approval."),
     )
 
+    # White-label custom domain (#1148). ``custom_domain_enabled`` is the platform-admin gate (Django admin
+    # only, never in an API edit schema). ``custom_domain`` is a denormalized copy of the ACTIVE
+    # ``OrganizationDomain`` hostname so schemas read a column instead of querying; only
+    # ``events.service.custom_domain_service`` writes it.
+    custom_domain_enabled = models.BooleanField(
+        default=False,
+        help_text=_("Platform gate: lets this organization request and use a custom domain."),
+    )
+    custom_domain = models.CharField(
+        max_length=253,
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+        help_text=_("Hostname of the active custom domain. Maintained by the domain service; do not edit."),
+    )
+
     objects = OrganizationManager()
 
     class Meta:

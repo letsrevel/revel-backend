@@ -158,11 +158,11 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     search_fields = ["name", "slug", "owner__username"]
     autocomplete_fields = ["owner", "city", "staff_members", "members"]
     prepopulated_fields = {"slug": ("name",)}
-    readonly_fields = ["attribution"]
+    readonly_fields = ["attribution", "custom_domain"]
     actions = ["bind_platform_stripe_account", "unbind_platform_stripe_account", "clear_stripe_connect_account"]
 
     tabs = [
-        ("Settings", ["Settings", "Social"]),
+        ("Settings", ["Settings", "Social", "Custom domain"]),
         ("Billing", ["Billing"]),
         ("People", ["Staff", "Members", "Tiers"]),
         ("Content", ["Series", "Questionnaires", "Venues"]),
@@ -196,6 +196,10 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                     "telegram_url",
                 ],
             },
+        ),
+        (
+            "Custom domain",
+            {"fields": ["custom_domain_enabled", "custom_domain"]},
         ),
         (
             "Billing",

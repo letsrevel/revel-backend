@@ -30,6 +30,7 @@ from events.service import (
     blacklist_service,
     follow_service,
     organization_service,
+    tenant_service,
     whitelist_service,
 )
 from events.service.organization_service import OrgTokenRejection
@@ -169,6 +170,21 @@ class OrganizationController(UserAwareController):
             raise HttpError(403, str(_("Organization creation is disabled on this instance.")))
         organization = organization_service.create_organization(owner=user, **payload.model_dump())
         return 201, organization
+
+    # Declaration order is registration order: this must come before every /{slug}... route
+    # ("by-domain" is otherwise a valid slug for /{slug}/membership-plans and friends).
+    @route.get("/by-domain/{hostname}", url_name="get_organization_by_domain", response=schema.TenantOrganizationSchema)
+    def get_organization_by_domain(self, hostname: str) -> models.Organization:
+        """Resolve a custom domain to its organization (white-label).
+
+        Public, for the tenant frontend's first load. Returns the organization whose *active*
+        custom domain is ``hostname`` (lowercase, no port), whatever its visibility: the hostname
+        is public DNS, and content endpoints still enforce visibility. 404 for unknown, pending,
+        failed or removed domains.
+        """
+        if (organization := tenant_service.get_tenant_organization(hostname)) is None:
+            raise HttpError(404, str(_("Organization not found.")))
+        return organization
 
     # Declaration order is registration order: this must come before the /{slug}
     # route, which would otherwise also match UUID-shaped strings.

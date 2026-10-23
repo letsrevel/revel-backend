@@ -197,6 +197,7 @@ from .organization import (
     OrganizationTokenRejectionSchema,
     OrganizationTokenSchema,
     OrganizationTokenUpdateSchema,
+    TenantOrganizationSchema,
     VATIdUpdateSchema,
     VerifyOrganizationContactEmailJWTPayloadSchema,
 )
@@ -733,6 +734,7 @@ __all__ = [
     "TicketSeriesPassSchema",
     "TicketTierCreateSchema",
     "TicketTierDetailSchema",
+    "TenantOrganizationSchema",
     "TicketTierSchema",
     "TicketTierUpdateSchema",
     "TierCategoryPriceSchema",

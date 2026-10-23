@@ -190,6 +190,8 @@ class MinimalOrganizationSchema(LogoCoverArtThumbnailMixin):
     is_stripe_connected: bool
     platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
     accept_membership_requests: bool
+    # Active custom domain (white-label): a plain column, so no extra queries. Never a pending one.
+    custom_domain: str | None = None
     contact_method: Organization.ContactMethod
     contact_email: str | None = None
 
@@ -197,6 +199,25 @@ class MinimalOrganizationSchema(LogoCoverArtThumbnailMixin):
     def resolve_contact_email(obj: Organization, context: t.Any) -> str | None:
         """Expose contact_email only when the org opted into EMAIL mode."""
         return _resolve_public_contact_email(obj)
+
+
+class TenantOrganizationSchema(LogoCoverArtThumbnailMixin):
+    """The organization behind a custom domain, as the white-label frontend needs it on first load.
+
+    ``has_membership_plans`` / ``has_resources`` drive navigation and come from EXISTS annotations
+    (see ``tenant_service.get_tenant_organization``).
+    """
+
+    id: UUID
+    slug: str
+    name: str
+    description: str | None = ""
+    logo: str | None = None
+    cover_art: str | None = None
+    custom_domain: str | None = None
+    accept_membership_requests: bool
+    has_membership_plans: bool
+    has_resources: bool
 
 
 class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
@@ -212,6 +233,8 @@ class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin, LogoCover
     is_stripe_connected: bool
     platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
     accept_membership_requests: bool
+    # Active custom domain (white-label): a plain column, so no extra queries. Never a pending one.
+    custom_domain: str | None = None
     contact_method: Organization.ContactMethod
     contact_email: str | None = None
     updated_at: AwareDatetime | None = None
@@ -236,6 +259,8 @@ class OrganizationRetrieveSchema(
     is_stripe_connected: bool
     platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
     accept_membership_requests: bool
+    # Active custom domain (white-label): a plain column, so no extra queries. Never a pending one.
+    custom_domain: str | None = None
     contact_method: Organization.ContactMethod
     contact_email: str | None = None
     # Member-facing subscription policy: shown to prospective subscribers before

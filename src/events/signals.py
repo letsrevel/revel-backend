@@ -3,9 +3,12 @@
 import typing as t
 
 import structlog
+from corsheaders.signals import check_request_enabled
+from django.conf import settings
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
+from django.http import HttpRequest
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -33,6 +36,7 @@ from events.service import permission_snapshot, ticket_number_service
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import unclaim_user_potluck_items
+from events.service.tenant_service import hostname_from_origin, is_tenant_origin
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import (
     build_attendee_visibility_flags,
@@ -702,6 +706,24 @@ def _invalidate_reserved_slug_token_cache_on_delete(
     **kwargs: t.Any,
 ) -> None:
     invalidate_reserved_tokens_cache()
+
+
+@receiver(check_request_enabled)
+def allow_cors_for_tenant_origin(sender: None, request: HttpRequest, **kwargs: t.Any) -> bool:
+    """Allow cross-origin requests from an organization's active custom domain (white-label, #1152).
+
+    django-cors-headers calls this when the static ``CORS_ALLOWED_ORIGINS`` do not match; a truthy
+    result enables CORS for the request, with the usual credentials and allowed-header settings.
+    The Origin host (port ignored) must be an active tenant domain, over ``https`` (``http`` only
+    when ``DEBUG``).
+    """
+    origin = request.headers.get("origin")
+    if not origin or (parsed := hostname_from_origin(origin)) is None:
+        return False
+    scheme, hostname = parsed
+    if scheme != "https" and not (settings.DEBUG and scheme == "http"):
+        return False
+    return is_tenant_origin(hostname)
 
 
 @receiver(post_delete, sender=EventWaitList)

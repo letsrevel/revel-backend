@@ -42,6 +42,7 @@ from events.admin.organization import (
     OrganizationStaffAdmin,
     OrganizationTokenAdmin,
 )
+from events.admin.organization_domain import OrganizationDomainAdmin
 from events.admin.preferences import (
     AttendeeVisibilityFlagAdmin,
     GeneralUserPreferencesAdmin,
@@ -83,6 +84,7 @@ __all__ = [
     "OrganizationMemberAdmin",
     "OrganizationMembershipRequestAdmin",
     "OrganizationTokenAdmin",
+    "OrganizationDomainAdmin",
     # Follows
     "OrganizationFollowAdmin",
     "EventSeriesFollowAdmin",

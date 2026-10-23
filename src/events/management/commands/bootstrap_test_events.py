@@ -15,6 +15,7 @@ from events import models as events_models
 from events.management.commands.bootstrap_helpers.compliance import create_compliance_fixtures
 from events.management.commands.bootstrap_helpers.logos import attach_logo
 from events.management.commands.seeder.tickets import ATTRIBUTION_CAMPAIGNS
+from events.service import custom_domain_service
 from geo.models import City
 from questionnaires import models as questionnaires_models
 
@@ -23,6 +24,9 @@ logger = structlog.get_logger(__name__)
 # Org Alpha, seeded by ``bootstrap_events``: the Stripe-connected organization
 # (CONNECTED_TEST_STRIPE_ID), so revival checkouts against it reach real Stripe.
 ORG_ALPHA_SLUG = "revel-events-collective"
+
+# Hostname of the white-label tenant domain seeded for ``eligibility-test-org`` (needs DEBUG).
+TENANT_E2E_HOSTNAME = "tenant.localhost"
 
 # Referral-program fixtures for the frontend E2E suite (J21). Deterministic ids so the
 # specs can build ``/register?referral_invite=<id>`` without an API to look them up.
@@ -56,6 +60,9 @@ class Command(BaseCommand):
 
         # Create organization
         self._create_organization()
+
+        # White-label: serve the organization from tenant.localhost (needs DEBUG for *.localhost)
+        self._create_tenant_domain()
 
         # Create questionnaire
         self._create_questionnaire()
@@ -181,6 +188,14 @@ class Command(BaseCommand):
         attach_logo(self.org, key=self.org.slug, name=self.org.name)
 
         logger.info(f"Created organization: {self.org.name}")
+
+    def _create_tenant_domain(self) -> None:
+        """Give the test organization an ACTIVE custom domain for the white-label E2E journeys."""
+        self.org.custom_domain_enabled = True
+        self.org.save(update_fields=["custom_domain_enabled"])
+        domain = events_models.OrganizationDomain.objects.create(organization=self.org, hostname=TENANT_E2E_HOSTNAME)
+        custom_domain_service.activate_domain(domain)
+        logger.info(f"Activated custom domain {TENANT_E2E_HOSTNAME} for {self.org.slug}")
 
     def _create_questionnaire(self) -> None:
         """Create a simple questionnaire for testing."""

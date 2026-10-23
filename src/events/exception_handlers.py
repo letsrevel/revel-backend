@@ -26,6 +26,7 @@ from events.exceptions import (
     AlreadyMemberError,
     BillingInfoRequiredError,
     CountryComplianceError,
+    CustomDomainNotEnabledError,
     DuplicateDiscountCodeError,
     EventRefundsStartedError,
     GuestActionError,
@@ -53,6 +54,7 @@ from events.exceptions import (
     TooManyItemsError,
 )
 from events.schema import GuestActionErrorSchema, SubscriptionActivationPendingSchema
+from events.service.custom_domain_service import CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE
 from events.service.event_manager import UserIsIneligibleError
 from events.service.membership_manager import MembershipApplicationIneligibleError
 from events.service.organization_service import (
@@ -176,6 +178,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     OrganizationTokenMembershipTierRequiredError: make_static_handler(422, MEMBERSHIP_TIER_REQUIRED_MESSAGE),
     # revenue_report_cadence is owner-only (financially sensitive); staff-grantable
     # edit_organization must not reach it → 403.
+    CustomDomainNotEnabledError: make_static_handler(403, CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE),
     RevenueReportCadenceOwnerOnlyError: make_static_handler(403, REVENUE_CADENCE_OWNER_ONLY_MESSAGE),
     # membership subscription-policy fields belong to the manage_subscriptions domain;
     # staff with only edit_organization must not change them via the org-edit endpoint → 403.

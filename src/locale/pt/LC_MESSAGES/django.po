@@ -6533,3 +6533,65 @@ msgid ""
 msgstr ""
 "A geração do passe para a Wallet está temporariamente indisponível. Tenta "
 "novamente mais tarde."
+
+msgid "Platform gate: lets this organization request and use a custom domain."
+msgstr "Controlo da plataforma: permite a esta organização pedir e usar um domínio personalizado."
+
+msgid "Hostname of the active custom domain. Maintained by the domain service; do not edit."
+msgstr "Nome de host do domínio personalizado ativo. Gerido pelo serviço de domínios; não o edites."
+
+msgid "Removed"
+msgstr "Removido"
+
+msgid "DNS records the organization must create to verify ownership."
+msgstr "Os registos DNS que a organização tem de criar para verificar a propriedade."
+
+msgid "This hostname is already in use."
+msgstr "Este nome de host já está em uso."
+
+msgid "This organization already has a pending or active domain."
+msgstr "Esta organização já tem um domínio pendente ou ativo."
+
+msgid "Custom domains are not enabled for this organization."
+msgstr "Os domínios personalizados não estão ativados para esta organização."
+
+msgid "A removed domain cannot be activated."
+msgstr "Um domínio removido não pode ser ativado."
+
+msgid "Enter a hostname."
+msgstr "Introduz um nome de host."
+
+msgid "Wildcard hostnames are not allowed."
+msgstr "Não são permitidos nomes de host com carateres universais."
+
+msgid "Enter the hostname without a port."
+msgstr "Introduz o nome de host sem porta."
+
+msgid "IP addresses are not allowed; use a domain name."
+msgstr "Não são permitidos endereços IP; usa um nome de domínio."
+
+#, python-brace-format
+msgid "Hostname is too long (maximum is {max} characters)."
+msgstr "O nome de host é demasiado longo (máximo de {max} carateres)."
+
+msgid "Enter a fully qualified domain name, for example events.example.com."
+msgstr "Introduz um nome de domínio completo, por exemplo eventos.example.com."
+
+#, python-brace-format
+msgid "Each part of the hostname must be at most {max} characters."
+msgstr "Cada parte do nome de host pode ter no máximo {max} carateres."
+
+msgid "Hostname contains invalid characters."
+msgstr "O nome de host contém carateres inválidos."
+
+msgid "Hostname must end in a valid top-level domain."
+msgstr "O nome de host tem de terminar num domínio de topo válido."
+
+msgid "This hostname is reserved for local development."
+msgstr "Este nome de host está reservado para o desenvolvimento local."
+
+msgid "This hostname belongs to the platform and cannot be used."
+msgstr "Este nome de host pertence à plataforma e não pode ser usado."
+
+msgid "Custom Domains"
+msgstr "Domínios personalizados"
