@@ -181,13 +181,15 @@ class DashboardController(UserAwareController):
         event_id: UUID | None = None,
         include_past: bool = False,
         exclude_accepted: bool = True,
+        organization: UUID | None = None,
     ) -> QuerySet[models.EventInvitation]:
         """View your event invitations across all events.
 
         Returns invitations you've received with event details and any special privileges granted
         (tier assignment, waived requirements, etc.). By default shows only invitations for upcoming
         events; set include_past=true to include past events. An event is considered past if its end
-        time has passed. Filter by event_id to see invitations for a specific event.
+        time has passed. Filter by event_id to see invitations for a specific event, or by
+        organization to see invitations for events of one organization.
 
         By default, invitations are hidden for events where you already have a non-cancelled ticket
         or a YES RSVP. Set exclude_accepted=false to include them.
@@ -197,6 +199,7 @@ class DashboardController(UserAwareController):
             event_id=event_id,
             include_past=include_past,
             exclude_accepted=exclude_accepted,
+            organization=organization,
         )
 
     @route.get(
@@ -208,7 +211,7 @@ class DashboardController(UserAwareController):
     @searching(Searching, search_fields=["event__name", "event__description", "tier__name"])
     def dashboard_tickets(
         self,
-        params: t.Annotated[filters.TicketFilterSchema, Query(...)],
+        params: t.Annotated[filters.DashboardTicketFilterSchema, Query(...)],
     ) -> QuerySet[models.Ticket]:
         """View your tickets across all events.
 
@@ -252,7 +255,7 @@ class DashboardController(UserAwareController):
     @searching(Searching, search_fields=["event__name", "event__description", "message"])
     def dashboard_invitation_requests(
         self,
-        params: t.Annotated[filters.InvitationRequestFilterSchema, Query(...)],
+        params: t.Annotated[filters.DashboardInvitationRequestFilterSchema, Query(...)],
         event_id: UUID | None = None,
     ) -> QuerySet[models.EventInvitationRequest]:
         """View your invitation requests across all events.
@@ -260,7 +263,8 @@ class DashboardController(UserAwareController):
         Returns your invitation requests with their current status. By default shows only pending
         requests; use ?status=approved or ?status=rejected to see decided requests, or omit the
         status parameter to see all requests. Filter by event_id to see requests for a specific
-        event. Use this to track which events you've requested access to.
+        event, or by organization to see requests for events of one organization. Use this to track
+        which events you've requested access to.
         """
         qs = models.EventInvitationRequest.objects.with_event_details().filter(user=self.user())
         if event_id:
@@ -277,7 +281,7 @@ class DashboardController(UserAwareController):
     @searching(Searching, search_fields=["event__name", "event__description"])
     def dashboard_rsvps(
         self,
-        params: t.Annotated[filters.RSVPFilterSchema, Query(...)],
+        params: t.Annotated[filters.DashboardRSVPFilterSchema, Query(...)],
     ) -> QuerySet[models.EventRSVP]:
         """View your RSVPs across all events.
 

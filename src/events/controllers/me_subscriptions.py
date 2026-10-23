@@ -46,13 +46,15 @@ class MeSubscriptionsController(UserAwareController):
         response=PaginatedResponseSchema[schema.MySubscriptionSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_my_subscriptions(self) -> QuerySet[MembershipSubscription]:
-        """List all of the current user's memberships subscriptions across organizations."""
-        return (
-            MembershipSubscription.objects.filter(user=self.user())
-            .select_related("plan", "plan__tier", "organization")
-            .order_by("-created_at")
-        )
+    def list_my_subscriptions(self, organization: UUID | None = None) -> QuerySet[MembershipSubscription]:
+        """List all of the current user's memberships subscriptions across organizations.
+
+        Pass ``organization`` to list only the subscriptions of one organization.
+        """
+        qs = MembershipSubscription.objects.filter(user=self.user())
+        if organization is not None:
+            qs = qs.filter(organization_id=organization)
+        return qs.select_related("plan", "plan__tier", "organization").order_by("-created_at")
 
     @route.get(
         "/memberships",
@@ -60,12 +62,13 @@ class MeSubscriptionsController(UserAwareController):
         response=PaginatedResponseSchema[schema.MyMembershipSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_my_memberships(self) -> QuerySet[OrganizationMember]:
+    def list_my_memberships(self, organization: UUID | None = None) -> QuerySet[OrganizationMember]:
         """List every organization the user is a member of (legacy + subscription-backed).
 
         Each entry inlines the caller's most recent non-terminal subscription for that
         organization when one exists. Includes BANNED memberships so the frontend can
-        render an explicit banned state; the FE may filter as needed.
+        render an explicit banned state; the FE may filter as needed. Pass ``organization``
+        to list only the membership of one organization.
         """
         user = self.user()
         active_subs = (
@@ -74,9 +77,11 @@ class MeSubscriptionsController(UserAwareController):
             .select_related("plan", "plan__tier", "organization")
             .order_by("-created_at")
         )
+        qs = OrganizationMember.objects.filter(user=user)
+        if organization is not None:
+            qs = qs.filter(organization_id=organization)
         return (
-            OrganizationMember.objects.filter(user=user)
-            .select_related("organization", "tier")
+            qs.select_related("organization", "tier")
             .prefetch_related(
                 Prefetch(
                     "organization__membership_subscriptions",
