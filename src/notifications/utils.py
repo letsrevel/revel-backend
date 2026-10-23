@@ -341,7 +341,8 @@ def get_formatted_context_for_template(
 
     This function takes the raw notification context and enriches it with:
     - Formatted datetime strings
-    - Organization signature (HTML and markdown)
+    - Organization signature (HTML and markdown), plus ``organization_logo_url``
+      (one DB lookup) when the organization has a logo
     - Event links
 
     Args:
@@ -377,15 +378,15 @@ def get_formatted_context_for_template(
                     enriched[formatted_key] = format_datetime(enriched[field], format_type="full")
                     enriched[short_key] = format_datetime(enriched[field], format_type="short")
 
-        # Resolve the org logo once, unless the caller already supplied one
-        org_id, org_slug = enriched.get("organization_id"), enriched.get("organization_slug")
-        if not enriched.get("organization_logo_url") and (org_id or org_slug):
-            logo_url = _org_logo_absolute_url(org_id, org_slug)
-            if logo_url:
-                enriched["organization_logo_url"] = logo_url
-
         # Add organization signature if org info is present
         if "organization_name" in enriched and "organization_slug" in enriched:
+            # Resolve the org logo only when a signature is built, unless the caller supplied one.
+            # ponytail: one PK lookup per rendered body (up to ~4 per notification across
+            # in-app/email/telegram); memoize per notification if bulk sends ever show it.
+            if not enriched.get("organization_logo_url"):
+                logo_url = _org_logo_absolute_url(enriched.get("organization_id"), enriched["organization_slug"])
+                if logo_url:
+                    enriched["organization_logo_url"] = logo_url
             org_logo_url = enriched.get("organization_logo_url")
 
             # HTML version with optional logo (for email)
