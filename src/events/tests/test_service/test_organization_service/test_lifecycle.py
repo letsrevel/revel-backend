@@ -149,6 +149,32 @@ class TestCreateOrganization:
             )
 
     @patch("events.tasks.send_organization_contact_email_verification.delay")
+    def test_create_organization_rejects_by_domain_name(
+        self, _mock_send_email: MagicMock, nonmember_user: RevelUser
+    ) -> None:
+        """A name that slugifies to ``by-domain`` would shadow GET /organizations/by-domain/{hostname}."""
+        with pytest.raises(HttpError) as exc_info:
+            organization_service.create_organization(
+                owner=nonmember_user,
+                name="By Domain",
+                contact_email="contact@example.com",
+            )
+        assert exc_info.value.status_code == 400
+        assert not Organization.objects.filter(slug="by-domain").exists()
+
+    @patch("events.tasks.send_organization_contact_email_verification.delay")
+    def test_create_organization_allows_name_containing_by_and_domain(
+        self, _mock_send_email: MagicMock, nonmember_user: RevelUser
+    ) -> None:
+        """Only the exact slug is reserved; the words stay usable in longer names."""
+        org = organization_service.create_organization(
+            owner=nonmember_user,
+            name="Domain Experts",
+            contact_email="contact@example.com",
+        )
+        assert org.slug == "domain-experts"
+
+    @patch("events.tasks.send_organization_contact_email_verification.delay")
     def test_create_organization_allows_clean_name(
         self, _mock_send_email: MagicMock, nonmember_user: RevelUser
     ) -> None:

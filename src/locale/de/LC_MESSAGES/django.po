@@ -6683,6 +6683,68 @@ msgstr ""
 "Die Erstellung des Wallet-Passes ist vorübergehend nicht verfügbar. Bitte "
 "versuche es später erneut."
 
+msgid "Platform gate: allows activating, resolving and advertising a custom domain for this organization."
+msgstr "Plattform-Freigabe: Erlaubt, für diese Organisation eine eigene Domain zu aktivieren, aufzulösen und anzuzeigen."
+
+msgid "Hostname of the active custom domain. Maintained by the domain service; do not edit."
+msgstr "Hostname der aktiven eigenen Domain. Wird vom Domain-Service gepflegt; nicht bearbeiten."
+
+msgid "Removed"
+msgstr "Entfernt"
+
+msgid "DNS records the organization must create to verify ownership."
+msgstr "DNS-Einträge, die die Organisation anlegen muss, um den Besitz zu bestätigen."
+
+msgid "This hostname is already in use."
+msgstr "Dieser Hostname wird bereits verwendet."
+
+msgid "This organization already has a pending or active domain."
+msgstr "Diese Organisation hat bereits eine ausstehende oder aktive Domain."
+
+msgid "Custom domains are not enabled for this organization."
+msgstr "Eigene Domains sind für diese Organisation nicht aktiviert."
+
+msgid "A removed domain cannot be changed."
+msgstr "Eine entfernte Domain kann nicht geändert werden."
+
+msgid "Enter a hostname."
+msgstr "Gib einen Hostnamen ein."
+
+msgid "Wildcard hostnames are not allowed."
+msgstr "Hostnamen mit Platzhaltern sind nicht erlaubt."
+
+msgid "Enter the hostname without a port."
+msgstr "Gib den Hostnamen ohne Port ein."
+
+msgid "IP addresses are not allowed; use a domain name."
+msgstr "IP-Adressen sind nicht erlaubt; verwende einen Domainnamen."
+
+#, python-brace-format
+msgid "Hostname is too long (maximum is {max} characters)."
+msgstr "Der Hostname ist zu lang (maximal {max} Zeichen)."
+
+msgid "Enter a fully qualified domain name, for example events.example.com."
+msgstr "Gib einen vollständigen Domainnamen ein, zum Beispiel events.example.com."
+
+#, python-brace-format
+msgid "Each part of the hostname must be at most {max} characters."
+msgstr "Jeder Teil des Hostnamens darf höchstens {max} Zeichen lang sein."
+
+msgid "Hostname contains invalid characters."
+msgstr "Der Hostname enthält ungültige Zeichen."
+
+msgid "Hostname must end in a valid top-level domain."
+msgstr "Der Hostname muss auf eine gültige Top-Level-Domain enden."
+
+msgid "This hostname is reserved for local development."
+msgstr "Dieser Hostname ist für die lokale Entwicklung reserviert."
+
+msgid "This hostname belongs to the platform and cannot be used."
+msgstr "Dieser Hostname gehört der Plattform und kann nicht verwendet werden."
+
+msgid "Custom Domains"
+msgstr "Eigene Domains"
+
 msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
 msgstr "Gib eine Farbe als sechsstelligen Hex-Wert ein, zum Beispiel #8C3CDD."
 

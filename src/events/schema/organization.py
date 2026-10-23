@@ -34,6 +34,7 @@ from .attribution import AttributionPayloadMixin
 from .mixins import (
     CityEditMixin,
     CityRetrieveMixin,
+    CustomDomainMixin,
     LogoCoverArtThumbnailMixin,
     OrganizationBrandingMixin,
     SocialMediaSchemaEditMixin,
@@ -182,7 +183,7 @@ def _resolve_public_contact_email(obj: Organization) -> str | None:
     return None
 
 
-class MinimalOrganizationSchema(OrganizationBrandingMixin, LogoCoverArtThumbnailMixin):
+class MinimalOrganizationSchema(CustomDomainMixin, OrganizationBrandingMixin, LogoCoverArtThumbnailMixin):
     """Lightweight organization schema for use in event lists - excludes city and tags to avoid N+1 queries."""
 
     id: UUID
@@ -204,7 +205,31 @@ class MinimalOrganizationSchema(OrganizationBrandingMixin, LogoCoverArtThumbnail
         return _resolve_public_contact_email(obj)
 
 
-class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
+class OrganizationCustomDomainSchema(Schema):
+    """The active custom domain of an organization, for the platform host's Stripe return flow."""
+
+    custom_domain: str
+
+
+class TenantOrganizationSchema(CustomDomainMixin, OrganizationBrandingMixin, LogoCoverArtThumbnailMixin):
+    """The organization behind a custom domain, as the white-label frontend needs it on first load.
+
+    ``has_membership_plans`` / ``has_resources`` drive navigation and come from EXISTS annotations
+    (see ``tenant_service.get_tenant_organization``).
+    """
+
+    id: UUID
+    slug: str
+    name: str
+    description: str | None = ""
+    logo: str | None = None
+    cover_art: str | None = None
+    accept_membership_requests: bool
+    has_membership_plans: bool
+    has_resources: bool
+
+
+class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin, CustomDomainMixin, LogoCoverArtThumbnailMixin):
     """Schema for organization list endpoints - includes city and tags with proper prefetching."""
 
     id: UUID
@@ -232,6 +257,7 @@ class OrganizationRetrieveSchema(
     CityRetrieveMixin,
     TaggableSchemaMixin,
     SocialMediaSchemaRetrieveMixin,
+    CustomDomainMixin,
     LogoCoverArtThumbnailMixin,
     OrganizationBrandingMixin,
 ):

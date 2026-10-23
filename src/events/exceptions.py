@@ -44,6 +44,10 @@ class MembershipPolicyManageSubscriptionsOnlyError(Exception):
     """Raised when a staffer lacking ``manage_subscriptions`` attempts to change membership subscription policy."""
 
 
+class CustomDomainNotEnabledError(Exception):
+    """Raised when a custom domain is activated for an organization the platform has not enabled for it."""
+
+
 class TicketAlreadyCancelledError(Exception):
     """Raised when attempting to cancel/refund a ticket that is already in CANCELLED state."""
 
