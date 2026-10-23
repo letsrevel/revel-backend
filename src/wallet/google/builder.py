@@ -82,6 +82,7 @@ def _build_class(
     address: str | None,
     logo_url: str | None,
     hero_url: str | None,
+    background_hex: str,
 ) -> dict[str, t.Any]:
     """Build an EventTicketClass dict."""
     cls: dict[str, t.Any] = {
@@ -89,7 +90,7 @@ def _build_class(
         "issuerName": issuer_name,
         "eventName": _localized(event_name),
         "reviewStatus": "UNDER_REVIEW",
-        "hexBackgroundColor": get_theme_hex_background(),
+        "hexBackgroundColor": background_hex,
         "dateTime": {
             "start": format_iso_date(start, tz=tz),
             "end": format_iso_date(end, tz=tz),
@@ -140,6 +141,7 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
         address=location.address,
         logo_url=_org_logo_url(org),
         hero_url=_event_cover_url(event),
+        background_hex=get_theme_hex_background(org),
     )
 
     obj: dict[str, t.Any] = {
@@ -202,6 +204,7 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
         address=window.address,
         logo_url=_org_logo_url(org),
         hero_url=hero_url,
+        background_hex=get_theme_hex_background(org),
     )
 
     obj: dict[str, t.Any] = {
@@ -249,7 +252,7 @@ def build_membership_payload(member: OrganizationMember) -> dict[str, t.Any]:
         "state": "ACTIVE",
         "cardTitle": _localized(org.name),
         "header": _localized(member.user.get_display_name()),
-        "hexBackgroundColor": get_theme_hex_background(),
+        "hexBackgroundColor": get_theme_hex_background(org),
         "barcode": {"type": "QR_CODE", "value": member.qr_payload},
         "textModulesData": [
             {

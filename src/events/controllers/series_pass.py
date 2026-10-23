@@ -69,7 +69,7 @@ class SeriesPassController(UserAwareController):
 
     def _held_pass_queryset(self) -> QuerySet[models.HeldSeriesPass]:
         """Held passes with everything ``HeldSeriesPassSchema`` needs prefetched (no N+1)."""
-        return models.HeldSeriesPass.objects.select_related("series_pass__event_series").prefetch_related(
+        return models.HeldSeriesPass.objects.select_related("series_pass__event_series__organization").prefetch_related(
             Prefetch(
                 "series_pass__tier_links",
                 queryset=models.SeriesPassTierLink.objects.select_related("event"),
