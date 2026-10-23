@@ -144,7 +144,7 @@ def _checkout_session_urls(organization: Organization) -> _CheckoutSessionUrls:
     # Stripe return URLs stay on the platform origin by design (#1153): the frontend's canonical 301
     # (query string preserved) takes the buyer on to the org's custom domain. The URL must stay
     # uniform (#848: Stripe gets nothing organizer-authored) and byte-identical across retries,
-    # because session creation reuses ``idempotency_key=reservation_id`` and mutable org state
+    # because session creation reuses ``idempotency_key=f"sub-checkout:{pk}"`` and mutable org state
     # (domain sync, kill switch) would otherwise cause Stripe idempotency conflicts.
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     return {
