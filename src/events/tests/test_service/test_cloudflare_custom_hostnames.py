@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from events.exceptions import CloudflareAPIError
 from events.service import cloudflare_custom_hostnames as cloudflare
@@ -140,3 +141,64 @@ def test_transport_error_raises_without_status() -> None:
             cloudflare.get_custom_hostname("abc")
 
     assert exc_info.value.status_code is None
+
+
+# ---- robustness: every failure is a CloudflareAPIError, logged once, without secrets ----
+
+
+@pytest.mark.parametrize(
+    "call", [lambda: cloudflare.create_custom_hostname("h.example.com"), lambda: cloudflare.get_custom_hostname("abc")]
+)
+def test_missing_result_raises_cloudflare_api_error(call: t.Callable[[], t.Any]) -> None:
+    ok_without_result = _response(200, {"success": True, "errors": [], "result": None})
+    with patch("events.service.cloudflare_custom_hostnames.httpx.request", return_value=ok_without_result):
+        with pytest.raises(CloudflareAPIError, match="no result"):
+            call()
+
+
+@pytest.mark.parametrize(
+    "call", [lambda: cloudflare.create_custom_hostname("h.example.com"), lambda: cloudflare.get_custom_hostname("abc")]
+)
+def test_malformed_result_shape_raises_cloudflare_api_error(call: t.Callable[[], t.Any]) -> None:
+    with patch("events.service.cloudflare_custom_hostnames.httpx.request", return_value=_ok({"id": "i"})):
+        with pytest.raises(CloudflareAPIError, match="unexpected shape"):
+            call()
+
+
+def test_malformed_create_result_carries_the_raw_hostname_id() -> None:
+    with patch("events.service.cloudflare_custom_hostnames.httpx.request", return_value=_ok({"id": "i"})):
+        with pytest.raises(CloudflareAPIError) as exc_info:
+            cloudflare.create_custom_hostname("h.example.com")
+
+    assert exc_info.value.hostname_id == "i"
+
+
+def test_malformed_create_result_without_a_string_id_carries_none() -> None:
+    with patch("events.service.cloudflare_custom_hostnames.httpx.request", return_value=_ok({"id": 5})):
+        with pytest.raises(CloudflareAPIError) as exc_info:
+            cloudflare.create_custom_hostname("h.example.com")
+
+    assert exc_info.value.hostname_id is None
+
+
+def test_every_failure_cause_is_logged_exactly_once_without_secrets() -> None:
+    non_json = httpx.Response(502, text="<html>", request=httpx.Request("GET", "https://x"))
+    envelope_error = _response(403, {"success": False, "errors": [{"code": 10000, "message": "Authentication error"}]})
+    cases: list[tuple[t.Any, str]] = [
+        ({"side_effect": httpx.ConnectTimeout("slow")}, "transport"),
+        ({"return_value": non_json}, "unparseable_body"),
+        ({"return_value": envelope_error}, "error_response"),
+        ({"return_value": _ok(None)}, "missing_result"),
+        ({"return_value": _ok({"id": "i"})}, "bad_result_shape"),
+    ]
+    for patch_kwargs, cause in cases:
+        with (
+            patch("events.service.cloudflare_custom_hostnames.httpx.request", **patch_kwargs),
+            capture_logs() as logs,
+            pytest.raises(CloudflareAPIError),
+        ):
+            cloudflare.get_custom_hostname("abc")
+
+        api_errors = [log for log in logs if log["event"] == "cloudflare_api_error"]
+        assert [log["cause"] for log in api_errors] == [cause]
+        assert "Bearer" not in str(api_errors)

@@ -45,7 +45,11 @@ class MembershipPolicyManageSubscriptionsOnlyError(Exception):
 
 
 class CustomDomainNotEnabledError(Exception):
-    """Raised when a custom domain is activated for an organization the platform has not enabled for it."""
+    """Raised when a custom-domain operation hits an organization the platform has not enabled for it.
+
+    The ``custom_domain_enabled`` kill switch gates requesting, viewing, refreshing and activating a
+    domain (and resolving / advertising an already-active one).
+    """
 
 
 class CustomDomainConflictError(Exception):
@@ -53,18 +57,31 @@ class CustomDomainConflictError(Exception):
 
 
 class CloudflareAPIError(Exception):
-    """Raised when the Cloudflare Custom Hostnames API fails (transport error, non-2xx, or ``success: false``).
+    """Raised when the Cloudflare Custom Hostnames API fails.
+
+    Covers a transport error, a non-2xx status, ``success: false``, a body that is not JSON, and a
+    result that is missing or has an unexpected shape.
 
     Attributes:
         status_code: The HTTP status of the response, or ``None`` when no response was received.
         error_codes: Cloudflare error codes from the response body (e.g. ``1406`` for a duplicate hostname).
+        hostname_id: The id of a custom hostname that exists at Cloudflare even though the call failed
+            (a create whose result could not be parsed), so the caller can clean it up; else ``None``.
     """
 
-    def __init__(self, message: str, *, status_code: int | None = None, error_codes: tuple[int, ...] = ()) -> None:
-        """Store the response status and Cloudflare error codes alongside the message."""
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        error_codes: tuple[int, ...] = (),
+        hostname_id: str | None = None,
+    ) -> None:
+        """Store the response status, Cloudflare error codes and any orphaned hostname id with the message."""
         super().__init__(message)
         self.status_code = status_code
         self.error_codes = error_codes
+        self.hostname_id = hostname_id
 
 
 class TicketAlreadyCancelledError(Exception):
