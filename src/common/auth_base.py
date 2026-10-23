@@ -11,6 +11,8 @@ from ninja_extra import status
 from ninja_extra.exceptions import APIException
 from ninja_jwt.authentication import JWTAuth
 
+from accounts.service.tenant_session import TenantSessionRevoked, is_tenant_session_valid
+
 
 class PermissionDenied(APIException):
     """Exception raised when user doesn't have required permissions."""
@@ -46,6 +48,20 @@ class BaseJWTAuth(JWTAuth):
         self.requires_verified_email = requires_verified_email
         super().__init__()
 
+    def get_user(self, validated_token: t.Any) -> t.Any:
+        """Resolve the token's user, refusing a session bound to a tenant host that is no longer active.
+
+        Runs on every authenticated request. Platform tokens (and OAuth app tokens, which never go
+        through here) carry no ``tenant_host`` claim and are unaffected.
+
+        Raises:
+            TenantSessionRevoked: The token was issued on a custom domain that no longer serves
+                (removed, failed, org deleted, kill switch off).
+        """
+        if not is_tenant_session_valid(validated_token.payload):
+            raise TenantSessionRevoked
+        return super().get_user(validated_token)
+
     def authenticate(self, request: HttpRequest, token: str) -> t.Any:
         """Authenticate and verify user permissions.
 
@@ -58,6 +74,7 @@ class BaseJWTAuth(JWTAuth):
 
         Raises:
             PermissionDenied: If user doesn't meet required criteria
+            TenantSessionRevoked: If the token's tenant session is no longer valid
         """
         user = super().authenticate(request, token)
 

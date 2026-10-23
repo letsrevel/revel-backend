@@ -560,17 +560,16 @@ def test_sync_fails_an_active_domain_on_a_terminal_cloudflare_state(
 @pytest.mark.parametrize(
     ("status", "ssl_status", "expected_error"),
     [
-        ("moved", "active", "'moved'"),
         ("active", "validation_timed_out", "'validation_timed_out'"),
         ("active", "issuance_timed_out", "'issuance_timed_out'"),
         ("active", "initializing_timed_out", "'initializing_timed_out'"),
         ("active", "deployment_timed_out", "'deployment_timed_out'"),
     ],
 )
-def test_sync_keeps_an_active_domain_active_but_records_moved_and_timeouts(
+def test_sync_keeps_an_active_domain_active_but_records_certificate_timeouts(
     enabled_org: Organization, configured: None, status: str, ssl_status: str, expected_error: str
 ) -> None:
-    """``moved`` is recoverable and a certificate timeout may be transient: an ACTIVE domain only records it."""
+    """A certificate timeout may be transient and DNS is still ours: an ACTIVE domain only records it."""
     domain = active_domain(enabled_org)
 
     with patch.object(cloudflare, "get_custom_hostname", return_value=hosted(status, ssl_status)):
@@ -581,6 +580,20 @@ def test_sync_keeps_an_active_domain_active_but_records_moved_and_timeouts(
     assert domain.status == Status.ACTIVE
     assert enabled_org.custom_domain == "events.example.com"
     assert any(expected_error in e for e in domain.last_errors), domain.last_errors
+
+
+def test_sync_fails_an_active_domain_that_moved(enabled_org: Organization, configured: None) -> None:
+    """``moved``: DNS no longer reaches us, so an ACTIVE domain fails at once and its hostname is withdrawn."""
+    domain = active_domain(enabled_org)
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted("moved", "active")):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    enabled_org.refresh_from_db()
+    assert domain.status == Status.FAILED
+    assert enabled_org.custom_domain is None
+    assert any("'moved'" in e for e in domain.last_errors), domain.last_errors
 
 
 @pytest.mark.parametrize(

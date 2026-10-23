@@ -14,6 +14,8 @@ from ninja_extra import status
 from ninja_extra.exceptions import APIException
 from ninja_jwt.exceptions import InvalidToken
 
+from accounts.service.tenant_session import TenantSessionRevoked
+
 from .auth_base import BaseJWTAuth, PermissionDenied
 
 logger = structlog.get_logger(__name__)
@@ -102,7 +104,12 @@ class OptionalAuth(I18nJWTAuth):
                 logger.error(f"Unexpected auth - '{auth_value}'")
             return None
         token = " ".join(parts[1:])
-        return self.authenticate(request, token)
+        try:
+            return self.authenticate(request, token)
+        except TenantSessionRevoked:
+            # A session bound to a custom domain that stopped serving: public content stays public.
+            request.user = AnonymousUser()
+            return request.user
 
 
 @dataclass(frozen=True)

@@ -40,11 +40,13 @@ CLOUDFLARE_DUPLICATE_HOSTNAME_CODE = 1406
 FAILED_HOSTNAME_STATUSES = frozenset({"blocked", "deleted"})
 FAILED_SSL_STATUSES = frozenset({"deleted"})
 # ``moved``: a PENDING hostname exhausted Cloudflare's validation backoff, OR the hostname no longer points to the
-# fallback origin. The latter is recoverable (a PATCH restarts validation) until Cloudflare deletes it after 7 days,
-# so it fails a PENDING domain but only records a problem on an ACTIVE one (Cloudflare reports ``deleted`` if it
-# gives up).
+# fallback origin. Either way the domain fails, ACTIVE ones included: DNS no longer reaches us, so the domain is not
+# serving our site anyway (the organization owner may have repointed it at a server of their own), and failing it
+# withdraws the hostname, which signs out every session issued on it (``accounts.service.tenant_session``). It is
+# recoverable: re-point the DNS and request the domain again.
 MOVED_HOSTNAME_STATUS = "moved"
-# Certificate-pipeline timeouts: they fail a PENDING domain; on an ACTIVE one they are only recorded in ``last_errors``.
+# Certificate-pipeline timeouts: they fail a PENDING domain; on an ACTIVE one (DNS still ours) they are only
+# recorded in ``last_errors``.
 TIMED_OUT_SSL_STATUSES = frozenset(
     {"initializing_timed_out", "validation_timed_out", "issuance_timed_out", "deployment_timed_out"}
 )
@@ -188,10 +190,10 @@ def _dns_records(hostname: str, hosted: cloudflare.CustomHostname | None) -> lis
 
 
 def _hosted_errors(hosted: cloudflare.CustomHostname) -> list[str]:
-    """Collect the problems Cloudflare reports, plus a note for the states that fail a PENDING domain only.
+    """Collect the problems Cloudflare reports, plus a note for ``moved`` and the certificate timeouts.
 
-    The note is what an ACTIVE domain keeps in ``last_errors`` instead of being failed (see
-    ``MOVED_HOSTNAME_STATUS`` / ``TIMED_OUT_SSL_STATUSES``).
+    The timeout note is what an ACTIVE domain keeps in ``last_errors`` instead of being failed (see
+    ``TIMED_OUT_SSL_STATUSES``).
     """
     messages = (
         [*hosted.verification_errors, *(e.message for e in hosted.ssl.validation_errors if e.message)]
@@ -232,8 +234,10 @@ def _target_status(current: str, hosted: cloudflare.CustomHostname) -> Organizat
     ssl_status = hosted.ssl.status if hosted.ssl else None
     if hosted.status in FAILED_HOSTNAME_STATUSES or ssl_status in FAILED_SSL_STATUSES:
         return OrganizationDomain.Status.FAILED
+    if hosted.status == MOVED_HOSTNAME_STATUS:
+        return OrganizationDomain.Status.FAILED
     if current == OrganizationDomain.Status.PENDING:
-        if hosted.status == MOVED_HOSTNAME_STATUS or ssl_status in TIMED_OUT_SSL_STATUSES:
+        if ssl_status in TIMED_OUT_SSL_STATUSES:
             return OrganizationDomain.Status.FAILED
         if hosted.status == "active" and ssl_status == "active":
             return OrganizationDomain.Status.ACTIVE
@@ -405,10 +409,11 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     record Cloudflare issued (``ownership_verification``) is published in public DNS; until then the domain
     stays PENDING and ``last_errors`` says which record to add (ACTIVE domains are never re-checked).
     ``blocked`` / ``deleted`` (hostname) and ``deleted`` (certificate) mark a PENDING *or ACTIVE* domain
-    failed, withdrawing it from the organization. ``moved`` (hostname) and the certificate ``*_timed_out``
-    states fail a PENDING domain only: an ACTIVE one stays ACTIVE and the problem is recorded in
-    ``last_errors`` (see the constants above). Anything else,
-    including transient states such as ``active_redeploying``, leaves the status alone.
+    failed, withdrawing it from the organization. So does ``moved`` (hostname): the DNS no longer points at us,
+    and failing the domain signs out every session issued on it. The certificate ``*_timed_out`` states fail a
+    PENDING domain only: an ACTIVE one stays ACTIVE and the problem is recorded in ``last_errors`` (see the
+    constants above). Anything else, including transient states such as ``active_redeploying``, leaves the
+    status alone.
     The DNS records and Cloudflare's problem messages (``last_errors``) are refreshed either way.
     When an ACTIVE domain gets a problem it did not have before, or fails, a WARNING is logged and platform
     staff are emailed (``notify_custom_domain_problem``), once per transition.

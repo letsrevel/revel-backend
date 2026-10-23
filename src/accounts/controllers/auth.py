@@ -10,14 +10,21 @@ from ninja import Path, Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_jwt.controller import TokenObtainPairController
-from ninja_jwt.schema import TokenObtainPairInputSchema, TokenObtainPairOutputSchema
+from ninja_jwt.schema import (
+    TokenObtainPairInputSchema,
+    TokenObtainPairOutputSchema,
+    TokenRefreshInputSchema,
+    TokenRefreshOutputSchema,
+)
 
 from accounts import schema
 from accounts.exceptions import OIDCLoginError
 from accounts.service import auth as auth_service
 from accounts.service import impersonation as impersonation_service
 from accounts.service import oidc as oidc_service
+from accounts.service import tenant_session
 from common.throttling import AuthThrottle
+from events.service.tenant_service import tenant_host_from_origin
 from revel.oidc_config import KEY_PATTERN
 
 from ..models import RevelUser
@@ -30,7 +37,9 @@ ProviderKey = t.Annotated[str, Path(..., pattern=KEY_PATTERN)]
 @api_controller("/auth", tags=["Auth"], throttle=AuthThrottle())
 class AuthController(TokenObtainPairController):
     @route.post("/token/pair", response=TokenObtainPairOutputSchema | schema.TempToken, url_name="token_obtain_pair")
-    def obtain_token(self, user_token: TokenObtainPairInputSchema) -> TokenObtainPairOutputSchema | schema.TempToken:
+    def obtain_token(  # type: ignore[override]  # adds ``request``; ninja_jwt's untyped supertype has none
+        self, request: HttpRequest, user_token: TokenObtainPairInputSchema
+    ) -> TokenObtainPairOutputSchema | schema.TempToken:
         """Authenticate with email and password to obtain JWT access/refresh tokens.
 
         For users without 2FA: Returns standard JWT token pair for immediate access.
@@ -42,10 +51,16 @@ class AuthController(TokenObtainPairController):
         if user and user.totp_active:
             token = auth_service.get_temporary_otp_jwt(user)
             return schema.TempToken(token=token)
-        return t.cast(TokenObtainPairOutputSchema, user_token.to_response_schema())  # type: ignore[no-untyped-call]
+        pair = t.cast(TokenObtainPairOutputSchema, user_token.to_response_schema())  # type: ignore[no-untyped-call]
+        # A login through a custom domain (the frontend sets ``Origin`` to it) binds the session to that domain.
+        if tenant_host := tenant_host_from_origin(request.headers.get("origin")):
+            tenant_session.restamp_pair_for_tenant(pair, tenant_host)
+        return pair
 
     @route.post("/token/pair/otp", response=TokenObtainPairOutputSchema, url_name="token_obtain_pair_otp")
-    def obtain_token_with_otp(self, payload: schema.TempTokenWithTOTP) -> TokenObtainPairOutputSchema:
+    def obtain_token_with_otp(
+        self, request: HttpRequest, payload: schema.TempTokenWithTOTP
+    ) -> TokenObtainPairOutputSchema:
         """Complete 2FA authentication by exchanging temporary token and TOTP code for JWT tokens.
 
         Call this after POST /auth/token/pair returns a temporary token for a 2FA-enabled user.
@@ -55,7 +70,23 @@ class AuthController(TokenObtainPairController):
         user, verified = auth_service.verify_otp_jwt(payload.token, payload.otp)
         if not verified:
             raise HttpError(401, str(_("Invalid OTP.")))
-        return auth_service.get_token_pair_for_user(user)
+        return auth_service.get_token_pair_for_user(
+            user, tenant_host=tenant_host_from_origin(request.headers.get("origin"))
+        )
+
+    @route.post(
+        "/refresh",
+        response=TokenRefreshOutputSchema,
+        url_name="token_refresh",
+        operation_id="token_refresh",
+    )
+    def refresh_token(self, refresh_token: TokenRefreshInputSchema) -> t.Any:  # noqa: D102 - keeps ninja_jwt's OpenAPI entry
+        # Same route as ninja_jwt's, plus: a refresh token bound to a tenant host is refused (and
+        # blacklisted) once that host no longer resolves to an active domain. Rotation itself is
+        # untouched, so the claims are carried forward by the stock flow. No docstring on purpose:
+        # it would become the OpenAPI description, which must stay identical to ninja_jwt's.
+        tenant_session.revoke_refresh_if_tenant_session_invalid(refresh_token.refresh)
+        return refresh_token.to_response_schema()
 
     @route.get("/oidc/{provider}/start", include_in_schema=False, url_name="oidc_start", response=None)
     def oidc_start(

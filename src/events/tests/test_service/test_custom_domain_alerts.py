@@ -85,7 +85,7 @@ def sweep(
 def test_active_domain_new_problem_logs_and_notifies_once(
     active_domain: OrganizationDomain, sweep: t.Callable[..., Sweep]
 ) -> None:
-    first = sweep(active_domain, hosted("moved", "active"))
+    first = sweep(active_domain, hosted("active", "validation_timed_out"))
 
     assert [log["event"] for log in first.logs] == ["custom_domain_active_problem"]
     log = first.logs[0]
@@ -93,25 +93,25 @@ def test_active_domain_new_problem_logs_and_notifies_once(
     assert log["domain_id"] == str(active_domain.pk)
     assert log["hostname"] == HOSTNAME
     assert log["organization_id"] == str(active_domain.organization_id)
-    assert any("'moved'" in problem for problem in log["problems"])
+    assert any("'validation_timed_out'" in problem for problem in log["problems"])
     assert first.dispatched == [(str(active_domain.pk), "custom_domain_active_problem")]
 
     # The next 15-minute sweep sees the same problem: no second alert.
     active_domain.refresh_from_db()
-    second = sweep(active_domain, hosted("moved", "active"))
+    second = sweep(active_domain, hosted("active", "validation_timed_out"))
     assert second == Sweep([], [])
 
 
 def test_active_domain_alerts_again_after_recovering_and_relapsing(
     active_domain: OrganizationDomain, sweep: t.Callable[..., Sweep]
 ) -> None:
-    sweep(active_domain, hosted("moved", "active"))
+    sweep(active_domain, hosted("active", "validation_timed_out"))
     active_domain.refresh_from_db()
     assert sweep(active_domain, hosted("active", "active")) == Sweep([], [])
     active_domain.refresh_from_db()
     assert active_domain.last_errors == []
 
-    relapse = sweep(active_domain, hosted("active", "validation_timed_out"))
+    relapse = sweep(active_domain, hosted("active", "issuance_timed_out"))
 
     assert [log["event"] for log in relapse.logs] == ["custom_domain_active_problem"]
 
@@ -128,6 +128,19 @@ def test_active_domain_failing_alerts_as_failed_only(
     active_domain.refresh_from_db()
     assert active_domain.status == Status.FAILED
     assert [log["event"] for log in result.logs] == ["custom_domain_active_failed"]
+    assert result.dispatched == [(str(active_domain.pk), "custom_domain_active_failed")]
+
+
+def test_active_domain_moved_fails_and_alerts_as_failed(
+    active_domain: OrganizationDomain, sweep: t.Callable[..., Sweep]
+) -> None:
+    """DNS no longer points at us: the domain fails at once (signing out its tenant sessions) and staff are told."""
+    result = sweep(active_domain, hosted("moved", "active"))
+
+    active_domain.refresh_from_db()
+    assert active_domain.status == Status.FAILED
+    assert [log["event"] for log in result.logs] == ["custom_domain_active_failed"]
+    assert any("'moved'" in problem for problem in result.logs[0]["problems"])
     assert result.dispatched == [(str(active_domain.pk), "custom_domain_active_failed")]
 
 
