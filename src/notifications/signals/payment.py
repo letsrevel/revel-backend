@@ -90,6 +90,7 @@ def _send_payment_confirmation(payment: Payment) -> None:
             "ticket_reference": str(ticket.id),
             "event_id": str(event.id),
             "event_name": event.name,
+            "organization_id": str(event.organization_id),
             "event_start": event.start.isoformat() if event.start else "",
             "event_start_formatted": event_start_formatted,
             "event_location": event_location,
@@ -139,7 +140,8 @@ def _send_refund_notifications(payment: Payment) -> None:
         sender=_send_refund_notifications,
         user=payment.user,
         notification_type=NotificationType.TICKET_REFUNDED,
-        context=context,
+        # organization_id lets enrichment point event_url at the org's custom domain (#1153).
+        context={**context, "organization_id": str(event.organization_id)},
     )
 
     # Notify staff/owners with additional context

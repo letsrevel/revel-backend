@@ -252,6 +252,45 @@ class TestPaymentRefundNotificationAmount:
         assert any("20.00" in c["refund_amount"] for c in contexts), contexts
         assert all("40.00" not in c["refund_amount"] for c in contexts), contexts
 
+    def test_holder_refund_notification_carries_organization_id(
+        self,
+        public_event: t.Any,
+        member_user: RevelUser,
+    ) -> None:
+        """The holder's TICKET_REFUNDED context names the org so event_url follows its domain (#1153)."""
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Test Tier",
+            price=Decimal("40.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        ticket = Ticket.objects.create(
+            guest_name=member_user.get_display_name(),
+            event=public_event,
+            user=member_user,
+            tier=tier,
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+        payment = Payment.objects.create(
+            ticket=ticket,
+            user=member_user,
+            amount=Decimal("40.00"),
+            platform_fee=Decimal("0.00"),
+            currency="EUR",
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_session_id=f"cs_test_{ticket.id}",
+        )
+        with patch("notifications.signals.payment.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                payment.status = Payment.PaymentStatus.REFUNDED
+                payment.save()
+        holder_calls = [
+            c for c in send_mock.call_args_list if c.kwargs["notification_type"] == NotificationType.TICKET_REFUNDED
+        ]
+        assert holder_calls
+        assert holder_calls[0].kwargs["context"]["organization_id"] == str(public_event.organization_id)
+
 
 def _make_active_held_pass(organization: Organization, user: RevelUser, slug: str) -> HeldSeriesPass:
     """A minimal ACTIVE HeldSeriesPass to set as Ticket.held_pass in guard tests.

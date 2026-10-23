@@ -680,6 +680,27 @@ class TestBillingPortalEndpoint:
         # Pydantic's HttpUrl normalizes the URL; check the prefix instead of an exact match.
         assert mock_portal.call_args.kwargs["return_url"].startswith("https://app.example/billing")
 
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.billing_portal.Session.create")
+    def test_default_return_url_stays_on_platform_with_active_custom_domain(
+        self,
+        mock_portal: mock.Mock,
+        subscriber_client: Client,
+        stripe_org: Organization,
+        subscriber_profile: None,
+        settings: t.Any,
+    ) -> None:
+        """The portal default return_url ignores the org's custom domain (#1153, #848)."""
+        Organization.objects.filter(pk=stripe_org.pk).update(
+            custom_domain="events.example.com", custom_domain_enabled=True
+        )
+        mock_portal.return_value = mock.MagicMock(url="https://stripe.example/portal/123")
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+
+        response = subscriber_client.post(url, data={}, content_type="application/json")
+
+        assert response.status_code == 201, response.content
+        assert mock_portal.call_args.kwargs["return_url"] == settings.FRONTEND_BASE_URL
+
     def test_refuses_when_no_customer_profile(
         self,
         subscriber_client: Client,

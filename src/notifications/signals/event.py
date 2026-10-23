@@ -53,6 +53,7 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
             context: dict[str, t.Any] = {
                 "event_id": str(instance.id),
                 "event_name": instance.name,
+                "organization_id": str(instance.organization_id),
                 "event_start": instance.start.isoformat() if instance.start else "",
                 "event_start_formatted": event_start_formatted,
                 "event_location": event_location,
@@ -136,6 +137,7 @@ def _handle_event_updated(
             context = {
                 "event_id": str(instance.id),
                 "event_name": instance.name,
+                "organization_id": str(instance.organization_id),
                 "event_start_formatted": event_start_formatted,
                 "event_location": event_location,
                 "event_url": f"{frontend_base_url}/events/{instance.id}",

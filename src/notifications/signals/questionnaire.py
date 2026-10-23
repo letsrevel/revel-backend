@@ -8,6 +8,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from common.models import SiteSettings
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
 from notifications.service.notification_helpers import notify_org_staff
@@ -168,12 +169,13 @@ def handle_questionnaire_evaluation(
         "evaluation_status": instance.status.upper(),
         "evaluation_score": str(instance.score) if instance.score else None,
         "evaluation_comments": instance.comments,
+        "organization_id": str(org_questionnaire.organization_id),
         "organization_name": org_questionnaire.organization.name,
     }
 
     # Add event info from submission metadata (source_event) if available
     # This captures the exact event context where the questionnaire was submitted
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_base_url = frontend_base_url_for(org_questionnaire.organization)
     source_event = instance.submission.source_event
     if source_event:
         from events.models import Event

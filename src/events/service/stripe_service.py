@@ -396,6 +396,11 @@ def _create_stripe_session(
     """
     ticket_ids = ",".join(str(_t.id) for _t in tickets)
 
+    # Stripe return URLs stay on the platform origin by design (#1153): the frontend's canonical 301
+    # (query string preserved) takes the buyer on to the org's custom domain. The URL must stay
+    # uniform (#848: Stripe gets nothing organizer-authored) and byte-identical across retries,
+    # because session creation reuses ``idempotency_key=reservation_id`` and mutable org state
+    # (domain sync, kill switch) would otherwise cause Stripe idempotency conflicts.
     frontend_base_url = site.frontend_base_url
     session_data = dict(  # noqa: C408
         customer_email=user.email,
@@ -733,6 +738,11 @@ def _create_series_pass_stripe_session(
     series = series_pass.event_series
     ticket_ids = ",".join(str(ticket.id) for ticket in tickets)
 
+    # Stripe return URLs stay on the platform origin by design (#1153): the frontend's canonical 301
+    # (query string preserved) takes the buyer on to the org's custom domain. The URL must stay
+    # uniform (#848: Stripe gets nothing organizer-authored) and byte-identical across retries,
+    # because session creation reuses ``idempotency_key=reservation_id`` and mutable org state
+    # (domain sync, kill switch) would otherwise cause Stripe idempotency conflicts.
     frontend_base_url = site.frontend_base_url
     series_url = f"{frontend_base_url}/events/{org.id}/series/{series.id}"
     session_data = dict(  # noqa: C408

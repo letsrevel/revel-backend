@@ -14,7 +14,6 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
-from common.models import SiteSettings
 from events.models import (
     Announcement,
     Event,
@@ -25,6 +24,7 @@ from events.models import (
     Ticket,
 )
 from events.schema.announcement import AnnouncementCreateSchema, AnnouncementUpdateSchema
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.dispatcher import NotificationData, bulk_create_notifications
 
@@ -569,7 +569,7 @@ def _build_notification_context(announcement: Announcement) -> dict[str, t.Any]:
     Returns:
         Context dictionary for the notification.
     """
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_base_url = frontend_base_url_for(announcement.organization)
 
     context: dict[str, t.Any] = {
         "organization_id": str(announcement.organization.id),

@@ -99,6 +99,9 @@ SITE_NAME = config("SITE_NAME", default="Revel")
 # when it's local or empty with DEBUG off); the default only suits local development.
 BASE_URL = config("BASE_URL", default="http://localhost:8000")
 FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:5173")
+# Origin of an organization's active custom domain (white-label, #1153); ``{hostname}`` is the
+# domain. Dev/E2E override it, e.g. ``http://{hostname}:5173``.
+CUSTOM_DOMAIN_URL_TEMPLATE = config("CUSTOM_DOMAIN_URL_TEMPLATE", default="https://{hostname}")
 
 
 MIDDLEWARE = [

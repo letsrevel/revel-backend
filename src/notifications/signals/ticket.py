@@ -7,8 +7,8 @@ from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
-from common.models import SiteSettings
 from events.models import Event, Ticket, TicketTier
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
 from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
@@ -45,7 +45,7 @@ def _build_base_event_context(event: Event) -> dict[str, t.Any]:
         organization_id, organization_name, and optionally address_url
     """
     event_location = event.full_address()
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_base_url = frontend_base_url_for(event.organization)
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
     event_start_formatted = format_event_datetime(event.start, event)
@@ -202,7 +202,7 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
 
     # Fetch shared data ONCE for all tickets
     event = first_ticket.event
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_base_url = frontend_base_url_for(event.organization)
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
     event_start_formatted = format_event_datetime(event.start, event)

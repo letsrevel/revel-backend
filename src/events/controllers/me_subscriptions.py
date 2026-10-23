@@ -402,7 +402,9 @@ class MeSubscriptionsController(UserAwareController):
         organization = get_object_or_404(Organization, pk=org_id)
         # ``payload.return_url`` is a validated ``HttpUrl`` (or None) — coerce
         # to plain ``str`` for the Stripe API. Falling back to the platform's
-        # frontend keeps a sensible default when the client omits it.
+        # frontend keeps a sensible default when the client omits it. It stays on the
+        # platform origin even for an org with a custom domain (#1153): the frontend's
+        # canonical 301 forwards the buyer, and Stripe gets nothing organizer-conditional (#848).
         return_url = str(payload.return_url) if payload.return_url else SiteSettings.get_solo().frontend_base_url
         url = subscription_stripe_checkout.create_billing_portal_session(
             self.user(),
