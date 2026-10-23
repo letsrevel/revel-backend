@@ -2,6 +2,7 @@
 
 import typing as t
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from django.contrib.admin.sites import site
@@ -12,7 +13,9 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from accounts.models import RevelUser
 from events.admin.organization import OrganizationAdmin
 from events.admin.organization_domain import OrganizationDomainAdmin
+from events.exceptions import CloudflareAPIError
 from events.models import Organization, OrganizationDomain
+from events.service import cloudflare_custom_hostnames as cloudflare
 from events.service import custom_domain_service, tenant_service
 
 pytestmark = pytest.mark.django_db
@@ -117,6 +120,49 @@ def test_mark_failed_and_remove_actions(rf: t.Any, superuser: RevelUser, pending
     pending.refresh_from_db()
     assert pending.status == Status.REMOVED
     assert Organization.objects.get(pk=pending.organization_id).custom_domain is None
+
+
+def test_remove_action_deletes_the_cloudflare_hostname(
+    rf: t.Any, superuser: RevelUser, pending: OrganizationDomain, settings: t.Any
+) -> None:
+    """Remove goes through ``delete_domain``: the Cloudflare hostname is deleted, then the row is REMOVED."""
+    settings.CLOUDFLARE_API_TOKEN, settings.CLOUDFLARE_ZONE_ID = "tok", "zone"
+    pending.cloudflare_hostname_id = "cf-1"
+    pending.save(update_fields=["cloudflare_hostname_id"])
+    request = _request(rf, superuser)
+
+    with patch.object(cloudflare, "delete_custom_hostname") as delete:
+        _admin().remove_domains(request, _qs(pending))
+
+    delete.assert_called_once_with("cf-1")
+    pending.refresh_from_db()
+    assert pending.status == Status.REMOVED
+    assert _messages(request) == ["1 domain(s) removed."]
+
+
+def test_remove_action_surfaces_a_cloudflare_failure_and_keeps_the_domain(
+    rf: t.Any, superuser: RevelUser, pending: OrganizationDomain, settings: t.Any
+) -> None:
+    """A Cloudflare error is reported on its row and leaves the domain as it was (no orphaned hostname)."""
+    settings.CLOUDFLARE_API_TOKEN, settings.CLOUDFLARE_ZONE_ID = "tok", "zone"
+    pending.cloudflare_hostname_id = "cf-1"
+    pending.save(update_fields=["cloudflare_hostname_id"])
+    other = OrganizationDomain.objects.create(
+        organization=pending.organization, hostname="other.example.com", status=Status.FAILED
+    )
+    request = _request(rf, superuser)
+
+    with patch.object(cloudflare, "delete_custom_hostname", side_effect=CloudflareAPIError("secret", status_code=500)):
+        _admin().remove_domains(request, OrganizationDomain.objects.filter(pk__in=[pending.pk, other.pk]))
+
+    pending.refresh_from_db()
+    other.refresh_from_db()
+    assert pending.status == Status.PENDING
+    assert other.status == Status.REMOVED  # the next row still ran
+    messages_ = _messages(request)
+    assert any(m.startswith("events.example.com: ") and "Cloudflare" in m for m in messages_), messages_
+    assert not any("secret" in m for m in messages_)
+    assert "1 domain(s) removed." in messages_
 
 
 def test_status_and_identity_are_read_only(rf: t.Any, superuser: RevelUser, pending: OrganizationDomain) -> None:
