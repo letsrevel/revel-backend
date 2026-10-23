@@ -19,7 +19,8 @@ and no tenant column on other tables.
 | Domain lifecycle | `events/service/custom_domain_service.py` |
 | Cloudflare client | `events/service/cloudflare_custom_hostnames.py` |
 | Tenant resolution, cache, return host | `events/service/tenant_service.py` |
-| Sync task | `events/tasks/custom_domains.py` (`events.sync_custom_domains`) |
+| Sync task, problem alerts, org-delete cleanup | `events/tasks/custom_domains.py` (`events.sync_custom_domains`, `events.notify_custom_domain_problem`, `events.delete_organization_cloudflare_hostnames`) |
+| Guest seat-hold session (cookie and header) | `events/service/guest_hold_session.py` |
 | Org-aware URLs | `events/utils/frontend_urls.py` |
 | Tenant email sender | `notifications/service/org_sender.py` |
 | Deploy checks | `events/checks.py`, `common/checks.py` |
@@ -64,7 +65,12 @@ flowchart TD
   `custom_domain` field is withheld from schemas (`CustomDomainMixin`), `frontend_base_url_for`
   returns the platform URL, the sender is the platform sender, the org-admin endpoints return 403,
   and the sync task skips the organization. The stored hostname survives, so flipping back restores
-  the domain.
+  the domain. Timings, verification steps and the frontend's own caches are in the
+  [kill-switch runbook](../guides/white-label/operators.md#kill-switch-runbook). Because the sync
+  skips the organization while the switch is off, a domain Cloudflare deletes in the meantime can
+  still resolve for up to one sweep (15 minutes) after re-enabling, until the next run marks it
+  failed. Email links read the organization through a 60-second cache
+  (`ORG_LINK_TTL` in `notifications/utils.py`), so they fall back to the platform within that bound.
 
 ## Public endpoints
 
@@ -241,6 +247,34 @@ confirm-action token**, single-use, scoped to one RSVP or ticket on that organiz
 returning no auth session. That is acceptable because the owner already has authority over that
 event. Unsubscribe tokens and account links stay on the platform.
 
+### The password trade-off
+
+The rule above protects **tokens**. It does not, and cannot, protect the **password form**. On a
+custom domain an attendee logs in on a page served under a hostname whose DNS the organization
+controls. Sessions are host-only, so each domain asks for its own login, and the password is typed
+into whatever answers on that hostname. An owner who is malicious, or whose DNS account is taken
+over, can repoint the hostname at their own server and serve a look-alike login page that collects
+passwords. Revel never puts an account token on such a link, but a visitor who opens the custom domain is
+trusting the owner's DNS.
+
+This is inherent to "login per domain" white-label: the login has to live on the domain to keep the
+organization's look and host-only sessions. Revel does not pretend otherwise. It limits who can get
+there and how long a problem lives:
+
+- **Enablement is platform-admin only.** `custom_domain_enabled` is a superuser-only Django admin
+  field, never in an API edit schema, so a custom domain is something the operator grants
+  to organizations it trusts.
+- **The kill switch** takes a domain out of service in about a minute without touching DNS (see the
+  [runbook](../guides/white-label/operators.md#kill-switch-runbook)).
+- **Problem alerts** tell staff when a live domain starts failing (for example Cloudflare reports
+  the CNAME `moved`), which is one way a repointed hostname shows up.
+  See [domain-problem alerts](../guides/white-label/operators.md#domain-problem-alerts).
+- **Account-level tokens stay off tenant links**, so a hostile domain cannot harvest reset or
+  verification tokens. The remaining exposure is the password form itself.
+
+Operators should treat enabling a custom domain as granting the organization the ability to present
+a login page under its own name, and decide accordingly.
+
 ## The Stripe return policy
 
 Checkout and billing-portal return URLs (ticket, series-pass and membership success and cancel, and
@@ -350,6 +384,31 @@ The target is decided as follows:
 owner's refresh endpoint calls it on demand. Without Cloudflare configured nothing is provisioned
 and the task is a no-op; staff activate by hand.
 
+**Active-domain alerts.** A live domain that goes wrong is invisible to visitors until it breaks, so
+`sync_domain_status` raises the alarm on the **edge**, never on every sweep:
+
+- *Clean to problem on an ACTIVE domain* (`expected == ACTIVE`, new `last_errors`, none before): the
+  status is kept, a structlog WARNING `custom_domain_active_problem` is written (domain id,
+  hostname, organization id, problems) and the task `events.notify_custom_domain_problem` is
+  dispatched on commit.
+- *ACTIVE to FAILED* (`blocked`, `deleted`, certificate `deleted`): the same with
+  `custom_domain_active_failed`, after the transition commits.
+
+The task emails every active superuser and staff user in one BCC'd message (hostname, organization,
+status, Cloudflare's messages); with no recipients it logs `custom_domain_alert_no_recipients`. It
+follows the other operational alerts (malware, GDPR export failure), which email staff
+unconditionally, rather than the `SiteSettings`-gated Pushover/Discord admin notifications, so there
+is no new setting. A persisting problem does not re-alert. The operator response is in the
+[operator guide](../guides/white-label/operators.md#domain-problem-alerts).
+
+**Organization deletion.** Deleting an organization cascades its `OrganizationDomain` rows around
+the service, which would orphan their Cloudflare hostnames. A `pre_delete` receiver on
+`Organization` captures the `cloudflare_hostname_id`s before the cascade; the existing `post_delete`
+receiver dispatches `events.delete_organization_cloudflare_hostnames` on commit. The task deletes
+each hostname best effort (404 means gone, other failures log
+`custom_domain_orphaned_cloudflare_hostname`, no Cloudflare configuration is a logged skip), so
+deletion never waits on or fails because of Cloudflare.
+
 ## Wallet passes and PDFs
 
 `get_pass_brand_colors(org)` (`events/utils/pass_branding.py`) is the one mapping from an
@@ -401,6 +460,48 @@ Organization emails show the organization's logo through the stable
 `/api/organizations/{id}/logo` endpoint (the same indirection Google Wallet uses): raw media URLs die
 when a logo is replaced, and emails live on.
 
+## Guest seat holds on tenant domains
+
+Anonymous seat holds are owned by a signed **guest session** (`events/service/guest_hold_session.py`,
+valid 24 hours). It started life as the httpOnly, `SameSite=Lax` cookie `revel_guest_hold` on the
+API host. A browser on a tenant domain is **cross-site** to the API host, so it never stores or sends
+that cookie, and anonymous holds, guest checkout and the confirm page (which opens on the tenant
+host) would all lose the session. The session therefore has a second channel that survives
+cross-site:
+
+- **Response body.** `HoldResponseSchema.guest_hold_token` (on `POST /events/{id}/seating/holds` and
+  `.../holds/best-available`, including their 409 bodies) carries the same signed token. It is
+  returned **only when the response freshly minted the session, or when the caller sent it in the
+  header**. A session resolved from the httpOnly cookie alone is never echoed, so script cannot read
+  the cookie's value. It is `null` for authenticated users and on release.
+- **Request header.** The frontend stores the token first-party and sends it as `X-Guest-Hold` on
+  seating, guest checkout, guest RSVP and guest confirm calls.
+- **Precedence.** One helper, `resolve_request_guest_hold(request)`, serves every reader: header
+  first, then cookie. A missing, tampered or expired value counts as absent, so a stale header never
+  shadows a valid cookie, and with neither the caller has no session (a hold request mints one).
+- **CORS.** `x-guest-hold` is in `CORS_ALLOW_HEADERS`, for platform and tenant origins alike.
+- The cookie is still set when a session is minted, so the platform flow does not change.
+
+A cookie audit of `src/` found no other cookie used from a tenant host: `oidc_state` and the
+integrations connect-state cookie belong to top-level navigations on the platform host, and the API
+sets no Django session or CSRF cookie (JWT bearer auth).
+
+## Rolling deploys
+
+White-label ships in a window where web pods and Celery workers run different releases, in either
+order. Two rules keep both directions working:
+
+- **New NOT NULL columns have database defaults.** `Organization.custom_domain_enabled` has
+  `db_default=False` and `Organization.branding` has `db_default='{}'::jsonb`, so a pod on the
+  previous release, which does not know the columns, can still insert organizations.
+- **Task call shapes are unchanged.** `send_guest_rsvp_confirmation` and
+  `send_guest_ticket_confirmation` are called with exactly their pre-white-label arguments. The
+  optional trailing `organization_id` remains an override, and when it is absent the task derives
+  the organization from the confirmation token's event with one `.only(*SENDER_ORG_FIELDS)` query
+  (an unreadable token falls back to the platform). The account email tasks keep their call shape
+  too: the `return_host` hint rides in the existing `context` dict, which an older worker ignores.
+  A message queued before the change simply has no hint.
+
 ## E2E fixtures
 
 The frontend 301s the platform URL of any organization with an active custom domain, so a domain
@@ -410,9 +511,17 @@ must never sit on a shared fixture organization that other journeys visit on the
 
 | Organization (slug) | Domain | Branding | Contents |
 |---|---|---|---|
-| Tenant Test Org (`tenant-test-org`) | `tenant.localhost` (ACTIVE) | `#B0306A` / `#2E86DE` | `tenant-rsvp-event` (RSVP) and `tenant-free-ticket-event` (a free "Free Ticket" tier) |
-| Tenant Paid Org (`tenant-paid-org`) | `paid.localhost` (ACTIVE) | `#0E7C66` / `#F2A541` | `tenant-paid-event` with an online "Standard Ticket" tier at 10 EUR. When `STRIPE_ACCOUNT` is a real `acct_` id that no other organization holds, the organization uses the platform account, so test-mode checkouts work; otherwise paid checkout fails and a warning is logged |
+| Tenant Test Org (`tenant-test-org`) | `tenant.localhost` (ACTIVE) | `#B0306A` / `#2E86DE` | `tenant-rsvp-event` (RSVP), `tenant-free-ticket-event` (a free "Free Ticket" tier) and `tenant-seated-event` (seat map, free "Seated Free" tier) |
+| Tenant Paid Org (`tenant-paid-org`) | `paid.localhost` (ACTIVE) | `#0E7C66` / `#F2A541` | `tenant-paid-event` with an online "Standard Ticket" tier at 10 EUR, and `tenant-paid-seated-event` (seat map, online "Seated Standard" tier at 10 EUR). When `STRIPE_ACCOUNT` is a real `acct_` id that no other organization holds, the organization uses the platform account, so test-mode checkouts work; otherwise paid checkout fails and a warning is logged |
 | Domain Setup Org (`domain-setup-org`) | none | none | Kill switch on and no domain, so the admin UI can request one |
+
+The two seated events exist to E2E-test anonymous seat holds followed by guest checkout on a custom
+domain (see [guest seat holds](#guest-seat-holds-on-tenant-domains)). Both are public, open,
+upcoming and allow attending without login. Each has its own venue, named `<Org Name> Hall`, with
+one seated sector `MAIN` ("Main Floor") of three rows (A to C) of six seats, labelled `A1` to `C6`,
+and a single `USER_CHOICE` tier over that sector, so guests choose their seats. The free event
+completes without Stripe; the paid one uses the guest online checkout flow and needs the platform
+Stripe account described above.
 
 Requirements and behavior:
 

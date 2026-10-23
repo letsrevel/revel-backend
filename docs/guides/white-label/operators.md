@@ -22,8 +22,8 @@ A custom domain touches four layers, and all four must agree before a customer g
 ## Enabling custom domains for an organization
 
 Each organization has a platform flag, `custom_domain_enabled`. It defaults to **off**, appears
-only in the Django admin (never in an API edit schema) and can be changed only by platform staff
-with admin access. Brand colors do not need it.
+only in the Django admin (never in an API edit schema) and can be changed only by **superusers**
+(it is read-only for other staff). Brand colors do not need it.
 
 1. In the Django admin open **Organizations**, pick the organization, and in the **Custom domain**
    section tick `custom_domain_enabled`. The `custom_domain` field below it is read-only: it holds
@@ -31,20 +31,88 @@ with admin access. Brand colors do not need it.
 2. The organization's owner can now request a domain (see the [organizer
    guide](organizers.md#custom-domain)).
 
-The flag is also the **kill switch**. Turning it off for an organization, at any time:
+Enabling is a trust decision: attendees log in on a page under a hostname whose DNS the
+organization controls. Read [the password trade-off](../../architecture/white-label.md#the-password-trade-off)
+before enabling it for an organization you do not know.
 
-- stops its hostname resolving (the by-domain lookup answers 404, so the frontend serves a 404 on
-  that host),
-- stops dynamic CORS for that host,
-- withdraws `custom_domain` from API payloads, so links in emails and redirects fall back to the
-  platform URL,
-- returns 403 on the owner's custom-domain endpoints and skips the organization in the sync task,
-- sends tenant mail from the platform sender again.
+The flag is also the **kill switch**. Turning it off for an organization, at any time, stops its
+hostname resolving, stops dynamic CORS for that host, withdraws `custom_domain` from API payloads
+and sends links and mail back to the platform. The stored hostname and the domain row are kept, so
+turning the flag back on restores the domain without a new request. The full procedure, with
+timings and verification steps, is the [kill-switch runbook](#kill-switch-runbook).
 
-The stored hostname and the domain row are kept, so turning the flag back on restores the domain
-without a new request. Saving the flag in the admin drops the cached lookup for that host
-immediately. The frontend caches lookups for up to 60 seconds per replica, so allow about a minute
-for everything to agree.
+## Kill-switch runbook
+
+Use the kill switch when an organization's domain must stop serving **now**, without touching DNS,
+Cloudflare or the organization's data. Typical reasons: a [domain-problem alert](#domain-problem-alerts)
+you cannot resolve with the organizer, a suspected DNS takeover or a fake login page on a customer
+hostname, abuse reported on a customer site, or a customer whose contract ended.
+
+!!! note "Who can do this"
+    Only **superusers**. For other staff the `custom_domain_enabled` field is read-only in the admin.
+
+### Switch off
+
+1. In the Django admin open **Organizations**, pick the organization, and in the **Custom domain**
+   section untick `custom_domain_enabled`. Save.
+2. Do nothing at Cloudflare or at the customer's DNS. The hostname, the Cloudflare custom hostname
+   and the certificate all stay as they are.
+
+### What happens, and how fast
+
+| Surface | Effect | Takes effect |
+|---|---|---|
+| Tenant lookup (`/api/organizations/by-domain/{host}`) | Answers 404, so the frontend serves a 404 on that host | The admin save drops the cached entry, so normally at once. Worst case **60 s** (the backend lookup cache TTL, if an invalidation is skipped or races a reader) |
+| Dynamic CORS | The host is no longer an allowed origin, so API calls from the tenant site fail | Same as the lookup: at most 60 s |
+| API payloads | `custom_domain` is `null` on every organization and event payload | Immediately (read from the database on each request) |
+| Links in emails and notifications | Fall back to the platform URL | At most **60 s**: the organization link info used when rendering an email is cached for 60 s |
+| Tenant email sender | Mail from the organization goes out from the platform sender again | With the link info, at most 60 s |
+| Organizer's custom-domain endpoints | Answer 403 | Immediately |
+| Sync task | Skips the organization | From the next run |
+
+The frontend adds two delays of its own:
+
+- **Frontend lookup cache**: every frontend replica caches the by-domain answer for up to **60 s**,
+  so a replica can keep serving the tenant site for that long after the backend has stopped
+  answering.
+- **Cached canonical redirect**: while the domain was live, the frontend answered the platform URLs
+  of that organization with a `301` to the custom domain, sent with `Cache-Control: max-age=300`
+  ([revel-frontend#1064](https://github.com/letsrevel/revel-frontend/pull/1064)). A browser that
+  followed one of those redirects keeps following it for up to **5 minutes**, and lands on a
+  hostname that now answers 404. After that window the platform URL serves the organization
+  directly again.
+
+Plan on about **one minute** for the servers and **five minutes** for visitors' browsers.
+
+### Verify
+
+Replace `<host>` with the customer hostname and `<api>` with your API origin.
+
+1. **Lookup is gone.** `curl -s -o /dev/null -w '%{http_code}\n' https://<api>/api/organizations/by-domain/<host>`
+   answers `404` (retry for up to a minute).
+2. **CORS is gone.** `curl -si -X OPTIONS https://<api>/api/organizations/ -H 'Origin: https://<host>' -H 'Access-Control-Request-Method: GET'`
+   carries no `Access-Control-Allow-Origin` header for that origin.
+3. **Payloads are clean.** The organization's payload (for example `GET /api/organizations/<slug>`)
+   has `"custom_domain": null`.
+4. **The platform serves it.** In a private window (no cached redirect), open the organization on
+   the platform host: it renders there with no redirect to the custom domain.
+5. **Mail falls back.** Trigger a test email that links to the organization (for example an invitation
+   to yourself) and check that its links point at the platform.
+
+### Switch back on
+
+1. Tick `custom_domain_enabled` again and save. **No DNS or Cloudflare work is needed**: the domain
+   row, the stored hostname, the Cloudflare custom hostname and the certificate were never removed.
+2. Allow the same windows (about a minute) and repeat the verification in reverse: the by-domain
+   lookup answers 200 and the platform URL redirects to the custom domain again.
+
+!!! warning "Re-enable caveat: a stale domain can resolve for up to 15 minutes"
+    While the switch is off, the [sync task](#the-sync-task) **skips** the organization, so a domain
+    that Cloudflare deletes in the meantime (for example after the customer's CNAME was broken for
+    its seven-day grace period) is not marked failed. After you switch back on, that domain
+    resolves as if it were healthy until the next sweep, **up to 15 minutes**, and then fails. If
+    the switch was off for a long time, ask the owner to press **Check now** right after you
+    re-enable it, so a dead domain is marked failed at once instead of at the next sweep.
 
 ## Cloudflare for SaaS
 
@@ -171,11 +239,18 @@ check your Caddyfile for it):
 ## Turnstile
 
 If you use Cloudflare Turnstile on registration (`TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`
-both set), the widget only renders on hostnames in its hostname list in the Cloudflare dashboard.
-The backend does not check the hostname, so there is nothing to configure in Revel: **add each
-custom domain to the widget's hostname list** when you activate it, or sign-up on that domain
-fails. Cloudflare caps the number of hostnames per widget on the free plan; check the current limit
-when you plan how many domains to host, and see whether a second widget or a plan change fits.
+both set), the widget only renders on hostnames in its **hostname allowlist** in the Cloudflare
+dashboard. The backend does not check the hostname, so there is nothing to configure in Revel:
+**add each custom domain to the widget's hostname list** when you activate it, or sign-up on that
+domain fails.
+
+Each widget has a **per-widget hostname limit**, and it differs by plan. Plan for it before you
+sell the feature to many organizations: check the current limit in the Cloudflare dashboard, then
+either create **additional widgets** (each has its own site key and secret, and Revel reads a
+single pair, so using more than one widget needs a change on the Revel side: plan that work) or
+move to a **plan with a higher limit**. Do not wait for the first sign-up failure to find out. When
+you remove a custom domain, remove it from the list too.
+
 Self-hosters who leave both keys empty have no Turnstile and nothing to do.
 
 ## The sync task
@@ -207,6 +282,44 @@ a row lock, and does nothing if the organizer removed the domain in the meantime
 raising an error is logged (`custom_domain_sync_failed`, with the domain id) and does not stop the
 rest. The task returns `{"synced": n, "failed": n}` and is a no-op when Cloudflare is not
 configured. The organizer's **Check now** runs the same sync for their own domain on demand.
+
+### Domain-problem alerts
+
+The sync task also tells you when a **live** domain gets into trouble, so you hear about it before a
+customer does. Two events exist:
+
+| Event | When | What fires |
+|---|---|---|
+| `custom_domain_active_problem` | An **ACTIVE** domain that had no recorded problem now has one (for example Cloudflare reports `moved`, or a certificate `*_timed_out` status). The domain stays active | A `WARNING` log line with the domain id, hostname, organization id and the problems, and one email to platform staff |
+| `custom_domain_active_failed` | An **ACTIVE** domain goes to **failed** (hostname `blocked` or `deleted`, certificate `deleted`) and is withdrawn from the organization | A `WARNING` log line and one email to platform staff |
+
+Alerts fire **once, on the transition**, not on every 15-minute sweep: a problem that persists does
+not alert again, and a domain that recovers and later breaks again alerts again. The email is sent
+by the Celery task `events.notify_custom_domain_problem` to **all active superusers and staff** (one
+BCC'd message) with the hostname, the organization, the status and Cloudflare's messages. If there
+are no active staff, the task logs `custom_domain_alert_no_recipients` instead. To find them in the
+logs, search for the event names above.
+
+**Recommended response.**
+
+1. Open the domain under **Custom Domains** in the admin and read `last_errors`.
+2. For `moved` or a certificate problem, ask the organizer to check their DNS: the CNAME must still
+   point at your fallback origin. A broken CNAME is recoverable for several days before Cloudflare
+   deletes the hostname.
+3. If you cannot resolve it quickly, or the change looks hostile (a hostname repointed at a server
+   you do not recognise), use the [kill switch](#kill-switch-runbook).
+4. For `custom_domain_active_failed`, the domain is already withdrawn and the platform URL serves
+   the organization. The organizer can request the domain again from the admin area.
+
+### Organization deletion
+
+Deleting an organization cascades its domain rows, so its Cloudflare custom hostnames would
+otherwise be left behind, keeping the hostname claimed and the certificate alive. When the deletion
+commits, Revel dispatches the Celery task `events.delete_organization_cloudflare_hostnames`, which
+deletes each hostname at Cloudflare **best effort**: a 404 counts as already gone, other failures
+are logged as `custom_domain_orphaned_cloudflare_hostname`, and with Cloudflare not configured it
+logs a warning and skips. The deletion itself never waits on or fails because of Cloudflare. If you
+see that error in the logs, remove the leftover hostname in the Cloudflare dashboard by hand.
 
 ## Manual activation in the Django admin
 
@@ -307,14 +420,18 @@ Once per instance:
 - [ ] The `events.sync_custom_domains` periodic task is enabled in the admin (it is by default).
 - [ ] `ORG_EMAIL_DOMAIN` is set and authenticated (DKIM, DMARC), or you have accepted the apex
       reputation trade-off described above.
-- [ ] Turnstile (if used) has room for the customer's hostname.
+- [ ] Turnstile (if used): you know the widget's per-widget hostname limit and have room for the
+      customer's hostname (more widgets or a plan with a higher limit if not).
+- [ ] You have read the [kill-switch runbook](#kill-switch-runbook) and know who on the team is a
+      superuser, and the [domain-problem alerts](#domain-problem-alerts) reach a mailbox someone
+      reads (they go to every active superuser and staff user).
 
 Per customer:
 
 - [ ] The customer has a Stripe account connected, if they sell tickets.
 - [ ] `custom_domain_enabled` is on for the organization.
 - [ ] The owner requests the domain and creates the DNS records. It turns **active**.
-- [ ] The hostname is added to the Turnstile widget's list.
+- [ ] The hostname is added to the Turnstile widget's hostname allowlist (Cloudflare dashboard).
 - [ ] You open the domain in a private window: the organization page renders with its colors, the
       footer reads "Powered by Revel", `/` shows only that organization, and a test purchase
       returns to the custom domain.
