@@ -36,8 +36,33 @@ spike can't push password resets into spam.
 - If the organization can't be resolved, the mail falls back to the system sender without
   `List-Unsubscribe`.
 
+**White-label tenants** get the same org sender for attendee transactional mail
+(`TENANT_ORG_SENDER_TYPES`): `ticket_created`, `ticket_updated`, `ticket_cancelled`, `ticket_refunded`,
+`ticket_checked_in`, `payment_confirmation`, `questionnaire_evaluation_result`, the holder-facing
+`membership_*` types, `waitlist_spot_available`, the holder-facing `series_pass_*` types (purchase,
+extension, cancellation), and the subscriber-facing `subscription_*` types (renewal, payment failure,
+expiry, cancellation, renewal reminder, price migration, revival checkout). The guest RSVP and ticket
+confirmation emails follow the same rule. An organization is a tenant when it has an active
+`custom_domain` **and** `custom_domain_enabled` is on; every other organization keeps
+`DEFAULT_FROM_EMAIL` for these types. Staff alerts (`staff_*`, the `rsvp_*` types, which go only to
+staff and owners) stay on the platform sender. The gate reads columns on the one organization lookup
+per email that resolves the sender, so these types cost one organization lookup per email, tenant or
+not. Other types cost none. Delivery from the org sending domain depends on the infra rollout of
+that domain; the code does not.
+
+- The Reply-To is the verified contact email, as for organization mail. Role-name slugs still fall
+  back to `DEFAULT_FROM_EMAIL`. `Feedback-ID` and the organization id in `X-Mailin-custom` are added.
+  Guest confirmations have no delivery row, so their `X-Mailin-custom` carries only `org:<id>`.
+- **Unsubscribe stays on the platform.** `List-Unsubscribe` and the footer unsubscribe link keep
+  their usual form and point at the platform, never at the tenant domain: no account-level token
+  is ever put on a tenant host. Mandatory types (tickets, payments) still get the preferences-page
+  header with no `List-Unsubscribe-Post`.
+- Account mail (verification, password reset), staff-facing types (`staff_*`, `rsvp_*`,
+  `membership_request_created`, and the staff copies of series pass purchase/cancellation) and Revel's
+  own billing mail are not included.
+
 **Everything else** (verification, password reset, tickets, payments, staff notifications,
-digests) is sent from `DEFAULT_FROM_EMAIL`. Attendee invoices keep their existing
+digests) is sent from `DEFAULT_FROM_EMAIL`, except as above. Attendee invoices keep their existing
 `"<billing name>" <org-slug@<apex domain>>` sender on the apex domain, not `ORG_EMAIL_DOMAIN`.
 Their Reply-To follows the same rule as organization mail (verified contact email, else none). The
 organization's copy is BCC'd to its billing email (settable by the owner only), else to the

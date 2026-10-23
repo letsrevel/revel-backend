@@ -719,6 +719,7 @@ class StaffSeriesPassCancelledContext(SeriesPassCancelledContext):
 class SubscriptionRenewalSucceededContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_RENEWAL_SUCCEEDED notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -730,6 +731,7 @@ class SubscriptionRenewalSucceededContext(BaseNotificationContext):
 class SubscriptionPaymentFailedContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_PAYMENT_FAILED notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -742,6 +744,7 @@ class SubscriptionPaymentFailedContext(BaseNotificationContext):
 class SubscriptionExpiredContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_EXPIRED notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -753,6 +756,7 @@ class SubscriptionExpiredContext(BaseNotificationContext):
 class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_CANCELLATION_CONFIRMED notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -763,6 +767,7 @@ class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
 class SubscriptionRenewalReminderContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_RENEWAL_REMINDER notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -775,6 +780,7 @@ class SubscriptionRenewalReminderContext(BaseNotificationContext):
 class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_REVIVAL_CHECKOUT notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -785,6 +791,7 @@ class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
 class SubscriptionPriceMigrationNoticeContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_PRICE_MIGRATION_NOTICE notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str

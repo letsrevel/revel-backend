@@ -102,6 +102,7 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
     org = subscription.organization
     plan = subscription.plan
     ctx: dict[str, t.Any] = {
+        "organization_id": str(org.id),
         "organization_name": org.name,
         "organization_slug": org.slug,
         "plan_name": plan.name,
