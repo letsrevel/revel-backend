@@ -282,4 +282,56 @@ def test_txt_record_published_fails_closed_on_a_resolver_problem(outcome: dict[s
     ):
         assert cloudflare.txt_record_published(TXT_NAME, "tok") is False
 
-    assert [log["event"] for log in logs] == ["custom_domain_txt_lookup_failed"]
+    assert [log["event"] for log in logs] == ["custom_domain_dns_lookup_failed"]
+
+
+# ---- dns_query (the DNS-over-HTTPS lookup behind the TXT check and the pre-flight diagnostics) ----
+
+
+def test_dns_query_asks_for_the_record_type_without_following_redirects() -> None:
+    answers = [{"name": "example.org", "type": 257, "data": '0 issue "letsencrypt.org"'}]
+    with patch("events.service.cloudflare_custom_hostnames.httpx.get", return_value=_doh(answers)) as get:
+        assert cloudflare.dns_query("example.org", "CAA") == ['0 issue "letsencrypt.org"']
+
+    get.assert_called_once_with(
+        cloudflare.DNS_OVER_HTTPS_URL,
+        params={"name": "example.org", "type": "CAA"},
+        headers={"accept": "application/dns-json"},
+        timeout=cloudflare.DNS_LOOKUP_TIMEOUT_SECONDS,
+        follow_redirects=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("rtype", "code"), [("A", 1), ("NS", 2), ("CNAME", 5), ("TXT", 16), ("AAAA", 28), ("CAA", 257)]
+)
+def test_dns_query_returns_the_data_of_the_requested_type_only(rtype: cloudflare.DnsRecordType, code: int) -> None:
+    answers = [{"name": "x", "type": 99, "data": "other"}, {"name": "x", "type": code, "data": "wanted"}]
+    with patch("events.service.cloudflare_custom_hostnames.httpx.get", return_value=_doh(answers)):
+        assert cloudflare.dns_query("x", rtype) == ["wanted"]
+
+
+@pytest.mark.parametrize("response", [_doh(), _doh([], Status=3)])  # NOERROR without an Answer, NXDOMAIN
+def test_dns_query_is_empty_when_there_is_no_such_record(response: httpx.Response) -> None:
+    with patch("events.service.cloudflare_custom_hostnames.httpx.get", return_value=response):
+        assert cloudflare.dns_query("x", "CNAME") == []
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        {"side_effect": httpx.ConnectTimeout("slow")},
+        {"return_value": _doh([], status=503)},
+        {"return_value": _doh([], Status=2)},  # SERVFAIL
+        {"return_value": httpx.Response(200, text="<html>", request=httpx.Request("GET", "https://x"))},
+        {"return_value": _doh([{"type": 5}])},  # an answer without data
+    ],
+)
+def test_dns_query_is_none_and_logged_when_the_lookup_fails(outcome: dict[str, t.Any]) -> None:
+    with (
+        patch("events.service.cloudflare_custom_hostnames.httpx.get", **outcome),
+        capture_logs() as logs,
+    ):
+        assert cloudflare.dns_query("x", "CNAME") is None
+
+    assert [log["event"] for log in logs] == ["custom_domain_dns_lookup_failed"]

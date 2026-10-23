@@ -11,7 +11,7 @@ from structlog.testing import capture_logs
 from events.exceptions import CloudflareAPIError, CustomDomainConflictError, CustomDomainNotEnabledError
 from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 from events.service import cloudflare_custom_hostnames as cloudflare
-from events.service import custom_domain_service
+from events.service import custom_domain_service, dns_diagnostics
 
 pytestmark = pytest.mark.django_db
 
@@ -69,6 +69,13 @@ def txt_published() -> t.Iterator[MagicMock]:
 def configured(settings: t.Any) -> None:
     settings.CLOUDFLARE_API_TOKEN = "tok"
     settings.CLOUDFLARE_ZONE_ID = "zone"
+
+
+@pytest.fixture(autouse=True)
+def no_dns_preflight() -> t.Iterator[MagicMock]:
+    """The DNS pre-flight hints are tested in ``test_dns_diagnostics`` (no network); tests may set ``return_value``."""
+    with patch.object(dns_diagnostics, "diagnose_dns", return_value=[]) as mock:
+        yield mock
 
 
 @pytest.fixture

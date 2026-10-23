@@ -140,13 +140,32 @@ not have to wait for the next scheduled check. It reports what Cloudflare says; 
 Cloudflare validate any faster. If DNS has not propagated yet, pressing it repeatedly changes
 nothing.
 
+### We check your DNS for you
+
+While a domain is **Pending**, every check (the automatic one and **Check now**) also looks at your
+public DNS and adds plain-English hints to the page. They say what is wrong and what to enter, for
+example "No CNAME record was found for events.example.org; add one pointing to
+customers.letsrevel.io", or that the records were created under the doubled name
+`events.example.org.example.org` because your DNS provider appends your domain to the name you type.
+Revel also warns when your CAA records block Let's Encrypt, when the hostname is a root domain, and,
+whenever it finds a problem, tells you which DNS provider hosts your domain and links its "add a
+record" help page. If your DNS is at Cloudflare, create the CNAME as **DNS only** (grey cloud). The
+hints come from public DNS, so they lag behind your changes by the usual propagation time, and they
+disappear on their own once the problem is fixed. A domain that is already **Active** is not checked
+this way.
+
 ### Troubleshooting
 
-The page shows the problems Cloudflare reported at the last check, as plain messages. Typical
-causes:
+The page shows the problems Cloudflare reported at the last check, and the DNS hints described above,
+as plain messages. Typical causes:
 
 | What you see | Likely cause | Fix |
 |---|---|---|
+| "No CNAME record was found for ...", or "... has A or AAAA records but no CNAME" | The CNAME is missing, was created as a different record type, or is proxied or flattened by your DNS provider. | Create a plain CNAME with the name and target the page shows. On Cloudflare, set it to **DNS only** (grey cloud). |
+| "The CNAME record for ... points to ..., not to ..." | The CNAME has the wrong target. | Change the target to the value the page shows. |
+| "Records were found at events.example.org.example.org ..." | Your DNS provider appends your domain to the name field, so the records landed one level too deep. | Delete them and enter only the part before your domain (`events`, and `_cf-custom-hostname.events`). |
+| "The CAA records at ... do not allow Let's Encrypt ..." | Your CAA records only permit other certificate authorities. | Add CAA `issue` records for `letsencrypt.org`, `pki.goog` and `ssl.com`, or remove the CAA records. |
+| "... is a root domain, and most DNS providers cannot put a CNAME on one" | The hostname has no subdomain. | Request a subdomain such as `events.example.org`. |
 | Stays **Pending** for hours, no error | The CNAME is missing, has the wrong name, or points somewhere else. The ownership TXT record is missing or has a different value (the page then says "Add the TXT record ... to prove you own this hostname"). | Compare your DNS records to the page character by character. Check the TXT with `dig +short TXT _cf-custom-hostname.events.example.org`. Check the CNAME with `dig +short events.example.org CNAME`. |
 | A message that the hostname "moved" or no longer points to the fallback origin | Cloudflare gave up waiting for the CNAME, or the CNAME was changed. | Restore the CNAME and request the domain again. The domain becomes **Failed** straight away, whether it was pending or active, and everyone signed in on it is signed out. |
 | A certificate status like `validation_timed_out` | Certificate validation did not finish in time. | Fix DNS, then request the domain again if it turned **Failed**. On an **Active** domain it is a warning. |

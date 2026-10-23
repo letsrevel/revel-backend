@@ -14,6 +14,7 @@ from structlog.testing import capture_logs
 from events.exceptions import CloudflareAPIError, CustomDomainNotEnabledError
 from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 from events.service import cloudflare_custom_hostnames as cloudflare
+from events.service import dns_diagnostics
 from events.tasks import sync_custom_domains_task
 
 pytestmark = pytest.mark.django_db
@@ -46,6 +47,13 @@ def configured(settings: t.Any) -> None:
 def txt_published() -> t.Iterator[MagicMock]:
     """The ownership TXT record is published in public DNS (no network); tests override ``return_value``."""
     with patch.object(cloudflare, "txt_record_published", return_value=True) as mock:
+        yield mock
+
+
+@pytest.fixture(autouse=True)
+def no_dns_preflight() -> t.Iterator[MagicMock]:
+    """The DNS pre-flight hints are tested in ``test_dns_diagnostics`` (no network); tests may set ``return_value``."""
+    with patch.object(dns_diagnostics, "diagnose_dns", return_value=[]) as mock:
         yield mock
 
 

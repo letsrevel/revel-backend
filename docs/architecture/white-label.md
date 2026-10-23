@@ -457,6 +457,19 @@ The target is decided as follows:
   it PENDING. ACTIVE domains are not re-checked, and `activate_domain` (admin, seeds) is not gated;
 - anything else (`active_redeploying`, ...): no change.
 
+**DNS pre-flight.** The commonest support tickets are DNS mistakes, so for a domain that was PENDING and
+is not becoming ACTIVE, `sync_domain_status` appends the hints of `dns_diagnostics.diagnose_dns` to
+`last_errors` (the same plain-English list as Cloudflare's messages, de-duplicated, so there is no schema,
+migration or frontend change). It looks up the CNAME, the doubled-name typo (`events.example.org.example.org`),
+the CAA records that apply (RFC 8659: the first level, going up to the registrable domain, that has any; hinted
+only when Let's Encrypt is blocked) and a root-domain hostname, then names the customer's DNS host from its NS
+records (`DNS_PROVIDERS`) with a link to its help page. The lookups are `dns_query` in
+`cloudflare_custom_hostnames` (DNS-over-HTTPS, which `txt_record_published` is built on): `None` means the
+lookup failed and skips that check, nothing raises, and a failed first lookup skips the rest. ACTIVE domains
+are never diagnosed, and when Cloudflare is ready with only the TXT missing, only the doubled-name check runs.
+The registrable domain is the naive last two labels (#1177), so under a multi-part suffix such as `co.uk` the
+doubled-name and provider hints are missed.
+
 `events.sync_custom_domains` calls it every 15 minutes with per-domain error isolation, and the
 owner's refresh endpoint calls it on demand. Without Cloudflare configured nothing is provisioned
 and the task is a no-op; staff activate by hand.

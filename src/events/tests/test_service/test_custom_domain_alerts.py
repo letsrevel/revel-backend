@@ -1,7 +1,7 @@
 """Platform alerts when an ACTIVE custom domain develops a problem or fails (#1148 review, S3). Cloudflare is mocked."""
 
 import typing as t
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core import mail
@@ -10,7 +10,7 @@ from structlog.testing import capture_logs
 from accounts.models import RevelUser
 from events.models import Organization, OrganizationDomain
 from events.service import cloudflare_custom_hostnames as cloudflare
-from events.service import custom_domain_service
+from events.service import custom_domain_service, dns_diagnostics
 from events.tasks import notify_custom_domain_problem
 
 pytestmark = pytest.mark.django_db
@@ -40,6 +40,13 @@ def cloudflare_configured(settings: t.Any) -> None:
     settings.CLOUDFLARE_API_TOKEN = "tok"
     settings.CLOUDFLARE_ZONE_ID = "zone"
     settings.CUSTOM_DOMAIN_CNAME_TARGET = "customers.letsrevel.io"
+
+
+@pytest.fixture(autouse=True)
+def no_dns_preflight() -> t.Iterator[MagicMock]:
+    """The DNS pre-flight hints are tested in ``test_dns_diagnostics`` (no network); tests may set ``return_value``."""
+    with patch.object(dns_diagnostics, "diagnose_dns", return_value=[]) as mock:
+        yield mock
 
 
 @pytest.fixture
