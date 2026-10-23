@@ -680,6 +680,36 @@ class TestBillingPortalEndpoint:
         # Pydantic's HttpUrl normalizes the URL; check the prefix instead of an exact match.
         assert mock_portal.call_args.kwargs["return_url"].startswith("https://app.example/billing")
 
+    @pytest.mark.parametrize(
+        ("custom_domain", "enabled", "expected"),
+        [
+            ("events.example.com", True, "https://events.example.com"),
+            ("events.example.com", False, None),
+            (None, True, None),
+        ],
+    )
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.billing_portal.Session.create")
+    def test_default_return_url_follows_the_org_custom_domain(
+        self,
+        mock_portal: mock.Mock,
+        subscriber_client: Client,
+        stripe_org: Organization,
+        subscriber_profile: None,
+        settings: t.Any,
+        custom_domain: str | None,
+        enabled: bool,
+        expected: str | None,
+    ) -> None:
+        """Without a client return_url, the portal returns to the org's tenant origin when it has one (#1153)."""
+        Organization.objects.filter(pk=stripe_org.pk).update(custom_domain=custom_domain, custom_domain_enabled=enabled)
+        mock_portal.return_value = mock.MagicMock(url="https://stripe.example/portal/123")
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+
+        response = subscriber_client.post(url, data={}, content_type="application/json")
+
+        assert response.status_code == 201, response.content
+        assert mock_portal.call_args.kwargs["return_url"] == (expected or settings.FRONTEND_BASE_URL).rstrip("/")
+
     def test_refuses_when_no_customer_profile(
         self,
         subscriber_client: Client,

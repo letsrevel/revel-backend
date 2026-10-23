@@ -12,7 +12,8 @@ from django.utils.translation import gettext as _
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.tasks import send_email
-from events.models import AttendeeVisibilityFlag, Event, EventRSVP, Ticket
+from events.models import AttendeeVisibilityFlag, Event, EventRSVP, Organization, Ticket
+from events.utils.frontend_urls import frontend_base_url_for
 
 logger = structlog.get_logger(__name__)
 
@@ -118,19 +119,31 @@ def build_attendee_visibility_flags(event_id: str) -> None:
         )
 
 
+def _confirmation_base_url(organization_id: str | None) -> str:
+    """Frontend origin for a guest confirmation link: the org's tenant origin, else the platform's."""
+    org = (
+        Organization.objects.only("id", "custom_domain", "custom_domain_enabled").filter(pk=organization_id).first()
+        if organization_id
+        else None
+    )
+    return frontend_base_url_for(org)
+
+
 @shared_task(name="events.tasks.send_guest_rsvp_confirmation")
-def send_guest_rsvp_confirmation(email: str, token: str, event_name: str) -> None:
+def send_guest_rsvp_confirmation(email: str, token: str, event_name: str, organization_id: str | None = None) -> None:
     """Send RSVP confirmation email to guest user.
 
     Args:
         email: Guest user's email
         token: JWT confirmation token
         event_name: Name of the event
+        organization_id: The event's organization; the confirmation link points at its custom
+            domain when it has an active one (the platform otherwise, or when omitted)
     """
     logger.info("guest_rsvp_confirmation_sending", email=email, event_name=event_name)
     subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
-    confirmation_link = site_settings.frontend_base_url + f"/events/confirm-action?token={token}"
+    confirmation_link = _confirmation_base_url(organization_id) + f"/events/confirm-action?token={token}"
     ctx = {
         "confirmation_link": confirmation_link,
         "event_name": event_name,
@@ -143,7 +156,9 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str) -> Non
 
 
 @shared_task(name="events.tasks.send_guest_ticket_confirmation")
-def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier_name: str) -> None:
+def send_guest_ticket_confirmation(
+    email: str, token: str, event_name: str, tier_name: str, organization_id: str | None = None
+) -> None:
     """Send ticket purchase confirmation email to guest user.
 
     Only sent for non-online-payment tickets (free/offline/at-the-door).
@@ -153,11 +168,13 @@ def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier
         token: JWT confirmation token
         event_name: Name of the event
         tier_name: Name of the ticket tier
+        organization_id: The event's organization; the confirmation link points at its custom
+            domain when it has an active one (the platform otherwise, or when omitted)
     """
     logger.info("guest_ticket_confirmation_sending", email=email, event_name=event_name, tier_name=tier_name)
     subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
-    confirmation_link = site_settings.frontend_base_url + f"/events/confirm-action?token={token}"
+    confirmation_link = _confirmation_base_url(organization_id) + f"/events/confirm-action?token={token}"
     ctx = {
         "confirmation_link": confirmation_link,
         "event_name": event_name,

@@ -44,6 +44,7 @@ from events.tasks import (
     notify_admin_new_organization_pushover,
 )
 from events.utils import format_event_datetime, get_invitation_message
+from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
@@ -238,7 +239,7 @@ def handle_membership_granted(
         return
 
     def send_membership_notification() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(instance.organization)
 
         notification_requested.send(
             sender=sender,
@@ -336,7 +337,7 @@ def handle_membership_tier_changed(
         return
 
     def send_card_updated_notification() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(instance.organization)
         notification_requested.send(
             sender=sender,
             user=instance.user,
@@ -362,7 +363,7 @@ def handle_membership_promoted(
         return
 
     def send_promotion_notification() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(instance.organization)
 
         notification_requested.send(
             sender=sender,
@@ -483,7 +484,7 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
         return
 
     def send_follower_notifications() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(organization)
         event_series = instance.event_series
         event_location = _get_event_location_string(instance)
 

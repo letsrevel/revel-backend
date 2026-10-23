@@ -7,6 +7,11 @@ from datetime import datetime
 
 from django.utils import timezone, translation
 
+from events.utils.frontend_urls import frontend_base_url_for
+
+if t.TYPE_CHECKING:
+    from events.models import Organization
+
 ChannelType = t.Literal["email", "markdown", "telegram"]
 
 # Brand primary (docs/brand-style-guide.md); mirrors the `a { color: … }` rule in
@@ -58,12 +63,20 @@ def format_datetime(
     return dt.strftime("%b %d, %Y at %I:%M %p")
 
 
+def _resolve_base_url(base_url: str | None) -> str:
+    """Return ``base_url`` or, when None, the platform frontend origin."""
+    from common.models import SiteSettings
+
+    return base_url if base_url is not None else SiteSettings.get_solo().frontend_base_url
+
+
 def format_org_signature(
     org_name: str,
     org_slug: str,
     channel: ChannelType = "markdown",
     include_logo: bool = False,
     logo_url: str | None = None,
+    base_url: str | None = None,
 ) -> str:
     """Format organization signature with optional logo and link.
 
@@ -73,6 +86,8 @@ def format_org_signature(
         channel: Output channel type (email, markdown, telegram)
         include_logo: Whether to include logo (email only)
         logo_url: URL to organization logo (required if include_logo=True)
+        base_url: Frontend origin for the link (the org's tenant origin when it has an
+            active custom domain); defaults to the platform ``frontend_base_url``
 
     Returns:
         Formatted organization signature
@@ -82,9 +97,7 @@ def format_org_signature(
         markdown: [Org Name](https://...)
         telegram: Same as markdown (will be converted to HTML)
     """
-    from common.models import SiteSettings
-
-    org_url = f"{SiteSettings.get_solo().frontend_base_url}/org/{org_slug}"
+    org_url = f"{_resolve_base_url(base_url)}/org/{org_slug}"
 
     if channel == "email":
         # HTML format for email
@@ -108,6 +121,7 @@ def format_event_link(
     event_id: str,
     channel: ChannelType = "markdown",
     button: bool = False,
+    base_url: str | None = None,
 ) -> str:
     """Format event link for notifications.
 
@@ -116,6 +130,8 @@ def format_event_link(
         event_id: Event ID for URL
         channel: Output channel type
         button: Whether to format as a button (email only)
+        base_url: Frontend origin for the link (the org's tenant origin when it has an
+            active custom domain); defaults to the platform ``frontend_base_url``
 
     Returns:
         Formatted event link
@@ -125,9 +141,7 @@ def format_event_link(
         email link: <a href="...">Event Name</a>
         markdown: [Event Name](https://...)
     """
-    from common.models import SiteSettings
-
-    event_url = f"{SiteSettings.get_solo().frontend_base_url}/events/{event_id}"
+    event_url = f"{_resolve_base_url(base_url)}/events/{event_id}"
 
     if channel == "email":
         if button:
@@ -304,18 +318,43 @@ def truncate_telegram_html(message: str, max_length: int, suffix: str) -> str:
     return result
 
 
-def _org_logo_absolute_url(organization_id: str | None, organization_slug: str | None) -> str | None:
+def _context_organization(context: dict[str, t.Any]) -> "Organization | None":
+    """Look up the organization a notification context refers to (one query).
+
+    Identifies the org by ``organization_id`` when present, else by ``organization_slug``,
+    and loads only the columns enrichment needs: the logo and the custom-domain pair
+    that decides which frontend origin its links use.
+
+    Args:
+        context: Raw notification context dict.
+
+    Returns:
+        The organization, or None when the context names none or it no longer exists.
+    """
+    from events.models import Organization
+
+    if organization_id := context.get("organization_id"):
+        lookup = {"id": organization_id}
+    elif organization_slug := context.get("organization_slug"):
+        lookup = {"slug": organization_slug}
+    else:
+        return None
+    return (
+        Organization.objects.only("id", "logo", "logo_thumbnail", "custom_domain", "custom_domain_enabled")
+        .filter(**lookup)
+        .first()
+    )
+
+
+def _org_logo_absolute_url(org: "Organization | None") -> str | None:
     """Return the absolute URL of an organization's logo, or None when it has no logo.
 
     Points at the stable ``/api/organizations/{id}/logo`` endpoint (the same indirection
     the Google Wallet links use): raw media URLs die when a logo is replaced, and emails
     live on. That endpoint serves the thumbnail, falling back to the logo.
 
-    Costs one query. Identifies the org by id when present, else by slug.
-
     Args:
-        organization_id: Organization UUID string from the notification context.
-        organization_slug: Organization slug, used when no id is available.
+        org: The organization from :func:`_context_organization`, or None.
 
     Returns:
         Absolute logo URL, or None when the org is missing or has no logo.
@@ -323,14 +362,65 @@ def _org_logo_absolute_url(organization_id: str | None, organization_slug: str |
     from django.conf import settings
     from django.urls import reverse
 
-    from events.models import Organization
-
-    lookup = {"id": organization_id} if organization_id else {"slug": organization_slug}
-    org = Organization.objects.only("id", "logo", "logo_thumbnail").filter(**lookup).first()
     if org is None or not (org.logo_thumbnail or org.logo):
         return None
     path = reverse("api:organization_logo", kwargs={"organization_id": org.id})
     return f"{settings.BASE_URL.rstrip('/')}{path}"
+
+
+def _add_org_fields(enriched: dict[str, t.Any], org: t.Callable[[], "Organization | None"]) -> None:
+    """Add the organization signature, logo URL and ``organization_url`` to ``enriched``.
+
+    Args:
+        enriched: The context being enriched (mutated in place).
+        org: Lazy accessor for the context's organization (memoized by the caller).
+    """
+    # Unless the caller supplied a logo URL (an explicit empty value opts out).
+    if "organization_logo_url" not in enriched:
+        logo_url = _org_logo_absolute_url(org())
+        if logo_url:
+            enriched["organization_logo_url"] = logo_url
+    org_logo_url = enriched.get("organization_logo_url")
+    base_url = frontend_base_url_for(org())
+
+    # HTML version with optional logo (for email)
+    enriched["org_signature_html"] = format_org_signature(
+        enriched["organization_name"],
+        enriched["organization_slug"],
+        channel="email",
+        include_logo=bool(org_logo_url),
+        logo_url=org_logo_url,
+        base_url=base_url,
+    )
+
+    # Markdown version (for in-app and telegram)
+    enriched["org_signature_md"] = format_org_signature(
+        enriched["organization_name"],
+        enriched["organization_slug"],
+        channel="markdown",
+        base_url=base_url,
+    )
+
+    # Also create direct org URL
+    enriched["organization_url"] = f"{base_url}/org/{enriched['organization_slug']}"
+
+
+def _add_event_fields(enriched: dict[str, t.Any], base_url: str) -> None:
+    """Add ``event_url`` and the email/markdown event links to ``enriched``.
+
+    Args:
+        enriched: The context being enriched (mutated in place).
+        base_url: Frontend origin for the links (tenant origin or platform).
+    """
+    event_name, event_id = enriched["event_name"], enriched["event_id"]
+    enriched["event_url"] = f"{base_url}/events/{event_id}"
+    enriched["event_button_html"] = format_event_link(
+        event_name, event_id, channel="email", button=True, base_url=base_url
+    )
+    enriched["event_link_html"] = format_event_link(
+        event_name, event_id, channel="email", button=False, base_url=base_url
+    )
+    enriched["event_link_md"] = format_event_link(event_name, event_id, channel="markdown", base_url=base_url)
 
 
 def get_formatted_context_for_template(
@@ -342,8 +432,13 @@ def get_formatted_context_for_template(
     This function takes the raw notification context and enriches it with:
     - Formatted datetime strings
     - Organization signature (HTML and markdown), plus ``organization_logo_url``
-      (one DB lookup) when the organization has a logo
+      when the organization has a logo
     - Event links
+
+    Links follow the organization's frontend origin (its active custom domain when it
+    has one, else the platform). The organization is identified by ``organization_id`` or
+    ``organization_slug`` in the context and looked up once per call, lazily, serving
+    both the logo and the origin.
 
     Args:
         context: Raw notification context dict
@@ -378,67 +473,19 @@ def get_formatted_context_for_template(
                     enriched[formatted_key] = format_datetime(enriched[field], format_type="full")
                     enriched[short_key] = format_datetime(enriched[field], format_type="short")
 
-        # Add organization signature if org info is present
+        # One lazy org lookup per call: it serves the logo and the tenant origin for every link.
+        # ponytail: one PK lookup per rendered body (up to ~4 per notification across
+        # in-app/email/telegram); memoize per notification if bulk sends ever show it.
+        org_cache: list[Organization | None] = []
+
+        def org() -> Organization | None:
+            if not org_cache:
+                org_cache.append(_context_organization(enriched))
+            return org_cache[0]
+
         if "organization_name" in enriched and "organization_slug" in enriched:
-            # Resolve the org logo only when a signature is built, unless the caller supplied one.
-            # ponytail: one PK lookup per rendered body (up to ~4 per notification across
-            # in-app/email/telegram); memoize per notification if bulk sends ever show it.
-            if "organization_logo_url" not in enriched:
-                logo_url = _org_logo_absolute_url(enriched.get("organization_id"), enriched["organization_slug"])
-                if logo_url:
-                    enriched["organization_logo_url"] = logo_url
-            org_logo_url = enriched.get("organization_logo_url")
-
-            # HTML version with optional logo (for email)
-            enriched["org_signature_html"] = format_org_signature(
-                enriched["organization_name"],
-                enriched["organization_slug"],
-                channel="email",
-                include_logo=bool(org_logo_url),
-                logo_url=org_logo_url,
-            )
-
-            # Markdown version (for in-app and telegram)
-            enriched["org_signature_md"] = format_org_signature(
-                enriched["organization_name"],
-                enriched["organization_slug"],
-                channel="markdown",
-            )
-
-            # Also create direct org URL
-            from common.models import SiteSettings
-
-            site_settings = SiteSettings.get_solo()
-            enriched["organization_url"] = f"{site_settings.frontend_base_url}/org/{enriched['organization_slug']}"
-
-        # Add event link if event info is present
+            _add_org_fields(enriched, org)
         if "event_name" in enriched and "event_id" in enriched:
-            from common.models import SiteSettings
-
-            site_settings = SiteSettings.get_solo()
-            enriched["event_url"] = f"{site_settings.frontend_base_url}/events/{enriched['event_id']}"
-
-            # Button version for email
-            enriched["event_button_html"] = format_event_link(
-                enriched["event_name"],
-                enriched["event_id"],
-                channel="email",
-                button=True,
-            )
-
-            # Link version for email
-            enriched["event_link_html"] = format_event_link(
-                enriched["event_name"],
-                enriched["event_id"],
-                channel="email",
-                button=False,
-            )
-
-            # Markdown version
-            enriched["event_link_md"] = format_event_link(
-                enriched["event_name"],
-                enriched["event_id"],
-                channel="markdown",
-            )
+            _add_event_fields(enriched, frontend_base_url_for(org()))
 
     return enriched

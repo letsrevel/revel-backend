@@ -22,6 +22,7 @@ from django.utils import timezone
 from common.models import SiteSettings
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 from events.utils import format_organization_datetime
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -100,15 +101,15 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
     """
     org = subscription.organization
     plan = subscription.plan
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
     ctx: dict[str, t.Any] = {
         "organization_name": org.name,
         "organization_slug": org.slug,
         "plan_name": plan.name,
-        "organization_contact_url": f"{frontend_base_url}/org/{org.slug}",
+        "organization_contact_url": f"{frontend_base_url_for(org)}/org/{org.slug}",
     }
     if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value:
-        ctx["manage_subscription_url"] = f"{frontend_base_url}{MEMBERSHIPS_PATH}"
+        # /account/* is the platform account area, not an org route: it never moves to a tenant domain.
+        ctx["manage_subscription_url"] = f"{SiteSettings.get_solo().frontend_base_url}{MEMBERSHIPS_PATH}"
     return ctx
 
 
