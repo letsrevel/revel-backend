@@ -15,7 +15,7 @@ import typing as t
 import structlog
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -24,6 +24,7 @@ from events.exceptions import CloudflareAPIError, CustomDomainConflictError, Cus
 from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 from events.schema.custom_domain import DnsRecordSchema, DnsRecordType
 from events.service import cloudflare_custom_hostnames as cloudflare
+from events.service import turnstile_hostname_service
 from events.service.tenant_service import invalidate_tenant_cache
 from events.utils.hostname import validate_custom_hostname
 
@@ -96,6 +97,8 @@ def _save_status(
         organization.custom_domain = custom_domain
     hostname = domain.hostname
     transaction.on_commit(lambda: invalidate_tenant_cache(hostname))
+    if OrganizationDomain.Status.ACTIVE in (previous[0], status):
+        turnstile_hostname_service.schedule_reconcile()  # the domain entered or left the Turnstile hostname list
 
 
 def activate_domain(domain: OrganizationDomain) -> OrganizationDomain:
@@ -164,6 +167,34 @@ def _live_domain_exists(organization: Organization) -> bool:
     return organization.domains.filter(
         status__in=[OrganizationDomain.Status.PENDING, OrganizationDomain.Status.ACTIVE]
     ).exists()
+
+
+# Arbitrary constant: the key of the Postgres advisory lock that serializes the platform-wide domain limit check.
+_DOMAIN_LIMIT_LOCK_KEY = 1148_01
+
+
+def _domain_limit_reached() -> bool:
+    """Return whether the platform already has ``CUSTOM_DOMAIN_LIMIT`` live (pending or active) custom domains.
+
+    The limit exists because every ACTIVE domain takes a slot on the Turnstile widget (Free plan: 10 per widget,
+    one taken by the platform host), so it counts live domains platform-wide, whatever the organization's kill
+    switch says (a switched-off domain returns to the widget when the switch is turned back on). FAILED and
+    REMOVED domains do not count. ``0`` means unlimited.
+    """
+    limit = settings.CUSTOM_DOMAIN_LIMIT
+    if not limit:
+        return False
+    live = OrganizationDomain.objects.filter(
+        status__in=[OrganizationDomain.Status.PENDING, OrganizationDomain.Status.ACTIVE]
+    )
+    return live.count() >= limit
+
+
+def _raise_if_domain_limit_reached() -> None:
+    if _domain_limit_reached():
+        raise CustomDomainConflictError(
+            str(_("The platform has reached its limit of custom domains. Please contact support."))
+        )
 
 
 def _require_enabled(organization: Organization) -> None:
@@ -307,7 +338,8 @@ def request_domain(organization: Organization, hostname: str) -> OrganizationDom
     Raises:
         CustomDomainNotEnabledError: The platform has not enabled custom domains for the organization.
         DjangoValidationError: The hostname is not acceptable.
-        CustomDomainConflictError: The organization already has a live domain, or the hostname is taken.
+        CustomDomainConflictError: The organization already has a live domain, the hostname is taken, or the
+            platform is at ``CUSTOM_DOMAIN_LIMIT`` live domains.
         CloudflareAPIError: Cloudflare failed.
     """
     _require_enabled(organization)
@@ -326,6 +358,7 @@ def request_domain(organization: Organization, hostname: str) -> OrganizationDom
         delete_domain(failed)
     if OrganizationDomain.objects.exclude(status=OrganizationDomain.Status.REMOVED).filter(hostname=hostname).exists():
         raise CustomDomainConflictError(str(_("This hostname is already in use.")))
+    _raise_if_domain_limit_reached()  # fail fast, before creating anything at Cloudflare; re-checked under lock below
 
     hosted = _create_cloudflare_hostname(hostname) if cloudflare.is_configured() else None
     try:
@@ -334,6 +367,11 @@ def request_domain(organization: Organization, hostname: str) -> OrganizationDom
             locked = Organization.objects.select_for_update().get(pk=organization.pk)
             if _live_domain_exists(locked):
                 raise CustomDomainConflictError(str(_("This organization already has a pending or active domain.")))
+            # Platform-wide limit: an advisory lock (held to the end of the transaction) makes check + insert
+            # exact across organizations, which the per-organization row lock above cannot.
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [_DOMAIN_LIMIT_LOCK_KEY])
+            _raise_if_domain_limit_reached()
             return OrganizationDomain.objects.create(
                 organization=organization,
                 hostname=hostname,

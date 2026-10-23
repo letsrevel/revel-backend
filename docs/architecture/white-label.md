@@ -20,7 +20,8 @@ and no tenant column on other tables.
 | Cloudflare client, ownership TXT lookup (`txt_record_published`) | `events/service/cloudflare_custom_hostnames.py` |
 | Tenant resolution, cache, return host | `events/service/tenant_service.py` |
 | Tenant session binding and revocation | `accounts/service/tenant_session.py`, `accounts/controllers/auth.py` (login stamping, `/auth/refresh`), `common/auth_base.py` (`register_session_validator`, `SessionRevoked`), `common/authentication.py` (`OptionalAuth`), registered in `accounts/apps.py` |
-| Sync task, problem alerts, org-delete cleanup | `events/tasks/custom_domains.py` (`events.sync_custom_domains`, `events.notify_custom_domain_problem`, `events.delete_organization_cloudflare_hostnames`) |
+| Turnstile widget client and hostname reconciliation | `events/service/cloudflare_turnstile.py`, `events/service/turnstile_hostname_service.py` |
+| Sync task, problem alerts, org-delete cleanup, Turnstile reconcile | `events/tasks/custom_domains.py` (`events.sync_custom_domains`, `events.notify_custom_domain_problem`, `events.delete_organization_cloudflare_hostnames`, `events.reconcile_turnstile_hostnames`, `events.notify_turnstile_sync_problem`) |
 | Guest seat-hold session (cookie and header) | `events/service/guest_hold_session.py` |
 | Org-aware URLs | `events/utils/frontend_urls.py` |
 | Tenant email sender | `notifications/service/org_sender.py` |
@@ -465,6 +466,35 @@ receiver dispatches `events.delete_organization_cloudflare_hostnames` on commit.
 each hostname best effort (404 means gone, other failures log
 `custom_domain_orphaned_cloudflare_hostname`, no Cloudflare configuration is a logged skip), so
 deletion never waits on or fails because of Cloudflare.
+
+**Turnstile hostname automation.** Signup on a custom domain needs its hostname on the Turnstile
+widget's allowlist (a listed hostname covers its subdomains). `turnstile_hostname_service` reconciles
+the list: desired = every current entry that is not a Revel-managed hostname (the hostname of any
+`OrganizationDomain` row, in any status, so platform entries survive) plus the hostnames of ACTIVE
+domains of organizations with the kill switch on. It reads the widget (`GET`
+`/accounts/{account_id}/challenges/widgets/{sitekey}`), and only when the set differs writes the whole
+configuration back with a `PUT` (the endpoint requires `name`, `mode` and `domains`, so everything
+else is preserved). The client reuses the custom-hostnames client's request, envelope and error
+handling (`request_result`). It is off unless `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and
+`TURNSTILE_SITE_KEY` are set; the token needs *Account → Turnstile Sites → Edit* on top of the zone
+permission.
+
+It runs once per `events.sync_custom_domains` sweep, and as `events.reconcile_turnstile_hostnames`,
+dispatched with `transaction.on_commit` from `_save_status` (entering or leaving ACTIVE), the admin
+kill-switch save and the organization `post_delete` receiver. Cloudflare errors are logged
+(`turnstile_hostnames_sync_failed`), staff are emailed through `events.notify_turnstile_sync_problem`
+(rate-limited with a cache key, re-armed by a successful run) and nothing is raised, so activation and
+the sweep are never blocked. Two reconciles racing can write a stale list; every run recomputes the
+full list, so the next one converges. When more ACTIVE hostnames exist than
+`TURNSTILE_WIDGET_HOSTNAME_LIMIT`, the ones that fit are written (longest-serving first) and staff are
+alerted.
+
+**Domain cap.** `request_domain` refuses a new domain with a 409 (`CustomDomainConflictError`) when
+`CUSTOM_DOMAIN_LIMIT` live (PENDING plus ACTIVE) domains already exist platform-wide; `0` is unlimited.
+The default 9 is the Turnstile Free plan's 10 hostnames per widget minus the platform host. PENDING
+counts because it becomes a widget entry on activation. The check runs before the Cloudflare create and
+again at insert time under a Postgres advisory lock (`pg_advisory_xact_lock`), so concurrent requests
+from different organizations cannot overshoot.
 
 ## Wallet passes and PDFs
 

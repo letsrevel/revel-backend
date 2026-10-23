@@ -31,7 +31,7 @@ from events.models import (
     TicketTier,
 )
 from events.models.organization import MembershipTier
-from events.service import permission_snapshot, ticket_number_service
+from events.service import permission_snapshot, ticket_number_service, turnstile_hostname_service
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import unclaim_user_potluck_items
@@ -742,6 +742,7 @@ def invalidate_tenant_cache_on_organization_delete(
     """
     if hostname := instance.custom_domain:
         transaction.on_commit(lambda: invalidate_tenant_cache(hostname))
+        turnstile_hostname_service.schedule_reconcile()  # its ACTIVE hostname leaves the Turnstile widget
     # The cascade also orphans the Cloudflare hostnames (certificates, claimed hostname): remove them
     # once the deletion commits. A task, so the request never waits on (or fails because of) Cloudflare.
     if hostname_ids := getattr(instance, "_cloudflare_hostname_ids", None):
