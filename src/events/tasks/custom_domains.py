@@ -4,7 +4,10 @@ import typing as t
 
 import structlog
 from celery import shared_task
+from django.db.models import Q
 
+from accounts.models import RevelUser
+from common.tasks import send_email
 from events.models import OrganizationDomain
 from events.service import cloudflare_custom_hostnames, custom_domain_service
 
@@ -52,3 +55,48 @@ def sync_custom_domains_task() -> SyncCustomDomainsResult:
         else:
             result["synced"] += 1
     return result
+
+
+@shared_task(name="events.notify_custom_domain_problem")
+def notify_custom_domain_problem(domain_id: str, event: str) -> None:
+    """Email platform staff that a live custom domain developed a problem or failed.
+
+    Dispatched by ``sync_domain_status`` on the clean -> problem transition of an ACTIVE domain, or when
+    it fails. Staff are every active superuser or staff user; the mail goes out as one BCC'd message.
+
+    Args:
+        domain_id: The OrganizationDomain id.
+        event: ``custom_domain_active_problem`` or ``custom_domain_active_failed``.
+    """
+    domain = OrganizationDomain.objects.select_related("organization").filter(pk=domain_id).first()
+    if domain is None:
+        return
+    recipients = list(
+        RevelUser.objects.filter(Q(is_superuser=True) | Q(is_staff=True), is_active=True)
+        .values_list("email", flat=True)
+        .distinct()
+    )
+    if not recipients:
+        logger.warning("custom_domain_alert_no_recipients", domain_id=domain_id)
+        return
+    failed = event == "custom_domain_active_failed"
+    headline = "Custom domain failed" if failed else "Custom domain has a problem"
+    problems = "\n".join(f"- {message}" for message in domain.last_errors) or "- (none reported)"
+    body = (
+        f"{headline}: {domain.hostname}\n"
+        f"Organization: {domain.organization.name} ({domain.organization_id})\n"
+        f"Status: {domain.status}\n\n"
+        f"Reported by Cloudflare:\n{problems}\n\n"
+        "Review it in the Django admin (Organization domains)."
+    )
+    send_email(to=recipients, subject=f"{headline}: {domain.hostname}", body=body)
+
+
+@shared_task(name="events.delete_organization_cloudflare_hostnames")
+def delete_organization_cloudflare_hostnames(hostname_ids: list[str]) -> None:
+    """Delete a deleted organization's custom hostnames at Cloudflare (best effort, never raises on API errors).
+
+    Args:
+        hostname_ids: The ``cloudflare_hostname_id`` of each of the organization's domains.
+    """
+    custom_domain_service.delete_orphaned_cloudflare_hostnames(hostname_ids)

@@ -178,6 +178,15 @@ def test_status_and_identity_are_read_only(rf: t.Any, superuser: RevelUser, pend
     assert _admin().has_delete_permission(request, pending) is False
 
 
+def test_domains_cannot_be_added_in_the_admin(rf: t.Any, superuser: RevelUser, client: t.Any) -> None:
+    """Adding would bypass the kill switch and Cloudflare provisioning; only the service creates rows."""
+    assert _admin().has_add_permission(_request(rf, superuser)) is False
+
+    client.force_login(superuser)
+    response = client.get("/admin/events/organizationdomain/add/")
+    assert response.status_code == 403
+
+
 def test_organization_admin_exposes_gate_but_not_the_synced_hostname(rf: t.Any, superuser: RevelUser) -> None:
     """custom_domain_enabled is editable in the admin; custom_domain is read-only."""
     org_admin = t.cast(OrganizationAdmin, site._registry[Organization])

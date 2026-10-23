@@ -2,9 +2,12 @@
 
 import hashlib
 import typing as t
+from uuid import UUID
 
+import jwt
 import structlog
 from celery import shared_task
+from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
@@ -121,11 +124,31 @@ def build_attendee_visibility_flags(event_id: str) -> None:
         )
 
 
-def _confirmation_org(organization_id: str | None) -> Organization | None:
-    """The event's organization, loaded once for both the link origin and the sender."""
-    if not organization_id:
+def _token_event_id(token: str) -> UUID | None:
+    """The event id carried by a guest confirmation token, or None if it can't be read."""
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
+        )
+        return UUID(str(payload["event_id"]))
+    except jwt.PyJWTError, KeyError, ValueError:
         return None
-    return Organization.objects.only(*SENDER_ORG_FIELDS).filter(pk=organization_id).first()
+
+
+def _confirmation_org(organization_id: str | None, token: str) -> Organization | None:
+    """The event's organization, loaded once for both the link origin and the sender.
+
+    Producers keep calling the tasks with their pre-white-label arguments (so a rolling deploy,
+    web before workers, never hands an old worker an argument it doesn't know), hence the
+    organization is normally derived here from the confirmation token's event. An explicit
+    ``organization_id`` (older callers, tests) wins.
+    """
+    orgs = Organization.objects.only(*SENDER_ORG_FIELDS)
+    if organization_id:
+        return orgs.filter(pk=organization_id).first()
+    if (event_id := _token_event_id(token)) is None:
+        return None
+    return orgs.filter(events__id=event_id).first()
 
 
 def _tenant_sender(org: Organization | None, kind: str) -> dict[str, t.Any]:
@@ -151,13 +174,14 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str, organi
         email: Guest user's email
         token: JWT confirmation token
         event_name: Name of the event
-        organization_id: The event's organization; the confirmation link points at its custom
-            domain when it has an active one (the platform otherwise, or when omitted)
+        organization_id: Optional override for the event's organization. Normally omitted: the
+            organization is derived from the token's event, and the confirmation link and sender
+            follow its custom domain when it has an active one (the platform otherwise)
     """
     logger.info("guest_rsvp_confirmation_sending", email=email, event_name=event_name)
     subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
-    org = _confirmation_org(organization_id)
+    org = _confirmation_org(organization_id, token)
     confirmation_link = frontend_base_url_for(org) + f"/events/confirm-action?token={token}"
     ctx = {
         "confirmation_link": confirmation_link,
@@ -185,13 +209,14 @@ def send_guest_ticket_confirmation(
         token: JWT confirmation token
         event_name: Name of the event
         tier_name: Name of the ticket tier
-        organization_id: The event's organization; the confirmation link points at its custom
-            domain when it has an active one (the platform otherwise, or when omitted)
+        organization_id: Optional override for the event's organization. Normally omitted: the
+            organization is derived from the token's event, and the confirmation link and sender
+            follow its custom domain when it has an active one (the platform otherwise)
     """
     logger.info("guest_ticket_confirmation_sending", email=email, event_name=event_name, tier_name=tier_name)
     subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
-    org = _confirmation_org(organization_id)
+    org = _confirmation_org(organization_id, token)
     confirmation_link = frontend_base_url_for(org) + f"/events/confirm-action?token={token}"
     ctx = {
         "confirmation_link": confirmation_link,

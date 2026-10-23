@@ -360,9 +360,7 @@ def handle_guest_rsvp(
     token = create_guest_rsvp_token(user, event.id, answer_str, note=note)
 
     # Send confirmation email
-    transaction.on_commit(
-        lambda: send_guest_rsvp_confirmation.delay(user.email, token, event.name, str(event.organization_id))
-    )
+    transaction.on_commit(lambda: send_guest_rsvp_confirmation.delay(user.email, token, event.name))
 
     return schema.GuestActionResponseSchema(message=str(_("Please check your email to confirm your RSVP")))
 
@@ -594,11 +592,7 @@ def handle_guest_ticket_checkout(
             raise GuestCartTooLargeError()
 
         tier_name = _cart_tier_name_summary(groups)
-        transaction.on_commit(
-            lambda: send_guest_ticket_confirmation.delay(
-                user.email, token, event.name, tier_name, str(event.organization_id)
-            )
-        )
+        transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier_name))
         return schema.GuestCheckoutResponseSchema(
             message=str(_("Please check your email to confirm your ticket purchase")),
             checkout_url=None,

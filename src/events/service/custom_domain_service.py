@@ -286,7 +286,11 @@ def request_domain(organization: Organization, hostname: str) -> OrganizationDom
         CloudflareAPIError: Cloudflare failed.
     """
     _require_enabled(organization)
-    hostname = validate_custom_hostname(hostname)
+    try:
+        hostname = validate_custom_hostname(hostname)
+    except DjangoValidationError as exc:
+        # Keyed by the request field, so the API answers {"errors": {"hostname": [...]}}.
+        raise DjangoValidationError({"hostname": exc.messages}) from exc
     if _live_domain_exists(organization):
         raise CustomDomainConflictError(str(_("This organization already has a pending or active domain.")))
     # ponytail: under ATOMIC_REQUESTS this retirement holds the org row lock through the Cloudflare create
@@ -325,6 +329,54 @@ def _delete_cloudflare_hostname_best_effort(custom_hostname_id: str) -> None:
         logger.exception("custom_domain_orphaned_cloudflare_hostname", cloudflare_hostname_id=custom_hostname_id)
 
 
+ACTIVE_PROBLEM_EVENT = "custom_domain_active_problem"
+ACTIVE_FAILED_EVENT = "custom_domain_active_failed"
+
+
+def _alert_active_domain_problem(domain: OrganizationDomain, event: str, problems: list[str]) -> None:
+    """Log a WARNING and email platform staff: a live (ACTIVE) custom domain developed a problem or failed.
+
+    The caller guards the transition (clean -> problem, or ACTIVE -> FAILED), so a persisting problem
+    does not alert again on every 15-minute sweep. The email is dispatched on commit.
+    """
+    from events.tasks.custom_domains import notify_custom_domain_problem
+
+    logger.warning(
+        event,
+        domain_id=str(domain.pk),
+        hostname=domain.hostname,
+        organization_id=str(domain.organization_id),
+        problems=problems,
+    )
+    domain_id = str(domain.pk)
+    transaction.on_commit(lambda: notify_custom_domain_problem.delay(domain_id, event))
+
+
+def delete_orphaned_cloudflare_hostnames(hostname_ids: list[str]) -> None:
+    """Delete the Cloudflare hostnames of a deleted organization, best effort.
+
+    Deleting an organization cascades its domain rows without going through :func:`delete_domain`, so
+    their Cloudflare hostnames would be orphaned (and keep the certificates and the hostname claimed).
+    A 404 counts as already gone; any other failure is logged, never raised, and Cloudflare not being
+    configured is a logged skip, so nothing here can block or fail the organization's deletion.
+    """
+    if not hostname_ids:
+        return
+    if not cloudflare.is_configured():
+        logger.warning(
+            "custom_domain_cloudflare_not_configured_on_organization_delete",
+            cloudflare_hostname_ids=hostname_ids,
+            detail="Cloudflare is not configured; the custom hostnames may be orphaned there.",
+        )
+        return
+    for hostname_id in hostname_ids:
+        try:
+            cloudflare.delete_custom_hostname(hostname_id)
+        except CloudflareAPIError as exc:
+            if exc.status_code != 404:
+                logger.exception("custom_domain_orphaned_cloudflare_hostname", cloudflare_hostname_id=hostname_id)
+
+
 def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     """Refresh a PENDING or ACTIVE domain from Cloudflare and apply the resulting transition.
 
@@ -334,6 +386,8 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     only: an ACTIVE one stays ACTIVE and the problem is recorded in ``last_errors`` (see the constants
     above). Anything else, including transient states such as ``active_redeploying``, leaves the status
     alone. The DNS records and Cloudflare's problem messages (``last_errors``) are refreshed either way.
+    When an ACTIVE domain gets a problem it did not have before, or fails, a WARNING is logged and platform
+    staff are emailed (``notify_custom_domain_problem``), once per transition.
     A no-op for domains in any other status or never provisioned on Cloudflare.
 
     The transition is a compare-and-set: the Cloudflare decision was made for the status the domain had
@@ -359,6 +413,8 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     hosted = cloudflare.get_custom_hostname(domain.cloudflare_hostname_id)
     records = _dns_records(domain.hostname, hosted)
     errors = _hosted_errors(hosted)
+    # A live domain developing a problem is only visible here: alert once, on the clean -> problem edge.
+    new_active_problem = expected == OrganizationDomain.Status.ACTIVE and bool(errors) and not domain.last_errors
     if (records, errors) != (domain.verification_records, domain.last_errors):
         # Queryset update, never ``save()``: that would run full_clean and re-run the hostname validator
         # (mirrors ``_save_status``). Filtered on the status the decision is based on, so a row that was
@@ -369,6 +425,8 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
         domain.verification_records, domain.last_errors = records, errors
     target = _target_status(expected, hosted)
     if target is None:
+        if new_active_problem:
+            _alert_active_domain_problem(domain, ACTIVE_PROBLEM_EVENT, errors)
         return domain
     with transaction.atomic():
         _lock_organization(domain)  # also re-reads domain.status under the lock
@@ -383,7 +441,10 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
             return domain
         if target == OrganizationDomain.Status.ACTIVE:
             return activate_domain(domain)
-        return mark_domain_failed(domain)
+        mark_domain_failed(domain)
+    if expected == OrganizationDomain.Status.ACTIVE:
+        _alert_active_domain_problem(domain, ACTIVE_FAILED_EVENT, errors)
+    return domain
 
 
 def delete_domain(domain: OrganizationDomain) -> OrganizationDomain:

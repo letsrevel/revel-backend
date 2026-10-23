@@ -778,6 +778,7 @@ class TestCustomDomainEndpointContracts:
         body = response.json()
         assert set(body) == {"errors"}, body
         assert all(isinstance(v, list) and v and all(isinstance(m, str) for m in v) for v in body["errors"].values())
+        assert set(body["errors"]) == {"hostname"}, body
 
     def test_refresh_without_a_domain_returns_404_detail(
         self, organization_owner_client: Client, enabled_org: Organization

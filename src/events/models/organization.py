@@ -9,7 +9,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch, Q, Value
 from django.utils.translation import gettext_lazy as _
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
@@ -438,8 +438,11 @@ class Organization(
     # only, never in an API edit schema). ``custom_domain`` is a denormalized copy of the ACTIVE
     # ``OrganizationDomain`` hostname so schemas read a column instead of querying; only
     # ``events.service.custom_domain_service`` writes it.
+    # ``db_default`` (here and on ``branding``): a pod still on the previous release inserts organizations
+    # without these columns during a rolling deploy, which would otherwise hit NOT NULL.
     custom_domain_enabled = models.BooleanField(
         default=False,
+        db_default=False,
         help_text=_(
             "Platform gate: allows requesting, activating, resolving and advertising a custom domain "
             "for this organization."
@@ -458,6 +461,7 @@ class Organization(
     # Files, custom_domain and platform-admin flags are never stored here.
     branding = models.JSONField(
         default=dict,
+        db_default=Value({}, output_field=models.JSONField()),
         blank=True,
         help_text=_("Presentation settings chosen by the organization, such as brand colors."),
     )
