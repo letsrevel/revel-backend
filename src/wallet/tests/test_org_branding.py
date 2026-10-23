@@ -2,6 +2,7 @@
 
 import io
 import json
+import re
 import typing as t
 import zipfile
 from unittest.mock import MagicMock
@@ -186,3 +187,95 @@ class TestGoogleWalletBranding:
             type(held_pass).objects.select_related("series_pass__event_series__organization").get(pk=held_pass.pk)
         )
         assert build_series_pass_payload(held_pass)["eventTicketClasses"][0]["hexBackgroundColor"] == "#1E88E5"
+
+
+_SUFFIX = re.compile(r"-[0-9a-f]{8}$")
+_GOOGLE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _reload_ticket(ticket: Ticket) -> Ticket:
+    return Ticket.objects.full().get(pk=ticket.pk)
+
+
+class TestGoogleWalletBrandFingerprintIds:
+    """Google no-ops a save JWT whose class/object ID already exists, so branding is baked into the IDs."""
+
+    def test_unbranded_ids_have_no_suffix(
+        self,
+        google_wallet_configured_settings: None,
+        ticket: Ticket,
+        member: OrganizationMember,
+        held_pass: t.Any,
+    ) -> None:
+        event_id = ticket.event_id
+        assert (
+            build_ticket_payload(ticket)["eventTicketClasses"][0]["id"] == f"3388000000012345678.test.event.{event_id}"
+        )
+        series_id = held_pass.series_pass_id
+        assert (
+            build_series_pass_payload(held_pass)["eventTicketClasses"][0]["id"]
+            == f"3388000000012345678.test.series.{series_id}"
+        )
+        obj_id = build_membership_payload(member)["genericObjects"][0]["id"]
+        assert obj_id == f"3388000000012345678.test.membercard.{member.id}-base"
+
+    def test_branded_ticket_class_id_carries_suffix(
+        self, google_wallet_configured_settings: None, ticket: Ticket, organization: Organization
+    ) -> None:
+        _set_branding(organization, BRANDED)
+        payload = build_ticket_payload(_reload_ticket(ticket))
+        cls_id = payload["eventTicketClasses"][0]["id"]
+        prefix = f"3388000000012345678.test.event.{ticket.event_id}"
+        assert cls_id.startswith(prefix)
+        assert _SUFFIX.fullmatch(cls_id.removeprefix(prefix))
+        assert _GOOGLE_ID.fullmatch(cls_id)
+        assert payload["eventTicketObjects"][0]["classId"] == cls_id
+
+    def test_suffix_is_stable_and_follows_the_colors(
+        self, google_wallet_configured_settings: None, ticket: Ticket, organization: Organization
+    ) -> None:
+        def class_id() -> str:
+            return str(build_ticket_payload(_reload_ticket(ticket))["eventTicketClasses"][0]["id"])
+
+        unbranded = class_id()
+        _set_branding(organization, BRANDED)
+        first = class_id()
+        assert class_id() == first
+        # The accent is not a pass color, so it does not move the ID.
+        _set_branding(organization, {**BRANDED, "accent_color": "#43A047"})
+        assert class_id() == first
+        _set_branding(organization, {"primary_color": "#43A047"})
+        changed = class_id()
+        assert changed != first
+        _set_branding(organization, {})
+        assert class_id() == unbranded
+
+    def test_series_class_id_carries_suffix(
+        self, google_wallet_configured_settings: None, held_pass: t.Any, organization: Organization
+    ) -> None:
+        unbranded = build_series_pass_payload(held_pass)["eventTicketClasses"][0]["id"]
+        _set_branding(organization, BRANDED)
+        held_pass = (
+            type(held_pass).objects.select_related("series_pass__event_series__organization").get(pk=held_pass.pk)
+        )
+        branded = build_series_pass_payload(held_pass)["eventTicketClasses"][0]["id"]
+        assert branded.startswith(unbranded)
+        assert _SUFFIX.fullmatch(branded.removeprefix(unbranded))
+        assert _GOOGLE_ID.fullmatch(branded)
+
+    def test_membership_object_id_carries_suffix(
+        self, google_wallet_configured_settings: None, member: OrganizationMember, organization: Organization
+    ) -> None:
+        def object_id() -> str:
+            fresh = OrganizationMember.objects.select_related("organization", "tier", "user").get(pk=member.pk)
+            return str(build_membership_payload(fresh)["genericObjects"][0]["id"])
+
+        unbranded = object_id()
+        _set_branding(organization, BRANDED)
+        first = object_id()
+        assert first.startswith(unbranded)
+        assert _SUFFIX.fullmatch(first.removeprefix(unbranded))
+        assert _GOOGLE_ID.fullmatch(first)
+        assert object_id() == first
+        _set_branding(organization, {"primary_color": "#43A047"})
+        assert object_id() != first
