@@ -6635,6 +6635,9 @@ msgstr "Rimosso"
 msgid "DNS records the organization must create to verify ownership."
 msgstr "I record DNS che l'organizzazione deve creare per verificare la proprietà."
 
+msgid "Problems Cloudflare reported at the last status sync (hostname verification, certificate)."
+msgstr "Problemi segnalati da Cloudflare all'ultima sincronizzazione dello stato (verifica dell'hostname, certificato)."
+
 msgid "This hostname is already in use."
 msgstr "Questo hostname è già in uso."
 

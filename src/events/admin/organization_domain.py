@@ -32,7 +32,7 @@ class OrganizationDomainAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
     list_select_related = ["organization"]
     search_fields = ["hostname", "organization__name", "organization__slug"]
     autocomplete_fields = ["organization"]
-    readonly_fields = ["status", "verified_at", "created_at", "updated_at"]
+    readonly_fields = ["status", "verified_at", "last_errors", "created_at", "updated_at"]
     actions = ["activate_domains", "mark_domains_failed", "remove_domains"]
 
     def get_readonly_fields(self, request: HttpRequest, obj: models.OrganizationDomain | None = None) -> list[str]:

@@ -10,6 +10,7 @@ from django.urls import reverse
 from events.exceptions import CloudflareAPIError
 from events.models import Organization, OrganizationDomain
 from events.service import cloudflare_custom_hostnames as cloudflare
+from events.service import custom_domain_service
 
 pytestmark = pytest.mark.django_db
 
@@ -76,7 +77,21 @@ def test_get_returns_domain_with_dns_instructions(organization_owner_client: Cli
         "verification_records": [{"type": "CNAME", "name": "events.example.com", "value": CNAME_TARGET}],
         "cname_target": CNAME_TARGET,
         "verified_at": None,
+        "errors": [],
     }
+
+
+def test_get_exposes_the_problems_cloudflare_reported(
+    organization_owner_client: Client, enabled_org: Organization
+) -> None:
+    OrganizationDomain.objects.create(
+        organization=enabled_org, hostname="events.example.com", last_errors=["CNAME does not point to the origin"]
+    )
+
+    response = organization_owner_client.get(_url("get_custom_domain", enabled_org))
+
+    assert response.status_code == 200
+    assert response.json()["errors"] == ["CNAME does not point to the origin"]
 
 
 def test_get_hides_removed_domains(organization_owner_client: Client, enabled_org: Organization) -> None:
@@ -251,3 +266,28 @@ def test_admin_detail_exposes_custom_domain_enabled(
 
     assert response.status_code == 200
     assert response.json()["custom_domain_enabled"] is enabled
+
+
+# ---- Admin detail payload advertises the active domain ("view public site") ----
+
+
+def test_admin_detail_exposes_custom_domain_only_while_the_gate_is_on(
+    organization_owner_client: Client, enabled_org: Organization
+) -> None:
+    domain = OrganizationDomain.objects.create(organization=enabled_org, hostname="events.example.com")
+    custom_domain_service.activate_domain(domain)
+    url = reverse("api:get_organization_admin", kwargs={"slug": enabled_org.slug})
+
+    assert organization_owner_client.get(url).json()["custom_domain"] == "events.example.com"
+
+    enabled_org.custom_domain_enabled = False
+    enabled_org.save(update_fields=["custom_domain_enabled"])
+    assert organization_owner_client.get(url).json()["custom_domain"] is None
+
+
+def test_admin_detail_custom_domain_is_null_without_an_active_domain(
+    organization_owner_client: Client, enabled_org: Organization
+) -> None:
+    url = reverse("api:get_organization_admin", kwargs={"slug": enabled_org.slug})
+
+    assert organization_owner_client.get(url).json()["custom_domain"] is None

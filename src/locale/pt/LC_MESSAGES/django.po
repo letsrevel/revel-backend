@@ -6546,6 +6546,9 @@ msgstr "Removido"
 msgid "DNS records the organization must create to verify ownership."
 msgstr "Os registos DNS que a organização tem de criar para verificar a propriedade."
 
+msgid "Problems Cloudflare reported at the last status sync (hostname verification, certificate)."
+msgstr "Problemas comunicados pelo Cloudflare na última sincronização de estado (verificação do nome de host, certificado)."
+
 msgid "This hostname is already in use."
 msgstr "Este nome de host já está em uso."
 

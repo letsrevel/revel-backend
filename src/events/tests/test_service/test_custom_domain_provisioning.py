@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from django.core.exceptions import ValidationError
+from structlog.testing import capture_logs
 
 from events.exceptions import CloudflareAPIError, CustomDomainConflictError, CustomDomainNotEnabledError
 from events.models import Organization, OrganizationDomain
@@ -22,6 +23,8 @@ def hosted(
     ssl_status: str | None = "pending_validation",
     hostname: str = "events.example.com",
     cf_id: str = "cf-1",
+    verification_errors: list[str] | None = None,
+    ssl_errors: list[str] | None = None,
 ) -> cloudflare.CustomHostname:
     """A Cloudflare custom hostname as the API would return it."""
     return cloudflare.CustomHostname(
@@ -33,12 +36,14 @@ def hosted(
             validation_records=[
                 cloudflare.ValidationRecord(txt_name="_acme-challenge.events.example.com", txt_value="acme-token")
             ],
+            validation_errors=[cloudflare.SslValidationError(message=m) for m in ssl_errors or []],
         )
         if ssl_status
         else None,
         ownership_verification=cloudflare.OwnershipVerification(
             type="txt", name="_cf-custom-hostname.events.example.com", value="owner-token"
         ),
+        verification_errors=verification_errors or [],
     )
 
 
@@ -300,16 +305,149 @@ def test_sync_marks_terminal_states_failed(
     assert domain.status == Status.FAILED
 
 
-def test_sync_skips_domains_without_a_cloudflare_id_or_not_pending(enabled_org: Organization, configured: None) -> None:
+@pytest.mark.parametrize("status", [Status.FAILED, Status.REMOVED])
+def test_sync_skips_domains_without_a_cloudflare_id_or_not_live(
+    enabled_org: Organization, configured: None, status: OrganizationDomain.Status
+) -> None:
     manual = pending_domain(enabled_org, cf_id=None)
 
     with patch.object(cloudflare, "get_custom_hostname") as get:
         custom_domain_service.sync_domain_status(manual)
-        manual.status = Status.ACTIVE
+        manual.status = status
         manual.cloudflare_hostname_id = "cf-1"
         custom_domain_service.sync_domain_status(manual)
 
     get.assert_not_called()
+
+
+def test_sync_stores_cloudflare_problems_and_clears_them_when_resolved(
+    enabled_org: Organization, configured: None
+) -> None:
+    domain = pending_domain(enabled_org)
+    problems = hosted(
+        verification_errors=["CNAME does not point to the fallback origin"],
+        ssl_errors=["DCV failed", "CNAME does not point to the fallback origin"],
+    )
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=problems):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    assert domain.status == Status.PENDING
+    assert domain.last_errors == ["CNAME does not point to the fallback origin", "DCV failed"]  # de-duplicated
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted()):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    assert domain.last_errors == []
+
+
+def test_sync_reads_hostname_errors_without_an_ssl_object(enabled_org: Organization, configured: None) -> None:
+    domain = pending_domain(enabled_org)
+
+    with patch.object(
+        cloudflare, "get_custom_hostname", return_value=hosted(ssl_status=None, verification_errors=["x"])
+    ):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    assert domain.last_errors == ["x"]
+
+
+# ---- sync_domain_status: ACTIVE domains ----
+
+
+def active_domain(org: Organization, cf_id: str = "cf-1") -> OrganizationDomain:
+    domain: OrganizationDomain = pending_domain(org, cf_id=cf_id)
+    custom_domain_service.activate_domain(domain)
+    org.refresh_from_db()
+    assert org.custom_domain == domain.hostname
+    return domain
+
+
+@pytest.mark.parametrize(
+    ("status", "ssl_status"),
+    [
+        ("blocked", "active"),
+        ("moved", "active"),
+        ("deleted", "active"),
+        ("active", "deleted"),
+        ("active", "validation_timed_out"),
+        ("active", "issuance_timed_out"),
+        ("active", "initializing_timed_out"),
+        ("active", "deployment_timed_out"),
+    ],
+)
+def test_sync_fails_an_active_domain_on_a_terminal_cloudflare_state(
+    enabled_org: Organization, configured: None, status: str, ssl_status: str
+) -> None:
+    domain = active_domain(enabled_org)
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted(status, ssl_status)):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    enabled_org.refresh_from_db()
+    assert domain.status == Status.FAILED
+    assert enabled_org.custom_domain is None
+
+
+@pytest.mark.parametrize(
+    ("status", "ssl_status"),
+    [
+        ("active", "active"),
+        ("active", "active_redeploying"),
+        ("active", "pending_validation"),
+        ("pending", "pending_issuance"),
+        ("active", "pending_deployment"),
+        ("active", None),
+    ],
+)
+def test_sync_keeps_an_active_domain_active_on_transient_states(
+    enabled_org: Organization, configured: None, status: str, ssl_status: str | None
+) -> None:
+    domain = active_domain(enabled_org)
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted(status, ssl_status)):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    enabled_org.refresh_from_db()
+    assert domain.status == Status.ACTIVE
+    assert enabled_org.custom_domain == "events.example.com"
+
+
+def test_sync_records_problems_on_an_active_domain_without_failing_it(
+    enabled_org: Organization, configured: None
+) -> None:
+    domain = active_domain(enabled_org)
+
+    with patch.object(
+        cloudflare, "get_custom_hostname", return_value=hosted("active", "active_redeploying", ssl_errors=["renewing"])
+    ):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    assert domain.status == Status.ACTIVE
+    assert domain.last_errors == ["renewing"]
+
+
+def test_a_failed_active_domain_can_be_requested_again(enabled_org: Organization, configured: None) -> None:
+    """FAILED (from an ACTIVE domain) is retired on the next request; REMOVED stays terminal."""
+    domain = active_domain(enabled_org)
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted("blocked", "active")):
+        custom_domain_service.sync_domain_status(domain)
+
+    with (
+        patch.object(cloudflare, "delete_custom_hostname"),
+        patch.object(cloudflare, "create_custom_hostname", return_value=hosted(cf_id="cf-new")),
+    ):
+        fresh = custom_domain_service.request_domain(enabled_org, "events.example.com")
+
+    domain.refresh_from_db()
+    assert domain.status == Status.REMOVED
+    assert fresh.status == Status.PENDING
 
 
 def test_sync_propagates_cloudflare_errors_and_leaves_the_domain_pending(
@@ -348,6 +486,30 @@ def test_delete_without_cloudflare_id_skips_cloudflare(enabled_org: Organization
     delete.assert_not_called()
     domain.refresh_from_db()
     assert domain.status == Status.REMOVED
+
+
+def test_delete_warns_about_orphan_risk_when_cloudflare_is_not_configured(enabled_org: Organization) -> None:
+    domain = pending_domain(enabled_org)  # has a Cloudflare id, but the platform has no Cloudflare config
+
+    with patch.object(cloudflare, "delete_custom_hostname") as delete, capture_logs() as logs:
+        custom_domain_service.delete_domain(domain)
+
+    delete.assert_not_called()
+    domain.refresh_from_db()
+    assert domain.status == Status.REMOVED
+    warnings = [e for e in logs if e["event"] == "custom_domain_cloudflare_not_configured_on_delete"]
+    assert len(warnings) == 1
+    assert warnings[0]["log_level"] == "warning"
+    assert warnings[0]["cloudflare_hostname_id"] == "cf-1"
+
+
+def test_delete_without_cloudflare_id_and_config_does_not_warn(enabled_org: Organization) -> None:
+    domain = pending_domain(enabled_org, cf_id=None)
+
+    with capture_logs() as logs:
+        custom_domain_service.delete_domain(domain)
+
+    assert not [e for e in logs if e["event"] == "custom_domain_cloudflare_not_configured_on_delete"]
 
 
 def test_delete_treats_cloudflare_404_as_already_gone(enabled_org: Organization, configured: None) -> None:

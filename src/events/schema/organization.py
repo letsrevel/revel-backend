@@ -287,6 +287,7 @@ class OrganizationAdminDetailSchema(
     CityRetrieveMixin,
     TaggableSchemaMixin,
     SocialMediaSchemaRetrieveMixin,
+    CustomDomainMixin,
     LogoCoverArtThumbnailMixin,
     OrganizationBrandingMixin,
 ):

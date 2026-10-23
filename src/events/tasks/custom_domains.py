@@ -21,7 +21,7 @@ class SyncCustomDomainsResult(t.TypedDict):
 
 @shared_task(name="events.sync_custom_domains")
 def sync_custom_domains_task() -> SyncCustomDomainsResult:
-    """Poll Cloudflare for every pending, provisioned custom domain and apply the resulting transition.
+    """Poll Cloudflare for every pending or active, provisioned custom domain and apply the resulting transition.
 
     Runs every 15 minutes via Celery Beat. A no-op when Cloudflare is not configured. One domain's
     Cloudflare error is logged and does not stop the others.
@@ -35,7 +35,7 @@ def sync_custom_domains_task() -> SyncCustomDomainsResult:
     # list(): the set is tiny and each sync commits, which must not interleave with a server-side cursor.
     domains = list(
         OrganizationDomain.objects.filter(
-            status=OrganizationDomain.Status.PENDING,
+            status__in=[OrganizationDomain.Status.PENDING, OrganizationDomain.Status.ACTIVE],
             cloudflare_hostname_id__isnull=False,
             organization__custom_domain_enabled=True,
         ).select_related("organization")

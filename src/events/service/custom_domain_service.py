@@ -184,6 +184,16 @@ def _dns_records(hostname: str, hosted: cloudflare.CustomHostname | None) -> lis
     ]
 
 
+def _hosted_errors(hosted: cloudflare.CustomHostname) -> list[str]:
+    """Collect the problems Cloudflare reports (hostname verification and certificate validation)."""
+    messages = (
+        [*hosted.verification_errors, *(e.message for e in hosted.ssl.validation_errors if e.message)]
+        if hosted.ssl
+        else list(hosted.verification_errors)
+    )
+    return list(dict.fromkeys(messages))  # de-duplicated, order preserved
+
+
 def get_current_domain(organization: Organization) -> OrganizationDomain | None:
     """Return the organization's latest non-removed domain (pending, active or failed), if any.
 
@@ -270,11 +280,14 @@ def _delete_cloudflare_hostname_best_effort(custom_hostname_id: str) -> None:
 
 
 def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
-    """Refresh a PENDING domain from Cloudflare and apply the resulting transition.
+    """Refresh a PENDING or ACTIVE domain from Cloudflare and apply the resulting transition.
 
-    Hostname and certificate both ``active`` activates the domain; a terminal Cloudflare state
-    (see ``FAILED_HOSTNAME_STATUSES`` / ``FAILED_SSL_STATUSES``) marks it failed; anything else keeps it
-    pending. A no-op for domains that are not PENDING or were never provisioned on Cloudflare.
+    Hostname and certificate both ``active`` activates a PENDING domain; a terminal Cloudflare state
+    (see ``FAILED_HOSTNAME_STATUSES`` / ``FAILED_SSL_STATUSES``) marks a PENDING *or ACTIVE* domain failed
+    (withdrawing it from the organization); anything else, including transient states such as
+    ``active_redeploying``, leaves the status alone. The DNS records and Cloudflare's problem messages
+    (``last_errors``) are refreshed either way. A no-op for domains in any other status or never
+    provisioned on Cloudflare.
 
     Args:
         domain: The domain to refresh.
@@ -286,21 +299,28 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
         CloudflareAPIError: Cloudflare failed.
         CustomDomainNotEnabledError: The domain became ready but the platform disabled custom domains.
     """
-    if domain.status != OrganizationDomain.Status.PENDING or not domain.cloudflare_hostname_id:
+    syncable = (OrganizationDomain.Status.PENDING, OrganizationDomain.Status.ACTIVE)
+    if domain.status not in syncable or not domain.cloudflare_hostname_id:
         return domain
     hosted = cloudflare.get_custom_hostname(domain.cloudflare_hostname_id)
-    domain.verification_records = _dns_records(domain.hostname, hosted)
-    domain.save(update_fields=["verification_records", "updated_at"])
+    records = _dns_records(domain.hostname, hosted)
+    errors = _hosted_errors(hosted)
+    if (records, errors) != (domain.verification_records, domain.last_errors):
+        domain.verification_records, domain.last_errors = records, errors
+        domain.save(update_fields=["verification_records", "last_errors", "updated_at"])
     ssl_status = hosted.ssl.status if hosted.ssl else None
-    if hosted.status == "active" and ssl_status == "active":
-        return activate_domain(domain)
     if hosted.status in FAILED_HOSTNAME_STATUSES or ssl_status in FAILED_SSL_STATUSES:
         return mark_domain_failed(domain)
+    if domain.status == OrganizationDomain.Status.PENDING and hosted.status == "active" and ssl_status == "active":
+        return activate_domain(domain)
     return domain
 
 
 def delete_domain(domain: OrganizationDomain) -> OrganizationDomain:
     """Delete the domain's Cloudflare custom hostname (a 404 counts as already gone) and mark it REMOVED.
+
+    When the domain has a Cloudflare hostname but Cloudflare is no longer configured, it is removed
+    locally anyway and a warning is logged, since the hostname may be orphaned at Cloudflare.
 
     Raises:
         CloudflareAPIError: Cloudflare failed with anything other than "not found".
@@ -311,4 +331,11 @@ def delete_domain(domain: OrganizationDomain) -> OrganizationDomain:
         except CloudflareAPIError as exc:
             if exc.status_code != 404:
                 raise
+    elif domain.cloudflare_hostname_id:
+        logger.warning(
+            "custom_domain_cloudflare_not_configured_on_delete",
+            domain_id=str(domain.pk),
+            cloudflare_hostname_id=domain.cloudflare_hostname_id,
+            detail="Cloudflare is not configured; the custom hostname may be orphaned there.",
+        )
     return remove_domain(domain)

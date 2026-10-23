@@ -55,20 +55,59 @@ def make_domain(django_user_model: t.Any) -> t.Callable[..., OrganizationDomain]
     return _make
 
 
-def test_task_syncs_only_pending_provisioned_domains_of_enabled_orgs(
+def test_task_syncs_only_live_provisioned_domains_of_enabled_orgs(
     make_domain: t.Callable[..., OrganizationDomain],
 ) -> None:
     pending = make_domain("pending.example.com")
+    active = make_domain("active.example.com", status=Status.ACTIVE)
     make_domain("manual.example.com", cf_id=None)
-    make_domain("active.example.com", status=Status.ACTIVE)
     make_domain("failed.example.com", status=Status.FAILED)
+    make_domain("removed.example.com", status=Status.REMOVED)
     make_domain("disabled.example.com", enabled=False)
+    make_domain("disabled-active.example.com", status=Status.ACTIVE, enabled=False)
 
-    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted("pending.example.com")) as get:
+    with patch.object(
+        cloudflare, "get_custom_hostname", side_effect=lambda cf_id: hosted(cf_id.removeprefix("cf-"))
+    ) as get:
         result = sync_custom_domains_task()
 
-    get.assert_called_once_with(pending.cloudflare_hostname_id)
+    assert {c.args[0] for c in get.call_args_list} == {pending.cloudflare_hostname_id, active.cloudflare_hostname_id}
+    assert get.call_count == 2
+    assert result == {"synced": 2, "failed": 0}
+
+
+def test_task_fails_an_active_domain_cloudflare_reports_blocked(
+    make_domain: t.Callable[..., OrganizationDomain],
+) -> None:
+    active = make_domain("active.example.com", status=Status.ACTIVE)
+    org = active.organization
+    org.custom_domain = "active.example.com"
+    org.save(update_fields=["custom_domain"])
+
+    with patch.object(
+        cloudflare, "get_custom_hostname", return_value=hosted("active.example.com", "blocked", "active")
+    ):
+        result = sync_custom_domains_task()
+
     assert result == {"synced": 1, "failed": 0}
+    active.refresh_from_db()
+    org.refresh_from_db()
+    assert active.status == Status.FAILED
+    assert org.custom_domain is None
+
+
+def test_task_keeps_an_active_domain_through_a_transient_state(
+    make_domain: t.Callable[..., OrganizationDomain],
+) -> None:
+    active = make_domain("active.example.com", status=Status.ACTIVE)
+
+    with patch.object(
+        cloudflare, "get_custom_hostname", return_value=hosted("active.example.com", "active", "active_redeploying")
+    ):
+        sync_custom_domains_task()
+
+    active.refresh_from_db()
+    assert active.status == Status.ACTIVE
 
 
 def test_task_applies_transitions(make_domain: t.Callable[..., OrganizationDomain]) -> None:

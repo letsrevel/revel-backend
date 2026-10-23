@@ -39,6 +39,15 @@ class CustomDomainSchema(Schema):
     verification_records: list[DnsRecordSchema]
     cname_target: str | None = None
     verified_at: AwareDatetime | None = None
+    errors: list[str] = Field(
+        default_factory=list,
+        description="Problems Cloudflare reported at the last status sync (hostname verification, certificate).",
+    )
+
+    @staticmethod
+    def resolve_errors(obj: t.Any) -> list[str]:
+        """The problems stored at the last Cloudflare sync."""
+        return list(obj.last_errors)
 
     @staticmethod
     def resolve_cname_target(obj: t.Any) -> str | None:

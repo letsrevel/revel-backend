@@ -33,6 +33,11 @@ class OrganizationDomain(TimeStampedModel):
         blank=True,
         help_text=_("DNS records the organization must create to verify ownership."),
     )
+    last_errors = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("Problems Cloudflare reported at the last status sync (hostname verification, certificate)."),
+    )
     verified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
