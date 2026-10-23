@@ -70,6 +70,37 @@ the `telegram` container's `run_telegram_bot` (Celery workers and beat don't):
 | `common.W002` | Warning | `BASE_URL` is not `https://` |
 | `common.W003` | Warning | `FRONTEND_BASE_URL` is empty, has no scheme, or points at `localhost` or a loopback address |
 | `common.W004` | Warning | `DEFAULT_FROM_EMAIL` is on `letsrevel.io` but `BASE_URL` isn't, so you would be sending as our domain |
+| `common.E002` | Error: `check`/`migrate` fail, the API doesn't start | `CUSTOM_DOMAIN_URL_TEMPLATE` has no `{hostname}`, has stray braces or other placeholders, or doesn't start with `http://` or `https://`. Checked even with `DEBUG` on |
+| `common.W005` | Warning | `CUSTOM_DOMAIN_URL_TEMPLATE` is not `https://` (with `DEBUG` off) |
+| `events.W001` | Warning | `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID` are set but `CUSTOM_DOMAIN_CNAME_TARGET` is empty, so organizers aren't told which CNAME to create |
+| `events.W002` | Warning | `CUSTOM_DOMAIN_CNAME_TARGET` is set but isn't a bare hostname (no scheme, path, port or spaces) |
+
+The last four belong to the optional custom-domain feature (next section) and cost nothing when you
+don't use it: with the defaults none of them fires.
+
+### Custom domains (white-label)
+
+Optional. Lets an organization serve its attendee pages from its own domain, such as
+`events.example.org`. A platform admin enables it per organization in the Django admin
+(`custom_domain_enabled`). The full setup, including Caddy and the frontend variables, is in the
+[platform operator guide](../guides/white-label/operators.md).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | empty | Cloudflare API token with *SSL and Certificates: Edit* on the zone. Provisioning is on only when this **and** the zone id are set |
+| `CLOUDFLARE_ZONE_ID` | empty | The zone that owns the custom hostnames (Cloudflare for SaaS) |
+| `CUSTOM_DOMAIN_CNAME_TARGET` | empty | The fallback-origin hostname organizers CNAME to, e.g. `customers.example.com`. A bare hostname |
+| `CUSTOM_DOMAIN_URL_TEMPLATE` | `https://{hostname}` | Origin of an organization's active domain in email links. Must match the frontend's `PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE` |
+
+On the **frontend** container, multi-host serving replaces a pinned `ORIGIN` with `HOST_HEADER` and
+`PROTOCOL_HEADER` and turns tenant mode on with `PLATFORM_HOSTS` (see the operator guide for the
+full list and defaults).
+
+**Without Cloudflare**, leave the token and zone id empty. A domain request then only records the
+CNAME instruction, and a platform admin activates the domain in the Django admin once DNS and TLS
+are ready. TLS is yours to provide. Details in [Running without
+Cloudflare](../guides/white-label/operators.md#running-without-cloudflare). If you only ever serve
+one organization, you don't need any of this.
 
 ### Feature flags
 

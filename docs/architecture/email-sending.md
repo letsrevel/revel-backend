@@ -61,6 +61,14 @@ that domain; the code does not.
   `membership_request_created`, and the staff copies of series pass purchase/cancellation) and Revel's
   own billing mail are not included.
 
+Two related behaviors of the same feature: links in attendee mail are built with
+`frontend_base_url_for(org)`, so they point at the custom domain once it is active, and
+organization-related emails show the organization's logo (through the stable
+`/api/organizations/{id}/logo` URL). Account emails carry only a `return_host` hint and link to the
+platform. The reasoning is in [White-Label architecture](white-label.md#the-security-rule-no-account-level-tokens-on-tenant-domains),
+and the order in which to roll out the sending domain is in the
+[operator guide](../guides/white-label/operators.md#email-rollout-order).
+
 **Everything else** (verification, password reset, tickets, payments, staff notifications,
 digests) is sent from `DEFAULT_FROM_EMAIL`, except as above. Attendee invoices keep their existing
 `"<billing name>" <org-slug@<apex domain>>` sender on the apex domain, not `ORG_EMAIL_DOMAIN`.
