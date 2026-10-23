@@ -6622,3 +6622,12 @@ msgid ""
 msgstr ""
 "La generazione del pass per il Wallet non è temporaneamente disponibile. Per "
 "favore riprova più tardi."
+
+msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
+msgstr "Inserisci un colore come valore esadecimale a 6 cifre, ad esempio #8C3CDD."
+
+msgid "Brand primary color as #RRGGBB."
+msgstr "Colore primario del brand come #RRGGBB."
+
+msgid "Brand accent color as #RRGGBB."
+msgstr "Colore d'accento del brand come #RRGGBB."

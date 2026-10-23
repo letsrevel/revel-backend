@@ -17,6 +17,7 @@ from pydantic import ValidationError as PydanticValidationError
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
+from events.utils.brand_theme import hex_color_validator
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
 from .mixins import (
@@ -433,6 +434,23 @@ class Organization(
         help_text=_("When True, every membership application requires manual staff approval."),
     )
 
+    # Brand colors (#1149): stored as entered (uppercase "#RRGGBB"); per-mode variants are
+    # derived on read by ``events.utils.brand_theme.derive_brand_theme``.
+    brand_primary_color = models.CharField(
+        max_length=7,
+        null=True,
+        blank=True,
+        validators=[hex_color_validator],
+        help_text=_("Brand primary color as #RRGGBB."),
+    )
+    brand_accent_color = models.CharField(
+        max_length=7,
+        null=True,
+        blank=True,
+        validators=[hex_color_validator],
+        help_text=_("Brand accent color as #RRGGBB."),
+    )
+
     objects = OrganizationManager()
 
     class Meta:
@@ -453,6 +471,9 @@ class Organization(
         is admin-only and not enforced on direct ORM ``save()``, so this check matters.
         """
         super().clean()
+        # Normalize brand colors: uppercase hex, empty string means "unset".
+        self.brand_primary_color = (self.brand_primary_color or "").upper() or None
+        self.brand_accent_color = (self.brand_accent_color or "").upper() or None
         if self.contact_method != self.ContactMethod.NONE and not (self.contact_email and self.contact_email_verified):
             raise DjangoValidationError(
                 {

@@ -1,5 +1,7 @@
+import typing as t
+
 from django.utils.translation import gettext_lazy as _
-from ninja import File
+from ninja import File, Query
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
@@ -13,6 +15,7 @@ from common.thumbnails.service import delete_image_with_derivatives
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 from events.service import event_service, organization_service, stripe_service
+from events.utils.brand_theme import BrandTheme, derive_brand_theme, is_valid_hex_color
 from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
@@ -70,6 +73,30 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         """
         organization = self.get_one(slug)
         return organization_service.update_organization(organization, payload, requester=self.user())
+
+    @route.get(
+        "/brand-theme-preview",
+        url_name="brand_theme_preview",
+        response={200: BrandTheme | None, 400: ErrorDetail},
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
+        throttle=UserDefaultThrottle(),
+    )
+    def brand_theme_preview(
+        self,
+        slug: str,
+        primary: t.Annotated[str | None, Query(description="Primary color as #RRGGBB.")] = None,
+        accent: t.Annotated[str | None, Query(description="Accent color as #RRGGBB.")] = None,
+    ) -> BrandTheme | None:
+        """Preview the per-mode brand theme derived from candidate colors, without saving anything.
+
+        Same derivation as the ``brand_theme`` field on organization payloads. Returns
+        ``null`` when ``primary`` is absent. Nothing is persisted.
+        """
+        self.get_one(slug)  # permission check only
+        for color in (primary, accent):
+            if color and not is_valid_hex_color(color):
+                raise HttpError(400, str(_("Enter a color as a 6-digit hex value, for example #8C3CDD.")))
+        return derive_brand_theme(primary, accent)
 
     @route.post(
         "/update-contact-email",

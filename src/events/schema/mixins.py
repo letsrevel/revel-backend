@@ -8,6 +8,7 @@ from pydantic import AnyUrl, Field, HttpUrl, field_validator
 
 from common.schema import StrippedString
 from events import models
+from events.utils.brand_theme import BrandTheme, derive_brand_theme
 from geo.models import City
 from geo.schema import CitySchema
 
@@ -53,6 +54,22 @@ class LogoCoverArtThumbnailMixin(Schema):
     def resolve_cover_art_social_url(obj: t.Any) -> str | None:
         """Resolve cover art social preview URL."""
         return get_image_field_url(obj, "cover_art_social")
+
+
+class OrganizationBrandingMixin(Schema):
+    """Brand colors as entered plus the derived per-mode theme (#1149).
+
+    ``brand_theme`` is ``None`` when the organization has no primary color.
+    """
+
+    brand_primary_color: str | None = None
+    brand_accent_color: str | None = None
+    brand_theme: BrandTheme | None = None
+
+    @staticmethod
+    def resolve_brand_theme(obj: t.Any) -> BrandTheme | None:
+        """Derive light/dark palettes meeting WCAG contrast from the stored colors."""
+        return derive_brand_theme(obj.brand_primary_color, obj.brand_accent_color)
 
 
 class CityBaseMixin(Schema):
