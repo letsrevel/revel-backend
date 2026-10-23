@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from django.conf import settings
+from django.template import engines
 from django.template.loader import render_to_string
 
 from events.models import Organization, OrganizationMember, Ticket
@@ -82,13 +83,6 @@ class TestGetPassBrandColors:
         brand = get_pass_brand_colors(organization)
         assert brand is not None
         assert contrast_ratio(hex_to_rgb(brand.text_accent), hex_to_rgb("#FFFFFF")) >= 4.5
-        assert contrast_ratio(hex_to_rgb(brand.text_secondary), hex_to_rgb("#FFFFFF")) >= 3.0
-
-    def test_secondary_falls_back_to_accent_text(self, organization: Organization) -> None:
-        _set_branding(organization, {"primary_color": "#1E88E5"})
-        brand = get_pass_brand_colors(organization)
-        assert brand is not None
-        assert brand.text_secondary == brand.text_accent
 
 
 class TestTicketPdfBranding:
@@ -113,7 +107,8 @@ class TestTicketPdfBranding:
         override = f".banner, .cover-banner {{ background: {brand.background}; }}"
         assert override in html
         assert f"color: {brand.text_accent}" in html
-        assert f"color: {brand.text_secondary}" in html
+        # Every small-text rule, the 6.5pt stub eyebrow included, uses the AA ``text_accent``.
+        assert f".stub .eyebrow, .stub .tid, .mid, .qr-instruction {{ color: {brand.text_accent}; }}" in html
         # The override block comes after the base chrome so it wins the cascade.
         assert html.index(override) > html.index(REVEL_BANNER)
 
@@ -205,6 +200,30 @@ class TestMembershipAndSeriesTemplates:
         unbranded = render_to_string("events/series_pass.html", _template_ctx(organization, None))
         assert ".accent-bar { background:" not in unbranded
         assert "linear-gradient(to right, #8C3CDD, #E6332A)" in unbranded
+
+
+class TestUnbrandedOutputIsByteIdentical:
+    """The override partial renders the empty string without a brand, so the HTML is exactly the old one."""
+
+    INCLUDE = '{% include "events/_pass_brand_overrides.html" %}'
+
+    def test_partial_renders_empty_without_brand(self) -> None:
+        assert render_to_string("events/_pass_brand_overrides.html", {"brand": None}) == ""
+        assert render_to_string("events/_pass_brand_overrides.html", {}) == ""
+
+    @pytest.mark.parametrize("name", ["ticket", "series_pass", "membership_card"])
+    def test_template_html_identical_without_the_include(
+        self, name: str, organization: Organization, ticket: Ticket
+    ) -> None:
+        path = f"events/{name}.html"
+        ctx = _ticket_context(ticket) if name == "ticket" else _template_ctx(organization, None)
+        assert ctx["brand"] is None
+
+        source = (settings.BASE_DIR / "events" / "templates" / path).read_text()
+        assert source.count(self.INCLUDE) == 1
+        without_include = engines["django"].from_string(source.replace(self.INCLUDE, "")).render(ctx)
+
+        assert render_to_string(path, ctx) == without_include
 
 
 class TestTicketFileCacheInvalidatesOnBranding:

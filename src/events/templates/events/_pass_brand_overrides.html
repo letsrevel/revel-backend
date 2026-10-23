@@ -1,19 +1,17 @@
-{# Organization brand colors for the pass/ticket PDFs (#1157). Include LAST in <head>, after the #}
-{# template's own <style>. Renders nothing when `brand` is unset, so unbranded output is       #}
-{# byte-identical to the Revel defaults. The "Powered by revel." lockup is never touched.      #}
-{# `brand` is a PassBrandColors (events.utils.pass_branding): background/foreground for the    #}
-{# solid surfaces, text_accent/text_secondary (AA on white/lavender paper) for small text.     #}
-{% if brand %}
+{% if brand %}{# Organization brand colors for the pass/ticket PDFs (#1157). Include LAST in <head>, after the #}
+{# template's own <style>. The whole file is one {% if brand %} block with no trailing newline, so   #}
+{# when `brand` is unset it renders the empty string and unbranded output is byte-identical to the #}
+{# Revel defaults. The "Powered by revel." lockup is never touched. `brand` is a PassBrandColors   #}
+{# (events.utils.pass_branding): background/foreground for the solid surfaces, text_accent (>= 4.5:1 #}
+{# on the white/lavender paper) for all small text and rules.                                    #}
 <style>
     .banner, .cover-banner { background: {{ brand.background }}; }
     {% if not cover_art_url %}
     .banner-overlay, .cover-overlay { background: none; color: {{ brand.foreground }}; }
     {% endif %}
-    .main .eyebrow, .qr-zone .eyebrow, .stub .tid, .mid, .qr-instruction { color: {{ brand.text_accent }}; }
-    .stub .eyebrow { color: {{ brand.text_secondary }}; }
+    .main .eyebrow, .qr-zone .eyebrow, .stub .eyebrow, .stub .tid, .mid, .qr-instruction { color: {{ brand.text_accent }}; }
     .tier-badge { background: {{ brand.background }}; color: {{ brand.foreground }}; }
     .info-card { border-left-color: {{ brand.background }}; }
     .events-card, .qr-code-container { border-color: {{ brand.background }}; }
     .accent-bar { background: {{ brand.background }}; }
-</style>
-{% endif %}
+</style>{% endif %}

@@ -36,20 +36,17 @@ class PassBrandColors(BaseModel):
     """Black or white, whichever reads best on ``background`` (>= 4.5:1)."""
     text_accent: str
     """Primary-derived color for small text and rules on the white/lavender PDF paper (>= 4.5:1)."""
-    text_secondary: str
-    """Accent-derived color (>= 3:1) for secondary highlights, falling back to ``text_accent``."""
 
 
 @functools.lru_cache(maxsize=1024)
-def _pass_brand_colors(primary: str | None, accent: str | None) -> PassBrandColors | None:
-    theme = derive_brand_theme(primary, accent)
+def _pass_brand_colors(primary: str | None) -> PassBrandColors | None:
+    theme = derive_brand_theme(primary, None)
     if theme is None or primary is None:
         return None
     return PassBrandColors(
         background=primary,
         foreground=foreground_for(hex_to_rgb(primary)),
         text_accent=theme.light.primary,
-        text_secondary=theme.light.accent or theme.light.primary,
     )
 
 
@@ -67,4 +64,4 @@ def get_pass_brand_colors(organization: "Organization") -> PassBrandColors | Non
         The pass colors, or ``None`` when no primary color is set.
     """
     branding = parse_branding(organization.branding)
-    return _pass_brand_colors(branding.primary_color, branding.accent_color)
+    return _pass_brand_colors(branding.primary_color)
