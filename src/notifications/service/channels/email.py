@@ -209,7 +209,8 @@ class EmailChannel(NotificationChannel):
         with the org's verified Reply-To, one-click List-Unsubscribe and a Feedback-ID;
         everything else uses the system sender. Attendee transactional types
         (``TENANT_ORG_SENDER_TYPES``) get the org sender and Reply-To too, but only for
-        white-label tenant orgs, and keep the platform List-Unsubscribe (#1155). Platform list
+        white-label tenant orgs, and keep the platform List-Unsubscribe (#1155). Resolving the org
+        for these types is one organization lookup per email, tenant or not. Platform list
         types (Revel's own opt-out-able nudges) keep the system sender but add one-click
         List-Unsubscribe and a human Reply-To.
 

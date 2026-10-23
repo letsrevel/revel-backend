@@ -177,7 +177,9 @@ ORG_SENDER_TYPES: frozenset[str] = frozenset(
 # Attendee-facing transactional mail that ALSO goes out as the org sender, but only for white-label
 # tenants (active custom domain + ``custom_domain_enabled``, #1155). Everyone else keeps the platform
 # sender. Unlike ORG_SENDER_TYPES, unsubscribe headers and footer links stay on the platform.
-# Staff-facing types (STAFF_*, MEMBERSHIP_REQUEST_CREATED, ...) are deliberately absent.
+# Only types whose recipient is the attendee, holder or subscriber belong here. Staff-facing types
+# (STAFF_*, RSVP_* which go only to org staff/owners, MEMBERSHIP_REQUEST_CREATED, ...) are deliberately
+# absent, as is Revel's own billing mail.
 TENANT_ORG_SENDER_TYPES: frozenset[str] = frozenset(
     {
         NotificationType.TICKET_CREATED,
@@ -186,9 +188,6 @@ TENANT_ORG_SENDER_TYPES: frozenset[str] = frozenset(
         NotificationType.TICKET_REFUNDED,
         NotificationType.TICKET_CHECKED_IN,
         NotificationType.PAYMENT_CONFIRMATION,
-        NotificationType.RSVP_CONFIRMATION,
-        NotificationType.RSVP_UPDATED,
-        NotificationType.RSVP_CANCELLED,
         NotificationType.QUESTIONNAIRE_EVALUATION_RESULT,
         NotificationType.MEMBERSHIP_GRANTED,
         NotificationType.MEMBERSHIP_PROMOTED,
@@ -197,6 +196,19 @@ TENANT_ORG_SENDER_TYPES: frozenset[str] = frozenset(
         NotificationType.MEMBERSHIP_REQUEST_APPROVED,
         NotificationType.MEMBERSHIP_REQUEST_REJECTED,
         NotificationType.WAITLIST_SPOT_AVAILABLE,
+        # Series pass mail to the holder (STAFF_SERIES_PASS_* are org-facing and stay on the platform sender).
+        NotificationType.SERIES_PASS_PURCHASED,
+        NotificationType.SERIES_PASS_EXTENDED,
+        NotificationType.SERIES_PASS_CANCELLED,
+        # Membership subscription mail to the subscriber. Revel bills the member on the org's behalf,
+        # so none of these is platform billing of the organization.
+        NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
+        NotificationType.SUBSCRIPTION_EXPIRED,
+        NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
+        NotificationType.SUBSCRIPTION_RENEWAL_REMINDER,
+        NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+        NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
     }
 )
 

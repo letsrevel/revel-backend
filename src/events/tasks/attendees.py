@@ -128,11 +128,19 @@ def _confirmation_org(organization_id: str | None) -> Organization | None:
     return Organization.objects.only(*SENDER_ORG_FIELDS).filter(pk=organization_id).first()
 
 
-def _tenant_sender(org: Organization | None) -> dict[str, t.Any]:
-    """``send_email`` sender kwargs for a white-label tenant org; empty (platform sender) otherwise (#1155)."""
+def _tenant_sender(org: Organization | None, kind: str) -> dict[str, t.Any]:
+    """``send_email`` sender kwargs for a white-label tenant org; empty (platform sender) otherwise (#1155).
+
+    Carries the same ``Feedback-ID`` and org correlation the notification emails get. There is no
+    delivery row for a guest mail, so ``X-Mailin-custom`` names only the organization.
+    """
     if org is None or not is_white_label_tenant(org):
         return {}
-    return {"from_email": org_from_address(org), "reply_to": org_reply_to(org)}
+    return {
+        "from_email": org_from_address(org),
+        "reply_to": org_reply_to(org),
+        "headers": {"Feedback-ID": f"{org.slug}:{kind}:revel", "X-Mailin-custom": f"org:{org.id}"},
+    }
 
 
 @shared_task(name="events.tasks.send_guest_rsvp_confirmation")
@@ -158,7 +166,9 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str, organi
     }
     body = render_to_string("events/emails/guest_rsvp_confirmation_body.txt", ctx)
     html_body = render_to_string("events/emails/guest_rsvp_confirmation_body.html", ctx)
-    send_email(to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org))
+    send_email(
+        to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org, "guest_rsvp_confirmation")
+    )
     logger.info("guest_rsvp_confirmation_sent", email=email)
 
 
@@ -191,5 +201,7 @@ def send_guest_ticket_confirmation(
     }
     body = render_to_string("events/emails/guest_ticket_confirmation_body.txt", ctx)
     html_body = render_to_string("events/emails/guest_ticket_confirmation_body.html", ctx)
-    send_email(to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org))
+    send_email(
+        to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org, "guest_ticket_confirmation")
+    )
     logger.info("guest_ticket_confirmation_sent", email=email)

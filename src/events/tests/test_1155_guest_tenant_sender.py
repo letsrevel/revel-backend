@@ -24,6 +24,10 @@ def _email_settings(settings: t.Any) -> None:
     site.save()
 
 
+def kind_label(kind: str) -> str:
+    return "rsvp_confirmation" if kind == "rsvp" else "ticket_confirmation"
+
+
 def _send(kind: str, organization_id: str | None) -> None:
     if kind == "rsvp":
         send_guest_rsvp_confirmation("guest@example.com", "tok", "Party", organization_id)
@@ -46,6 +50,10 @@ class TestGuestConfirmationSender:
         msg = mail.outbox[0]
         assert msg.from_email == f"{organization.name} via Revel <{organization.slug}@mail.letsrevel.io>"
         assert msg.reply_to == ["hello@org.example"]
+        assert msg.extra_headers["Feedback-ID"] == f"{organization.slug}:guest_{kind_label(kind)}:revel"
+        assert msg.extra_headers["X-Mailin-custom"] == f"org:{organization.id}"
+        assert msg.extra_headers["List-Unsubscribe"].startswith("<")
+        assert HOST not in msg.extra_headers["List-Unsubscribe"]
 
     def test_non_tenant_org_keeps_platform_sender(self, organization: Organization, kind: str) -> None:
         Organization.objects.filter(pk=organization.pk).update(

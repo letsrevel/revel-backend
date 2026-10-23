@@ -72,6 +72,29 @@ def test_tenant_types_are_disjoint_from_org_sender_types_and_staff_facing_types(
     assert not TENANT_ORG_SENDER_TYPES & ORG_SENDER_TYPES
     assert NotificationType.MEMBERSHIP_REQUEST_CREATED not in TENANT_ORG_SENDER_TYPES
     assert NotificationType.STAFF_TICKET_CREATED not in TENANT_ORG_SENDER_TYPES
+    assert NotificationType.STAFF_SERIES_PASS_PURCHASED not in TENANT_ORG_SENDER_TYPES
+    assert NotificationType.RSVP_CONFIRMATION not in TENANT_ORG_SENDER_TYPES
+
+
+@pytest.mark.parametrize(
+    "notification_type",
+    [
+        # Org staff/owner alerts: never sent to the attendee, so never on the tenant sender.
+        NotificationType.STAFF_SERIES_PASS_PURCHASED,
+        NotificationType.STAFF_SERIES_PASS_CANCELLED,
+        NotificationType.RSVP_CONFIRMATION,
+        NotificationType.RSVP_UPDATED,
+        NotificationType.RSVP_CANCELLED,
+    ],
+)
+def test_staff_facing_types_stay_on_platform_sender_for_tenant(
+    regular_user: RevelUser, tenant_org: Organization, notification_type: str
+) -> None:
+    sender, reply_to, headers = _envelope(regular_user, notification_type, {"organization_id": str(tenant_org.id)})
+
+    assert sender == DEFAULT_FROM
+    assert reply_to == []
+    assert "Feedback-ID" not in headers
 
 
 @pytest.mark.parametrize("notification_type", TENANT_TYPES)
@@ -119,7 +142,7 @@ def test_tenant_org_resolved_through_event(
     regular_user: RevelUser, tenant_org: Organization, public_event: Event
 ) -> None:
     sender, reply_to, _headers = _envelope(
-        regular_user, NotificationType.RSVP_CONFIRMATION, {"event_id": str(public_event.id)}
+        regular_user, NotificationType.TICKET_CREATED, {"event_id": str(public_event.id)}
     )
 
     assert sender == ORG_FROM
@@ -220,6 +243,27 @@ def test_is_white_label_tenant(organization: Organization) -> None:
     assert not is_white_label_tenant(organization)
     organization.custom_domain, organization.custom_domain_enabled = None, True
     assert not is_white_label_tenant(organization)
+
+
+@pytest.mark.parametrize("notification_type", TENANT_TYPES)
+def test_non_tenant_envelope_costs_one_org_lookup(
+    regular_user: RevelUser, organization: Organization, notification_type: str
+) -> None:
+    """Non-tenant orgs pay the same single org lookup: the gate needs the org to decide."""
+    notification = Notification.objects.create(
+        notification_type=notification_type,
+        user=regular_user,
+        context={"organization_id": str(organization.id)},
+    )
+    delivery = NotificationDelivery.objects.create(
+        notification=notification, channel=DeliveryChannel.EMAIL, status=DeliveryStatus.PENDING
+    )
+    SiteSettings.get_solo()
+
+    with CaptureQueriesContext(connection) as queries:
+        EmailChannel._envelope(notification, delivery)
+
+    assert len(queries.captured_queries) == 1
 
 
 def test_tenant_envelope_costs_one_org_query(regular_user: RevelUser, tenant_org: Organization) -> None:
