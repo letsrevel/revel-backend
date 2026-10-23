@@ -32,7 +32,8 @@ def get_user_related_events(
        (owner / staff / member / rsvp / tickets / invitations / bookmarks).
 
     IDs are materialised in Python to keep the final ``WHERE id IN (...)``
-    pagination-friendly. Optionally narrows further by ``requires_ticket`` and ``organization``.
+    pagination-friendly. ``organization`` is pushed into both ID sets so tenant-scoped calls
+    materialise fewer IDs; ``requires_ticket`` is applied to the final queryset.
 
     Args:
         user: The authenticated user.
@@ -42,17 +43,16 @@ def get_user_related_events(
     Returns:
         A queryset of full Event objects matching the intersection.
     """
-    authorized_event_ids = set(
-        models.Event.objects.for_user(user, include_past=include_past).values_list("id", flat=True)
-    )
+    authorized = models.Event.objects.for_user(user, include_past=include_past)
+    if params.organization is not None:
+        authorized = authorized.filter(organization_id=params.organization)
+    authorized_event_ids = set(authorized.values_list("id", flat=True))
     relationship_event_ids = set(params.get_events_queryset(user.id).values_list("id", flat=True))
     final_event_ids = authorized_event_ids & relationship_event_ids
 
     qs = models.Event.objects.full().filter(id__in=list(final_event_ids)).with_user_bookmark(user)
     if params.requires_ticket is not None:
         qs = qs.filter(requires_ticket=params.requires_ticket)
-    if params.organization is not None:
-        qs = qs.filter(organization_id=params.organization)
     return qs
 
 
@@ -69,13 +69,13 @@ def get_user_related_organizations(
     Returns:
         A queryset of full Organization objects matching the intersection.
     """
-    authorized_org_ids = set(models.Organization.objects.for_user(user).values_list("id", flat=True))
+    authorized = models.Organization.objects.for_user(user)
+    if params.organization is not None:
+        authorized = authorized.filter(id=params.organization)
+    authorized_org_ids = set(authorized.values_list("id", flat=True))
     relationship_org_ids = set(params.get_organizations_queryset(user.id).values_list("id", flat=True))
     final_org_ids = authorized_org_ids & relationship_org_ids
-    qs = models.Organization.objects.full().filter(id__in=list(final_org_ids))
-    if params.organization is not None:
-        qs = qs.filter(id=params.organization)
-    return qs
+    return models.Organization.objects.full().filter(id__in=list(final_org_ids))
 
 
 def get_user_related_event_series(
@@ -91,13 +91,13 @@ def get_user_related_event_series(
     Returns:
         A queryset of full EventSeries objects matching the intersection.
     """
-    authorized_series_ids = set(models.EventSeries.objects.for_user(user).values_list("id", flat=True))
+    authorized = models.EventSeries.objects.for_user(user)
+    if params.organization is not None:
+        authorized = authorized.filter(organization_id=params.organization)
+    authorized_series_ids = set(authorized.values_list("id", flat=True))
     relationship_series_ids = set(params.get_event_series_queryset(user.id).values_list("id", flat=True))
     final_series_ids = authorized_series_ids & relationship_series_ids
-    qs = models.EventSeries.objects.full().filter(id__in=list(final_series_ids))
-    if params.organization is not None:
-        qs = qs.filter(organization_id=params.organization)
-    return qs
+    return models.EventSeries.objects.full().filter(id__in=list(final_series_ids))
 
 
 def get_user_invitations(
