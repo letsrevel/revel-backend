@@ -205,6 +205,12 @@ class MinimalOrganizationSchema(CustomDomainMixin, OrganizationBrandingMixin, Lo
         return _resolve_public_contact_email(obj)
 
 
+class OrganizationCustomDomainSchema(Schema):
+    """The active custom domain of an organization, for the platform host's Stripe return flow."""
+
+    custom_domain: str
+
+
 class TenantOrganizationSchema(CustomDomainMixin, OrganizationBrandingMixin, LogoCoverArtThumbnailMixin):
     """The organization behind a custom domain, as the white-label frontend needs it on first load.
 

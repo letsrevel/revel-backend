@@ -192,9 +192,12 @@ class SeriesPassController(UserAwareController):
         auth=I18nJWTAuth(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_my_series_passes(self) -> QuerySet[models.HeldSeriesPass]:
-        """List the current user's held series passes."""
-        return self._held_pass_queryset().filter(user=self.user())
+    def list_my_series_passes(self, organization: UUID | None = None) -> QuerySet[models.HeldSeriesPass]:
+        """List the current user's held series passes, optionally only those of one organization."""
+        qs = self._held_pass_queryset().filter(user=self.user())
+        if organization is not None:
+            qs = qs.filter(series_pass__event_series__organization_id=organization)
+        return qs
 
     @route.get(
         "/me/{held_pass_id}/pdf",

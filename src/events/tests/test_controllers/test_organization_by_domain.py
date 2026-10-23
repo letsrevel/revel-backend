@@ -1,12 +1,13 @@
-"""Tests for tenant resolution over HTTP: by-domain endpoint, org payloads and dynamic CORS (#1152)."""
+"""Tests for tenant resolution over HTTP: by-domain and by-id custom-domain routes, org payloads, CORS (#1152)."""
 
 import typing as t
 from decimal import Decimal
 from unittest.mock import Mock
+from uuid import uuid4
 
 import pytest
 from django.test.client import Client
-from django.urls import reverse
+from django.urls import resolve, reverse
 
 from events.models import (
     AdditionalResource,
@@ -382,3 +383,67 @@ def test_invalidation_does_not_raise_when_the_cache_is_down(
     tenant_org.refresh_from_db()
     assert tenant_org.custom_domain is None
     assert tenant_service.get_tenant_organization(HOST) is None
+
+
+# --- GET /organizations/{uuid}/custom-domain (anonymous, any visibility: the Stripe return flow) ---
+
+
+def _custom_domain_by_id(client: Client, organization_id: t.Any) -> t.Any:
+    return client.get(reverse("api:get_organization_custom_domain", kwargs={"organization_id": organization_id}))
+
+
+@pytest.mark.parametrize(
+    "visibility",
+    [Organization.Visibility.PUBLIC, Organization.Visibility.PRIVATE, Organization.Visibility.MEMBERS_ONLY],
+)
+def test_custom_domain_by_id_resolves_anonymously_for_any_visibility(
+    client: Client, tenant_org: Organization, visibility: Organization.Visibility
+) -> None:
+    """The client has no session on the platform host, and the hostname is public DNS: any visibility resolves."""
+    tenant_org.visibility = visibility
+    tenant_org.save(update_fields=["visibility"])
+
+    response = _custom_domain_by_id(client, tenant_org.id)
+
+    assert response.status_code == 200
+    assert response.json() == {"custom_domain": HOST}
+
+
+def test_custom_domain_by_id_404_without_an_active_domain(client: Client, organization: Organization) -> None:
+    """Enabled but no domain, and a pending domain, both 404."""
+    organization.custom_domain_enabled = True
+    organization.save(update_fields=["custom_domain_enabled"])
+    assert _custom_domain_by_id(client, organization.id).status_code == 404
+
+    OrganizationDomain.objects.create(organization=organization, hostname="pending.example.com")
+    response = _custom_domain_by_id(client, organization.id)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Organization not found."}
+
+
+def test_custom_domain_by_id_404_when_kill_switch_off(client: Client, tenant_org: Organization) -> None:
+    """The platform kill switch hides the hostname even though the active domain is still stored."""
+    tenant_org.custom_domain_enabled = False
+    tenant_org.save(update_fields=["custom_domain_enabled"])
+
+    assert _custom_domain_by_id(client, tenant_org.id).status_code == 404
+
+
+def test_custom_domain_by_id_404_for_unknown_uuid(client: Client) -> None:
+    """An unknown organization id is a plain 404."""
+    response = _custom_domain_by_id(client, uuid4())
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Organization not found."}
+
+
+def test_custom_domain_by_id_route_is_not_shadowed(client: Client, tenant_org: Organization) -> None:
+    """``/{uuid}/custom-domain`` resolves to its own route, and the neighbouring uuid routes keep working."""
+    path = f"/api/organizations/{tenant_org.id}/custom-domain"
+
+    assert resolve(path).url_name == "get_organization_custom_domain"
+    assert resolve(f"/api/organizations/{tenant_org.id}/logo").url_name == "organization_logo"
+    assert resolve(f"/api/organizations/{tenant_org.id}").url_name == "get_organization_by_id"
+    assert client.get(path).json() == {"custom_domain": HOST}
+    assert client.get(f"/api/organizations/{tenant_org.id}/logo").status_code == 200
