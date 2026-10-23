@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.contrib.admin.sites import site
+from django.contrib.auth.models import Permission
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 
@@ -98,7 +99,7 @@ def test_activate_action_reports_removed_domain(rf: t.Any, superuser: RevelUser,
 
     _admin().activate_domains(request, _qs(pending))
 
-    assert _messages(request) == ["events.example.com: A removed domain cannot be activated."]
+    assert _messages(request) == ["events.example.com: A removed domain cannot be changed."]
 
 
 def test_mark_failed_and_remove_actions(rf: t.Any, superuser: RevelUser, pending: OrganizationDomain) -> None:
@@ -140,6 +141,40 @@ def test_organization_admin_exposes_gate_but_not_the_synced_hostname(rf: t.Any, 
     assert "custom_domain_enabled" in fieldset_fields
     assert "custom_domain" in org_admin.get_readonly_fields(request, None)
     assert "custom_domain_enabled" not in org_admin.get_readonly_fields(request, None)
+
+
+def _staff_with(django_user_model: t.Any, username: str, *codenames: str) -> RevelUser:
+    """A non-superuser staff user holding only the given ``events`` model permissions."""
+    user = django_user_model.objects.create_user(username=username, email=username, password="x")
+    user.is_staff = True
+    user.save(update_fields=["is_staff"])
+    user.user_permissions.set(Permission.objects.filter(content_type__app_label="events", codename__in=codenames))
+    return t.cast(RevelUser, django_user_model.objects.get(pk=user.pk))  # fresh instance: no cached permissions
+
+
+def test_custom_domain_enabled_is_read_only_for_non_superusers(rf: t.Any, django_user_model: t.Any) -> None:
+    """The platform switch is superuser-only, like the other platform-configuration fields."""
+    org_admin = t.cast(OrganizationAdmin, site._registry[Organization])
+    sales = _staff_with(django_user_model, "sales@test.com", "view_organization", "change_organization")
+
+    assert "custom_domain_enabled" in org_admin.get_readonly_fields(_request(rf, sales), None)
+
+
+def test_domain_actions_require_change_permission(rf: t.Any, django_user_model: t.Any) -> None:
+    """A view-only staff user gets no Activate / Mark failed / Remove actions; a changer does."""
+    names = {"activate_domains", "mark_domains_failed", "remove_domains"}
+    viewer = _staff_with(django_user_model, "viewer@test.com", "view_organizationdomain")
+    changer = _staff_with(django_user_model, "changer@test.com", "view_organizationdomain", "change_organizationdomain")
+
+    assert names.isdisjoint(_admin().get_actions(_request(rf, viewer)))
+    assert names <= set(_admin().get_actions(_request(rf, changer)))
+
+
+def test_domain_actions_available_to_superusers(rf: t.Any, superuser: RevelUser) -> None:
+    """Superusers keep all three actions."""
+    assert {"activate_domains", "mark_domains_failed", "remove_domains"} <= set(
+        _admin().get_actions(_request(rf, superuser))
+    )
 
 
 @pytest.fixture

@@ -69,17 +69,17 @@ class OrganizationDomainAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
         if count:
             self.message_user(request, f"{count} domain(s) {done}.", level=messages.SUCCESS)
 
-    @admin.action(description="Activate selected domains")
+    @admin.action(description="Activate selected domains", permissions=["change"])
     def activate_domains(self, request: HttpRequest, queryset: QuerySet[models.OrganizationDomain]) -> None:
         """Mark domains ACTIVE and publish them on their organizations."""
         self._apply(request, queryset, custom_domain_service.activate_domain, "activated")
 
-    @admin.action(description="Mark selected domains as failed")
+    @admin.action(description="Mark selected domains as failed", permissions=["change"])
     def mark_domains_failed(self, request: HttpRequest, queryset: QuerySet[models.OrganizationDomain]) -> None:
         """Mark domains FAILED and withdraw them from their organizations."""
         self._apply(request, queryset, custom_domain_service.mark_domain_failed, "marked as failed")
 
-    @admin.action(description="Remove selected domains")
+    @admin.action(description="Remove selected domains", permissions=["change"])
     def remove_domains(self, request: HttpRequest, queryset: QuerySet[models.OrganizationDomain]) -> None:
         """Mark domains REMOVED, freeing their hostnames."""
         self._apply(request, queryset, custom_domain_service.remove_domain, "removed")
