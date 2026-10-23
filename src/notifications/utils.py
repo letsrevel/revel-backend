@@ -304,6 +304,35 @@ def truncate_telegram_html(message: str, max_length: int, suffix: str) -> str:
     return result
 
 
+def _org_logo_absolute_url(organization_id: str | None, organization_slug: str | None) -> str | None:
+    """Return the absolute URL of an organization's logo, or None when it has no logo.
+
+    Points at the stable ``/api/organizations/{id}/logo`` endpoint (the same indirection
+    the Google Wallet links use): raw media URLs die when a logo is replaced, and emails
+    live on. That endpoint serves the thumbnail, falling back to the logo.
+
+    Costs one query. Identifies the org by id when present, else by slug.
+
+    Args:
+        organization_id: Organization UUID string from the notification context.
+        organization_slug: Organization slug, used when no id is available.
+
+    Returns:
+        Absolute logo URL, or None when the org is missing or has no logo.
+    """
+    from django.conf import settings
+    from django.urls import reverse
+
+    from events.models import Organization
+
+    lookup = {"id": organization_id} if organization_id else {"slug": organization_slug}
+    org = Organization.objects.only("id", "logo", "logo_thumbnail").filter(**lookup).first()
+    if org is None or not (org.logo_thumbnail or org.logo):
+        return None
+    path = reverse("api:organization_logo", kwargs={"organization_id": org.id})
+    return f"{settings.BASE_URL.rstrip('/')}{path}"
+
+
 def get_formatted_context_for_template(
     context: dict[str, t.Any],
     user_language: str = "en",
@@ -347,6 +376,13 @@ def get_formatted_context_for_template(
                 if formatted_key not in enriched and short_key not in enriched:
                     enriched[formatted_key] = format_datetime(enriched[field], format_type="full")
                     enriched[short_key] = format_datetime(enriched[field], format_type="short")
+
+        # Resolve the org logo once, unless the caller already supplied one
+        org_id, org_slug = enriched.get("organization_id"), enriched.get("organization_slug")
+        if not enriched.get("organization_logo_url") and (org_id or org_slug):
+            logo_url = _org_logo_absolute_url(org_id, org_slug)
+            if logo_url:
+                enriched["organization_logo_url"] = logo_url
 
         # Add organization signature if org info is present
         if "organization_name" in enriched and "organization_slug" in enriched:
