@@ -32,7 +32,7 @@ def get_user_related_events(
        (owner / staff / member / rsvp / tickets / invitations / bookmarks).
 
     IDs are materialised in Python to keep the final ``WHERE id IN (...)``
-    pagination-friendly. Optionally narrows further by ``requires_ticket``.
+    pagination-friendly. Optionally narrows further by ``requires_ticket`` and ``organization``.
 
     Args:
         user: The authenticated user.
@@ -51,6 +51,8 @@ def get_user_related_events(
     qs = models.Event.objects.full().filter(id__in=list(final_event_ids)).with_user_bookmark(user)
     if params.requires_ticket is not None:
         qs = qs.filter(requires_ticket=params.requires_ticket)
+    if params.organization is not None:
+        qs = qs.filter(organization_id=params.organization)
     return qs
 
 
@@ -70,7 +72,10 @@ def get_user_related_organizations(
     authorized_org_ids = set(models.Organization.objects.for_user(user).values_list("id", flat=True))
     relationship_org_ids = set(params.get_organizations_queryset(user.id).values_list("id", flat=True))
     final_org_ids = authorized_org_ids & relationship_org_ids
-    return models.Organization.objects.full().filter(id__in=list(final_org_ids))
+    qs = models.Organization.objects.full().filter(id__in=list(final_org_ids))
+    if params.organization is not None:
+        qs = qs.filter(id=params.organization)
+    return qs
 
 
 def get_user_related_event_series(
@@ -89,7 +94,10 @@ def get_user_related_event_series(
     authorized_series_ids = set(models.EventSeries.objects.for_user(user).values_list("id", flat=True))
     relationship_series_ids = set(params.get_event_series_queryset(user.id).values_list("id", flat=True))
     final_series_ids = authorized_series_ids & relationship_series_ids
-    return models.EventSeries.objects.full().filter(id__in=list(final_series_ids))
+    qs = models.EventSeries.objects.full().filter(id__in=list(final_series_ids))
+    if params.organization is not None:
+        qs = qs.filter(organization_id=params.organization)
+    return qs
 
 
 def get_user_invitations(
@@ -98,6 +106,7 @@ def get_user_invitations(
     event_id: UUID | None = None,
     include_past: bool = False,
     exclude_accepted: bool = True,
+    organization: UUID | None = None,
 ) -> QuerySet[models.EventInvitation]:
     """Return event invitations addressed to ``user`` with dashboard filtering.
 
@@ -109,6 +118,7 @@ def get_user_invitations(
         event_id: Optionally restrict to invitations for a single event.
         include_past: Include invitations whose events have ended.
         exclude_accepted: Hide invitations the user has effectively accepted.
+        organization: Optionally restrict to invitations for events of one organization.
 
     Returns:
         A queryset of EventInvitation rows, ordered newest-first.
@@ -117,6 +127,9 @@ def get_user_invitations(
 
     if event_id:
         qs = qs.filter(event_id=event_id)
+
+    if organization is not None:
+        qs = qs.filter(event__organization_id=organization)
 
     if not include_past:
         qs = qs.filter(event__end__gt=timezone.now())

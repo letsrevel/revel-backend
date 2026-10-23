@@ -207,6 +207,12 @@ class TicketFilterSchema(FilterSchema):
         return Q()
 
 
+class DashboardTicketFilterSchema(TicketFilterSchema):
+    """Attendee dashboard ticket filters, with the optional white-label organization scope (#1154)."""
+
+    organization: t.Annotated[UUID | None, FilterLookup(q="event__organization_id")] = None
+
+
 class AdminTicketFilterSchema(TicketFilterSchema):
     """Ticket filters for the event admin list, which annotates organizer-only fields."""
 
@@ -214,10 +220,17 @@ class AdminTicketFilterSchema(TicketFilterSchema):
     invoice_skipped: bool | None = None
 
 
+class DashboardRSVPFilterSchema(RSVPFilterSchema):
+    """Attendee dashboard RSVP filters, with the optional white-label organization scope (#1154)."""
+
+    organization: t.Annotated[UUID | None, FilterLookup(q="event__organization_id")] = None
+
+
 class DashboardOrganizationsFiltersSchema(Schema):
     owner: bool = True
     staff: bool = True
     member: bool = True
+    organization: UUID | None = None
 
     def get_organizations_queryset(self, user_id: UUID) -> models.QuerySet[Organization]:
         """This is the high-performance query builder for the organization dashboard.
@@ -257,6 +270,7 @@ class DashboardEventsFiltersSchema(Schema):
     got_invitation: bool = True
     bookmarked: bool = True
     requires_ticket: bool | None = None
+    organization: UUID | None = None
 
     def get_events_queryset(self, user_id: UUID) -> models.QuerySet[Event]:
         """This is the high-performance query builder for the dashboard.
@@ -302,6 +316,7 @@ class DashboardEventSeriesFiltersSchema(Schema):
     owner: bool = True
     staff: bool = True
     member: bool = True
+    organization: UUID | None = None
 
     def get_event_series_queryset(self, user_id: UUID) -> models.QuerySet["EventSeries"]:
         """High-performance query builder for event series dashboard using UNION strategy.
