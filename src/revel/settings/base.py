@@ -324,6 +324,8 @@ CORS_ALLOW_HEADERS = [
     # Custom headers for token-based access
     "x-event-token",
     "x-org-token",
+    # Guest seat-hold session for cross-site (tenant host) browsers that can't use the cookie
+    "x-guest-hold",
 ]
 
 # Expose headers that clients can read from responses

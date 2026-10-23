@@ -262,12 +262,12 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         Returns 422 if the tier was switched to a payment channel blocked where the event is held
         after the token was minted (``CountryComplianceError``).
         """
-        from events.service.guest_hold_session import GUEST_HOLD_COOKIE, resolve_guest_session
+        from events.service.guest_hold_session import resolve_request_guest_hold
 
-        # The confirming browser's guest-hold session: lets ticket confirmation consume
-        # the guest's own seat holds instead of being blocked by them.
-        guest_session = resolve_guest_session(self.context.request.COOKIES.get(GUEST_HOLD_COOKIE))  # type: ignore[union-attr]
-        return guest_service.confirm_guest_action(payload.token, guest_session=guest_session)
+        # The confirming browser's guest-hold session (X-Guest-Hold header, then cookie): lets
+        # ticket confirmation consume the guest's own seat holds instead of being blocked by them.
+        hold = resolve_request_guest_hold(self.context.request)  # type: ignore[arg-type,union-attr]
+        return guest_service.confirm_guest_action(payload.token, guest_session=hold.session_id if hold else None)
 
     # ---- Checkout Management Endpoints ----
     # These must be defined BEFORE /{uuid:event_id} routes to avoid path conflicts
