@@ -24,7 +24,7 @@ from events.exceptions import CloudflareAPIError, CustomDomainConflictError, Cus
 from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 from events.schema.custom_domain import DnsRecordSchema, DnsRecordType
 from events.service import cloudflare_custom_hostnames as cloudflare
-from events.service import turnstile_hostname_service
+from events.service import dns_diagnostics, turnstile_hostname_service
 from events.service.tenant_service import invalidate_tenant_cache
 from events.utils.hostname import validate_custom_hostname
 
@@ -275,6 +275,27 @@ def _target_status(current: str, hosted: cloudflare.CustomHostname) -> Organizat
     return None
 
 
+def _gate_and_diagnose(
+    domain: OrganizationDomain, expected: str, hosted: cloudflare.CustomHostname
+) -> tuple[list[str], OrganizationDomainStatus | None]:
+    """Return ``(errors, target)`` for a sync: Cloudflare's problems, the ownership gate and the DNS pre-flight hints.
+
+    The target is Cloudflare's decision, held back at PENDING (``None``) while the ownership TXT is not published.
+    A PENDING domain that is not becoming ACTIVE also gets :func:`dns_diagnostics.diagnose_dns`; when Cloudflare
+    is ready and only the TXT is missing, only the mistake that explains it is checked (``ownership_only``).
+    """
+    errors = _hosted_errors(hosted)
+    target = _target_status(expected, hosted)
+    ownership_only = False
+    if target == OrganizationDomain.Status.ACTIVE and (proof_error := _ownership_error(domain.hostname, hosted)):
+        errors, target = [*errors, proof_error], None  # ready at Cloudflare, but ownership is not proven: stay PENDING
+        ownership_only = True
+    if expected == OrganizationDomain.Status.PENDING and target != OrganizationDomain.Status.ACTIVE:
+        hints = dns_diagnostics.diagnose_dns(domain.hostname, ownership_only=ownership_only)
+        errors = list(dict.fromkeys([*errors, *hints]))  # de-duplicated, order preserved
+    return errors, target
+
+
 def get_current_domain(organization: Organization) -> OrganizationDomain | None:
     """Return the organization's latest non-removed domain (pending, active or failed), if any.
 
@@ -446,6 +467,11 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     Hostname and certificate both ``active`` activates a PENDING domain, but only once the ownership TXT
     record Cloudflare issued (``ownership_verification``) is published in public DNS; until then the domain
     stays PENDING and ``last_errors`` says which record to add (ACTIVE domains are never re-checked).
+    A domain that was PENDING and is not becoming ACTIVE on this run also gets the DNS pre-flight hints of
+    :func:`dns_diagnostics.diagnose_dns` appended to ``last_errors`` (never for ACTIVE ones: a new ``last_errors``
+    entry there alerts platform staff). When Cloudflare reports the hostname ready and only the ownership TXT is
+    missing, the message above already says what to add, so only the one mistake that explains it (records at
+    the doubled name) is checked. The sweep and **Check now** both come through here.
     ``blocked`` / ``deleted`` (hostname) and ``deleted`` (certificate) mark a PENDING *or ACTIVE* domain
     failed, withdrawing it from the organization. So does ``moved`` (hostname): the DNS no longer points at us,
     and failing the domain signs out every session issued on it. The certificate ``*_timed_out`` states fail a
@@ -479,10 +505,7 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
         return domain
     hosted = cloudflare.get_custom_hostname(domain.cloudflare_hostname_id)
     records = _dns_records(domain.hostname, hosted)
-    errors = _hosted_errors(hosted)
-    target = _target_status(expected, hosted)
-    if target == OrganizationDomain.Status.ACTIVE and (proof_error := _ownership_error(domain.hostname, hosted)):
-        errors, target = [*errors, proof_error], None  # ready at Cloudflare, but ownership is not proven: stay PENDING
+    errors, target = _gate_and_diagnose(domain, expected, hosted)
     # A live domain developing a problem is only visible here: alert once, on the clean -> problem edge.
     new_active_problem = expected == OrganizationDomain.Status.ACTIVE and bool(errors) and not domain.last_errors
     if (records, errors) != (domain.verification_records, domain.last_errors):

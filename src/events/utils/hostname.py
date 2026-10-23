@@ -39,7 +39,7 @@ def normalize_hostname(value: str) -> str:
         return host
 
 
-def _registrable_apex(host: str) -> str | None:
+def registrable_apex(host: str) -> str | None:
     """Return the last two labels of ``host`` (e.g. ``letsrevel.io``), or ``None`` for a single label."""
     # ponytail: naive "last two labels"; wrong for multi-part public suffixes (co.uk), which is fine
     # because it is only applied to the platform's own hosts. Upgrade path: the public suffix list.
@@ -63,7 +63,7 @@ def platform_hosts() -> frozenset[str]:
             # ``localhost`` is handled by the ``*.localhost`` rule, not the platform-host rule.
             continue
         hosts.add(host)
-        if apex := _registrable_apex(host):
+        if apex := registrable_apex(host):
             hosts.add(apex)
     if fallback_origin := str(settings.CUSTOM_DOMAIN_CNAME_TARGET).strip().lower().rstrip("."):
         hosts.add(fallback_origin)  # the target itself only: its apex may be an unrelated, shared domain

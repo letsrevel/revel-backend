@@ -11,7 +11,7 @@ from common.models import SiteSettings
 from events.exceptions import CloudflareAPIError
 from events.models import Organization, OrganizationDomain
 from events.service import cloudflare_custom_hostnames as cloudflare
-from events.service import custom_domain_service
+from events.service import custom_domain_service, dns_diagnostics
 
 pytestmark = pytest.mark.django_db
 
@@ -49,6 +49,13 @@ def platform_settings(settings: t.Any) -> None:
 def txt_published() -> t.Iterator[MagicMock]:
     """The ownership TXT record is published in public DNS (no network)."""
     with patch.object(cloudflare, "txt_record_published", return_value=True) as mock:
+        yield mock
+
+
+@pytest.fixture(autouse=True)
+def no_dns_preflight() -> t.Iterator[MagicMock]:
+    """The DNS pre-flight hints are tested in ``test_dns_diagnostics`` (no network); tests may set ``return_value``."""
+    with patch.object(dns_diagnostics, "diagnose_dns", return_value=[]) as mock:
         yield mock
 
 
@@ -247,6 +254,24 @@ def test_refresh_keeps_pending_until_the_ownership_txt_record_is_published(
     ]
     enabled_org.refresh_from_db()
     assert enabled_org.custom_domain is None
+
+
+def test_refresh_shows_the_dns_preflight_hints(
+    organization_owner_client: Client, enabled_org: Organization, no_dns_preflight: MagicMock
+) -> None:
+    """**Check now** runs the DNS pre-flight too, so the owner sees what to fix without waiting for the sweep."""
+    no_dns_preflight.return_value = ["No CNAME record was found for events.example.com; add one."]
+    OrganizationDomain.objects.create(
+        organization=enabled_org, hostname="events.example.com", cloudflare_hostname_id="cf-1"
+    )
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted()):
+        response = organization_owner_client.post(_url("refresh_custom_domain", enabled_org))
+
+    assert response.status_code == 200, response.content
+    assert response.json()["status"] == "pending"
+    assert response.json()["errors"] == ["No CNAME record was found for events.example.com; add one."]
+    no_dns_preflight.assert_called_once_with("events.example.com", ownership_only=False)
 
 
 def test_refresh_without_domain_is_404(organization_owner_client: Client, enabled_org: Organization) -> None:

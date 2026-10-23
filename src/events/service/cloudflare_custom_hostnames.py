@@ -6,7 +6,9 @@ whose field names follow Cloudflare's published schema
 :class:`events.exceptions.CloudflareAPIError` (and is logged once, without secrets): a transport error, a
 non-2xx status, a ``success: false`` envelope, a body that is not JSON, or a missing / malformed ``result``.
 
-It also hosts :func:`txt_record_published`, the public-DNS check that gates activation (the ownership TXT record).
+It also hosts :func:`dns_query`, the public-DNS lookup (DNS-over-HTTPS) shared with the pre-flight diagnostics
+(:mod:`events.service.dns_diagnostics`), and :func:`txt_record_published`, the public-DNS check that gates
+activation (the ownership TXT record).
 """
 
 import re
@@ -23,10 +25,12 @@ logger = structlog.get_logger(__name__)
 
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 REQUEST_TIMEOUT_SECONDS = 10
-# Public DNS-over-HTTPS resolver (JSON API) used to check the ownership TXT record.
+# Public DNS-over-HTTPS resolver (JSON API) used to check the ownership TXT record and diagnose DNS mistakes.
 DNS_OVER_HTTPS_URL = "https://cloudflare-dns.com/dns-query"
 DNS_LOOKUP_TIMEOUT_SECONDS = 5
-DNS_TXT_RECORD_TYPE = 16
+DnsRecordType = t.Literal["A", "AAAA", "CAA", "CNAME", "NS", "TXT"]
+_DNS_TYPE_CODES: dict[DnsRecordType, int] = {"A": 1, "NS": 2, "CNAME": 5, "TXT": 16, "AAAA": 28, "CAA": 257}
+_DNS_NOERROR, _DNS_NXDOMAIN = 0, 3
 _QUOTED_TXT_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -225,31 +229,43 @@ def delete_custom_hostname(custom_hostname_id: str) -> None:
     _request("DELETE", f"/{custom_hostname_id}")
 
 
-def txt_record_published(name: str, value: str) -> bool:
-    """Return whether public DNS serves a TXT record ``name`` whose value is exactly ``value``.
+def dns_query(name: str, rtype: DnsRecordType) -> list[str] | None:
+    """Look up the ``rtype`` records of ``name`` in public DNS (over DNS-over-HTTPS).
 
-    Cloudflare activates a custom hostname on the CNAME alone, without the ownership TXT record, so the
-    platform checks the TXT itself (over DNS-over-HTTPS) before activating a domain. Fails closed: any
-    resolver problem (transport error, non-200, malformed JSON) is logged and answers ``False``; it never raises.
-    A TXT record split into several quoted strings is joined before comparing.
+    Returns:
+        list[str] | None: The ``data`` of every answer of the requested type, in the resolver's presentation
+        format (a CNAME or NS target keeps its trailing dot, a TXT value its quotes, a CAA record reads
+        ``0 issue "letsencrypt.org"``). Empty when the name has no such record (NOERROR without an answer, or
+        NXDOMAIN). ``None`` when the lookup failed (transport error, non-200, SERVFAIL, malformed JSON), so
+        callers can tell "no record" from "could not look". Never raises; a failure is logged.
     """
     try:
         response = httpx.get(
             DNS_OVER_HTTPS_URL,
-            params={"name": name, "type": "TXT"},
+            params={"name": name, "type": rtype},
             headers={"accept": "application/dns-json"},
             timeout=DNS_LOOKUP_TIMEOUT_SECONDS,
             follow_redirects=False,
         )
         if response.status_code != 200:
-            logger.warning("custom_domain_txt_lookup_failed", name=name, status_code=response.status_code)
-            return False
-        answers = response.json().get("Answer") or []
-        return any(
-            value == "".join(_QUOTED_TXT_STRING.findall(answer["data"]))
-            for answer in answers
-            if answer.get("type") == DNS_TXT_RECORD_TYPE
-        )
+            logger.warning("custom_domain_dns_lookup_failed", name=name, rtype=rtype, status_code=response.status_code)
+            return None
+        body = response.json()
+        if body.get("Status") not in (_DNS_NOERROR, _DNS_NXDOMAIN):
+            logger.warning("custom_domain_dns_lookup_failed", name=name, rtype=rtype, dns_status=body.get("Status"))
+            return None
+        return [answer["data"] for answer in body.get("Answer") or [] if answer.get("type") == _DNS_TYPE_CODES[rtype]]
     except (httpx.HTTPError, ValueError, AttributeError, KeyError, TypeError) as exc:
-        logger.warning("custom_domain_txt_lookup_failed", name=name, detail=exc.__class__.__name__)
-        return False
+        logger.warning("custom_domain_dns_lookup_failed", name=name, rtype=rtype, detail=exc.__class__.__name__)
+        return None
+
+
+def txt_record_published(name: str, value: str) -> bool:
+    """Return whether public DNS serves a TXT record ``name`` whose value is exactly ``value``.
+
+    Cloudflare activates a custom hostname on the CNAME alone, without the ownership TXT record, so the
+    platform checks the TXT itself (see :func:`dns_query`) before activating a domain. Fails closed: any
+    resolver problem is logged and answers ``False``; it never raises. A TXT record split into several
+    quoted strings is joined before comparing.
+    """
+    return any(value == "".join(_QUOTED_TXT_STRING.findall(data)) for data in dns_query(name, "TXT") or [])

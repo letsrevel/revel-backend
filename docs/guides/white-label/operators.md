@@ -360,6 +360,19 @@ recoverable: once the CNAME is fixed the organizer requests the domain again. A 
 only records the problem on an active domain, since DNS still reaches us. DNS records and error
 messages are refreshed on every run either way.
 
+**DNS hints.** A domain that was **pending** and is not becoming active also gets DNS pre-flight
+hints appended to `last_errors` (CNAME missing or wrong, records at the doubled name, CAA blocking
+Let's Encrypt, a root-domain hostname, plus the customer's DNS host and a help link). They are the
+first thing to read when a customer says "it stays pending", and they are what the organizer sees on
+**Check now**, so many DNS tickets answer themselves. They are advisory: the lookups go through
+`cloudflare-dns.com` over DNS-over-HTTPS (about 6 to 9 queries per pending domain per run, one when the
+resolver is down), a failed lookup skips its check, and nothing here can block or delay activation.
+When Cloudflare already reports the hostname ready and only the ownership TXT is missing, only the
+doubled-name mistake is checked, since the TXT message already says what to add. Active domains are
+never diagnosed: a new `last_errors` entry on an active domain would alert staff. The DNS-host table
+(`DNS_PROVIDERS` in `events/service/dns_diagnostics.py`) is plain data; add a row to recognise another
+provider.
+
 The decision is a compare-and-set: before applying a transition the task re-reads the status under
 a row lock, and does nothing if the organizer removed the domain in the meantime. One domain
 raising an error is logged (`custom_domain_sync_failed`, with the domain id) and does not stop the
@@ -550,7 +563,8 @@ steps 2 and 3; Revel does steps 4 and 5.
 4. **Activation.** Revel's sync (every 15 minutes, or the owner's **Check now**) activates the
    domain once Cloudflare reports the hostname and certificate `active` **and** the ownership TXT
    record is visible in public DNS. If it stays pending, read `last_errors` under **Custom Domains**
-   in the admin; the ownership message names the missing record. Caddy issues the origin
+   in the admin; the ownership message names the missing record, and the DNS hints (wrong or missing
+   CNAME, doubled name, CAA, root domain, the customer's DNS host) say what else to fix. Caddy issues the origin
    certificate on the first request, because the ask check now answers 200.
 5. **The Turnstile widget updates itself.** Right after activation Revel adds the hostname to the
    registration widget's list (see [Turnstile](#turnstile)). If it does not within a minute, check
