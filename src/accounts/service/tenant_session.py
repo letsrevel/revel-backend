@@ -39,14 +39,6 @@ TENANT_HOST_CLAIM = "tenant_host"
 TENANT_SESSION_IAT_CLAIM = "tenant_session_iat"
 
 
-class TenantSessionRevoked(InvalidToken):
-    """401 for an access token whose tenant session is no longer valid.
-
-    A dedicated subclass so ``OptionalAuth`` can treat exactly this case as anonymous, while
-    expired or forged tokens keep failing as before.
-    """
-
-
 def tenant_claims(tenant_host: str) -> dict[str, t.Any]:
     """Return the claims that bind a freshly issued session to ``tenant_host``."""
     return {TENANT_HOST_CLAIM: tenant_host, TENANT_SESSION_IAT_CLAIM: int(time.time())}

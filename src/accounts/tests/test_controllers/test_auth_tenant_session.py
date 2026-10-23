@@ -24,7 +24,7 @@ from ninja_jwt.tokens import AccessToken, RefreshToken
 
 from accounts.models import RevelUser
 from accounts.service import auth as auth_service
-from accounts.service.tenant_session import TenantSessionRevoked
+from common.auth_base import SessionRevoked
 from common.authentication import I18nJWTAuth, OptionalAuth, ScopedJWTAuth
 from events.models import Organization, OrganizationDomain
 from events.service import cloudflare_custom_hostnames as cloudflare
@@ -366,7 +366,7 @@ def test_optional_auth_still_rejects_expired_and_garbage_tokens(user: RevelUser)
         request = RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
         with pytest.raises(InvalidToken) as excinfo:
             OptionalAuth()(request)
-        assert not isinstance(excinfo.value, TenantSessionRevoked)
+        assert not isinstance(excinfo.value, SessionRevoked)
         assert _bearer(token).get(reverse("api:list_organizations")).status_code == 401
 
 
@@ -404,7 +404,7 @@ def test_scoped_auth_refuses_a_revoked_tenant_session_and_serves_platform_tokens
     custom_domain_service.remove_domain(domain)
     cache.clear()
 
-    with pytest.raises(TenantSessionRevoked):
+    with pytest.raises(SessionRevoked):
         ScopedJWTAuth().authenticate(RequestFactory().get("/"), tenant)
     assert ScopedJWTAuth().authenticate(RequestFactory().get("/"), platform) == user
     assert I18nJWTAuth().authenticate(RequestFactory().get("/"), platform) == user
