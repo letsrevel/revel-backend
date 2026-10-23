@@ -35,6 +35,7 @@ from .mixins import (
     CityEditMixin,
     CityRetrieveMixin,
     LogoCoverArtThumbnailMixin,
+    OrganizationBrandingMixin,
     SocialMediaSchemaEditMixin,
     SocialMediaSchemaRetrieveMixin,
     TaggableSchemaMixin,
@@ -76,6 +77,10 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     # is validated (org-scoped, MEMBERSHIP type) in the service layer before persisting.
     default_membership_questionnaire_id: UUID | None = None
     default_requires_membership_approval: bool = False
+
+
+class OrganizationBrandingResponse(OrganizationBrandingMixin):
+    """Response of ``PUT /organization-admin/{slug}/branding``: the saved branding and its derived theme."""
 
 
 class ComplianceNoticeSchema(Schema):
@@ -177,7 +182,7 @@ def _resolve_public_contact_email(obj: Organization) -> str | None:
     return None
 
 
-class MinimalOrganizationSchema(LogoCoverArtThumbnailMixin):
+class MinimalOrganizationSchema(OrganizationBrandingMixin, LogoCoverArtThumbnailMixin):
     """Lightweight organization schema for use in event lists - excludes city and tags to avoid N+1 queries."""
 
     id: UUID
@@ -224,7 +229,11 @@ class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin, LogoCover
 
 
 class OrganizationRetrieveSchema(
-    CityRetrieveMixin, TaggableSchemaMixin, SocialMediaSchemaRetrieveMixin, LogoCoverArtThumbnailMixin
+    CityRetrieveMixin,
+    TaggableSchemaMixin,
+    SocialMediaSchemaRetrieveMixin,
+    LogoCoverArtThumbnailMixin,
+    OrganizationBrandingMixin,
 ):
     id: UUID
     name: str
@@ -255,7 +264,11 @@ class OrganizationRetrieveSchema(
 
 
 class OrganizationAdminDetailSchema(
-    CityRetrieveMixin, TaggableSchemaMixin, SocialMediaSchemaRetrieveMixin, LogoCoverArtThumbnailMixin
+    CityRetrieveMixin,
+    TaggableSchemaMixin,
+    SocialMediaSchemaRetrieveMixin,
+    LogoCoverArtThumbnailMixin,
+    OrganizationBrandingMixin,
 ):
     """Comprehensive organization schema for admin use with all fields including platform fees and Stripe details."""
 
