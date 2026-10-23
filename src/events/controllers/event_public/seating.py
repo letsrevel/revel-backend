@@ -16,8 +16,9 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.service.guest_hold_session import (
     GUEST_HOLD_COOKIE,
+    GuestHold,
     issue_guest_hold_token,
-    resolve_guest_session,
+    resolve_request_guest_hold,
 )
 from events.service.seating import availability as availability_service
 from events.service.seating import chart as chart_service
@@ -44,14 +45,15 @@ class EventPublicSeatingController(EventPublicBaseController):
         return user if user.is_authenticated else None
 
     def _resolve_guest_session(self) -> str | None:
-        """Resolve an existing guest-hold cookie, if present and valid."""
-        return resolve_guest_session(self.context.request.COOKIES.get(GUEST_HOLD_COOKIE))  # type: ignore[union-attr]
+        """Resolve an existing guest hold from the ``X-Guest-Hold`` header or the cookie, if valid."""
+        hold = resolve_request_guest_hold(self.context.request)  # type: ignore[arg-type,union-attr]
+        return hold.session_id if hold else None
 
-    def _ensure_guest_session_if_anonymous(self, user: RevelUser | None) -> str | None:
-        """For anonymous holds, resolve or mint a signed guest session and set the cookie."""
+    def _ensure_guest_session_if_anonymous(self, user: RevelUser | None) -> GuestHold | None:
+        """For anonymous holds, resolve or mint a signed guest session (cookie set when minted)."""
         if user is not None:
             return None
-        existing = self._resolve_guest_session()
+        existing = resolve_request_guest_hold(self.context.request)  # type: ignore[arg-type,union-attr]
         if existing is not None:
             return existing
         session_id, token = issue_guest_hold_token()
@@ -63,7 +65,7 @@ class EventPublicSeatingController(EventPublicBaseController):
             samesite="Lax",
             secure=not settings.DEBUG,
         )
-        return session_id
+        return GuestHold(session_id, token)
 
     @route.get(
         "/{uuid:event_id}/seating/chart",
@@ -107,13 +109,16 @@ class EventPublicSeatingController(EventPublicBaseController):
         event = self.get_one(event_id)
         user = self._optional_user()
         guest = self._ensure_guest_session_if_anonymous(user)
-        result = holds_service.acquire_seats(event, payload.seat_ids, user=user, guest_session=guest)
+        result = holds_service.acquire_seats(
+            event, payload.seat_ids, user=user, guest_session=guest.session_id if guest else None
+        )
         status = 409 if result.conflicts else 200
         return status, schema.HoldResponseSchema(
             held_seat_ids=[h.seat_id for h in result.held],
             conflicts=result.conflicts,
             conflict_reason=result.conflict_reason,
             expires_at=result.expires_at,
+            guest_hold_token=guest.token if guest else None,
         )
 
     @route.post(
@@ -139,7 +144,7 @@ class EventPublicSeatingController(EventPublicBaseController):
             tier,
             payload.quantity,
             user=user,
-            guest_session=guest,
+            guest_session=guest.session_id if guest else None,
             accessible_required=payload.accessible_required,
             price_category_id=payload.price_category_id,
         )
@@ -147,7 +152,11 @@ class EventPublicSeatingController(EventPublicBaseController):
             # Same HoldResponseSchema shape as every other hold 409 (not an HttpError
             # {detail} body): no block of the requested size fits.
             return 409, schema.HoldResponseSchema(
-                held_seat_ids=[], conflicts=[], expires_at=None, conflict_reason=schema.HoldConflictReason.NO_BLOCK
+                held_seat_ids=[],
+                conflicts=[],
+                expires_at=None,
+                conflict_reason=schema.HoldConflictReason.NO_BLOCK,
+                guest_hold_token=guest.token if guest else None,
             )
         status = 409 if result.conflicts else 200
         return status, schema.HoldResponseSchema(
@@ -155,6 +164,7 @@ class EventPublicSeatingController(EventPublicBaseController):
             conflicts=result.conflicts,
             conflict_reason=result.conflict_reason,
             expires_at=result.expires_at,
+            guest_hold_token=guest.token if guest else None,
         )
 
     @route.delete(

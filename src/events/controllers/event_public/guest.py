@@ -15,7 +15,7 @@ from events import models, schema
 from events.service import guest as guest_service
 from events.service.batch_ticket_service import CartGroup
 from events.service.event_manager import EventUserEligibility
-from events.service.guest_hold_session import GUEST_HOLD_COOKIE, resolve_guest_session
+from events.service.guest_hold_session import resolve_request_guest_hold
 
 from .base import EventPublicBaseController
 
@@ -25,8 +25,9 @@ class EventPublicGuestController(EventPublicBaseController):
     """Handles guest user (unauthenticated) checkout and RSVP operations."""
 
     def _resolve_guest_session(self) -> str | None:
-        """Resolve the guest-hold cookie, if present and valid (seat holds are owned by it)."""
-        return resolve_guest_session(self.context.request.COOKIES.get(GUEST_HOLD_COOKIE))  # type: ignore[union-attr]
+        """Resolve the guest hold (``X-Guest-Hold`` header, then cookie), if valid (seat holds are owned by it)."""
+        hold = resolve_request_guest_hold(self.context.request)  # type: ignore[arg-type,union-attr]
+        return hold.session_id if hold else None
 
     @route.post(
         "/{uuid:event_id}/rsvp/{answer}/public",

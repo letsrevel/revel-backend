@@ -194,6 +194,16 @@ class HoldResponseSchema(Schema):
     # See HoldConflictReason for the value set; None on success.
     conflict_reason: HoldConflictReason | None = None
     expires_at: AwareDatetime | None = None
+    guest_hold_token: str | None = Field(
+        default=None,
+        description=(
+            "Signed guest seat-hold session token, only for anonymous (guest) callers; never set for "
+            "authenticated users. Also set as the httpOnly `revel_guest_hold` cookie, but a cross-site "
+            "client (white-label tenant host) never stores that cookie: keep this value first-party "
+            "and send it back in the `X-Guest-Hold` request header on later seating, guest checkout, "
+            "guest RSVP and guest confirm calls. Valid for 24 hours from issue."
+        ),
+    )
 
 
 class SeatOverrideItemSchema(Schema):
