@@ -69,8 +69,23 @@ def test_by_domain_resolves_active_domain_for_any_visibility(client: Client, ten
     assert body["accept_membership_requests"] is True
     assert body["has_membership_plans"] is False
     assert body["has_resources"] is False
+    assert body["branding"]["primary_color"] is None
+    assert body["brand_theme"] is None
     for key in ("logo", "cover_art", "logo_thumbnail_url", "cover_art_thumbnail_url", "cover_art_social_url"):
         assert key in body
+
+
+def test_by_domain_exposes_branding_and_derived_brand_theme(client: Client, tenant_org: Organization) -> None:
+    """A tenant host gets the stored branding plus the derived light/dark theme to apply app-wide."""
+    tenant_org.branding = {"primary_color": "#8C3CDD", "accent_color": "#E4251B"}
+    tenant_org.save(update_fields=["branding"])
+
+    body = _by_domain(client, HOST).json()
+
+    assert body["branding"]["primary_color"] == "#8C3CDD"
+    assert body["branding"]["accent_color"] == "#E4251B"
+    assert set(body["brand_theme"]) == {"light", "dark"}
+    assert body["brand_theme"]["light"] != body["brand_theme"]["dark"]
 
 
 def test_by_domain_is_case_insensitive(client: Client, tenant_org: Organization) -> None:

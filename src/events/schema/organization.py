@@ -205,7 +205,7 @@ class MinimalOrganizationSchema(CustomDomainMixin, OrganizationBrandingMixin, Lo
         return _resolve_public_contact_email(obj)
 
 
-class TenantOrganizationSchema(CustomDomainMixin, LogoCoverArtThumbnailMixin):
+class TenantOrganizationSchema(CustomDomainMixin, OrganizationBrandingMixin, LogoCoverArtThumbnailMixin):
     """The organization behind a custom domain, as the white-label frontend needs it on first load.
 
     ``has_membership_plans`` / ``has_resources`` drive navigation and come from EXISTS annotations
