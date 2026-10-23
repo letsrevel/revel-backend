@@ -383,7 +383,7 @@ def get_formatted_context_for_template(
             # Resolve the org logo only when a signature is built, unless the caller supplied one.
             # ponytail: one PK lookup per rendered body (up to ~4 per notification across
             # in-app/email/telegram); memoize per notification if bulk sends ever show it.
-            if not enriched.get("organization_logo_url"):
+            if "organization_logo_url" not in enriched:
                 logo_url = _org_logo_absolute_url(enriched.get("organization_id"), enriched["organization_slug"])
                 if logo_url:
                     enriched["organization_logo_url"] = logo_url

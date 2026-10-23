@@ -90,6 +90,18 @@ def test_enrichment_keeps_caller_supplied_logo_without_query(organization: Organ
     assert _org_queries(captured) == []
 
 
+def test_enrichment_respects_explicitly_empty_logo(organization: Organization) -> None:
+    """A caller passing an empty organization_logo_url opts out of the logo and the lookup."""
+    _give_logo(organization)
+
+    with CaptureQueriesContext(connection) as captured:
+        enriched = get_formatted_context_for_template(_context(organization, organization_logo_url=""))
+
+    assert enriched["organization_logo_url"] == ""
+    assert "<img" not in enriched["org_signature_html"]
+    assert _org_queries(captured) == []
+
+
 def test_enrichment_looks_up_org_with_exactly_one_query(organization: Organization) -> None:
     """Resolving the logo costs a single organization query."""
     _give_logo(organization)
