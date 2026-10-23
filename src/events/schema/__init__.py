@@ -48,6 +48,13 @@ from .checkout import (
     MultiTierCheckoutPayload,
 )
 
+from .custom_domain import (
+    CustomDomainRequestSchema,
+    CustomDomainSchema,
+    DnsRecordSchema,
+    DnsRecordType,
+)
+
 # Dietary schemas
 from .dietary import (
     AggregatedDietaryPreferenceSchema,
@@ -510,12 +517,16 @@ __all__ = [
     "CurrencyFinancialsSchema",
     "DirectInvitationCreateSchema",
     "DirectInvitationResponseSchema",
+    "CustomDomainRequestSchema",
+    "CustomDomainSchema",
     "DiscountCodeCreateSchema",
     "DiscountCodeDeleteResponse",
     "DiscountCodeSchema",
     "DiscountCodeUpdateSchema",
     "DiscountCodeValidationResponse",
     "DiscountCodeValidationSchema",
+    "DnsRecordSchema",
+    "DnsRecordType",
     "EventAssignmentSchema",
     "EventBookmarkSchema",
     "EventCreateSchema",

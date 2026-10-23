@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 
 from events.exceptions import CustomDomainNotEnabledError
-from events.models import Organization, OrganizationDomain
+from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 from events.service import custom_domain_service, tenant_service
 
 pytestmark = pytest.mark.django_db
@@ -89,7 +89,7 @@ def test_activate_is_idempotent(domain: OrganizationDomain) -> None:
 def test_failed_and_removed_clear_the_active_hostname(
     domain: OrganizationDomain,
     transition: t.Callable[[OrganizationDomain], OrganizationDomain],
-    expected: OrganizationDomain.Status,
+    expected: OrganizationDomainStatus,
 ) -> None:
     """Leaving ACTIVE withdraws the hostname from the organization."""
     custom_domain_service.activate_domain(domain)

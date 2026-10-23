@@ -6534,8 +6534,8 @@ msgstr ""
 "A geração do passe para a Wallet está temporariamente indisponível. Tenta "
 "novamente mais tarde."
 
-msgid "Platform gate: allows activating, resolving and advertising a custom domain for this organization."
-msgstr "Controlo da plataforma: permite ativar, resolver e anunciar um domínio personalizado para esta organização."
+msgid "Platform gate: allows requesting, activating, resolving and advertising a custom domain for this organization."
+msgstr "Controlo da plataforma: permite pedir, ativar, resolver e anunciar um domínio personalizado para esta organização."
 
 msgid "Hostname of the active custom domain. Maintained by the domain service; do not edit."
 msgstr "Nome de host do domínio personalizado ativo. Gerido pelo serviço de domínios; não o edites."
@@ -6546,11 +6546,20 @@ msgstr "Removido"
 msgid "DNS records the organization must create to verify ownership."
 msgstr "Os registos DNS que a organização tem de criar para verificar a propriedade."
 
+msgid "Problems Cloudflare reported at the last status sync (hostname verification, certificate)."
+msgstr "Problemas comunicados pelo Cloudflare na última sincronização de estado (verificação do nome de host, certificado)."
+
 msgid "This hostname is already in use."
 msgstr "Este nome de host já está em uso."
 
 msgid "This organization already has a pending or active domain."
 msgstr "Esta organização já tem um domínio pendente ou ativo."
+
+msgid "This organization has no custom domain."
+msgstr "Esta organização não tem um domínio personalizado."
+
+msgid "We could not reach the domain provisioning service. Please try again later."
+msgstr "Não conseguimos contactar o serviço de provisionamento de domínios. Tenta novamente mais tarde."
 
 msgid "Custom domains are not enabled for this organization."
 msgstr "Os domínios personalizados não estão ativados para esta organização."
