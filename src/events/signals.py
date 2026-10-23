@@ -36,7 +36,7 @@ from events.service import permission_snapshot, ticket_number_service
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import unclaim_user_potluck_items
-from events.service.tenant_service import hostname_from_origin, is_tenant_origin
+from events.service.tenant_service import hostname_from_origin, invalidate_tenant_cache, is_tenant_origin
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import (
     build_attendee_visibility_flags,
@@ -715,7 +715,7 @@ def allow_cors_for_tenant_origin(sender: None, request: HttpRequest, **kwargs: t
     django-cors-headers calls this when the static ``CORS_ALLOWED_ORIGINS`` do not match; a truthy
     result enables CORS for the request, with the usual credentials and allowed-header settings.
     The Origin host (port ignored) must be an active tenant domain, over ``https`` (``http`` only
-    when ``DEBUG``).
+    when ``DEBUG``). No CORS when the organization's ``custom_domain_enabled`` kill switch is off.
     """
     origin = request.headers.get("origin")
     if not origin or (parsed := hostname_from_origin(origin)) is None:
@@ -724,6 +724,19 @@ def allow_cors_for_tenant_origin(sender: None, request: HttpRequest, **kwargs: t
     if scheme != "https" and not (settings.DEBUG and scheme == "http"):
         return False
     return is_tenant_origin(hostname)
+
+
+@receiver(post_delete, sender=Organization)
+def invalidate_tenant_cache_on_organization_delete(
+    sender: type[Organization], instance: Organization, **kwargs: t.Any
+) -> None:
+    """Drop the tenant-resolution entry of a deleted organization's custom domain (white-label, #1152).
+
+    Deleting the organization cascades its domains without going through the domain service, so the
+    cached hostname would otherwise keep resolving to a vanished organization until its TTL ran out.
+    """
+    if hostname := instance.custom_domain:
+        transaction.on_commit(lambda: invalidate_tenant_cache(hostname))
 
 
 @receiver(post_delete, sender=EventWaitList)

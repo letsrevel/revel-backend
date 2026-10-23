@@ -2,6 +2,7 @@
 
 import typing as t
 from decimal import Decimal
+from unittest.mock import Mock
 
 import pytest
 from django.test.client import Client
@@ -16,7 +17,7 @@ from events.models import (
     ResourceVisibility,
 )
 from events.schema import MinimalOrganizationSchema
-from events.service import custom_domain_service
+from events.service import custom_domain_service, tenant_service
 from events.service.tenant_service import invalidate_tenant_cache
 
 pytestmark = pytest.mark.django_db
@@ -322,3 +323,47 @@ def test_cors_http_origin_denied_unless_debug(client: Client, tenant_org: Organi
 def test_cors_still_allows_configured_origins(client: Client, tenant_org: Organization) -> None:
     """The static allow-list keeps working next to tenant origins."""
     assert _preflight(client, "https://app.letsrevel.io")["Access-Control-Allow-Origin"] == "https://app.letsrevel.io"
+
+
+# --- Cache fails open ---
+
+
+@pytest.fixture
+def broken_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every tenant cache operation raise, as an unreachable Redis would (other cache users unaffected)."""
+    boom = ConnectionError("cache down")
+    monkeypatch.setattr(
+        tenant_service,
+        "cache",
+        Mock(get=Mock(side_effect=boom), set=Mock(side_effect=boom), delete=Mock(side_effect=boom)),
+    )
+
+
+@pytest.mark.usefixtures("broken_cache")
+def test_by_domain_resolves_from_the_db_when_the_cache_is_down(client: Client, tenant_org: Organization) -> None:
+    """A failed cache read counts as a miss and a failed write is skipped."""
+    response = _by_domain(client, HOST)
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(tenant_org.pk)
+    assert _by_domain(client, "unknown.example.com").status_code == 404
+
+
+@pytest.mark.usefixtures("broken_cache")
+def test_cors_answers_correctly_when_the_cache_is_down(client: Client, tenant_org: Organization) -> None:
+    """The CORS receiver falls back to the DB: tenants allowed, strangers still blocked."""
+    assert _preflight(client, f"https://{HOST}")["Access-Control-Allow-Origin"] == f"https://{HOST}"
+    assert "Access-Control-Allow-Origin" not in _preflight(client, "https://evil.example.org")
+
+
+@pytest.mark.usefixtures("broken_cache")
+def test_invalidation_does_not_raise_when_the_cache_is_down(
+    tenant_org: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """A failed ``cache.delete`` is skipped, so the on_commit hook of a domain transition cannot blow up."""
+    with django_capture_on_commit_callbacks(execute=True):
+        custom_domain_service.remove_domain(tenant_org.domains.get())
+
+    tenant_org.refresh_from_db()
+    assert tenant_org.custom_domain is None
+    assert tenant_service.get_tenant_organization(HOST) is None
