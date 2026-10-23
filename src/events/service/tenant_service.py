@@ -17,8 +17,10 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 import structlog
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Exists, OuterRef
+from django.http import HttpRequest
 
 from events.models import AdditionalResource, MembershipSubscriptionPlan, Organization, ResourceVisibility
 from events.utils.hostname import MAX_HOSTNAME_LENGTH, normalize_hostname
@@ -133,6 +135,51 @@ def hostname_from_origin(origin: str) -> tuple[str, str] | None:
     if not parts.scheme or not hostname:
         return None
     return parts.scheme, hostname
+
+
+def tenant_host_from_origin(origin: str | None) -> str | None:
+    """Return the normalized hostname of ``origin`` when it is an active tenant origin, else ``None``.
+
+    The single place that decides whether an ``Origin`` header value names a tenant domain: the
+    dynamic CORS receiver and :func:`tenant_return_host` both use it. The scheme must be ``https``
+    (``http`` only when ``DEBUG``), the host must be the active custom domain of an organization,
+    and that organization's ``custom_domain_enabled`` kill switch must be on. Cache failures fail
+    open to the DB lookup (see the module docstring), so this never raises on a broken cache.
+
+    Args:
+        origin: A raw ``Origin`` header value, or ``None`` when the header is absent.
+
+    Returns:
+        str | None: The lowercase hostname (port and trailing dot stripped), or ``None``.
+    """
+    if not origin or (parsed := hostname_from_origin(origin)) is None:
+        return None
+    scheme, hostname = parsed
+    if scheme != "https" and not (settings.DEBUG and scheme == "http"):
+        return None
+    if (host := _clean_host(hostname)) is None or not is_tenant_origin(host):
+        return None
+    return host
+
+
+def tenant_return_host(request: HttpRequest) -> str | None:
+    """Return the tenant hostname the user is coming from, to be carried as a ``return_host`` hint.
+
+    SECURITY: this is a *return hint only*. Account-security token links (email verification,
+    password reset, email-change and account-deletion confirmation, unsubscribe) must keep using
+    the platform base URL, never a tenant domain, because the organization owner controls that
+    domain's DNS and could otherwise harvest platform-wide tokens. The hint only lets the platform
+    page send the user back to the tenant afterwards, with no token in that redirect; the frontend
+    re-validates it before use.
+
+    Args:
+        request: The incoming request; only its ``Origin`` header is read.
+
+    Returns:
+        str | None: The hostname of an active tenant domain (kill switch on) named by ``Origin``,
+        or ``None`` (no header, platform or unknown host, pending/failed domain, bad scheme).
+    """
+    return tenant_host_from_origin(request.headers.get("origin"))
 
 
 def invalidate_tenant_cache(hostname: str) -> None:

@@ -124,6 +124,7 @@ def send_account_email(
     *,
     token: str | None = None,
     context: dict[str, str] | None = None,
+    return_host: str | None = None,
 ) -> None:
     """Render and send a transactional account email.
 
@@ -139,6 +140,11 @@ def send_account_email(
             An optional ``"return_url"`` key (a relative path, used only by the verification
             email) is appended to the action link as a fully percent-encoded ``returnUrl``
             query param; message types without a link ignore it.
+        return_host: Optional hostname of the tenant (custom) domain the request came from
+            (white-label, #1156). Appended to the link as a percent-encoded ``return_host`` query
+            param so the platform page can send the user back after the action. SECURITY: the link
+            itself is *always* built on the platform base URL, never on this host; the hint carries
+            no credential. Trailing and optional so already-queued messages stay valid.
 
     Raises:
         ValueError: If a link-bearing email type is dispatched without a token, or a message
@@ -161,6 +167,8 @@ def send_account_email(
         if email_type == AccountEmail.VERIFICATION and (return_url := caller_context.get("return_url")) is not None:
             # safe="" so "&", "=", "?" and "/" are encoded and can't inject extra query params.
             action_link += "&returnUrl=" + quote(return_url, safe="")
+        if return_host:
+            action_link += ("&" if "?" in action_link else "?") + "return_host=" + quote(return_host, safe="")
         body_context["action_link"] = action_link
 
     subject = str(render_to_string(f"accounts/emails/{config.template_base}_subject.txt")).strip()
