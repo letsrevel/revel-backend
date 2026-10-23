@@ -67,9 +67,25 @@ class SeriesPassController(UserAwareController):
             raise NotFound()
         return series_pass
 
+    def _get_my_held_pass(self, held_pass_id: UUID) -> models.HeldSeriesPass:
+        """Fetch one of the user's held passes for a file download.
+
+        ``select_related`` covers what ``series_pass_file_service.compute_content_hash`` and the
+        generators read (the pass, its series and the organization's branding), so no lazy loads.
+        """
+        return t.cast(
+            models.HeldSeriesPass,
+            self.get_object_or_exception(
+                models.HeldSeriesPass.objects.select_related("series_pass__event_series__organization").filter(
+                    user=self.user()
+                ),
+                pk=held_pass_id,
+            ),
+        )
+
     def _held_pass_queryset(self) -> QuerySet[models.HeldSeriesPass]:
         """Held passes with everything ``HeldSeriesPassSchema`` needs prefetched (no N+1)."""
-        return models.HeldSeriesPass.objects.select_related("series_pass__event_series").prefetch_related(
+        return models.HeldSeriesPass.objects.select_related("series_pass__event_series__organization").prefetch_related(
             Prefetch(
                 "series_pass__tier_links",
                 queryset=models.SeriesPassTierLink.objects.select_related("event"),
@@ -210,10 +226,7 @@ class SeriesPassController(UserAwareController):
     )
     def download_series_pass_pdf(self, held_pass_id: UUID) -> HttpResponse:
         """Download a PDF version of a held series pass. The user must own the pass."""
-        held_pass = t.cast(
-            models.HeldSeriesPass,
-            self.get_object_or_exception(models.HeldSeriesPass.objects.filter(user=self.user()), pk=held_pass_id),
-        )
+        held_pass = self._get_my_held_pass(held_pass_id)
 
         if series_pass_file_service.is_cache_valid(held_pass) and (signed_url := get_file_url(held_pass.pdf_file)):
             return HttpResponseRedirect(signed_url)
@@ -239,10 +252,7 @@ class SeriesPassController(UserAwareController):
     )
     def download_series_pass_pkpass(self, held_pass_id: UUID) -> HttpResponse:
         """Download an Apple Wallet pass for a held series pass. The user must own the pass."""
-        held_pass = t.cast(
-            models.HeldSeriesPass,
-            self.get_object_or_exception(models.HeldSeriesPass.objects.filter(user=self.user()), pk=held_pass_id),
-        )
+        held_pass = self._get_my_held_pass(held_pass_id)
 
         if not apple_wallet_configured():
             raise HttpError(503, str(_("Apple Wallet is not configured")))
@@ -273,10 +283,7 @@ class SeriesPassController(UserAwareController):
 
         The user must own the pass.
         """
-        held_pass = t.cast(
-            models.HeldSeriesPass,
-            self.get_object_or_exception(models.HeldSeriesPass.objects.filter(user=self.user()), pk=held_pass_id),
-        )
+        held_pass = self._get_my_held_pass(held_pass_id)
 
         if not google_wallet_configured():
             raise HttpError(503, str(_("Google Wallet is not configured")))

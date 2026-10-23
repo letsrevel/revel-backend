@@ -8,6 +8,7 @@ the signed save link.
 See: https://developers.google.com/wallet/tickets/events
 """
 
+import hashlib
 import typing as t
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -18,6 +19,7 @@ from django.urls import reverse
 from events.compliance.enforcement import ticket_fields
 from events.models import Event, HeldSeriesPass, Organization, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
+from events.utils.pass_branding import get_pass_brand_colors
 from wallet.apple.formatting import format_iso_date, format_price, get_theme_hex_background
 from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD, POWERED_BY_URL
 from wallet.resolution import resolve_series_window, resolve_ticket_location
@@ -26,6 +28,21 @@ from wallet.resolution import resolve_series_window, resolve_ticket_location
 def _pass_id(kind: str, entity_id: t.Any) -> str:
     """Build a namespaced Google Wallet class/object ID."""
     return f"{settings.GOOGLE_WALLET_ISSUER_ID}.{settings.GOOGLE_WALLET_CLASS_PREFIX}.{kind}.{entity_id}"
+
+
+def _brand_suffix(org: Organization) -> str:
+    """Short stable fingerprint of the organization's pass colors, or ``""`` when unbranded.
+
+    Google treats a save JWT whose class/object ID already exists as a no-op (the stored
+    entity is served without updating it), so a pass saved before an organization set or
+    changed its branding would stay Revel purple forever. Baking this fingerprint into the
+    class/object ID mints a fresh entity whenever the colors change. Unbranded organizations
+    get no suffix, so IDs of existing saved passes and classes are untouched. The result is
+    ``-`` plus 8 hex chars, within Google's ``[A-Za-z0-9._-]`` ID charset.
+    """
+    if (brand := get_pass_brand_colors(org)) is None:
+        return ""
+    return "-" + hashlib.sha256(brand.model_dump_json().encode()).hexdigest()[:8]
 
 
 def _localized(value: str) -> dict[str, t.Any]:
@@ -82,6 +99,7 @@ def _build_class(
     address: str | None,
     logo_url: str | None,
     hero_url: str | None,
+    background_hex: str,
 ) -> dict[str, t.Any]:
     """Build an EventTicketClass dict."""
     cls: dict[str, t.Any] = {
@@ -89,7 +107,7 @@ def _build_class(
         "issuerName": issuer_name,
         "eventName": _localized(event_name),
         "reviewStatus": "UNDER_REVIEW",
-        "hexBackgroundColor": get_theme_hex_background(),
+        "hexBackgroundColor": background_hex,
         "dateTime": {
             "start": format_iso_date(start, tz=tz),
             "end": format_iso_date(end, tz=tz),
@@ -130,7 +148,7 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
     location = resolve_ticket_location(ticket)
 
     cls = _build_class(
-        class_id=_pass_id("event", event.id),
+        class_id=_pass_id("event", f"{event.id}{_brand_suffix(org)}"),
         issuer_name=org.name,
         event_name=event.name,
         start=event.start,
@@ -140,6 +158,7 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
         address=location.address,
         logo_url=_org_logo_url(org),
         hero_url=_event_cover_url(event),
+        background_hex=get_theme_hex_background(org),
     )
 
     obj: dict[str, t.Any] = {
@@ -192,7 +211,7 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
     hero_url = _event_cover_url(window.representative_event) if window.representative_event else None
 
     cls = _build_class(
-        class_id=_pass_id("series", series_pass.id),
+        class_id=_pass_id("series", f"{series_pass.id}{_brand_suffix(org)}"),
         issuer_name=org.name,
         event_name=series_pass.name,
         start=window.start,
@@ -202,6 +221,7 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
         address=window.address,
         logo_url=_org_logo_url(org),
         hero_url=hero_url,
+        background_hex=get_theme_hex_background(org),
     )
 
     obj: dict[str, t.Any] = {
@@ -229,6 +249,8 @@ def build_membership_payload(member: OrganizationMember) -> dict[str, t.Any]:
     the stored object without updating it), so a tier change must mint a NEW
     object for the re-download to show the new tier. The superseded card lingers
     in the user's wallet until manually removed — hence the note text module.
+    The org brand fingerprint (:func:`_brand_suffix`) is appended the same way, so a
+    card saved before the organization set or changed its branding is also re-minted.
     The barcode, by contrast, is always the stable ``member:<member_id>`` payload.
 
     Args:
@@ -244,12 +266,12 @@ def build_membership_payload(member: OrganizationMember) -> dict[str, t.Any]:
 
     tier_suffix = str(member.tier_id) if member.tier_id else "base"
     obj: dict[str, t.Any] = {
-        "id": _pass_id("membercard", f"{member.id}-{tier_suffix}"),
+        "id": _pass_id("membercard", f"{member.id}-{tier_suffix}{_brand_suffix(org)}"),
         "classId": cls["id"],
         "state": "ACTIVE",
         "cardTitle": _localized(org.name),
         "header": _localized(member.user.get_display_name()),
-        "hexBackgroundColor": get_theme_hex_background(),
+        "hexBackgroundColor": get_theme_hex_background(org),
         "barcode": {"type": "QR_CODE", "value": member.qr_payload},
         "textModulesData": [
             {

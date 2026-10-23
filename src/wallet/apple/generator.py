@@ -24,6 +24,7 @@ from events.compliance.enforcement import ticket_fields
 from events.models import HeldSeriesPass, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import (
+    REVEL_THEME,
     PassColors,
     format_date_compact,
     format_date_full,
@@ -228,7 +229,7 @@ class ApplePassGenerator:
             member_name=member.user.get_display_name(),
             member_since=member.created_at,
             tier_name=member.tier.name if member.tier else None,
-            colors=get_theme_colors(),
+            colors=get_theme_colors(org),
             logo_image=logo_image,
             org_tz=get_organization_timezone(org),
             barcode_message=member.qr_payload,
@@ -315,7 +316,7 @@ class ApplePassGenerator:
             address=window.address,
             ticket_tier="Series Pass",
             ticket_price=format_price(held_pass.price_paid, series_pass.currency),
-            colors=get_theme_colors(),
+            colors=get_theme_colors(org),
             logo_image=logo_image,
             barcode_message=held_pass.qr_payload,
             relevant_date=window.start,
@@ -351,7 +352,7 @@ class ApplePassGenerator:
             address=location.address,
             ticket_tier=ticket.tier.name,
             ticket_price=format_price(price, currency),
-            colors=get_theme_colors(),
+            colors=get_theme_colors(org),
             logo_image=logo_image,
             barcode_message=str(ticket.id),
             relevant_date=event.start,
@@ -379,9 +380,13 @@ class ApplePassGenerator:
         for filename, size in LOGO_SIZES.items():
             files[filename] = resize_image(logo_image, size)
 
-        # Vertical brand-gradient background (iOS blurs it behind the pass)
+        # iOS blurs this behind the pass: the vertical brand gradient for Revel's own
+        # theme, a solid fill of the organization's color when it is branded (the
+        # gradient would drown the brand color set as backgroundColor).
         for filename, size in BACKGROUND_SIZES.items():
-            files[filename] = generate_gradient_background(size)
+            files[filename] = (
+                generate_gradient_background(size) if colors == REVEL_THEME else generate_colored_icon(size, icon_color)
+            )
 
         return files
 
