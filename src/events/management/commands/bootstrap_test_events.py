@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 import structlog
-from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -15,8 +14,8 @@ from common.models import SiteSettings, Tag
 from events import models as events_models
 from events.management.commands.bootstrap_helpers.compliance import create_compliance_fixtures
 from events.management.commands.bootstrap_helpers.logos import attach_logo
+from events.management.commands.bootstrap_helpers.tenant_orgs import create_tenant_fixtures
 from events.management.commands.seeder.tickets import ATTRIBUTION_CAMPAIGNS
-from events.service import custom_domain_service
 from geo.models import City
 from questionnaires import models as questionnaires_models
 
@@ -25,12 +24,6 @@ logger = structlog.get_logger(__name__)
 # Org Alpha, seeded by ``bootstrap_events``: the Stripe-connected organization
 # (CONNECTED_TEST_STRIPE_ID), so revival checkouts against it reach real Stripe.
 ORG_ALPHA_SLUG = "revel-events-collective"
-
-# Hostname of the white-label tenant domain seeded for ``eligibility-test-org`` (needs DEBUG).
-TENANT_E2E_HOSTNAME = "tenant.localhost"
-
-# Hostname of the white-label tenant domain seeded for Org Alpha (the Stripe-connected organization).
-ORG_ALPHA_TENANT_E2E_HOSTNAME = "alpha.localhost"
 
 # Referral-program fixtures for the frontend E2E suite (J21). Deterministic ids so the
 # specs can build ``/register?referral_invite=<id>`` without an API to look them up.
@@ -65,7 +58,7 @@ class Command(BaseCommand):
         # Create organization
         self._create_organization()
 
-        # White-label: serve the organization from tenant.localhost (needs DEBUG for *.localhost)
+        # White-label: dedicated orgs served from tenant.localhost / paid.localhost (needs DEBUG for *.localhost)
         self._create_tenant_domains()
 
         # Create questionnaire
@@ -95,6 +88,7 @@ class Command(BaseCommand):
         logger.info(f"Admin User: {self.admin_user.email} / password123")
         logger.info(f"Staff User: {self.staff_user.email} / password123")
         logger.info(f"Member User: {self.member_user.email} / password123")
+        logger.info("Tenant Owner: tenant.owner@example.com / password123 (orgs tenant-test-org, tenant-paid-org)")
         logger.info("Subscription fixtures: test.revival.in@ / test.revival.out@ / test.pastdue@example.com")
         logger.info("Referrer: test.referrer@example.com / password123 (code test-partner, 20% share)")
         logger.info(
@@ -148,7 +142,17 @@ class Command(BaseCommand):
             email_verified=True,
         )
 
-        logger.info("Created 4 test users")
+        # Owner of the dedicated white-label tenant organizations
+        self.tenant_owner = RevelUser.objects.create_user(
+            username="tenant.owner@example.com",
+            password="password123",
+            email="tenant.owner@example.com",
+            first_name="Tenant",
+            last_name="Owner",
+            email_verified=True,
+        )
+
+        logger.info("Created 5 test users")
 
     def _create_organization(self) -> None:
         """Create test organization with members."""
@@ -194,33 +198,8 @@ class Command(BaseCommand):
         logger.info(f"Created organization: {self.org.name}")
 
     def _create_tenant_domains(self) -> None:
-        """Seed the ``*.localhost`` tenant domains, which the hostname validator only accepts under DEBUG."""
-        if not settings.DEBUG:
-            logger.warning("tenant_domains_skipped", reason="debug_disabled")
-            return
-        self._create_tenant_domain()
-        self._create_alpha_tenant_domain()
-
-    def _create_tenant_domain(self) -> None:
-        """Give the test organization an ACTIVE custom domain for the white-label E2E journeys."""
-        self._activate_tenant_domain(self.org, TENANT_E2E_HOSTNAME)
-
-    def _create_alpha_tenant_domain(self) -> None:
-        """Give Org Alpha an ACTIVE custom domain too; it is seeded by ``bootstrap_events``, so skip if absent."""
-        org = events_models.Organization.objects.filter(slug=ORG_ALPHA_SLUG).first()
-        if org is None:
-            logger.warning("tenant_domain_skipped", reason="org_alpha_missing", slug=ORG_ALPHA_SLUG)
-            return
-        self._activate_tenant_domain(org, ORG_ALPHA_TENANT_E2E_HOSTNAME)
-
-    @staticmethod
-    def _activate_tenant_domain(org: events_models.Organization, hostname: str) -> None:
-        """Enable the custom-domain gate on ``org`` and activate ``hostname`` for it."""
-        org.custom_domain_enabled = True
-        org.save(update_fields=["custom_domain_enabled"])
-        domain = events_models.OrganizationDomain.objects.create(organization=org, hostname=hostname)
-        custom_domain_service.activate_domain(domain)
-        logger.info(f"Activated custom domain {hostname} for {org.slug}")
+        """Seed the dedicated white-label tenant orgs; never the shared fixtures (the frontend 301s their URLs)."""
+        create_tenant_fixtures(self.tenant_owner, self.city, self.now)
 
     def _create_questionnaire(self) -> None:
         """Create a simple questionnaire for testing."""
