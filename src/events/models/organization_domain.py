@@ -10,6 +10,19 @@ from events.utils.hostname import custom_hostname_validator, normalize_hostname
 from .organization import Organization
 
 
+class OrganizationDomainStatus(models.TextChoices):
+    """Lifecycle of an organization's custom domain.
+
+    Module-level with a distinct name so its OpenAPI component doesn't collide with other
+    ``Status`` enums (#782); ``OrganizationDomain.Status`` aliases it.
+    """
+
+    PENDING = "pending", _("Pending")
+    ACTIVE = "active", _("Active")
+    FAILED = "failed", _("Failed")
+    REMOVED = "removed", _("Removed")
+
+
 class OrganizationDomain(TimeStampedModel):
     """A custom domain request and its lifecycle.
 
@@ -18,11 +31,7 @@ class OrganizationDomain(TimeStampedModel):
     ``events.service.custom_domain_service``, which keeps that column and the tenant cache in sync.
     """
 
-    class Status(models.TextChoices):
-        PENDING = "pending", _("Pending")
-        ACTIVE = "active", _("Active")
-        FAILED = "failed", _("Failed")
-        REMOVED = "removed", _("Removed")
+    Status = OrganizationDomainStatus
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="domains")
     hostname = models.CharField(max_length=253, validators=[custom_hostname_validator])
