@@ -24,7 +24,7 @@ from events.service import custom_domain_service
 
 @admin.register(models.OrganizationDomain)
 class OrganizationDomainAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
-    """Admin for custom domains: create a request, then activate / fail / remove it."""
+    """Admin for custom domains: activate / fail / remove the rows the service created (no adding here)."""
 
     list_display = ["hostname", "organization_link", "status", "verified_at", "created_at"]
     list_filter = ["status", ("organization", AutocompleteSelectFilter)]
@@ -39,6 +39,10 @@ class OrganizationDomainAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
         """Lock identity fields once a domain exists; status moves only through the actions."""
         readonly = list(super().get_readonly_fields(request, obj))
         return readonly + ["organization", "hostname"] if obj is not None else readonly
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Domains are created through the service only: it enforces the kill switch and provisions Cloudflare."""
+        return False
 
     def has_delete_permission(self, request: HttpRequest, obj: models.OrganizationDomain | None = None) -> bool:
         """Deleting would skip the service's cleanup (Cloudflare hostname, denormalized column); use "Remove"."""
