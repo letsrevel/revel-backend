@@ -6595,3 +6595,12 @@ msgstr "Este nome de host pertence à plataforma e não pode ser usado."
 
 msgid "Custom Domains"
 msgstr "Domínios personalizados"
+
+msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
+msgstr "Introduz uma cor como valor hexadecimal de 6 dígitos, por exemplo #8C3CDD."
+
+msgid "Presentation settings chosen by the organization, such as brand colors."
+msgstr "Definições de apresentação escolhidas pela organização, como as cores da marca."
+
+msgid "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, and unknown settings are not allowed."
+msgstr "Branding inválido. As cores têm de ser valores hexadecimais de 6 dígitos, por exemplo #8C3CDD, e não são permitidas definições desconhecidas."

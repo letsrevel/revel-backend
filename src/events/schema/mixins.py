@@ -8,6 +8,8 @@ from pydantic import AnyUrl, Field, HttpUrl, field_validator
 
 from common.schema import StrippedString
 from events import models
+from events.utils.brand_theme import BrandTheme, derive_brand_theme
+from events.utils.branding import OrganizationBranding, parse_branding
 from geo.models import City
 from geo.schema import CitySchema
 
@@ -53,6 +55,28 @@ class LogoCoverArtThumbnailMixin(Schema):
     def resolve_cover_art_social_url(obj: t.Any) -> str | None:
         """Resolve cover art social preview URL."""
         return get_image_field_url(obj, "cover_art_social")
+
+
+class OrganizationBrandingMixin(Schema):
+    """The organization's branding as stored plus the derived per-mode theme (#1149).
+
+    ``brand_theme`` is ``None`` when the organization has no primary color. An invalid
+    stored blob reads as empty branding rather than failing the request.
+    """
+
+    branding: OrganizationBranding
+    brand_theme: BrandTheme | None = None
+
+    @staticmethod
+    def resolve_branding(obj: t.Any) -> OrganizationBranding:
+        """Parse the stored blob tolerantly (invalid data yields empty branding)."""
+        return parse_branding(obj.branding)
+
+    @staticmethod
+    def resolve_brand_theme(obj: t.Any) -> BrandTheme | None:
+        """Derive light/dark palettes meeting WCAG contrast from the stored colors."""
+        branding = parse_branding(obj.branding)
+        return derive_brand_theme(branding.primary_color, branding.accent_color)
 
 
 class CityBaseMixin(Schema):
