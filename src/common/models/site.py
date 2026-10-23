@@ -89,6 +89,20 @@ class SiteSettings(SingletonModel):
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Platform's domestic VAT rate (e.g., 22.00 for 22%).",
     )
+    default_platform_fee_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=settings.DEFAULT_PLATFORM_FEE_PERCENT,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Default percentage platform fee for newly created organizations.",
+    )
+    default_platform_fee_fixed = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=settings.DEFAULT_PLATFORM_FEE_FIXED,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Default fixed platform fee for newly created organizations.",
+    )
 
     # Invoice settings
     platform_invoice_bcc_email = models.EmailField(
