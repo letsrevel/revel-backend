@@ -33,7 +33,7 @@ def delete_sync_task(apps: t.Any, schema_editor: t.Any) -> None:
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("events", "0134_organizationdomain_last_errors"),
+        ("events", "0133_organization_custom_domain_and_more"),
         ("django_celery_beat", "0019_alter_periodictasks_options"),
     ]
 
