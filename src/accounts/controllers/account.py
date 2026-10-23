@@ -26,6 +26,7 @@ from common.schema import EmailSchema, ErrorDetail, ResponseMessage
 from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
+from events.service.tenant_service import tenant_return_host
 from oauth.permissions import RequireScope
 from revel.oidc_config import KEY_PATTERN
 
@@ -35,6 +36,10 @@ from revel.oidc_config import KEY_PATTERN
 # unlimited, because AnonRateThrottle yields no cache key for logged-in users.
 @api_controller("/account", tags=["Account"], auth=I18nJWTAuth())
 class AccountController(UserAwareController):
+    def _return_host(self) -> str | None:
+        """The tenant hostname hint for account emails (a return hint only, never a link host)."""
+        return tenant_return_host(t.cast(HttpRequest, self.context.request))  # type: ignore[union-attr]
+
     @route.post(
         "/export-data",
         response={200: ResponseMessage},
@@ -145,7 +150,7 @@ class AccountController(UserAwareController):
         """
         request = t.cast(HttpRequest, self.context.request)  # type: ignore[union-attr]
         verify_turnstile(payload.turnstile_token, get_client_ip(request))
-        user, _ = account_service.register_user(payload)
+        user, _ = account_service.register_user(payload, return_host=tenant_return_host(request))
         return status.HTTP_201_CREATED, user
 
     @route.post(
@@ -182,7 +187,9 @@ class AccountController(UserAwareController):
         account exists and is not yet verified. An optional relative ``return_url`` is carried
         in the verification link as ``returnUrl``, exactly as ``POST /register`` does.
         """
-        account_service.resend_verification_email(payload.email, return_url=payload.return_url)
+        account_service.resend_verification_email(
+            payload.email, return_url=payload.return_url, return_host=self._return_host()
+        )
         return ResponseMessage(message=str(_("Verification email sent.")))
 
     @route.post(
@@ -198,7 +205,7 @@ class AccountController(UserAwareController):
         the user confirms via POST /account/delete-confirm with the token from the email.
         This two-step process prevents accidental deletions.
         """
-        account_service.request_account_deletion(self.user())
+        account_service.request_account_deletion(self.user(), return_host=self._return_host())
         return ResponseMessage(message=str(_("An email has been sent.")))
 
     @route.post(
@@ -240,7 +247,7 @@ class AccountController(UserAwareController):
         a success message to prevent user enumeration attacks. Google SSO users cannot use this
         endpoint. After receiving the email, use POST /account/password/reset with the token.
         """
-        account_service.request_password_reset(payload.email)
+        account_service.request_password_reset(payload.email, return_host=self._return_host())
         return ResponseMessage(message=str(_("A password reset link will be sent.")))
 
     @route.post(
@@ -288,6 +295,7 @@ class AccountController(UserAwareController):
             user=self.user(),
             new_email=payload.new_email,
             password=payload.password,
+            return_host=self._return_host(),
         )
         return ResponseMessage(message=str(_("A confirmation link has been sent to the new email address.")))
 
