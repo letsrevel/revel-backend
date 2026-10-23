@@ -1,6 +1,7 @@
 """Tests for the OrganizationDomain admin and the Organization admin's custom-domain fields (#1152)."""
 
 import typing as t
+from types import SimpleNamespace
 
 import pytest
 from django.contrib.admin.sites import site
@@ -11,6 +12,7 @@ from accounts.models import RevelUser
 from events.admin.organization import OrganizationAdmin
 from events.admin.organization_domain import OrganizationDomainAdmin
 from events.models import Organization, OrganizationDomain
+from events.service import custom_domain_service, tenant_service
 
 pytestmark = pytest.mark.django_db
 
@@ -138,3 +140,73 @@ def test_organization_admin_exposes_gate_but_not_the_synced_hostname(rf: t.Any, 
     assert "custom_domain_enabled" in fieldset_fields
     assert "custom_domain" in org_admin.get_readonly_fields(request, None)
     assert "custom_domain_enabled" not in org_admin.get_readonly_fields(request, None)
+
+
+@pytest.fixture
+def live_org(organization: Organization, django_capture_on_commit_callbacks: t.Any) -> Organization:
+    """An enabled organization whose domain is ACTIVE and already resolving (cache warmed)."""
+    organization.custom_domain_enabled = True
+    organization.save(update_fields=["custom_domain_enabled"])
+    domain = OrganizationDomain.objects.create(organization=organization, hostname="events.example.com")
+    with django_capture_on_commit_callbacks(execute=True):
+        custom_domain_service.activate_domain(domain)
+    organization.refresh_from_db()
+    assert tenant_service.get_tenant_organization("events.example.com") is not None
+    return organization
+
+
+def _org_save(rf: t.Any, superuser: RevelUser, organization: Organization, changed: list[str]) -> None:
+    """Run the Organization admin's save_model the way the change form would, with the given changed fields."""
+    org_admin = t.cast(OrganizationAdmin, site._registry[Organization])
+    org_admin.save_model(_request(rf, superuser), organization, SimpleNamespace(changed_data=changed), change=True)
+
+
+def test_admin_flipping_kill_switch_invalidates_cached_hostname(
+    rf: t.Any, superuser: RevelUser, live_org: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Switching custom_domain_enabled off drops the cache on commit, so the hostname stops resolving."""
+    live_org.custom_domain_enabled = False
+
+    with django_capture_on_commit_callbacks(execute=True):
+        _org_save(rf, superuser, live_org, ["custom_domain_enabled"])
+
+    assert tenant_service.get_tenant_organization("events.example.com") is None
+
+
+def test_admin_flipping_kill_switch_back_on_restores_hostname(
+    rf: t.Any, superuser: RevelUser, live_org: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Switching it back on invalidates again, so the active domain resolves without redoing anything."""
+    live_org.custom_domain_enabled = False
+    with django_capture_on_commit_callbacks(execute=True):
+        _org_save(rf, superuser, live_org, ["custom_domain_enabled"])
+    live_org.custom_domain_enabled = True
+
+    with django_capture_on_commit_callbacks(execute=True):
+        _org_save(rf, superuser, live_org, ["custom_domain_enabled"])
+
+    resolved = tenant_service.get_tenant_organization("events.example.com")
+    assert resolved is not None
+    assert resolved.pk == live_org.pk
+
+
+def test_admin_save_without_flag_change_keeps_cache(
+    rf: t.Any, superuser: RevelUser, live_org: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Saving other fields does not touch the tenant cache."""
+    with django_capture_on_commit_callbacks(execute=True):
+        _org_save(rf, superuser, live_org, ["name"])
+
+    assert tenant_service.get_tenant_organization("events.example.com") is not None
+
+
+def test_admin_save_without_active_domain_registers_no_invalidation(
+    rf: t.Any, superuser: RevelUser, organization: Organization, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """With no active hostname there is nothing to invalidate, even when the flag changed."""
+    organization.custom_domain_enabled = True
+
+    with django_capture_on_commit_callbacks() as callbacks:
+        _org_save(rf, superuser, organization, ["custom_domain_enabled"])
+
+    assert callbacks == []

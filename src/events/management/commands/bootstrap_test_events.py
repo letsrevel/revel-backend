@@ -28,6 +28,9 @@ ORG_ALPHA_SLUG = "revel-events-collective"
 # Hostname of the white-label tenant domain seeded for ``eligibility-test-org`` (needs DEBUG).
 TENANT_E2E_HOSTNAME = "tenant.localhost"
 
+# Hostname of the white-label tenant domain seeded for Org Alpha (the Stripe-connected organization).
+ORG_ALPHA_TENANT_E2E_HOSTNAME = "alpha.localhost"
+
 # Referral-program fixtures for the frontend E2E suite (J21). Deterministic ids so the
 # specs can build ``/register?referral_invite=<id>`` without an API to look them up.
 REFERRAL_PENDING_APPLICATION_ID = uuid.UUID("aaaaaaaa-0000-4000-8000-000000000001")
@@ -63,6 +66,7 @@ class Command(BaseCommand):
 
         # White-label: serve the organization from tenant.localhost (needs DEBUG for *.localhost)
         self._create_tenant_domain()
+        self._create_alpha_tenant_domain()
 
         # Create questionnaire
         self._create_questionnaire()
@@ -191,11 +195,24 @@ class Command(BaseCommand):
 
     def _create_tenant_domain(self) -> None:
         """Give the test organization an ACTIVE custom domain for the white-label E2E journeys."""
-        self.org.custom_domain_enabled = True
-        self.org.save(update_fields=["custom_domain_enabled"])
-        domain = events_models.OrganizationDomain.objects.create(organization=self.org, hostname=TENANT_E2E_HOSTNAME)
+        self._activate_tenant_domain(self.org, TENANT_E2E_HOSTNAME)
+
+    def _create_alpha_tenant_domain(self) -> None:
+        """Give Org Alpha an ACTIVE custom domain too; it is seeded by ``bootstrap_events``, so skip if absent."""
+        org = events_models.Organization.objects.filter(slug=ORG_ALPHA_SLUG).first()
+        if org is None:
+            logger.warning("tenant_domain_skipped", reason="org_alpha_missing", slug=ORG_ALPHA_SLUG)
+            return
+        self._activate_tenant_domain(org, ORG_ALPHA_TENANT_E2E_HOSTNAME)
+
+    @staticmethod
+    def _activate_tenant_domain(org: events_models.Organization, hostname: str) -> None:
+        """Enable the custom-domain gate on ``org`` and activate ``hostname`` for it."""
+        org.custom_domain_enabled = True
+        org.save(update_fields=["custom_domain_enabled"])
+        domain = events_models.OrganizationDomain.objects.create(organization=org, hostname=hostname)
         custom_domain_service.activate_domain(domain)
-        logger.info(f"Activated custom domain {TENANT_E2E_HOSTNAME} for {self.org.slug}")
+        logger.info(f"Activated custom domain {hostname} for {org.slug}")
 
     def _create_questionnaire(self) -> None:
         """Create a simple questionnaire for testing."""

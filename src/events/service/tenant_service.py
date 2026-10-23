@@ -47,7 +47,9 @@ def _tenant_organization_id(hostname: str) -> UUID | None:
     cached = cache.get(key)
     if cached is not None:
         return UUID(cached) if cached != _NO_TENANT else None
-    org_id = Organization.objects.filter(custom_domain=host).values_list("id", flat=True).first()
+    org_id = (
+        Organization.objects.filter(custom_domain=host, custom_domain_enabled=True).values_list("id", flat=True).first()
+    )
     cache.set(key, str(org_id) if org_id else _NO_TENANT, POSITIVE_TTL if org_id else NEGATIVE_TTL)
     return org_id
 

@@ -17,6 +17,7 @@ from events.models import (
 )
 from events.schema import MinimalOrganizationSchema
 from events.service import custom_domain_service
+from events.service.tenant_service import invalidate_tenant_cache
 
 pytestmark = pytest.mark.django_db
 
@@ -198,6 +199,60 @@ def test_custom_domain_on_minimal_schema(tenant_org: Organization, organization:
     assert MinimalOrganizationSchema.from_orm(tenant_org).custom_domain == HOST
     tenant_org.custom_domain = None
     assert MinimalOrganizationSchema.from_orm(tenant_org).custom_domain is None
+
+
+def test_custom_domain_hidden_on_minimal_schema_when_gate_off(tenant_org: Organization) -> None:
+    """The kill switch hides the hostname even while the column still holds it."""
+    tenant_org.custom_domain_enabled = False
+
+    assert tenant_org.custom_domain == HOST
+    assert MinimalOrganizationSchema.from_orm(tenant_org).custom_domain is None
+
+
+# --- Platform kill switch: custom_domain_enabled off hides the domain everywhere ---
+
+
+def _set_gate(organization: Organization, enabled: bool) -> None:
+    """Flip the platform gate and drop the cached resolution, as the admin's save_model does on commit."""
+    organization.custom_domain_enabled = enabled
+    organization.save(update_fields=["custom_domain_enabled"])
+    invalidate_tenant_cache(HOST)
+
+
+def test_kill_switch_off_stops_resolution_advertising_and_cors(client: Client, tenant_org: Organization) -> None:
+    """Disabling the gate stops the active domain resolving, being advertised and being an allowed origin."""
+    tenant_org.visibility = Organization.Visibility.PUBLIC
+    tenant_org.save(update_fields=["visibility"])
+    assert _by_domain(client, HOST).status_code == 200  # warms the cache with a positive answer
+    assert "Access-Control-Allow-Origin" in _preflight(client, f"https://{HOST}")
+
+    _set_gate(tenant_org, False)
+
+    assert _by_domain(client, HOST).status_code == 404
+    retrieved = client.get(reverse("api:get_organization", kwargs={"slug": tenant_org.slug})).json()
+    assert retrieved["custom_domain"] is None
+    listed = client.get(reverse("api:list_organizations")).json()["results"]
+    assert [o["custom_domain"] for o in listed if o["id"] == str(tenant_org.id)] == [None]
+    assert "Access-Control-Allow-Origin" not in _preflight(client, f"https://{HOST}")
+
+
+def test_kill_switch_back_on_restores_resolution_advertising_and_cors(client: Client, tenant_org: Organization) -> None:
+    """Re-enabling the gate brings the existing active domain back with no other action."""
+    tenant_org.visibility = Organization.Visibility.PUBLIC
+    tenant_org.save(update_fields=["visibility"])
+    _set_gate(tenant_org, False)
+    assert _by_domain(client, HOST).status_code == 404
+
+    _set_gate(tenant_org, True)
+
+    by_domain = _by_domain(client, HOST)
+    assert by_domain.status_code == 200
+    assert by_domain.json()["custom_domain"] == HOST
+    retrieved = client.get(reverse("api:get_organization", kwargs={"slug": tenant_org.slug})).json()
+    assert retrieved["custom_domain"] == HOST
+    listed = client.get(reverse("api:list_organizations")).json()["results"]
+    assert [o["custom_domain"] for o in listed if o["id"] == str(tenant_org.id)] == [HOST]
+    assert "Access-Control-Allow-Origin" in _preflight(client, f"https://{HOST}")
 
 
 # --- Dynamic CORS ---

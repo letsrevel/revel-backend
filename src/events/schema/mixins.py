@@ -97,6 +97,22 @@ class CityEditMixin(CityBaseMixin):
         return match.group(1)
 
 
+class CustomDomainMixin(Schema):
+    """Advertise the organization's active custom domain only while the platform kill switch is on.
+
+    ``custom_domain_enabled`` is the platform-admin gate: when it is off, the hostname is withheld even
+    though the denormalized column still holds it, so flipping the gate back on restores it. Both are
+    plain columns, so this costs no queries.
+    """
+
+    custom_domain: str | None = None
+
+    @staticmethod
+    def resolve_custom_domain(obj: t.Any) -> str | None:
+        """Return the active hostname only when custom domains are enabled for the organization."""
+        return obj.custom_domain if obj.custom_domain_enabled else None
+
+
 class CityRetrieveMixin(Schema):
     city: CitySchema | None = None
     address: str | None = None

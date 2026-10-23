@@ -5,6 +5,7 @@ import typing as t
 
 from django.conf import settings
 from django.contrib import admin, messages
+from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest
@@ -26,6 +27,7 @@ from events.admin.base import (
     UserLinkMixin,
     VenueInline,
 )
+from events.service.tenant_service import invalidate_tenant_cache
 
 
 class StripeConnectedFilter(admin.SimpleListFilter):
@@ -131,6 +133,17 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                 # Ownership transfer is superuser-only; owner stays settable on create.
                 readonly = readonly + ("owner",)
         return readonly
+
+    def save_model(self, request: HttpRequest, obj: models.Organization, form: t.Any, change: bool) -> None:
+        """Drop the tenant-cache entry when the custom-domain kill switch flips.
+
+        Flipping ``custom_domain_enabled`` changes whether the active hostname resolves, so the cached
+        answer for it must go. Invalidation waits for commit, so a rolled-back save leaves the cache alone.
+        """
+        super().save_model(request, obj, form, change)
+        if "custom_domain_enabled" in form.changed_data and obj.custom_domain:
+            hostname = obj.custom_domain
+            transaction.on_commit(lambda: invalidate_tenant_cache(hostname))
 
     list_display = [
         "name",
