@@ -6662,7 +6662,7 @@ msgstr ""
 "tard."
 
 msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
-msgstr "Saisissez une couleur sous forme de valeur hexadécimale à 6 chiffres, par exemple #8C3CDD."
+msgstr "Saisis une couleur sous forme de valeur hexadécimale à 6 chiffres, par exemple #8C3CDD."
 
 msgid "Brand primary color as #RRGGBB."
 msgstr "Couleur principale de la marque au format #RRGGBB."

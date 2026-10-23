@@ -434,7 +434,7 @@ class Organization(
         help_text=_("When True, every membership application requires manual staff approval."),
     )
 
-    # Brand colors (#1149): stored as entered (uppercase "#RRGGBB"); per-mode variants are
+    # Brand colors (#1149): stored as uppercase "#RRGGBB" (normalized in clean()); per-mode variants are
     # derived on read by ``events.utils.brand_theme.derive_brand_theme``.
     brand_primary_color = models.CharField(
         max_length=7,
@@ -469,6 +469,8 @@ class Organization(
         Additionally validates that ``default_membership_questionnaire`` (when set)
         belongs to this organization and is of type ``MEMBERSHIP``. ``limit_choices_to``
         is admin-only and not enforced on direct ORM ``save()``, so this check matters.
+
+        Also normalizes the brand colors: uppercase hex, and an empty string becomes ``None``.
         """
         super().clean()
         # Normalize brand colors: uppercase hex, empty string means "unset".

@@ -73,7 +73,7 @@ def test_conversions_round_trip() -> None:
     assert rgb_to_hsl((255, 0, 0)) == pytest.approx((0.0, 1.0, 0.5))
 
 
-@pytest.mark.parametrize("bad", ["8C3CDD", "#8C3CD", "#8C3CDDD", "#GGGGGG", "", "red"])
+@pytest.mark.parametrize("bad", ["8C3CDD", "#8C3CD", "#8C3CDDD", "#GGGGGG", "", "red", "#8C3CDD\n"])
 def test_hex_to_rgb_rejects_invalid(bad: str) -> None:
     assert not is_valid_hex_color(bad)
     with pytest.raises(ValueError):

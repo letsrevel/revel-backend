@@ -68,7 +68,7 @@ class BrandTheme(BaseModel):
 
 def is_valid_hex_color(value: str) -> bool:
     """Whether ``value`` is a ``#RRGGBB`` color (either case)."""
-    return bool(_HEX_RE.match(value))
+    return bool(_HEX_RE.fullmatch(value))
 
 
 def hex_to_rgb(value: str) -> RGB:
