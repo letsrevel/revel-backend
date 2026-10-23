@@ -267,29 +267,18 @@ class TestCreateSeriesPassSession:
         assert call_args[1]["success_url"] == f"{series_base_url}?payment_success=true"
         assert call_args[1]["cancel_url"] == f"{series_base_url}?payment_cancelled=true"
 
-    @pytest.mark.parametrize(
-        ("custom_domain", "enabled", "expected_base"),
-        [
-            ("events.example.com", True, "https://events.example.com"),
-            ("events.example.com", False, None),
-            (None, True, None),
-        ],
-    )
     @patch("stripe.checkout.Session.create")
-    def test_return_urls_follow_the_org_custom_domain(
+    def test_return_urls_stay_on_platform_with_active_custom_domain(
         self,
         mock_stripe_create: Mock,
         stripe_connected_organization: Organization,
         held_pass: HeldSeriesPass,
         tickets: list[Ticket],
         online_series_pass: SeriesPass,
-        custom_domain: str | None,
-        enabled: bool,
-        expected_base: str | None,
     ) -> None:
-        """An active, enabled custom domain hosts the return URLs; otherwise the platform does (#1153)."""
+        """An org's custom domain never reaches Stripe: return URLs stay on the platform (#1153, #848)."""
         Organization.objects.filter(pk=stripe_connected_organization.pk).update(
-            custom_domain=custom_domain, custom_domain_enabled=enabled
+            custom_domain="events.example.com", custom_domain_enabled=True
         )
         reservation_id = uuid4()
         stripe_service.reserve_series_pass_payments(held_pass=held_pass, tickets=tickets, reservation_id=reservation_id)
@@ -298,8 +287,7 @@ class TestCreateSeriesPassSession:
         stripe_service.create_series_pass_session(reservation_id=reservation_id)
 
         series = online_series_pass.event_series
-        base = expected_base or settings.FRONTEND_BASE_URL
-        series_url = f"{base}/events/{series.organization.id}/series/{series.id}"
+        series_url = f"{settings.FRONTEND_BASE_URL}/events/{series.organization.id}/series/{series.id}"
         assert mock_stripe_create.call_args[1]["success_url"] == f"{series_url}?payment_success=true"
         assert mock_stripe_create.call_args[1]["cancel_url"] == f"{series_url}?payment_cancelled=true"
 

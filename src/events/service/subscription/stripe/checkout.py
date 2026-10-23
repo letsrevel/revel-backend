@@ -20,6 +20,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from common.service.stripe_config import configure_stripe
 from common.utils import get_or_create_with_race_protection
 from events.exceptions import SubscriptionActivationPendingError
@@ -45,7 +46,6 @@ from events.service.subscription.stripe.plan_change import (
     release_online_schedule,
     resolve_refused_cancel,
 )
-from events.utils.frontend_urls import frontend_base_url_for
 
 logger = structlog.get_logger(__name__)
 
@@ -141,7 +141,12 @@ def _checkout_session_urls(organization: Organization) -> _CheckoutSessionUrls:
     landing page no longer renders the checkout outcome (#838). UUID-based so the
     org slug never reaches Stripe; the FE resolves UUIDs (#848 / revel-frontend#756).
     """
-    frontend_base_url = frontend_base_url_for(organization)
+    # Stripe return URLs stay on the platform origin by design (#1153): the frontend's canonical 301
+    # (query string preserved) takes the buyer on to the org's custom domain. The URL must stay
+    # uniform (#848: Stripe gets nothing organizer-authored) and byte-identical across retries,
+    # because session creation reuses ``idempotency_key=reservation_id`` and mutable org state
+    # (domain sync, kill switch) would otherwise cause Stripe idempotency conflicts.
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
     return {
         "success_url": f"{frontend_base_url}/org/{organization.id}/membership?membership_success=true",
         "cancel_url": f"{frontend_base_url}/org/{organization.id}/membership?membership_cancelled=true",

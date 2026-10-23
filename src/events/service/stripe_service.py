@@ -68,7 +68,6 @@ from events.service.vat_service import (
     get_effective_vat_rate,
 )
 from events.utils.currency import to_stripe_amount
-from events.utils.frontend_urls import frontend_base_url_for
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
@@ -380,6 +379,7 @@ def _create_stripe_session(
     line_items: list[StripeLineItem],
     application_fee_amount: int,
     expires_at: datetime,
+    site: SiteSettings,
     idempotency_key: str | None = None,
 ) -> Session:
     """Build session data and create a Stripe Checkout Session.
@@ -396,7 +396,12 @@ def _create_stripe_session(
     """
     ticket_ids = ",".join(str(_t.id) for _t in tickets)
 
-    frontend_base_url = frontend_base_url_for(event.organization)
+    # Stripe return URLs stay on the platform origin by design (#1153): the frontend's canonical 301
+    # (query string preserved) takes the buyer on to the org's custom domain. The URL must stay
+    # uniform (#848: Stripe gets nothing organizer-authored) and byte-identical across retries,
+    # because session creation reuses ``idempotency_key=reservation_id`` and mutable org state
+    # (domain sync, kill switch) would otherwise cause Stripe idempotency conflicts.
+    frontend_base_url = site.frontend_base_url
     session_data = dict(  # noqa: C408
         customer_email=user.email,
         line_items=line_items,
@@ -680,6 +685,7 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     # platform_fee, never a scalar × N, so a mixed cart's fee follows the true total.
     total_fee_gross = sum((p.platform_fee for p in payments), Decimal("0"))
     application_fee_amount = to_stripe_amount(total_fee_gross, anchor_tier.currency)
+    site = SiteSettings.get_solo()
     expires_at = hold_anchor + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
     session = _create_stripe_session(
@@ -690,6 +696,7 @@ def create_batch_session(*, reservation_id: UUID) -> str:
         line_items=line_items,
         application_fee_amount=application_fee_amount,
         expires_at=expires_at,
+        site=site,
         idempotency_key=str(reservation_id),
     )
     stamp_session_or_expire(
@@ -712,6 +719,7 @@ def _create_series_pass_stripe_session(
     total: Decimal,
     application_fee_amount: int,
     expires_at: datetime,
+    site: SiteSettings,
     idempotency_key: str | None = None,
 ) -> Session:
     """Build session data and create a Stripe Checkout Session for a series pass.
@@ -730,7 +738,12 @@ def _create_series_pass_stripe_session(
     series = series_pass.event_series
     ticket_ids = ",".join(str(ticket.id) for ticket in tickets)
 
-    frontend_base_url = frontend_base_url_for(org)
+    # Stripe return URLs stay on the platform origin by design (#1153): the frontend's canonical 301
+    # (query string preserved) takes the buyer on to the org's custom domain. The URL must stay
+    # uniform (#848: Stripe gets nothing organizer-authored) and byte-identical across retries,
+    # because session creation reuses ``idempotency_key=reservation_id`` and mutable org state
+    # (domain sync, kill switch) would otherwise cause Stripe idempotency conflicts.
+    frontend_base_url = site.frontend_base_url
     series_url = f"{frontend_base_url}/events/{org.id}/series/{series.id}"
     session_data = dict(  # noqa: C408
         customer_email=user.email,
@@ -915,6 +928,7 @@ def create_series_pass_session(*, reservation_id: UUID) -> str:
 
     total_fee_gross = sum((p.platform_fee for p in payments), Decimal("0"))
     application_fee_amount = to_stripe_amount(total_fee_gross, series_pass.currency)
+    site = SiteSettings.get_solo()
     expires_at = hold_anchor + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
     session = _create_series_pass_stripe_session(
@@ -925,6 +939,7 @@ def create_series_pass_session(*, reservation_id: UUID) -> str:
         total=total,
         application_fee_amount=application_fee_amount,
         expires_at=expires_at,
+        site=site,
         idempotency_key=str(reservation_id),
     )
 

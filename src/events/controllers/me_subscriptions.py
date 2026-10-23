@@ -27,7 +27,6 @@ from events.service.subscription import eligibility as subscription_eligibility
 from events.service.subscription import lifecycle as subscription_lifecycle
 from events.service.subscription import uncancel as subscription_uncancel
 from events.service.subscription.stripe import checkout as subscription_stripe_checkout
-from events.utils.frontend_urls import frontend_base_url_for
 from oauth.permissions import RequireScope
 
 
@@ -393,11 +392,15 @@ class MeSubscriptionsController(UserAwareController):
         invoices. The portal also offers cancel/change-plan UI when the org's
         Stripe dashboard configuration enables it.
         """
+        from common.models import SiteSettings
+
         organization = get_object_or_404(Organization, pk=org_id)
         # ``payload.return_url`` is a validated ``HttpUrl`` (or None) — coerce
         # to plain ``str`` for the Stripe API. Falling back to the platform's
-        # frontend keeps a sensible default when the client omits it.
-        return_url = str(payload.return_url) if payload.return_url else frontend_base_url_for(organization)
+        # frontend keeps a sensible default when the client omits it. It stays on the
+        # platform origin even for an org with a custom domain (#1153): the frontend's
+        # canonical 301 forwards the buyer, and Stripe gets nothing organizer-conditional (#848).
+        return_url = str(payload.return_url) if payload.return_url else SiteSettings.get_solo().frontend_base_url
         url = subscription_stripe_checkout.create_billing_portal_session(
             self.user(),
             organization,

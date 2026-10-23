@@ -435,62 +435,26 @@ class TestMinimalStripePayload:
         assert kwargs["cancel_url"] == f"{event_url}?payment_cancelled=true"
 
 
-class TestTenantReturnUrls:
-    """Stripe return URLs follow the organization's active custom domain (#1153).
+class TestReturnUrlsStayOnPlatform:
+    """Stripe return URLs never move to an org's custom domain (#1153, #848).
 
     Guest checkout shares this builder (``create_batch_session``), so it is covered too.
     """
 
-    def _urls(self, event: Event, tier: TicketTier, user: RevelUser) -> tuple[str, str]:
-        kwargs = TestMinimalStripePayload()._session_kwargs(event, tier, user, "Jane Doe")
-        return str(kwargs["success_url"]), str(kwargs["cancel_url"])
-
-    def test_active_domain_enabled_uses_tenant_origin(
+    def test_active_custom_domain_does_not_change_return_urls(
         self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
     ) -> None:
         Organization.objects.filter(pk=event.organization_id).update(
             custom_domain="events.example.com", custom_domain_enabled=True
         )
 
-        success, cancel = self._urls(event, paid_ticket_tier, organization_owner_user)
-
-        base = f"https://events.example.com/events/{event.organization_id}/{event.id}"
-        assert success == f"{base}?payment_success=true"
-        assert cancel == f"{base}?payment_cancelled=true"
-
-    def test_kill_switch_off_stays_on_platform(
-        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
-    ) -> None:
-        Organization.objects.filter(pk=event.organization_id).update(
-            custom_domain="events.example.com", custom_domain_enabled=False
+        kwargs = TestMinimalStripePayload()._session_kwargs(
+            event, paid_ticket_tier, organization_owner_user, "Jane Doe"
         )
 
-        success, _ = self._urls(event, paid_ticket_tier, organization_owner_user)
-
-        assert success.startswith(f"{settings.FRONTEND_BASE_URL}/events/")
-
-    def test_no_domain_stays_on_platform(
-        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
-    ) -> None:
-        success, _ = self._urls(event, paid_ticket_tier, organization_owner_user)
-
-        assert success.startswith(f"{settings.FRONTEND_BASE_URL}/events/")
-
-    def test_url_template_setting_is_honoured(
-        self,
-        event: Event,
-        paid_ticket_tier: TicketTier,
-        organization_owner_user: RevelUser,
-        settings: t.Any,
-    ) -> None:
-        settings.CUSTOM_DOMAIN_URL_TEMPLATE = "http://{hostname}:5173"
-        Organization.objects.filter(pk=event.organization_id).update(
-            custom_domain="events.example.com", custom_domain_enabled=True
-        )
-
-        success, _ = self._urls(event, paid_ticket_tier, organization_owner_user)
-
-        assert success.startswith("http://events.example.com:5173/events/")
+        base = f"{settings.FRONTEND_BASE_URL}/events/{event.organization_id}/{event.id}"
+        assert kwargs["success_url"] == f"{base}?payment_success=true"
+        assert kwargs["cancel_url"] == f"{base}?payment_cancelled=true"
 
 
 class TestClaimReservationHoldExtendOnly:
