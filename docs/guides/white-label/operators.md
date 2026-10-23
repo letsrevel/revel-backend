@@ -67,22 +67,17 @@ hostname, abuse reported on a customer site, or a customer whose contract ended.
 | API payloads | `custom_domain` is `null` on every organization and event payload | Immediately (read from the database on each request) |
 | Links in emails and notifications | Fall back to the platform URL | At most **60 s**: the organization link info used when rendering an email is cached for 60 s |
 | Tenant email sender | Mail from the organization goes out from the platform sender again | With the link info, at most 60 s |
+| Tenant sessions (logins made on that host) | Access tokens answer 401 (public pages treat the visitor as anonymous) and refresh tokens are refused and blacklisted, because the host no longer resolves | Same as the lookup: at most 60 s |
 | Organizer's custom-domain endpoints | Answer 403 | Immediately |
 | Sync task | Skips the organization | From the next run |
 
-The frontend adds two delays of its own:
+The frontend adds one delay of its own: every frontend replica caches the by-domain answer for up
+to **60 s**, so a replica can keep serving the tenant site for that long after the backend has
+stopped answering. The `301` the frontend sends from an organization's platform URLs to its custom
+domain is marked `Cache-Control: no-store`, so browsers do not keep following it once the domain is
+gone.
 
-- **Frontend lookup cache**: every frontend replica caches the by-domain answer for up to **60 s**,
-  so a replica can keep serving the tenant site for that long after the backend has stopped
-  answering.
-- **Cached canonical redirect**: while the domain was live, the frontend answered the platform URLs
-  of that organization with a `301` to the custom domain, sent with `Cache-Control: max-age=300`
-  ([revel-frontend#1064](https://github.com/letsrevel/revel-frontend/pull/1064)). A browser that
-  followed one of those redirects keeps following it for up to **5 minutes**, and lands on a
-  hostname that now answers 404. After that window the platform URL serves the organization
-  directly again.
-
-Plan on about **one minute** for the servers and **five minutes** for visitors' browsers.
+Plan on about **one minute** end to end.
 
 ### Verify
 
@@ -94,8 +89,8 @@ Replace `<host>` with the customer hostname and `<api>` with your API origin.
    carries no `Access-Control-Allow-Origin` header for that origin.
 3. **Payloads are clean.** The organization's payload (for example `GET /api/organizations/<slug>`)
    has `"custom_domain": null`.
-4. **The platform serves it.** In a private window (no cached redirect), open the organization on
-   the platform host: it renders there with no redirect to the custom domain.
+4. **The platform serves it.** Open the organization on the platform host: it renders there with no
+   redirect to the custom domain.
 5. **Mail falls back.** Trigger a test email that links to the organization (for example an invitation
    to yourself) and check that its links point at the platform.
 
@@ -123,8 +118,11 @@ validates the hostname, issues and renews the certificate, and proxies traffic t
 
 ### Setup
 
-1. **Enable Custom Hostnames** on the zone that holds your platform domain (SSL/TLS, Custom
-   Hostnames). Cloudflare for SaaS may require a plan or add-on on your account.
+1. **Enable Cloudflare for SaaS** on the zone that holds your platform domain (SSL/TLS, Custom
+   Hostnames). On the Free plan this needs a payment method on the account (the dashboard asks for
+   it). The [plans
+   page](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/plans/)
+   lists 100 hostnames as included on Free, Pro and Business, with a per-hostname price beyond that.
 2. **Create the fallback origin.** Add a DNS record such as `customers.<your-domain>` that points
    at your origin server, and set it up like your other hosts: first **DNS only** (grey cloud) so
    Caddy can obtain its certificate for it, confirm it serves HTTPS, then switch it to **Proxied**
@@ -136,13 +134,24 @@ validates the hostname, issues and renews the certificate, and proxies traffic t
    **Zone ID** from the zone's overview page.
 4. **Set the backend variables** (below): the token, the zone id, and the fallback origin hostname
    as the CNAME target. Restart the web and Celery containers.
-5. **Decide how the origin sees TLS.** With the zone on **Full (strict)**, Cloudflare connects to
-   your origin and verifies its certificate. For custom hostnames it can present the *customer's*
-   hostname as the TLS server name (SNI), for which Caddy has no certificate. Either configure
-   Cloudflare to send the fallback hostname as the SNI (the custom origin SNI option), so the
-   certificate Caddy already holds for the fallback hostname matches, or install a Cloudflare
-   Origin CA certificate on the catch-all block. Check with a test domain before the first
-   customer. Revel does not set an origin SNI when it creates hostnames.
+5. **Set the zone to Full (strict) and keep "Always Use HTTPS" off.** For custom hostnames
+   Cloudflare connects to your origin with the *customer's* hostname as both the TLS server name
+   (SNI) and the `Host` header, and under Full (strict) it verifies the certificate. The origin
+   therefore needs a publicly trusted certificate for every customer hostname. A Cloudflare Origin
+   CA certificate cannot cover customer domains, and rewriting the SNI to the fallback hostname is
+   not available on the Free plan, so the setup uses Caddy **on-demand TLS** (see
+   [Caddy](#caddy)). It can only validate over HTTP-01, and that challenge comes in through
+   Cloudflare, so "Always Use HTTPS" (which redirects port 80) must stay off for the zone. Revel
+   does not set `custom_origin_server` or an origin SNI when it creates hostnames.
+
+!!! warning "One fallback origin per zone"
+    Cloudflare has a single fallback origin per zone, and **every** custom hostname of the zone is
+    routed to it. Two Revel deployments on the same zone (for example a beta slot and production)
+    cannot both serve custom domains at the same time: whichever hostname the fallback origin
+    points at receives all the traffic. On the hosted platform, production uses
+    `customers.letsrevel.io` and the beta slot uses `customers-beta.letsrevel.io`. Moving the fallback
+    origin between them is non-disruptive and applies within seconds, so do it as an explicit go-live
+    step.
 
 When an organization requests a domain, Revel calls Cloudflare to create the custom hostname with
 **HTTP** domain-control validation and a DV certificate, so the customer normally needs only the
@@ -153,7 +162,10 @@ Cloudflare activates a hostname on its CNAME alone, so Revel does not trust that
 only becomes ACTIVE once the **ownership TXT record** Cloudflare issued is published in public DNS,
 checked over DNS-over-HTTPS against `cloudflare-dns.com` (5 s timeout). If the record is missing,
 wrong, or the lookup fails, the domain stays PENDING and `last_errors` names the record to add;
-the next sync retries. Outbound HTTPS to `cloudflare-dns.com` must be allowed from the workers.
+the next sync retries. The check fails closed, so **the web and Celery containers must be allowed
+outbound HTTPS to `cloudflare-dns.com`** (the web container runs the same sync for the organizer's
+**Check now**); otherwise no domain ever activates. The gate applies to the sync only: an admin
+who activates a domain by hand in the Django admin skips it, so verify ownership yourself first.
 
 Provisioning is on only when **both** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID` are set.
 
@@ -165,7 +177,7 @@ Provisioning is on only when **both** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZON
 |---|---|---|
 | `CLOUDFLARE_API_TOKEN` | empty | API token with *SSL and Certificates: Edit* on the zone. |
 | `CLOUDFLARE_ZONE_ID` | empty | Zone that owns the custom hostnames. Provisioning is enabled only when this **and** the token are set. Neither alone does anything. |
-| `CUSTOM_DOMAIN_CNAME_TARGET` | empty | The fallback origin hostname organizers CNAME to, for example `customers.example.com`. A bare hostname: no scheme, path, port or spaces. It is lowercased and a trailing dot is removed. Shown to organizers as the CNAME value. |
+| `CUSTOM_DOMAIN_CNAME_TARGET` | empty | The fallback origin hostname organizers CNAME to, for example `customers.example.com` (the hostname registered as the zone's fallback origin). A bare hostname: no scheme, path, port or spaces. It is lowercased and a trailing dot is removed. Shown to organizers as the CNAME value. |
 | `CUSTOM_DOMAIN_URL_TEMPLATE` | `https://{hostname}` | Origin of an organization's active domain, used for links in emails and notifications. Must contain `{hostname}` and start with `http://` or `https://`. Local development and E2E use `http://{hostname}:5173`. |
 
 Related variables that matter for white-label: `BASE_URL` and `FRONTEND_BASE_URL` (a custom
@@ -173,7 +185,9 @@ hostname can never equal, or sit under, the hosts and registrable apex of these 
 `ORG_EMAIL_DOMAIN` (see [email rollout](#email-rollout-order)) and `TURNSTILE_SITE_KEY` /
 `TURNSTILE_SECRET_KEY` (see [Turnstile](#turnstile)). The API's own `ALLOWED_HOSTS` and
 `CORS_ALLOWED_ORIGINS` do **not** need to list customer domains: the browser talks to the API host,
-and CORS for active custom domains is allowed dynamically.
+and CORS for active custom domains is allowed dynamically. `CORS_ALLOWED_ORIGINS` must still contain
+the platform frontend origin, because protected media now takes its CORS answer from Django (see
+[Caddy](#caddy)).
 
 !!! warning "Two-label apex detection"
     A hostname is rejected when it equals or sits under the platform's hosts or their apex, and
@@ -227,31 +241,44 @@ PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE=https://{hostname}
 ## Caddy
 
 The reverse proxy needs a block that accepts **any** hostname that reaches it for a custom domain
-and proxies to the frontend. The requirements, which the catch-all block in your Caddyfile must
-meet (the work is tracked in [letsrevel/infra#67](https://github.com/letsrevel/infra/issues/67);
-check your Caddyfile for it):
+and proxies to the frontend. The hosted platform's Caddyfiles do this
+([letsrevel/infra#68](https://github.com/letsrevel/infra/pull/68)); if you run your own, its catch-all
+block must meet these requirements:
 
-- Proxy to the frontend with the same headers as the main frontend block, and forward the original
-  `Host` as `X-Forwarded-Host` and the scheme as `X-Forwarded-Proto`, **overwriting** any values a
-  client sends. The frontend trusts these to decide which organization it is serving.
-- Terminate TLS with a certificate that satisfies Cloudflare's origin connection (see [step 5 of the
-  setup](#setup)).
+- **On-demand TLS, gated by an ask check.** Caddy obtains a Let's Encrypt certificate for a customer
+  hostname the first time it is requested, over HTTP-01 only (the challenge arrives through
+  Cloudflare, so "Always Use HTTPS" must stay off). It first asks a loopback-only site, which calls
+  `GET /api/organizations/by-domain/<host>` on the API and answers 200 only for an ACTIVE domain
+  whose organization has the kill switch on; everything else is refused, so nobody can make Caddy
+  burn certificate quota on arbitrary names. Filter the hostname with a regular expression before
+  it reaches Django. A dedicated ask endpoint is planned
+  ([revel-backend#1178](https://github.com/letsrevel/revel-backend/issues/1178)): the by-domain
+  lookup works today, but it is anonymous-throttled and every ask comes from the same IP.
+- **Overwrite the forwarding headers on every frontend vhost, the catch-all included.** Proxy to the
+  frontend with the same headers as the main frontend block, and set `X-Forwarded-Host {host}` and
+  `X-Forwarded-Proto https`, replacing any value a client sends. The frontend trusts these to decide
+  which organization it is serving.
 - Send HSTS **without** `includeSubDomains` for foreign domains. They are not yours.
 - Never buffer SSR streaming responses, as for the main frontend block.
-- Protected media is served by Caddy with a CORS header pinned to the platform frontend domain.
-  Customer origins need the allowed origin echoed back, or media behind HMAC links will not load
-  on custom domains. This is part of the same infra work.
+- **Protected media** used to be served with a CORS header pinned to `FRONTEND_DOMAIN`. It now echoes
+  the allowed origin from Django's answer to the `forward_auth` subrequest (and strips any value
+  the client sent), so it works for the platform and for active custom domains alike. This only
+  works while `CORS_ALLOWED_ORIGINS` contains the platform frontend origin.
+- Caddy reads `.env` when its container starts, so a new `CUSTOM_DOMAIN_CNAME_TARGET` needs
+  `docker compose up -d caddy`; `caddy reload` does not pick it up.
 
 ## Turnstile
 
 If you use Cloudflare Turnstile on registration (`TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`
 both set), the widget only renders on hostnames in its **hostname allowlist** in the Cloudflare
 dashboard. The backend does not check the hostname, so there is nothing to configure in Revel:
-**add each custom domain to the widget's hostname list** when you activate it, or sign-up on that
-domain fails.
+**add each custom domain to the widget's hostname list by hand** when you activate it, or sign-up
+on that domain fails. This is a manual step for every tenant.
 
-Each widget has a **per-widget hostname limit**, and it differs by plan. Plan for it before you
-sell the feature to many organizations: check the current limit in the Cloudflare dashboard, then
+Each widget has a **per-widget hostname limit**, and it differs by plan: Cloudflare lists 10
+hostnames per widget on Free and at most 200 on Enterprise (see the [Turnstile
+plans](https://developers.cloudflare.com/turnstile/plans/) page; check it before relying on the
+number). Plan for it before you sell the feature to many organizations, then
 either create **additional widgets** (each has its own site key and secret, and Revel reads a
 single pair, so using more than one widget needs a change on the Revel side: plan that work) or
 move to a **plan with a higher limit**. Do not wait for the first sign-up failure to find out. When
@@ -272,7 +299,7 @@ result:
 
 | Cloudflare reports | Pending domain | Active domain |
 |---|---|---|
-| Hostname **and** certificate `active` | becomes **active** | stays active |
+| Hostname **and** certificate `active` | becomes **active**, but only once the ownership TXT record is published in public DNS (otherwise it stays pending) | stays active (not re-checked) |
 | Hostname `blocked` or `deleted`, or certificate `deleted` | becomes **failed** | becomes **failed** and is withdrawn from the organization |
 | Hostname `moved` (validation exhausted, or the CNAME no longer points to the fallback origin) | becomes **failed** | becomes **failed** and is withdrawn from the organization; every tenant session issued on it is signed out |
 | A certificate `*_timed_out` status | becomes **failed** | stays **active**; the problem is recorded |
@@ -337,7 +364,8 @@ Staff can manage domains under **Custom Domains** in the admin sidebar (the
 `OrganizationDomain` model). Select rows and run an action:
 
 - **Activate selected domains**: marks the domain active and publishes its hostname on the
-  organization. Fails for an organization with `custom_domain_enabled` off, for a removed domain,
+  organization. It does **not** run the ownership TXT check, so confirm the hostname really belongs
+  to the organization first. Fails for an organization with `custom_domain_enabled` off, for a removed domain,
   and when the organization already has another live domain or the hostname is taken.
 - **Mark selected domains as failed**: withdraws the hostname from the organization.
 - **Remove selected domains**: deletes the Cloudflare hostname (when provisioned) and frees the
@@ -359,10 +387,12 @@ runs in **manual mode**:
 - A platform admin **activates** the domain in the Django admin once DNS and TLS are ready.
 - **TLS is yours.** You need a certificate for each hostname on your own proxy. The simplest route
   is to add the hostname as a site block in your Caddyfile after the organizer creates the
-  CNAME (Caddy then obtains a Let's Encrypt certificate). Caddy's on-demand TLS also works, but
-  it needs an "ask" endpoint that answers 200 only for hostnames you serve. Revel does not ship
-  one: the by-domain endpoint takes the hostname in the URL path, while Caddy's ask request puts
-  it in a `?domain=` query, so you would need a small shim in front of it.
+  CNAME (Caddy then obtains a Let's Encrypt certificate). Caddy's on-demand TLS also works, as in the
+  [hosted setup](#caddy), but it needs an "ask" endpoint that answers 200 only for hostnames you
+  serve. Revel does not ship a dedicated one yet
+  ([revel-backend#1178](https://github.com/letsrevel/revel-backend/issues/1178)): the by-domain
+  endpoint takes the hostname in the URL path, while Caddy's ask request puts it in a `?domain=`
+  query, so you need a small loopback site in front of it that rewrites one into the other.
 - Set `CUSTOM_DOMAIN_CNAME_TARGET` to a hostname that resolves to your server (for example
   `customers.example.com` with an A record). It is the only thing organizers are told to create,
   and the instructions are empty without it.
@@ -406,9 +436,21 @@ tracked for the hosted platform in [letsrevel/infra#57](https://github.com/letsr
 domain, and you never move a customer's sender identity mid-flight. Watch spam rates for the sending
 domain in Google Postmaster Tools. Gmail does not forward complaints to the webhook.
 
+On the hosted platform, mail stays "Org via Revel" on `mail.letsrevel.io` (`ORG_EMAIL_DOMAIN`,
+[letsrevel/infra#57](https://github.com/letsrevel/infra/issues/57)): a custom domain changes the
+links in the mail, not the sender domain.
+
 Account emails (verification, password reset, deletion) and unsubscribe links stay on the platform
 sender and the platform URL, never on a customer domain. See [Email Sending &
 Opt-Out](../../architecture/email-sending.md#sender-identity).
+
+## Release order
+
+Deploy the **backend before the frontend**. The frontend's tenant mode calls
+`GET /api/organizations/by-domain/{host}` and reads the custom-domain fields, which only exist in the
+backend release. Tenant mode stays off until `PLATFORM_HOSTS` is set on the frontend, so shipping the
+frontend release changes nothing by itself. Rolling-deploy safety on the backend side is described in
+the [architecture page](../../architecture/white-label.md#rolling-deploys).
 
 ## Go-live checklist
 
@@ -416,13 +458,17 @@ Once per instance:
 
 - [ ] Backend `BASE_URL` and `FRONTEND_BASE_URL` are public origins, and `manage.py check` is clean
       (no `events.W001`, `events.W002`, `common.E002`, `common.W005`).
-- [ ] Cloudflare for SaaS is enabled, the fallback origin hostname exists, is proxied and serves
-      HTTPS, and is registered as the fallback origin.
+- [ ] Cloudflare for SaaS is enabled on the zone (payment method added on Free), the fallback origin
+      hostname exists, is proxied and serves HTTPS, and is registered as the fallback origin. No other
+      deployment on the zone needs custom domains at the same time (one fallback origin per zone).
 - [ ] `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` and `CUSTOM_DOMAIN_CNAME_TARGET` are set on web
       and Celery, and the services are restarted.
-- [ ] Origin TLS under Full (strict) is verified with a test hostname (SNI or Origin CA decision made).
-- [ ] The Caddy catch-all block forwards `X-Forwarded-Host` and `X-Forwarded-Proto`, sends no
-      `includeSubDomains` HSTS, does not buffer SSR streams, and handles protected-media CORS.
+- [ ] The zone SSL mode is Full (strict) and "Always Use HTTPS" is off.
+- [ ] Web and Celery can reach `https://api.cloudflare.com` and `https://cloudflare-dns.com`.
+- [ ] The Caddy catch-all block uses on-demand TLS with the ask check, overwrites
+      `X-Forwarded-Host` and `X-Forwarded-Proto`, sends no `includeSubDomains` HSTS, does not buffer
+      SSR streams, and protected media echoes Django's CORS answer. `CORS_ALLOWED_ORIGINS` contains
+      the platform frontend origin.
 - [ ] The frontend runs with `HOST_HEADER`, `PROTOCOL_HEADER`, `PLATFORM_HOSTS`, `PLATFORM_ORIGIN`
       and `PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE`, and **without** `ORIGIN`.
 - [ ] The backend `CUSTOM_DOMAIN_URL_TEMPLATE` and the frontend `PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE`
@@ -436,14 +482,40 @@ Once per instance:
       superuser, and the [domain-problem alerts](#domain-problem-alerts) reach a mailbox someone
       reads (they go to every active superuser and staff user).
 
-Per customer:
+For each new organization, follow [Onboarding a new white-label
+organization](#onboarding-a-new-white-label-organization).
 
-- [ ] The customer has a Stripe account connected, if they sell tickets.
-- [ ] `custom_domain_enabled` is on for the organization.
-- [ ] The owner requests the domain and creates the DNS records. It turns **active**.
-- [ ] The hostname is added to the Turnstile widget's hostname allowlist (Cloudflare dashboard).
-- [ ] You open the domain in a private window: the organization page renders with its colors, the
-      footer reads "Powered by Revel", `/` shows only that organization, and a test purchase
-      returns to the custom domain.
-- [ ] Sign-up from the domain sends a verification email whose link points at the **platform**,
-      and confirming it sends the user back to the customer's site.
+## Onboarding a new white-label organization
+
+Do these in order for every organization. Steps 1, 5 and 7 are yours; the organization owner does
+steps 2 and 3; Revel does step 4.
+
+1. **Enable the flag.** In the Django admin, as a superuser, tick `custom_domain_enabled` on the
+   organization (see [Enabling custom domains](#enabling-custom-domains-for-an-organization)). Before
+   that, confirm you trust the organization with a login page under its own name, and that it has a
+   Stripe account connected if it sells tickets.
+2. **The owner requests the domain.** In the organization settings, **Custom domain**, the owner
+   enters a subdomain such as `events.example.org`. The domain is **Pending** and the page lists the
+   DNS records to create.
+3. **The owner creates the DNS records.** The **CNAME** from the hostname to the fallback origin
+   (`customers.letsrevel.io` on the hosted platform), and the **ownership TXT** record the page
+   shows. Both are required: the CNAME alone is not enough.
+4. **Activation.** Revel's sync (every 15 minutes, or the owner's **Check now**) activates the
+   domain once Cloudflare reports the hostname and certificate `active` **and** the ownership TXT
+   record is visible in public DNS. If it stays pending, read `last_errors` under **Custom Domains**
+   in the admin; the ownership message names the missing record. Caddy issues the origin
+   certificate on the first request, because the ask check now answers 200.
+5. **Add the hostname to the Turnstile widget.** In the Cloudflare dashboard, add the hostname to the
+   registration widget's hostname list. This is manual for every tenant, and is subject to the
+   per-widget hostname limit (see [Turnstile](#turnstile)). Do it as soon as the domain is
+   active: sign-up fails on the domain until it is done.
+6. **Check the base features.** Open the domain in a private window: the organization page renders
+   with its colors, the footer reads "Powered by Revel", `/` shows only that organization's events,
+   and a test purchase returns to the custom domain.
+7. **Check sign-up and email.** Sign up from the domain: the verification email links to the
+   **platform**, and confirming it sends the user back to the customer's site. Then log in on the
+   domain; the session is bound to that host and ends if the domain is later removed, failed or
+   switched off.
+
+To take the organization offline later, use the [kill-switch runbook](#kill-switch-runbook), and
+remove the hostname from the Turnstile widget when the domain is removed.

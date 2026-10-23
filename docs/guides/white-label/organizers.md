@@ -99,7 +99,7 @@ Only one domain can be pending or active at a time.
 
 ### DNS records
 
-You always create two records: the CNAME and the ownership TXT record. The page may list more TXT records.
+On Revel's hosted platform you create two records: the CNAME and the ownership TXT record. The page may list more TXT records. (On an instance without Cloudflare provisioning only the CNAME is listed.)
 
 | Type | Name | Value | When |
 |---|---|---|---|
@@ -109,8 +109,8 @@ You always create two records: the CNAME and the ownership TXT record. The page 
 Create exactly the records the page shows, with exactly the values it shows. The list can be
 refreshed while the domain is pending, so if a TXT record appears later, add it. A CNAME alone is
 not enough: until Revel finds the ownership TXT record in public DNS, the domain stays **Pending**
-and the page tells you which record to add. Once the domain is **Active** you may remove the
-ownership record. DNS providers
+and the page tells you which record to add. Keep the records in place while the domain is in use.
+DNS providers
 differ on whether the name field wants the full hostname or only the part before your domain. If
 validation does not move, that is the first thing to check.
 
@@ -132,7 +132,8 @@ Removed domains disappear from the page. A removed hostname is free again.
 DNS changes can take anywhere from a few minutes to a few hours to be visible, depending on your
 provider. Once they are, Cloudflare validates the hostname and issues the certificate, usually
 within minutes. Revel checks every pending domain on its own **every 15 minutes**, so a domain
-normally turns active within about 15 minutes of Cloudflare being ready, without you doing anything.
+normally turns active within about 15 minutes of Cloudflare being ready and your TXT record being
+visible, without you doing anything.
 
 **Check now** asks Cloudflare for the current state immediately and updates the page, so you do
 not have to wait for the next scheduled check. It reports what Cloudflare says; it does not make
@@ -147,7 +148,7 @@ causes:
 | What you see | Likely cause | Fix |
 |---|---|---|
 | Stays **Pending** for hours, no error | The CNAME is missing, has the wrong name, or points somewhere else. The ownership TXT record is missing or has a different value (the page then says "Add the TXT record ... to prove you own this hostname"). | Compare your DNS records to the page character by character. Check the TXT with `dig +short TXT _cf-custom-hostname.events.example.org`. Check the CNAME with `dig +short events.example.org CNAME`. |
-| A message that the hostname "moved" or no longer points to the fallback origin | Cloudflare gave up waiting for the CNAME, or the CNAME was changed. | Restore the CNAME. A pending domain that hits this becomes **Failed**: request it again. On an **Active** domain the message is recorded as a warning and the domain stays active, so restoring the record is enough. |
+| A message that the hostname "moved" or no longer points to the fallback origin | Cloudflare gave up waiting for the CNAME, or the CNAME was changed. | Restore the CNAME and request the domain again. The domain becomes **Failed** straight away, whether it was pending or active, and everyone signed in on it is signed out. |
 | A certificate status like `validation_timed_out` | Certificate validation did not finish in time. | Fix DNS, then request the domain again if it turned **Failed**. On an **Active** domain it is a warning. |
 | **Failed** with a blocked or deleted hostname | Cloudflare refused or removed the hostname. | Request it again. If it fails again, contact Revel support with the hostname. |
 | "This hostname is already in use." | Another organization has it (pending or active). | Use a different hostname, or contact support if it is yours. |
@@ -158,9 +159,8 @@ causes:
 ### Removing or re-requesting a domain
 
 Use **Remove** on the custom domain page. Revel deletes the hostname from Cloudflare and frees it,
-and your attendee pages go back to the Revel address. Browsers and the platform may cache the old
-redirect for a short while (the platform forgets a domain within about a minute, and permanent
-redirects to the custom domain are cached by browsers for up to five minutes).
+and your attendee pages go back to the Revel address. The platform forgets the domain within about
+a minute, and anyone signed in on it is signed out.
 
 A **Failed** domain does not need to be removed first. Request the same or a different hostname
 again and Revel retires the failed one for you. A removed domain cannot be brought back, but you
@@ -174,7 +174,9 @@ can request the same hostname again as a new request.
 
 **Their own login per domain.** Browsers keep sessions per address, so someone signed in to Revel
 who opens `events.example.org` is asked to log in there. It is the same Revel account (same email
-and password, same data) and each domain simply has its own session. Single sign-on buttons are not
+and password, same data) and each domain simply has its own session. On a custom domain the sign-in
+lasts for the browser session, and it ends as soon as the domain is removed, fails or is switched
+off by the platform. Single sign-on buttons are not
 shown on custom domains.
 
 **Links go to your domain.** Once the domain is active, links in attendee emails (ticket, payment
