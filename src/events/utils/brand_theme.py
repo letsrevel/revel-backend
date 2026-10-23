@@ -6,8 +6,9 @@ per-mode (light/dark) palette that stays legible against the frontend's page bac
 An organization stores at most two hex colors (primary, accent). One color can't reach a
 usable contrast against both the light and the dark page background, so for each mode we
 keep the hue and saturation and shift the HSL lightness (darker for light mode, lighter
-for dark mode) in the smallest steps until the color meets its threshold against *both*
-surfaces of that mode (page background and card): ``PRIMARY_MIN_CONTRAST`` (4.5:1, the
+for dark mode) in the smallest steps until the color meets its threshold against *every*
+surface of that mode (page background, card and, in light mode, the public-page wash):
+``PRIMARY_MIN_CONTRAST`` (4.5:1, the
 primary is used as link text, WCAG 1.4.3) and ``ACCENT_MIN_CONTRAST`` (3:1). The
 foreground used on top of it is black or white, whichever contrasts more (always at least
 4.5:1).
@@ -24,7 +25,16 @@ HEX_COLOR_PATTERN = r"^#[0-9A-Fa-f]{6}$"
 # Frontend surface tokens as (hue degrees, saturation, lightness). Keep in sync with
 # revel-frontend ``src/app.css`` (``--background`` / ``--card``) and its
 # ``scripts/audit-brand-themes.py``.
-LIGHT_SURFACES_HSL = ((268.0, 0.60, 0.96), (0.0, 0.0, 1.0))  # --background, --card
+# The third light surface is the tinted public-page wash the frontend paints behind
+# ``text-primary`` kickers and links: ``--secondary`` at 55% over ``--background``, rounded
+# to #CFD6FC (a slightly darker, so stricter, value than the exact composite). Keep it in
+# sync with revel-frontend ``src/app.css`` (``--secondary`` at 55% over ``--background``)
+# and ``scripts/audit-brand-themes.py``.
+LIGHT_SURFACES_HSL = (
+    (268.0, 0.60, 0.96),  # --background
+    (0.0, 0.0, 1.0),  # --card
+    (231.0, 0.88, 0.90),  # public-page wash (#CFD6FC)
+)
 DARK_SURFACES_HSL = ((270.0, 0.35, 0.10), (270.0, 0.30, 0.14))  # --background, --card
 
 PRIMARY_MIN_CONTRAST = 4.5  # primary doubles as link text (WCAG 1.4.3)

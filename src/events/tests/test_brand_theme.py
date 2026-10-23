@@ -33,13 +33,13 @@ GOLDEN_VECTORS: list[
         tuple[str, str, str | None, str | None],
     ]
 ] = [
-    ("#8C3CDD", "#F9B233", ("#8C3CDD", "#FFFFFF", "#C07D06", "#000000"), ("#A667E5", "#000000", "#F9B233", "#000000")),
-    ("#8C3CDD", None, ("#8C3CDD", "#FFFFFF", None, None), ("#A667E5", "#000000", None, None)),
-    ("#FEFEFE", None, ("#6D6D6D", "#FFFFFF", None, None), ("#FEFEFE", "#000000", None, None)),
+    ("#8C3CDD", "#F9B233", ("#7F26D9", "#FFFFFF", "#A86D05", "#000000"), ("#A667E5", "#000000", "#F9B233", "#000000")),
+    ("#8C3CDD", None, ("#7F26D9", "#FFFFFF", None, None), ("#A667E5", "#000000", None, None)),
+    ("#FEFEFE", None, ("#5D5D5D", "#FFFFFF", None, None), ("#FEFEFE", "#000000", None, None)),
     ("#0A0A0A", None, ("#0A0A0A", "#FFFFFF", None, None), ("#878787", "#000000", None, None)),
-    ("#FF0000", None, ("#DB0000", "#FFFFFF", None, None), ("#FF2E2E", "#000000", None, None)),
-    ("#FFFF00", "#00FF00", ("#707000", "#FFFFFF", "#009E00", "#000000"), ("#FFFF00", "#000000", "#00FF00", "#000000")),
-    ("#808080", None, ("#6E6E6E", "#FFFFFF", None, None), ("#858585", "#000000", None, None)),
+    ("#FF0000", None, ("#BD0000", "#FFFFFF", None, None), ("#FF2E2E", "#000000", None, None)),
+    ("#FFFF00", "#00FF00", ("#616100", "#FFFFFF", "#008A00", "#000000"), ("#FFFF00", "#000000", "#00FF00", "#000000")),
+    ("#808080", None, ("#5C5C5C", "#FFFFFF", None, None), ("#858585", "#000000", None, None)),
 ]
 
 
@@ -125,7 +125,7 @@ def test_dark_mode_lightens_near_black_and_light_mode_keeps_it() -> None:
 
 @pytest.mark.parametrize("primary", SAMPLES)
 @pytest.mark.parametrize("accent", [None, *SAMPLES])
-def test_every_derived_color_meets_thresholds_on_both_surfaces(primary: str, accent: str | None) -> None:
+def test_every_derived_color_meets_thresholds_on_every_surface(primary: str, accent: str | None) -> None:
     theme = derive_brand_theme(primary, accent)
     assert theme is not None
     _assert_meets_thresholds(theme.light, LIGHT_SURFACES)
@@ -140,5 +140,7 @@ def test_derivation_is_deterministic() -> None:
 
 
 def test_surfaces_match_frontend_tokens() -> None:
-    assert len(LIGHT_SURFACES) == len(DARK_SURFACES) == 2
+    assert len(LIGHT_SURFACES) == 3
+    assert len(DARK_SURFACES) == 2
     assert LIGHT_SURFACES[1] == (255, 255, 255)  # --card (light)
+    assert LIGHT_SURFACES[2] == (207, 214, 252)  # public-page wash: --secondary at 55% over --background (#CFD6FC)
