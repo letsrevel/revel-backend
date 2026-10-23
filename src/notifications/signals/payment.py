@@ -140,7 +140,8 @@ def _send_refund_notifications(payment: Payment) -> None:
         sender=_send_refund_notifications,
         user=payment.user,
         notification_type=NotificationType.TICKET_REFUNDED,
-        context=context,
+        # organization_id lets enrichment point event_url at the org's custom domain (#1153).
+        context={**context, "organization_id": str(event.organization_id)},
     )
 
     # Notify staff/owners with additional context
