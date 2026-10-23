@@ -242,9 +242,9 @@ def test_preview_valid(organization_owner_client: Client, organization: Organiza
     assert response.status_code == 200
     data = response.json()
     assert data["light"] == {
-        "primary": "#8C3CDD",
+        "primary": "#7F26D9",
         "primary_foreground": "#FFFFFF",
-        "accent": "#C07D06",
+        "accent": "#A86D05",
         "accent_foreground": "#000000",
     }
     assert data["dark"]["primary"] == "#A667E5"
