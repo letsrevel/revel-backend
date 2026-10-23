@@ -1,8 +1,10 @@
 """Notification links follow the organization's custom domain (#1153)."""
 
 import typing as t
+from unittest.mock import patch
 
 import pytest
+from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
@@ -129,7 +131,7 @@ def test_enrichment_costs_one_org_query_regardless_of_domain(organization: Organ
     if with_domain:
         _set_domain(organization)
     ctx = _context(organization)
-    get_formatted_context_for_template(ctx)  # warm the SiteSettings cache
+    SiteSettings.get_solo()  # warm the SiteSettings cache
 
     with CaptureQueriesContext(connection) as captured:
         get_formatted_context_for_template(ctx)
@@ -138,9 +140,52 @@ def test_enrichment_costs_one_org_query_regardless_of_domain(organization: Organ
     assert len(captured) == 1
 
 
+def test_repeated_renders_of_the_same_org_issue_at_most_one_org_query(organization: Organization) -> None:
+    """Bulk sends render several bodies per recipient: the org lookup is cached by id (#1153)."""
+    _set_domain(organization)
+    ctx = _context(organization)
+    SiteSettings.get_solo()
+
+    with CaptureQueriesContext(connection) as captured:
+        first = get_formatted_context_for_template(ctx)
+        second = get_formatted_context_for_template(ctx)
+
+    assert len(_org_queries(captured)) == 1
+    assert first["event_url"] == second["event_url"] == f"{TENANT}/events/{ctx['event_id']}"
+
+
+def test_cache_failure_falls_back_to_the_db_and_still_renders(organization: Organization) -> None:
+    _set_domain(organization)
+    ctx = _context(organization)
+
+    with (
+        patch("django.core.cache.cache.get", side_effect=RuntimeError("redis down")),
+        patch("django.core.cache.cache.set", side_effect=RuntimeError("redis down")),
+        CaptureQueriesContext(connection) as captured,
+    ):
+        first = get_formatted_context_for_template(ctx)
+        second = get_formatted_context_for_template(ctx)
+
+    assert first["event_url"] == second["event_url"] == f"{TENANT}/events/{ctx['event_id']}"
+    assert len(_org_queries(captured)) == 2
+
+
+def test_cached_entry_is_keyed_by_org_id_with_the_ttl(organization: Organization) -> None:
+    _set_domain(organization)
+
+    get_formatted_context_for_template(_context(organization))
+
+    entry = cache.get(f"org_link:v1:{organization.id}")
+    assert entry == {
+        "id": str(organization.id),
+        "has_logo": False,
+        "custom_domain": HOST,
+        "custom_domain_enabled": True,
+    }
+
+
 def test_lookup_only_selects_the_columns_it_needs(organization: Organization) -> None:
     ctx = _context(organization)
-    get_formatted_context_for_template(ctx)
 
     with CaptureQueriesContext(connection) as captured:
         get_formatted_context_for_template(ctx)

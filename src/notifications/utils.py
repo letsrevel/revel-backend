@@ -5,12 +5,12 @@ import re
 import typing as t
 from datetime import datetime
 
+import structlog
 from django.utils import timezone, translation
 
-from events.utils.frontend_urls import frontend_base_url_for
+from events.utils.frontend_urls import frontend_base_url_for, frontend_base_url_for_domain
 
-if t.TYPE_CHECKING:
-    from events.models import Organization
+logger = structlog.get_logger(__name__)
 
 ChannelType = t.Literal["email", "markdown", "telegram"]
 
@@ -318,35 +318,77 @@ def truncate_telegram_html(message: str, max_length: int, suffix: str) -> str:
     return result
 
 
-def _context_organization(context: dict[str, t.Any]) -> "Organization | None":
-    """Look up the organization a notification context refers to (one query).
+# ponytail: email links may be up to ORG_LINK_TTL seconds stale after a custom-domain status
+# change or a kill-switch flip. Upgrade path: invalidate ``org_link:v1:<org_id>`` from
+# ``custom_domain_service`` on domain status / ``custom_domain_enabled`` changes.
+ORG_LINK_TTL = 60
+_ORG_LINK_CACHE_KEY = "org_link:v1:{org_id}"
 
-    Identifies the org by ``organization_id`` when present, else by ``organization_slug``,
-    and loads only the columns enrichment needs: the logo and the custom-domain pair
-    that decides which frontend origin its links use.
+
+class _OrgLinkInfo(t.TypedDict):
+    """What enrichment needs from an organization: its id, logo presence and custom-domain state."""
+
+    id: str
+    has_logo: bool
+    custom_domain: str | None
+    custom_domain_enabled: bool
+
+
+def _context_org_link_info(context: dict[str, t.Any]) -> _OrgLinkInfo | None:
+    """Return the organization facts a notification context needs (cached, fail-open).
+
+    Identifies the org by ``organization_id`` when present, else by ``organization_slug``.
+    An id lookup is cached per organization for ``ORG_LINK_TTL`` seconds so a bulk send
+    (several rendered bodies per recipient) costs one query instead of one per body; a
+    slug-only context always reads the DB. Cache failures degrade to the DB lookup.
 
     Args:
         context: Raw notification context dict.
 
     Returns:
-        The organization, or None when the context names none or it no longer exists.
+        The organization info, or None when the context names none or it no longer exists.
     """
+    from django.core.cache import cache
+
     from events.models import Organization
 
+    key: str | None = None
     if organization_id := context.get("organization_id"):
         lookup = {"id": organization_id}
+        key = _ORG_LINK_CACHE_KEY.format(org_id=organization_id)
+        try:
+            cached: _OrgLinkInfo | None = cache.get(key)
+        except Exception:
+            logger.warning("org_link_cache_get_failed", exc_info=True)
+            cached = None
+        if cached is not None:
+            return cached
     elif organization_slug := context.get("organization_slug"):
         lookup = {"slug": organization_slug}
     else:
         return None
-    return (
+    org = (
         Organization.objects.only("id", "logo", "logo_thumbnail", "custom_domain", "custom_domain_enabled")
         .filter(**lookup)
         .first()
     )
+    if org is None:
+        return None
+    info = _OrgLinkInfo(
+        id=str(org.id),
+        has_logo=bool(org.logo_thumbnail or org.logo),
+        custom_domain=org.custom_domain,
+        custom_domain_enabled=org.custom_domain_enabled,
+    )
+    if key is not None:
+        try:
+            cache.set(key, info, ORG_LINK_TTL)
+        except Exception:
+            logger.warning("org_link_cache_set_failed", exc_info=True)
+    return info
 
 
-def _org_logo_absolute_url(org: "Organization | None") -> str | None:
+def _org_logo_absolute_url(info: _OrgLinkInfo | None) -> str | None:
     """Return the absolute URL of an organization's logo, or None when it has no logo.
 
     Points at the stable ``/api/organizations/{id}/logo`` endpoint (the same indirection
@@ -354,7 +396,7 @@ def _org_logo_absolute_url(org: "Organization | None") -> str | None:
     live on. That endpoint serves the thumbnail, falling back to the logo.
 
     Args:
-        org: The organization from :func:`_context_organization`, or None.
+        info: The organization facts from :func:`_context_org_link_info`, or None.
 
     Returns:
         Absolute logo URL, or None when the org is missing or has no logo.
@@ -362,18 +404,25 @@ def _org_logo_absolute_url(org: "Organization | None") -> str | None:
     from django.conf import settings
     from django.urls import reverse
 
-    if org is None or not (org.logo_thumbnail or org.logo):
+    if info is None or not info["has_logo"]:
         return None
-    path = reverse("api:organization_logo", kwargs={"organization_id": org.id})
+    path = reverse("api:organization_logo", kwargs={"organization_id": info["id"]})
     return f"{settings.BASE_URL.rstrip('/')}{path}"
 
 
-def _add_org_fields(enriched: dict[str, t.Any], org: t.Callable[[], "Organization | None"]) -> None:
+def _base_url_for_info(info: _OrgLinkInfo | None) -> str:
+    """Return the frontend origin for the organization facts (platform when None)."""
+    if info is None:
+        return frontend_base_url_for(None)
+    return frontend_base_url_for_domain(info["custom_domain"], info["custom_domain_enabled"])
+
+
+def _add_org_fields(enriched: dict[str, t.Any], org: t.Callable[[], _OrgLinkInfo | None]) -> None:
     """Add the organization signature, logo URL and ``organization_url`` to ``enriched``.
 
     Args:
         enriched: The context being enriched (mutated in place).
-        org: Lazy accessor for the context's organization (memoized by the caller).
+        org: Lazy accessor for the context's organization facts (memoized by the caller).
     """
     # Unless the caller supplied a logo URL (an explicit empty value opts out).
     if "organization_logo_url" not in enriched:
@@ -381,7 +430,7 @@ def _add_org_fields(enriched: dict[str, t.Any], org: t.Callable[[], "Organizatio
         if logo_url:
             enriched["organization_logo_url"] = logo_url
     org_logo_url = enriched.get("organization_logo_url")
-    base_url = frontend_base_url_for(org())
+    base_url = _base_url_for_info(org())
 
     # HTML version with optional logo (for email)
     enriched["org_signature_html"] = format_org_signature(
@@ -437,8 +486,8 @@ def get_formatted_context_for_template(
 
     Links follow the organization's frontend origin (its active custom domain when it
     has one, else the platform). The organization is identified by ``organization_id`` or
-    ``organization_slug`` in the context and looked up once per call, lazily, serving
-    both the logo and the origin.
+    ``organization_slug`` in the context and looked up lazily (cached 60s by id, see
+    :func:`_context_org_link_info`), serving both the logo and the origin.
 
     Args:
         context: Raw notification context dict
@@ -473,19 +522,18 @@ def get_formatted_context_for_template(
                     enriched[formatted_key] = format_datetime(enriched[field], format_type="full")
                     enriched[short_key] = format_datetime(enriched[field], format_type="short")
 
-        # One lazy org lookup per call: it serves the logo and the tenant origin for every link.
-        # ponytail: one PK lookup per rendered body (up to ~4 per notification across
-        # in-app/email/telegram); memoize per notification if bulk sends ever show it.
-        org_cache: list[Organization | None] = []
+        # One lazy org lookup per call (itself cached across calls by org id): it serves
+        # the logo and the tenant origin for every link.
+        org_cache: list[_OrgLinkInfo | None] = []
 
-        def org() -> Organization | None:
+        def org() -> _OrgLinkInfo | None:
             if not org_cache:
-                org_cache.append(_context_organization(enriched))
+                org_cache.append(_context_org_link_info(enriched))
             return org_cache[0]
 
         if "organization_name" in enriched and "organization_slug" in enriched:
             _add_org_fields(enriched, org)
         if "event_name" in enriched and "event_id" in enriched:
-            _add_event_fields(enriched, frontend_base_url_for(org()))
+            _add_event_fields(enriched, _base_url_for_info(org()))
 
     return enriched
