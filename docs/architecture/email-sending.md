@@ -36,8 +36,25 @@ spike can't push password resets into spam.
 - If the organization can't be resolved, the mail falls back to the system sender without
   `List-Unsubscribe`.
 
+**White-label tenants** get the same org sender for attendee transactional mail
+(`TENANT_ORG_SENDER_TYPES`): `ticket_*`, `payment_confirmation`, `rsvp_*`,
+`questionnaire_evaluation_result`, the holder-facing `membership_*` types,
+`waitlist_spot_available`, and the guest RSVP/ticket confirmation emails. An organization is a tenant
+when it has an active `custom_domain` **and** `custom_domain_enabled` is on; every other organization
+keeps `DEFAULT_FROM_EMAIL` for these types. The gate reads columns on the same organization lookup
+the email channel already makes, so it costs no extra query. Delivery from the org sending domain
+depends on the infra rollout of that domain; the code does not.
+
+- The Reply-To is the verified contact email, as for organization mail. Role-name slugs still fall
+  back to `DEFAULT_FROM_EMAIL`. `Feedback-ID` and the organization id in `X-Mailin-custom` are added.
+- **Unsubscribe stays on the platform.** `List-Unsubscribe` and the footer unsubscribe link keep
+  their usual form and point at the platform, never at the tenant domain: no account-level token
+  is ever put on a tenant host. Mandatory types (tickets, payments) still get the preferences-page
+  header with no `List-Unsubscribe-Post`.
+- Account mail (verification, password reset) and staff-facing types are not included.
+
 **Everything else** (verification, password reset, tickets, payments, staff notifications,
-digests) is sent from `DEFAULT_FROM_EMAIL`. Attendee invoices keep their existing
+digests) is sent from `DEFAULT_FROM_EMAIL`, except as above. Attendee invoices keep their existing
 `"<billing name>" <org-slug@<apex domain>>` sender on the apex domain, not `ORG_EMAIL_DOMAIN`.
 Their Reply-To follows the same rule as organization mail (verified contact email, else none). The
 organization's copy is BCC'd to its billing email (settable by the owner only), else to the

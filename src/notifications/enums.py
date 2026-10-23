@@ -174,6 +174,32 @@ ORG_SENDER_TYPES: frozenset[str] = frozenset(
     }
 )
 
+# Attendee-facing transactional mail that ALSO goes out as the org sender, but only for white-label
+# tenants (active custom domain + ``custom_domain_enabled``, #1155). Everyone else keeps the platform
+# sender. Unlike ORG_SENDER_TYPES, unsubscribe headers and footer links stay on the platform.
+# Staff-facing types (STAFF_*, MEMBERSHIP_REQUEST_CREATED, ...) are deliberately absent.
+TENANT_ORG_SENDER_TYPES: frozenset[str] = frozenset(
+    {
+        NotificationType.TICKET_CREATED,
+        NotificationType.TICKET_UPDATED,
+        NotificationType.TICKET_CANCELLED,
+        NotificationType.TICKET_REFUNDED,
+        NotificationType.TICKET_CHECKED_IN,
+        NotificationType.PAYMENT_CONFIRMATION,
+        NotificationType.RSVP_CONFIRMATION,
+        NotificationType.RSVP_UPDATED,
+        NotificationType.RSVP_CANCELLED,
+        NotificationType.QUESTIONNAIRE_EVALUATION_RESULT,
+        NotificationType.MEMBERSHIP_GRANTED,
+        NotificationType.MEMBERSHIP_PROMOTED,
+        NotificationType.MEMBERSHIP_REMOVED,
+        NotificationType.MEMBERSHIP_CARD_UPDATED,
+        NotificationType.MEMBERSHIP_REQUEST_APPROVED,
+        NotificationType.MEMBERSHIP_REQUEST_REJECTED,
+        NotificationType.WAITLIST_SPOT_AVAILABLE,
+    }
+)
+
 
 class DeliveryChannel(TextChoices):
     """Notification delivery channels."""

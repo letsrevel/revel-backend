@@ -1,6 +1,7 @@
 """Celery tasks for attendee visibility flags and guest confirmation emails."""
 
 import hashlib
+import typing as t
 
 import structlog
 from celery import shared_task
@@ -14,6 +15,7 @@ from common.models import SiteSettings
 from common.tasks import send_email
 from events.models import AttendeeVisibilityFlag, Event, EventRSVP, Organization, Ticket
 from events.utils.frontend_urls import frontend_base_url_for
+from notifications.service.org_sender import SENDER_ORG_FIELDS, is_white_label_tenant, org_from_address, org_reply_to
 
 logger = structlog.get_logger(__name__)
 
@@ -119,14 +121,18 @@ def build_attendee_visibility_flags(event_id: str) -> None:
         )
 
 
-def _confirmation_base_url(organization_id: str | None) -> str:
-    """Frontend origin for a guest confirmation link: the org's tenant origin, else the platform's."""
-    org = (
-        Organization.objects.only("id", "custom_domain", "custom_domain_enabled").filter(pk=organization_id).first()
-        if organization_id
-        else None
-    )
-    return frontend_base_url_for(org)
+def _confirmation_org(organization_id: str | None) -> Organization | None:
+    """The event's organization, loaded once for both the link origin and the sender."""
+    if not organization_id:
+        return None
+    return Organization.objects.only(*SENDER_ORG_FIELDS).filter(pk=organization_id).first()
+
+
+def _tenant_sender(org: Organization | None) -> dict[str, t.Any]:
+    """``send_email`` sender kwargs for a white-label tenant org; empty (platform sender) otherwise (#1155)."""
+    if org is None or not is_white_label_tenant(org):
+        return {}
+    return {"from_email": org_from_address(org), "reply_to": org_reply_to(org)}
 
 
 @shared_task(name="events.tasks.send_guest_rsvp_confirmation")
@@ -143,7 +149,8 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str, organi
     logger.info("guest_rsvp_confirmation_sending", email=email, event_name=event_name)
     subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
-    confirmation_link = _confirmation_base_url(organization_id) + f"/events/confirm-action?token={token}"
+    org = _confirmation_org(organization_id)
+    confirmation_link = frontend_base_url_for(org) + f"/events/confirm-action?token={token}"
     ctx = {
         "confirmation_link": confirmation_link,
         "event_name": event_name,
@@ -151,7 +158,7 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str, organi
     }
     body = render_to_string("events/emails/guest_rsvp_confirmation_body.txt", ctx)
     html_body = render_to_string("events/emails/guest_rsvp_confirmation_body.html", ctx)
-    send_email(to=email, subject=subject, body=body, html_body=html_body)
+    send_email(to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org))
     logger.info("guest_rsvp_confirmation_sent", email=email)
 
 
@@ -174,7 +181,8 @@ def send_guest_ticket_confirmation(
     logger.info("guest_ticket_confirmation_sending", email=email, event_name=event_name, tier_name=tier_name)
     subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
-    confirmation_link = _confirmation_base_url(organization_id) + f"/events/confirm-action?token={token}"
+    org = _confirmation_org(organization_id)
+    confirmation_link = frontend_base_url_for(org) + f"/events/confirm-action?token={token}"
     ctx = {
         "confirmation_link": confirmation_link,
         "event_name": event_name,
@@ -183,5 +191,5 @@ def send_guest_ticket_confirmation(
     }
     body = render_to_string("events/emails/guest_ticket_confirmation_body.txt", ctx)
     html_body = render_to_string("events/emails/guest_ticket_confirmation_body.html", ctx)
-    send_email(to=email, subject=subject, body=body, html_body=html_body)
+    send_email(to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org))
     logger.info("guest_ticket_confirmation_sent", email=email)
