@@ -247,6 +247,16 @@ confirm-action token**, single-use, scoped to one RSVP or ticket on that organiz
 returning no auth session. That is acceptable because the owner already has authority over that
 event. Unsubscribe tokens and account links stay on the platform.
 
+### Ownership proof: dangling-CNAME re-claim
+
+Cloudflare for SaaS activates a custom hostname as soon as its CNAME points at the fallback origin
+(HTTP validation); it does not need the ownership TXT record. Without a check of our own, a domain
+that was removed (or whose organization was deleted) while its CNAME still pointed at Revel could be
+requested by **another** organization with the feature enabled, and the next sync would activate it
+for them. The same race exists when a legitimate owner sets the CNAME before requesting the domain.
+So `sync_domain_status` requires the per-hostname ownership TXT record to be visible in public DNS
+before a PENDING domain becomes ACTIVE: only whoever controls the zone can publish it.
+
 ### The password trade-off
 
 The rule above protects **tokens**. It does not, and cannot, protect the **password form**. On a
@@ -377,7 +387,11 @@ The target is decided as follows:
   domain the status is kept and the message goes to `last_errors`. `moved` also means "the hostname
   no longer points to the fallback origin", which is recoverable by restoring the CNAME until
   Cloudflare deletes it after seven days (and then reports `deleted`);
-- hostname and certificate both `active`: ACTIVE for a PENDING domain;
+- hostname and certificate both `active`: ACTIVE for a PENDING domain, **but only if the ownership
+  TXT record** (`ownership_verification`) is published in public DNS (checked over DNS-over-HTTPS,
+  outside the lock). Otherwise the domain stays PENDING with a "add the TXT record" message in
+  `last_errors`. It fails closed: a missing `ownership_verification` or a failed lookup also keeps
+  it PENDING. ACTIVE domains are not re-checked, and `activate_domain` (admin, seeds) is not gated;
 - anything else (`active_redeploying`, ...): no change.
 
 `events.sync_custom_domains` calls it every 15 minutes with per-domain error isolation, and the

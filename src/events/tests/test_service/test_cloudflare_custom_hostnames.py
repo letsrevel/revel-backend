@@ -202,3 +202,84 @@ def test_every_failure_cause_is_logged_exactly_once_without_secrets() -> None:
         api_errors = [log for log in logs if log["event"] == "cloudflare_api_error"]
         assert [log["cause"] for log in api_errors] == [cause]
         assert "Bearer" not in str(api_errors)
+
+
+# ---- txt_record_published (DNS-over-HTTPS ownership check) ----
+
+TXT_NAME = "_cf-custom-hostname.events.example.com"
+
+
+def _doh(answers: t.Any = None, status: int = 200, **extra: t.Any) -> httpx.Response:
+    body = {"Status": 0, **({"Answer": answers} if answers is not None else {}), **extra}
+    return httpx.Response(status, json=body, request=httpx.Request("GET", cloudflare.DNS_OVER_HTTPS_URL))
+
+
+def _txt(data: str) -> dict[str, t.Any]:
+    return {"name": TXT_NAME, "type": 16, "TTL": 60, "data": data}
+
+
+def test_txt_record_published_queries_the_resolver_without_following_redirects() -> None:
+    with patch("events.service.cloudflare_custom_hostnames.httpx.get", return_value=_doh([_txt('"tok"')])) as get:
+        assert cloudflare.txt_record_published(TXT_NAME, "tok") is True
+
+    get.assert_called_once_with(
+        cloudflare.DNS_OVER_HTTPS_URL,
+        params={"name": TXT_NAME, "type": "TXT"},
+        headers={"accept": "application/dns-json"},
+        timeout=cloudflare.DNS_LOOKUP_TIMEOUT_SECONDS,
+        follow_redirects=False,
+    )
+
+
+def test_txt_record_published_joins_a_value_split_into_several_strings() -> None:
+    answers = [_txt('"abcdef" "ghijkl"')]
+    with patch("events.service.cloudflare_custom_hostnames.httpx.get", return_value=_doh(answers)):
+        assert cloudflare.txt_record_published(TXT_NAME, "abcdefghijkl") is True
+        assert cloudflare.txt_record_published(TXT_NAME, "abcdef") is False
+
+
+def test_txt_record_published_matches_any_of_several_records_and_ignores_other_types() -> None:
+    answers = [
+        {"name": TXT_NAME, "type": 5, "data": "tok."},  # a CNAME in the chain
+        _txt('"other"'),
+        _txt('"tok"'),
+    ]
+    with patch("events.service.cloudflare_custom_hostnames.httpx.get", return_value=_doh(answers)):
+        assert cloudflare.txt_record_published(TXT_NAME, "tok") is True
+    with patch("events.service.cloudflare_custom_hostnames.httpx.get", return_value=_doh(answers[:1])):
+        assert cloudflare.txt_record_published(TXT_NAME, "tok.") is False
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        _doh(),  # NOERROR without an Answer section
+        _doh([], Status=3),  # NXDOMAIN
+        _doh([_txt('"wrong"')]),
+        _doh([_txt('"tok2"')]),  # not a substring match
+    ],
+)
+def test_txt_record_published_is_false_for_a_missing_or_wrong_record(response: httpx.Response) -> None:
+    with patch("events.service.cloudflare_custom_hostnames.httpx.get", return_value=response):
+        assert cloudflare.txt_record_published(TXT_NAME, "tok") is False
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        {"side_effect": httpx.ConnectTimeout("slow")},
+        {"return_value": _doh([_txt('"tok"')], status=503)},
+        {"return_value": _doh([_txt('"tok"')], status=302)},
+        {"return_value": httpx.Response(200, text="<html>", request=httpx.Request("GET", "https://x"))},
+        {"return_value": httpx.Response(200, json=["tok"], request=httpx.Request("GET", "https://x"))},
+        {"return_value": _doh([{"type": 16}])},  # an answer without data
+    ],
+)
+def test_txt_record_published_fails_closed_on_a_resolver_problem(outcome: dict[str, t.Any]) -> None:
+    with (
+        patch("events.service.cloudflare_custom_hostnames.httpx.get", **outcome),
+        capture_logs() as logs,
+    ):
+        assert cloudflare.txt_record_published(TXT_NAME, "tok") is False
+
+    assert [log["event"] for log in logs] == ["custom_domain_txt_lookup_failed"]

@@ -1,7 +1,7 @@
 """Tests for custom-domain provisioning: request, status sync and deletion (#1151). Cloudflare is mocked."""
 
 import typing as t
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -56,6 +56,13 @@ def platform_settings(settings: t.Any) -> None:
     settings.CUSTOM_DOMAIN_CNAME_TARGET = CNAME_TARGET
     settings.CLOUDFLARE_API_TOKEN = ""
     settings.CLOUDFLARE_ZONE_ID = ""
+
+
+@pytest.fixture(autouse=True)
+def txt_published() -> t.Iterator[MagicMock]:
+    """The ownership TXT record is published in public DNS (no network); tests override ``return_value``."""
+    with patch.object(cloudflare, "txt_record_published", return_value=True) as mock:
+        yield mock
 
 
 @pytest.fixture
@@ -305,6 +312,113 @@ def test_sync_activates_when_hostname_and_certificate_are_active(enabled_org: Or
     assert domain.status == Status.ACTIVE
     assert domain.verified_at is not None
     assert enabled_org.custom_domain == "events.example.com"
+
+
+TXT_NAME = "_cf-custom-hostname.events.example.com"
+TXT_HINT = f"Add the TXT record {TXT_NAME} with value owner-token to prove you own this hostname."
+
+
+def test_sync_checks_the_ownership_txt_record_before_activating(
+    enabled_org: Organization, configured: None, txt_published: MagicMock
+) -> None:
+    domain = pending_domain(enabled_org)
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted("active", "active")):
+        custom_domain_service.sync_domain_status(domain)
+
+    txt_published.assert_called_once_with(TXT_NAME, "owner-token")
+    domain.refresh_from_db()
+    assert domain.status == Status.ACTIVE
+    assert domain.last_errors == []
+
+
+def test_sync_keeps_pending_and_says_what_to_add_when_the_txt_record_is_missing_or_wrong(
+    enabled_org: Organization, configured: None, txt_published: MagicMock
+) -> None:
+    """A missing record and a wrong value both make ``txt_record_published`` answer False."""
+    txt_published.return_value = False
+    domain = pending_domain(enabled_org)
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted("active", "active")):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    enabled_org.refresh_from_db()
+    assert domain.status == Status.PENDING
+    assert domain.verified_at is None
+    assert domain.last_errors == [TXT_HINT]
+    assert enabled_org.custom_domain is None
+
+    # Publishing the record lets the next sweep activate it and clears the hint.
+    txt_published.return_value = True
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted("active", "active")):
+        custom_domain_service.sync_domain_status(domain)
+    domain.refresh_from_db()
+    assert domain.status == Status.ACTIVE
+    assert domain.last_errors == []
+
+
+def test_sync_keeps_pending_when_cloudflare_returns_no_ownership_record(
+    enabled_org: Organization, configured: None, txt_published: MagicMock
+) -> None:
+    domain = pending_domain(enabled_org)
+    result = hosted("active", "active").model_copy(update={"ownership_verification": None})
+
+    with (
+        patch.object(cloudflare, "get_custom_hostname", return_value=result),
+        capture_logs() as logs,
+    ):
+        custom_domain_service.sync_domain_status(domain)
+
+    txt_published.assert_not_called()
+    domain.refresh_from_db()
+    assert domain.status == Status.PENDING
+    assert domain.last_errors == ["Cloudflare has not issued the ownership TXT record for this hostname yet."]
+    warnings = [log for log in logs if log["event"] == "custom_domain_ownership_record_missing"]
+    assert warnings and warnings[0]["log_level"] == "warning"
+
+
+def test_sync_does_not_recheck_ownership_for_an_active_domain(
+    enabled_org: Organization, configured: None, txt_published: MagicMock
+) -> None:
+    txt_published.return_value = False  # the record may be removed once ownership was proven
+    domain = active_domain(enabled_org)
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted("active", "active")):
+        custom_domain_service.sync_domain_status(domain)
+
+    txt_published.assert_not_called()
+    domain.refresh_from_db()
+    assert domain.status == Status.ACTIVE
+    assert domain.last_errors == []
+
+
+def test_sync_does_not_hand_a_dangling_cname_hostname_to_another_org(
+    enabled_org: Organization, configured: None, txt_published: MagicMock, django_user_model: t.Any
+) -> None:
+    """Org A removed its domain but its CNAME still points at us; org B re-requests the hostname.
+
+    Cloudflare validates over HTTP and reports active+active, but B cannot publish the TXT record in the
+    zone's DNS, so B never gets the hostname.
+    """
+    org_a = Organization.objects.create(
+        name="A", slug="org-a", owner=django_user_model.objects.create_user("a", "a@example.com", "pw")
+    )
+    org_a.custom_domain_enabled = True
+    org_a.save(update_fields=["custom_domain_enabled"])
+    custom_domain_service.remove_domain(pending_domain(org_a, cf_id="cf-a"))
+    txt_published.return_value = False  # the zone's TXT for the new ownership token is not published
+
+    with patch.object(cloudflare, "create_custom_hostname", return_value=hosted(cf_id="cf-b")):
+        domain_b = custom_domain_service.request_domain(enabled_org, "events.example.com")
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted("active", "active", cf_id="cf-b")):
+        custom_domain_service.sync_domain_status(domain_b)
+
+    domain_b.refresh_from_db()
+    enabled_org.refresh_from_db()
+    assert domain_b.status == Status.PENDING
+    assert domain_b.last_errors == [TXT_HINT]
+    assert enabled_org.custom_domain is None
 
 
 @pytest.mark.parametrize(

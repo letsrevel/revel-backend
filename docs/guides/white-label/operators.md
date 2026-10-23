@@ -146,8 +146,14 @@ validates the hostname, issues and renews the certificate, and proxies traffic t
 
 When an organization requests a domain, Revel calls Cloudflare to create the custom hostname with
 **HTTP** domain-control validation and a DV certificate, so the customer normally needs only the
-CNAME. If Cloudflare also asks for TXT records (hostname ownership, certificate validation), Revel
-shows them to the organizer alongside the CNAME.
+CNAME. Revel shows the organizer the CNAME and the TXT records Cloudflare asks for (hostname
+ownership, certificate validation).
+
+Cloudflare activates a hostname on its CNAME alone, so Revel does not trust that. A PENDING domain
+only becomes ACTIVE once the **ownership TXT record** Cloudflare issued is published in public DNS,
+checked over DNS-over-HTTPS against `cloudflare-dns.com` (5 s timeout). If the record is missing,
+wrong, or the lookup fails, the domain stays PENDING and `last_errors` names the record to add;
+the next sync retries. Outbound HTTPS to `cloudflare-dns.com` must be allowed from the workers.
 
 Provisioning is on only when **both** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID` are set.
 

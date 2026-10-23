@@ -206,8 +206,29 @@ def _hosted_errors(hosted: cloudflare.CustomHostname) -> list[str]:
     return list(dict.fromkeys(messages))  # de-duplicated, order preserved
 
 
+def _ownership_error(hostname: str, hosted: cloudflare.CustomHostname) -> str | None:
+    """Return why a domain Cloudflare reports ready may not be activated yet, or ``None`` once ownership is proven.
+
+    Cloudflare activates a hostname on its CNAME alone (HTTP validation), without the ownership TXT record, so
+    a dangling CNAME of a removed domain would let another organization claim the hostname. Activation
+    therefore also requires that TXT record to be published in public DNS. Fails closed: a missing
+    ``ownership_verification`` or a failed lookup keeps the domain PENDING.
+    """
+    ownership = hosted.ownership_verification
+    if not (ownership and ownership.name and ownership.value):
+        logger.warning("custom_domain_ownership_record_missing", hostname=hostname, cloudflare_hostname_id=hosted.id)
+        return "Cloudflare has not issued the ownership TXT record for this hostname yet."
+    if cloudflare.txt_record_published(ownership.name, ownership.value):
+        return None
+    return f"Add the TXT record {ownership.name} with value {ownership.value} to prove you own this hostname."
+
+
 def _target_status(current: str, hosted: cloudflare.CustomHostname) -> OrganizationDomainStatus | None:
-    """Decide the status a domain in ``current`` (PENDING or ACTIVE) should move to given Cloudflare's state."""
+    """Decide the status a domain in ``current`` (PENDING or ACTIVE) should move to given Cloudflare's state.
+
+    ACTIVE here only means Cloudflare is ready; ``sync_domain_status`` additionally requires the ownership
+    TXT record (see :func:`_ownership_error`) before it activates a PENDING domain.
+    """
     ssl_status = hosted.ssl.status if hosted.ssl else None
     if hosted.status in FAILED_HOSTNAME_STATUSES or ssl_status in FAILED_SSL_STATUSES:
         return OrganizationDomain.Status.FAILED
@@ -380,12 +401,15 @@ def delete_orphaned_cloudflare_hostnames(hostname_ids: list[str]) -> None:
 def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     """Refresh a PENDING or ACTIVE domain from Cloudflare and apply the resulting transition.
 
-    Hostname and certificate both ``active`` activates a PENDING domain. ``blocked`` / ``deleted`` (hostname)
-    and ``deleted`` (certificate) mark a PENDING *or ACTIVE* domain failed, withdrawing it from the
-    organization. ``moved`` (hostname) and the certificate ``*_timed_out`` states fail a PENDING domain
-    only: an ACTIVE one stays ACTIVE and the problem is recorded in ``last_errors`` (see the constants
-    above). Anything else, including transient states such as ``active_redeploying``, leaves the status
-    alone. The DNS records and Cloudflare's problem messages (``last_errors``) are refreshed either way.
+    Hostname and certificate both ``active`` activates a PENDING domain, but only once the ownership TXT
+    record Cloudflare issued (``ownership_verification``) is published in public DNS; until then the domain
+    stays PENDING and ``last_errors`` says which record to add (ACTIVE domains are never re-checked).
+    ``blocked`` / ``deleted`` (hostname) and ``deleted`` (certificate) mark a PENDING *or ACTIVE* domain
+    failed, withdrawing it from the organization. ``moved`` (hostname) and the certificate ``*_timed_out``
+    states fail a PENDING domain only: an ACTIVE one stays ACTIVE and the problem is recorded in
+    ``last_errors`` (see the constants above). Anything else,
+    including transient states such as ``active_redeploying``, leaves the status alone.
+    The DNS records and Cloudflare's problem messages (``last_errors``) are refreshed either way.
     When an ACTIVE domain gets a problem it did not have before, or fails, a WARNING is logged and platform
     staff are emailed (``notify_custom_domain_problem``), once per transition.
     A no-op for domains in any other status or never provisioned on Cloudflare.
@@ -413,6 +437,9 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     hosted = cloudflare.get_custom_hostname(domain.cloudflare_hostname_id)
     records = _dns_records(domain.hostname, hosted)
     errors = _hosted_errors(hosted)
+    target = _target_status(expected, hosted)
+    if target == OrganizationDomain.Status.ACTIVE and (proof_error := _ownership_error(domain.hostname, hosted)):
+        errors, target = [*errors, proof_error], None  # ready at Cloudflare, but ownership is not proven: stay PENDING
     # A live domain developing a problem is only visible here: alert once, on the clean -> problem edge.
     new_active_problem = expected == OrganizationDomain.Status.ACTIVE and bool(errors) and not domain.last_errors
     if (records, errors) != (domain.verification_records, domain.last_errors):
@@ -423,7 +450,6 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
             verification_records=records, last_errors=errors, updated_at=timezone.now()
         )
         domain.verification_records, domain.last_errors = records, errors
-    target = _target_status(expected, hosted)
     if target is None:
         if new_active_problem:
             _alert_active_domain_problem(domain, ACTIVE_PROBLEM_EVENT, errors)
