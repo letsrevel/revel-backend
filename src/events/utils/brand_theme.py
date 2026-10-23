@@ -14,6 +14,7 @@ foreground used on top of it is black or white, whichever contrasts more (always
 """
 
 import colorsys
+import functools
 import re
 
 from django.core.validators import RegexValidator
@@ -164,8 +165,12 @@ def _derive_mode(primary: str, accent: str | None, surfaces: tuple[RGB, ...], *,
     )
 
 
+@functools.lru_cache(maxsize=1024)
 def derive_brand_theme(primary: str | None, accent: str | None) -> BrandTheme | None:
     """Derive the light/dark palettes for an organization's brand colors.
+
+    Memoized: it runs per row wherever an organization is nested (event lists), the
+    result depends only on the two strings, and ``BrandTheme`` is frozen.
 
     Args:
         primary: ``#RRGGBB`` primary color, or ``None`` when the organization has no branding.
