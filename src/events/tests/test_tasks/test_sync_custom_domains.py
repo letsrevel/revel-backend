@@ -1,12 +1,17 @@
 """Tests for the custom-domain sync task and its beat schedule (#1151). Cloudflare is mocked."""
 
+import importlib
 import typing as t
 from unittest.mock import patch
 
 import pytest
+from django.apps import apps as django_apps
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django_celery_beat.models import PeriodicTask
+from pydantic import ValidationError
+from structlog.testing import capture_logs
 
-from events.exceptions import CloudflareAPIError
+from events.exceptions import CloudflareAPIError, CustomDomainNotEnabledError
 from events.models import Organization, OrganizationDomain
 from events.service import cloudflare_custom_hostnames as cloudflare
 from events.tasks import sync_custom_domains_task
@@ -148,6 +153,71 @@ def test_one_failing_domain_does_not_stop_the_rest(make_domain: t.Callable[..., 
     assert (first.status, broken.status, last.status) == (Status.ACTIVE, Status.PENDING, Status.ACTIVE)
 
 
+def _pydantic_validation_error() -> ValidationError:
+    try:
+        cloudflare.CustomHostname.model_validate({})
+    except ValidationError as exc:
+        return exc
+    raise AssertionError("expected a validation error")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        DjangoValidationError("bad row"),
+        CustomDomainNotEnabledError(),
+        _pydantic_validation_error(),
+        RuntimeError("unexpected"),
+    ],
+    ids=["django-validation", "not-enabled", "pydantic-validation", "runtime"],
+)
+def test_any_error_on_one_domain_is_isolated_and_the_next_domain_still_syncs(
+    make_domain: t.Callable[..., OrganizationDomain], error: Exception
+) -> None:
+    broken = make_domain("broken.example.com")
+    last = make_domain("last.example.com")
+
+    def fake_get(cf_id: str) -> cloudflare.CustomHostname:
+        if cf_id == broken.cloudflare_hostname_id:
+            raise error
+        return hosted(cf_id.removeprefix("cf-"), "active", "active")
+
+    with patch.object(cloudflare, "get_custom_hostname", side_effect=fake_get), capture_logs() as logs:
+        result = sync_custom_domains_task()
+
+    assert result == {"synced": 1, "failed": 1}
+    broken.refresh_from_db()
+    last.refresh_from_db()
+    assert (broken.status, last.status) == (Status.PENDING, Status.ACTIVE)
+    failures = [log for log in logs if log["event"] == "custom_domain_sync_failed"]
+    assert [log["domain_id"] for log in failures] == [str(broken.pk)]
+
+
+def test_domain_failing_during_the_transition_does_not_stop_the_next_domain(
+    make_domain: t.Callable[..., OrganizationDomain],
+) -> None:
+    """The kill switch flipping between the query and the activation raises inside the transition."""
+    first = make_domain("first.example.com")
+    second = make_domain("second.example.com")
+    first.organization.custom_domain_enabled = False
+    first.organization.save(update_fields=["custom_domain_enabled"])
+    domains = [first, second]
+    # The sweep's query excludes disabled orgs, so hand it the stale snapshot a mid-sweep flip would leave.
+    with (
+        patch.object(
+            cloudflare, "get_custom_hostname", side_effect=lambda cf_id: hosted(cf_id[3:], "active", "active")
+        ),
+        patch("events.tasks.custom_domains.OrganizationDomain") as model,  # only the task's name, not the class
+    ):
+        model.Status = Status
+        model.objects.filter.return_value.select_related.return_value = domains
+        result = sync_custom_domains_task()
+
+    assert result == {"synced": 1, "failed": 1}
+    second.refresh_from_db()
+    assert second.status == Status.ACTIVE
+
+
 def test_task_is_a_noop_without_cloudflare_config(
     settings: t.Any, make_domain: t.Callable[..., OrganizationDomain]
 ) -> None:
@@ -172,3 +242,18 @@ def test_beat_row_runs_every_15_minutes() -> None:
     assert row.enabled is True
     assert row.interval is not None
     assert (row.interval.every, row.interval.period) == (15, "minutes")
+
+
+def test_reapplying_the_beat_migration_never_reenables_an_admin_disabled_task() -> None:
+    """``get_or_create`` (precedent: migration 0125): an admin's switch-off survives a re-apply."""
+    migration = importlib.import_module("events.migrations.0135_sync_custom_domains_beat")
+    row = PeriodicTask.objects.get(task="events.sync_custom_domains")
+    row.enabled = False
+    row.save(update_fields=["enabled"])
+
+    migration.create_sync_task(django_apps, None)
+
+    row.refresh_from_db()
+    assert row.enabled is False
+    assert PeriodicTask.objects.filter(task="events.sync_custom_domains").count() == 1
+    assert row.name == "Sync pending and active custom domains from Cloudflare"

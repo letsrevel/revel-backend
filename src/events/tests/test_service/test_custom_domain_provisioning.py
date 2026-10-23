@@ -3,6 +3,7 @@
 import typing as t
 from unittest.mock import patch
 
+import httpx
 import pytest
 from django.core.exceptions import ValidationError
 from structlog.testing import capture_logs
@@ -68,6 +69,12 @@ def enabled_org(organization: Organization) -> Organization:
     organization.custom_domain_enabled = True
     organization.save(update_fields=["custom_domain_enabled"])
     return organization
+
+
+def httpx_ok(result: t.Any) -> httpx.Response:
+    """A Cloudflare ``success: true`` envelope around ``result``."""
+    body = {"success": True, "errors": [], "messages": [], "result": result}
+    return httpx.Response(200, json=body, request=httpx.Request("POST", "https://api.cloudflare.com/x"))
 
 
 def pending_domain(org: Organization, cf_id: str | None = "cf-1", hostname: str = "events.example.com") -> t.Any:
@@ -201,6 +208,54 @@ def test_failed_insert_cleanup_error_does_not_mask_the_original(enabled_org: Org
     ):
         with pytest.raises(RuntimeError, match="db down"):
             custom_domain_service.request_domain(enabled_org, "events.example.com")
+
+
+def test_unparseable_create_result_deletes_the_hostname_that_was_created(
+    enabled_org: Organization, configured: None
+) -> None:
+    """Cloudflare created the hostname but its result had the wrong shape: delete it by the raw id."""
+    bad_result = {"id": "cf-raw", "hostname": "events.example.com"}  # no ``status``
+    ok = httpx_ok(bad_result)
+    with (
+        patch(
+            "events.service.cloudflare_custom_hostnames.httpx.request", side_effect=[ok, httpx_ok({"id": "cf-raw"})]
+        ) as request,
+        pytest.raises(CloudflareAPIError),
+    ):
+        custom_domain_service.request_domain(enabled_org, "events.example.com")
+
+    assert [c.args[0] for c in request.call_args_list] == ["POST", "DELETE"]
+    assert request.call_args_list[1].args[1].endswith("/custom_hostnames/cf-raw")
+    assert not OrganizationDomain.objects.filter(hostname="events.example.com").exists()
+
+
+def test_unparseable_create_result_without_an_id_skips_cleanup(enabled_org: Organization, configured: None) -> None:
+    with (
+        patch("events.service.cloudflare_custom_hostnames.httpx.request", return_value=httpx_ok(None)) as request,
+        pytest.raises(CloudflareAPIError),
+    ):
+        custom_domain_service.request_domain(enabled_org, "events.example.com")
+
+    assert request.call_count == 1  # POST only
+
+
+def test_unparseable_create_result_cleanup_failure_is_logged_not_raised(
+    enabled_org: Organization, configured: None
+) -> None:
+    with (
+        patch.object(
+            cloudflare,
+            "create_custom_hostname",
+            side_effect=CloudflareAPIError("bad shape", hostname_id="cf-raw"),
+        ),
+        patch.object(cloudflare, "delete_custom_hostname", side_effect=CloudflareAPIError("nope")),
+        capture_logs() as logs,
+        pytest.raises(CloudflareAPIError, match="bad shape"),
+    ):
+        custom_domain_service.request_domain(enabled_org, "events.example.com")
+
+    orphaned = [log for log in logs if log["event"] == "custom_domain_orphaned_cloudflare_hostname"]
+    assert orphaned and orphaned[0]["cloudflare_hostname_id"] == "cf-raw"
 
 
 def test_request_retires_a_failed_domain_of_the_same_org(enabled_org: Organization, configured: None) -> None:
@@ -370,13 +425,8 @@ def active_domain(org: Organization, cf_id: str = "cf-1") -> OrganizationDomain:
     ("status", "ssl_status"),
     [
         ("blocked", "active"),
-        ("moved", "active"),
         ("deleted", "active"),
         ("active", "deleted"),
-        ("active", "validation_timed_out"),
-        ("active", "issuance_timed_out"),
-        ("active", "initializing_timed_out"),
-        ("active", "deployment_timed_out"),
     ],
 )
 def test_sync_fails_an_active_domain_on_a_terminal_cloudflare_state(
@@ -391,6 +441,32 @@ def test_sync_fails_an_active_domain_on_a_terminal_cloudflare_state(
     enabled_org.refresh_from_db()
     assert domain.status == Status.FAILED
     assert enabled_org.custom_domain is None
+
+
+@pytest.mark.parametrize(
+    ("status", "ssl_status", "expected_error"),
+    [
+        ("moved", "active", "'moved'"),
+        ("active", "validation_timed_out", "'validation_timed_out'"),
+        ("active", "issuance_timed_out", "'issuance_timed_out'"),
+        ("active", "initializing_timed_out", "'initializing_timed_out'"),
+        ("active", "deployment_timed_out", "'deployment_timed_out'"),
+    ],
+)
+def test_sync_keeps_an_active_domain_active_but_records_moved_and_timeouts(
+    enabled_org: Organization, configured: None, status: str, ssl_status: str, expected_error: str
+) -> None:
+    """``moved`` is recoverable and a certificate timeout may be transient: an ACTIVE domain only records it."""
+    domain = active_domain(enabled_org)
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=hosted(status, ssl_status)):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    enabled_org.refresh_from_db()
+    assert domain.status == Status.ACTIVE
+    assert enabled_org.custom_domain == "events.example.com"
+    assert any(expected_error in e for e in domain.last_errors), domain.last_errors
 
 
 @pytest.mark.parametrize(
@@ -461,6 +537,84 @@ def test_sync_propagates_cloudflare_errors_and_leaves_the_domain_pending(
 
     domain.refresh_from_db()
     assert domain.status == Status.PENDING
+
+
+def test_sync_writes_records_with_a_queryset_update_not_save(enabled_org: Organization, configured: None) -> None:
+    """``save()`` would run full_clean and the hostname validator; a legacy hostname must still sync."""
+    domain = pending_domain(enabled_org)
+
+    with (
+        patch.object(cloudflare, "get_custom_hostname", return_value=hosted(verification_errors=["x"])),
+        patch.object(OrganizationDomain, "save", side_effect=AssertionError("save() must not be used")),
+        patch.object(OrganizationDomain, "full_clean", side_effect=AssertionError("full_clean must not run")),
+    ):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    assert domain.last_errors == ["x"]
+    assert domain.verification_records
+
+
+def test_sync_does_not_resurrect_a_domain_removed_during_the_cloudflare_call(
+    enabled_org: Organization, configured: None
+) -> None:
+    """Compare-and-set: Cloudflare said "failed" for a PENDING domain, but it was REMOVED meanwhile."""
+    domain = pending_domain(enabled_org)
+
+    def get_then_concurrent_delete(cf_id: str) -> cloudflare.CustomHostname:
+        # A concurrent request removes the domain while this one is waiting on Cloudflare.
+        custom_domain_service.remove_domain(OrganizationDomain.objects.get(pk=domain.pk))
+        return hosted("blocked", "active", verification_errors=["late"])
+
+    with (
+        patch.object(cloudflare, "get_custom_hostname", side_effect=get_then_concurrent_delete),
+        capture_logs() as logs,
+    ):
+        result = custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    assert domain.status == Status.REMOVED
+    assert domain.last_errors == []  # the stale decision wrote nothing
+    assert result.status == Status.REMOVED
+    skipped = [log for log in logs if log["event"] == "custom_domain_sync_transition_skipped"]
+    assert skipped and skipped[0]["log_level"] == "info"
+    assert skipped[0]["expected_status"] == Status.PENDING
+    assert skipped[0]["current_status"] == Status.REMOVED
+
+
+def test_sync_does_not_activate_a_domain_removed_during_the_cloudflare_call(
+    enabled_org: Organization, configured: None
+) -> None:
+    domain = pending_domain(enabled_org)
+
+    def get_then_concurrent_delete(cf_id: str) -> cloudflare.CustomHostname:
+        custom_domain_service.remove_domain(OrganizationDomain.objects.get(pk=domain.pk))
+        return hosted("active", "active")
+
+    with patch.object(cloudflare, "get_custom_hostname", side_effect=get_then_concurrent_delete):
+        result = custom_domain_service.sync_domain_status(domain)  # no "removed domain cannot be changed" error
+
+    enabled_org.refresh_from_db()
+    assert result.status == Status.REMOVED
+    assert enabled_org.custom_domain is None
+
+
+def test_sync_does_not_fail_a_domain_a_concurrent_sync_already_activated(
+    enabled_org: Organization, configured: None
+) -> None:
+    """The decision was for PENDING; if the status is no longer PENDING, nothing is applied."""
+    domain = pending_domain(enabled_org)
+
+    def get_then_concurrent_activation(cf_id: str) -> cloudflare.CustomHostname:
+        custom_domain_service.activate_domain(OrganizationDomain.objects.get(pk=domain.pk))
+        return hosted("moved", "pending_validation")
+
+    with patch.object(cloudflare, "get_custom_hostname", side_effect=get_then_concurrent_activation):
+        result = custom_domain_service.sync_domain_status(domain)
+
+    enabled_org.refresh_from_db()
+    assert result.status == Status.ACTIVE
+    assert enabled_org.custom_domain == "events.example.com"
 
 
 # ---- delete_domain ----
