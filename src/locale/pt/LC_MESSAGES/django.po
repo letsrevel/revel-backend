@@ -6552,6 +6552,13 @@ msgstr "Problemas comunicados pelo Cloudflare na última sincronização de esta
 msgid "This hostname is already in use."
 msgstr "Este nome de host já está em uso."
 
+msgid ""
+"The platform has reached its limit of custom domains. Please contact "
+"support."
+msgstr ""
+"A plataforma atingeu o limite de domínios personalizados. Contacte o "
+"suporte."
+
 msgid "This organization already has a pending or active domain."
 msgstr "Esta organização já tem um domínio pendente ou ativo."
 

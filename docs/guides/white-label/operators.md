@@ -175,8 +175,11 @@ Provisioning is on only when **both** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZON
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | empty | API token with *SSL and Certificates: Edit* on the zone. |
+| `CLOUDFLARE_API_TOKEN` | empty | API token with *SSL and Certificates: Edit* on the zone, plus *Account → Turnstile Sites → Edit* when the Turnstile automation is on. |
 | `CLOUDFLARE_ZONE_ID` | empty | Zone that owns the custom hostnames. Provisioning is enabled only when this **and** the token are set. Neither alone does anything. |
+| `CLOUDFLARE_ACCOUNT_ID` | empty | Cloudflare account that owns the Turnstile widget. With `CLOUDFLARE_API_TOKEN` and `TURNSTILE_SITE_KEY` it turns on the [Turnstile hostname automation](#turnstile). |
+| `TURNSTILE_WIDGET_HOSTNAME_LIMIT` | `10` | Hostnames the widget can hold (Free plan: 10, Enterprise: up to 200). The sync alerts staff when more active domains exist than fit. `0` turns the check off. |
+| `CUSTOM_DOMAIN_LIMIT` | `9` | Hard cap on live (pending plus active) custom domains platform-wide. A new request is refused with 409 at the limit. `0` means unlimited. See [the domain cap](#the-domain-cap). |
 | `CUSTOM_DOMAIN_CNAME_TARGET` | empty | The fallback origin hostname organizers CNAME to, for example `customers.example.com` (the hostname registered as the zone's fallback origin). A bare hostname: no scheme, path, port or spaces. It is lowercased and a trailing dot is removed. Shown to organizers as the CNAME value. |
 | `CUSTOM_DOMAIN_URL_TEMPLATE` | `https://{hostname}` | Origin of an organization's active domain, used for links in emails and notifications. Must contain `{hostname}` and start with `http://` or `https://`. Local development and E2E use `http://{hostname}:5173`. |
 
@@ -226,6 +229,8 @@ BASE_URL=https://api.example.com
 FRONTEND_BASE_URL=https://revel.example.com
 CLOUDFLARE_API_TOKEN=...
 CLOUDFLARE_ZONE_ID=...
+CLOUDFLARE_ACCOUNT_ID=...          # only with Turnstile: see the Turnstile section
+CUSTOM_DOMAIN_LIMIT=9
 CUSTOM_DOMAIN_CNAME_TARGET=customers.example.com
 CUSTOM_DOMAIN_URL_TEMPLATE=https://{hostname}
 
@@ -272,22 +277,60 @@ block must meet these requirements:
 
 ## Turnstile
 
-If you use Cloudflare Turnstile on registration (`TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`
-both set), the widget only renders on hostnames in its **hostname allowlist** in the Cloudflare
-dashboard. The backend does not check the hostname, so there is nothing to configure in Revel:
-**add each custom domain to the widget's hostname list by hand** when you activate it, or sign-up
-on that domain fails. This is a manual step for every tenant.
+The Turnstile widget only renders on hostnames in its **hostname allowlist**, and a listed hostname
+also covers its subdomains ([API reference](https://developers.cloudflare.com/api/resources/turnstile/subresources/widgets/):
+"the widget will only work on these domains, and their subdomains"). Without the custom domain on
+that list, sign-up there fails the captcha. Revel keeps the list in step itself.
 
-Each widget has a **per-widget hostname limit**, and it differs by plan: Cloudflare lists 10
-hostnames per widget on Free and at most 200 on Enterprise (see the [Turnstile
-plans](https://developers.cloudflare.com/turnstile/plans/) page; check it before relying on the
-number). Plan for it before you sell the feature to many organizations, then
-either create **additional widgets** (each has its own site key and secret, and Revel reads a
-single pair, so using more than one widget needs a change on the Revel side: plan that work) or
-move to a **plan with a higher limit**. Do not wait for the first sign-up failure to find out. When
-you remove a custom domain, remove it from the list too.
+**The automation.** Set `CLOUDFLARE_ACCOUNT_ID` next to `CLOUDFLARE_API_TOKEN` and the existing
+`TURNSTILE_SITE_KEY` (the widget it manages). It is off unless all three are set, and independent of
+`CLOUDFLARE_ZONE_ID`. The API token needs one more permission besides *Zone → SSL and Certificates →
+Edit*: **Account → Turnstile Sites → Edit** (API name "Turnstile Sites Write"), scoped to your
+account. Without it the sync logs a Cloudflare error and emails staff.
 
-Self-hosters who leave both keys empty have no Turnstile and nothing to do.
+It is a reconciliation, not a list of adds and removes. Revel reads the widget
+(`GET /accounts/{account_id}/challenges/widgets/{sitekey}`) and computes the list it should have:
+
+- every current entry that is **not** a hostname Revel manages, so `letsrevel.io` and anything you
+  added by hand stays, plus
+- the hostnames of all **active** custom domains of organizations whose `custom_domain_enabled`
+  kill switch is on.
+
+A hostname is "Revel-managed" when it is the hostname of any domain row, in any status. Only if the
+list differs does Revel write it back (`PUT` of the whole widget configuration with only `domains`
+changed, so name, mode and every other setting are preserved). It runs once per
+[sync sweep](#the-sync-task), and right after a domain becomes active or stops being active (failed,
+removed, kill switch flipped, organization deleted), as a Celery task dispatched on commit
+(`events.reconcile_turnstile_hostnames`). A failure never blocks activation: it is logged
+(`turnstile_hostnames_sync_failed`) and staff get one email per outage (the sweep retries every 15
+minutes, and a later failure after a good run alerts again).
+
+**The limit.** One widget holds 10 hostnames on Free and at most 200 on Enterprise (see the
+[Turnstile plans](https://developers.cloudflare.com/turnstile/plans/) page), and the platform host
+takes one. Set `TURNSTILE_WIDGET_HOSTNAME_LIMIT` to your plan's number. If more active domains exist
+than fit, Revel writes the ones that fit (longest-serving first), logs
+`turnstile_hostnames_over_capacity` and emails staff; sign-up on the rest fails until you make room.
+Revel reads a single widget (one site key and secret pair), so more capacity means a plan with a
+higher limit. The [domain cap](#the-domain-cap) is what normally keeps you under it.
+
+Self-hosters who leave the Turnstile keys empty have no Turnstile and nothing to do. If you have
+Turnstile but do not set `CLOUDFLARE_ACCOUNT_ID`, add each custom domain to the widget by hand when
+you activate it, and remove it when the domain goes.
+
+### The domain cap
+
+`CUSTOM_DOMAIN_LIMIT` (default **9**) is a hard cap on live custom domains platform-wide. It is 9
+because the Turnstile Free plan allows 10 hostnames per widget and the platform host takes one. The
+real constraint is "domains on the widget", which is the **active** ones; the cap counts **pending
+plus active** because every pending domain is a future widget entry, and it counts them whatever the
+organization's kill switch says (a switched-off domain returns to the widget when the switch goes
+back on). Failed and removed domains do not count.
+
+`request_domain` refuses a new domain at the limit with a 409 ("The platform has reached its limit of
+custom domains. Please contact support."). The check runs before anything is created at Cloudflare and
+again under a database advisory lock at insert time, so concurrent requests cannot overshoot.
+Raise the limit after upgrading the plan (and `TURNSTILE_WIDGET_HOSTNAME_LIMIT` with it), or set it to
+`0` for unlimited, for example when you run without Turnstile.
 
 ## The sync task
 
@@ -320,8 +363,10 @@ messages are refreshed on every run either way.
 The decision is a compare-and-set: before applying a transition the task re-reads the status under
 a row lock, and does nothing if the organizer removed the domain in the meantime. One domain
 raising an error is logged (`custom_domain_sync_failed`, with the domain id) and does not stop the
-rest. The task returns `{"synced": n, "failed": n}` and is a no-op when Cloudflare is not
+rest. The task returns `{"synced": n, "failed": n}` and syncs no domain when Cloudflare is not
 configured. The organizer's **Check now** runs the same sync for their own domain on demand.
+After the domains, the sweep reconciles the [Turnstile widget](#turnstile) once (when that
+automation is configured); a failure there is logged and alerted, never raised.
 
 ### Domain-problem alerts
 
@@ -478,8 +523,8 @@ Once per instance:
 - [ ] The `events.sync_custom_domains` periodic task is enabled in the admin (it is by default).
 - [ ] `ORG_EMAIL_DOMAIN` is set and authenticated (DKIM, DMARC), or you have accepted the apex
       reputation trade-off described above.
-- [ ] Turnstile (if used): you know the widget's per-widget hostname limit and have room for the
-      customer's hostname (more widgets or a plan with a higher limit if not).
+- [ ] Turnstile (if used): `CLOUDFLARE_ACCOUNT_ID` is set, the API token also has *Account → Turnstile
+      Sites → Edit*, and `TURNSTILE_WIDGET_HOSTNAME_LIMIT` and `CUSTOM_DOMAIN_LIMIT` match your plan.
 - [ ] You have read the [kill-switch runbook](#kill-switch-runbook) and know who on the team is a
       superuser, and the [domain-problem alerts](#domain-problem-alerts) reach a mailbox someone
       reads (they go to every active superuser and staff user).
@@ -489,8 +534,8 @@ organization](#onboarding-a-new-white-label-organization).
 
 ## Onboarding a new white-label organization
 
-Do these in order for every organization. Steps 1, 5 and 7 are yours; the organization owner does
-steps 2 and 3; Revel does step 4.
+Do these in order for every organization. Steps 1 and 6 are yours; the organization owner does
+steps 2 and 3; Revel does steps 4 and 5.
 
 1. **Enable the flag.** In the Django admin, as a superuser, tick `custom_domain_enabled` on the
    organization (see [Enabling custom domains](#enabling-custom-domains-for-an-organization)). Before
@@ -507,10 +552,10 @@ steps 2 and 3; Revel does step 4.
    record is visible in public DNS. If it stays pending, read `last_errors` under **Custom Domains**
    in the admin; the ownership message names the missing record. Caddy issues the origin
    certificate on the first request, because the ask check now answers 200.
-5. **Add the hostname to the Turnstile widget.** In the Cloudflare dashboard, add the hostname to the
-   registration widget's hostname list. This is manual for every tenant, and is subject to the
-   per-widget hostname limit (see [Turnstile](#turnstile)). Do it as soon as the domain is
-   active: sign-up fails on the domain until it is done.
+5. **The Turnstile widget updates itself.** Right after activation Revel adds the hostname to the
+   registration widget's list (see [Turnstile](#turnstile)). If it does not within a minute, check
+   the staff mailbox and the logs for `turnstile_hostnames_sync_failed` or
+   `turnstile_hostnames_over_capacity`. Without `CLOUDFLARE_ACCOUNT_ID`, add the hostname by hand.
 6. **Check the base features.** Open the domain in a private window: the organization page renders
    with its colors, the footer reads "Powered by Revel", `/` shows only that organization's events,
    and a test purchase returns to the custom domain.
@@ -519,5 +564,5 @@ steps 2 and 3; Revel does step 4.
    domain; the session is bound to that host and ends if the domain is later removed, failed or
    switched off.
 
-To take the organization offline later, use the [kill-switch runbook](#kill-switch-runbook), and
-remove the hostname from the Turnstile widget when the domain is removed.
+To take the organization offline later, use the [kill-switch runbook](#kill-switch-runbook). The
+hostname leaves the Turnstile widget on its own when the domain is removed, fails or is switched off.

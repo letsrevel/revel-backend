@@ -9,7 +9,7 @@ from django.db.models import Q
 from accounts.models import RevelUser
 from common.tasks import send_email
 from events.models import OrganizationDomain
-from events.service import cloudflare_custom_hostnames, custom_domain_service
+from events.service import cloudflare_custom_hostnames, custom_domain_service, turnstile_hostname_service
 
 logger = structlog.get_logger(__name__)
 
@@ -25,15 +25,27 @@ class SyncCustomDomainsResult(t.TypedDict):
 def sync_custom_domains_task() -> SyncCustomDomainsResult:
     """Poll Cloudflare for every pending or active, provisioned custom domain and apply the resulting transition.
 
-    Runs every 15 minutes via Celery Beat. A no-op when Cloudflare is not configured. Any error on
-    one domain is logged with the domain id and does not stop the others.
+    Runs every 15 minutes via Celery Beat. Without Cloudflare for SaaS configured it syncs no domain. Any
+    error on one domain is logged with the domain id and does not stop the others. Afterwards, once per
+    sweep, the Turnstile widget's hostname list is reconciled (a no-op unless that automation is configured).
 
     Returns:
         How many domains were synced and how many raised an error.
     """
     result = SyncCustomDomainsResult(synced=0, failed=0)
-    if not cloudflare_custom_hostnames.is_configured():
-        return result
+    if cloudflare_custom_hostnames.is_configured():
+        _sync_domains(result)
+    # The reconcile also heals drift, so it runs on every sweep. Cloudflare errors are handled inside it; this
+    # guards the rest (DB, cache) so the sweep never fails because of it.
+    try:
+        turnstile_hostname_service.reconcile_widget_hostnames()
+    except Exception:
+        logger.exception("turnstile_hostnames_reconcile_crashed")
+    return result
+
+
+def _sync_domains(result: SyncCustomDomainsResult) -> None:
+    """Sync every pending or active provisioned domain of an enabled organization, counting into ``result``."""
     # list(): the set is tiny and each sync commits, which must not interleave with a server-side cursor.
     domains = list(
         OrganizationDomain.objects.filter(
@@ -54,7 +66,26 @@ def sync_custom_domains_task() -> SyncCustomDomainsResult:
             result["failed"] += 1
         else:
             result["synced"] += 1
-    return result
+
+
+@shared_task(name="events.reconcile_turnstile_hostnames")
+def reconcile_turnstile_hostnames() -> turnstile_hostname_service.ReconcileResult:
+    """Make the Turnstile widget's hostname list match the ACTIVE custom domains.
+
+    Dispatched on commit when a domain becomes ACTIVE or stops being usable (see
+    ``turnstile_hostname_service.schedule_reconcile``); the 15-minute sweep runs it too. Cloudflare errors
+    are logged and alerted inside, never raised.
+    """
+    return turnstile_hostname_service.reconcile_widget_hostnames()
+
+
+def _staff_emails() -> list[str]:
+    """Return the email of every active superuser or staff user: the platform alert audience."""
+    return list(
+        RevelUser.objects.filter(Q(is_superuser=True) | Q(is_staff=True), is_active=True)
+        .values_list("email", flat=True)
+        .distinct()
+    )
 
 
 @shared_task(name="events.notify_custom_domain_problem")
@@ -71,11 +102,7 @@ def notify_custom_domain_problem(domain_id: str, event: str) -> None:
     domain = OrganizationDomain.objects.select_related("organization").filter(pk=domain_id).first()
     if domain is None:
         return
-    recipients = list(
-        RevelUser.objects.filter(Q(is_superuser=True) | Q(is_staff=True), is_active=True)
-        .values_list("email", flat=True)
-        .distinct()
-    )
+    recipients = _staff_emails()
     if not recipients:
         logger.warning("custom_domain_alert_no_recipients", domain_id=domain_id)
         return
@@ -100,3 +127,34 @@ def delete_organization_cloudflare_hostnames(hostname_ids: list[str]) -> None:
         hostname_ids: The ``cloudflare_hostname_id`` of each of the organization's domains.
     """
     custom_domain_service.delete_orphaned_cloudflare_hostnames(hostname_ids)
+
+
+@shared_task(name="events.notify_turnstile_sync_problem")
+def notify_turnstile_sync_problem(kind: str, detail: str) -> None:
+    """Email platform staff that the Turnstile widget's hostname list could not be kept in step.
+
+    Dispatched (rate-limited) by ``turnstile_hostname_service``. Same audience as the custom-domain alerts.
+
+    Args:
+        kind: ``api_error`` (Cloudflare failed) or ``over_capacity`` (more active hostnames than the widget holds).
+        detail: Cloudflare's error text, or the hostnames that did not fit.
+    """
+    recipients = _staff_emails()
+    if not recipients:
+        logger.warning("turnstile_sync_alert_no_recipients", kind=kind)
+        return
+    if kind == turnstile_hostname_service.OVER_CAPACITY_ALERT:
+        headline = "Turnstile widget is full"
+        explanation = (
+            "These active custom domains do not fit on the widget's hostname list, so sign-up on them fails: "
+            f"{detail}\nRemove a custom domain, lower CUSTOM_DOMAIN_LIMIT, or move to a plan with more hostnames "
+            "(then raise TURNSTILE_WIDGET_HOSTNAME_LIMIT)."
+        )
+    else:
+        headline = "Turnstile hostname sync failed"
+        explanation = (
+            f"Cloudflare reported: {detail}\nCustom domains activated or removed since the last good run are not "
+            "yet on the widget. Check CLOUDFLARE_API_TOKEN (account-level Turnstile Sites: Edit), "
+            "CLOUDFLARE_ACCOUNT_ID and TURNSTILE_SITE_KEY. The sync retries every 15 minutes."
+        )
+    send_email(to=recipients, subject=headline, body=f"{headline}\n\n{explanation}")

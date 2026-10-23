@@ -123,13 +123,15 @@ def _api_error(
     return CloudflareAPIError(message, status_code=status_code, error_codes=error_codes, hostname_id=hostname_id)
 
 
-def _request(method: str, path: str, *, json: dict[str, t.Any] | None = None) -> dict[str, t.Any] | None:
-    """Call the Cloudflare API and return the envelope's ``result``.
+def request_result(method: str, url: str, *, json: dict[str, t.Any] | None = None) -> dict[str, t.Any] | None:
+    """Call a Cloudflare API URL with the platform token and return the envelope's ``result``.
+
+    Shared by the custom-hostnames calls here and the Turnstile widget client
+    (:mod:`events.service.cloudflare_turnstile`), so both fail and log the same way.
 
     Raises:
         CloudflareAPIError: On a transport error, an unparseable body, a non-2xx status or ``success: false``.
     """
-    url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames{path}"
     headers = {"Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}"}
     try:
         response = httpx.request(method, url, headers=headers, json=json, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -157,6 +159,12 @@ def _request(method: str, path: str, *, json: dict[str, t.Any] | None = None) ->
             detail=detail,
         )
     return envelope.result
+
+
+def _request(method: str, path: str, *, json: dict[str, t.Any] | None = None) -> dict[str, t.Any] | None:
+    """Call the zone's custom-hostnames API; see :func:`request_result`."""
+    url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames{path}"
+    return request_result(method, url, json=json)
 
 
 def _parse_hostname(method: str, result: dict[str, t.Any] | None) -> CustomHostname:
