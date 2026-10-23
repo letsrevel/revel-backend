@@ -255,7 +255,7 @@ class DashboardController(UserAwareController):
     @searching(Searching, search_fields=["event__name", "event__description", "message"])
     def dashboard_invitation_requests(
         self,
-        params: t.Annotated[filters.InvitationRequestFilterSchema, Query(...)],
+        params: t.Annotated[filters.DashboardInvitationRequestFilterSchema, Query(...)],
         event_id: UUID | None = None,
     ) -> QuerySet[models.EventInvitationRequest]:
         """View your invitation requests across all events.
@@ -263,7 +263,8 @@ class DashboardController(UserAwareController):
         Returns your invitation requests with their current status. By default shows only pending
         requests; use ?status=approved or ?status=rejected to see decided requests, or omit the
         status parameter to see all requests. Filter by event_id to see requests for a specific
-        event. Use this to track which events you've requested access to.
+        event, or by organization to see requests for events of one organization. Use this to track
+        which events you've requested access to.
         """
         qs = models.EventInvitationRequest.objects.with_event_details().filter(user=self.user())
         if event_id:

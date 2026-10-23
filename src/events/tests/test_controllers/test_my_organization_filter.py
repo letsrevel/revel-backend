@@ -15,6 +15,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.models import (
     EventInvitation,
+    EventInvitationRequest,
     EventRSVP,
     EventSeries,
     MembershipTier,
@@ -105,6 +106,32 @@ def test_dashboard_invitations_no_organization_filter_returns_all(
 ) -> None:
     EventInvitation.objects.create(event=dashboard_setup["events"]["owner"], user=dashboard_setup["user"])
     response = dashboard_client.get(reverse("api:dashboard_invitations"))
+    assert response.status_code == 200
+    assert response.json()["count"] == 2
+
+
+# ---- /dashboard/invitation-requests ----
+
+
+def test_dashboard_invitation_requests_organization_filter_narrows(
+    dashboard_client: Client, dashboard_setup: dict[str, t.Any]
+) -> None:
+    EventInvitationRequest.objects.create(event=dashboard_setup["events"]["owner"], user=dashboard_setup["user"])
+    EventInvitationRequest.objects.create(event=dashboard_setup["events"]["staff"], user=dashboard_setup["user"])
+    url = reverse("api:dashboard_invitation_requests")
+    response = dashboard_client.get(url, {"organization": str(dashboard_setup["orgs"]["owner"].id)})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["event"]["id"] == str(dashboard_setup["events"]["owner"].id)
+
+
+def test_dashboard_invitation_requests_no_organization_filter_returns_all(
+    dashboard_client: Client, dashboard_setup: dict[str, t.Any]
+) -> None:
+    EventInvitationRequest.objects.create(event=dashboard_setup["events"]["owner"], user=dashboard_setup["user"])
+    EventInvitationRequest.objects.create(event=dashboard_setup["events"]["staff"], user=dashboard_setup["user"])
+    response = dashboard_client.get(reverse("api:dashboard_invitation_requests"))
     assert response.status_code == 200
     assert response.json()["count"] == 2
 

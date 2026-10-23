@@ -369,6 +369,12 @@ class InvitationRequestFilterSchema(FilterSchema):
     status: EventInvitationRequest.InvitationRequestStatus | None = None
 
 
+class DashboardInvitationRequestFilterSchema(InvitationRequestFilterSchema):
+    """Attendee dashboard invitation-request filters, with the optional white-label organization scope (#1154)."""
+
+    organization: t.Annotated[UUID | None, FilterLookup(q="event__organization_id")] = None
+
+
 class SubmissionFilterSchema(FilterSchema):
     """Filter schema for questionnaire submissions."""
 
