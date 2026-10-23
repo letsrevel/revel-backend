@@ -5,7 +5,7 @@ import typing as t
 import structlog
 from corsheaders.signals import check_request_enabled
 from django.db import transaction
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.http import HttpRequest
 
@@ -39,6 +39,7 @@ from events.service.tenant_service import invalidate_tenant_cache, tenant_host_f
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import (
     build_attendee_visibility_flags,
+    delete_organization_cloudflare_hostnames,
     notify_admin_new_organization_discord,
     notify_admin_new_organization_pushover,
 )
@@ -720,6 +721,16 @@ def allow_cors_for_tenant_origin(sender: None, request: HttpRequest, **kwargs: t
     return tenant_host_from_origin(request.headers.get("origin")) is not None
 
 
+@receiver(pre_delete, sender=Organization)
+def capture_cloudflare_hostnames_before_organization_delete(
+    sender: type[Organization], instance: Organization, **kwargs: t.Any
+) -> None:
+    """Remember the organization's Cloudflare hostname ids: the cascade removes the domain rows after this."""
+    instance._cloudflare_hostname_ids = list(  # type: ignore[attr-defined]
+        instance.domains.filter(cloudflare_hostname_id__isnull=False).values_list("cloudflare_hostname_id", flat=True)
+    )
+
+
 @receiver(post_delete, sender=Organization)
 def invalidate_tenant_cache_on_organization_delete(
     sender: type[Organization], instance: Organization, **kwargs: t.Any
@@ -731,6 +742,10 @@ def invalidate_tenant_cache_on_organization_delete(
     """
     if hostname := instance.custom_domain:
         transaction.on_commit(lambda: invalidate_tenant_cache(hostname))
+    # The cascade also orphans the Cloudflare hostnames (certificates, claimed hostname): remove them
+    # once the deletion commits. A task, so the request never waits on (or fails because of) Cloudflare.
+    if hostname_ids := getattr(instance, "_cloudflare_hostname_ids", None):
+        transaction.on_commit(lambda: delete_organization_cloudflare_hostnames.delay(hostname_ids))
 
 
 @receiver(post_delete, sender=EventWaitList)

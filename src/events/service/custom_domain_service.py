@@ -348,6 +348,31 @@ def _alert_active_domain_problem(domain: OrganizationDomain, event: str, problem
     transaction.on_commit(lambda: notify_custom_domain_problem.delay(domain_id, event))
 
 
+def delete_orphaned_cloudflare_hostnames(hostname_ids: list[str]) -> None:
+    """Delete the Cloudflare hostnames of a deleted organization, best effort.
+
+    Deleting an organization cascades its domain rows without going through :func:`delete_domain`, so
+    their Cloudflare hostnames would be orphaned (and keep the certificates and the hostname claimed).
+    A 404 counts as already gone; any other failure is logged, never raised, and Cloudflare not being
+    configured is a logged skip, so nothing here can block or fail the organization's deletion.
+    """
+    if not hostname_ids:
+        return
+    if not cloudflare.is_configured():
+        logger.warning(
+            "custom_domain_cloudflare_not_configured_on_organization_delete",
+            cloudflare_hostname_ids=hostname_ids,
+            detail="Cloudflare is not configured; the custom hostnames may be orphaned there.",
+        )
+        return
+    for hostname_id in hostname_ids:
+        try:
+            cloudflare.delete_custom_hostname(hostname_id)
+        except CloudflareAPIError as exc:
+            if exc.status_code != 404:
+                logger.exception("custom_domain_orphaned_cloudflare_hostname", cloudflare_hostname_id=hostname_id)
+
+
 def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     """Refresh a PENDING or ACTIVE domain from Cloudflare and apply the resulting transition.
 

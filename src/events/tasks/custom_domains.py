@@ -90,3 +90,13 @@ def notify_custom_domain_problem(domain_id: str, event: str) -> None:
         "Review it in the Django admin (Organization domains)."
     )
     send_email(to=recipients, subject=f"{headline}: {domain.hostname}", body=body)
+
+
+@shared_task(name="events.delete_organization_cloudflare_hostnames")
+def delete_organization_cloudflare_hostnames(hostname_ids: list[str]) -> None:
+    """Delete a deleted organization's custom hostnames at Cloudflare (best effort, never raises on API errors).
+
+    Args:
+        hostname_ids: The ``cloudflare_hostname_id`` of each of the organization's domains.
+    """
+    custom_domain_service.delete_orphaned_cloudflare_hostnames(hostname_ids)
