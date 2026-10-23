@@ -197,11 +197,13 @@ class HoldResponseSchema(Schema):
     guest_hold_token: str | None = Field(
         default=None,
         description=(
-            "Signed guest seat-hold session token, only for anonymous (guest) callers; never set for "
-            "authenticated users. Also set as the httpOnly `revel_guest_hold` cookie, but a cross-site "
-            "client (white-label tenant host) never stores that cookie: keep this value first-party "
-            "and send it back in the `X-Guest-Hold` request header on later seating, guest checkout, "
-            "guest RSVP and guest confirm calls. Valid for 24 hours from issue."
+            "Signed guest seat-hold session token. Returned only when the response minted a new guest "
+            "session (also set as the httpOnly `revel_guest_hold` cookie) or when the session was sent "
+            "in the `X-Guest-Hold` request header; null for authenticated callers and for a session "
+            "resolved from the httpOnly cookie alone (never echoed, so script cannot read the cookie). "
+            "A cross-site client (white-label tenant host) never stores that cookie: keep the minted "
+            "value first-party and send it back in the `X-Guest-Hold` request header on later seating, "
+            "guest checkout, guest RSVP and guest confirm calls. Valid for 24 hours from issue."
         ),
     )
 

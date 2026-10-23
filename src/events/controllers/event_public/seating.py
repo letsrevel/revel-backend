@@ -30,6 +30,16 @@ from .base import EventPublicBaseController
 _GUEST_COOKIE_MAX_AGE = 86400
 
 
+def _echoed_guest_token(guest: GuestHold | None) -> str | None:
+    """The guest hold token to echo in a response body: only for a freshly minted session or one sent in the header.
+
+    A session resolved from the httpOnly cookie is never echoed, so script cannot read the cookie's value.
+    """
+    if guest is None or guest.source == "cookie":
+        return None
+    return guest.token
+
+
 @api_controller(
     "/events",
     tags=["Event Seating"],
@@ -65,7 +75,7 @@ class EventPublicSeatingController(EventPublicBaseController):
             samesite="Lax",
             secure=not settings.DEBUG,
         )
-        return GuestHold(session_id, token)
+        return GuestHold(session_id, token, "new")
 
     @route.get(
         "/{uuid:event_id}/seating/chart",
@@ -118,7 +128,7 @@ class EventPublicSeatingController(EventPublicBaseController):
             conflicts=result.conflicts,
             conflict_reason=result.conflict_reason,
             expires_at=result.expires_at,
-            guest_hold_token=guest.token if guest else None,
+            guest_hold_token=_echoed_guest_token(guest),
         )
 
     @route.post(
@@ -156,7 +166,7 @@ class EventPublicSeatingController(EventPublicBaseController):
                 conflicts=[],
                 expires_at=None,
                 conflict_reason=schema.HoldConflictReason.NO_BLOCK,
-                guest_hold_token=guest.token if guest else None,
+                guest_hold_token=_echoed_guest_token(guest),
             )
         status = 409 if result.conflicts else 200
         return status, schema.HoldResponseSchema(
@@ -164,7 +174,7 @@ class EventPublicSeatingController(EventPublicBaseController):
             conflicts=result.conflicts,
             conflict_reason=result.conflict_reason,
             expires_at=result.expires_at,
-            guest_hold_token=guest.token if guest else None,
+            guest_hold_token=_echoed_guest_token(guest),
         )
 
     @route.delete(

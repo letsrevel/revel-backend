@@ -33,10 +33,15 @@ def resolve_guest_session(token: str | None) -> str | None:
 
 
 class GuestHold(t.NamedTuple):
-    """A validated guest hold session: its id and the signed token that proves it."""
+    """A validated guest hold session: its id, the signed token that proves it, and where it came from.
+
+    ``source`` is ``"header"`` or ``"cookie"`` when resolved from a request, ``"new"`` when minted
+    by this request.
+    """
 
     session_id: str
     token: str
+    source: t.Literal["header", "cookie", "new"]
 
 
 def resolve_request_guest_hold(request: HttpRequest) -> GuestHold | None:
@@ -46,7 +51,11 @@ def resolve_request_guest_hold(request: HttpRequest) -> GuestHold | None:
     tenant host), then the ``revel_guest_hold`` cookie. A header or cookie that is missing,
     tampered with or expired counts as absent, so a stale header never shadows a valid cookie.
     """
-    for token in (request.headers.get(GUEST_HOLD_HEADER), request.COOKIES.get(GUEST_HOLD_COOKIE)):
+    sources: tuple[tuple[t.Literal["header", "cookie"], str | None], ...] = (
+        ("header", request.headers.get(GUEST_HOLD_HEADER)),
+        ("cookie", request.COOKIES.get(GUEST_HOLD_COOKIE)),
+    )
+    for source, token in sources:
         if token and (session_id := resolve_guest_session(token)) is not None:
-            return GuestHold(session_id, token)
+            return GuestHold(session_id, token, source)
     return None

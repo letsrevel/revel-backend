@@ -1,8 +1,9 @@
 """The ``X-Guest-Hold`` header carries the guest seat-hold session for cross-site (tenant host) clients (#1179).
 
 A browser on a white-label custom domain never stores or sends the ``SameSite=Lax`` cookie set on
-the API host, so the signed hold token is also returned in the hold response body and accepted
-back in a request header. The cookie path keeps working.
+the API host, so the signed hold token is also returned in the hold response body (when the
+session was minted or sent in the header, never for the cookie alone) and accepted back in a
+request header. The cookie path keeps working.
 """
 
 import typing as t
@@ -113,7 +114,7 @@ class TestBodyToken:
         resolved = resolve_request_guest_hold(request)
         assert resolved is not None and resolved.session_id == hold.guest_session
 
-    def test_token_is_echoed_when_the_caller_already_has_a_session(
+    def test_token_is_echoed_when_the_session_came_from_the_header(
         self, guest_event_with_tickets: Event, seated_tier: tuple[TicketTier, list[VenueSeat]]
     ) -> None:
         _, seats = seated_tier
@@ -125,7 +126,24 @@ class TestBodyToken:
         assert GUEST_HOLD_COOKIE not in resp.cookies  # nothing minted
         assert SeatHold.objects.filter(event=guest_event_with_tickets).values("guest_session").distinct().count() == 1
 
-    def test_409_conflict_still_returns_the_token_to_anonymous_callers(
+    def test_token_is_null_when_the_session_came_from_the_cookie_only(
+        self, guest_event_with_tickets: Event, seated_tier: tuple[TicketTier, list[VenueSeat]]
+    ) -> None:
+        """The httpOnly cookie's value must never be echoed into the JSON body."""
+        _, seats = seated_tier
+        guest_event_with_tickets.max_tickets_per_user = 10  # the hold cap is the event's
+        guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
+        client = Client()
+        assert _hold(client, guest_event_with_tickets, seats[0]).status_code == 200  # Client keeps the cookie
+
+        resp = _hold(client, guest_event_with_tickets, seats[1])
+
+        assert resp.status_code == 200, resp.content
+        assert str(seats[1].id) in resp.json()["held_seat_ids"]
+        assert resp.json()["guest_hold_token"] is None
+        assert GUEST_HOLD_COOKIE not in resp.cookies  # existing session, nothing re-minted
+
+    def test_409_conflict_returns_the_token_only_when_minted(
         self, guest_event_with_tickets: Event, seated_tier: tuple[TicketTier, list[VenueSeat]]
     ) -> None:
         _, seats = seated_tier
@@ -134,7 +152,23 @@ class TestBodyToken:
         resp = _hold(Client(), guest_event_with_tickets, seats[0])
 
         assert resp.status_code == 409
-        assert resp.json()["guest_hold_token"]
+        assert resp.json()["guest_hold_token"] is not None  # fresh anonymous mint on this request
+
+    def test_409_conflict_echoes_the_header_token_and_nulls_the_cookie_token(
+        self, guest_event_with_tickets: Event, seated_tier: tuple[TicketTier, list[VenueSeat]]
+    ) -> None:
+        """Two sessions contend: A holds seat 0, B holds seat 1. Each then asks for the other's seat."""
+        _, seats = seated_tier
+        owner_a = Client()
+        _hold(owner_a, guest_event_with_tickets, seats[0])
+        token_b = _hold(Client(), guest_event_with_tickets, seats[1]).json()["guest_hold_token"]
+
+        via_header = _hold(Client(), guest_event_with_tickets, seats[0], **{HEADER_KEY: token_b})
+        via_cookie = _hold(owner_a, guest_event_with_tickets, seats[1])
+
+        assert via_header.status_code == via_cookie.status_code == 409
+        assert via_header.json()["guest_hold_token"] == token_b
+        assert via_cookie.json()["guest_hold_token"] is None
 
     def test_authenticated_hold_has_no_token(
         self,
@@ -282,6 +316,7 @@ class TestHeaderResolution:
         hold = resolve_request_guest_hold(client.get("/api/", headers={GUEST_HOLD_HEADER: header_token}).wsgi_request)
 
         assert hold is not None and hold.token == header_token
+        assert hold.source == "header"
 
     def test_invalid_header_falls_back_to_a_valid_cookie(self) -> None:
         _, cookie_token = issue_guest_hold_token()
@@ -291,6 +326,7 @@ class TestHeaderResolution:
         hold = resolve_request_guest_hold(client.get("/api/", headers={GUEST_HOLD_HEADER: "garbage"}).wsgi_request)
 
         assert hold is not None and hold.token == cookie_token
+        assert hold.source == "cookie"
 
     def test_no_header_no_cookie_resolves_nothing(self) -> None:
         assert resolve_request_guest_hold(Client().get("/api/").wsgi_request) is None
