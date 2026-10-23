@@ -1,5 +1,7 @@
+import typing as t
+
 from django.utils.translation import gettext_lazy as _
-from ninja import File
+from ninja import File, Query
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
@@ -13,6 +15,8 @@ from common.thumbnails.service import delete_image_with_derivatives
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 from events.service import event_service, organization_service, stripe_service
+from events.utils.brand_theme import BrandTheme
+from events.utils.branding import OrganizationBranding
 from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
@@ -70,6 +74,43 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         """
         organization = self.get_one(slug)
         return organization_service.update_organization(organization, payload, requester=self.user())
+
+    @route.put(
+        "/branding",
+        url_name="update_organization_branding",
+        response=schema.OrganizationBrandingResponse,
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
+    )
+    def update_branding(self, slug: str, payload: OrganizationBranding) -> models.Organization:
+        """Replace the organization's branding (full object, replace semantics).
+
+        Keys left out or set to ``null`` are cleared, so ``{}`` removes all branding. Colors
+        are ``#RRGGBB`` (either case, stored uppercase); unknown keys are rejected with 422.
+        Echoes the saved branding and the derived per-mode ``brand_theme``.
+        """
+        organization = self.get_one(slug)
+        return organization_service.update_branding(organization, payload)
+
+    @route.get(
+        "/brand-theme-preview",
+        url_name="brand_theme_preview",
+        response={200: BrandTheme | None, 400: ErrorDetail},
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
+        throttle=UserDefaultThrottle(),
+    )
+    def brand_theme_preview(
+        self,
+        slug: str,
+        primary: t.Annotated[str | None, Query(description="Primary color as #RRGGBB.")] = None,
+        accent: t.Annotated[str | None, Query(description="Accent color as #RRGGBB.")] = None,
+    ) -> BrandTheme | None:
+        """Preview the per-mode brand theme derived from candidate colors, without saving anything.
+
+        Same derivation as the ``brand_theme`` field on organization payloads. Returns
+        ``null`` when ``primary`` is absent. Nothing is persisted.
+        """
+        self.get_one(slug)  # permission check only
+        return organization_service.preview_brand_theme(primary, accent)
 
     @route.post(
         "/update-contact-email",

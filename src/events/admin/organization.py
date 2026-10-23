@@ -121,6 +121,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         "platform_fee_percent",
         "platform_fee_fixed",
         "contact_email_verified",
+        "custom_domain_enabled",  # platform switch for white-label domains
     )
 
     def get_readonly_fields(

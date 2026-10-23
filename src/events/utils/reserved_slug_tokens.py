@@ -35,10 +35,16 @@ def find_reserved_token(name: str) -> str | None:
     The name is slugified (lowercase, ASCII-folded, punctuation/whitespace
     collapsed to ``-``) and split on ``-``. Each non-empty segment is checked
     against the reserved set. Returns the first hit so callers can surface
-    which token tripped the check.
+    which token tripped the check. A name whose whole slug is reserved (see
+    ``RESERVED_SLUGS_EXACT``) is returned as that slug.
     """
+    from events.constants.reserved_slug_tokens import RESERVED_SLUGS_EXACT
+
+    slug = slugify(name)
+    if slug in RESERVED_SLUGS_EXACT:
+        return slug
     reserved = get_reserved_tokens()
-    for piece in slugify(name).split("-"):
+    for piece in slug.split("-"):
         if piece and piece in reserved:
             return piece
     return None

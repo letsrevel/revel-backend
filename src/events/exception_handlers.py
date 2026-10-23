@@ -180,6 +180,8 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     OrganizationTokenMembershipTierRequiredError: make_static_handler(422, MEMBERSHIP_TIER_REQUIRED_MESSAGE),
     # revenue_report_cadence is owner-only (financially sensitive); staff-grantable
     # edit_organization must not reach it → 403.
+    RevenueReportCadenceOwnerOnlyError: make_static_handler(403, REVENUE_CADENCE_OWNER_ONLY_MESSAGE),
+    # Custom-domain activation is gated by the platform kill switch (custom_domain_enabled) → 403.
     CustomDomainNotEnabledError: make_static_handler(403, CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE),
     # Custom-domain request collides with the org's live domain or a taken hostname → 409.
     CustomDomainConflictError: make_simple_handler(409),
@@ -187,7 +189,6 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     CloudflareAPIError: make_static_handler(
         502, _("We could not reach the domain provisioning service. Please try again later.")
     ),
-    RevenueReportCadenceOwnerOnlyError: make_static_handler(403, REVENUE_CADENCE_OWNER_ONLY_MESSAGE),
     # membership subscription-policy fields belong to the manage_subscriptions domain;
     # staff with only edit_organization must not change them via the org-edit endpoint → 403.
     MembershipPolicyManageSubscriptionsOnlyError: make_static_handler(

@@ -10,6 +10,8 @@ only when it is configured (:func:`cloudflare_custom_hostnames.is_configured`); 
 is just a row carrying the CNAME instruction and platform staff activate it from the Django admin.
 """
 
+import typing as t
+
 import structlog
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -60,16 +62,31 @@ def _save_status(
     *,
     custom_domain: str | None,
 ) -> None:
-    """Persist the new status and sync the denormalized hostname, then invalidate the cache on commit."""
-    domain.status = status
-    update_fields = ["status", "updated_at"]
+    """Persist the new status and sync the denormalized hostname, then invalidate the cache on commit.
+
+    REMOVED is terminal: it frees the hostname for other organizations, so no transition may leave it.
+    The row is written with a queryset update, not ``save()``, so a status change is never held hostage
+    to the field validators (a hostname that is no longer valid under current settings must still be
+    removable). The conditional unique constraints are the exception: they are checked explicitly, so a
+    conflict surfaces as a ``ValidationError`` rather than an ``IntegrityError``.
+    """
+    if domain.status == OrganizationDomain.Status.REMOVED:
+        raise DjangoValidationError(str(_("A removed domain cannot be changed.")))
+    previous = (domain.status, domain.verified_at)
+    now = timezone.now()
+    changes: dict[str, t.Any] = {"status": status, "updated_at": now}
     if status == OrganizationDomain.Status.ACTIVE:
-        domain.verified_at = timezone.now()
-        update_fields.append("verified_at")
-    domain.save(update_fields=update_fields)
+        changes["verified_at"] = now
+    for field, value in changes.items():
+        setattr(domain, field, value)
+    try:
+        domain.validate_constraints()
+    except DjangoValidationError:
+        domain.status, domain.verified_at = previous  # the in-memory row must not claim an unsaved status
+        raise
+    OrganizationDomain.objects.filter(pk=domain.pk).update(**changes)
     if status == OrganizationDomain.Status.ACTIVE or organization.custom_domain == domain.hostname:
-        # Queryset update: it bypasses ``save()``'s full_clean, which must not hold a
-        # status change hostage to unrelated organization fields.
+        # Queryset update, for the same reason: unrelated organization fields must not block this.
         Organization.objects.filter(pk=organization.pk).update(custom_domain=custom_domain)
         organization.custom_domain = custom_domain
     hostname = domain.hostname
@@ -87,14 +104,14 @@ def activate_domain(domain: OrganizationDomain) -> OrganizationDomain:
 
     Raises:
         CustomDomainNotEnabledError: The platform has not enabled custom domains for the organization.
-        DjangoValidationError: The domain was removed; a removed domain cannot come back.
+        DjangoValidationError: The domain was removed (a removed domain cannot come back); the
+            organization already has another live (pending or active) domain; or the hostname is
+            already in use by another domain.
     """
     with transaction.atomic():
         organization = _lock_organization(domain)
         if not organization.custom_domain_enabled:
             raise CustomDomainNotEnabledError
-        if domain.status == OrganizationDomain.Status.REMOVED:
-            raise DjangoValidationError(str(_("A removed domain cannot be activated.")))
         _save_status(domain, organization, OrganizationDomain.Status.ACTIVE, custom_domain=domain.hostname)
     return domain
 
@@ -107,6 +124,9 @@ def mark_domain_failed(domain: OrganizationDomain) -> OrganizationDomain:
 
     Returns:
         OrganizationDomain: The updated domain.
+
+    Raises:
+        DjangoValidationError: The domain was removed; a removed domain cannot change status.
     """
     with transaction.atomic():
         organization = _lock_organization(domain)
@@ -122,6 +142,9 @@ def remove_domain(domain: OrganizationDomain) -> OrganizationDomain:
 
     Returns:
         OrganizationDomain: The updated domain.
+
+    Raises:
+        DjangoValidationError: The domain was already removed.
     """
     with transaction.atomic():
         organization = _lock_organization(domain)

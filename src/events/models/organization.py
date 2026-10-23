@@ -17,6 +17,7 @@ from pydantic import ValidationError as PydanticValidationError
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
+from events.utils.branding import OrganizationBranding
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
 from .mixins import (
@@ -439,7 +440,9 @@ class Organization(
     # ``events.service.custom_domain_service`` writes it.
     custom_domain_enabled = models.BooleanField(
         default=False,
-        help_text=_("Platform gate: lets this organization request and use a custom domain."),
+        help_text=_(
+            "Platform gate: allows activating, resolving and advertising a custom domain for this organization."
+        ),
     )
     custom_domain = models.CharField(
         max_length=253,
@@ -448,6 +451,14 @@ class Organization(
         unique=True,
         editable=False,
         help_text=_("Hostname of the active custom domain. Maintained by the domain service; do not edit."),
+    )
+
+    # Org-owned presentation choices (#1149), validated by ``OrganizationBranding`` in clean().
+    # Files, custom_domain and platform-admin flags are never stored here.
+    branding = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=_("Presentation settings chosen by the organization, such as brand colors."),
     )
 
     objects = OrganizationManager()
@@ -468,8 +479,22 @@ class Organization(
         Additionally validates that ``default_membership_questionnaire`` (when set)
         belongs to this organization and is of type ``MEMBERSHIP``. ``limit_choices_to``
         is admin-only and not enforced on direct ORM ``save()``, so this check matters.
+
+        Also validates ``branding`` against :class:`~events.utils.branding.OrganizationBranding`
+        and stores its normalized form (uppercase hex colors, defaults filled in).
         """
         super().clean()
+        try:
+            self.branding = OrganizationBranding.model_validate(self.branding or {}).model_dump(mode="json")
+        except PydanticValidationError:
+            raise DjangoValidationError(
+                {
+                    "branding": _(
+                        "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, "
+                        "and unknown settings are not allowed."
+                    )
+                }
+            ) from None
         if self.contact_method != self.ContactMethod.NONE and not (self.contact_email and self.contact_email_verified):
             raise DjangoValidationError(
                 {

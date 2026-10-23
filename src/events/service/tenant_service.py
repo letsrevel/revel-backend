@@ -3,17 +3,27 @@
 The mapping reads ``Organization.custom_domain``, the denormalized hostname of the organization's
 ACTIVE domain, and is cached per hostname (positive answers briefly, negative ones even more
 briefly). ``events.service.custom_domain_service`` invalidates the entry on every status change.
+
+Cache ops fail open: a broken or unreachable cache degrades to the plain DB lookup (a failed read
+counts as a miss, a failed write or invalidation is skipped with a warning) and never fails a request
+or a domain transition. A skipped invalidation is bounded by the TTLs.
+
+Everything here honours the platform kill switch ``Organization.custom_domain_enabled``: with it off,
+the organization's hostname no longer resolves.
 """
 
 import re
 from urllib.parse import urlsplit
 from uuid import UUID
 
+import structlog
 from django.core.cache import cache
 from django.db.models import Exists, OuterRef
 
 from events.models import AdditionalResource, MembershipSubscriptionPlan, Organization, ResourceVisibility
 from events.utils.hostname import MAX_HOSTNAME_LENGTH, normalize_hostname
+
+logger = structlog.get_logger(__name__)
 
 POSITIVE_TTL = 60
 NEGATIVE_TTL = 15
@@ -30,7 +40,9 @@ def _cache_key(host: str) -> str:
 def _clean_host(hostname: str) -> str | None:
     """Normalize a lookup hostname, or return ``None`` when it can never be a tenant host.
 
-    Rejecting junk up front keeps unauthenticated input from minting arbitrary cache keys.
+    This only filters malformed input (wrong characters, overlong); it does not bound the key space,
+    since any well-formed hostname still gets a cache entry. What limits that is the short negative TTL:
+    entries for hostnames nobody serves expire after ``NEGATIVE_TTL`` seconds.
     """
     host = normalize_hostname(hostname)
     if not host or len(host) > MAX_HOSTNAME_LENGTH or not _HOST_RE.match(host):
@@ -44,13 +56,23 @@ def _tenant_organization_id(hostname: str) -> UUID | None:
     if host is None:
         return None
     key = _cache_key(host)
-    cached = cache.get(key)
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.warning("tenant_cache_get_failed", exc_info=True)
+        cached = None
     if cached is not None:
         return UUID(cached) if cached != _NO_TENANT else None
     org_id = (
         Organization.objects.filter(custom_domain=host, custom_domain_enabled=True).values_list("id", flat=True).first()
     )
-    cache.set(key, str(org_id) if org_id else _NO_TENANT, POSITIVE_TTL if org_id else NEGATIVE_TTL)
+    # ponytail: a reader that queried the DB before a commit can re-cache the old answer after the
+    # invalidation ran. The staleness is bounded by the TTL (<= POSITIVE_TTL / NEGATIVE_TTL). Upgrade
+    # path if that ever matters: versioned keys (bump a per-host version on invalidation).
+    try:
+        cache.set(key, str(org_id) if org_id else _NO_TENANT, POSITIVE_TTL if org_id else NEGATIVE_TTL)
+    except Exception:
+        logger.warning("tenant_cache_set_failed", exc_info=True)
     return org_id
 
 
@@ -62,7 +84,8 @@ def get_tenant_organization(hostname: str) -> Organization | None:
 
     Returns:
         Organization | None: The organization annotated with ``has_membership_plans`` and
-        ``has_resources``, or ``None`` for unknown, pending, failed or removed domains.
+        ``has_resources``, or ``None`` for unknown, pending, failed or removed domains, and for
+        organizations whose ``custom_domain_enabled`` kill switch is off.
     """
     org_id = _tenant_organization_id(hostname)
     if org_id is None:
@@ -89,6 +112,8 @@ def get_tenant_organization(hostname: str) -> Organization | None:
 def is_tenant_origin(origin_host: str) -> bool:
     """Whether ``origin_host`` is the active custom domain of some organization.
 
+    ``False`` when that organization's ``custom_domain_enabled`` kill switch is off.
+
     Args:
         origin_host: The host part of a request ``Origin`` (port already stripped).
 
@@ -113,4 +138,7 @@ def hostname_from_origin(origin: str) -> tuple[str, str] | None:
 def invalidate_tenant_cache(hostname: str) -> None:
     """Drop the cached resolution for ``hostname`` (called on every domain status change)."""
     if host := _clean_host(hostname):
-        cache.delete(_cache_key(host))
+        try:
+            cache.delete(_cache_key(host))
+        except Exception:
+            logger.warning("tenant_cache_delete_failed", exc_info=True)

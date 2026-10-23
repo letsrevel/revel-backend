@@ -6683,8 +6683,8 @@ msgstr ""
 "Die Erstellung des Wallet-Passes ist vorübergehend nicht verfügbar. Bitte "
 "versuche es später erneut."
 
-msgid "Platform gate: lets this organization request and use a custom domain."
-msgstr "Plattform-Freigabe: Erlaubt dieser Organisation, eine eigene Domain zu beantragen und zu nutzen."
+msgid "Platform gate: allows activating, resolving and advertising a custom domain for this organization."
+msgstr "Plattform-Freigabe: Erlaubt, für diese Organisation eine eigene Domain zu aktivieren, aufzulösen und anzuzeigen."
 
 msgid "Hostname of the active custom domain. Maintained by the domain service; do not edit."
 msgstr "Hostname der aktiven eigenen Domain. Wird vom Domain-Service gepflegt; nicht bearbeiten."
@@ -6710,8 +6710,8 @@ msgstr "Wir konnten den Domain-Bereitstellungsdienst nicht erreichen. Bitte vers
 msgid "Custom domains are not enabled for this organization."
 msgstr "Eigene Domains sind für diese Organisation nicht aktiviert."
 
-msgid "A removed domain cannot be activated."
-msgstr "Eine entfernte Domain kann nicht aktiviert werden."
+msgid "A removed domain cannot be changed."
+msgstr "Eine entfernte Domain kann nicht geändert werden."
 
 msgid "Enter a hostname."
 msgstr "Gib einen Hostnamen ein."
@@ -6750,3 +6750,12 @@ msgstr "Dieser Hostname gehört der Plattform und kann nicht verwendet werden."
 
 msgid "Custom Domains"
 msgstr "Eigene Domains"
+
+msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
+msgstr "Gib eine Farbe als sechsstelligen Hex-Wert ein, zum Beispiel #8C3CDD."
+
+msgid "Presentation settings chosen by the organization, such as brand colors."
+msgstr "Von der Organisation gewählte Darstellungseinstellungen, etwa Markenfarben."
+
+msgid "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, and unknown settings are not allowed."
+msgstr "Ungültiges Branding. Farben müssen sechsstellige Hex-Werte sein, zum Beispiel #8C3CDD, und unbekannte Einstellungen sind nicht erlaubt."
