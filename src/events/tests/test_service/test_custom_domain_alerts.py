@@ -22,7 +22,7 @@ HOSTNAME = "events.example.com"
 class Sweep(t.NamedTuple):
     """What one ``sync_domain_status`` run emitted."""
 
-    logs: list[dict[str, t.Any]]
+    logs: list[t.MutableMapping[str, t.Any]]
     dispatched: list[tuple[t.Any, ...]]
 
 
