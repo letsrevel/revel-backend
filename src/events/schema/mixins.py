@@ -9,6 +9,7 @@ from pydantic import AnyUrl, Field, HttpUrl, field_validator
 from common.schema import StrippedString
 from events import models
 from events.utils.brand_theme import BrandTheme, derive_brand_theme
+from events.utils.branding import OrganizationBranding, parse_branding
 from geo.models import City
 from geo.schema import CitySchema
 
@@ -57,19 +58,25 @@ class LogoCoverArtThumbnailMixin(Schema):
 
 
 class OrganizationBrandingMixin(Schema):
-    """Brand colors as entered plus the derived per-mode theme (#1149).
+    """The organization's branding as stored plus the derived per-mode theme (#1149).
 
-    ``brand_theme`` is ``None`` when the organization has no primary color.
+    ``brand_theme`` is ``None`` when the organization has no primary color. An invalid
+    stored blob reads as empty branding rather than failing the request.
     """
 
-    brand_primary_color: str | None = None
-    brand_accent_color: str | None = None
+    branding: OrganizationBranding
     brand_theme: BrandTheme | None = None
+
+    @staticmethod
+    def resolve_branding(obj: t.Any) -> OrganizationBranding:
+        """Parse the stored blob tolerantly (invalid data yields empty branding)."""
+        return parse_branding(obj.branding)
 
     @staticmethod
     def resolve_brand_theme(obj: t.Any) -> BrandTheme | None:
         """Derive light/dark palettes meeting WCAG contrast from the stored colors."""
-        return derive_brand_theme(obj.brand_primary_color, obj.brand_accent_color)
+        branding = parse_branding(obj.branding)
+        return derive_brand_theme(branding.primary_color, branding.accent_color)
 
 
 class CityBaseMixin(Schema):

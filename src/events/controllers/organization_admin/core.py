@@ -15,7 +15,8 @@ from common.thumbnails.service import delete_image_with_derivatives
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 from events.service import event_service, organization_service, stripe_service
-from events.utils.brand_theme import BrandTheme, derive_brand_theme, is_valid_hex_color
+from events.utils.brand_theme import BrandTheme
+from events.utils.branding import OrganizationBranding
 from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
@@ -74,6 +75,22 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         organization = self.get_one(slug)
         return organization_service.update_organization(organization, payload, requester=self.user())
 
+    @route.put(
+        "/branding",
+        url_name="update_organization_branding",
+        response=schema.OrganizationBrandingResponse,
+        permissions=[RequireScope("org:read"), OrganizationPermission("edit_organization")],
+    )
+    def update_branding(self, slug: str, payload: OrganizationBranding) -> models.Organization:
+        """Replace the organization's branding (full object, replace semantics).
+
+        Keys left out or set to ``null`` are cleared, so ``{}`` removes all branding. Colors
+        are ``#RRGGBB`` (either case, stored uppercase); unknown keys are rejected with 422.
+        Echoes the saved branding and the derived per-mode ``brand_theme``.
+        """
+        organization = self.get_one(slug)
+        return organization_service.update_branding(organization, payload)
+
     @route.get(
         "/brand-theme-preview",
         url_name="brand_theme_preview",
@@ -93,10 +110,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         ``null`` when ``primary`` is absent. Nothing is persisted.
         """
         self.get_one(slug)  # permission check only
-        for color in (primary, accent):
-            if color and not is_valid_hex_color(color):
-                raise HttpError(400, str(_("Enter a color as a 6-digit hex value, for example #8C3CDD.")))
-        return derive_brand_theme(primary, accent)
+        return organization_service.preview_brand_theme(primary, accent)
 
     @route.post(
         "/update-contact-email",

@@ -77,10 +77,10 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     # is validated (org-scoped, MEMBERSHIP type) in the service layer before persisting.
     default_membership_questionnaire_id: UUID | None = None
     default_requires_membership_approval: bool = False
-    # Brand colors (#1149): "#RRGGBB" (case-insensitive, stored uppercase) or null to clear.
-    # Format is validated by the model (translatable 400), not here.
-    brand_primary_color: str | None = None
-    brand_accent_color: str | None = None
+
+
+class OrganizationBrandingResponse(OrganizationBrandingMixin):
+    """Response of ``PUT /organization-admin/{slug}/branding``: the saved branding and its derived theme."""
 
 
 class ComplianceNoticeSchema(Schema):

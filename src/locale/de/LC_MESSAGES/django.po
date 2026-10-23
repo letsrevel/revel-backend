@@ -6686,8 +6686,8 @@ msgstr ""
 msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
 msgstr "Gib eine Farbe als sechsstelligen Hex-Wert ein, zum Beispiel #8C3CDD."
 
-msgid "Brand primary color as #RRGGBB."
-msgstr "Primäre Markenfarbe als #RRGGBB."
+msgid "Presentation settings chosen by the organization, such as brand colors."
+msgstr "Von der Organisation gewählte Darstellungseinstellungen, etwa Markenfarben."
 
-msgid "Brand accent color as #RRGGBB."
-msgstr "Akzentfarbe der Marke als #RRGGBB."
+msgid "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, and unknown settings are not allowed."
+msgstr "Ungültiges Branding. Farben müssen sechsstellige Hex-Werte sein, zum Beispiel #8C3CDD, und unbekannte Einstellungen sind nicht erlaubt."

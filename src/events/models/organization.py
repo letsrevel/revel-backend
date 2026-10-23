@@ -17,7 +17,7 @@ from pydantic import ValidationError as PydanticValidationError
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
-from events.utils.brand_theme import hex_color_validator
+from events.utils.branding import OrganizationBranding
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
 from .mixins import (
@@ -434,21 +434,12 @@ class Organization(
         help_text=_("When True, every membership application requires manual staff approval."),
     )
 
-    # Brand colors (#1149): stored as uppercase "#RRGGBB" (normalized in clean()); per-mode variants are
-    # derived on read by ``events.utils.brand_theme.derive_brand_theme``.
-    brand_primary_color = models.CharField(
-        max_length=7,
-        null=True,
+    # Org-owned presentation choices (#1149), validated by ``OrganizationBranding`` in clean().
+    # Files, custom_domain and platform-admin flags are never stored here.
+    branding = models.JSONField(
+        default=dict,
         blank=True,
-        validators=[hex_color_validator],
-        help_text=_("Brand primary color as #RRGGBB."),
-    )
-    brand_accent_color = models.CharField(
-        max_length=7,
-        null=True,
-        blank=True,
-        validators=[hex_color_validator],
-        help_text=_("Brand accent color as #RRGGBB."),
+        help_text=_("Presentation settings chosen by the organization, such as brand colors."),
     )
 
     objects = OrganizationManager()
@@ -470,12 +461,21 @@ class Organization(
         belongs to this organization and is of type ``MEMBERSHIP``. ``limit_choices_to``
         is admin-only and not enforced on direct ORM ``save()``, so this check matters.
 
-        Also normalizes the brand colors: uppercase hex, and an empty string becomes ``None``.
+        Also validates ``branding`` against :class:`~events.utils.branding.OrganizationBranding`
+        and stores its normalized form (uppercase hex colors, defaults filled in).
         """
         super().clean()
-        # Normalize brand colors: uppercase hex, empty string means "unset".
-        self.brand_primary_color = (self.brand_primary_color or "").upper() or None
-        self.brand_accent_color = (self.brand_accent_color or "").upper() or None
+        try:
+            self.branding = OrganizationBranding.model_validate(self.branding or {}).model_dump(mode="json")
+        except PydanticValidationError:
+            raise DjangoValidationError(
+                {
+                    "branding": _(
+                        "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, "
+                        "and unknown settings are not allowed."
+                    )
+                }
+            ) from None
         if self.contact_method != self.ContactMethod.NONE and not (self.contact_email and self.contact_email_verified):
             raise DjangoValidationError(
                 {

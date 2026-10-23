@@ -17,17 +17,9 @@ import colorsys
 import functools
 import re
 
-from django.core.validators import RegexValidator
-from django.utils.translation import gettext_lazy as _
 from pydantic import BaseModel, ConfigDict
 
 HEX_COLOR_PATTERN = r"^#[0-9A-Fa-f]{6}$"
-
-hex_color_validator = RegexValidator(
-    HEX_COLOR_PATTERN,
-    message=_("Enter a color as a 6-digit hex value, for example #8C3CDD."),
-    code="invalid_hex_color",
-)
 
 # Frontend surface tokens as (hue degrees, saturation, lightness). Keep in sync with
 # revel-frontend ``src/app.css`` (``--background`` / ``--card``) and its
