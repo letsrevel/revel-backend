@@ -373,8 +373,10 @@ Staff can manage domains under **Custom Domains** in the admin sidebar (the
 
 The status field is read-only and deleting rows is disabled, because status changes must go through
 these actions: they keep the organization's `custom_domain` column and the lookup cache in step.
-Use the actions rather than editing the database. You can also add a domain row for an
-organization here. This is how domains are created without Cloudflare.
+Use the actions rather than editing the database. Adding rows here is disabled too: a domain is
+always created by the organization owner's request, which enforces the kill switch and provisions
+Cloudflare when it is configured. Without Cloudflare, you then activate that pending row with the
+action above (see [Running without Cloudflare](#running-without-cloudflare)).
 
 ## Running without Cloudflare
 
