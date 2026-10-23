@@ -148,6 +148,7 @@ Users are assigned random pronouns from a seeded list (`he/him`, `she/her`, `the
 | `test.admin@example.com` | Test Admin | Owner of Eligibility Test Organization |
 | `test.staff@example.com` | Test Staff | Staff at Eligibility Test Organization |
 | `test.member@example.com` | Test Member | Member of Eligibility Test Organization |
+| `tenant.owner@example.com` | Tenant Owner | Owner of the white-label fixture organizations (see [White-label tenant fixtures](#white-label-tenant-fixtures)) |
 | `test.revival.in@example.com` | Revival InWindow | EXPIRED subscription on Org Alpha's *E2E Revival Plan*, expired 5 days ago (inside the 30-day revival window) |
 | `test.revival.out@example.com` | Revival OutOfWindow | EXPIRED subscription on the same plan, expired 60 days ago (outside the revival window) |
 | `test.pastdue@example.com` | Past Due | PAST_DUE subscription on the same plan, grace deadline 5 days out |
@@ -212,6 +213,28 @@ The last three back the frontend revival / past-due E2E journeys: `EXPIRED` and 
 | **Tags** | `tech`, `test` |
 | **Accept membership requests** | Yes |
 | **Contact email** | `test@eligibility.example.com` |
+
+### White-label tenant fixtures
+
+`bootstrap_test_events` also seeds three dedicated organizations for the custom-domain E2E journeys
+(see [White-Label architecture](../architecture/white-label.md#e2e-fixtures)). They are separate on
+purpose: the frontend 301s the platform URL of any organization with an active custom domain, so a
+domain can never sit on the shared fixtures other journeys visit on the platform host. All are
+owned by `tenant.owner@example.com`.
+
+| Organization | Slug | Domain | Brand colors | Contents |
+|---|---|---|---|---|
+| Tenant Test Org | `tenant-test-org` | `tenant.localhost` (active) | `#B0306A` / `#2E86DE` | `tenant-rsvp-event` (RSVP) and `tenant-free-ticket-event` (free "Free Ticket" tier) |
+| Tenant Paid Org | `tenant-paid-org` | `paid.localhost` (active) | `#0E7C66` / `#F2A541` | `tenant-paid-event`, an online "Standard Ticket" tier at 10 EUR |
+| Domain Setup Org | `domain-setup-org` | none | none | Custom domains enabled, no domain yet, so its owner can request one in the admin UI |
+
+- `*.localhost` hostnames are valid only with `DEBUG` on. Without it the tenant fixtures are skipped
+  with a warning. Run the frontend with `PLATFORM_HOSTS=localhost` and
+  `PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE=http://{hostname}:5173`, and the backend with
+  `CUSTOM_DOMAIN_URL_TEMPLATE=http://{hostname}:5173`, then open `http://tenant.localhost:5173`.
+- Tenant Paid Org gets the platform's own `STRIPE_ACCOUNT` when it is a real `acct_` id that no
+  other organization holds, so test-mode checkouts work. Otherwise paid checkout on it fails and
+  the seeder logs a warning.
 
 ### Venues (1)
 
