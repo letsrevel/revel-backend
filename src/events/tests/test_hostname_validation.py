@@ -152,3 +152,45 @@ def test_prod_like_platform_hosts_are_rejected(settings: t.Any, host: str) -> No
 
     with pytest.raises(ValidationError):
         validate_custom_hostname(host)
+
+
+@pytest.fixture
+def co_uk_platform(settings: t.Any) -> None:
+    """A self-hosted platform under the multi-part public suffix ``co.uk`` (#1177)."""
+    settings.FRONTEND_BASE_URL = "https://revel.example.co.uk"
+    settings.BASE_URL = "https://api.revel.example.co.uk"
+    site = SiteSettings.get_solo()
+    site.frontend_base_url = "https://revel.example.co.uk"
+    site.save()
+
+
+@pytest.mark.usefixtures("co_uk_platform")
+def test_multi_part_suffix_platform_without_override_reserves_the_suffix(settings: t.Any) -> None:
+    """Default behaviour is unchanged: the derived apex is the last two labels, i.e. ``co.uk``."""
+    settings.PLATFORM_APEX_DOMAINS = ()
+    with pytest.raises(ValidationError):
+        validate_custom_hostname("events.othersite.co.uk")
+
+
+@pytest.mark.usefixtures("co_uk_platform")
+def test_platform_apex_domains_fixes_multi_part_suffix_platforms(settings: t.Any) -> None:
+    """``PLATFORM_APEX_DOMAINS`` replaces the derived apex: other co.uk sites are fine, the platform zone is not."""
+    settings.PLATFORM_APEX_DOMAINS = ("example.co.uk",)
+
+    assert validate_custom_hostname("events.othersite.co.uk") == "events.othersite.co.uk"
+    for host in ("x.example.co.uk", "example.co.uk", "revel.example.co.uk", "api.revel.example.co.uk"):
+        with pytest.raises(ValidationError):
+            validate_custom_hostname(host)
+
+
+@pytest.mark.usefixtures("co_uk_platform")
+def test_platform_apex_domains_ignores_malformed_entries(settings: t.Any) -> None:
+    """Empty and malformed entries reserve nothing; if none is valid the derived apex applies."""
+    settings.PLATFORM_APEX_DOMAINS = ("", "co", "bad domain.co.uk", "https://x.co.uk", "-a.co.uk", "Example.CO.UK.")
+    assert validate_custom_hostname("events.othersite.co.uk") == "events.othersite.co.uk"
+    with pytest.raises(ValidationError):
+        validate_custom_hostname("x.example.co.uk")  # the one valid entry (normalized) still applies
+
+    settings.PLATFORM_APEX_DOMAINS = ("", "co", "bad domain.co.uk")
+    with pytest.raises(ValidationError):
+        validate_custom_hostname("events.othersite.co.uk")  # nothing valid: back to the derived ``co.uk``

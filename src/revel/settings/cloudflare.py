@@ -23,3 +23,11 @@ TURNSTILE_WIDGET_HOSTNAME_LIMIT = int(str(config("TURNSTILE_WIDGET_HOSTNAME_LIMI
 # 9 because the Turnstile Free plan allows 10 hostnames per widget and the platform host (letsrevel.io) takes one.
 # 0 means unlimited: set it when Turnstile is off, or its plan allows more hostnames.
 CUSTOM_DOMAIN_LIMIT = int(str(config("CUSTOM_DOMAIN_LIMIT", default="9")))
+# Registrable domains reserved for the platform (comma-separated, e.g. ``example.co.uk``): no organization may
+# claim them or anything under them. Empty derives the apex from the last two labels of the platform URLs, which
+# is wrong when the platform host sits under a multi-part public suffix such as ``co.uk``; set it there (#1177).
+PLATFORM_APEX_DOMAINS = tuple(
+    domain
+    for part in str(config("PLATFORM_APEX_DOMAINS", default="")).split(",")
+    if (domain := part.strip().lower().rstrip("."))
+)
