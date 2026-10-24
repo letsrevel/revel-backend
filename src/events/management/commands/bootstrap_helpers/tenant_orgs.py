@@ -41,6 +41,12 @@ TENANT_PAID_BRANDING = {"primary_color": "#0E7C66", "accent_color": "#F2A541"}
 
 TENANT_DOMAIN_SETUP_ORG_SLUG = "domain-setup-org"
 
+# Its own org and host because the kill-switch E2E flips custom_domain_enabled, which would take
+# tenant.localhost away from the j30 specs running in parallel.
+TENANT_REVOKE_ORG_SLUG = "tenant-revoke-org"
+TENANT_REVOKE_HOSTNAME = "revoke.localhost"
+TENANT_REVOKE_BRANDING = {"primary_color": "#5B3FB0", "accent_color": "#E0A21B"}
+
 # Small seat map: 1 seated sector, 3 rows x 6 seats, labels A1..C6 (row letter + seat number), no aisle.
 SEAT_MAP_ROWS = ["A", "B", "C"]
 SEAT_MAP_SEATS_PER_ROW = 6
@@ -49,7 +55,7 @@ SEAT_MAP_SECTOR_CODE = "MAIN"
 
 
 def create_tenant_fixtures(owner: RevelUser, city: City, now: datetime) -> None:
-    """Seed the tenant organizations: two with an ACTIVE ``*.localhost`` custom domain, one with none.
+    """Seed the tenant organizations: three with an ACTIVE ``*.localhost`` custom domain, one with none.
 
     ``*.localhost`` hostnames are only valid under DEBUG, so this is skipped (with a warning) otherwise.
     """
@@ -59,6 +65,7 @@ def create_tenant_fixtures(owner: RevelUser, city: City, now: datetime) -> None:
     _create_free_org(owner, city, now)
     _create_paid_org(owner, city, now)
     _create_domain_setup_org(owner, city)
+    _create_revoke_org(owner, city)
 
 
 def _org(owner: RevelUser, city: City, name: str, slug: str, **extra: t.Any) -> events_models.Organization:
@@ -254,3 +261,9 @@ def _create_domain_setup_org(owner: RevelUser, city: City) -> None:
     """Public org with the custom-domain gate open and no domain, so its owner can request one in the admin UI."""
     _org(owner, city, "Domain Setup Org", TENANT_DOMAIN_SETUP_ORG_SLUG, custom_domain_enabled=True)
     logger.info("domain_setup_org_created", slug=TENANT_DOMAIN_SETUP_ORG_SLUG)
+
+
+def _create_revoke_org(owner: RevelUser, city: City) -> None:
+    """An org with an ACTIVE domain and no events, owned by the tenant owner, for the kill-switch revocation E2E."""
+    org = _org(owner, city, "Revoke Test Collective", TENANT_REVOKE_ORG_SLUG)
+    _activate_domain(org, TENANT_REVOKE_HOSTNAME, TENANT_REVOKE_BRANDING)
