@@ -46,8 +46,6 @@ FAILED_SSL_STATUSES = frozenset({"deleted"})
 # withdraws the hostname, which signs out every session issued on it (``accounts.service.tenant_session``). It is
 # recoverable: re-point the DNS and request the domain again.
 MOVED_HOSTNAME_STATUS = "moved"
-# Cloudflare names the ownership TXT record ``_cf-custom-hostname.<hostname>``.
-OWNERSHIP_TXT_PREFIX = "_cf-custom-hostname."
 # Certificate-pipeline timeouts: they fail a PENDING domain; on an ACTIVE one (DNS still ours) they are only
 # recorded in ``last_errors``.
 TIMED_OUT_SSL_STATUSES = frozenset(
@@ -218,7 +216,7 @@ def _ownership_record(
     ownership = hosted.ownership_verification if hosted else None
     if ownership and ownership.name and ownership.value:
         return ownership.name, ownership.value
-    name = f"{OWNERSHIP_TXT_PREFIX}{hostname}"
+    name = f"{dns_diagnostics.OWNERSHIP_TXT_LABEL}.{hostname}"
     return next(
         (
             (r["name"], r["value"])
