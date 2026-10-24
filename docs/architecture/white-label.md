@@ -407,12 +407,12 @@ denormalized column.
 stateDiagram-v2
     [*] --> PENDING: request_domain
     PENDING --> ACTIVE: Cloudflare ready and ownership TXT published, or admin activates
-    PENDING --> FAILED: blocked, deleted, moved, cert timeout
+    PENDING --> FAILED: blocked, deleted, moved, cert timeout, 7 days unproven
     ACTIVE --> FAILED: blocked, deleted, moved, cert deleted
     FAILED --> ACTIVE: admin activates
     PENDING --> REMOVED: delete
     ACTIVE --> REMOVED: delete
-    FAILED --> REMOVED: delete or re-request
+    FAILED --> REMOVED: delete, re-request or 7 days
     REMOVED --> [*]
 ```
 
@@ -423,7 +423,8 @@ messages at the last sync), `verified_at`.
 **Constraints** (partial unique constraints):
 
 - `unique_hostname_among_non_removed`: a hostname is unique among non-REMOVED rows, so removal frees
-  it.
+  it. PENDING and FAILED rows count, so the sweep bounds how long they hold it (see
+  [Hostname release](#hostname-release)).
 - `one_live_domain_per_organization`: at most one PENDING or ACTIVE row per organization.
 
 **Hostname rules** (`events/utils/hostname.py`): normalized to lowercase, IDNA, no trailing dot; at
@@ -492,6 +493,23 @@ domain in the Django cache: 1 hour for a completed lookup, 5 minutes when the lo
 `events.sync_custom_domains` calls it every 15 minutes with per-domain error isolation, and the
 owner's refresh endpoint calls it on demand. Without Cloudflare configured nothing is provisioned
 and the task is a no-op; staff activate by hand.
+
+**Hostname release** (#1168). A PENDING or FAILED row reserves its hostname against every other
+organization, so the sweep (`events.sync_custom_domains`) ends both, with two service functions the task
+calls after the Cloudflare sync, whether or not Cloudflare is configured. The uniqueness constraint is
+unchanged. Both skip organizations with the kill switch off, as the sync does, and isolate errors per domain.
+
+- `expire_stale_pending_domains`: PENDING rows created more than `PENDING_EXPIRY` (7 days) ago go
+  through `mark_domain_failed` with "Ownership of the hostname was not proven within 7 days." appended to
+  `last_errors` first, so the owner notification, tenant cache and Turnstile hooks fire as for any failure.
+  The status is re-read under the organization lock, so a concurrent activation wins.
+- `release_stale_failed_domains`: FAILED rows whose `updated_at` (the moment they failed, since the
+  sync no longer touches them) is more than `FAILED_RETENTION` (7 days) old go through `delete_domain`:
+  the Cloudflare hostname is deleted when configured, then the row becomes REMOVED. A Cloudflare error
+  leaves the row FAILED to be retried, since the hostname is still claimed there.
+
+Seven days matches Cloudflare deleting a `moved` hostname after a similar window and is generous for DNS
+propagation. A domain that just expired gets the full retention window before it is retired.
 
 **Active-domain alerts.** A live domain that goes wrong is invisible to visitors until it breaks, so
 `sync_domain_status` raises the alarm on the **edge**, never on every sweep:

@@ -384,7 +384,23 @@ a row lock, and does nothing if the organizer removed the domain in the meantime
 raising an error is logged (`custom_domain_sync_failed`, with the domain id) and does not stop the
 rest. The task returns `{"synced": n, "failed": n}` and syncs no domain when Cloudflare is not
 configured. The organizer's **Check now** runs the same sync for their own domain on demand.
-After the domains, the sweep reconciles the [Turnstile widget](#turnstile) once (when that
+After the domains, the sweep releases hostnames that are never proven or fixed, so an unverified request
+cannot squat a hostname indefinitely. Both steps run whether or not Cloudflare is configured, skip
+organizations whose kill switch is off (like the sync above) and isolate errors per domain:
+
+- **Expire pending.** A **pending** domain created more than **7 days** ago is marked **failed**
+  with the `last_errors` entry "Ownership of the hostname was not proven within 7 days." The owner
+  gets the usual failed email. This also applies in manual mode: staff have 7 days to activate.
+- **Retire failed.** A **failed** domain whose last change (`updated_at`) is more than **7 days** old
+  is retired to **removed**: its Cloudflare hostname is deleted first when Cloudflare is configured
+  (a 404 counts as gone), then the row is removed, which frees the hostname. If Cloudflare refuses
+  the deletion the row stays failed and the next sweep retries (`custom_domain_release_failed`).
+
+The windows are the constants `PENDING_EXPIRY` and `FAILED_RETENTION` in
+`events/service/custom_domain_service.py` (7 days each, like the window after which Cloudflare deletes
+a `moved` hostname). A domain that just expired is retired no sooner than 7 days later.
+
+Finally the sweep reconciles the [Turnstile widget](#turnstile) once (when that
 automation is configured); a failure there is logged and alerted, never raised.
 
 ### Domain-problem alerts
@@ -480,8 +496,9 @@ Cloudflare is optional. Leave `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID` em
 runs in **manual mode**:
 
 - A domain request only validates the hostname and records a **pending** row with the CNAME
-  instruction. Nothing is provisioned, the sync task does nothing and the organizer's **Check now**
-  has nothing to check.
+  instruction. Nothing is provisioned, the sync task does not poll Cloudflare and the organizer's
+  **Check now** has nothing to check. The sweep still expires a pending domain after 7 days and
+  retires a failed one after 7 more (see [the sync task](#the-sync-task)).
 - A platform admin **activates** the domain in the Django admin once DNS and TLS are ready.
 - **TLS is yours.** You need a certificate for each hostname on your own proxy. The simplest route
   is to add the hostname as a site block in your Caddyfile after the organizer creates the

@@ -121,9 +121,9 @@ automatically, so you do not need to buy or upload a certificate.
 
 | Status | Meaning | What to do |
 |---|---|---|
-| **Pending** | Requested. Waiting for your DNS records and for the certificate. The hostname does not work yet. | Create the records, then wait or press **Check now**. |
+| **Pending** | Requested. Waiting for your DNS records and for the certificate. The hostname does not work yet. | Create the records, then wait or press **Check now**. A domain that has not proven ownership 7 days after you requested it turns **Failed**. |
 | **Active** | DNS is verified and the certificate is issued. Your site is live on the domain. | Nothing. If the page shows a warning here, see below. |
-| **Failed** | The domain could not be verified or provisioned. Your site is not served from it. | Read the errors, fix the cause, and request the domain again. |
+| **Failed** | The domain could not be verified or provisioned. Your site is not served from it. | Read the errors, fix the cause, and request the domain again. A failed domain is removed automatically after 7 days. |
 
 Removed domains disappear from the page. A removed hostname is free again.
 
@@ -203,6 +203,12 @@ a minute, and anyone signed in on it is signed out.
 A **Failed** domain does not need to be removed first. Request the same or a different hostname
 again and Revel retires the failed one for you. A removed domain cannot be brought back, but you
 can request the same hostname again as a new request.
+
+A domain does not hold its hostname forever. A **Pending** domain whose ownership is still not
+proven 7 days after the request turns **Failed** (you get the usual email, and the page says
+"Ownership of the hostname was not proven within 7 days."). A **Failed** domain that nobody
+requests again is removed after another 7 days, which frees the hostname for anyone else. After
+either, request the domain again to start over.
 
 !!! note "Remove the DNS records too"
     Removing a domain in Revel does not touch your DNS provider. Delete the CNAME (and TXT)
