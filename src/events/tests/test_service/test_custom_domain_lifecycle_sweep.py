@@ -295,3 +295,47 @@ def test_one_failing_retirement_does_not_stop_the_others_and_keeps_its_hostname_
     sweep(django_capture_on_commit_callbacks)
 
     assert statuses(first, broken, last) == [Status.REMOVED, Status.FAILED, Status.REMOVED]
+
+
+def test_retirement_does_not_take_down_a_domain_activated_after_the_sweep_listed_it(
+    make_domain: t.Callable[..., OrganizationDomain],
+    cloudflare_calls: tuple[MagicMock, MagicMock],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """Staff activate a long-FAILED domain between the sweep's listing and its claim: it must stay live."""
+    domain = make_domain("revived.example.com", status=Status.FAILED, age=OLD)
+    original_lock = custom_domain_service._lock_organization
+    activated = False
+
+    def activate_then_lock(target: OrganizationDomain) -> Organization:
+        nonlocal activated
+        if not activated:
+            activated = True
+            OrganizationDomain.objects.filter(pk=target.pk).update(status=Status.ACTIVE)
+        return original_lock(target)
+
+    with patch.object(custom_domain_service, "_lock_organization", side_effect=activate_then_lock):
+        sweep(django_capture_on_commit_callbacks)
+
+    assert statuses(domain) == [Status.ACTIVE]
+    assert not cloudflare_calls[1].called
+
+
+def test_retirement_skips_a_domain_changed_since_the_sweep_listed_it(
+    make_domain: t.Callable[..., OrganizationDomain],
+    cloudflare_calls: tuple[MagicMock, MagicMock],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """Still FAILED but touched since the listing (e.g. failed again just now): no longer stale, so it is kept."""
+    domain = make_domain("touched.example.com", status=Status.FAILED, age=OLD)
+    original_lock = custom_domain_service._lock_organization
+
+    def touch_then_lock(target: OrganizationDomain) -> Organization:
+        OrganizationDomain.objects.filter(pk=target.pk).update(updated_at=timezone.now())
+        return original_lock(target)
+
+    with patch.object(custom_domain_service, "_lock_organization", side_effect=touch_then_lock):
+        sweep(django_capture_on_commit_callbacks)
+
+    assert statuses(domain) == [Status.FAILED]
+    assert not cloudflare_calls[1].called

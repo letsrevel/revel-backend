@@ -11,7 +11,7 @@ is just a row carrying the CNAME instruction and platform staff activate it from
 """
 
 import typing as t
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import partial
 from uuid import UUID
 
@@ -683,6 +683,24 @@ def expire_stale_pending_domains() -> int:
     return expired
 
 
+def _release_failed_domain(domain: OrganizationDomain, cutoff: datetime) -> bool:
+    """Retire one FAILED domain, claimed under the organization lock; ``False`` if it no longer qualifies.
+
+    The sweep lists candidates without a lock, so by the time a domain's turn comes it may have been activated by
+    staff (``activate_domain`` accepts FAILED) or retired by its owner. Status and ``updated_at`` are re-read under
+    the lock and the Cloudflare hostname is deleted only if the row is still FAILED and still stale, so a live
+    domain is never taken down. The lock is held across the Cloudflare call (at most its timeout), which only
+    delays a concurrent transition of this one organization.
+    """
+    with transaction.atomic():
+        _lock_organization(domain)
+        domain.refresh_from_db(fields=["updated_at"])
+        if domain.status != OrganizationDomain.Status.FAILED or domain.updated_at >= cutoff:
+            return False
+        delete_domain(domain)
+    return True
+
+
 def release_stale_failed_domains() -> int:
     """Retire (REMOVED) every FAILED domain unchanged for ``FAILED_RETENTION``, freeing its hostname.
 
@@ -697,21 +715,20 @@ def release_stale_failed_domains() -> int:
     Returns:
         How many domains were retired.
     """
+    cutoff = timezone.now() - FAILED_RETENTION
     stale = list(
         OrganizationDomain.objects.filter(
             status=OrganizationDomain.Status.FAILED,
-            updated_at__lt=timezone.now() - FAILED_RETENTION,
+            updated_at__lt=cutoff,
             organization__custom_domain_enabled=True,
         ).select_related("organization")
     )
     released = 0
     for domain in stale:
         try:
-            delete_domain(domain)
+            released += _release_failed_domain(domain, cutoff)
         except Exception:
             logger.exception("custom_domain_release_failed", domain_id=str(domain.pk))
-        else:
-            released += 1
     return released
 
 
