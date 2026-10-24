@@ -42,8 +42,9 @@ def normalize_hostname(value: str) -> str:
 def registrable_apex(host: str) -> str | None:
     """Return the last two labels of ``host`` (e.g. ``letsrevel.io``), or ``None`` for a single label."""
     # ponytail: naive "last two labels"; wrong for multi-part public suffixes (co.uk). That is fine for the
-    # platform's own hosts and for the best-effort customer DNS diagnostics (provider detection, doubled-name
-    # check in dns_diagnostics), where a wrong apex only costs a hint (#1177). Upgrade path: the public suffix list.
+    # customer DNS diagnostics (provider detection, doubled-name check in dns_diagnostics), where a wrong apex
+    # only costs a hint. The platform's own apexes use it by default too; operators on a multi-part suffix
+    # override that with ``PLATFORM_APEX_DOMAINS`` (#1177). Upgrade path: the public suffix list.
     labels = host.split(".")
     return ".".join(labels[-2:]) if len(labels) >= 2 else None
 
@@ -53,18 +54,25 @@ def platform_hosts() -> frozenset[str]:
 
     The platform's own hosts (the configured frontend and API URLs, and the ``SiteSettings`` frontend
     URL that links actually use) with their registrable apexes, plus the Cloudflare fallback origin
-    (``CUSTOM_DOMAIN_CNAME_TARGET``), so no organization can claim it.
+    (``CUSTOM_DOMAIN_CNAME_TARGET``), so no organization can claim it. When ``PLATFORM_APEX_DOMAINS`` holds at
+    least one well-formed domain it replaces the derived apexes (for platforms under a multi-part public suffix,
+    where "last two labels" would reserve a whole suffix such as ``co.uk``); malformed entries are ignored.
     """
     from common.models import SiteSettings  # lazy: this module must stay import-light (model validator)
 
-    hosts: set[str] = set()
+    configured_apexes = {
+        domain
+        for entry in settings.PLATFORM_APEX_DOMAINS
+        if (domain := normalize_hostname(entry)).count(".") >= 1 and all(map(_LABEL_RE.match, domain.split(".")))
+    }
+    hosts: set[str] = set(configured_apexes)
     for url in (settings.FRONTEND_BASE_URL, settings.BASE_URL, SiteSettings.get_solo().frontend_base_url):
         host = (urlsplit(url).hostname or "").lower()
         if not host or host == "localhost":
             # ``localhost`` is handled by the ``*.localhost`` rule, not the platform-host rule.
             continue
         hosts.add(host)
-        if apex := registrable_apex(host):
+        if not configured_apexes and (apex := registrable_apex(host)):
             hosts.add(apex)
     if fallback_origin := str(settings.CUSTOM_DOMAIN_CNAME_TARGET).strip().lower().rstrip("."):
         hosts.add(fallback_origin)  # the target itself only: its apex may be an unrelated, shared domain

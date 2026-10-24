@@ -1,5 +1,6 @@
 """Tests for the DNS pre-flight diagnostics of pending custom domains (#1148). The DNS lookups are faked."""
 
+import re
 import typing as t
 from unittest.mock import patch
 
@@ -254,6 +255,33 @@ def test_every_provider_has_a_unique_marker_and_an_https_help_url() -> None:
     markers = [p.nameserver_marker for p in dns_diagnostics.DNS_PROVIDERS]
     assert len(markers) == len(set(markers))
     assert all(p.help_url.startswith("https://") for p in dns_diagnostics.DNS_PROVIDERS)
+
+
+def test_provider_keys_are_slugs_and_map_one_to_one_to_providers() -> None:
+    """Clients match on ``key``: a stable slug, unique per provider (several entries may share a provider)."""
+    providers = dns_diagnostics.DNS_PROVIDERS
+    assert all(re.fullmatch(r"[a-z0-9-]+", p.key) for p in providers)
+    keys, names = {p.key for p in providers}, {p.name for p in providers}
+    assert len(keys) == len(names) == len({(p.key, p.name) for p in providers})
+
+
+def test_dashboard_urls_are_https_and_built_from_the_domains_apex() -> None:
+    cloudflare = next(p for p in dns_diagnostics.DNS_PROVIDERS if p.key == "cloudflare")
+    assert (
+        cloudflare.dashboard_url("events.example.com")
+        == "https://dash.cloudflare.com/?to=/:account/example.com/dns/records"
+    )
+    assert (
+        cloudflare.dashboard_url("example.com") == "https://dash.cloudflare.com/?to=/:account/example.com/dns/records"
+    )
+    templates = [p.dashboard_url_template for p in dns_diagnostics.DNS_PROVIDERS if p.dashboard_url_template]
+    assert templates
+    assert all(tpl.startswith("https://") and "{apex}" in tpl for tpl in templates)
+
+
+def test_a_provider_without_a_documented_dashboard_url_has_none() -> None:
+    godaddy = next(p for p in dns_diagnostics.DNS_PROVIDERS if p.key == "godaddy")
+    assert godaddy.dashboard_url("events.example.com") is None
 
 
 def test_cloudflare_dns_adds_the_dns_only_caveat(dns: t.Callable[..., FakeDns]) -> None:

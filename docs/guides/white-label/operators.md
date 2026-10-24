@@ -188,9 +188,11 @@ Provisioning is on only when **both** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZON
 | `CUSTOM_DOMAIN_LIMIT` | `9` | Hard cap on live (pending plus active) custom domains platform-wide. A new request is refused with 409 at the limit. `0` means unlimited. See [the domain cap](#the-domain-cap). |
 | `CUSTOM_DOMAIN_CNAME_TARGET` | empty | The fallback origin hostname organizers CNAME to, for example `customers.example.com` (the hostname registered as the zone's fallback origin). A bare hostname: no scheme, path, port or spaces. It is lowercased and a trailing dot is removed. Shown to organizers as the CNAME value. |
 | `CUSTOM_DOMAIN_URL_TEMPLATE` | `https://{hostname}` | Origin of an organization's active domain, used for links in emails and notifications. Must contain `{hostname}` and start with `http://` or `https://`. Local development and E2E use `http://{hostname}:5173`. |
+| `PLATFORM_APEX_DOMAINS` | empty | Comma-separated registrable domains reserved for the platform: organizations cannot claim them or anything under them, for example `example.co.uk`. Entries are lowercased and trailing dots are removed; malformed entries are ignored. Empty (the default) derives the reserved apex from the last two labels of `FRONTEND_BASE_URL` and `BASE_URL`. **Set this if your platform host sits under a multi-part public suffix such as `co.uk`**, otherwise every `*.co.uk` custom domain is rejected as a platform host. The platform hosts themselves are always reserved. |
 
 Related variables that matter for white-label: `BASE_URL` and `FRONTEND_BASE_URL` (a custom
-hostname can never equal, or sit under, the hosts and registrable apex of these two),
+hostname can never equal, or sit under, the hosts and registrable apex of these two; see
+`PLATFORM_APEX_DOMAINS` above for multi-part public suffixes),
 `ORG_EMAIL_DOMAIN` (see [email rollout](#email-rollout-order)) and `TURNSTILE_SITE_KEY` /
 `TURNSTILE_SECRET_KEY` (see [Turnstile](#turnstile)). The API's own `ALLOWED_HOSTS` and
 `CORS_ALLOWED_ORIGINS` do **not** need to list customer domains: the browser talks to the API host,

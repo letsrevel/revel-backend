@@ -36,64 +36,112 @@ _CAA_ISSUE = re.compile(r'^\d+\s+issue\s+"([^"]*)"\s*$', re.IGNORECASE)
 
 
 class DnsProvider(t.NamedTuple):
-    """A DNS host recognised by (a fragment of) its nameserver names, with its "add a record" help page."""
+    """A DNS host recognised by (a fragment of) its nameserver names, with its "add a record" help page.
 
+    ``key`` is the stable machine identifier clients match on (never reworded, unlike ``name``); several
+    entries may share one provider (and so one key) when it has more than one nameserver marker.
+    ``dashboard_url_template`` is the provider's link to a domain's DNS records page, with ``{apex}`` for the
+    customer's domain; ``None`` when the provider has no documented per-domain URL.
+    """
+
+    key: str
     nameserver_marker: str
     name: str
     help_url: str
+    dashboard_url_template: str | None = None
+
+    def dashboard_url(self, hostname: str) -> str | None:
+        """The link to the DNS records page of ``hostname``'s domain at this provider, if it has one."""
+        if self.dashboard_url_template is None:
+            return None
+        return self.dashboard_url_template.format(apex=registrable_apex(hostname) or hostname)
 
 
-# The first entry whose marker occurs in one of the zone's nameserver names wins. Every URL was fetched and
-# checked to exist and explain adding DNS records.
+# The first entry whose marker occurs in one of the zone's nameserver names wins. Every help URL was fetched and
+# checked to exist and explain adding DNS records. ``dashboard_url_template`` is set only where the provider
+# documents a per-domain URL we can build from the domain alone; the others (GoDaddy, Namecheap, IONOS,
+# OVHcloud, Squarespace, DigitalOcean: their docs describe a click path, not a URL; Route 53, Gandi, Hetzner,
+# Vercel, Wix: the URL needs a hosted-zone, domain or team id we do not have) stay ``None``. Never guess one.
 DNS_PROVIDERS: tuple[DnsProvider, ...] = (
     DnsProvider(
+        "cloudflare",
         "ns.cloudflare.com",
         "Cloudflare",
         "https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-dns-records/",
+        # Cloudflare's dashboard deep-link format (https://blog.cloudflare.com/deeplinks-and-scrollanchor/): a
+        # ``to`` path whose ``:``-prefixed segments are placeholders the dashboard resolves (``:account`` to the
+        # user's account) and that known values replace; the zone segment resolves to the zone's name, so the
+        # customer's domain stands in for it (inferred from that post, not spelled out there). The ``/dns/records``
+        # path is the one in https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-dns-records/
+        "https://dash.cloudflare.com/?to=/:account/{apex}/dns/records",
     ),
-    DnsProvider("domaincontrol.com", "GoDaddy", "https://www.godaddy.com/help/add-a-cname-record-19236"),
+    DnsProvider("godaddy", "domaincontrol.com", "GoDaddy", "https://www.godaddy.com/help/add-a-cname-record-19236"),
     DnsProvider(
+        "ionos",
         "ui-dns.",
         "IONOS",
         "https://www.ionos.com/help/domains/configuring-cname-records-for-subdomains/configuring-a-cname-record-for-a-subdomain/",
     ),
     DnsProvider(
+        "namecheap",
         "registrar-servers.com",
         "Namecheap",
         "https://www.namecheap.com/support/knowledgebase/article.aspx/9646/2237/how-to-create-a-cname-record-for-your-domain/",
     ),
     DnsProvider(
+        "route53",
         "awsdns-",
         "Amazon Route 53",
         "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resource-record-sets-creating.html",
     ),
-    DnsProvider("ovh.net", "OVHcloud", "https://docs.ovhcloud.com/en/guides/web-cloud/domains/dns-zone-edit"),
-    DnsProvider("gandi.net", "Gandi", "https://docs.gandi.net/en/domain_names/common_operations/dns_records.html"),
     DnsProvider(
+        "ovhcloud", "ovh.net", "OVHcloud", "https://docs.ovhcloud.com/en/guides/web-cloud/domains/dns-zone-edit"
+    ),
+    DnsProvider(
+        "gandi", "gandi.net", "Gandi", "https://docs.gandi.net/en/domain_names/common_operations/dns_records.html"
+    ),
+    DnsProvider(
+        "squarespace",
         "squarespacedns.com",
         "Squarespace",
         "https://support.squarespace.com/hc/en-us/articles/31119879125645-DNS-records-for-web-hosting",
     ),
     DnsProvider(
-        "ns.hetzner.", "Hetzner", "https://docs.hetzner.com/dns-console/dns/manage-records/managing-cname-records/"
+        "hetzner",
+        "ns.hetzner.",
+        "Hetzner",
+        "https://docs.hetzner.com/dns-console/dns/manage-records/managing-cname-records/",
     ),
     DnsProvider(
-        "your-server.de", "Hetzner", "https://docs.hetzner.com/dns-console/dns/manage-records/managing-cname-records/"
+        "hetzner",
+        "your-server.de",
+        "Hetzner",
+        "https://docs.hetzner.com/dns-console/dns/manage-records/managing-cname-records/",
     ),
     DnsProvider(
-        "rzone.de", "STRATO", "https://www.strato.de/faq/domains/wie-kann-ich-bei-strato-meine-dns-eintraege-verwalten/"
+        "strato",
+        "rzone.de",
+        "STRATO",
+        "https://www.strato.de/faq/domains/wie-kann-ich-bei-strato-meine-dns-eintraege-verwalten/",
     ),
     DnsProvider(
-        "netcup-dns.", "netcup", "https://www.netcup.com/en/helpcenter/documentation/web-hosting/webhosting-dns"
+        "netcup",
+        "netcup-dns.",
+        "netcup",
+        "https://www.netcup.com/en/helpcenter/documentation/web-hosting/webhosting-dns",
     ),
     DnsProvider(
+        "digitalocean",
         "digitalocean.com",
         "DigitalOcean",
         "https://docs.digitalocean.com/products/networking/dns/how-to/manage-records/",
     ),
-    DnsProvider("vercel-dns.com", "Vercel", "https://vercel.com/docs/domains/managing-dns-records"),
+    DnsProvider("vercel", "vercel-dns.com", "Vercel", "https://vercel.com/docs/domains/managing-dns-records"),
     DnsProvider(
-        "wixdns.net", "Wix", "https://support.wix.com/en/article/adding-or-updating-cname-records-in-your-wix-account"
+        "wix",
+        "wixdns.net",
+        "Wix",
+        "https://support.wix.com/en/article/adding-or-updating-cname-records-in-your-wix-account",
     ),
 )
 
@@ -180,7 +228,7 @@ def _provider_hints(apex: str) -> list[str]:
     if (provider := _match_provider(cloudflare.dns_query(apex, "NS") or [])) is None:
         return []
     hints = [f"Your DNS is hosted at {provider.name}. How to add the records: {provider.help_url}"]
-    return [*hints, CLOUDFLARE_DNS_ONLY_HINT] if provider.name == "Cloudflare" else hints
+    return [*hints, CLOUDFLARE_DNS_ONLY_HINT] if provider.key == "cloudflare" else hints
 
 
 def detect_dns_provider(hostname: str) -> DnsProvider | None:

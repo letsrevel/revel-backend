@@ -91,6 +91,7 @@ Optional. Lets an organization serve its attendee pages from its own domain, suc
 | `CLOUDFLARE_ZONE_ID` | empty | The zone that owns the custom hostnames (Cloudflare for SaaS) |
 | `CUSTOM_DOMAIN_CNAME_TARGET` | empty | The fallback-origin hostname organizers CNAME to, e.g. `customers.example.com`. A bare hostname |
 | `CUSTOM_DOMAIN_URL_TEMPLATE` | `https://{hostname}` | Origin of an organization's active domain in email links. Must match the frontend's `PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE` |
+| `PLATFORM_APEX_DOMAINS` | empty | Comma-separated registrable domains reserved for the platform (organizations cannot claim them or anything under them), e.g. `example.co.uk`. Empty derives it from the last two labels of `FRONTEND_BASE_URL`/`BASE_URL`. Set this if your platform host sits under a multi-part public suffix such as `co.uk` |
 
 On the **frontend** container, multi-host serving removes the pinned `ORIGIN` and sets
 `HOST_HEADER=x-forwarded-host`, `PROTOCOL_HEADER=x-forwarded-proto`, `PLATFORM_HOSTS` (tenant mode is
