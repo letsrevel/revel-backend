@@ -43,12 +43,17 @@ def command(settings: t.Any) -> Command:
 
 
 def test_dedicated_tenant_orgs_are_seeded_with_active_domains(command: Command) -> None:
-    """Both tenant orgs are public, owned by the tenant persona, branded, and resolve by hostname."""
+    """The tenant orgs are public, owned by the tenant persona, branded, and resolve by hostname."""
     command._create_tenant_domains()
 
     for slug, hostname, branding in [
         (tenant_orgs.TENANT_ORG_SLUG, "tenant.localhost", {"primary_color": "#B0306A", "accent_color": "#2E86DE"}),
         (tenant_orgs.TENANT_PAID_ORG_SLUG, "paid.localhost", {"primary_color": "#0E7C66", "accent_color": "#F2A541"}),
+        (
+            tenant_orgs.TENANT_REVOKE_ORG_SLUG,
+            "revoke.localhost",
+            {"primary_color": "#5B3FB0", "accent_color": "#E0A21B"},
+        ),
     ]:
         org = Organization.objects.get(slug=slug)
         assert org.owner == command.tenant_owner
@@ -179,7 +184,7 @@ def test_shared_fixture_orgs_get_no_custom_domain(command: Command) -> None:
         assert not org.domains.exists()
         assert org.custom_domain_enabled is False
         assert org.custom_domain is None
-    assert OrganizationDomain.objects.count() == 2
+    assert OrganizationDomain.objects.count() == 3
 
 
 def test_paid_org_is_still_created_with_a_warning_when_stripe_account_is_unset(
@@ -228,3 +233,12 @@ def test_tenant_domains_are_skipped_with_a_warning_without_debug(command: Comman
         ]
     )
     assert {"event": "tenant_domains_skipped", "reason": "debug_disabled", "log_level": "warning"} in logs
+
+
+def test_revoke_org_has_its_own_host_and_no_events(command: Command) -> None:
+    """The kill-switch E2E flips this org's switch, so it must not share a host or events with the other journeys."""
+    command._create_tenant_domains()
+
+    org = Organization.objects.get(slug=tenant_orgs.TENANT_REVOKE_ORG_SLUG)
+    assert org.custom_domain == "revoke.localhost"
+    assert not org.events.exists()

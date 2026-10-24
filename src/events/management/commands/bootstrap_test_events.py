@@ -88,7 +88,10 @@ class Command(BaseCommand):
         logger.info(f"Admin User: {self.admin_user.email} / password123")
         logger.info(f"Staff User: {self.staff_user.email} / password123")
         logger.info(f"Member User: {self.member_user.email} / password123")
-        logger.info("Tenant Owner: tenant.owner@example.com / password123 (orgs tenant-test-org, tenant-paid-org)")
+        logger.info(
+            "Tenant Owner: tenant.owner@example.com / password123 "
+            "(orgs tenant-test-org, tenant-paid-org, tenant-revoke-org)"
+        )
         logger.info("Subscription fixtures: test.revival.in@ / test.revival.out@ / test.pastdue@example.com")
         logger.info("Referrer: test.referrer@example.com / password123 (code test-partner, 20% share)")
         logger.info(
