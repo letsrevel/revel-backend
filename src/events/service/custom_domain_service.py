@@ -1,9 +1,9 @@
 """Custom-domain lifecycle (white-label, #1152) and Cloudflare provisioning (#1151).
 
 The only writer of ``Organization.custom_domain``, the denormalized hostname of an
-organization's ACTIVE domain. Every transition runs in a transaction holding the
-organization's row lock, keeps that column in step with the domain status, and drops the
-tenant-resolution cache entry once the transaction commits.
+organization's ACTIVE domain (the sweep re-asserts it: :func:`heal_denormalized_hostnames`). Every
+transition runs in a transaction holding the organization's row lock, keeps that column in step with
+the domain status, and drops the tenant-resolution cache entry once the transaction commits.
 
 Provisioning (``request_domain`` / ``sync_domain_status`` / ``delete_domain``) talks to Cloudflare
 only when it is configured (:func:`cloudflare_custom_hostnames.is_configured`); otherwise a domain
@@ -11,11 +11,15 @@ is just a row carrying the CNAME instruction and platform staff activate it from
 """
 
 import typing as t
+from datetime import timedelta
+from functools import partial
+from uuid import UUID
 
 import structlog
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -51,6 +55,14 @@ MOVED_HOSTNAME_STATUS = "moved"
 TIMED_OUT_SSL_STATUSES = frozenset(
     {"initializing_timed_out", "validation_timed_out", "issuance_timed_out", "deployment_timed_out"}
 )
+
+# How long a hostname may be held without being proven or fixed. A PENDING domain that has not become ACTIVE
+# (its ownership was never proven) is failed after PENDING_EXPIRY, and a FAILED one is retired (REMOVED, freeing
+# the hostname for anyone else) after FAILED_RETENTION. 7 days mirrors Cloudflare, which deletes a ``moved``
+# hostname after the same window, and is generous for DNS propagation and a customer's change process.
+PENDING_EXPIRY = timedelta(days=7)
+FAILED_RETENTION = timedelta(days=7)
+PENDING_EXPIRED_MESSAGE = "Ownership of the hostname was not proven within 7 days."
 
 
 def _lock_organization(domain: OrganizationDomain) -> Organization:
@@ -623,3 +635,160 @@ def delete_domain(domain: OrganizationDomain) -> OrganizationDomain:
             detail="Cloudflare is not configured; the custom hostname may be orphaned there.",
         )
     return remove_domain(domain)
+
+
+# ---- Lifecycle sweeps: release hostnames that are never proven or fixed (#1168) ----
+
+
+def _expire_pending_domain(domain: OrganizationDomain) -> bool:
+    """Fail a PENDING domain with the expiry message; ``False`` when it was no longer PENDING under the lock."""
+    with transaction.atomic():
+        _lock_organization(domain)  # also re-reads domain.status under the lock
+        if domain.status != OrganizationDomain.Status.PENDING:
+            return False
+        # Queryset update, never ``save()`` (see ``_save_status``). ``last_errors`` is set before the transition
+        # so the owner's notification carries the reason.
+        errors = list(dict.fromkeys([*domain.last_errors, PENDING_EXPIRED_MESSAGE]))
+        OrganizationDomain.objects.filter(pk=domain.pk).update(last_errors=errors, updated_at=timezone.now())
+        domain.last_errors = errors
+        mark_domain_failed(domain)
+    return True
+
+
+def expire_stale_pending_domains() -> int:
+    """Fail every PENDING domain requested more than ``PENDING_EXPIRY`` ago, so it stops holding its hostname.
+
+    Nothing else ends a PENDING row whose owner never publishes the DNS records, and a PENDING row reserves the
+    hostname against every other organization. Goes through :func:`mark_domain_failed`, so the owner is told and
+    the tenant cache and Turnstile list are kept in step. Like the Cloudflare sync it skips organizations whose
+    ``custom_domain_enabled`` kill switch is off. An error on one domain is logged and does not stop the others.
+
+    Returns:
+        How many domains were failed.
+    """
+    stale = list(
+        OrganizationDomain.objects.filter(
+            status=OrganizationDomain.Status.PENDING,
+            created_at__lt=timezone.now() - PENDING_EXPIRY,
+            organization__custom_domain_enabled=True,
+        ).select_related("organization")
+    )
+    expired = 0
+    for domain in stale:
+        try:
+            expired += _expire_pending_domain(domain)
+        except Exception:
+            # Per-item isolation in a sweep, as in ``sync_custom_domains_task``: Beat retries in 15 minutes.
+            logger.exception("custom_domain_expiry_failed", domain_id=str(domain.pk))
+    return expired
+
+
+def release_stale_failed_domains() -> int:
+    """Retire (REMOVED) every FAILED domain unchanged for ``FAILED_RETENTION``, freeing its hostname.
+
+    FAILED rows keep holding the hostname (``unique_hostname_among_non_removed``) and their Cloudflare custom
+    hostname, which would answer a duplicate with a 409 to the hostname's real owner. This reuses
+    :func:`delete_domain`: the Cloudflare hostname is deleted when Cloudflare is configured (a 404 counts as
+    gone), then the row is removed. When Cloudflare refuses the deletion the row stays FAILED, so the hostname
+    is not freed while it is still claimed there, and the next sweep retries. ``updated_at`` is when the domain
+    last changed status, which is when it failed. Skips organizations whose kill switch is off, like the
+    Cloudflare sync, and isolates errors per domain.
+
+    Returns:
+        How many domains were retired.
+    """
+    stale = list(
+        OrganizationDomain.objects.filter(
+            status=OrganizationDomain.Status.FAILED,
+            updated_at__lt=timezone.now() - FAILED_RETENTION,
+            organization__custom_domain_enabled=True,
+        ).select_related("organization")
+    )
+    released = 0
+    for domain in stale:
+        try:
+            delete_domain(domain)
+        except Exception:
+            logger.exception("custom_domain_release_failed", domain_id=str(domain.pk))
+        else:
+            released += 1
+    return released
+
+
+# ---- Self-healing of the denormalized hostname (#1199) ----
+
+
+def _heal_organization(organization_id: UUID) -> bool:
+    """Make one organization's ``custom_domain`` equal the hostname of its ACTIVE domain (or ``None``).
+
+    Done under the organization's row lock, like every transition, and decided from the rows read under that lock,
+    so a transition that committed after the sweep picked the organization is not undone.
+    """
+    with transaction.atomic():
+        organization = Organization.objects.select_for_update().get(pk=organization_id)
+        active = OrganizationDomain.objects.filter(
+            organization=organization, status=OrganizationDomain.Status.ACTIVE
+        ).first()
+        expected = active.hostname if active else None
+        previous = organization.custom_domain
+        if previous == expected:
+            return False
+        # Queryset update, never ``save()``: that is how the column is written everywhere else.
+        Organization.objects.filter(pk=organization.pk).update(custom_domain=expected)
+        logger.warning(
+            "custom_domain_denormalized_hostname_repaired",
+            organization_id=str(organization.pk),
+            domain_id=str(active.pk) if active else None,
+            action="set" if expected else "cleared",
+        )
+        for hostname in (previous, expected):
+            if hostname:
+                transaction.on_commit(partial(invalidate_tenant_cache, hostname))
+    return True
+
+
+def heal_denormalized_hostnames() -> int:
+    """Re-assert ``Organization.custom_domain`` against the ACTIVE domains; log a WARNING per repair.
+
+    The column is written by queryset updates in this module, but a full ``save()`` of an ``Organization``
+    loaded before a transition writes the old value back, and an ACTIVE to ACTIVE sync is not a transition, so
+    nothing else would repair it. Two mismatches are fixed: an ACTIVE domain whose organization carries another
+    value (usually ``None``: the domain would not resolve) and an organization whose column names a hostname with no
+    ACTIVE domain of its own (a FAILED or REMOVED domain's hostname coming back). The tenant cache is invalidated for
+    the old and the new value on commit. It is independent of Cloudflare and of the kill switch: the stored hostname
+    survives the switch being off, so the column must stay right.
+
+    Two queries find the candidates (a handful of rows), so consistent data costs nothing more; each repair then
+    re-checks under the organization lock. Errors are isolated per organization.
+
+    Returns:
+        How many organizations were repaired.
+    """
+    mismatched = {
+        domain.organization_id
+        for domain in OrganizationDomain.objects.filter(status=OrganizationDomain.Status.ACTIVE).select_related(
+            "organization"
+        )
+        if domain.organization.custom_domain != domain.hostname
+    }
+    unbacked = set(
+        Organization.objects.filter(custom_domain__isnull=False)
+        .exclude(
+            Exists(
+                OrganizationDomain.objects.filter(
+                    organization=OuterRef("pk"),
+                    hostname=OuterRef("custom_domain"),
+                    status=OrganizationDomain.Status.ACTIVE,
+                )
+            )
+        )
+        .values_list("pk", flat=True)
+    )
+    repaired = 0
+    # Clear before setting: ``custom_domain`` is unique, so a hostname must leave a wrong holder first.
+    for organization_id in [*unbacked, *(mismatched - unbacked)]:
+        try:
+            repaired += _heal_organization(organization_id)
+        except Exception:
+            logger.exception("custom_domain_heal_failed", organization_id=str(organization_id))
+    return repaired
