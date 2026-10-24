@@ -385,6 +385,69 @@ def test_sync_keeps_pending_when_cloudflare_returns_no_ownership_record(
     assert warnings and warnings[0]["log_level"] == "warning"
 
 
+def ready_without_ownership() -> cloudflare.CustomHostname:
+    """Cloudflare's answer once it has verified the hostname: active, and ``ownership_verification`` dropped."""
+    return hosted("active", "active").model_copy(update={"ownership_verification": None})
+
+
+def test_sync_activates_on_the_stored_ownership_record_once_cloudflare_drops_it(
+    enabled_org: Organization, configured: None, txt_published: MagicMock
+) -> None:
+    """The order seen live: the request stores the TXT, then Cloudflare verifies and stops returning it."""
+    with patch.object(cloudflare, "create_custom_hostname", return_value=hosted()):
+        domain = custom_domain_service.request_domain(enabled_org, "events.example.com")
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=ready_without_ownership()):
+        custom_domain_service.sync_domain_status(domain)
+
+    txt_published.assert_called_once_with(TXT_NAME, "owner-token")
+    domain.refresh_from_db()
+    assert domain.status == Status.ACTIVE
+    assert domain.last_errors == []
+    assert {"type": "TXT", "name": TXT_NAME, "value": "owner-token"} in domain.verification_records
+
+
+def test_sync_keeps_listing_the_stored_ownership_record_while_it_is_not_published(
+    enabled_org: Organization, configured: None, txt_published: MagicMock
+) -> None:
+    txt_published.return_value = False
+    with patch.object(cloudflare, "create_custom_hostname", return_value=hosted()):
+        domain = custom_domain_service.request_domain(enabled_org, "events.example.com")
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=ready_without_ownership()):
+        custom_domain_service.sync_domain_status(domain)
+
+    domain.refresh_from_db()
+    assert domain.status == Status.PENDING
+    assert domain.last_errors == [TXT_HINT]
+    # The page keeps telling the owner which record to add, although Cloudflare no longer returns it.
+    assert {"type": "TXT", "name": TXT_NAME, "value": "owner-token"} in domain.verification_records
+
+
+def test_sync_falls_back_only_to_the_ownership_record_of_this_hostname(
+    enabled_org: Organization, configured: None, txt_published: MagicMock
+) -> None:
+    """Other stored TXT records (the ACME challenge, another name) never stand in for the ownership proof."""
+    domain = OrganizationDomain.objects.create(
+        organization=enabled_org,
+        hostname="events.example.com",
+        cloudflare_hostname_id="cf-1",
+        status=Status.PENDING,
+        verification_records=[
+            {"type": "TXT", "name": "_acme-challenge.events.example.com", "value": "acme-token"},
+            {"type": "TXT", "name": "_cf-custom-hostname.other.example.com", "value": "other-token"},
+        ],
+    )
+
+    with patch.object(cloudflare, "get_custom_hostname", return_value=ready_without_ownership()):
+        custom_domain_service.sync_domain_status(domain)
+
+    txt_published.assert_not_called()
+    domain.refresh_from_db()
+    assert domain.status == Status.PENDING
+    assert domain.last_errors == ["Cloudflare has not issued the ownership TXT record for this hostname yet."]
+
+
 def test_sync_does_not_recheck_ownership_for_an_active_domain(
     enabled_org: Organization, configured: None, txt_published: MagicMock
 ) -> None:

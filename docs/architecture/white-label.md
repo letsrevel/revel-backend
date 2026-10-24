@@ -287,6 +287,12 @@ before a PENDING domain becomes ACTIVE: only whoever controls the zone can publi
 DNS-over-HTTPS query to `cloudflare-dns.com`, 5 s timeout, fails closed), so the web and Celery
 containers need outbound HTTPS to that host.
 
+Cloudflare returns the record (`ownership_verification`) only until it has verified the hostname, then
+drops it from the API response, usually minutes after the CNAME goes live and before the next sync. The
+gate therefore falls back to the copy stored in `verification_records` when the domain was requested
+(`_ownership_record`). That is safe because a row's Cloudflare hostname is created once, with the row: the
+stored record was issued for that same hostname, and a re-claim creates a new hostname with a new value.
+
 ### The password trade-off
 
 The rule above protects **tokens in links**. It does not, and cannot, protect the **password form**. On a
@@ -454,7 +460,8 @@ The target is decided as follows:
 - hostname and certificate both `active`: ACTIVE for a PENDING domain, **but only if the ownership
   TXT record** (`ownership_verification`) is published in public DNS (checked over DNS-over-HTTPS,
   outside the lock). Otherwise the domain stays PENDING with a "add the TXT record" message in
-  `last_errors`. It fails closed: a missing `ownership_verification` or a failed lookup also keeps
+  `last_errors`. Once Cloudflare stops returning `ownership_verification`, the stored copy of the
+  record is checked instead (see above). It fails closed: no record either way, or a failed lookup, keeps
   it PENDING. ACTIVE domains are not re-checked, and `activate_domain` (admin, seeds) is not gated;
 - anything else (`active_redeploying`, ...): no change.
 
