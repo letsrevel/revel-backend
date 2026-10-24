@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-10-24
+
+### Added
+- Customer support email in site settings (`SiteSettings.support_email`, edited under "Public Links" in the Django admin), exposed on `GET /version` as `support_email` (`null` when blank) so the frontend can show one configurable support address. Migration: `common` 0018
+- `capped_by_event` on the event-admin ticket-tier listing, true when the event's capacity rather than the tier's own stock is what limits `total_available`
+
+### Changed
+- A ticket tier's `total_available` now reports the smaller of the tier's remaining stock and the event's remaining capacity, on both the public and the event-admin tier listings, so a 40-ticket tier on an event capped at 30 shows 30. An unlimited tier on a capped event reports the event's remaining spots instead of `null`
+
+### Fixed
+- Changing a membership questionnaire to another type while it is an organization's default membership questionnaire or assigned to a membership tier is now rejected with a 400 that names the reference to remove; previously it went through and every later save of that organization or tier failed
+
 ## [2.24.0] - 2026-10-24
 
 ### Added
