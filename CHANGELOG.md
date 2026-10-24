@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.0] - 2026-10-24
+
+### Added
+- **Organization branding**: organizations can set a primary and an optional accent brand color, from which Revel derives a readable light and dark `brand_theme`
+  - `PUT /organization-admin/{slug}/branding` sets or clears both colors (full replace, requires the `edit_organization` permission); invalid hex values or unknown keys return 422
+  - `GET /organization-admin/{slug}/brand-theme-preview?primary=&accent=` returns the derived theme for unsaved colors, for live previews
+  - `branding` and `brand_theme` are exposed on organization responses, including the organization nested in event details; `brand_theme` is `null` until a primary color is set
+  - The derived theme keeps each color's hue and adjusts its lightness until the primary reaches 4.5:1 and the accent 3:1 contrast against the page background, cards and the public-page wash, with a black or white foreground
+- Organization-related emails show the organization's logo in the footer signature when it has one.
+
+### Security
+- Brotli, used for WOFF2 font handling when rendering PDFs, is upgraded to 1.2.1 to patch a critical decoder flaw that could allow remote code execution; the rebuilt runtime image also picks up Debian's patched system Brotli library. The `filelock` and `virtualenv` development tools are upgraded for newly published vulnerabilities.
+
 ## [2.22.2] - 2026-10-21
 
 ### Security

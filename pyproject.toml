@@ -1,6 +1,6 @@
 [project]
 name = "revel"
-version = "2.22.2"
+version = "2.23.0"
 description = "The Revel Event Manager"
 readme = "README.md"
 license = "MIT"
@@ -141,9 +141,14 @@ sentinel = [
 # anyio is pulled in by httpx and openai; 4.14.2 fixes GHSA-82r6-8w77-94w6
 # (TLS cert spoofing via IDNA 2003 host matching) and GHSA-5p39-cfhj-2xmp
 # (process-pool stderr deadlock).
+# brotli is pulled in by weasyprint[woff] via fonttools (and brotlicffi on
+# non-CPython); 1.2.1 / 1.2.1.0 fix CVE-2026-111497 / GHSA-9v8h-qqgm-4m35
+# ("Node2Shell" out-of-bounds write in the Brotli decoder).
 constraint-dependencies = [
     "aiohttp>=3.14.3",
     "anyio>=4.14.2",
+    "brotli>=1.2.1",
+    "brotlicffi>=1.2.1.0",
     "httplib2>=0.32.0",
 ]
 
