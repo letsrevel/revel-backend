@@ -10,7 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from conftest import RevelUserFactory
-from events.models import Event, Ticket, TicketTier
+from events.models import Event, EventRSVP, Ticket, TicketTier
 
 pytestmark = pytest.mark.django_db
 
@@ -123,3 +123,22 @@ def test_create_response_returns_raw_figure(organization_owner_client: Client, c
 
     assert response.status_code == 200, response.content
     assert (response.json()["total_available"], response.json()["capped_by_event"]) == (40, False)
+
+
+def test_non_ticket_event_counts_tickets_not_rsvps(
+    organization_owner_client: Client,
+    capped_event: Event,
+    tier_factory: t.Callable[..., TicketTier],
+    ticket_factory: t.Callable[..., Ticket],
+    revel_user_factory: RevelUserFactory,
+) -> None:
+    """Checkout counts tickets even when ``requires_ticket=False``, so the clamp must too."""
+    capped_event.requires_ticket = False
+    capped_event.save(update_fields=["requires_ticket"])
+    tier = tier_factory(event=capped_event, name="Big", total_quantity=40)
+    for _ in range(3):
+        ticket_factory(event=capped_event, tier=tier, user=revel_user_factory())
+    for _ in range(5):
+        EventRSVP.objects.create(event=capped_event, user=revel_user_factory(), status=EventRSVP.RsvpStatus.YES)
+
+    assert _rows(organization_owner_client, capped_event)["Big"]["total_available"] == 27
