@@ -162,6 +162,7 @@ class VersionResponse(Schema):
     demo: bool = False
     banner: BannerSchema | None = None
     demo_booking_url: str | None = None
+    support_email: str | None = None
     features: FeaturesSchema
     sso_providers: list[SSOProviderSchema]
     turnstile_site_key: str | None = None

@@ -121,6 +121,7 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
         demo=settings.DEMO_MODE,
         banner=_get_active_banner(site),
         demo_booking_url=site.demo_booking_url or None,
+        support_email=site.support_email or None,
         features=_get_features(site),
         sso_providers=[SSOProviderSchema(key=p.key, name=p.name) for p in settings.OIDC_PROVIDERS],
         turnstile_site_key=settings.TURNSTILE_SITE_KEY if is_turnstile_enabled() else None,

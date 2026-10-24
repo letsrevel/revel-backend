@@ -79,7 +79,7 @@ class SiteSettingsAdmin(SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  #
                 ),
             },
         ),
-        ("Public Links", {"fields": ("demo_booking_url",)}),
+        ("Public Links", {"fields": ("demo_booking_url", "support_email")}),
         ("Referral Program", {"fields": ("referral_applications_enabled",)}),
         (
             "Maintenance Banner",
