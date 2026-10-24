@@ -337,7 +337,13 @@ def test_ownership_only_is_silent_when_nothing_is_at_the_doubled_name(dns: t.Cal
 
 # ---- detect_dns_provider (cached, for the custom-domain API) ----
 
-DETECT_APEXES = ("detect-known.example", "detect-unknown.example", "detect-cache.example", "detect-failed.example")
+DETECT_APEXES = (
+    "detect-known.example",
+    "detect-unknown.example",
+    "detect-cache.example",
+    "detect-failed.example",
+    "detect-cache-down.example",
+)
 DETECT_APEX = "detect-apex.example"
 
 
@@ -424,3 +430,28 @@ def test_detect_dns_provider_caches_a_failed_lookup_briefly() -> None:
         "dns_provider:detect-failed.example", "", dns_diagnostics.DNS_PROVIDER_FAILED_CACHE_TTL
     )
     assert dns_diagnostics.DNS_PROVIDER_FAILED_CACHE_TTL == 5 * 60
+
+
+@pytest.mark.usefixtures("detect_cache")
+def test_detect_dns_provider_fails_open_when_the_cache_read_fails() -> None:
+    with (
+        patch.object(cache, "get", side_effect=ConnectionError("redis down")),
+        patch.object(cloudflare, "dns_query", return_value=["ns1.ovh.net."]) as query,
+    ):
+        provider = dns_diagnostics.detect_dns_provider("events.detect-cache-down.example")
+
+    query.assert_called_once()  # a failed read counts as a miss
+    assert provider is not None
+    assert provider.name == "OVHcloud"
+
+
+@pytest.mark.usefixtures("detect_cache")
+def test_detect_dns_provider_fails_open_when_the_cache_write_fails() -> None:
+    with (
+        patch.object(cache, "set", side_effect=ConnectionError("redis down")),
+        patch.object(cloudflare, "dns_query", return_value=["ns1.ovh.net."]),
+    ):
+        provider = dns_diagnostics.detect_dns_provider("events.detect-cache-down.example")
+
+    assert provider is not None
+    assert provider.name == "OVHcloud"

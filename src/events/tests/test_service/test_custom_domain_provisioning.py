@@ -78,6 +78,13 @@ def no_dns_preflight() -> t.Iterator[MagicMock]:
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def no_dns_provider_lookup() -> t.Iterator[MagicMock]:
+    """The DNS host detection is tested in ``test_dns_diagnostics`` (no network); tests may set ``return_value``."""
+    with patch.object(dns_diagnostics, "detect_dns_provider", return_value=None) as mock:
+        yield mock
+
+
 @pytest.fixture
 def enabled_org(organization: Organization) -> Organization:
     organization.custom_domain_enabled = True
@@ -116,6 +123,15 @@ def test_request_configured_creates_cloudflare_hostname_and_stores_records(
         {"type": "TXT", "name": "_cf-custom-hostname.events.example.com", "value": "owner-token"},
         {"type": "TXT", "name": "_acme-challenge.events.example.com", "value": "acme-token"},
     ]
+
+
+def test_request_warms_the_dns_provider_cache_for_the_hostname_before_any_lock(
+    enabled_org: Organization, no_dns_provider_lookup: MagicMock
+) -> None:
+    """The response schema looks the provider up; doing it here keeps the DoH call out of the advisory lock."""
+    custom_domain_service.request_domain(enabled_org, "  Events.Example.COM. ")
+
+    no_dns_provider_lookup.assert_called_once_with("events.example.com")
 
 
 def test_request_not_configured_stores_only_the_cname_and_skips_cloudflare(enabled_org: Organization) -> None:
@@ -557,6 +573,19 @@ def test_sync_skips_domains_without_a_cloudflare_id_or_not_live(
         custom_domain_service.sync_domain_status(manual)
 
     get.assert_not_called()
+
+
+def test_sync_is_a_no_op_when_cloudflare_is_not_configured(enabled_org: Organization) -> None:
+    """**Check now** must not call Cloudflare with an empty token (it would answer 502)."""
+    domain = pending_domain(enabled_org)  # has a cloudflare_hostname_id, but CLOUDFLARE_* is unset
+
+    with patch.object(cloudflare, "get_custom_hostname") as get:
+        result = custom_domain_service.sync_domain_status(domain)
+
+    get.assert_not_called()
+    assert result.status == Status.PENDING
+    domain.refresh_from_db()
+    assert domain.status == Status.PENDING
 
 
 def test_sync_stores_cloudflare_problems_and_clears_them_when_resolved(

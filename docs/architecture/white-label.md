@@ -336,7 +336,13 @@ there and how long a problem lives:
   app-agnostic); a refusal raises `SessionRevoked`, a 401 that `OptionalAuth` alone turns into an
   anonymous request. The refresh additionally rejects a session
   issued before the domain's current `verified_at`, which kills sessions that predate a
-  re-activation or a re-claim of the hostname. Access tokens skip that second comparison, because
+  re-activation or a re-claim of the hostname. Switching the kill switch back **on** (in
+  `OrganizationAdmin.save_model`) also moves `verified_at` to now
+  (`custom_domain_service.restart_domain_sessions`), so a refresh token issued before the switch
+  was turned off cannot come back to life with it. The cost is that the owner's page shows the
+  re-enable time as the verification time, and the Turnstile slot priority (ordered by
+  `verified_at`) sees the domain as the newest; a separate "sessions valid after" column is the
+  upgrade path if that ever matters. Access tokens skip that second comparison, because
   the cached tenant resolution holds no timestamp and it would cost a query per request; such a
   token lives at most one access-token lifetime and cannot be refreshed.
 - **`moved` fails an ACTIVE domain at once.** When Cloudflare reports the hostname `moved`, the

@@ -12,7 +12,7 @@ from accounts.models import RevelUser
 from events.admin.organization import OrganizationAdmin
 from events.exceptions import CloudflareAPIError, CustomDomainConflictError
 from events.models import Organization, OrganizationDomain
-from events.service import cloudflare_turnstile, custom_domain_service, turnstile_hostname_service
+from events.service import cloudflare_turnstile, custom_domain_service, dns_diagnostics, turnstile_hostname_service
 from events.tasks import custom_domains as tasks
 from events.tasks import notify_turnstile_sync_problem, reconcile_turnstile_hostnames, sync_custom_domains_task
 
@@ -25,6 +25,13 @@ NOTIFY_DELAY = "events.tasks.custom_domains.notify_turnstile_sync_problem.delay"
 
 def widget(*domains: str) -> cloudflare_turnstile.TurnstileWidget:
     return cloudflare_turnstile.TurnstileWidget(name="Revel", mode="managed", domains=list(domains))
+
+
+@pytest.fixture(autouse=True)
+def no_dns_provider_lookup() -> t.Iterator[MagicMock]:
+    """The DNS host detection is tested in ``test_dns_diagnostics`` (no network); tests may set ``return_value``."""
+    with patch.object(dns_diagnostics, "detect_dns_provider", return_value=None) as mock:
+        yield mock
 
 
 @pytest.fixture(autouse=True)

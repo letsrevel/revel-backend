@@ -38,7 +38,8 @@ before enabling it for an organization you do not know.
 The flag is also the **kill switch**. Turning it off for an organization, at any time, stops its
 hostname resolving, stops dynamic CORS for that host, withdraws `custom_domain` from API payloads
 and sends links and mail back to the platform. The stored hostname and the domain row are kept, so
-turning the flag back on restores the domain without a new request. The full procedure, with
+turning the flag back on restores the domain without a new request (but not the sessions that were
+issued on it: see [Switch back on](#switch-back-on)). The full procedure, with
 timings and verification steps, is the [kill-switch runbook](#kill-switch-runbook).
 
 ## Kill-switch runbook
@@ -67,7 +68,7 @@ hostname, abuse reported on a customer site, or a customer whose contract ended.
 | API payloads | `custom_domain` is `null` on every organization and event payload | Immediately (read from the database on each request) |
 | Links in emails and notifications | Fall back to the platform URL | At most **60 s**: the organization link info used when rendering an email is cached for 60 s |
 | Tenant email sender | Mail from the organization goes out from the platform sender again | With the link info, at most 60 s |
-| Tenant sessions (logins made on that host) | Access tokens answer 401 (public pages treat the visitor as anonymous) and refresh tokens are refused and blacklisted, because the host no longer resolves | Same as the lookup: at most 60 s |
+| Tenant sessions (logins made on that host) | Access tokens answer 401 (public pages treat the visitor as anonymous) and refresh tokens are refused and blacklisted, because the host no longer resolves. Re-enabling the switch does not revive them: every session issued before it was switched back on stays refused, and users sign in again | Same as the lookup: at most 60 s |
 | Organizer's custom-domain endpoints | Answer 403 | Immediately |
 | Sync task | Skips the organization | From the next run |
 
@@ -98,6 +99,11 @@ Replace `<host>` with the customer hostname and `<api>` with your API origin.
 
 1. Tick `custom_domain_enabled` again and save. **No DNS or Cloudflare work is needed**: the domain
    row, the stored hostname, the Cloudflare custom hostname and the certificate were never removed.
+   Switching on also signs out **every session issued on the domain before that moment** (refresh
+   tokens issued earlier are refused and blacklisted on their next use), including ones that were
+   never presented while the switch was off, so users sign in again. This is deliberate: the
+   switch is the response to a suspected DNS takeover, and a stolen session must not come back with
+   it.
 2. Allow the same windows (about a minute) and repeat the verification in reverse: the by-domain
    lookup answers 200 and the platform URL redirects to the custom domain again.
 

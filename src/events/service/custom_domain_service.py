@@ -102,6 +102,28 @@ def _save_status(
     custom_domain_notifications.notify_owner_of_transition(domain, organization, previous[0], status)
 
 
+def restart_domain_sessions(organization: Organization) -> None:
+    """Sign out every session issued on the organization's active domain before now.
+
+    Re-enabling the ``custom_domain_enabled`` kill switch must not revive sessions issued before it was
+    switched off: the host resolves again, and a refresh token that was not presented while it was off would
+    otherwise be accepted. ``verified_at`` is the "sessions must postdate this" mark the refresh check uses
+    (``accounts.service.tenant_session``), so it is moved to now. Queryset update, never ``save()``, for the
+    same reason as in ``_save_status``. A no-op when the organization has no ACTIVE domain.
+
+    Side effects: the owner's page shows the re-enable time as ``verified_at``, and the Turnstile slot
+    priority (``turnstile_hostname_service`` orders by ``verified_at``) treats the domain as the newest.
+
+    Args:
+        organization: The organization whose kill switch was just switched on.
+    """
+    # ponytail: reuses ``verified_at`` as the sessions-valid-after mark. The Turnstile side effect is harmless
+    # while CUSTOM_DOMAIN_LIMIT < TURNSTILE_WIDGET_HOSTNAME_LIMIT; upgrade path: a separate field.
+    OrganizationDomain.objects.filter(organization=organization, status=OrganizationDomain.Status.ACTIVE).update(
+        verified_at=timezone.now()
+    )
+
+
 def activate_domain(domain: OrganizationDomain) -> OrganizationDomain:
     """Mark a domain ACTIVE and publish its hostname on the organization.
 
@@ -379,7 +401,9 @@ def request_domain(organization: Organization, hostname: str) -> OrganizationDom
     ``ATOMIC_REQUESTS`` the whole request is one transaction, so when a FAILED domain is retired first
     (``delete_domain`` -> ``remove_domain`` takes the organization's row lock) that one organization row
     stays locked until the request commits, i.e. through the Cloudflare create (at most its 10 s timeout).
-    With no FAILED domain to retire, no lock is held across the network call.
+    With no FAILED domain to retire, no lock is held across the Cloudflare call. The platform-wide advisory lock
+    is taken last, and the DNS provider lookup that the response schema needs is made (and cached) before any
+    lock, so the lock is never held across a DNS-over-HTTPS lookup either.
 
     A FAILED domain of the organization is retired first, so the organizer can retry without deleting it.
 
@@ -403,6 +427,9 @@ def request_domain(organization: Organization, hostname: str) -> OrganizationDom
     except DjangoValidationError as exc:
         # Keyed by the request field, so the API answers {"errors": {"hostname": [...]}}.
         raise DjangoValidationError({"hostname": exc.messages}) from exc
+    # Warm the provider cache the 201 response reads (``CustomDomainSchema.resolve_dns_provider``), so the DoH
+    # lookup never runs later while the advisory lock below is held for the rest of the request.
+    dns_diagnostics.detect_dns_provider(hostname)
     if _live_domain_exists(organization):
         raise CustomDomainConflictError(str(_("This organization already has a pending or active domain.")))
     # ponytail: under ATOMIC_REQUESTS this retirement holds the org row lock through the Cloudflare create
@@ -515,7 +542,7 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     The DNS records and Cloudflare's problem messages (``last_errors``) are refreshed either way.
     When an ACTIVE domain gets a problem it did not have before, or fails, a WARNING is logged and platform
     staff are emailed (``notify_custom_domain_problem``), once per transition.
-    A no-op for domains in any other status or never provisioned on Cloudflare.
+    A no-op for domains in any other status, never provisioned on Cloudflare, or when Cloudflare is not configured.
 
     The transition is a compare-and-set: the Cloudflare decision was made for the status the domain had
     when it was read, so under the organization lock the status is re-read and, if it changed meanwhile
@@ -535,7 +562,7 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     expected = domain.status
     if expected not in (OrganizationDomain.Status.PENDING, OrganizationDomain.Status.ACTIVE):
         return domain
-    if not domain.cloudflare_hostname_id:
+    if not domain.cloudflare_hostname_id or not cloudflare.is_configured():
         return domain
     hosted = cloudflare.get_custom_hostname(domain.cloudflare_hostname_id)
     records = _dns_records(domain.hostname, hosted, domain.verification_records)

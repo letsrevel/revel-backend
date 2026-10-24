@@ -12,11 +12,14 @@ raises, and nothing gates activation (the ownership TXT gate stays in ``custom_d
 import re
 import typing as t
 
+import structlog
 from django.conf import settings
 from django.core.cache import cache
 
 from events.service import cloudflare_custom_hostnames as cloudflare
 from events.utils.hostname import registrable_apex
+
+logger = structlog.get_logger(__name__)
 
 # Cloudflare names the ownership TXT record ``_cf-custom-hostname.<hostname>``.
 OWNERSHIP_TXT_LABEL = "_cf-custom-hostname"
@@ -186,7 +189,8 @@ def detect_dns_provider(hostname: str) -> DnsProvider | None:
     Cached per apex: it runs while the custom-domain API response is built and the page polls that endpoint, so
     an uncached lookup would cost a DNS-over-HTTPS round trip per page view. A completed lookup (including "no
     known provider") is cached for an hour; a failed one for five minutes, so a resolver outage costs at most
-    one timeout per apex per five minutes. Never raises.
+    one timeout per apex per five minutes. Never raises: like the tenant cache, it fails open when the cache is
+    down (a failed read counts as a miss, a failed write is logged and skipped).
 
     Args:
         hostname: The normalized custom hostname.
@@ -196,15 +200,23 @@ def detect_dns_provider(hostname: str) -> DnsProvider | None:
     """
     apex = registrable_apex(hostname) or hostname
     key = f"dns_provider:{apex}"
-    if (cached := cache.get(key)) is not None:  # "" is the cached "no known provider"
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.warning("dns_provider_cache_get_failed", exc_info=True)
+        cached = None
+    if cached is not None:  # "" is the cached "no known provider"
         return next((p for p in DNS_PROVIDERS if p.name == cached), None)
     nameservers = cloudflare.dns_query(apex, "NS")
     provider = _match_provider(nameservers or [])
-    cache.set(
-        key,
-        provider.name if provider else "",
-        DNS_PROVIDER_FAILED_CACHE_TTL if nameservers is None else DNS_PROVIDER_CACHE_TTL,
-    )
+    try:
+        cache.set(
+            key,
+            provider.name if provider else "",
+            DNS_PROVIDER_FAILED_CACHE_TTL if nameservers is None else DNS_PROVIDER_CACHE_TTL,
+        )
+    except Exception:
+        logger.warning("dns_provider_cache_set_failed", exc_info=True)
     return provider
 
 

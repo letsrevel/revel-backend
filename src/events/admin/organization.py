@@ -27,7 +27,7 @@ from events.admin.base import (
     UserLinkMixin,
     VenueInline,
 )
-from events.service import turnstile_hostname_service
+from events.service import custom_domain_service, turnstile_hostname_service
 from events.service.tenant_service import invalidate_tenant_cache
 
 
@@ -141,9 +141,13 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
 
         Flipping ``custom_domain_enabled`` changes whether the active hostname resolves, so the cached
         answer for it must go. Invalidation waits for commit, so a rolled-back save leaves the cache alone.
+        Switching it back on also signs out the sessions issued before it was switched off.
         """
         super().save_model(request, obj, form, change)
-        if "custom_domain_enabled" in form.changed_data and obj.custom_domain:
+        flipped = "custom_domain_enabled" in form.changed_data
+        if flipped and obj.custom_domain_enabled:
+            custom_domain_service.restart_domain_sessions(obj)
+        if flipped and obj.custom_domain:
             hostname = obj.custom_domain
             transaction.on_commit(lambda: invalidate_tenant_cache(hostname))
             turnstile_hostname_service.schedule_reconcile()  # the switch adds or removes the hostname on the widget
