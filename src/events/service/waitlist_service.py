@@ -167,6 +167,18 @@ def _count_attendees_and_pending(event: Event) -> tuple[int, int]:
     return attendee_count, pending
 
 
+def event_remaining_capacity(event: Event) -> int | None:
+    """Spots left under the event-wide cap, or ``None`` when the event is uncapped.
+
+    Counts attendees plus capacity-reserving pending waitlist offers via
+    ``_count_attendees_and_pending``. Skips all queries for uncapped events.
+    """
+    if event.effective_capacity == 0:
+        return None
+    attendee_count, pending = _count_attendees_and_pending(event)
+    return max(0, event.effective_capacity - attendee_count - pending)
+
+
 @transaction.atomic
 def create_admin_offer(
     event_id: uuid.UUID,

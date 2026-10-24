@@ -223,7 +223,9 @@ class TestTicketTierTotalAvailable:
 
     @pytest.fixture
     def limited_tier(self, public_event: Event) -> TicketTier:
-        """A publicly purchasable tier with finite stock."""
+        """A publicly purchasable tier with finite stock, below the event cap."""
+        public_event.max_attendees = 100
+        public_event.save(update_fields=["max_attendees"])
         return TicketTier.objects.create(
             event=public_event,
             name="Limited",
