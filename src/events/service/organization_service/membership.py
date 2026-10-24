@@ -464,11 +464,17 @@ def validate_membership_questionnaire(organization: Organization, questionnaire_
     Raises:
         HttpError 400: If no matching MEMBERSHIP questionnaire exists for the organization.
     """
-    exists = models.OrganizationQuestionnaire.objects.filter(
-        pk=questionnaire_id,
-        organization=organization,
-        questionnaire_type=models.OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
-    ).exists()
+    # Lock the row so a concurrent retype (see ``_validate_membership_retype``) can't slip in
+    # between this type check and the caller saving the reference.
+    exists = (
+        models.OrganizationQuestionnaire.objects.select_for_update()
+        .filter(
+            pk=questionnaire_id,
+            organization=organization,
+            questionnaire_type=models.OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+        )
+        .exists()
+    )
     if not exists:
         raise HttpError(
             400,
