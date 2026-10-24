@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.24.0] - 2026-10-24
+
+### Added
+- **Custom domains for organizations (white-label)**: an organization can serve its Revel pages on its own domain (e.g. `events.example.org`), provisioned through Cloudflare for SaaS. The feature is off unless an operator configures it and a platform admin enables it per organization.
+  - `custom_domain_enabled` per-organization switch (superuser-only, in the Django admin) that also acts as a kill switch: turning it off stops the domain from resolving at once and signs out the sessions issued on it; turning it back on does not revive them
+  - Owner-only org-admin endpoints `GET/POST/DELETE /organization-admin/{slug}/custom-domain` and `POST …/custom-domain/refresh` ("Check now") return the DNS records to add, the live status (pending, active, failed) and problems found
+  - Ownership must be proven with a per-hostname `_cf-custom-hostname` TXT record before a domain becomes active, so a leftover CNAME of a removed domain cannot be claimed by another organization
+  - DNS pre-flight hints for the usual mistakes (missing or wrong CNAME, A records instead of a CNAME, records at a doubled name, CAA records blocking the certificate authority, root domains), plus the detected DNS host as `dns_provider` with a link to its help page and, for Cloudflare, straight to the domain's DNS records page
+  - Organization owners are emailed when their domain goes live or fails; platform staff are alerted when an active domain develops a problem
+  - Public `GET /organizations/by-domain/{hostname}` (used by the frontend to serve a custom domain) and `GET /organizations/{id}/custom-domain`; `custom_domain` is exposed on organization payloads
+  - `GET /api/tls/ask?domain=` answers a reverse proxy's on-demand TLS check (200 only for an active custom domain), for self-hosted Caddy setups
+  - A 15-minute sweep syncs domains with Cloudflare, fails pending domains that have not proven ownership within 7 days, releases failed domains after 7 more days so their hostname can be claimed again, and keeps the Turnstile widget's hostname list in step with the active domains
+  - New optional settings: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_ACCOUNT_ID`, `CUSTOM_DOMAIN_CNAME_TARGET`, `CUSTOM_DOMAIN_URL_TEMPLATE`, `CUSTOM_DOMAIN_LIMIT` (default 9), `TURNSTILE_WIDGET_HOSTNAME_LIMIT` (default 10) and `PLATFORM_APEX_DOMAINS` (only for platforms under a multi-part public suffix such as `co.uk`)
+  - Migrations: `events` 0133 (custom domains) and 0135 (registers the 15-minute sync task), `notifications` 0035 (owner alerts). Setup, DNS and reverse-proxy instructions are in `docs/guides/white-label/operators.md` and `docs/self-hosting/`
+- Optional `organization` filter on the "my" endpoints (dashboard events and calendar, tickets, RSVPs, invitations, series passes, memberships, subscriptions, applications, followed organizations and series), so a custom-domain site can show only its own organization
+- Guest seat holds work across sites: the hold token is also returned in the response body and accepted in an `X-Guest-Hold` header, for frontends on a different domain than the API
+- Wallet passes (Apple and Google) and ticket, series-pass and membership PDFs use the organization's brand colors
+
+### Changed
+- Links in attendee emails (tickets, payments, invitations, event updates and reminders, waitlist offers, announcements, membership mail) point at the organization's custom domain once it is active; account-security and unsubscribe links always stay on the platform and only carry a hint to return to the custom domain afterwards
+- Attendee transactional email from an organization with an active custom domain is sent as "Organization via Revel"
+- Payment success and cancel return URLs stay on the platform address; the frontend forwards the buyer back to the custom domain
+
+### Fixed
+- Potluck notification buttons ("View Potluck List", "Claim Item") linked to an empty URL; they now open the event, on the organization's custom domain when it has one
+- Quarantining an infected upload no longer overwrites other changes made to the same record while the file was being scanned
+
 ## [2.23.0] - 2026-10-24
 
 ### Added
