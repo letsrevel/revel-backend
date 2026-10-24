@@ -46,7 +46,8 @@ class CapacityMixin(BatchTicketContext):
     def assert_event_capacity(self, count: int) -> None:
         """Assert that the event has capacity for the requested tickets.
 
-        Uses effective_capacity (min of max_attendees and venue.capacity) as the soft limit.
+        Uses effective_capacity (min of max_attendees and venue.capacity) as the limit; unlike RSVPs,
+        ticket checkout has no overrides_max_attendees bypass.
         Uses select_for_update to prevent race conditions when multiple users
         purchase tickets simultaneously.
 

@@ -481,8 +481,8 @@ class Event(
         Returns the minimum of max_attendees and venue.capacity when both are set,
         or whichever is set if only one exists. Returns 0 (unlimited) if neither is set.
 
-        This is a soft limit that can be overridden by invitations with
-        overrides_max_attendees=True. For hard limits, see sector capacity.
+        RSVPs may exceed this via invitations with overrides_max_attendees=True; ticket
+        checkout never does. For hard limits, see sector capacity.
 
         Note:
             Ensure the venue is prefetched (via select_related or with_venue())

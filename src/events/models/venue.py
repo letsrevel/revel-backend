@@ -53,8 +53,8 @@ class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
 
     Note:
         The `capacity` field is combined with Event.max_attendees to determine
-        the effective event capacity (min of both). This is a soft limit that
-        can be overridden by invitations with overrides_max_attendees=True.
+        the effective event capacity (min of both). RSVPs may exceed it via
+        invitations with overrides_max_attendees=True; ticket checkout never does.
 
         Hard capacity limits are enforced via:
         - VenueSector.capacity for GA tiers (cannot be overridden)
