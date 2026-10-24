@@ -4,6 +4,7 @@ import typing as t
 from unittest.mock import patch
 
 import pytest
+from django.core.cache import cache
 
 from events.service import cloudflare_custom_hostnames as cloudflare
 from events.service import dns_diagnostics
@@ -332,3 +333,94 @@ def test_ownership_only_is_silent_when_nothing_is_at_the_doubled_name(dns: t.Cal
     dns({("example.org", "NS"): ["ns57.domaincontrol.com."]}, cname=[])
 
     assert dns_diagnostics.diagnose_dns(HOST, ownership_only=True) == []
+
+
+# ---- detect_dns_provider (cached, for the custom-domain API) ----
+
+DETECT_APEXES = ("detect-known.example", "detect-unknown.example", "detect-cache.example", "detect-failed.example")
+DETECT_APEX = "detect-apex.example"
+
+
+@pytest.fixture
+def detect_cache() -> t.Iterator[None]:
+    """Drop this module's cache keys (never ``cache.clear()``: xdist workers share one cache)."""
+    keys = [f"dns_provider:{apex}" for apex in (*DETECT_APEXES, DETECT_APEX)]
+    cache.delete_many(keys)
+    yield
+    cache.delete_many(keys)
+
+
+@pytest.mark.usefixtures("detect_cache")
+def test_detect_dns_provider_recognises_a_provider() -> None:
+    with patch.object(cloudflare, "dns_query", return_value=["ns57.domaincontrol.com."]):
+        provider = dns_diagnostics.detect_dns_provider("events.detect-known.example")
+
+    assert provider is not None
+    assert provider.name == "GoDaddy"
+    assert provider.help_url.startswith("https://")
+
+
+@pytest.mark.usefixtures("detect_cache")
+def test_detect_dns_provider_returns_none_for_unknown_nameservers() -> None:
+    with patch.object(cloudflare, "dns_query", return_value=["ns1.some-small-host.example."]):
+        assert dns_diagnostics.detect_dns_provider("events.detect-unknown.example") is None
+
+
+@pytest.mark.usefixtures("detect_cache")
+def test_detect_dns_provider_queries_the_ns_of_the_apex() -> None:
+    with patch.object(cloudflare, "dns_query", return_value=["ns1.registrar-servers.com."]) as query:
+        provider = dns_diagnostics.detect_dns_provider(f"events.{DETECT_APEX}")
+
+    query.assert_called_once_with(DETECT_APEX, "NS")
+    assert provider is not None
+    assert provider.name == "Namecheap"
+
+
+@pytest.mark.usefixtures("detect_cache")
+def test_detect_dns_provider_caches_a_completed_lookup_for_an_hour() -> None:
+    hostname = "events.detect-cache.example"
+    with (
+        patch.object(cloudflare, "dns_query", return_value=["ns1.ovh.net."]) as query,
+        patch.object(cache, "set", wraps=cache.set) as cache_set,
+    ):
+        first = dns_diagnostics.detect_dns_provider(hostname)
+        second = dns_diagnostics.detect_dns_provider(hostname)
+
+    assert first is not None and first == second
+    assert first.name == "OVHcloud"
+    query.assert_called_once()
+    cache_set.assert_called_once_with(
+        "dns_provider:detect-cache.example", "OVHcloud", dns_diagnostics.DNS_PROVIDER_CACHE_TTL
+    )
+    assert dns_diagnostics.DNS_PROVIDER_CACHE_TTL == 60 * 60
+
+
+@pytest.mark.usefixtures("detect_cache")
+def test_detect_dns_provider_caches_no_known_provider_for_an_hour() -> None:
+    hostname = "events.detect-unknown.example"
+    with (
+        patch.object(cloudflare, "dns_query", return_value=["ns1.some-small-host.example."]) as query,
+        patch.object(cache, "set", wraps=cache.set) as cache_set,
+    ):
+        assert dns_diagnostics.detect_dns_provider(hostname) is None
+        assert dns_diagnostics.detect_dns_provider(hostname) is None
+
+    query.assert_called_once()
+    cache_set.assert_called_once_with("dns_provider:detect-unknown.example", "", dns_diagnostics.DNS_PROVIDER_CACHE_TTL)
+
+
+@pytest.mark.usefixtures("detect_cache")
+def test_detect_dns_provider_caches_a_failed_lookup_briefly() -> None:
+    hostname = "events.detect-failed.example"
+    with (
+        patch.object(cloudflare, "dns_query", return_value=None) as query,
+        patch.object(cache, "set", wraps=cache.set) as cache_set,
+    ):
+        assert dns_diagnostics.detect_dns_provider(hostname) is None
+        assert dns_diagnostics.detect_dns_provider(hostname) is None
+
+    query.assert_called_once()  # the outage costs one lookup, not one per call
+    cache_set.assert_called_once_with(
+        "dns_provider:detect-failed.example", "", dns_diagnostics.DNS_PROVIDER_FAILED_CACHE_TTL
+    )
+    assert dns_diagnostics.DNS_PROVIDER_FAILED_CACHE_TTL == 5 * 60

@@ -51,6 +51,7 @@ from .checkout import (
 from .custom_domain import (
     CustomDomainRequestSchema,
     CustomDomainSchema,
+    DnsProviderSchema,
     DnsRecordSchema,
     DnsRecordType,
 )
@@ -519,6 +520,7 @@ __all__ = [
     "DirectInvitationResponseSchema",
     "CustomDomainRequestSchema",
     "CustomDomainSchema",
+    "DnsProviderSchema",
     "DiscountCodeCreateSchema",
     "DiscountCodeDeleteResponse",
     "DiscountCodeSchema",

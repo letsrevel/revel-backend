@@ -13,6 +13,7 @@ import re
 import typing as t
 
 from django.conf import settings
+from django.core.cache import cache
 
 from events.service import cloudflare_custom_hostnames as cloudflare
 from events.utils.hostname import registrable_apex
@@ -93,6 +94,10 @@ DNS_PROVIDERS: tuple[DnsProvider, ...] = (
     ),
 )
 
+# ``detect_dns_provider`` cache lifetimes: a completed lookup is stable; a failed one is retried soon.
+DNS_PROVIDER_CACHE_TTL = 60 * 60
+DNS_PROVIDER_FAILED_CACHE_TTL = 5 * 60
+
 # Cloudflare: O2O (a proxied record in a customer zone that points at a Cloudflare for SaaS provider) only applies
 # across different Cloudflare accounts, and the customer zone's settings apply to the traffic first
 # (https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/saas-customers/how-it-works/).
@@ -158,14 +163,49 @@ def _caa_hints(hostname: str, apex: str) -> list[str]:
     return []
 
 
-def _provider_hints(apex: str) -> list[str]:
-    """Name the DNS host of ``apex`` (from its NS records) and link its "add a record" help page."""
-    for nameserver in cloudflare.dns_query(apex, "NS") or []:
+def _match_provider(nameservers: list[str]) -> DnsProvider | None:
+    """Return the first known DNS host that one of ``nameservers`` belongs to."""
+    for nameserver in nameservers:
         for provider in DNS_PROVIDERS:
             if provider.nameserver_marker in nameserver.lower():
-                hints = [f"Your DNS is hosted at {provider.name}. How to add the records: {provider.help_url}"]
-                return [*hints, CLOUDFLARE_DNS_ONLY_HINT] if provider.name == "Cloudflare" else hints
-    return []
+                return provider
+    return None
+
+
+def _provider_hints(apex: str) -> list[str]:
+    """Name the DNS host of ``apex`` (from its NS records) and link its "add a record" help page."""
+    if (provider := _match_provider(cloudflare.dns_query(apex, "NS") or [])) is None:
+        return []
+    hints = [f"Your DNS is hosted at {provider.name}. How to add the records: {provider.help_url}"]
+    return [*hints, CLOUDFLARE_DNS_ONLY_HINT] if provider.name == "Cloudflare" else hints
+
+
+def detect_dns_provider(hostname: str) -> DnsProvider | None:
+    """Return the DNS host of ``hostname``'s registrable domain (from its NS records), if it is a known one.
+
+    Cached per apex: it runs while the custom-domain API response is built and the page polls that endpoint, so
+    an uncached lookup would cost a DNS-over-HTTPS round trip per page view. A completed lookup (including "no
+    known provider") is cached for an hour; a failed one for five minutes, so a resolver outage costs at most
+    one timeout per apex per five minutes. Never raises.
+
+    Args:
+        hostname: The normalized custom hostname.
+
+    Returns:
+        DnsProvider | None: The matching provider, or ``None`` (unknown provider or the lookup failed).
+    """
+    apex = registrable_apex(hostname) or hostname
+    key = f"dns_provider:{apex}"
+    if (cached := cache.get(key)) is not None:  # "" is the cached "no known provider"
+        return next((p for p in DNS_PROVIDERS if p.name == cached), None)
+    nameservers = cloudflare.dns_query(apex, "NS")
+    provider = _match_provider(nameservers or [])
+    cache.set(
+        key,
+        provider.name if provider else "",
+        DNS_PROVIDER_FAILED_CACHE_TTL if nameservers is None else DNS_PROVIDER_CACHE_TTL,
+    )
+    return provider
 
 
 def diagnose_dns(hostname: str, *, ownership_only: bool = False) -> list[str]:
