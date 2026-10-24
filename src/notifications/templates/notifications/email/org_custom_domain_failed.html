@@ -1,0 +1,19 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<h2>{% if context.was_live %}{% blocktranslate with hostname=context.hostname org=context.organization_name %}{{ hostname }} stopped working for {{ org }}{% endblocktranslate %}{% else %}{% blocktranslate with hostname=context.hostname org=context.organization_name %}{{ hostname }} could not be activated for {{ org }}{% endblocktranslate %}{% endif %}</h2>
+<p>{% if context.was_live %}{% trans "Revel no longer serves your organization on this domain, and everyone who was signed in on it was signed out. Your organization is still available at its Revel address." %}{% else %}{% trans "Revel could not verify this domain, so it does not serve your organization. Your organization is still available at its Revel address." %}{% endif %}</p>
+<p>{% trans "What Revel found:" %}</p>
+<div class="card card--warning">
+    <ul>
+        {% for error in context.errors %}
+        <li>{{ error }}</li>
+        {% empty %}
+        <li>{% trans "No details were reported. If this keeps happening, contact Revel support." %}</li>
+        {% endfor %}
+    </ul>
+</div>
+<p>{% trans "Fix the cause, then request the domain again from your custom domain settings." %}</p>
+<center><a href="{{ context.action_url }}" class="button">{% trans "Open custom domain settings" %}</a></center>
+{% endblock %}

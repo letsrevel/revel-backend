@@ -67,6 +67,9 @@ class NotificationType(TextChoices):
     ORG_ANNOUNCEMENT = "org_announcement"
     ORG_CONTACT_MESSAGE_RECEIVED = "org_contact_message_received"  # Notify org admins of contact form submissions
     ORG_SETUP_NUDGE = "org_setup_nudge"  # Revel nudges a stalled org's owner (private profile, forgotten draft, ...)
+    # White-label custom domain went live / failed: told to the organization owner (#1148)
+    ORG_CUSTOM_DOMAIN_ACTIVE = "org_custom_domain_active"
+    ORG_CUSTOM_DOMAIN_FAILED = "org_custom_domain_failed"
     # Daily digest of invoices/credit notes a country policy made Revel skip (#1073, staff only)
     FISCAL_DOCUMENT_SKIPPED = "fiscal_document_skipped"
 
@@ -114,6 +117,7 @@ class NotificationType(TextChoices):
 # Transactional notification types are time-/money-sensitive (a ticket sale, a payment,
 # a cancellation or a refund): they bypass the digest cadence (#506). This includes the staff
 # ticket alerts, which are NOT mandatory (see MANDATORY_TYPES) but still shouldn't wait for a digest.
+# The custom-domain owner mails are the same: opt-out-able, but the owner is waiting on them (#1148).
 TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
     {
         NotificationType.PAYMENT_CONFIRMATION,
@@ -123,6 +127,8 @@ TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
         NotificationType.STAFF_TICKET_CREATED,
         NotificationType.STAFF_TICKET_CANCELLED,
         NotificationType.STAFF_TICKET_REFUNDED,
+        NotificationType.ORG_CUSTOM_DOMAIN_ACTIVE,
+        NotificationType.ORG_CUSTOM_DOMAIN_FAILED,
         # Subscription money/lifecycle events must not wait for a digest sweep:
         # a failed renewal or expiry needs immediate action, a revival checkout
         # link is time-boxed, and renewal/cancellation confirmations are

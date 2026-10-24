@@ -409,6 +409,35 @@ logs, search for the event names above.
 4. For `custom_domain_active_failed`, the domain is already withdrawn, its tenant sessions are signed
    out and the platform URL serves the organization. The organizer can request the domain again from the admin area.
 
+### Owner notifications
+
+The organization **owner** is also emailed (and notified in the app and on Telegram, per their
+preferences) when a domain changes state. This is separate from the staff alerts above, which cover
+only ACTIVE domains and go to staff.
+
+| Notification type | Transition | Content |
+|---|---|---|
+| `org_custom_domain_active` | PENDING to ACTIVE | "*hostname* is now live for *org*", the link to the domain (built for the tenant), a short checklist, and a link to the custom-domain settings page |
+| `org_custom_domain_failed` | PENDING to FAILED, or ACTIVE to FAILED | The hostname, whether it was live, the current `last_errors` (DNS pre-flight hints included) and a link to the custom-domain settings page |
+
+- **Once per transition, whoever causes it.** The hook sits in `custom_domain_service._save_status`,
+  so the 15-minute sync, **Check now** and the Django admin actions (**Activate** / **Mark as failed**)
+  all notify. An admin action does too: on an instance without Cloudflare the admin action *is* the
+  activation, and the owner would otherwise never learn about it. Nothing is sent for **Remove**
+  (the owner did it), a no-op sync, a certificate timeout on an ACTIVE domain (that stays a staff
+  alert), or staff re-activating a FAILED domain.
+- **Recipient: the owner only.** The custom-domain endpoints are owner-only, so staff have nothing
+  to act on.
+- **Not mandatory.** Both types are opt-out-able like other owner notifications (a per-type switch,
+  the email switch and *silence all* apply). They are *transactional*, so a digest setting does not
+  delay them.
+- **Sender and links.** Revel's own mail: it goes out from the platform sender (not "Org via Revel")
+  with the platform unsubscribe link and the organization's logo and name in the body. The live link
+  uses the tenant origin; the settings link always uses the platform
+  (`<frontend>/org/<slug>/admin/custom-domain`).
+- **Languages.** English, German, Spanish, French, Italian and Portuguese. Cloudflare's own messages
+  and the DNS hints inside `last_errors` are stored in English and shown as stored.
+
 ### Organization deletion
 
 Deleting an organization cascades its domain rows, so its Cloudflare custom hostnames would

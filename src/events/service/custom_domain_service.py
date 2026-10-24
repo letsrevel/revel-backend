@@ -24,7 +24,7 @@ from events.exceptions import CloudflareAPIError, CustomDomainConflictError, Cus
 from events.models import Organization, OrganizationDomain, OrganizationDomainStatus
 from events.schema.custom_domain import DnsRecordSchema, DnsRecordType
 from events.service import cloudflare_custom_hostnames as cloudflare
-from events.service import dns_diagnostics, turnstile_hostname_service
+from events.service import custom_domain_notifications, dns_diagnostics, turnstile_hostname_service
 from events.service.tenant_service import invalidate_tenant_cache
 from events.utils.hostname import validate_custom_hostname
 
@@ -99,6 +99,7 @@ def _save_status(
     transaction.on_commit(lambda: invalidate_tenant_cache(hostname))
     if OrganizationDomain.Status.ACTIVE in (previous[0], status):
         turnstile_hostname_service.schedule_reconcile()  # the domain entered or left the Turnstile hostname list
+    custom_domain_notifications.notify_owner_of_transition(domain, organization, previous[0], status)
 
 
 def activate_domain(domain: OrganizationDomain) -> OrganizationDomain:

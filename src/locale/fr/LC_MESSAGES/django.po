@@ -6747,3 +6747,78 @@ msgstr "Paramètres de présentation choisis par l'organisation, comme les coule
 
 msgid "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, and unknown settings are not allowed."
 msgstr "Image de marque invalide. Les couleurs doivent être des valeurs hexadécimales à 6 chiffres, par exemple #8C3CDD, et les paramètres inconnus ne sont pas autorisés."
+
+#, python-format
+msgid "%(hostname)s is now live for %(org)s"
+msgstr "%(hostname)s est maintenant en ligne pour %(org)s"
+
+#, python-format
+msgid "%(hostname)s stopped working for %(org)s"
+msgstr "%(hostname)s ne fonctionne plus pour %(org)s"
+
+#, python-format
+msgid "%(hostname)s could not be activated for %(org)s"
+msgstr "%(hostname)s n'a pas pu être activé pour %(org)s"
+
+msgid ""
+"Your custom domain is verified and serves your organization. Visitors who "
+"open it see your events with your branding."
+msgstr ""
+"Ton domaine personnalisé est vérifié et affiche ton organisation. Les "
+"personnes qui l'ouvrent voient tes événements avec ton image de marque."
+
+msgid "Open your site"
+msgstr "Ouvrir ton site"
+
+msgid "Before you announce it:"
+msgstr "Avant de l'annoncer :"
+
+msgid "Open the link in a private window and check that it loads."
+msgstr "Ouvre le lien dans une fenêtre privée et vérifie qu'il se charge."
+
+msgid ""
+"Sign up for a test account on it. Sign-up should work on your own domain."
+msgstr ""
+"Crée un compte de test dessus. L'inscription doit fonctionner sur ton "
+"propre domaine."
+
+msgid "Share the new link with your audience."
+msgstr "Partage le nouveau lien avec ton public."
+
+msgid "Manage your custom domain"
+msgstr "Gérer ton domaine personnalisé"
+
+msgid ""
+"Revel no longer serves your organization on this domain, and everyone who "
+"was signed in on it was signed out. Your organization is still available "
+"at its Revel address."
+msgstr ""
+"Revel ne diffuse plus ton organisation sur ce domaine, et toutes les "
+"personnes qui y étaient connectées ont été déconnectées. Ton organisation "
+"reste disponible à son adresse Revel."
+
+msgid ""
+"Revel could not verify this domain, so it does not serve your "
+"organization. Your organization is still available at its Revel address."
+msgstr ""
+"Revel n'a pas pu vérifier ce domaine, donc il ne diffuse pas ton "
+"organisation. Ton organisation reste disponible à son adresse Revel."
+
+msgid "What Revel found:"
+msgstr "Ce que Revel a constaté :"
+
+msgid ""
+"No details were reported. If this keeps happening, contact Revel support."
+msgstr ""
+"Aucun détail n'a été signalé. Si cela continue, contacte le support de "
+"Revel."
+
+msgid ""
+"Fix the cause, then request the domain again from your custom domain "
+"settings."
+msgstr ""
+"Corrige la cause, puis demande à nouveau le domaine depuis les paramètres "
+"de ton domaine personnalisé."
+
+msgid "Open custom domain settings"
+msgstr "Ouvrir les paramètres du domaine personnalisé"
