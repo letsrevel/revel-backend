@@ -41,8 +41,9 @@ def normalize_hostname(value: str) -> str:
 
 def registrable_apex(host: str) -> str | None:
     """Return the last two labels of ``host`` (e.g. ``letsrevel.io``), or ``None`` for a single label."""
-    # ponytail: naive "last two labels"; wrong for multi-part public suffixes (co.uk), which is fine
-    # because it is only applied to the platform's own hosts. Upgrade path: the public suffix list.
+    # ponytail: naive "last two labels"; wrong for multi-part public suffixes (co.uk). That is fine for the
+    # platform's own hosts and for the best-effort customer DNS diagnostics (provider detection, doubled-name
+    # check in dns_diagnostics), where a wrong apex only costs a hint (#1177). Upgrade path: the public suffix list.
     labels = host.split(".")
     return ".".join(labels[-2:]) if len(labels) >= 2 else None
 

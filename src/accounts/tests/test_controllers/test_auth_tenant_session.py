@@ -113,6 +113,7 @@ def _cloudflare_moved(domain: OrganizationDomain) -> None:
         id="cf-1", hostname=HOST, status="moved", ssl=cloudflare.CustomHostnameSsl(status="active")
     )
     with (
+        patch.object(cloudflare, "is_configured", return_value=True),
         patch.object(cloudflare, "get_custom_hostname", return_value=moved),
         patch("events.tasks.custom_domains.notify_custom_domain_problem.delay"),
     ):
@@ -273,6 +274,25 @@ def test_refresh_is_refused_for_a_session_older_than_the_reactivation(
 
     assert response.status_code == 401
     assert _blacklisted(token)
+    assert _refresh(client, str(_tenant_refresh(user, issued_at=int(time.time())))).status_code == 200
+
+
+def test_reenabling_the_kill_switch_does_not_revive_sessions_issued_before_it_was_off(
+    client: Client, user: RevelUser, domain: OrganizationDomain
+) -> None:
+    """A refresh token not presented while the switch was off must not work again after it is switched back on."""
+    token = _tenant_refresh(user)  # issued 30 minutes ago, after the domain's verification
+    _kill_switch_off(domain)
+    cache.clear()
+    Organization.objects.filter(pk=domain.organization_id).update(custom_domain_enabled=True)
+    custom_domain_service.restart_domain_sessions(Organization.objects.get(pk=domain.organization_id))
+    cache.clear()  # what the admin's on_commit invalidation does
+
+    response = _refresh(client, str(token))
+
+    assert response.status_code == 401
+    assert _blacklisted(token)
+    # A session issued after the re-enable refreshes normally.
     assert _refresh(client, str(_tenant_refresh(user, issued_at=int(time.time())))).status_code == 200
 
 

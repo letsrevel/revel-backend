@@ -1,6 +1,7 @@
 """Tests for the OrganizationDomain admin and the Organization admin's custom-domain fields (#1152)."""
 
 import typing as t
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -9,6 +10,7 @@ from django.contrib.admin.sites import site
 from django.contrib.auth.models import Permission
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.admin.organization import OrganizationAdmin
@@ -278,6 +280,40 @@ def test_admin_flipping_kill_switch_back_on_restores_hostname(
     resolved = tenant_service.get_tenant_organization("events.example.com")
     assert resolved is not None
     assert resolved.pk == live_org.pk
+
+
+def test_admin_switching_kill_switch_on_restarts_domain_sessions(
+    rf: t.Any, superuser: RevelUser, live_org: Organization
+) -> None:
+    """Re-enabling signs out older sessions: ``verified_at`` of the active domain moves to the re-enable time."""
+    OrganizationDomain.objects.filter(organization=live_org).update(verified_at=timezone.now() - timedelta(hours=1))
+    live_org.custom_domain_enabled = False
+    live_org.save(update_fields=["custom_domain_enabled"])
+    live_org.custom_domain_enabled = True
+    before = timezone.now()
+
+    with patch.object(
+        custom_domain_service, "restart_domain_sessions", wraps=custom_domain_service.restart_domain_sessions
+    ) as restart:
+        _org_save(rf, superuser, live_org, ["custom_domain_enabled"])
+
+    restart.assert_called_once_with(live_org)
+    verified_at = OrganizationDomain.objects.get(organization=live_org).verified_at
+    assert verified_at is not None and verified_at >= before
+
+
+@pytest.mark.parametrize(
+    ("enabled", "changed"), [(False, ["custom_domain_enabled"]), (True, ["name"])], ids=["switch_off", "unrelated_save"]
+)
+def test_admin_does_not_restart_domain_sessions_unless_switched_on(
+    rf: t.Any, superuser: RevelUser, live_org: Organization, enabled: bool, changed: list[str]
+) -> None:
+    live_org.custom_domain_enabled = enabled
+
+    with patch.object(custom_domain_service, "restart_domain_sessions") as restart:
+        _org_save(rf, superuser, live_org, changed)
+
+    restart.assert_not_called()
 
 
 def test_admin_save_without_flag_change_keeps_cache(
