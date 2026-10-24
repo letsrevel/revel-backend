@@ -1,12 +1,18 @@
 """Public ticket-tier listing schema tests."""
 
 import typing as t
+import uuid
+from datetime import timedelta
 
 import pytest
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
-from events.models import Event, EventToken, MembershipTier, TicketTier
+from conftest import RevelUserFactory
+from events.models import Event, EventToken, MembershipTier, Ticket, TicketTier, WaitlistOffer
 
 pytestmark = pytest.mark.django_db
 
@@ -168,3 +174,129 @@ class TestAnonymousListingWithInvitationLink:
 
         assert tiers["Invited Only"]["can_purchase"] is False
         assert tiers["Public Gated"]["can_purchase"] is False
+
+
+class TestTotalAvailableClampedToEventCap:
+    """``total_available`` never exceeds what the event-wide cap still allows (#1207)."""
+
+    @staticmethod
+    def _available(client: Client, event: Event) -> dict[str, int | None]:
+        response = client.get(reverse("api:tier_list", kwargs={"event_id": event.pk}))
+        assert response.status_code == 200, response.content
+        # Events come with a default "General Admission" tier; ignore it.
+        return {row["name"]: row["total_available"] for row in response.json() if row["name"] != "General Admission"}
+
+    @pytest.fixture(autouse=True)
+    def _cap(self, public_event: Event) -> None:
+        public_event.max_attendees = 30
+        public_event.save(update_fields=["max_attendees"])
+
+    def test_tier_larger_than_cap_is_clamped(
+        self, client: Client, public_event: Event, tier_factory: t.Callable[..., TicketTier]
+    ) -> None:
+        tier_factory(event=public_event, name="Big", total_quantity=40)
+
+        assert self._available(client, public_event) == {"Big": 30}
+
+    def test_sold_tickets_on_other_tier_reduce_it(
+        self,
+        client: Client,
+        public_event: Event,
+        tier_factory: t.Callable[..., TicketTier],
+        ticket_factory: t.Callable[..., Ticket],
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        other = tier_factory(event=public_event, name="Other", total_quantity=100)
+        tier_factory(event=public_event, name="Big", total_quantity=40)
+        for _ in range(25):
+            ticket_factory(event=public_event, tier=other, user=revel_user_factory())
+
+        assert self._available(client, public_event)["Big"] == 5
+
+    def test_unlimited_tier_reports_remaining_cap(
+        self, client: Client, public_event: Event, tier_factory: t.Callable[..., TicketTier]
+    ) -> None:
+        tier_factory(event=public_event, name="Open", total_quantity=None)
+
+        assert self._available(client, public_event) == {"Open": 30}
+
+    def test_smaller_tier_keeps_its_own_figure(
+        self, client: Client, public_event: Event, tier_factory: t.Callable[..., TicketTier]
+    ) -> None:
+        tier_factory(event=public_event, name="Small", total_quantity=10)
+
+        assert self._available(client, public_event) == {"Small": 10}
+
+    def test_uncapped_event_returns_raw_tier_value(
+        self, client: Client, public_event: Event, tier_factory: t.Callable[..., TicketTier]
+    ) -> None:
+        public_event.max_attendees = 0
+        public_event.save(update_fields=["max_attendees"])
+        tier_factory(event=public_event, name="Big", total_quantity=40)
+        tier_factory(event=public_event, name="Open", total_quantity=None)
+
+        assert self._available(client, public_event) == {"Big": 40, "Open": None}
+
+    def test_cancelled_tickets_do_not_consume_capacity(
+        self,
+        client: Client,
+        public_event: Event,
+        tier_factory: t.Callable[..., TicketTier],
+        ticket_factory: t.Callable[..., Ticket],
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        tier = tier_factory(event=public_event, name="Big", total_quantity=40)
+        ticket_factory(event=public_event, tier=tier, user=revel_user_factory(), status=Ticket.TicketStatus.CANCELLED)
+        ticket_factory(event=public_event, tier=tier, user=revel_user_factory())
+
+        assert self._available(client, public_event)["Big"] == 29
+
+    def test_pending_offers_consume_capacity_unless_expired_or_cutoff(
+        self,
+        client: Client,
+        public_event: Event,
+        tier_factory: t.Callable[..., TicketTier],
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        tier_factory(event=public_event, name="Big", total_quantity=40)
+        in_an_hour = timezone.now() + timedelta(hours=1)
+        for expires_at, is_cutoff in [
+            (in_an_hour, False),
+            (in_an_hour, True),
+            (timezone.now() - timedelta(hours=1), False),
+        ]:
+            WaitlistOffer.objects.create(
+                event=public_event,
+                user=revel_user_factory(),
+                expires_at=expires_at,
+                batch_id=uuid.uuid4(),
+                is_cutoff_batch=is_cutoff,
+            )
+
+        assert self._available(client, public_event)["Big"] == 29
+
+    def test_hidden_capacity_stays_hidden(
+        self, client: Client, public_event: Event, tier_factory: t.Callable[..., TicketTier]
+    ) -> None:
+        public_event.visibility_settings = {"show_capacity": False}
+        public_event.save(update_fields=["visibility_settings"])
+        tier_factory(event=public_event, name="Big", total_quantity=40)
+
+        assert self._available(client, public_event) == {"Big": None}
+
+    def test_query_count_does_not_grow_with_tiers(
+        self,
+        client: Client,
+        public_event: Event,
+        tier_factory: t.Callable[..., TicketTier],
+    ) -> None:
+        url = reverse("api:tier_list", kwargs={"event_id": public_event.pk})
+        tier_factory(event=public_event, name="T1", total_quantity=40)
+        with CaptureQueriesContext(connection) as one_tier:
+            client.get(url)
+        tier_factory(event=public_event, name="T2", total_quantity=40)
+        tier_factory(event=public_event, name="T3", total_quantity=None)
+        with CaptureQueriesContext(connection) as three_tiers:
+            client.get(url)
+
+        assert len(three_tiers) == len(one_tier)

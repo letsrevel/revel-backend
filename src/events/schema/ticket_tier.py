@@ -180,13 +180,25 @@ class TicketTierSchema(ModelSchema):
         ``TicketTierSchema`` on the second pass. That instance carries no
         ``event``, and its ``total_available`` was already gated on the first
         pass, so it is passed through untouched.
+
+        When the listing attached the event's remaining capacity, the figure is
+        clamped to it, since checkout enforces both the tier and event limits.
         """
         event = getattr(obj, "event", None)
         if event is None:
             return t.cast(int | None, getattr(obj, "total_available", None))
         if not event.can_user_see_capacity(viewer_from_context(context)):
             return None
-        return t.cast(int | None, obj.total_available)
+        remaining = getattr(event, "_remaining_capacity", None)
+        if remaining is None:
+            return t.cast(int | None, obj.total_available)
+        # ponytail: only ``list_tiers`` attaches ``_remaining_capacity``, so a nested TicketTierSchema
+        # (ticket details, invitations) keeps the raw tier figure to avoid a per-event query; upgrade
+        # path is annotating those querysets. Checkout also excludes the buyer's own pending waitlist
+        # offer, which the listing does not, so a waitlisted buyer may see one fewer spot.
+        if obj.total_available is None:
+            return t.cast(int, remaining)
+        return min(t.cast(int, obj.total_available), t.cast(int, remaining))
 
     @staticmethod
     def resolve_effective_check_in_opens_at(obj: t.Any) -> datetime | None:
