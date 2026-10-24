@@ -250,6 +250,18 @@ One deliberate exception: the confirmation link in a **guest** RSVP or ticket em
 domain. That token is single-use, scoped to one RSVP or ticket on your own event and gives no
 login session.
 
+### Showing your events on your own website
+
+Your custom domain is a full site of its own; it is not meant to be framed. Browsers refuse to show it
+inside an `<iframe>` on another website, because every Revel page forbids framing to protect your
+attendees from clickjacking (a hidden page tricking them into clicking buttons). If you want your
+events **inside** an existing website, use the **embed** instead: organization admin → **Embed**
+gives you a snippet for your event list, a single event or a series. It is built to be framed, uses your colors and
+links into your custom domain. Link to your custom domain for everything else.
+
+Custom scripts such as analytics or tracking pixels can't be added to Revel pages, on your custom
+domain or anywhere else. The pages' content security policy only allows Revel's own scripts.
+
 ## For developers integrating with the API
 
 | Action | Endpoint |
