@@ -28,8 +28,9 @@ def sync_custom_domains_task() -> SyncCustomDomainsResult:
     Runs every 15 minutes via Celery Beat. Without Cloudflare for SaaS configured it syncs no domain. Any
     error on one domain is logged with the domain id and does not stop the others. Afterwards, once per
     sweep, stale hostname reservations are released (a PENDING domain that never proved ownership is failed after
-    7 days, a FAILED one retired after 7 more; both independent of Cloudflare, see ``custom_domain_service``) and
-    the Turnstile widget's hostname list is reconciled (a no-op unless that automation is configured).
+    7 days, a FAILED one retired after 7 more; both independent of Cloudflare, see ``custom_domain_service``),
+    ``Organization.custom_domain`` is re-asserted against the ACTIVE domains, and the Turnstile widget's hostname
+    list is reconciled (a no-op unless that automation is configured).
 
     Returns:
         How many domains were synced and how many raised an error.
@@ -39,6 +40,7 @@ def sync_custom_domains_task() -> SyncCustomDomainsResult:
         _sync_domains(result)
     custom_domain_service.expire_stale_pending_domains()
     custom_domain_service.release_stale_failed_domains()
+    custom_domain_service.heal_denormalized_hostnames()
     # The reconcile also heals drift, so it runs on every sweep. Cloudflare errors are handled inside it; this
     # guards the rest (DB, cache) so the sweep never fails because of it.
     try:

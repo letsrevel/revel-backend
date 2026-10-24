@@ -38,7 +38,9 @@ Two columns on `Organization` drive everything:
 - `custom_domain` (unique, nullable, not editable): a **denormalized copy** of the hostname of the
   organization's ACTIVE `OrganizationDomain`. Schemas, URL builders and the email sender read a
   column instead of joining a table, so nothing in a hot path costs a query. Only
-  `custom_domain_service` writes it.
+  `custom_domain_service` writes it, with queryset updates, and the sync sweep re-asserts it against
+  the ACTIVE domains (a full `save()` of an `Organization` loaded before a transition would
+  otherwise write the old value back, #1199).
 
 `tenant_service` maps a hostname to an organization id:
 
@@ -510,6 +512,15 @@ unchanged. Both skip organizations with the kill switch off, as the sync does, a
 
 Seven days matches Cloudflare deleting a `moved` hostname after a similar window and is generous for DNS
 propagation. A domain that just expired gets the full retention window before it is retired.
+
+**Self-healing of `Organization.custom_domain`** (#1199). `heal_denormalized_hostnames` runs in every
+sweep, whether or not Cloudflare is configured and whatever the kill switch says (the stored hostname
+survives the switch). For each ACTIVE domain whose organization carries another value it sets the hostname,
+and for each organization whose column names a hostname without an ACTIVE domain of its own it clears it.
+Two queries find the candidates; each repair then re-reads the ACTIVE domain under the organization lock,
+writes with a queryset update, logs a `custom_domain_denormalized_hostname_repaired` WARNING (organization and
+domain ids) and invalidates the tenant cache for the old and the new value on commit. The one known
+full-save path outside the admin, the malware quarantine in `common/tasks.py`, saves only the file column.
 
 **Active-domain alerts.** A live domain that goes wrong is invisible to visitors until it breaks, so
 `sync_domain_status` raises the alarm on the **edge**, never on every sweep:

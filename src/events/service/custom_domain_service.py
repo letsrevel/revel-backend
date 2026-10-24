@@ -1,9 +1,9 @@
 """Custom-domain lifecycle (white-label, #1152) and Cloudflare provisioning (#1151).
 
 The only writer of ``Organization.custom_domain``, the denormalized hostname of an
-organization's ACTIVE domain. Every transition runs in a transaction holding the
-organization's row lock, keeps that column in step with the domain status, and drops the
-tenant-resolution cache entry once the transaction commits.
+organization's ACTIVE domain (the sweep re-asserts it: :func:`heal_denormalized_hostnames`). Every
+transition runs in a transaction holding the organization's row lock, keeps that column in step with
+the domain status, and drops the tenant-resolution cache entry once the transaction commits.
 
 Provisioning (``request_domain`` / ``sync_domain_status`` / ``delete_domain``) talks to Cloudflare
 only when it is configured (:func:`cloudflare_custom_hostnames.is_configured`); otherwise a domain
@@ -12,11 +12,14 @@ is just a row carrying the CNAME instruction and platform staff activate it from
 
 import typing as t
 from datetime import timedelta
+from functools import partial
+from uuid import UUID
 
 import structlog
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -710,3 +713,82 @@ def release_stale_failed_domains() -> int:
         else:
             released += 1
     return released
+
+
+# ---- Self-healing of the denormalized hostname (#1199) ----
+
+
+def _heal_organization(organization_id: UUID) -> bool:
+    """Make one organization's ``custom_domain`` equal the hostname of its ACTIVE domain (or ``None``).
+
+    Done under the organization's row lock, like every transition, and decided from the rows read under that lock,
+    so a transition that committed after the sweep picked the organization is not undone.
+    """
+    with transaction.atomic():
+        organization = Organization.objects.select_for_update().get(pk=organization_id)
+        active = OrganizationDomain.objects.filter(
+            organization=organization, status=OrganizationDomain.Status.ACTIVE
+        ).first()
+        expected = active.hostname if active else None
+        previous = organization.custom_domain
+        if previous == expected:
+            return False
+        # Queryset update, never ``save()``: that is how the column is written everywhere else.
+        Organization.objects.filter(pk=organization.pk).update(custom_domain=expected)
+        logger.warning(
+            "custom_domain_denormalized_hostname_repaired",
+            organization_id=str(organization.pk),
+            domain_id=str(active.pk) if active else None,
+            action="set" if expected else "cleared",
+        )
+        for hostname in (previous, expected):
+            if hostname:
+                transaction.on_commit(partial(invalidate_tenant_cache, hostname))
+    return True
+
+
+def heal_denormalized_hostnames() -> int:
+    """Re-assert ``Organization.custom_domain`` against the ACTIVE domains; log a WARNING per repair.
+
+    The column is written by queryset updates in this module, but a full ``save()`` of an ``Organization``
+    loaded before a transition writes the old value back, and an ACTIVE to ACTIVE sync is not a transition, so
+    nothing else would repair it. Two mismatches are fixed: an ACTIVE domain whose organization carries another
+    value (usually ``None``: the domain would not resolve) and an organization whose column names a hostname with no
+    ACTIVE domain of its own (a FAILED or REMOVED domain's hostname coming back). The tenant cache is invalidated for
+    the old and the new value on commit. It is independent of Cloudflare and of the kill switch: the stored hostname
+    survives the switch being off, so the column must stay right.
+
+    Two queries find the candidates (a handful of rows), so consistent data costs nothing more; each repair then
+    re-checks under the organization lock. Errors are isolated per organization.
+
+    Returns:
+        How many organizations were repaired.
+    """
+    mismatched = {
+        domain.organization_id
+        for domain in OrganizationDomain.objects.filter(status=OrganizationDomain.Status.ACTIVE).select_related(
+            "organization"
+        )
+        if domain.organization.custom_domain != domain.hostname
+    }
+    unbacked = set(
+        Organization.objects.filter(custom_domain__isnull=False)
+        .exclude(
+            Exists(
+                OrganizationDomain.objects.filter(
+                    organization=OuterRef("pk"),
+                    hostname=OuterRef("custom_domain"),
+                    status=OrganizationDomain.Status.ACTIVE,
+                )
+            )
+        )
+        .values_list("pk", flat=True)
+    )
+    repaired = 0
+    # Clear before setting: ``custom_domain`` is unique, so a hostname must leave a wrong holder first.
+    for organization_id in [*unbacked, *(mismatched - unbacked)]:
+        try:
+            repaired += _heal_organization(organization_id)
+        except Exception:
+            logger.exception("custom_domain_heal_failed", organization_id=str(organization_id))
+    return repaired

@@ -400,6 +400,12 @@ The windows are the constants `PENDING_EXPIRY` and `FAILED_RETENTION` in
 `events/service/custom_domain_service.py` (7 days each, like the window after which Cloudflare deletes
 a `moved` hostname). A domain that just expired is retired no sooner than 7 days later.
 
+The sweep also re-asserts the denormalized `Organization.custom_domain` (see
+[architecture](../../architecture/white-label.md)): a full save of a stale organization can write an old value back,
+which would make an active domain stop resolving. Each repair logs a `custom_domain_denormalized_hostname_repaired`
+WARNING with the organization id and clears the tenant cache; the sweep does this with or without Cloudflare.
+If you see it repeatedly, something keeps overwriting the column.
+
 Finally the sweep reconciles the [Turnstile widget](#turnstile) once (when that
 automation is configured); a failure there is logged and alerted, never raised.
 
