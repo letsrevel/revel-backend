@@ -203,15 +203,44 @@ def _require_enabled(organization: Organization) -> None:
         raise CustomDomainNotEnabledError
 
 
-def _dns_records(hostname: str, hosted: cloudflare.CustomHostname | None) -> list[dict[str, str]]:
-    """Build the DNS instructions for an organization: the CNAME plus any TXT records Cloudflare asks for."""
+def _ownership_record(
+    hostname: str, hosted: cloudflare.CustomHostname | None, stored: list[dict[str, str]]
+) -> tuple[str, str] | None:
+    """Return the ``(name, value)`` of the ownership TXT record Cloudflare issued for this hostname, if any.
+
+    Cloudflare returns ``ownership_verification`` only until it has verified the hostname, then drops it from
+    the API response. With HTTP validation that takes minutes, so a sync usually first sees the hostname ready
+    *without* the record. The copy stored in ``verification_records`` stands in: a row's Cloudflare hostname is
+    created once, with the row, so the stored record was issued for that same hostname and proves the same thing.
+    """
+    ownership = hosted.ownership_verification if hosted else None
+    if ownership and ownership.name and ownership.value:
+        return ownership.name, ownership.value
+    name = f"{dns_diagnostics.OWNERSHIP_TXT_LABEL}.{hostname}"
+    return next(
+        (
+            (r["name"], r["value"])
+            for r in stored
+            if r["type"] == DnsRecordType.TXT and r["name"] == name and r["value"]
+        ),
+        None,
+    )
+
+
+def _dns_records(
+    hostname: str, hosted: cloudflare.CustomHostname | None, stored: list[dict[str, str]] | None = None
+) -> list[dict[str, str]]:
+    """Build the DNS instructions for an organization: the CNAME plus any TXT records Cloudflare asks for.
+
+    ``stored`` are the instructions saved so far; they keep the ownership TXT record listed once Cloudflare
+    stops returning it (see :func:`_ownership_record`).
+    """
     records: list[tuple[DnsRecordType, str, str]] = []
     if target := settings.CUSTOM_DOMAIN_CNAME_TARGET:
         records.append((DnsRecordType.CNAME, hostname, target))
+    if ownership := _ownership_record(hostname, hosted, stored or []):
+        records.append((DnsRecordType.TXT, *ownership))
     if hosted:
-        ownership = hosted.ownership_verification
-        if ownership and ownership.name and ownership.value:
-            records.append((DnsRecordType.TXT, ownership.name, ownership.value))
         for record in hosted.ssl.validation_records if hosted.ssl else []:
             if record.txt_name and record.txt_value:
                 records.append((DnsRecordType.TXT, record.txt_name, record.txt_value))
@@ -240,21 +269,25 @@ def _hosted_errors(hosted: cloudflare.CustomHostname) -> list[str]:
     return list(dict.fromkeys(messages))  # de-duplicated, order preserved
 
 
-def _ownership_error(hostname: str, hosted: cloudflare.CustomHostname) -> str | None:
+def _ownership_error(domain: OrganizationDomain, hosted: cloudflare.CustomHostname) -> str | None:
     """Return why a domain Cloudflare reports ready may not be activated yet, or ``None`` once ownership is proven.
 
     Cloudflare activates a hostname on its CNAME alone (HTTP validation), without the ownership TXT record, so
     a dangling CNAME of a removed domain would let another organization claim the hostname. Activation
-    therefore also requires that TXT record to be published in public DNS. Fails closed: a missing
-    ``ownership_verification`` or a failed lookup keeps the domain PENDING.
+    therefore also requires that TXT record to be published in public DNS. The record is Cloudflare's current
+    ``ownership_verification`` or, once Cloudflare has dropped it, the stored copy (:func:`_ownership_record`).
+    Fails closed: no record either way, or a failed lookup, keeps the domain PENDING.
     """
-    ownership = hosted.ownership_verification
-    if not (ownership and ownership.name and ownership.value):
-        logger.warning("custom_domain_ownership_record_missing", hostname=hostname, cloudflare_hostname_id=hosted.id)
+    ownership = _ownership_record(domain.hostname, hosted, domain.verification_records)
+    if ownership is None:
+        logger.warning(
+            "custom_domain_ownership_record_missing", hostname=domain.hostname, cloudflare_hostname_id=hosted.id
+        )
         return "Cloudflare has not issued the ownership TXT record for this hostname yet."
-    if cloudflare.txt_record_published(ownership.name, ownership.value):
+    name, value = ownership
+    if cloudflare.txt_record_published(name, value):
         return None
-    return f"Add the TXT record {ownership.name} with value {ownership.value} to prove you own this hostname."
+    return f"Add the TXT record {name} with value {value} to prove you own this hostname."
 
 
 def _target_status(current: str, hosted: cloudflare.CustomHostname) -> OrganizationDomainStatus | None:
@@ -288,7 +321,7 @@ def _gate_and_diagnose(
     errors = _hosted_errors(hosted)
     target = _target_status(expected, hosted)
     ownership_only = False
-    if target == OrganizationDomain.Status.ACTIVE and (proof_error := _ownership_error(domain.hostname, hosted)):
+    if target == OrganizationDomain.Status.ACTIVE and (proof_error := _ownership_error(domain, hosted)):
         errors, target = [*errors, proof_error], None  # ready at Cloudflare, but ownership is not proven: stay PENDING
         ownership_only = True
     if expected == OrganizationDomain.Status.PENDING and target != OrganizationDomain.Status.ACTIVE:
@@ -505,7 +538,7 @@ def sync_domain_status(domain: OrganizationDomain) -> OrganizationDomain:
     if not domain.cloudflare_hostname_id:
         return domain
     hosted = cloudflare.get_custom_hostname(domain.cloudflare_hostname_id)
-    records = _dns_records(domain.hostname, hosted)
+    records = _dns_records(domain.hostname, hosted, domain.verification_records)
     errors, target = _gate_and_diagnose(domain, expected, hosted)
     # A live domain developing a problem is only visible here: alert once, on the clean -> problem edge.
     new_active_problem = expected == OrganizationDomain.Status.ACTIVE and bool(errors) and not domain.last_errors
