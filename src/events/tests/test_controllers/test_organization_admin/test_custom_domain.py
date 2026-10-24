@@ -59,6 +59,13 @@ def no_dns_preflight() -> t.Iterator[MagicMock]:
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def no_dns_provider_lookup() -> t.Iterator[MagicMock]:
+    """The DNS host detection is tested in ``test_dns_diagnostics`` (no network); tests may set ``return_value``."""
+    with patch.object(dns_diagnostics, "detect_dns_provider", return_value=None) as mock:
+        yield mock
+
+
 @pytest.fixture
 def enabled_org(organization: Organization) -> Organization:
     organization.custom_domain_enabled = True
@@ -93,7 +100,38 @@ def test_get_returns_domain_with_dns_instructions(organization_owner_client: Cli
         "cname_target": CNAME_TARGET,
         "verified_at": None,
         "errors": [],
+        "dns_provider": None,
     }
+
+
+def test_get_exposes_the_dns_provider_of_a_pending_domain(
+    organization_owner_client: Client, enabled_org: Organization, no_dns_provider_lookup: MagicMock
+) -> None:
+    no_dns_provider_lookup.return_value = dns_diagnostics.DnsProvider(
+        "domaincontrol.com", "GoDaddy", "https://help.example/godaddy"
+    )
+    OrganizationDomain.objects.create(organization=enabled_org, hostname="events.example.com")
+
+    response = organization_owner_client.get(_url("get_custom_domain", enabled_org))
+
+    assert response.status_code == 200
+    assert response.json()["dns_provider"] == {"name": "GoDaddy", "help_url": "https://help.example/godaddy"}
+    no_dns_provider_lookup.assert_called_once_with("events.example.com")
+
+
+def test_get_hides_the_dns_provider_of_an_active_domain(
+    organization_owner_client: Client, enabled_org: Organization, no_dns_provider_lookup: MagicMock
+) -> None:
+    no_dns_provider_lookup.return_value = dns_diagnostics.DnsProvider(
+        "domaincontrol.com", "GoDaddy", "https://help.example/godaddy"
+    )
+    OrganizationDomain.objects.create(organization=enabled_org, hostname="events.example.com", status=Status.ACTIVE)
+
+    response = organization_owner_client.get(_url("get_custom_domain", enabled_org))
+
+    assert response.status_code == 200
+    assert response.json()["dns_provider"] is None
+    no_dns_provider_lookup.assert_not_called()
 
 
 def test_get_exposes_the_problems_cloudflare_reported(

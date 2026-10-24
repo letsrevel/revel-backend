@@ -7,7 +7,8 @@ from django.conf import settings
 from ninja import Schema
 from pydantic import AwareDatetime, Field
 
-from events.models import OrganizationDomainStatus
+from events.models import OrganizationDomain, OrganizationDomainStatus
+from events.service import dns_diagnostics
 
 
 class DnsRecordType(enum.StrEnum):
@@ -23,6 +24,13 @@ class DnsRecordSchema(Schema):
     type: DnsRecordType
     name: str
     value: str
+
+
+class DnsProviderSchema(Schema):
+    """The DNS host of a custom domain, with a link to its "add a record" help page."""
+
+    name: str
+    help_url: str
 
 
 class CustomDomainRequestSchema(Schema):
@@ -44,6 +52,12 @@ class CustomDomainSchema(Schema):
         description="Problems Cloudflare reported at the last status sync (hostname verification, certificate).",
     )
 
+    dns_provider: DnsProviderSchema | None = Field(
+        default=None,
+        description="The DNS host detected from the domain's NS records, with its help page for adding DNS "
+        "records. Only set while the domain is pending, and only when the host is a known one.",
+    )
+
     @staticmethod
     def resolve_errors(obj: t.Any) -> list[str]:
         """The problems stored at the last Cloudflare sync."""
@@ -53,3 +67,11 @@ class CustomDomainSchema(Schema):
     def resolve_cname_target(obj: t.Any) -> str | None:
         """The fallback-origin hostname the domain must CNAME to (``None`` when the platform has not set one)."""
         return settings.CUSTOM_DOMAIN_CNAME_TARGET or None
+
+    @staticmethod
+    def resolve_dns_provider(obj: t.Any) -> DnsProviderSchema | None:
+        """The detected DNS host, for pending domains only (the others no longer need DNS help)."""
+        if obj.status != OrganizationDomain.Status.PENDING:
+            return None
+        provider = dns_diagnostics.detect_dns_provider(obj.hostname)
+        return DnsProviderSchema(name=provider.name, help_url=provider.help_url) if provider else None

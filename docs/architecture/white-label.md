@@ -471,6 +471,11 @@ are never diagnosed, and when Cloudflare is ready with only the TXT missing, onl
 The registrable domain is the naive last two labels (#1177), so under a multi-part suffix such as `co.uk` the
 doubled-name and provider hints are missed.
 
+The custom-domain API also exposes the detected DNS host as `dns_provider` (`{name, help_url}` or `null`) so the
+frontend can deep-link the "add a record" help page. It is set for PENDING domains only, from
+`dns_diagnostics.detect_dns_provider` (the same NS lookup and `DNS_PROVIDERS` table), and cached per registrable
+domain in the Django cache: 1 hour for a completed lookup, 5 minutes when the lookup failed, because the page polls.
+
 `events.sync_custom_domains` calls it every 15 minutes with per-domain error isolation, and the
 owner's refresh endpoint calls it on demand. Without Cloudflare configured nothing is provisioned
 and the task is a no-op; staff activate by hand.
