@@ -202,9 +202,12 @@ def unfollow_organization(user: RevelUser, organization: Organization) -> None:
     )
 
 
-def get_user_followed_organizations(user: RevelUser) -> QuerySet[OrganizationFollow]:
-    """Get all organizations followed by a user."""
-    return _with_announcements_muted(OrganizationFollow.objects.active().for_user(user).with_organization())
+def get_user_followed_organizations(user: RevelUser, organization: UUID | None = None) -> QuerySet[OrganizationFollow]:
+    """Get all organizations followed by a user, optionally only the follow of one organization."""
+    qs = OrganizationFollow.objects.active().for_user(user)
+    if organization is not None:
+        qs = qs.filter(organization_id=organization)
+    return _with_announcements_muted(qs.with_organization())
 
 
 def update_organization_follow_preferences(
@@ -333,9 +336,12 @@ def unfollow_event_series(user: RevelUser, event_series: EventSeries) -> None:
     )
 
 
-def get_user_followed_event_series(user: RevelUser) -> QuerySet[EventSeriesFollow]:
-    """Get all event series followed by a user."""
-    return EventSeriesFollow.objects.active().for_user(user).with_event_series()
+def get_user_followed_event_series(user: RevelUser, organization: UUID | None = None) -> QuerySet[EventSeriesFollow]:
+    """Get all event series followed by a user, optionally only the follows within one organization."""
+    qs = EventSeriesFollow.objects.active().for_user(user)
+    if organization is not None:
+        qs = qs.filter(event_series__organization_id=organization)
+    return qs.with_event_series()
 
 
 def update_event_series_follow_preferences(

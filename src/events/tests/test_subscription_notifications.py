@@ -49,6 +49,7 @@ class TestSubscriptionNotificationTypes:
         validate_notification_context(
             NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
             {
+                "organization_id": "00000000-0000-0000-0000-000000000001",
                 "organization_name": "Acme",
                 "organization_slug": "acme",
                 "plan_name": "Monthly",
@@ -341,6 +342,17 @@ class TestDispatchHelpers:
         )
         base_url = SiteSettings.get_solo().frontend_base_url
         assert n.context["organization_contact_url"] == f"{base_url}/org/{organization.slug}"
+
+    def test_context_carries_organization_id_for_sender_resolution(
+        self, helper_subscription: MembershipSubscription, organization: Organization
+    ) -> None:
+        """The email channel resolves the org sender (#1155) from organization_id, so the context must carry it."""
+        subscription_notifications._dispatch_renewal_succeeded(helper_subscription)
+        n = Notification.objects.get(
+            user=helper_subscription.user,
+            notification_type=NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        )
+        assert n.context["organization_id"] == str(organization.id)
 
     def test_expired_omits_revival_when_expired_at_none(self, helper_subscription: MembershipSubscription) -> None:
         assert helper_subscription.expired_at is None

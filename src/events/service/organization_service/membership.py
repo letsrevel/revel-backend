@@ -24,6 +24,7 @@ from events.models import (
     OrganizationStaff,
     PermissionsSchema,
 )
+from events.utils.frontend_urls import frontend_base_url_for
 
 if t.TYPE_CHECKING:
     from events.schema import MembershipTierCreateSchema, MembershipTierUpdateSchema
@@ -251,7 +252,7 @@ def approve_membership_request(
         created = False  # don't fire MEMBERSHIP_GRANTED on the paid branch yet
 
     def send_approval_notification() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(membership_request.organization)
         notification_requested.send(
             sender=models.OrganizationMembershipRequest,
             user=membership_request.user,

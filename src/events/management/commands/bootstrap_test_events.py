@@ -14,6 +14,7 @@ from common.models import SiteSettings, Tag
 from events import models as events_models
 from events.management.commands.bootstrap_helpers.compliance import create_compliance_fixtures
 from events.management.commands.bootstrap_helpers.logos import attach_logo
+from events.management.commands.bootstrap_helpers.tenant_orgs import create_tenant_fixtures
 from events.management.commands.seeder.tickets import ATTRIBUTION_CAMPAIGNS
 from geo.models import City
 from questionnaires import models as questionnaires_models
@@ -57,6 +58,9 @@ class Command(BaseCommand):
         # Create organization
         self._create_organization()
 
+        # White-label: dedicated orgs served from tenant.localhost / paid.localhost (needs DEBUG for *.localhost)
+        self._create_tenant_domains()
+
         # Create questionnaire
         self._create_questionnaire()
 
@@ -84,6 +88,10 @@ class Command(BaseCommand):
         logger.info(f"Admin User: {self.admin_user.email} / password123")
         logger.info(f"Staff User: {self.staff_user.email} / password123")
         logger.info(f"Member User: {self.member_user.email} / password123")
+        logger.info(
+            "Tenant Owner: tenant.owner@example.com / password123 "
+            "(orgs tenant-test-org, tenant-paid-org, tenant-revoke-org)"
+        )
         logger.info("Subscription fixtures: test.revival.in@ / test.revival.out@ / test.pastdue@example.com")
         logger.info("Referrer: test.referrer@example.com / password123 (code test-partner, 20% share)")
         logger.info(
@@ -137,7 +145,17 @@ class Command(BaseCommand):
             email_verified=True,
         )
 
-        logger.info("Created 4 test users")
+        # Owner of the dedicated white-label tenant organizations
+        self.tenant_owner = RevelUser.objects.create_user(
+            username="tenant.owner@example.com",
+            password="password123",
+            email="tenant.owner@example.com",
+            first_name="Tenant",
+            last_name="Owner",
+            email_verified=True,
+        )
+
+        logger.info("Created 5 test users")
 
     def _create_organization(self) -> None:
         """Create test organization with members."""
@@ -181,6 +199,10 @@ class Command(BaseCommand):
         attach_logo(self.org, key=self.org.slug, name=self.org.name)
 
         logger.info(f"Created organization: {self.org.name}")
+
+    def _create_tenant_domains(self) -> None:
+        """Seed the dedicated white-label tenant orgs; never the shared fixtures (the frontend 301s their URLs)."""
+        create_tenant_fixtures(self.tenant_owner, self.city, self.now)
 
     def _create_questionnaire(self) -> None:
         """Create a simple questionnaire for testing."""

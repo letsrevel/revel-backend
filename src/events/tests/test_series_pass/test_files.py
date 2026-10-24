@@ -161,6 +161,18 @@ class TestComputeContentHash:
         hash_after = series_pass_file_service.compute_content_hash(held_pass)
         assert hash_before != hash_after
 
+    def test_changes_when_organization_branding_changes(self, held_pass: HeldSeriesPass) -> None:
+        """Brand colors (#1157) are part of the pass look: a branding change invalidates the cache."""
+        before = series_pass_file_service.compute_content_hash(held_pass)
+
+        organization = held_pass.series_pass.event_series.organization
+        Organization.objects.filter(pk=organization.pk).update(branding={"primary_color": "#1E88E5"})
+        held_pass = HeldSeriesPass.objects.select_related("series_pass__event_series__organization").get(
+            pk=held_pass.pk
+        )
+
+        assert series_pass_file_service.compute_content_hash(held_pass) != before
+
     def test_changes_when_series_pass_updated_at_changes(
         self, held_pass: HeldSeriesPass, fs_series_pass: SeriesPass
     ) -> None:

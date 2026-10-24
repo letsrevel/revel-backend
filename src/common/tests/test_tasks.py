@@ -1,10 +1,12 @@
 import hashlib
+import io
 import typing as t
 from unittest import mock
 from unittest.mock import MagicMock
 
 import pytest
 from django.core.files.base import ContentFile
+from PIL import Image
 
 from common.models import FileUploadAudit, QuarantinedFile
 from common.service.upload_service import safe_save_uploaded_file
@@ -144,6 +146,47 @@ def test_scan_for_malware_rescan_skips_already_quarantined_audit(
     assert second.status == FileUploadAudit.FileUploadAuditStatus.MALICIOUS
     assert QuarantinedFile.objects.filter(audit=second).exists()
     assert QuarantinedFile.objects.count() == 2
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_quarantine_does_not_write_back_stale_fields_of_the_instance(
+    mock_clamd: MagicMock, mock_notify: MagicMock, revel_user_factory: RevelUserFactory, settings: t.Any
+) -> None:
+    """The instance is loaded before the (slow) scan; the quarantine must only blank the file column.
+
+    A full ``save()`` would write ``custom_domain`` back as it was when the instance was loaded, undoing a
+    domain activation that committed during the scan (#1199).
+    """
+    settings.FEATURE_MALWARE_SCAN = True
+    buffer = io.BytesIO()
+    Image.new("RGB", (1, 1)).save(buffer, format="PNG")  # the logo is an ImageField: it must be a real image
+    payload = buffer.getvalue()
+    owner = revel_user_factory()
+    org = Organization.objects.create(name="Test Organization", owner=owner, logo=ContentFile(payload, name="a.png"))
+    FileUploadAudit.objects.create(
+        app="events",
+        model="Organization",
+        instance_pk=org.pk,
+        field="logo",
+        file_hash=hashlib.sha256(payload).hexdigest(),
+        uploader=owner.email,
+    )
+
+    def scan_while_domain_activates(_: bytes) -> dict[str, t.Any]:
+        Organization.objects.filter(pk=org.pk).update(custom_domain="live.example.com")
+        return {"stream": ("FOUND", "Eicar-Test-Signature")}
+
+    clamd = mock_clamd.return_value
+    clamd.ping.return_value = True
+    clamd.scan_stream.side_effect = scan_while_domain_activates
+
+    scan_for_malware(app="events", model="Organization", pk=str(org.pk), field="logo")
+
+    org.refresh_from_db()
+    assert not org.logo
+    assert org.custom_domain == "live.example.com"
+    mock_notify.assert_called_once()
 
 
 @mock.patch("common.tasks.send_email.delay")

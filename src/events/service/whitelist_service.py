@@ -15,6 +15,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Blacklist, Organization, WhitelistRequest
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -158,7 +159,7 @@ def approve_whitelist_request(
 
     # Send notification to user
     def send_notification() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(request.organization)
         notification_requested.send(
             sender=WhitelistRequest,
             user=request.user,

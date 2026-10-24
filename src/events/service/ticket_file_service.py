@@ -19,6 +19,7 @@ from django.core.files.storage import default_storage
 
 from events.compliance.enforcement import ticket_fields
 from events.models import Ticket
+from events.utils.pass_branding import get_pass_brand_colors
 
 if t.TYPE_CHECKING:
     from wallet.apple.generator import ApplePassGenerator
@@ -63,6 +64,10 @@ def compute_content_hash(ticket: Ticket) -> str:
     # pass, an org billing edit, a price_paid stamp — so they are hashed by value.
     parts.append(ticket.status)
     parts.append("|".join(f"{field.key}={field.value}" for field in ticket_fields(ticket)))
+    # Brand colors (#1157) are hashed by value, and only when set, so unbranded hashes (and the
+    # files cached under them) stay valid while a branding change invalidates the cache.
+    if brand := get_pass_brand_colors(ticket.event.organization):
+        parts.append(f"brand={brand.model_dump_json()}")
     raw = "|".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()
 

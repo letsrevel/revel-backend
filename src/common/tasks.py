@@ -307,8 +307,10 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
         QuarantinedFile.objects.bulk_create(quarantined, ignore_conflicts=True)
         if instance._meta.get_field(field).null:
             # Nullable field: blank the reference so the live file is dropped.
+            # Only that column: ``instance`` was loaded before the scan, so a full save would write every other
+            # field back as it was then, undoing writes made meanwhile (e.g. ``Organization.custom_domain``, #1199).
             setattr(instance, field, None)
-            instance.save()
+            instance.save(update_fields=[field])
         else:
             # Non-nullable field: full_clean() would reject a blank value and roll back the
             # quarantine, so remove the file and the row outright instead.

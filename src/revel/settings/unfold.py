@@ -153,6 +153,11 @@ UNFOLD = {
                         "link": reverse_lazy("admin:events_organizationmembershiprequest_changelist"),
                     },
                     {
+                        "title": _("Custom Domains"),
+                        "icon": "language",
+                        "link": reverse_lazy("admin:events_organizationdomain_changelist"),
+                    },
+                    {
                         "title": _("Organization Tokens"),
                         "icon": "vpn_key",
                         "link": reverse_lazy("admin:events_organizationtoken_changelist"),

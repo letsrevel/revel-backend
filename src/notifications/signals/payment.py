@@ -11,6 +11,7 @@ from django.dispatch import receiver
 
 from common.models import SiteSettings
 from events.models import Event, Payment, Ticket
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.context_schemas import EventRefundSummaryContext, RefundUnmatchedCandidate
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
@@ -70,9 +71,8 @@ def _send_payment_confirmation(payment: Payment) -> None:
 
     event = ticket.event
 
-    # Build frontend URL
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    frontend_url = f"{frontend_base_url}/events/{event.id}"
+    # Attendee-facing: the link follows the organization's custom domain (no token on it).
+    frontend_url = f"{frontend_base_url_for(event.organization)}/events/{event.id}"
 
     # Format event details in event's timezone
     event_start_formatted = format_event_datetime(event.start, event)
@@ -90,6 +90,7 @@ def _send_payment_confirmation(payment: Payment) -> None:
             "ticket_reference": str(ticket.id),
             "event_id": str(event.id),
             "event_name": event.name,
+            "organization_id": str(event.organization_id),
             "event_start": event.start.isoformat() if event.start else "",
             "event_start_formatted": event_start_formatted,
             "event_location": event_location,
@@ -139,7 +140,8 @@ def _send_refund_notifications(payment: Payment) -> None:
         sender=_send_refund_notifications,
         user=payment.user,
         notification_type=NotificationType.TICKET_REFUNDED,
-        context=context,
+        # organization_id lets enrichment point event_url at the org's custom domain (#1153).
+        context={**context, "organization_id": str(event.organization_id)},
     )
 
     # Notify staff/owners with additional context

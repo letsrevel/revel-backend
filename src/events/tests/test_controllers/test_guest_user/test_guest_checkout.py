@@ -67,6 +67,9 @@ class TestGuestTicketCheckout:
         # Check email was sent
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args[0]
+        # Exactly the pre-white-label shape (rolling deploy: an old worker rejects extra args)
+        assert len(call_args) == 4
+        assert mock_send_email.call_args[1] == {}
         assert call_args[0] == "freeticket@example.com"
         assert call_args[2] == guest_event_with_tickets.name
         assert call_args[3] == free_tier.name

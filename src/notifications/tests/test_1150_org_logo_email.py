@@ -77,8 +77,8 @@ def test_enrichment_omits_logo_key_for_unknown_org() -> None:
     assert "organization_logo_url" not in enriched
 
 
-def test_enrichment_keeps_caller_supplied_logo_without_query(organization: Organization) -> None:
-    """An explicit organization_logo_url wins and skips the organization lookup."""
+def test_enrichment_keeps_caller_supplied_logo(organization: Organization) -> None:
+    """An explicit organization_logo_url wins; the single org lookup now serves the tenant origin (#1153)."""
     _give_logo(organization)
 
     with CaptureQueriesContext(connection) as captured:
@@ -87,11 +87,11 @@ def test_enrichment_keeps_caller_supplied_logo_without_query(organization: Organ
         )
 
     assert enriched["organization_logo_url"] == "https://cdn.example.test/logo.png"
-    assert _org_queries(captured) == []
+    assert len(_org_queries(captured)) == 1
 
 
 def test_enrichment_respects_explicitly_empty_logo(organization: Organization) -> None:
-    """A caller passing an empty organization_logo_url opts out of the logo and the lookup."""
+    """A caller passing an empty organization_logo_url opts out of the logo (the lookup still serves the origin)."""
     _give_logo(organization)
 
     with CaptureQueriesContext(connection) as captured:
@@ -99,7 +99,7 @@ def test_enrichment_respects_explicitly_empty_logo(organization: Organization) -
 
     assert enriched["organization_logo_url"] == ""
     assert "<img" not in enriched["org_signature_html"]
-    assert _org_queries(captured) == []
+    assert len(_org_queries(captured)) == 1
 
 
 def test_enrichment_looks_up_org_with_exactly_one_query(organization: Organization) -> None:

@@ -50,6 +50,22 @@ def test_find_reserved_token_allows_legit_names() -> None:
     assert find_reserved_token("Common Ground Society") is None  # 'common' is not reserved
 
 
+def test_find_reserved_token_blocks_the_by_domain_slug() -> None:
+    """``by-domain`` would shadow the /organizations/by-domain/{hostname} route, so that exact slug is reserved."""
+    assert find_reserved_token("By Domain") == "by-domain"
+    assert find_reserved_token("by-domain") == "by-domain"
+    assert find_reserved_token("  BY   DOMAIN!! ") == "by-domain"
+
+
+def test_find_reserved_token_allows_by_and_domain_separately() -> None:
+    """The reservation is the exact slug, not the tokens: legitimate names containing them stay open."""
+    assert find_reserved_token("By The Sea") is None
+    assert find_reserved_token("Domain Experts") is None
+    assert find_reserved_token("Led by Domain Experts") is None
+    assert find_reserved_token("By") is None
+    assert find_reserved_token("Domain") is None
+
+
 def test_find_reserved_token_handles_empty_input() -> None:
     assert find_reserved_token("") is None
     assert find_reserved_token("!!! ???") is None

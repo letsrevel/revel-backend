@@ -57,6 +57,18 @@ certificate issuance over the HTTP-01/TLS-ALPN challenge.
 After certificates are issued, re-enabling the proxy is safe and gives you Cloudflare's CDN, DDoS
 protection, and edge caching.
 
+## Customer domains (Cloudflare for SaaS)
+
+Organizations on your instance can serve their pages from their own domains. If your zone is on
+Cloudflare, Revel can provision those hostnames through Cloudflare for SaaS: customers CNAME to a
+**fallback origin** hostname in your zone (set it up with the grey-then-orange sequence above), and
+Cloudflare issues their certificates. A zone has **one** fallback origin, so two deployments on
+the same zone cannot both serve customer domains at once. The zone runs Full (strict) with "Always
+Use HTTPS" off, and Caddy gets origin certificates for customer hostnames on demand. The fallback
+origin, the API token, the plan requirements and the origin TLS setup are covered in the [platform
+operator guide](../guides/white-label/operators.md#cloudflare-for-saas). This is separate from the
+Caddy certificates for your own hostnames described on this page.
+
 ## The Cloudflare Caddyfile variant
 
 When you proxy through Cloudflare, the client IP that reaches Caddy is Cloudflare's, not the real

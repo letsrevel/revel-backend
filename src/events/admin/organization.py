@@ -5,6 +5,7 @@ import typing as t
 
 from django.conf import settings
 from django.contrib import admin, messages
+from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest
@@ -26,6 +27,8 @@ from events.admin.base import (
     UserLinkMixin,
     VenueInline,
 )
+from events.service import custom_domain_service, turnstile_hostname_service
+from events.service.tenant_service import invalidate_tenant_cache
 
 
 class StripeConnectedFilter(admin.SimpleListFilter):
@@ -119,6 +122,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         "platform_fee_percent",
         "platform_fee_fixed",
         "contact_email_verified",
+        "custom_domain_enabled",  # platform switch for white-label domains
     )
 
     def get_readonly_fields(
@@ -131,6 +135,22 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                 # Ownership transfer is superuser-only; owner stays settable on create.
                 readonly = readonly + ("owner",)
         return readonly
+
+    def save_model(self, request: HttpRequest, obj: models.Organization, form: t.Any, change: bool) -> None:
+        """Drop the tenant-cache entry when the custom-domain kill switch flips.
+
+        Flipping ``custom_domain_enabled`` changes whether the active hostname resolves, so the cached
+        answer for it must go. Invalidation waits for commit, so a rolled-back save leaves the cache alone.
+        Switching it back on also signs out the sessions issued before it was switched off.
+        """
+        super().save_model(request, obj, form, change)
+        flipped = "custom_domain_enabled" in form.changed_data
+        if flipped and obj.custom_domain_enabled:
+            custom_domain_service.restart_domain_sessions(obj)
+        if flipped and obj.custom_domain:
+            hostname = obj.custom_domain
+            transaction.on_commit(lambda: invalidate_tenant_cache(hostname))
+            turnstile_hostname_service.schedule_reconcile()  # the switch adds or removes the hostname on the widget
 
     list_display = [
         "name",
@@ -158,11 +178,11 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     search_fields = ["name", "slug", "owner__username"]
     autocomplete_fields = ["owner", "city", "staff_members", "members"]
     prepopulated_fields = {"slug": ("name",)}
-    readonly_fields = ["attribution"]
+    readonly_fields = ["attribution", "custom_domain"]
     actions = ["bind_platform_stripe_account", "unbind_platform_stripe_account", "clear_stripe_connect_account"]
 
     tabs = [
-        ("Settings", ["Settings", "Social"]),
+        ("Settings", ["Settings", "Social", "Custom domain"]),
         ("Billing", ["Billing"]),
         ("People", ["Staff", "Members", "Tiers"]),
         ("Content", ["Series", "Questionnaires", "Venues"]),
@@ -196,6 +216,10 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                     "telegram_url",
                 ],
             },
+        ),
+        (
+            "Custom domain",
+            {"fields": ["custom_domain_enabled", "custom_domain"]},
         ),
         (
             "Billing",

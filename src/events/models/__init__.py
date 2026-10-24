@@ -36,6 +36,7 @@ from .organization import (
     PermissionMap,
     PermissionsSchema,
 )
+from .organization_domain import OrganizationDomain, OrganizationDomainStatus
 from .potluck import PotluckItem
 from .preferences import (
     BaseUserPreferences,
@@ -96,6 +97,8 @@ __all__ = [
     "MembershipTier",
     "Organization",
     "OrganizationContactMessage",
+    "OrganizationDomain",
+    "OrganizationDomainStatus",
     "OrganizationMember",
     "MembershipRequestStatus",
     "OrganizationMembershipRequest",

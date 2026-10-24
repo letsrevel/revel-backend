@@ -39,4 +39,5 @@ graph LR
 | [Questionnaires](questionnaires.md) | LLM-powered evaluation, prompt injection protection |
 | [Billing & VAT](billing-and-vat.md) | VAT calculations, VIES validation, invoice generation, PDF rendering |
 | [Membership Subscriptions](membership-subscriptions.md) | Recurring membership billing — OFFLINE/ONLINE hybrid, Stripe Connect, dunning, revival |
+| [White-Label](white-label.md) | Tenant resolution, custom-domain lifecycle, dynamic CORS, brand-theme derivation, org-aware URLs and the account-token security rule |
 | [XLSX Exports](exports.md) | Async Excel exports with FileExport lifecycle and email delivery |

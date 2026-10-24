@@ -48,6 +48,14 @@ from .checkout import (
     MultiTierCheckoutPayload,
 )
 
+from .custom_domain import (
+    CustomDomainRequestSchema,
+    CustomDomainSchema,
+    DnsProviderSchema,
+    DnsRecordSchema,
+    DnsRecordType,
+)
+
 # Dietary schemas
 from .dietary import (
     AggregatedDietaryPreferenceSchema,
@@ -185,6 +193,7 @@ from .organization import (
     OrganizationBillingInfoUpdateSchema,
     OrganizationContactMessageCreateSchema,
     OrganizationCreateSchema,
+    OrganizationCustomDomainSchema,
     OrganizationBrandingResponse,
     OrganizationEditSchema,
     OrganizationInListSchema,
@@ -198,6 +207,7 @@ from .organization import (
     OrganizationTokenRejectionSchema,
     OrganizationTokenSchema,
     OrganizationTokenUpdateSchema,
+    TenantOrganizationSchema,
     VATIdUpdateSchema,
     VerifyOrganizationContactEmailJWTPayloadSchema,
 )
@@ -508,12 +518,17 @@ __all__ = [
     "CurrencyFinancialsSchema",
     "DirectInvitationCreateSchema",
     "DirectInvitationResponseSchema",
+    "CustomDomainRequestSchema",
+    "CustomDomainSchema",
+    "DnsProviderSchema",
     "DiscountCodeCreateSchema",
     "DiscountCodeDeleteResponse",
     "DiscountCodeSchema",
     "DiscountCodeUpdateSchema",
     "DiscountCodeValidationResponse",
     "DiscountCodeValidationSchema",
+    "DnsRecordSchema",
+    "DnsRecordType",
     "EventAssignmentSchema",
     "EventBookmarkSchema",
     "EventCreateSchema",
@@ -619,6 +634,7 @@ __all__ = [
     "OrganizationComplianceSchema",
     "OrganizationBillingInfoUpdateSchema",
     "OrganizationContactMessageCreateSchema",
+    "OrganizationCustomDomainSchema",
     "OrganizationCreateSchema",
     "OrganizationBrandingResponse",
     "OrganizationEditSchema",
@@ -735,6 +751,7 @@ __all__ = [
     "TicketSeriesPassSchema",
     "TicketTierCreateSchema",
     "TicketTierDetailSchema",
+    "TenantOrganizationSchema",
     "TicketTierSchema",
     "TicketTierUpdateSchema",
     "TierCategoryPriceSchema",

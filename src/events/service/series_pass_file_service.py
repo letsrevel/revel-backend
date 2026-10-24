@@ -18,6 +18,7 @@ from django.core.files.storage import default_storage
 
 from events.models import HeldSeriesPass
 from events.service.ticket_file_service import get_apple_pass_generator
+from events.utils.pass_branding import get_pass_brand_colors
 
 logger = structlog.get_logger(__name__)
 
@@ -25,10 +26,11 @@ logger = structlog.get_logger(__name__)
 def compute_content_hash(held_pass: HeldSeriesPass) -> str:
     """Compute a SHA-256 hash of timestamps that affect series pass file content.
 
-    Callers must ensure ``held_pass.series_pass`` is prefetched via
-    ``select_related`` to avoid N+1 queries. Includes every covered event's
-    ``updated_at`` so adding/removing a covered event (via ``SeriesPassTierLink``)
-    invalidates the cache too, not just edits to the pass or held-pass rows.
+    Callers must ensure ``held_pass.series_pass`` (with its event series and organization)
+    is prefetched via ``select_related`` to avoid N+1 queries. Includes every covered
+    event's ``updated_at`` so adding/removing a covered event (via ``SeriesPassTierLink``)
+    invalidates the cache too, not just edits to the pass or held-pass rows. The
+    organization's brand colors are hashed by value too (only when set).
 
     Args:
         held_pass: The series pass to compute the hash for.
@@ -43,6 +45,10 @@ def compute_content_hash(held_pass: HeldSeriesPass) -> str:
     links = held_pass.series_pass.tier_links.select_related("event").order_by("event_id")
     for link in links:
         parts.append(f"{link.event_id}:{link.event.updated_at.isoformat()}")
+    # Brand colors (#1157): hashed by value, only when set, so a branding change invalidates the
+    # cache while unbranded hashes stay valid.
+    if brand := get_pass_brand_colors(held_pass.series_pass.event_series.organization):
+        parts.append(f"brand={brand.model_dump_json()}")
     raw = "|".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()
 

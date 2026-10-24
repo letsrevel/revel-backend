@@ -41,6 +41,9 @@ from accounts.models import RevelUser
 from common.schema import RequestValidationError
 from events.exception_handlers import HANDLERS
 from events.exceptions import (
+    CloudflareAPIError,
+    CustomDomainConflictError,
+    CustomDomainNotEnabledError,
     EventRefundsStartedError,
     GuestAccountExistsError,
     GuestCartTooLargeError,
@@ -57,6 +60,7 @@ from events.models import (
     TicketTier,
 )
 from events.models.discount_code import DiscountCode
+from events.service import cloudflare_custom_hostnames as cloudflare
 
 pytestmark = pytest.mark.django_db
 
@@ -704,6 +708,113 @@ class TestOrganizerRefundEndpointContracts:
         with mock.patch("stripe.Refund.create", side_effect=stripe.error.APIError("boom")):
             response = organization_owner_client.post(url, data={}, content_type="application/json")
         assert_detail_body_with_status(response, 502)
+
+
+class TestCustomDomainExceptionContracts:
+    """Custom-domain exceptions (#1151/#1152) map to ``{"detail": ...}`` bodies with their own status.
+
+    ``CloudflareAPIError`` carries provider detail that must never reach the client: the 502 body is a
+    fixed message.
+    """
+
+    @staticmethod
+    def _invoke(exc: Exception) -> tuple[int, dict[str, t.Any]]:
+        response = HANDLERS[type(exc)](HttpRequest(), exc)
+        return response.status_code, json.loads(response.content)
+
+    @staticmethod
+    def _assert_detail_only(body: dict[str, t.Any]) -> None:
+        assert set(body) == {"detail"}, body
+        assert isinstance(body["detail"], str) and body["detail"], body
+
+    def test_not_enabled_returns_403_detail(self) -> None:
+        status, body = self._invoke(CustomDomainNotEnabledError())
+        assert status == 403
+        self._assert_detail_only(body)
+
+    def test_conflict_returns_409_detail(self) -> None:
+        status, body = self._invoke(CustomDomainConflictError("This hostname is already in use."))
+        assert status == 409
+        assert body == {"detail": "This hostname is already in use."}
+
+    def test_cloudflare_error_returns_502_detail_without_provider_text(self) -> None:
+        status, body = self._invoke(CloudflareAPIError("secret provider detail", status_code=500))
+        assert status == 502
+        self._assert_detail_only(body)
+        assert "secret provider detail" not in json.dumps(body)
+
+
+class TestCustomDomainEndpointContracts:
+    """Endpoint-level siblings of ``TestCustomDomainExceptionContracts``: one real route per status."""
+
+    @pytest.fixture
+    def enabled_org(self, organization: Organization) -> Organization:
+        organization.custom_domain_enabled = True
+        organization.save(update_fields=["custom_domain_enabled"])
+        return organization
+
+    @staticmethod
+    def _post(client: Client, org: Organization, hostname: str = "events.example.com") -> t.Any:
+        return client.post(
+            reverse("api:request_custom_domain", kwargs={"slug": org.slug}),
+            data={"hostname": hostname},
+            content_type="application/json",
+        )
+
+    def test_not_enabled_returns_403_detail(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        response = organization_owner_client.get(reverse("api:get_custom_domain", kwargs={"slug": organization.slug}))
+        assert_detail_body_with_status(response, 403)
+        assert set(response.json()) == {"detail"}
+
+    def test_invalid_hostname_returns_400_errors_body(
+        self, organization_owner_client: Client, enabled_org: Organization
+    ) -> None:
+        """A Django ``ValidationError`` reaches the global handler: ``{"errors": {field: [messages]}}``."""
+        response = self._post(organization_owner_client, enabled_org, "not a hostname")
+
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert set(body) == {"errors"}, body
+        assert all(isinstance(v, list) and v and all(isinstance(m, str) for m in v) for v in body["errors"].values())
+        assert set(body["errors"]) == {"hostname"}, body
+
+    def test_refresh_without_a_domain_returns_404_detail(
+        self, organization_owner_client: Client, enabled_org: Organization
+    ) -> None:
+        response = organization_owner_client.post(
+            reverse("api:refresh_custom_domain", kwargs={"slug": enabled_org.slug})
+        )
+
+        assert_detail_body_with_status(response, 404)
+        assert set(response.json()) == {"detail"}
+
+    def test_delete_without_a_domain_returns_404_detail(
+        self, organization_owner_client: Client, enabled_org: Organization
+    ) -> None:
+        response = organization_owner_client.delete(
+            reverse("api:delete_custom_domain", kwargs={"slug": enabled_org.slug})
+        )
+
+        assert_detail_body_with_status(response, 404)
+        assert set(response.json()) == {"detail"}
+
+    def test_conflict_returns_409_detail(self, organization_owner_client: Client, enabled_org: Organization) -> None:
+        assert self._post(organization_owner_client, enabled_org).status_code == 201
+        response = self._post(organization_owner_client, enabled_org, "other.example.com")
+        assert_detail_body_with_status(response, 409)
+        assert set(response.json()) == {"detail"}
+
+    def test_cloudflare_error_returns_502_detail(
+        self, organization_owner_client: Client, enabled_org: Organization, settings: t.Any
+    ) -> None:
+        settings.CLOUDFLARE_API_TOKEN, settings.CLOUDFLARE_ZONE_ID = "tok", "zone"
+        with mock.patch.object(cloudflare, "create_custom_hostname", side_effect=CloudflareAPIError("secret")):
+            response = self._post(organization_owner_client, enabled_org)
+        assert_detail_body_with_status(response, 502)
+        assert set(response.json()) == {"detail"}
+        assert "secret" not in response.content.decode()
 
 
 class TestTelegramErrorContracts:
