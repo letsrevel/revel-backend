@@ -30,6 +30,7 @@ from events.service import (
     blacklist_service,
     follow_service,
     organization_service,
+    tenant_service,
     whitelist_service,
 )
 from events.service.organization_service import OrgTokenRejection
@@ -170,6 +171,22 @@ class OrganizationController(UserAwareController):
         organization = organization_service.create_organization(owner=user, **payload.model_dump())
         return 201, organization
 
+    # Declaration order is registration order: this must come before every /{slug}... route
+    # ("by-domain" is otherwise a valid slug for /{slug}/membership-plans and friends).
+    @route.get("/by-domain/{hostname}", url_name="get_organization_by_domain", response=schema.TenantOrganizationSchema)
+    def get_organization_by_domain(self, hostname: str) -> models.Organization:
+        """Resolve a custom domain to its organization (white-label).
+
+        Public, for the tenant frontend's first load. Returns the organization whose *active*
+        custom domain is ``hostname`` (lowercase, no port), whatever its visibility: the hostname
+        is public DNS, and content endpoints still enforce visibility. 404 for unknown, pending,
+        failed or removed domains, and when the platform kill switch ``custom_domain_enabled`` is off
+        for the organization.
+        """
+        if (organization := tenant_service.get_tenant_organization(hostname)) is None:
+            raise HttpError(404, str(_("Organization not found.")))
+        return organization
+
     # Declaration order is registration order: this must come before the /{slug}
     # route, which would otherwise also match UUID-shaped strings.
     @route.get("/{uuid:organization_id}", url_name="get_organization_by_id", response=schema.OrganizationRetrieveSchema)
@@ -194,6 +211,29 @@ class OrganizationController(UserAwareController):
         """
         organization = get_object_or_404(models.Organization, id=organization_id)
         return serve_image_or_placeholder(organization.logo_thumbnail, organization.logo)
+
+    # Declared before the /{slug} routes; none of them ends in "custom-domain", so nothing shadows it.
+    @route.get(
+        "/{uuid:organization_id}/custom-domain",
+        url_name="get_organization_custom_domain",
+        response={200: schema.OrganizationCustomDomainSchema},
+    )
+    def get_organization_custom_domain(self, organization_id: UUID) -> models.Organization:
+        """Return the hostname of an organization's active custom domain, by organization id.
+
+        Public, whatever the organization's visibility: the platform host's Stripe return flow has
+        no session, and the hostname is public DNS (the same rationale as ``by-domain``). The org id
+        is an unguessable UUID, so it is not an enumeration vector. 404 unless the organization has an
+        ACTIVE custom domain and the platform kill switch ``custom_domain_enabled`` is on.
+        """
+        organization = (
+            models.Organization.objects.only("custom_domain", "custom_domain_enabled")
+            .filter(id=organization_id, custom_domain_enabled=True, custom_domain__isnull=False)
+            .first()
+        )
+        if organization is None:
+            raise HttpError(404, str(_("Organization not found.")))
+        return organization
 
     @route.get("/{slug}", url_name="get_organization", response=schema.OrganizationRetrieveSchema)
     def get_organization(self, slug: str) -> models.Organization:

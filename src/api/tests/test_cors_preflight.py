@@ -7,7 +7,8 @@ from django.test import Client, override_settings
 # events/controllers/event_public/base.py and ``HTTP_X_ORG_TOKEN`` in
 # events/controllers/organization.py). If the CORS allowlist and these drift apart,
 # a browser client sending the documented header is rejected at preflight.
-TOKEN_HEADERS = ["x-event-token", "x-org-token"]
+# ``x-guest-hold`` carries the guest seat-hold session for cross-site (tenant host) clients (#1179).
+TOKEN_HEADERS = ["x-event-token", "x-org-token", "x-guest-hold"]
 
 
 @pytest.mark.parametrize("header", TOKEN_HEADERS)

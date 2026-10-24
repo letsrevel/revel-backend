@@ -80,6 +80,7 @@ nav:
       - File Security: architecture/security.md
       - Notifications: architecture/notifications.md
       - Email Sending & Opt-Out: architecture/email-sending.md
+      - White-Label: architecture/white-label.md
       - Scheduled Announcements: architecture/scheduled-announcements.md
       - Questionnaires: architecture/questionnaires.md
       - Polls: architecture/polls.md
@@ -95,6 +96,10 @@ nav:
       - Telegram Bot: guides/telegram-bot.md
       - Third-Party Apps (OAuth): developer-guide/oauth.md
       - Demo & Seeding: guides/demo-and-seeding.md
+      - White-Label:
+          - guides/white-label/index.md
+          - For Organizers: guides/white-label/organizers.md
+          - For Platform Operators: guides/white-label/operators.md
       - Reserved Seating:
           - guides/seating/index.md
           - Venue & Layout Setup: guides/seating/venue-and-layout.md

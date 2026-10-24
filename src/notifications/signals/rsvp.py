@@ -30,6 +30,7 @@ def _build_rsvp_context(rsvp: EventRSVP) -> dict[str, t.Any]:
         "rsvp_id": str(rsvp.id),
         "event_id": str(event.id),
         "event_name": event.name,
+        "organization_id": str(event.organization_id),
         "event_start": event.start.isoformat() if event.start else "",
         "event_start_formatted": event_start_formatted,
         "event_location": event_location,
@@ -95,6 +96,7 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
         "rsvp_id": str(rsvp.id),
         "event_id": str(event.id),
         "event_name": event.name,
+        "organization_id": str(event.organization_id),
         "event_start_formatted": event_start_formatted,
         "event_location": event_location,
         "event_url": f"{frontend_base_url}/events/{event.id}",
@@ -182,6 +184,7 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
         context = {
             "event_id": str(event.id),
             "event_name": event.name,
+            "organization_id": str(event.organization_id),
             "event_start_formatted": event_start_formatted,
             "event_location": event_location,
             "event_url": f"{frontend_base_url}/events/{event.id}",

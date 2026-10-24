@@ -6534,6 +6534,84 @@ msgstr ""
 "A geração do passe para a Wallet está temporariamente indisponível. Tenta "
 "novamente mais tarde."
 
+msgid "Platform gate: allows requesting, activating, resolving and advertising a custom domain for this organization."
+msgstr "Controlo da plataforma: permite pedir, ativar, resolver e anunciar um domínio personalizado para esta organização."
+
+msgid "Hostname of the active custom domain. Maintained by the domain service; do not edit."
+msgstr "Nome de host do domínio personalizado ativo. Gerido pelo serviço de domínios; não o edites."
+
+msgid "Removed"
+msgstr "Removido"
+
+msgid "DNS records the organization must create to verify ownership."
+msgstr "Os registos DNS que a organização tem de criar para verificar a propriedade."
+
+msgid "Problems Cloudflare reported at the last status sync (hostname verification, certificate)."
+msgstr "Problemas comunicados pelo Cloudflare na última sincronização de estado (verificação do nome de host, certificado)."
+
+msgid "This hostname is already in use."
+msgstr "Este nome de host já está em uso."
+
+msgid ""
+"The platform has reached its limit of custom domains. Please contact "
+"support."
+msgstr ""
+"A plataforma atingeu o limite de domínios personalizados. Contacte o "
+"suporte."
+
+msgid "This organization already has a pending or active domain."
+msgstr "Esta organização já tem um domínio pendente ou ativo."
+
+msgid "This organization has no custom domain."
+msgstr "Esta organização não tem um domínio personalizado."
+
+msgid "We could not reach the domain provisioning service. Please try again later."
+msgstr "Não conseguimos contactar o serviço de provisionamento de domínios. Tenta novamente mais tarde."
+
+msgid "Custom domains are not enabled for this organization."
+msgstr "Os domínios personalizados não estão ativados para esta organização."
+
+msgid "A removed domain cannot be changed."
+msgstr "Um domínio removido não pode ser alterado."
+
+msgid "Enter a hostname."
+msgstr "Introduz um nome de host."
+
+msgid "Wildcard hostnames are not allowed."
+msgstr "Não são permitidos nomes de host com carateres universais."
+
+msgid "Enter the hostname without a port."
+msgstr "Introduz o nome de host sem porta."
+
+msgid "IP addresses are not allowed; use a domain name."
+msgstr "Não são permitidos endereços IP; usa um nome de domínio."
+
+#, python-brace-format
+msgid "Hostname is too long (maximum is {max} characters)."
+msgstr "O nome de host é demasiado longo (máximo de {max} carateres)."
+
+msgid "Enter a fully qualified domain name, for example events.example.com."
+msgstr "Introduz um nome de domínio completo, por exemplo eventos.example.com."
+
+#, python-brace-format
+msgid "Each part of the hostname must be at most {max} characters."
+msgstr "Cada parte do nome de host pode ter no máximo {max} carateres."
+
+msgid "Hostname contains invalid characters."
+msgstr "O nome de host contém carateres inválidos."
+
+msgid "Hostname must end in a valid top-level domain."
+msgstr "O nome de host tem de terminar num domínio de topo válido."
+
+msgid "This hostname is reserved for local development."
+msgstr "Este nome de host está reservado para o desenvolvimento local."
+
+msgid "This hostname belongs to the platform and cannot be used."
+msgstr "Este nome de host pertence à plataforma e não pode ser usado."
+
+msgid "Custom Domains"
+msgstr "Domínios personalizados"
+
 msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
 msgstr "Introduz uma cor como valor hexadecimal de 6 dígitos, por exemplo #8C3CDD."
 
@@ -6542,3 +6620,79 @@ msgstr "Definições de apresentação escolhidas pela organização, como as co
 
 msgid "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, and unknown settings are not allowed."
 msgstr "Branding inválido. As cores têm de ser valores hexadecimais de 6 dígitos, por exemplo #8C3CDD, e não são permitidas definições desconhecidas."
+
+#, python-format
+msgid "%(hostname)s is now live for %(org)s"
+msgstr "%(hostname)s já está ativo para %(org)s"
+
+#, python-format
+msgid "%(hostname)s stopped working for %(org)s"
+msgstr "%(hostname)s deixou de funcionar para %(org)s"
+
+#, python-format
+msgid "%(hostname)s could not be activated for %(org)s"
+msgstr "Não foi possível ativar %(hostname)s para %(org)s"
+
+msgid ""
+"Your custom domain is verified and serves your organization. Visitors who "
+"open it see your events with your branding."
+msgstr ""
+"O teu domínio personalizado está verificado e serve a tua organização. "
+"Quem o abrir vê os teus eventos com a tua marca."
+
+msgid "Open your site"
+msgstr "Abrir o teu site"
+
+msgid "Before you announce it:"
+msgstr "Antes de o anunciares:"
+
+msgid "Open the link in a private window and check that it loads."
+msgstr "Abre o link numa janela privada e verifica se carrega."
+
+msgid ""
+"Sign up for a test account on it. Sign-up should work on your own domain."
+msgstr ""
+"Cria uma conta de teste nele. O registo deve funcionar no teu próprio "
+"domínio."
+
+msgid "Share the new link with your audience."
+msgstr "Partilha o novo link com o teu público."
+
+msgid "Manage your custom domain"
+msgstr "Gerir o teu domínio personalizado"
+
+msgid ""
+"Revel no longer serves your organization on this domain, and everyone who "
+"was signed in on it was signed out. Your organization is still available "
+"at its Revel address."
+msgstr ""
+"O Revel já não serve a tua organização neste domínio, e todas as pessoas "
+"que tinham sessão iniciada nele foram desligadas. A tua organização "
+"continua disponível no respetivo endereço do Revel."
+
+msgid ""
+"Revel could not verify this domain, so it does not serve your "
+"organization. Your organization is still available at its Revel address."
+msgstr ""
+"O Revel não conseguiu verificar este domínio, por isso não serve a tua "
+"organização. A tua organização continua disponível no respetivo endereço "
+"do Revel."
+
+msgid "What Revel found:"
+msgstr "O que o Revel encontrou:"
+
+msgid ""
+"No details were reported. If this keeps happening, contact Revel support."
+msgstr ""
+"Não foram comunicados detalhes. Se continuar a acontecer, contacta o "
+"suporte do Revel."
+
+msgid ""
+"Fix the cause, then request the domain again from your custom domain "
+"settings."
+msgstr ""
+"Corrige a causa e pede o domínio novamente nas definições do teu domínio "
+"personalizado."
+
+msgid "Open custom domain settings"
+msgstr "Abrir as definições do domínio personalizado"

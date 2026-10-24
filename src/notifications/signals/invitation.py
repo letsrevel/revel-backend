@@ -10,6 +10,7 @@ from django.dispatch import receiver
 from common.models import SiteSettings
 from events.models import EventInvitation, EventInvitationRequest, PendingEventInvitation
 from events.tasks import build_attendee_visibility_flags
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
 from notifications.signals import notification_requested
@@ -34,7 +35,7 @@ def handle_invitation_save(
         event_location = event.full_address()
 
         # Build frontend URL
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(event.organization)
         frontend_url = f"{frontend_base_url}/events/{event.id}"
 
         notification_requested.send(

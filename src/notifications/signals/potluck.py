@@ -36,6 +36,7 @@ def _build_potluck_context(instance: PotluckItem, action: str, user: RevelUser) 
         "item_name": instance.name,
         "event_id": str(event.id),
         "event_name": event.name,
+        "organization_id": str(event.organization_id),
         "action": action,
         "event_url": f"{frontend_base_url}/events/{event.id}",
     }

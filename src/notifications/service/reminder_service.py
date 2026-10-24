@@ -9,8 +9,8 @@ from django.db.models import Prefetch, QuerySet
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from common.models import SiteSettings
 from events.models import Event, EventRSVP, Ticket
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.models import Notification
 from notifications.service.notification_helpers import format_event_datetime, get_event_location_for_user
@@ -34,10 +34,10 @@ class EventReminderService:
 
         Args:
             reminder_days: Days before event to send reminders (default: [14, 7, 1])
-            frontend_base_url: Frontend base URL (fetched from settings if not provided)
+            frontend_base_url: Frontend base URL for every link (each event's org-aware URL if not provided)
         """
         self.reminder_days = reminder_days or [14, 7, 1]
-        self.frontend_base_url = frontend_base_url or SiteSettings.get_solo().frontend_base_url
+        self.frontend_base_url = frontend_base_url
 
     def get_events_for_reminder(self, days: int) -> QuerySet[Event]:
         """Get events that start in exactly N days.
@@ -106,13 +106,14 @@ class EventReminderService:
         Returns:
             Context dictionary for notification templates
         """
-        event_url = f"{self.frontend_base_url}/events/{event.id}"
+        event_url = f"{self.frontend_base_url or frontend_base_url_for(event.organization)}/events/{event.id}"
         event_start_formatted = format_event_datetime(event.start, event)
         event_end_formatted = format_event_datetime(event.end, event) or None
 
         context: dict[str, t.Any] = {
             "event_id": str(event.id),
             "event_name": event.name,
+            "organization_id": str(event.organization_id),
             "event_start": event.start.isoformat(),
             "event_start_formatted": event_start_formatted,
             "event_url": event_url,

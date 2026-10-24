@@ -6,7 +6,7 @@
 
 {% blocktrans %}To confirm the deletion of your account, click the link below:{% endblocktrans %}
 
-{{ action_link }}
+{{ action_link|safe }}
 
 {% blocktrans %}Thank you,
 The Revel Team{% endblocktrans %}

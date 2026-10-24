@@ -16,6 +16,7 @@ from notifications.enums import (
     MANDATORY_TYPES,
     ORG_SENDER_TYPES,
     PLATFORM_LIST_UNSUBSCRIBE_TYPES,
+    TENANT_ORG_SENDER_TYPES,
     DeliveryChannel,
     DeliveryStatus,
 )
@@ -25,6 +26,7 @@ from notifications.service.email_policy import may_email, suppression_for
 from notifications.service.org_sender import (
     build_list_unsubscribe_headers,
     build_preferences_list_unsubscribe_header,
+    is_white_label_tenant,
     org_from_address,
     org_reply_to,
     resolve_sender_org,
@@ -205,8 +207,12 @@ class EmailChannel(NotificationChannel):
 
         Org-sender types whose organization resolves go out as ``"<Org> via Revel"``
         with the org's verified Reply-To, one-click List-Unsubscribe and a Feedback-ID;
-        everything else uses the system sender. Platform list types (Revel's own opt-out-able
-        nudges) keep the system sender but add one-click List-Unsubscribe and a human Reply-To.
+        everything else uses the system sender. Attendee transactional types
+        (``TENANT_ORG_SENDER_TYPES``) get the org sender and Reply-To too, but only for
+        white-label tenant orgs, and keep the platform List-Unsubscribe (#1155). Resolving the org
+        for these types is one organization lookup per email, tenant or not. Platform list
+        types (Revel's own opt-out-able nudges) keep the system sender but add one-click
+        List-Unsubscribe and a human Reply-To.
 
         Every email carries a Revel ``List-Unsubscribe`` header, otherwise Brevo injects its own
         one-click header and a client "Unsubscribe" click globally blocks the address (#1137).
@@ -223,21 +229,32 @@ class EmailChannel(NotificationChannel):
             reply_to = [settings.ORG_NUDGE_REPLY_TO] if settings.ORG_NUDGE_REPLY_TO else []
             return settings.DEFAULT_FROM_EMAIL, reply_to, headers
 
-        org = resolve_sender_org(notification) if notification_type in ORG_SENDER_TYPES else None
-        if org is not None:
-            token = generate_unsubscribe_token(
-                notification.user, notification_type=notification_type, organization_id=org.id
-            )
-            headers.update(build_list_unsubscribe_headers(token))
-            headers["Feedback-ID"] = f"{org.slug}:{notification_type}:revel"
-            headers["X-Mailin-custom"] = f"delivery:{delivery.id}|org:{org.id}"
-            return org_from_address(org), org_reply_to(org), headers
+        tenant_org = None
+        if notification_type in ORG_SENDER_TYPES:
+            org = resolve_sender_org(notification)
+            if org is not None:
+                token = generate_unsubscribe_token(
+                    notification.user, notification_type=notification_type, organization_id=org.id
+                )
+                headers.update(build_list_unsubscribe_headers(token))
+                headers["Feedback-ID"] = f"{org.slug}:{notification_type}:revel"
+                headers["X-Mailin-custom"] = f"delivery:{delivery.id}|org:{org.id}"
+                return org_from_address(org), org_reply_to(org), headers
+        elif notification_type in TENANT_ORG_SENDER_TYPES:
+            org = resolve_sender_org(notification)
+            tenant_org = org if org is not None and is_white_label_tenant(org) else None
 
+        # Unsubscribe headers are always the platform ones, whoever the sender is: no account-level
+        # token ever points at a tenant domain, and mandatory types never get a one-click header.
         token = token_for_notification(notification)
         if notification_type in MANDATORY_TYPES:
             headers.update(build_preferences_list_unsubscribe_header(token))
         else:
             headers.update(build_list_unsubscribe_headers(token))
+        if tenant_org is not None:  # white-label tenant transactional mail (#1155)
+            headers["Feedback-ID"] = f"{tenant_org.slug}:{notification_type}:revel"
+            headers["X-Mailin-custom"] = f"delivery:{delivery.id}|org:{tenant_org.id}"
+            return org_from_address(tenant_org), org_reply_to(tenant_org), headers
         return settings.DEFAULT_FROM_EMAIL, [], headers
 
     def should_retry(self, error: Exception) -> bool:

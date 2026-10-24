@@ -46,13 +46,15 @@ class MeSubscriptionsController(UserAwareController):
         response=PaginatedResponseSchema[schema.MySubscriptionSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_my_subscriptions(self) -> QuerySet[MembershipSubscription]:
-        """List all of the current user's memberships subscriptions across organizations."""
-        return (
-            MembershipSubscription.objects.filter(user=self.user())
-            .select_related("plan", "plan__tier", "organization")
-            .order_by("-created_at")
-        )
+    def list_my_subscriptions(self, organization: UUID | None = None) -> QuerySet[MembershipSubscription]:
+        """List all of the current user's memberships subscriptions across organizations.
+
+        Pass ``organization`` to list only the subscriptions of one organization.
+        """
+        qs = MembershipSubscription.objects.filter(user=self.user())
+        if organization is not None:
+            qs = qs.filter(organization_id=organization)
+        return qs.select_related("plan", "plan__tier", "organization").order_by("-created_at")
 
     @route.get(
         "/memberships",
@@ -60,12 +62,13 @@ class MeSubscriptionsController(UserAwareController):
         response=PaginatedResponseSchema[schema.MyMembershipSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_my_memberships(self) -> QuerySet[OrganizationMember]:
+    def list_my_memberships(self, organization: UUID | None = None) -> QuerySet[OrganizationMember]:
         """List every organization the user is a member of (legacy + subscription-backed).
 
         Each entry inlines the caller's most recent non-terminal subscription for that
         organization when one exists. Includes BANNED memberships so the frontend can
-        render an explicit banned state; the FE may filter as needed.
+        render an explicit banned state; the FE may filter as needed. Pass ``organization``
+        to list only the membership of one organization.
         """
         user = self.user()
         active_subs = (
@@ -74,9 +77,11 @@ class MeSubscriptionsController(UserAwareController):
             .select_related("plan", "plan__tier", "organization")
             .order_by("-created_at")
         )
+        qs = OrganizationMember.objects.filter(user=user)
+        if organization is not None:
+            qs = qs.filter(organization_id=organization)
         return (
-            OrganizationMember.objects.filter(user=user)
-            .select_related("organization", "tier")
+            qs.select_related("organization", "tier")
             .prefetch_related(
                 Prefetch(
                     "organization__membership_subscriptions",
@@ -397,7 +402,9 @@ class MeSubscriptionsController(UserAwareController):
         organization = get_object_or_404(Organization, pk=org_id)
         # ``payload.return_url`` is a validated ``HttpUrl`` (or None) — coerce
         # to plain ``str`` for the Stripe API. Falling back to the platform's
-        # frontend keeps a sensible default when the client omits it.
+        # frontend keeps a sensible default when the client omits it. It stays on the
+        # platform origin even for an org with a custom domain (#1153): the frontend's
+        # canonical 301 forwards the buyer, and Stripe gets nothing organizer-conditional (#848).
         return_url = str(payload.return_url) if payload.return_url else SiteSettings.get_solo().frontend_base_url
         url = subscription_stripe_checkout.create_billing_portal_session(
             self.user(),

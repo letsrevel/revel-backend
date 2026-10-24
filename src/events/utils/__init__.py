@@ -20,6 +20,8 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
+from events.utils.pass_branding import get_pass_brand_colors
+
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
     from events import models
@@ -373,6 +375,7 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
 
     # Prepare context for the HTML template
     context_data = {
+        "brand": get_pass_brand_colors(event.organization),
         "event_name": event.name,
         "organization_name": event.organization.name,
         "user_display_name": ticket.user.get_display_name(),
@@ -452,6 +455,7 @@ def create_series_pass_pdf(held_pass: "HeldSeriesPass") -> bytes:
     cover_art_data_uri = _file_to_data_uri(cover_art_file)
 
     context_data = {
+        "brand": get_pass_brand_colors(organization),
         "series_name": event_series.name,
         "pass_name": series_pass.name,
         "organization_name": organization.name,
@@ -493,6 +497,7 @@ def create_membership_pdf(member: "OrganizationMember") -> bytes:
     cover_art_file = organization.cover_art_social or organization.cover_art
 
     context_data = {
+        "brand": get_pass_brand_colors(organization),
         "organization_name": organization.name,
         "member_name": member.user.get_display_name(),
         "tier_name": member.tier.name if member.tier else None,

@@ -11,9 +11,9 @@ import structlog
 from django.db import transaction
 
 from accounts.models import RevelUser
-from common.models import SiteSettings
 from events.models import Event, EventSeries
 from events.utils import format_event_datetime, get_event_timezone
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.dispatcher import NotificationData, bulk_create_notifications
 from notifications.service.eligibility import (
@@ -120,7 +120,7 @@ def notify_event_opened(event: Event) -> int:
         return 0
 
     # Build frontend URL
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_base_url = frontend_base_url_for(event.organization)
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
     # Format dates in event's timezone
@@ -341,7 +341,7 @@ def notify_series_events_generated(series: EventSeries, events: list[Event]) -> 
 
     visibility = template.visibility
     organization = series.organization
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_base_url = frontend_base_url_for(organization)
     series_url = f"{frontend_base_url}/events/{organization.slug}/series/{series.slug}"
 
     context: dict[str, t.Any] = {

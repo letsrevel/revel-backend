@@ -435,6 +435,28 @@ class TestMinimalStripePayload:
         assert kwargs["cancel_url"] == f"{event_url}?payment_cancelled=true"
 
 
+class TestReturnUrlsStayOnPlatform:
+    """Stripe return URLs never move to an org's custom domain (#1153, #848).
+
+    Guest checkout shares this builder (``create_batch_session``), so it is covered too.
+    """
+
+    def test_active_custom_domain_does_not_change_return_urls(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        Organization.objects.filter(pk=event.organization_id).update(
+            custom_domain="events.example.com", custom_domain_enabled=True
+        )
+
+        kwargs = TestMinimalStripePayload()._session_kwargs(
+            event, paid_ticket_tier, organization_owner_user, "Jane Doe"
+        )
+
+        base = f"{settings.FRONTEND_BASE_URL}/events/{event.organization_id}/{event.id}"
+        assert kwargs["success_url"] == f"{base}?payment_success=true"
+        assert kwargs["cancel_url"] == f"{base}?payment_cancelled=true"
+
+
 class TestClaimReservationHoldExtendOnly:
     """The in-flight claim must only ever extend a hold, never shorten one (#632):
     a double-submit's claim on already-stamped rows would otherwise cut the

@@ -10,6 +10,27 @@ from django.utils.translation import gettext_lazy as _
 from ninja_extra import status
 from ninja_extra.exceptions import APIException
 from ninja_jwt.authentication import JWTAuth
+from ninja_jwt.exceptions import InvalidToken
+
+SessionValidator = t.Callable[[t.Mapping[str, t.Any]], bool]
+
+# Checks every access token's claims must pass. Apps register theirs from ``AppConfig.ready`` (as they do
+# their exception handlers), so ``common`` stays app-agnostic.
+_session_validators: list[SessionValidator] = []
+
+
+def register_session_validator(validator: SessionValidator) -> None:
+    """Register a check that every access token's claims must pass (idempotent)."""
+    if validator not in _session_validators:
+        _session_validators.append(validator)
+
+
+class SessionRevoked(InvalidToken):
+    """401 for an access token whose session a registered validator refused.
+
+    A dedicated subclass so ``OptionalAuth`` can treat exactly this case as anonymous, while
+    expired or forged tokens keep failing as before.
+    """
 
 
 class PermissionDenied(APIException):
@@ -46,6 +67,19 @@ class BaseJWTAuth(JWTAuth):
         self.requires_verified_email = requires_verified_email
         super().__init__()
 
+    def get_user(self, validated_token: t.Any) -> t.Any:
+        """Resolve the token's user, refusing a session any registered validator rejects.
+
+        Runs on every authenticated request (e.g. ``accounts`` revokes sessions bound to a custom
+        domain that stopped serving).
+
+        Raises:
+            SessionRevoked: A registered session validator refused the token's claims.
+        """
+        if not all(validator(validated_token.payload) for validator in _session_validators):
+            raise SessionRevoked
+        return super().get_user(validated_token)
+
     def authenticate(self, request: HttpRequest, token: str) -> t.Any:
         """Authenticate and verify user permissions.
 
@@ -58,6 +92,7 @@ class BaseJWTAuth(JWTAuth):
 
         Raises:
             PermissionDenied: If user doesn't meet required criteria
+            SessionRevoked: If a registered session validator refused the token
         """
         user = super().authenticate(request, token)
 

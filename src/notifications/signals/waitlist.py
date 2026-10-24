@@ -7,8 +7,8 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
-from common.models import SiteSettings
 from events.models import Event, EventRSVP, EventWaitList, Ticket
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import format_event_datetime
 from notifications.signals import notification_requested
@@ -52,7 +52,7 @@ def _build_waitlist_spot_context(event: Event, spots_available: int) -> dict[str
     Returns:
         Context dictionary for notification
     """
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_base_url = frontend_base_url_for(event.organization)
     event_location = event.full_address()
     event_start_formatted = format_event_datetime(event.start, event)
 

@@ -21,6 +21,8 @@ BASE_URL_LOCAL_CHECK_ID = "common.E001"
 BASE_URL_HTTPS_CHECK_ID = "common.W002"
 FRONTEND_BASE_URL_LOCAL_CHECK_ID = "common.W003"
 FOREIGN_SENDER_DOMAIN_CHECK_ID = "common.W004"
+CUSTOM_DOMAIN_URL_TEMPLATE_INVALID_CHECK_ID = "common.E002"
+CUSTOM_DOMAIN_URL_TEMPLATE_HTTPS_CHECK_ID = "common.W005"
 
 # The old BASE_URL default: the demo *frontend* host, never a valid API origin (#1039).
 _OLD_DEFAULT_HOST = "demo.letsrevel.io"
@@ -118,3 +120,50 @@ def check_deploy_urls(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]
             )
         )
     return messages
+
+
+@register()
+def check_custom_domain_url_template(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]:
+    """``CUSTOM_DOMAIN_URL_TEMPLATE`` must build a real origin from a hostname (#1153).
+
+    A template without ``{hostname}`` collapses every tenant onto one origin, one with stray
+    braces raises while links are built (breaking notification rendering), and a non-http(s)
+    one yields unusable links; all are Errors, and they apply under ``DEBUG`` too since the
+    template is wrong anywhere. A plain-http template outside ``DEBUG`` is a Warning.
+
+    Args:
+        app_configs: Django's app filter (unused; the check is global).
+        **kwargs: Django's check kwargs (unused).
+
+    Returns:
+        The problems found.
+    """
+    template = str(settings.CUSTOM_DOMAIN_URL_TEMPLATE or "").strip()
+    problem: str | None = None
+    if "{hostname}" not in template:
+        problem = "does not contain the {hostname} placeholder"
+    else:
+        try:
+            origin = template.format(hostname="example.com")
+        except KeyError, IndexError, ValueError:
+            problem = "is not a valid format string (stray braces or placeholders other than {hostname})"
+        else:
+            if urlsplit(origin).scheme not in ("http", "https") or not _host(origin):
+                problem = "does not start with http:// or https://"
+    if problem:
+        return [
+            Error(
+                f"CUSTOM_DOMAIN_URL_TEMPLATE {settings.CUSTOM_DOMAIN_URL_TEMPLATE!r} {problem}.",
+                hint="Use an origin with the hostname placeholder, e.g. https://{hostname}.",
+                id=CUSTOM_DOMAIN_URL_TEMPLATE_INVALID_CHECK_ID,
+            )
+        ]
+    if not settings.DEBUG and urlsplit(template.format(hostname="example.com")).scheme != "https":
+        return [
+            Warning(
+                f"CUSTOM_DOMAIN_URL_TEMPLATE {settings.CUSTOM_DOMAIN_URL_TEMPLATE!r} does not use https.",
+                hint="Tenant links in emails should be HTTPS; use https://{hostname}.",
+                id=CUSTOM_DOMAIN_URL_TEMPLATE_HTTPS_CHECK_ID,
+            )
+        ]
+    return []

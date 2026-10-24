@@ -516,6 +516,29 @@ class OrgSetupNudgeContext(BaseNotificationContext):
     signature: t.NotRequired[str]  # check_in: the human name signing it (settings.ORG_NUDGE_SIGNATURE)
 
 
+class OrgCustomDomainActiveContext(BaseNotificationContext):
+    """Context for ORG_CUSTOM_DOMAIN_ACTIVE (to the org owner, #1148): the custom domain went live."""
+
+    organization_id: str
+    organization_name: str
+    organization_slug: str
+    hostname: str
+    domain_url: str  # the live site, on the tenant origin
+    action_url: str  # the custom-domain settings page in the platform admin (never the tenant domain)
+
+
+class OrgCustomDomainFailedContext(BaseNotificationContext):
+    """Context for ORG_CUSTOM_DOMAIN_FAILED (to the org owner, #1148): the custom domain failed."""
+
+    organization_id: str
+    organization_name: str
+    organization_slug: str
+    hostname: str
+    was_live: bool  # it was ACTIVE: visitors lost the site on this host and its sessions were signed out
+    errors: list[str]  # ``OrganizationDomain.last_errors``, DNS pre-flight hints included; may be empty
+    action_url: str  # the custom-domain settings page in the platform admin (never the tenant domain)
+
+
 class SystemAnnouncementContext(BaseNotificationContext):
     """Context for SYSTEM_ANNOUNCEMENT notification."""
 
@@ -719,6 +742,7 @@ class StaffSeriesPassCancelledContext(SeriesPassCancelledContext):
 class SubscriptionRenewalSucceededContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_RENEWAL_SUCCEEDED notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -730,6 +754,7 @@ class SubscriptionRenewalSucceededContext(BaseNotificationContext):
 class SubscriptionPaymentFailedContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_PAYMENT_FAILED notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -742,6 +767,7 @@ class SubscriptionPaymentFailedContext(BaseNotificationContext):
 class SubscriptionExpiredContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_EXPIRED notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -753,6 +779,7 @@ class SubscriptionExpiredContext(BaseNotificationContext):
 class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_CANCELLATION_CONFIRMED notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -763,6 +790,7 @@ class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
 class SubscriptionRenewalReminderContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_RENEWAL_REMINDER notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -775,6 +803,7 @@ class SubscriptionRenewalReminderContext(BaseNotificationContext):
 class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_REVIVAL_CHECKOUT notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -785,6 +814,7 @@ class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
 class SubscriptionPriceMigrationNoticeContext(BaseNotificationContext):
     """Context for SUBSCRIPTION_PRICE_MIGRATION_NOTICE notification."""
 
+    organization_id: str
     organization_name: str
     organization_slug: str
     plan_name: str
@@ -835,6 +865,8 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
     NotificationType.ORG_CONTACT_MESSAGE_RECEIVED: OrgContactMessageReceivedContext,
     NotificationType.ORG_SETUP_NUDGE: OrgSetupNudgeContext,
+    NotificationType.ORG_CUSTOM_DOMAIN_ACTIVE: OrgCustomDomainActiveContext,
+    NotificationType.ORG_CUSTOM_DOMAIN_FAILED: OrgCustomDomainFailedContext,
     NotificationType.SYSTEM_ANNOUNCEMENT: SystemAnnouncementContext,
     NotificationType.WAITLIST_SPOT_AVAILABLE: WaitlistSpotAvailableContext,
     NotificationType.WHITELIST_REQUEST_CREATED: WhitelistRequestCreatedContext,
