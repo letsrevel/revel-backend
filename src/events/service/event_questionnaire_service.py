@@ -422,10 +422,14 @@ def _validate_membership_retype(
     ``Organization.clean()`` and ``MembershipTier.clean()`` require their membership
     questionnaire to be of type MEMBERSHIP; retyping one in use would make every later
     save of the referencing organization or tier fail validation.
+
+    The row lock serializes this check with ``validate_membership_questionnaire``, which
+    takes the same lock before an organization or tier is pointed at the questionnaire.
     """
     oq = t.cast(OrganizationQuestionnaire, org_questionnaire)
     if new_type is None or new_type == OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP:
         return
+    OrganizationQuestionnaire.objects.select_for_update().filter(pk=oq.pk).exists()
     if oq.default_for_organizations.exists():
         raise HttpError(
             400,
