@@ -1,7 +1,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import IntegerField, QuerySet, Value
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -24,6 +24,7 @@ from events.service import (
     skipped_fiscal_document_service,
     ticket_guest_name_service,
     ticket_service,
+    waitlist_service,
 )
 from oauth.permissions import RequireScope
 
@@ -116,13 +117,17 @@ class EventAdminTicketsController(EventAdminBaseController):
     @paginate(PageNumberPaginationExtra, page_size=20)
     def list_ticket_tiers(self, event_id: UUID) -> QuerySet[models.TicketTier]:
         """List all ticket tiers for an event."""
-        self.get_one(event_id)
+        event = self.get_one(event_id)
+        # Computed once for the event and attached as a constant, so the schema can clamp each
+        # tier's ``total_available`` without a per-row query.
+        remaining = waitlist_service.event_remaining_capacity(event)
         # No .distinct(): all joins are to-one (#880).
         return (
             models.TicketTier.objects.with_venue_and_sector()
             .with_event_compliance()
             .prefetch_related("platform_links__event_link__connection")
             .filter(event_id=event_id)
+            .annotate(event_remaining_capacity=Value(remaining, output_field=IntegerField()))
         )
 
     @route.post(
