@@ -6785,3 +6785,11 @@ msgstr ""
 
 msgid "Open custom domain settings"
 msgstr "Apri le impostazioni del dominio personalizzato"
+
+#: events/service/event_questionnaire_service.py
+msgid "This questionnaire is the organization's default membership questionnaire. Unset it before changing its type."
+msgstr "Questo questionario è il questionario di iscrizione predefinito dell'organizzazione. Rimuovilo come predefinito prima di cambiarne il tipo."
+
+#: events/service/event_questionnaire_service.py
+msgid "This questionnaire is used by one or more membership tiers. Remove it from those tiers before changing its type."
+msgstr "Questo questionario è utilizzato da uno o più livelli di iscrizione. Rimuovilo da quei livelli prima di cambiarne il tipo."

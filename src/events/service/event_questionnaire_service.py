@@ -413,6 +413,41 @@ def validate_feedback_requires_evaluation(
         raise HttpError(400, str(_("Feedback questionnaires cannot require evaluation.")))
 
 
+def _validate_membership_retype(
+    org_questionnaire: "models.Model",  # OrganizationQuestionnaire
+    new_type: OrganizationQuestionnaire.QuestionnaireType | None,
+) -> None:
+    """Raise 400 if a membership questionnaire still in use would be retyped.
+
+    ``Organization.clean()`` and ``MembershipTier.clean()`` require their membership
+    questionnaire to be of type MEMBERSHIP; retyping one in use would make every later
+    save of the referencing organization or tier fail validation.
+    """
+    oq = t.cast(OrganizationQuestionnaire, org_questionnaire)
+    if new_type is None or new_type == OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP:
+        return
+    if oq.default_for_organizations.exists():
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "This questionnaire is the organization's default membership questionnaire. "
+                    "Unset it before changing its type."
+                )
+            ),
+        )
+    if oq.tiers.exists():
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "This questionnaire is used by one or more membership tiers. "
+                    "Remove it from those tiers before changing its type."
+                )
+            ),
+        )
+
+
 @transaction.atomic
 def update_organization_questionnaire(
     org_questionnaire: "models.Model",  # OrganizationQuestionnaire
@@ -442,6 +477,8 @@ def update_organization_questionnaire(
             has_free_text = any(section.freetextquestion_questions.exists() for section in questionnaire.sections.all())
         if has_free_text:
             raise HttpError(400, str(_("LLM evaluation is not available.")))
+
+    _validate_membership_retype(org_questionnaire, payload.questionnaire_type)
 
     # Extract questionnaire-specific fields with type conversions
     questionnaire_kwargs = {}
