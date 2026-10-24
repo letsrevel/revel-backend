@@ -108,22 +108,43 @@ def test_get_exposes_the_dns_provider_of_a_pending_domain(
     organization_owner_client: Client, enabled_org: Organization, no_dns_provider_lookup: MagicMock
 ) -> None:
     no_dns_provider_lookup.return_value = dns_diagnostics.DnsProvider(
-        "domaincontrol.com", "GoDaddy", "https://help.example/godaddy"
+        "godaddy", "domaincontrol.com", "GoDaddy", "https://help.example/godaddy"
     )
     OrganizationDomain.objects.create(organization=enabled_org, hostname="events.example.com")
 
     response = organization_owner_client.get(_url("get_custom_domain", enabled_org))
 
     assert response.status_code == 200
-    assert response.json()["dns_provider"] == {"name": "GoDaddy", "help_url": "https://help.example/godaddy"}
+    assert response.json()["dns_provider"] == {
+        "key": "godaddy",
+        "name": "GoDaddy",
+        "help_url": "https://help.example/godaddy",
+        "dashboard_url": None,
+    }
     no_dns_provider_lookup.assert_called_once_with("events.example.com")
+
+
+def test_get_exposes_the_provider_dashboard_url_for_the_domains_apex(
+    organization_owner_client: Client, enabled_org: Organization, no_dns_provider_lookup: MagicMock
+) -> None:
+    no_dns_provider_lookup.return_value = next(p for p in dns_diagnostics.DNS_PROVIDERS if p.key == "cloudflare")
+    OrganizationDomain.objects.create(organization=enabled_org, hostname="events.example.com")
+
+    response = organization_owner_client.get(_url("get_custom_domain", enabled_org))
+
+    assert response.status_code == 200
+    assert response.json()["dns_provider"]["key"] == "cloudflare"
+    assert (
+        response.json()["dns_provider"]["dashboard_url"]
+        == "https://dash.cloudflare.com/?to=/:account/example.com/dns/records"
+    )
 
 
 def test_get_hides_the_dns_provider_of_an_active_domain(
     organization_owner_client: Client, enabled_org: Organization, no_dns_provider_lookup: MagicMock
 ) -> None:
     no_dns_provider_lookup.return_value = dns_diagnostics.DnsProvider(
-        "domaincontrol.com", "GoDaddy", "https://help.example/godaddy"
+        "godaddy", "domaincontrol.com", "GoDaddy", "https://help.example/godaddy"
     )
     OrganizationDomain.objects.create(organization=enabled_org, hostname="events.example.com", status=Status.ACTIVE)
 

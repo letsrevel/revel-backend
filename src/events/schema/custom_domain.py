@@ -29,8 +29,14 @@ class DnsRecordSchema(Schema):
 class DnsProviderSchema(Schema):
     """The DNS host of a custom domain, with a link to its "add a record" help page."""
 
+    key: str = Field(description="Stable lowercase identifier of the provider (e.g. cloudflare); match on this.")
     name: str
     help_url: str
+    dashboard_url: str | None = Field(
+        default=None,
+        description="Link straight to the DNS records page of the domain at the provider's dashboard. Only set "
+        "for providers with a documented per-domain URL format.",
+    )
 
 
 class CustomDomainRequestSchema(Schema):
@@ -74,4 +80,11 @@ class CustomDomainSchema(Schema):
         if obj.status != OrganizationDomain.Status.PENDING:
             return None
         provider = dns_diagnostics.detect_dns_provider(obj.hostname)
-        return DnsProviderSchema(name=provider.name, help_url=provider.help_url) if provider else None
+        if not provider:
+            return None
+        return DnsProviderSchema(
+            key=provider.key,
+            name=provider.name,
+            help_url=provider.help_url,
+            dashboard_url=provider.dashboard_url(obj.hostname),
+        )
