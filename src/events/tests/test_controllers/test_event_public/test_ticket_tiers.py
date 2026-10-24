@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from conftest import RevelUserFactory
-from events.models import Event, EventToken, MembershipTier, Ticket, TicketTier, WaitlistOffer
+from events.models import Event, EventRSVP, EventToken, MembershipTier, Ticket, TicketTier, WaitlistOffer
 
 pytestmark = pytest.mark.django_db
 
@@ -212,6 +212,24 @@ class TestTotalAvailableClampedToEventCap:
             ticket_factory(event=public_event, tier=other, user=revel_user_factory())
 
         assert self._available(client, public_event)["Big"] == 5
+
+    def test_non_ticket_event_counts_tickets_not_rsvps(
+        self,
+        client: Client,
+        public_event: Event,
+        tier_factory: t.Callable[..., TicketTier],
+        ticket_factory: t.Callable[..., Ticket],
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        public_event.requires_ticket = False
+        public_event.save(update_fields=["requires_ticket"])
+        tier = tier_factory(event=public_event, name="Big", total_quantity=40)
+        for _ in range(3):
+            ticket_factory(event=public_event, tier=tier, user=revel_user_factory())
+        for _ in range(5):
+            EventRSVP.objects.create(event=public_event, user=revel_user_factory(), status=EventRSVP.RsvpStatus.YES)
+
+        assert self._available(client, public_event)["Big"] == 27
 
     def test_unlimited_tier_reports_remaining_cap(
         self, client: Client, public_event: Event, tier_factory: t.Callable[..., TicketTier]
