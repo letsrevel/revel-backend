@@ -810,6 +810,44 @@ class TestEventCancelledNotificationReason:
         assert notifications.count() == 1, "context failed schema validation and was swallowed"
         assert notifications.get().context["refund_available"] is True
 
+    @pytest.mark.parametrize("requires_ticket", [True, False])
+    def test_refund_sentence_rendered_in_recipient_language(
+        self,
+        public_event: t.Any,
+        user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+        requires_ticket: bool,
+    ) -> None:
+        """#1218: the producer ships only ``refund_available``; templates translate the sentence."""
+        from django.template.loader import render_to_string
+        from django.utils import translation
+
+        from notifications.signals import event as event_signals
+
+        public_event.requires_ticket = requires_ticket
+        user.language = "de"
+
+        with (
+            patch.object(
+                event_signals, "get_eligible_users_for_event_notification", return_value=self._build_eligible(user)
+            ),
+            patch.object(event_signals, "get_event_location_for_user", return_value=("Somewhere", None)),
+            patch("notifications.signals.event.notification_requested.send") as send_mock,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            event_signals._handle_event_cancelled(type(public_event), public_event)
+
+        context = send_mock.call_args_list[0].kwargs["context"]
+        assert "refund_info" not in context
+        assert context["refund_available"] is requires_ticket
+
+        german = "Rückerstattungen werden gemäß der Rückerstattungsrichtlinie des Veranstalters bearbeitet."
+        for template in ("email/event_cancelled.txt", "in_app/event_cancelled.md", "telegram/event_cancelled.md"):
+            with translation.override("de"):
+                body = render_to_string(f"notifications/{template}", {"context": context, "user": user})
+            assert (german in body) is requires_ticket, template
+            assert "Refunds will be processed" not in body
+
 
 @pytest.mark.django_db(transaction=True)
 class TestStaffNotificationPreferenceGate:

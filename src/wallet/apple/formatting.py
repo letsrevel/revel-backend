@@ -12,6 +12,8 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
+from django.utils.translation import pgettext
 
 from events.utils.brand_theme import hex_to_rgb
 from events.utils.pass_branding import get_pass_brand_colors
@@ -166,11 +168,12 @@ def format_date_compact(dt: datetime, tz: ZoneInfo | None = None) -> str:
         tz: Optional timezone to convert to before formatting.
 
     Returns:
-        Formatted string like "Mar 1, 19:00".
+        Formatted string like "Mar 1, 19:00" (English; other languages follow their locale).
     """
     if tz:
         dt = dt.astimezone(tz)
-    return dt.strftime("%b %-d, %H:%M")
+    # English: "Mar 1, 19:00"
+    return date_format(dt, pgettext("wallet compact datetime format", "M j, H:i"))
 
 
 def format_date_year(dt: datetime, tz: ZoneInfo | None = None) -> str:
@@ -189,7 +192,8 @@ def format_date_year(dt: datetime, tz: ZoneInfo | None = None) -> str:
     """
     if tz:
         dt = dt.astimezone(tz)
-    return dt.strftime("%b %-d, %Y")
+    # English: "Mar 1, 2025"
+    return date_format(dt, pgettext("wallet date format", "M j, Y"))
 
 
 def format_date_full(dt: datetime, tz: ZoneInfo | None = None) -> str:
@@ -204,7 +208,8 @@ def format_date_full(dt: datetime, tz: ZoneInfo | None = None) -> str:
     """
     if tz:
         dt = dt.astimezone(tz)
-    return dt.strftime("%b %d, %Y %I:%M %p")
+    # English: "Jan 03, 2025 07:00 PM"
+    return date_format(dt, pgettext("wallet full datetime format", "M d, Y h:i A"))
 
 
 def format_price(price: Decimal | int | float, currency: str) -> str:
