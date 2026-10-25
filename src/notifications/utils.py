@@ -14,6 +14,9 @@ from django.utils.translation import pgettext
 from events.utils import default_date_format
 from events.utils.frontend_urls import frontend_base_url_for, frontend_base_url_for_domain
 
+if t.TYPE_CHECKING:
+    from events.models import Event
+
 logger = structlog.get_logger(__name__)
 
 ChannelType = t.Literal["email", "markdown", "telegram"]
@@ -64,7 +67,12 @@ def format_datetime(
         # English: "Wednesday, November 14, 2025 at 6:30 PM CET"
         return date_format(dt, default_date_format())
     # English: "Nov 14, 2025 at 6:30 PM"
-    return date_format(dt, pgettext("short datetime format", "M j, Y \\a\\t g:i A"))
+    return date_format(dt, _short_datetime_format())
+
+
+def _short_datetime_format() -> str:
+    """The translated short datetime format (English: "Nov 14, 2025 at 6:30 PM")."""
+    return pgettext("short datetime format", "M j, Y \\a\\t g:i A")
 
 
 def _resolve_base_url(base_url: str | None) -> str:
@@ -476,12 +484,25 @@ def _add_event_fields(enriched: dict[str, t.Any], base_url: str) -> None:
     enriched["event_link_md"] = format_event_link(event_name, event_id, channel="markdown", base_url=base_url)
 
 
+def _render_event_date_keys(enriched: dict[str, t.Any], field: str, value: datetime | None, event: "Event") -> None:
+    """Overwrite ``{field}_formatted`` / ``{field}_short`` (when present) from ``value`` in the event's timezone."""
+    from events.utils import format_event_datetime
+
+    if not value:
+        return
+    if f"{field}_formatted" in enriched:
+        enriched[f"{field}_formatted"] = format_event_datetime(value, event)
+    if f"{field}_short" in enriched:
+        enriched[f"{field}_short"] = format_event_datetime(value, event, fmt=_short_datetime_format())
+
+
 def _localise_event_dates(enriched: dict[str, t.Any]) -> None:
     """Re-render the producer's pre-baked event dates under the active (recipient) language.
 
     Producers bake ``event_start_formatted`` & co. with ``format_event_datetime`` in *their*
     language at creation time. Called inside ``translation.override(user_language)``, this
-    overrides those keys (only the ones the context already carries) using the event's own
+    overrides those keys and their ``*_short`` siblings (only the ones the context already
+    carries, including ones the UTC fallback loop just added) using the event's own
     timezone, so the event-timezone guarantee is kept. When the event no longer exists the
     producer's values are left untouched.
 
@@ -495,16 +516,15 @@ def _localise_event_dates(enriched: dict[str, t.Any]) -> None:
         return
     expires_at = enriched.get("expires_at")
     wants_expiry = bool(expires_at) and ("expires_at_formatted" in enriched or "time_remaining_formatted" in enriched)
-    wants_event = "event_start_formatted" in enriched or "event_end_formatted" in enriched
+    event_keys = [f"{field}_{kind}" for field in ("event_start", "event_end") for kind in ("formatted", "short")]
+    wants_event = any(key in enriched for key in event_keys)
     if not (wants_event or wants_expiry):
         return
     event = Event.objects.select_related("city").only("start", "end", "city__timezone").filter(pk=event_id).first()
     if event is None:
         return
-    if "event_start_formatted" in enriched and event.start:
-        enriched["event_start_formatted"] = format_event_datetime(event.start, event)
-    if "event_end_formatted" in enriched and event.end:
-        enriched["event_end_formatted"] = format_event_datetime(event.end, event)
+    for field, value in (("event_start", event.start), ("event_end", event.end)):
+        _render_event_date_keys(enriched, field, value, event)
     if wants_expiry:
         expires = datetime.fromisoformat(str(expires_at))
         if "expires_at_formatted" in enriched:

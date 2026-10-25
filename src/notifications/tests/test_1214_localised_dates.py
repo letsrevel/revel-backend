@@ -77,6 +77,17 @@ def test_enrichment_overrides_english_prebaked_dates(vienna_event: Event) -> Non
     assert ctx["event_start_formatted"] == EN_START  # input untouched
 
 
+def test_enrichment_localises_short_dates_in_event_timezone(vienna_event: Event) -> None:
+    """A raw UTC ``event_start`` makes the fallback add *_formatted/*_short; both end up event-local (CET)."""
+    enriched = get_formatted_context_for_template(_ctx(vienna_event, event_start=START.isoformat()), "de")
+
+    assert enriched["event_start_formatted"] == DE_START
+    assert enriched["event_start_short"] == "26. Okt 2026, 13:20"
+
+    only_short = get_formatted_context_for_template(_ctx(vienna_event, event_start_short="Oct 26, 2026"), "de")
+    assert only_short["event_start_short"] == "26. Okt 2026, 13:20"
+
+
 def test_enrichment_does_not_add_absent_keys(vienna_event: Event) -> None:
     enriched = get_formatted_context_for_template(
         _ctx(vienna_event, event_start_formatted=EN_START), user_language="de"

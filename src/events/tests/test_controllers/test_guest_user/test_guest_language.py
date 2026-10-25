@@ -1,5 +1,7 @@
 """Guest confirmation emails render in the guest's language (#1214)."""
 
+import typing as t
+
 import pytest
 from django.core import mail
 from django.test import Client
@@ -17,6 +19,14 @@ pytestmark = pytest.mark.django_db
 def _subject(msgid: str, language: str, **params: str) -> str:
     with translation.override(language):
         return translation.gettext(msgid) % params
+
+
+def _assert_bodies_contain(sent: mail.EmailMessage, text: str) -> None:
+    """Both the plain-text and the HTML body carry ``text`` (the German body, not only the subject)."""
+    assert "click" not in text  # really translated, not the English msgid
+    assert text in sent.body
+    html = t.cast(mail.EmailMultiAlternatives, sent).alternatives[0][0]
+    assert text in str(html)
 
 
 def test_guest_user_stores_request_language() -> None:
@@ -79,10 +89,11 @@ def test_rsvp_confirmation_email_is_german() -> None:
     expected = _subject("Confirm your RSVP to %(event_name)s", "de", event_name="Party")
     assert sent.subject == expected
     assert expected != "Confirm your RSVP to Party"
+    _assert_bodies_contain(sent, _subject("To confirm your RSVP, please click the link below:", "de"))
 
 
 def test_ticket_confirmation_email_is_german() -> None:
-    """send_guest_ticket_confirmation renders subject in the guest's language."""
+    """send_guest_ticket_confirmation renders subject and body in the guest's language."""
     with translation.override("de"):
         get_or_create_guest_user("de@example.com")
 
@@ -92,6 +103,7 @@ def test_ticket_confirmation_email_is_german() -> None:
     expected = _subject("Confirm your ticket for %(event_name)s", "de", event_name="Party")
     assert sent.subject == expected
     assert expected != "Confirm your ticket for Party"
+    _assert_bodies_contain(sent, _subject("To confirm your ticket purchase, please click the link below:", "de"))
 
 
 def test_confirmation_email_unknown_guest_stays_english() -> None:
