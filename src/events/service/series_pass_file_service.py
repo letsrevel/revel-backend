@@ -13,6 +13,7 @@ not just a naming convention.
 import hashlib
 
 import structlog
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
@@ -49,6 +50,10 @@ def compute_content_hash(held_pass: HeldSeriesPass) -> str:
     # cache while unbranded hashes stay valid.
     if brand := get_pass_brand_colors(held_pass.series_pass.event_series.organization):
         parts.append(f"brand={brand.model_dump_json()}")
+    # The pass is rendered in the holder's language (#1217): hashed only when non-default, so
+    # default-language caches stay valid while a language change is regenerated.
+    if (language := held_pass.user.language) and language != settings.LANGUAGE_CODE:
+        parts.append(f"lang={language}")
     raw = "|".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()
 

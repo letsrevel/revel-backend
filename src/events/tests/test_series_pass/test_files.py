@@ -143,6 +143,17 @@ def held_pass(fs_series_pass: SeriesPass, owner: RevelUser, tier_links: list[Ser
 class TestComputeContentHash:
     """Tests for series_pass_file_service.compute_content_hash."""
 
+    def test_changes_with_non_default_holder_language(self, held_pass: HeldSeriesPass) -> None:
+        """The pass is rendered in the holder's language (#1217); default-language hashes are unchanged."""
+        assert held_pass.user.language == "en"
+        hash_en = series_pass_file_service.compute_content_hash(held_pass)
+
+        held_pass.user.language = "de"
+        assert series_pass_file_service.compute_content_hash(held_pass) != hash_en
+
+        held_pass.user.language = "en"
+        assert series_pass_file_service.compute_content_hash(held_pass) == hash_en
+
     def test_returns_deterministic_hex_string(self, held_pass: HeldSeriesPass) -> None:
         """Hash should be deterministic for the same held pass state."""
         hash1 = series_pass_file_service.compute_content_hash(held_pass)
