@@ -35,14 +35,17 @@ def test_guest_user_language_falls_back_for_unsupported() -> None:
     assert user.language == "en"
 
 
-def test_existing_guest_language_updated_but_not_regular_account(django_user_model: type[RevelUser]) -> None:
-    """The latest request language updates a guest row; a real account is rejected, untouched."""
+def test_existing_guest_language_not_overwritten_nor_regular_account(django_user_model: type[RevelUser]) -> None:
+    """A later anonymous request can't change an existing guest's language; a real account is rejected, untouched."""
     from events.exceptions import GuestAccountExistsError
 
-    get_or_create_guest_user("lang@example.com")
+    with translation.override("de"):
+        get_or_create_guest_user("lang@example.com")
     with translation.override("fr"):
         again = get_or_create_guest_user("LANG@example.com")
-    assert again.language == "fr"
+    assert again.language == "de"
+    again.refresh_from_db()
+    assert again.language == "de"
 
     django_user_model.objects.create_user(username="real@example.com", email="real@example.com", password="x")
     with translation.override("de"), pytest.raises(GuestAccountExistsError):

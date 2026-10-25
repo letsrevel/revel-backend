@@ -55,8 +55,9 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
         last_name: User's last name
 
     Returns:
-        Guest user instance, whose ``language`` is the request's active language so the
-        Celery confirmation email (which has no request) renders in it.
+        Guest user instance. A new guest's ``language`` is the request's active language so the
+        Celery confirmation email (which has no request) renders in it; an existing guest's is
+        never overwritten (anonymous endpoint).
 
     Raises:
         GuestAccountExistsError: 400 with ``code`` if a non-guest user with this email exists.
@@ -96,12 +97,9 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
         logger.warning("guest_user_creation_blocked_existing_account", email=email)
         raise GuestAccountExistsError()
 
-    # Guest user already exists — keep existing names to prevent overwrite by third parties.
+    # Guest user already exists — keep existing names (and language) to prevent overwrite by
+    # third parties: these endpoints are anonymous, anyone can submit a guest's email.
     # Per-ticket guest_name is captured separately in the JWT payload.
-    # Only the language follows the latest request (guest rows only), for the confirmation email.
-    if existing_user.language != (language := _request_language()):
-        existing_user.language = language
-        existing_user.save(update_fields=["language"])
     return existing_user
 
 
