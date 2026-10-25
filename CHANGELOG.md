@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.25.1] - 2026-10-25
+
+### Fixed
+- Guest RSVP and guest ticket confirmation emails are now sent in the language the guest used on the site, instead of always in English. The language is stored when the guest record is first created and is never overwritten by later anonymous requests
+- Dates inside notifications (event start and end, waitlist offer expiry and time remaining) now follow the recipient's language and local conventions, still in the event's timezone, e.g. „Montag, 26. Oktober 2026, 13:20 CET" instead of "Monday, October 26, 2026 at 1:20 PM CET". Already-stored notifications are re-rendered correctly too
+- Apple Wallet passes (tickets, series passes, membership cards) are now generated in the holder's language, with translated labels and localised dates; English passes are unchanged. Cached passes are regenerated for holders whose language isn't the default
+- The refund sentence in "event cancelled" notifications is now translated into the recipient's language
+
 ## [2.25.0] - 2026-10-24
 
 ### Added
