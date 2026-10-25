@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
+from django.utils import translation
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
@@ -151,6 +152,16 @@ def _confirmation_org(organization_id: str | None, token: str) -> Organization |
     return orgs.filter(events__id=event_id).first()
 
 
+def _guest_language(email: str) -> str:
+    """The guest user's stored language (set at RSVP/checkout), else the platform default.
+
+    The tasks keep their signatures (rolling-deploy safety), so the language is read from the
+    guest row looked up by email instead of being passed in.
+    """
+    language = RevelUser.objects.filter(email__iexact=email).values_list("language", flat=True).first()
+    return language or str(settings.LANGUAGE_CODE)
+
+
 def _tenant_sender(org: Organization | None, kind: str) -> dict[str, t.Any]:
     """``send_email`` sender kwargs for a white-label tenant org; empty (platform sender) otherwise (#1155).
 
@@ -179,7 +190,6 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str, organi
             follow its custom domain when it has an active one (the platform otherwise)
     """
     logger.info("guest_rsvp_confirmation_sending", email=email, event_name=event_name)
-    subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
     org = _confirmation_org(organization_id, token)
     confirmation_link = frontend_base_url_for(org) + f"/events/confirm-action?token={token}"
@@ -188,8 +198,10 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str, organi
         "event_name": event_name,
         "frontend_base_url": site_settings.frontend_base_url,
     }
-    body = render_to_string("events/emails/guest_rsvp_confirmation_body.txt", ctx)
-    html_body = render_to_string("events/emails/guest_rsvp_confirmation_body.html", ctx)
+    with translation.override(_guest_language(email)):
+        subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
+        body = render_to_string("events/emails/guest_rsvp_confirmation_body.txt", ctx)
+        html_body = render_to_string("events/emails/guest_rsvp_confirmation_body.html", ctx)
     send_email(
         to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org, "guest_rsvp_confirmation")
     )
@@ -214,7 +226,6 @@ def send_guest_ticket_confirmation(
             follow its custom domain when it has an active one (the platform otherwise)
     """
     logger.info("guest_ticket_confirmation_sending", email=email, event_name=event_name, tier_name=tier_name)
-    subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
     org = _confirmation_org(organization_id, token)
     confirmation_link = frontend_base_url_for(org) + f"/events/confirm-action?token={token}"
@@ -224,8 +235,10 @@ def send_guest_ticket_confirmation(
         "tier_name": tier_name,
         "frontend_base_url": site_settings.frontend_base_url,
     }
-    body = render_to_string("events/emails/guest_ticket_confirmation_body.txt", ctx)
-    html_body = render_to_string("events/emails/guest_ticket_confirmation_body.html", ctx)
+    with translation.override(_guest_language(email)):
+        subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
+        body = render_to_string("events/emails/guest_ticket_confirmation_body.txt", ctx)
+        html_body = render_to_string("events/emails/guest_ticket_confirmation_body.html", ctx)
     send_email(
         to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org, "guest_ticket_confirmation")
     )

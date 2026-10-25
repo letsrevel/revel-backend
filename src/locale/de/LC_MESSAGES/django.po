@@ -6853,3 +6853,12 @@ msgstr "Dieser Fragebogen ist der Standard-Mitgliedschaftsfragebogen der Organis
 #: events/service/event_questionnaire_service.py
 msgid "This questionnaire is used by one or more membership tiers. Remove it from those tiers before changing its type."
 msgstr "Dieser Fragebogen wird von einer oder mehreren Mitgliedschaftsstufen verwendet. Entferne ihn aus diesen Stufen, bevor du seinen Typ änderst."
+
+#: events/utils/__init__.py
+msgctxt "datetime format"
+msgid "l, F j, Y \\a\\t g:i A T"
+msgstr "l, j. F Y, H:i T"
+
+msgctxt "short datetime format"
+msgid "M j, Y \\a\\t g:i A"
+msgstr "j. M Y, H:i"
