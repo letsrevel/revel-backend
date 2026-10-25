@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
+from django.utils import timezone, translation
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from pydantic import TypeAdapter, ValidationError
@@ -36,6 +36,16 @@ logger = structlog.get_logger(__name__)
 _GUEST_TOKEN_MAX_CHARS = 4096
 
 
+def _request_language() -> str:
+    """The active request language, limited to a supported ``settings.LANGUAGES`` code."""
+    supported = {code for code, _name in settings.LANGUAGES}
+    language = translation.get_language() or ""
+    for candidate in (language, language.split("-")[0].lower()):
+        if candidate in supported:
+            return candidate
+    return str(settings.LANGUAGE_CODE)
+
+
 def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = "") -> RevelUser:
     """Get existing guest user or create a new one.
 
@@ -45,7 +55,8 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
         last_name: User's last name
 
     Returns:
-        Guest user instance
+        Guest user instance, whose ``language`` is the request's active language so the
+        Celery confirmation email (which has no request) renders in it.
 
     Raises:
         GuestAccountExistsError: 400 with ``code`` if a non-guest user with this email exists.
@@ -75,6 +86,7 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
             email_verified=False,
             is_active=True,  # Guest users need to be active to access their tickets/RSVPs
             password=make_password(None),  # Unusable password
+            language=_request_language(),
         )
         logger.info("guest_user_created", email=email, user_id=str(user.id))
         return user
@@ -86,6 +98,10 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
 
     # Guest user already exists — keep existing names to prevent overwrite by third parties.
     # Per-ticket guest_name is captured separately in the JWT payload.
+    # Only the language follows the latest request (guest rows only), for the confirmation email.
+    if existing_user.language != (language := _request_language()):
+        existing_user.language = language
+        existing_user.save(update_fields=["language"])
     return existing_user
 
 

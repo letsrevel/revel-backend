@@ -6704,3 +6704,12 @@ msgstr "Este questionário é o questionário de adesão predefinido da organiza
 #: events/service/event_questionnaire_service.py
 msgid "This questionnaire is used by one or more membership tiers. Remove it from those tiers before changing its type."
 msgstr "Este questionário é usado por um ou mais níveis de adesão. Remova-o desses níveis antes de alterar o seu tipo."
+
+#: events/utils/__init__.py
+msgctxt "datetime format"
+msgid "l, F j, Y \\a\\t g:i A T"
+msgstr "l, j \\d\\e F \\d\\e Y, H:i T"
+
+msgctxt "short datetime format"
+msgid "M j, Y \\a\\t g:i A"
+msgstr "j M Y, H:i"

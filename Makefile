@@ -161,7 +161,9 @@ E2E_OIDC_ENV = OIDC_PROVIDERS=keycloak \
 	OIDC_KEYCLOAK_CLIENT_SECRET=e2e-secret
 # EMAIL_WEBHOOK_SECRET: fixed, test-only value so E2E specs can POST fake provider events to
 # /api/email-events/brevo (USER_JOURNEYS 15.9). The E2E backend binds 127.0.0.1 only.
-E2E_GUNICORN = DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES EMAIL_WEBHOOK_SECRET=e2e-webhook-secret $(E2E_OIDC_ENV) uv run gunicorn revel.wsgi:application \
+# CUSTOM_DOMAIN_URL_TEMPLATE: tenant-host email links must reach the E2E frontend on :5173
+# (mirrors PUBLIC_CUSTOM_DOMAIN_URL_TEMPLATE in revel-frontend's playwright.config.ts, #1215).
+E2E_GUNICORN = DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES EMAIL_WEBHOOK_SECRET=e2e-webhook-secret CUSTOM_DOMAIN_URL_TEMPLATE='http://{hostname}:5173' $(E2E_OIDC_ENV) uv run gunicorn revel.wsgi:application \
 	--worker-class gthread \
 	--workers $${GUNICORN_WORKERS:-4} \
 	--threads $${GUNICORN_THREADS:-4} \

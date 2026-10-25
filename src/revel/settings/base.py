@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.sites",
     "django.contrib.gis",
+    "django.contrib.humanize",  # loads its translations so naturaltime() is localised (#1214)
     # third party
     "django_prometheus",  # Observability: Prometheus metrics
     "corsheaders",

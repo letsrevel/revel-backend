@@ -19,6 +19,7 @@ from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
+from django.utils.translation import pgettext
 
 from events.utils.pass_branding import get_pass_brand_colors
 
@@ -29,8 +30,14 @@ if t.TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Default date format for user-facing dates: "Friday, February 6, 2026 at 7:00 PM CET"
-DEFAULT_DATE_FORMAT = "l, F j, Y \\a\\t g:i A T"
+
+def default_date_format() -> str:
+    """Return the translated default format for user-facing dates, resolved under the active language.
+
+    English: "Friday, February 6, 2026 at 7:00 PM CET". Locales translate the msgid to their own
+    word order and 24h clock (Django date-format characters).
+    """
+    return pgettext("datetime format", "l, F j, Y \\a\\t g:i A T")
 
 
 def get_user_timezone(user: "RevelUser") -> ZoneInfo | None:
@@ -104,14 +111,14 @@ def get_organization_timezone(org: "Organization") -> ZoneInfo:
 def format_event_datetime(
     dt: datetime | None,
     event: "models.Event",
-    fmt: str = DEFAULT_DATE_FORMAT,
+    fmt: str | None = None,
 ) -> str:
     r"""Format a datetime in the event's timezone.
 
     Args:
         dt: Datetime to format (must be timezone-aware)
         event: Event to get timezone from
-        fmt: Date format string (default: "l, F j, Y \a\t g:i A T")
+        fmt: Date format string (default: the translated :func:`default_date_format`)
 
     Returns:
         Formatted datetime string, or empty string if dt is None
@@ -124,13 +131,13 @@ def format_event_datetime(
     dt_in_event_tz = dt.astimezone(event_tz)
     # Use timezone.override to ensure Django's date_format uses the correct timezone
     with timezone.override(event_tz):
-        return date_format(dt_in_event_tz, fmt)
+        return date_format(dt_in_event_tz, fmt or default_date_format())
 
 
 def format_organization_datetime(
     dt: datetime | None,
     org: "Organization",
-    fmt: str = DEFAULT_DATE_FORMAT,
+    fmt: str | None = None,
 ) -> str:
     r"""Format a datetime in the organization's timezone.
 
@@ -141,7 +148,7 @@ def format_organization_datetime(
     Args:
         dt: Datetime to format (must be timezone-aware)
         org: Organization to get the timezone from
-        fmt: Date format string (default: "l, F j, Y \a\t g:i A T")
+        fmt: Date format string (default: the translated :func:`default_date_format`)
 
     Returns:
         Formatted datetime string, or empty string if dt is None
@@ -152,7 +159,7 @@ def format_organization_datetime(
     org_tz = get_organization_timezone(org)
     dt_in_org_tz = dt.astimezone(org_tz)
     with timezone.override(org_tz):
-        return date_format(dt_in_org_tz, fmt)
+        return date_format(dt_in_org_tz, fmt or default_date_format())
 
 
 class _SafeAccessStr(str):
