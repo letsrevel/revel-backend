@@ -6802,3 +6802,106 @@ msgstr "l j F Y, H:i T"
 msgctxt "short datetime format"
 msgid "M j, Y \\a\\t g:i A"
 msgstr "j M Y, H:i"
+
+#: wallet/apple/generator.py
+msgid "VENUE"
+msgstr "LUOGO"
+
+#: wallet/apple/generator.py
+msgid "ADDRESS"
+msgstr "INDIRIZZO"
+
+#: wallet/apple/generator.py
+msgid "SECTION"
+msgstr "SETTORE"
+
+#: wallet/apple/generator.py
+msgid "SEAT"
+msgstr "POSTO"
+
+#: wallet/apple/generator.py
+msgid "TICKET"
+msgstr "BIGLIETTO"
+
+#: wallet/apple/generator.py
+msgid "PRICE"
+msgstr "PREZZO"
+
+#: wallet/apple/generator.py
+msgid "GUEST"
+msgstr "OSPITE"
+
+#: wallet/apple/generator.py
+msgid "TIER"
+msgstr "LIVELLO"
+
+#: wallet/apple/generator.py
+msgid "MEMBER SINCE"
+msgstr "SOCIO DAL"
+
+#: wallet/apple/generator.py
+msgid "Ticket ID"
+msgstr "ID biglietto"
+
+#: wallet/apple/generator.py
+msgid "Guest"
+msgstr "Ospite"
+
+#: wallet/apple/generator.py
+msgid "Venue"
+msgstr "Luogo"
+
+#: wallet/apple/generator.py
+msgid "Address"
+msgstr "Indirizzo"
+
+#: wallet/apple/generator.py
+msgid "Seating"
+msgstr "Posti a sedere"
+
+#: wallet/apple/generator.py
+msgid "Member ID"
+msgstr "ID socio"
+
+#: wallet/apple/generator.py
+msgid "Organization"
+msgstr "Organizzazione"
+
+#: wallet/apple/generator.py
+msgid "Powered by"
+msgstr "Offerto da"
+
+#: wallet/apple/generator.py
+msgid "Start: {start}\nEnd: {end}"
+msgstr "Inizio: {start}\nFine: {end}"
+
+#: wallet/apple/generator.py
+msgid "Section: {}"
+msgstr "Settore: {}"
+
+#: wallet/apple/generator.py
+msgid "Seat: {}"
+msgstr "Posto: {}"
+
+#: wallet/apple/generator.py
+msgid "Series Pass"
+msgstr "Pass stagionale"
+
+#: wallet/apple/generator.py
+msgid "Refunds will be processed according to the organizer's refund policy."
+msgstr "I rimborsi saranno elaborati in conformità alla politica di rimborso dell'organizzatore."
+
+#: wallet/apple/formatting.py
+msgctxt "wallet compact datetime format"
+msgid "M j, H:i"
+msgstr "j M, H:i"
+
+#: wallet/apple/formatting.py
+msgctxt "wallet date format"
+msgid "M j, Y"
+msgstr "j M Y"
+
+#: wallet/apple/formatting.py
+msgctxt "wallet full datetime format"
+msgid "M d, Y h:i A"
+msgstr "j M Y, H:i"

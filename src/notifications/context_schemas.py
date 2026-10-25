@@ -288,7 +288,6 @@ class EventCancelledContext(BaseNotificationContext):
     event_location: str
     cancellation_reason: t.NotRequired[str]
     refund_available: bool
-    refund_info: t.NotRequired[str]
     alternative_event_url: t.NotRequired[str]
 
 

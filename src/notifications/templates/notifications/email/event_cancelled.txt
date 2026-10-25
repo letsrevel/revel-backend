@@ -11,9 +11,9 @@
 {{ context.cancellation_reason }}
 {% endif %}
 
-{% if context.refund_info %}
+{% if context.refund_available %}
 💰 {% trans "Refund Information:" %}
-{{ context.refund_info }}
+{% trans "Refunds will be processed according to the organizer's refund policy." %}
 {% endif %}
 
 {% if context.alternative_event_url %}

@@ -127,6 +127,19 @@ class TestComputeContentHash:
         hash_after = ticket_file_service.compute_content_hash(ticket_with_tier)
         assert hash_before != hash_after
 
+    def test_changes_with_non_default_holder_language(self, ticket_with_tier: Ticket) -> None:
+        """The pass is rendered in the holder's language (#1217); default-language hashes are unchanged."""
+        user = ticket_with_tier.user
+        assert user.language == "en"
+        hash_en = ticket_file_service.compute_content_hash(ticket_with_tier)
+
+        user.language = "de"
+        hash_de = ticket_file_service.compute_content_hash(ticket_with_tier)
+
+        assert hash_de != hash_en
+        user.language = "en"
+        assert ticket_file_service.compute_content_hash(ticket_with_tier) == hash_en
+
 
 # ---------------------------------------------------------------------------
 # is_cache_valid
