@@ -18,7 +18,7 @@
 [![Bandit](https://github.com/letsrevel/revel-backend/actions/workflows/bandit.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/bandit.yaml)
 
 <p align="center">
-  <img src="docs/screenshots/2026-09/event-detail-page.png" alt="A Revel event page for a gig, with date, venue, running order and a Get Tickets button" width="800"/>
+  <img src="docs/screenshots/2026-10/event-detail-page.png" alt="A Revel event page for a gig, with the cover photo, organizer, date and venue" width="800"/>
 </p>
 
 **Buyers pay the ticket price with no service fee on top.** Ticket money goes straight to the organizer's own Stripe account, and the code is MIT-licensed, so you can use the hosted version or run it on your own server.
@@ -192,48 +192,48 @@ Potluck coordination with dietary restrictions, polls and event discovery with d
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/screenshots/2026-09/ticket-tiers.png" alt="Ticket options for a gig" width="400"/>
+      <img src="docs/screenshots/2026-10/ticket-tiers.png" alt="Ticket options for a gig" width="400"/>
       <br/>
       <em>Fixed-price and pay-what-you-can tiers in one cart</em>
     </td>
     <td align="center" width="50%">
-      <img src="docs/screenshots/2026-09/membership-plans.png" alt="Membership plans" width="400"/>
+      <img src="docs/screenshots/2026-10/membership-plans.png" alt="Membership plans" width="400"/>
       <br/>
       <em>Monthly and yearly membership plans</em>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="docs/screenshots/2026-09/membership-card.png" alt="Membership card" width="400"/>
+      <img src="docs/screenshots/2026-10/membership-card.png" alt="Membership card" width="400"/>
       <br/>
       <em>A membership card with Apple Wallet and Google Wallet buttons</em>
     </td>
     <td align="center">
-      <img src="docs/screenshots/2026-09/series-pass.png" alt="Season pass" width="400"/>
+      <img src="docs/screenshots/2026-10/series-pass.png" alt="Season pass" width="400"/>
       <br/>
       <em>A season pass for an event series</em>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="docs/screenshots/2026-09/seat-selection.png" alt="Seat selection on a venue map" width="400"/>
+      <img src="docs/screenshots/2026-10/seat-selection.png" alt="Seat selection on a venue map" width="400"/>
       <br/>
       <em>Seat selection on a venue map</em>
     </td>
     <td align="center">
-      <img src="docs/screenshots/2026-09/org-admin-memberships.png" alt="Subscriptions in the organization admin" width="400"/>
+      <img src="docs/screenshots/2026-10/org-admin-memberships.png" alt="Subscriptions in the organization admin" width="400"/>
       <br/>
       <em>Subscriptions and recurring revenue in the organization admin</em>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="docs/screenshots/2026-09/questionnaire-screening.png" alt="Application questionnaire for a rope workshop" width="400"/>
+      <img src="docs/screenshots/2026-10/questionnaire-screening.png" alt="Application questionnaire for a rope workshop" width="400"/>
       <br/>
       <em>An application questionnaire for a rope workshop</em>
     </td>
     <td align="center">
-      <img src="docs/screenshots/2026-09/financials.png" alt="Revenue and VAT reporting" width="400"/>
+      <img src="docs/screenshots/2026-10/financials.png" alt="Revenue and VAT reporting" width="400"/>
       <br/>
       <em>Ticket revenue and VAT per event, plus membership revenue</em>
     </td>
