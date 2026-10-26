@@ -333,7 +333,6 @@ def create_follows(state: BootstrapState) -> None:
         user=state.users["attendee_2"],
         organization=state.orgs["alpha"],
         notify_new_events=True,
-        notify_announcements=True,
         is_public=False,
     )
 
@@ -342,10 +341,9 @@ def create_follows(state: BootstrapState) -> None:
         user=state.users["attendee_3"],
         organization=state.orgs["beta"],
         notify_new_events=True,
-        notify_announcements=False,  # Only wants event notifications
         is_public=False,
     )
-    # notify_announcements is a facade over the per-org mute (#1031); seed the mute itself.
+    # attendee_3 only wants event notifications: seed the per-org announcement mute (#1031).
     state.users["attendee_3"].notification_preferences.muted_organizations.add(state.orgs["beta"])
 
     # attendee_4 follows both orgs (not a member of either)
@@ -353,14 +351,12 @@ def create_follows(state: BootstrapState) -> None:
         user=state.users["attendee_4"],
         organization=state.orgs["alpha"],
         notify_new_events=True,
-        notify_announcements=True,
         is_public=True,  # Public follow
     )
     OrganizationFollow.objects.create(
         user=state.users["attendee_4"],
         organization=state.orgs["beta"],
         notify_new_events=True,
-        notify_announcements=True,
         is_public=False,
     )
 

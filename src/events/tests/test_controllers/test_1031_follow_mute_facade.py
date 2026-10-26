@@ -1,7 +1,6 @@
 """The follow API's ``notify_announcements`` is a facade over the per-org mute (#1031).
 
-``OrganizationFollow.notify_announcements`` is no longer read: the response reports
-``not muted`` and writes go to ``NotificationPreference.muted_organizations``.
+The response reports ``not muted`` and writes go to ``NotificationPreference.muted_organizations``.
 """
 
 import typing as t
@@ -115,14 +114,6 @@ class TestFollowUpdate:
         response = client.get(reverse("api:get_organization_follow_status", kwargs={"slug": org.slug}))
 
         assert response.json()["follow"]["notify_announcements"] is False
-
-    def test_stale_column_is_not_read(self, client: Client, user: RevelUser, org: Organization) -> None:
-        """A legacy ``notify_announcements=False`` row without a mute reports True (the mute is the truth)."""
-        OrganizationFollow.objects.create(user=user, organization=org, notify_announcements=False)
-
-        response = client.get(reverse("api:get_organization_follow_status", kwargs={"slug": org.slug}))
-
-        assert response.json()["follow"]["notify_announcements"] is True
 
 
 class TestFollowedOrganizationsList:

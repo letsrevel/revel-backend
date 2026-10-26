@@ -19,6 +19,10 @@ from notifications.enums import NotificationType
 pytestmark = pytest.mark.django_db
 
 
+def _is_muted(user: RevelUser, org: Organization) -> bool:
+    return user.notification_preferences.muted_organizations.filter(pk=org.pk).exists()
+
+
 class TestFollowOrganization:
     """Tests for follow_organization function."""
 
@@ -46,7 +50,7 @@ class TestFollowOrganization:
         assert follow.user == nonmember_user
         assert follow.organization == organization
         assert follow.notify_new_events is True
-        assert follow.notify_announcements is True
+        assert not _is_muted(nonmember_user, organization)
         assert follow.is_archived is False
 
     def test_follow_organization_with_custom_preferences(
@@ -76,7 +80,7 @@ class TestFollowOrganization:
 
         # Assert
         assert follow.notify_new_events is False
-        assert follow.notify_announcements is True
+        assert not _is_muted(nonmember_user, organization)
 
     def test_follow_organization_sends_notification_to_staff(
         self,
@@ -136,7 +140,6 @@ class TestFollowOrganization:
             organization=organization,
             is_archived=True,
             notify_new_events=False,
-            notify_announcements=False,
         )
         original_id = existing_follow.id
 
@@ -154,7 +157,7 @@ class TestFollowOrganization:
         assert follow.id == original_id
         assert follow.is_archived is False
         assert follow.notify_new_events is True
-        assert follow.notify_announcements is True
+        assert not _is_muted(nonmember_user, organization)
         assert OrganizationFollow.objects.filter(user=nonmember_user, organization=organization).count() == 1
 
     def test_follow_organization_already_following_raises_error(
@@ -295,7 +298,6 @@ class TestUpdateOrganizationFollowPreferences:
             organization=organization,
             is_archived=False,
             notify_new_events=True,
-            notify_announcements=True,
         )
 
         # Act
@@ -308,7 +310,7 @@ class TestUpdateOrganizationFollowPreferences:
 
         # Assert
         assert follow.notify_new_events is False
-        assert follow.notify_announcements is False
+        assert _is_muted(nonmember_user, organization)
 
     def test_update_preferences_partial_update(
         self,
@@ -326,7 +328,6 @@ class TestUpdateOrganizationFollowPreferences:
             organization=organization,
             is_archived=False,
             notify_new_events=True,
-            notify_announcements=True,
         )
 
         # Act - Only update notify_new_events
@@ -338,7 +339,7 @@ class TestUpdateOrganizationFollowPreferences:
 
         # Assert
         assert follow.notify_new_events is False
-        assert follow.notify_announcements is True  # Unchanged
+        assert not _is_muted(nonmember_user, organization)  # Unchanged
 
     def test_update_preferences_not_following_raises_error(
         self,

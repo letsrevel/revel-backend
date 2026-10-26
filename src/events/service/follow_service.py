@@ -150,7 +150,7 @@ def follow_organization(
         user=user,
         target_field="organization",
         target=organization,
-        defaults={"notify_new_events": notify_new_events, "notify_announcements": notify_announcements},
+        defaults={"notify_new_events": notify_new_events},
         already_following_message=str(_("Already following this organization")),
     )
     if not notify_announcements:
@@ -241,9 +241,6 @@ def update_organization_follow_preferences(
     if notify_new_events is not None:
         follow.notify_new_events = notify_new_events
         update_fields.append("notify_new_events")
-    if notify_announcements is not None:
-        follow.notify_announcements = notify_announcements
-        update_fields.append("notify_announcements")
 
     if update_fields:
         follow.save(update_fields=update_fields)
