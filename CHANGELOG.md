@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.25.2] - 2026-10-26
+
+### Added
+- `enable_free_tier_cancellation <event_id> [--dry-run]` management command that lets ticket holders self-cancel the free tickets of an event, by enabling `allow_user_cancellation` on its free tiers (applies to tickets already issued)
+
 ## [2.25.1] - 2026-10-25
 
 ### Fixed
