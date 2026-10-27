@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.0] - 2026-10-27
+
+### Added
+- Stripe Connect onboarding can send the owner back to the new admin welcome page: `POST /api/organization-admin/{slug}/stripe/connect` accepts an optional `return_to` (`settings` by default, or `welcome`). Only these two values are accepted, so the field can't be used as an open redirect.
+
+### Changed
+- The unused `OrganizationFollow.notify_announcements` database column is dropped; the per-organization announcement mute on notification preferences has been the source of truth since it moved there. The API's `notify_announcements` field is unchanged. The migration deletes the column's data and can't be reversed.
+
 ## [2.25.2] - 2026-10-26
 
 ### Added
