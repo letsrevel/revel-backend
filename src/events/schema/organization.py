@@ -1,5 +1,6 @@
 """Organization-related schemas."""
 
+import enum
 import typing as t
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
@@ -9,7 +10,13 @@ from pydantic import UUID4, AwareDatetime, EmailStr, Field, StringConstraints, m
 
 from accounts.schema import BaseEmailJWTPayloadSchema, MemberUserSchema, MinimalRevelUserSchema
 from common.models import SiteSettings
-from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
+from common.schema import (
+    BillingInfoSchemaMixin,
+    EmailSchema,
+    OneToOneFiftyString,
+    StrippedString,
+    VATIdUpdateBaseSchema,
+)
 from common.service.vat_utils import TWO_PLACES, b2b_vat_context
 from events import models
 from events.compliance import (
@@ -647,3 +654,20 @@ class OrganizationTokenUpdateSchema(OrganizationTokenBaseSchema):
         if "grants_membership" in self.model_fields_set and self.grants_membership and not self.membership_tier_id:
             raise ValueError("membership_tier_id is required when grants_membership is True")
         return self
+
+
+class StripeReturnTo(enum.StrEnum):
+    """Admin page Stripe sends the owner back to after Connect onboarding.
+
+    An allowlist on purpose: each value is a fixed path segment under
+    ``/org/{slug}/admin/``, never a caller-supplied URL, so it can't become an open redirect.
+    """
+
+    SETTINGS = "settings"
+    WELCOME = "welcome"
+
+
+class StripeConnectSchema(EmailSchema):
+    """Request body for starting Stripe Connect onboarding."""
+
+    return_to: StripeReturnTo = StripeReturnTo.SETTINGS

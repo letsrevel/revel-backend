@@ -10,6 +10,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import Organization, OrganizationStaff
+from events.schema import StripeReturnTo
 
 pytestmark = pytest.mark.django_db
 
@@ -57,7 +58,7 @@ class TestOrganizationAdminStripe:
         assert response_data["onboarding_url"] == "https://stripe.com/connect/acct_new123"
 
         mock_create_account.assert_called_once_with(organization, "test@example.com")
-        mock_create_link.assert_called_once_with("acct_new123", organization)
+        mock_create_link.assert_called_once_with("acct_new123", organization, StripeReturnTo.SETTINGS)
 
     @patch("events.service.stripe_service.create_account_link")
     def test_stripe_connect_uses_existing_account(
@@ -81,7 +82,45 @@ class TestOrganizationAdminStripe:
         response_data = response.json()
         assert response_data["onboarding_url"] == "https://stripe.com/connect/acct_existing123"
 
-        mock_create_link.assert_called_once_with("acct_existing123", organization)
+        mock_create_link.assert_called_once_with("acct_existing123", organization, StripeReturnTo.SETTINGS)
+
+    @patch("events.service.stripe_service.create_account_link")
+    def test_stripe_connect_passes_welcome_return_to(
+        self,
+        mock_create_link: Mock,
+        authenticated_client: Client,
+        organization: Organization,
+    ) -> None:
+        """An explicit ``return_to: welcome`` reaches the service as the enum member."""
+        organization.stripe_account_id = "acct_existing123"
+        organization.save()
+        mock_create_link.return_value = "https://stripe.com/connect/acct_existing123"
+
+        url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
+        response = authenticated_client.post(
+            url, data={"email": "test@example.com", "return_to": "welcome"}, content_type="application/json"
+        )
+
+        assert response.status_code == 200, response.content
+        mock_create_link.assert_called_once_with("acct_existing123", organization, StripeReturnTo.WELCOME)
+
+    @pytest.mark.parametrize("return_to", ["dashboard", "https://evil.example.com", "/admin/settings"])
+    @patch("events.service.stripe_service.create_account_link")
+    def test_stripe_connect_rejects_unknown_return_to(
+        self,
+        mock_create_link: Mock,
+        return_to: str,
+        authenticated_client: Client,
+        organization: Organization,
+    ) -> None:
+        """Anything outside the allowlist is a 422, so the endpoint can't be used as an open redirect."""
+        url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
+        response = authenticated_client.post(
+            url, data={"email": "test@example.com", "return_to": return_to}, content_type="application/json"
+        )
+
+        assert response.status_code == 422, response.content
+        mock_create_link.assert_not_called()
 
     def test_stripe_connect_requires_owner_permission(
         self,

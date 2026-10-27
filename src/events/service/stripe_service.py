@@ -70,6 +70,7 @@ from events.service.vat_service import (
 from events.utils.currency import to_stripe_amount
 
 if t.TYPE_CHECKING:
+    from events.schema.organization import StripeReturnTo
     from events.schema.ticket import BuyerBillingInfoSchema
     from events.service.attendee_vat_service import AttendeeVATResult, BuyerVATContext
     from events.service.vat_service import PlatformFeeVATBreakdown as PlatformFeeVATResult
@@ -84,11 +85,16 @@ def create_connect_account(organization: Organization, stripe_account_email: Ema
     return _create_connect_account(organization, stripe_account_email, account_type="standard")
 
 
-def create_account_link(account_id: str, organization: Organization) -> str:
-    """Create a one-time onboarding link for an organization's Stripe Connect account."""
+def create_account_link(account_id: str, organization: Organization, return_to: "StripeReturnTo") -> str:
+    """Create a one-time onboarding link for an organization's Stripe Connect account.
+
+    ``return_to`` picks the admin page Stripe redirects back to; it is an allowlisted enum
+    whose value is the path segment, so the destination is always one of our own pages.
+    """
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    refresh_url = f"{frontend_base_url}/org/{organization.slug}/admin/settings?stripe_refresh=true"
-    return_url = f"{frontend_base_url}/org/{organization.slug}/admin/settings?stripe_success=true"
+    admin_page = f"{frontend_base_url}/org/{organization.slug}/admin/{return_to.value}"
+    refresh_url = f"{admin_page}?stripe_refresh=true"
+    return_url = f"{admin_page}?stripe_success=true"
     return _create_account_link(account_id, refresh_url, return_url)
 
 

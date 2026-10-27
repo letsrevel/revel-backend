@@ -198,11 +198,12 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         auth=I18nJWTAuth(),
         permissions=[IsOrganizationOwner()],
     )
-    def stripe_connect(self, slug: str, payload: EmailSchema) -> schema.StripeOnboardingLinkSchema:
+    def stripe_connect(self, slug: str, payload: schema.StripeConnectSchema) -> schema.StripeOnboardingLinkSchema:
         """Get a link to onboard the organization to Stripe.
 
         **Parameters:**
         - `email`: The email address to associate with the Stripe Connect account (passed in request body)
+        - `return_to`: Admin page Stripe sends the owner back to: `settings` (default) or `welcome`
 
         **Returns:**
         - 200: Onboarding URL for Stripe Connect
@@ -214,7 +215,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         account_id = organization.stripe_account_id or stripe_service.create_connect_account(
             organization, payload.email
         )
-        onboarding_url = stripe_service.create_account_link(account_id, organization)
+        onboarding_url = stripe_service.create_account_link(account_id, organization, payload.return_to)
         return schema.StripeOnboardingLinkSchema(onboarding_url=onboarding_url)
 
     @route.post(
