@@ -24,6 +24,9 @@ jobs:
   checks:
     name: Lint, type & schema checks
     runs-on: ubuntu-24.04
+    # Normal runs are ~1–8 min. Without a cap a stalled apt mirror holds the
+    # job (and the PR) for GitHub's 6 h default; fail fast and rerun instead.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
 
@@ -75,6 +78,7 @@ jobs:
   test:
     name: Tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
+    timeout-minutes: 20  # normal: 5–8 min; see `checks`
     strategy:
       fail-fast: false
       matrix:
@@ -126,6 +130,7 @@ jobs:
   coverage:
     name: Combined coverage gate
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     needs: test
     steps:
       - uses: actions/checkout@v6
