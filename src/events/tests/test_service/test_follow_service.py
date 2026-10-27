@@ -329,6 +329,7 @@ class TestUpdateOrganizationFollowPreferences:
             is_archived=False,
             notify_new_events=True,
         )
+        nonmember_user.notification_preferences.muted_organizations.add(organization)
 
         # Act - Only update notify_new_events
         follow = follow_service.update_organization_follow_preferences(
@@ -339,7 +340,7 @@ class TestUpdateOrganizationFollowPreferences:
 
         # Assert
         assert follow.notify_new_events is False
-        assert not _is_muted(nonmember_user, organization)  # Unchanged
+        assert _is_muted(nonmember_user, organization)  # Existing mute preserved
 
     def test_update_preferences_not_following_raises_error(
         self,
