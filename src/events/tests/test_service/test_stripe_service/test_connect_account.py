@@ -7,6 +7,7 @@ import stripe
 
 from common.service.stripe_connect_service import sync_account_status
 from events.models import Organization
+from events.schema import StripeReturnTo
 from events.service import stripe_service
 
 pytestmark = pytest.mark.django_db
@@ -58,13 +59,15 @@ class TestCreateConnectAccount:
 class TestCreateAccountLink:
     """Test create_account_link function."""
 
+    @pytest.mark.parametrize("return_to", [StripeReturnTo.SETTINGS, StripeReturnTo.WELCOME])
     @patch("stripe.AccountLink.create")
     def test_creates_onboarding_link(
         self,
         mock_stripe_create: Mock,
+        return_to: StripeReturnTo,
         organization: Organization,
     ) -> None:
-        """Test that onboarding link is created with correct URLs."""
+        """Both URLs point at the admin page named by ``return_to``."""
         from django.conf import settings
 
         # Arrange
@@ -74,18 +77,15 @@ class TestCreateAccountLink:
         mock_stripe_create.return_value = mock_link
 
         # Act
-        result = stripe_service.create_account_link(account_id, organization)
+        result = stripe_service.create_account_link(account_id, organization, return_to)
 
-        # Assert
-        expected_refresh_url = (
-            f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/settings?stripe_refresh=true"
-        )
-        expected_return_url = f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/settings?stripe_success=true"
-
+        # Assert — spelled out literally so a changed path is caught, not mirrored
+        page = {StripeReturnTo.SETTINGS: "settings", StripeReturnTo.WELCOME: "welcome"}[return_to]
+        admin_page = f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/{page}"
         mock_stripe_create.assert_called_once_with(
             account=account_id,
-            refresh_url=expected_refresh_url,
-            return_url=expected_return_url,
+            refresh_url=f"{admin_page}?stripe_refresh=true",
+            return_url=f"{admin_page}?stripe_success=true",
             type="account_onboarding",
         )
         assert result == "https://stripe.com/onboard/test"
@@ -99,7 +99,7 @@ class TestCreateAccountLink:
 
         # Act & Assert
         with pytest.raises(stripe.error.APIError):
-            stripe_service.create_account_link(account_id, organization)
+            stripe_service.create_account_link(account_id, organization, StripeReturnTo.SETTINGS)
 
 
 class TestGetAccountDetails:
