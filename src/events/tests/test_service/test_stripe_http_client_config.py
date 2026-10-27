@@ -11,8 +11,11 @@ effects.
 
 import importlib
 
+import certifi
 import pytest
 import stripe
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
 from django.conf import settings
 
 from common.service.stripe_config import configure_stripe
@@ -39,6 +42,9 @@ STRIPE_CONFIGURING_MODULES = [
     "events.service.subscription.stripe.sync",
 ]
 
+# emSign ECC Root CA - G3, distrusted after the October 2026 eMudhra intermediate key compromise.
+EMSIGN_ECC_ROOT_G3_SHA256 = bytes.fromhex("86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b")
+
 
 @pytest.mark.parametrize("module_path", STRIPE_CONFIGURING_MODULES)
 def test_module_routes_stripe_setup_through_configure_stripe(module_path: str) -> None:
@@ -54,9 +60,19 @@ def test_default_http_client_is_configured_with_the_settings_timeout() -> None:
 
 
 def test_configure_stripe_pins_credentials_and_api_version() -> None:
-    """``configure_stripe`` sets all three process-wide attributes and is idempotent."""
+    """``configure_stripe`` sets all process-wide attributes and is idempotent."""
     configure_stripe()
     assert stripe.api_key == settings.STRIPE_SECRET_KEY
     assert stripe.api_version == settings.STRIPE_API_VERSION
     assert isinstance(stripe.default_http_client, stripe.RequestsClient)
     assert stripe.default_http_client._timeout == settings.STRIPE_HTTP_TIMEOUT_SECONDS
+    assert stripe.ca_bundle_path == certifi.where()
+
+
+def test_ca_bundle_excludes_compromised_emudhra_root() -> None:
+    """The bundle Stripe verifies against no longer trusts the compromised eMudhra root."""
+    configure_stripe()
+    with open(stripe.ca_bundle_path, "rb") as bundle:
+        certs = x509.load_pem_x509_certificates(bundle.read())
+    # Match on the certificate itself, not the PEM label comment.
+    assert EMSIGN_ECC_ROOT_G3_SHA256 not in {cert.fingerprint(hashes.SHA256()) for cert in certs}

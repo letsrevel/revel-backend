@@ -1,0 +1,16 @@
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
+
+{% blocktranslate with hostname=context.hostname org=context.organization_name %}{{ hostname }} is now live for {{ org }}{% endblocktranslate %}
+
+{% trans "Your custom domain is verified and serves your organization. Visitors who open it see your events with your branding." %}
+
+{% trans "Open your site" %}: {{ context.domain_url }}
+
+{% trans "Before you announce it:" %}
+- {% trans "Open the link in a private window and check that it loads." %}
+- {% trans "Sign up for a test account on it. Sign-up should work on your own domain." %}
+- {% trans "Share the new link with your audience." %}
+
+{% trans "Manage your custom domain" %}: {{ context.action_url }}
+
+{% include "notifications/email/_footer.txt" %}

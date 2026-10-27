@@ -47,6 +47,7 @@ from events.controllers.questionnaire import QuestionnaireController
 from events.controllers.series_pass import SeriesPassController
 from events.controllers.series_pass_admin import SeriesPassAdminController
 from events.controllers.stripe_webhook import StripeWebhookController
+from events.controllers.tls_ask import TlsAskController
 from events.controllers.user_preferences import UserPreferencesController
 from geo.controllers.cities import CityController
 from integrations.controllers import INTEGRATION_CONTROLLERS
@@ -128,6 +129,7 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
         demo=settings.DEMO_MODE,
         banner=_get_active_banner(site),
         demo_booking_url=site.demo_booking_url or None,
+        support_email=site.support_email or None,
         features=_get_features(site),
         fees=_get_fees(site),
         sso_providers=[SSOProviderSchema(key=p.key, name=p.name) for p in settings.OIDC_PROVIDERS],
@@ -224,6 +226,7 @@ api.register_controllers(
     MeMembershipApplicationsController,
     MeMembershipQuestionnaireController,
     StripeWebhookController,
+    TlsAskController,
     ExportController,
     # Common controllers
     MediaValidationController,

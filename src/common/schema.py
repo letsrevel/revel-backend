@@ -186,6 +186,7 @@ class VersionResponse(Schema):
     demo: bool = False
     banner: BannerSchema | None = None
     demo_booking_url: str | None = None
+    support_email: str | None = None
     features: FeaturesSchema
     fees: FeesSchema
     sso_providers: list[SSOProviderSchema]

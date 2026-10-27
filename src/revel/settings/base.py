@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.sites",
     "django.contrib.gis",
+    "django.contrib.humanize",  # loads its translations so naturaltime() is localised (#1214)
     # third party
     "django_prometheus",  # Observability: Prometheus metrics
     "corsheaders",
@@ -99,6 +100,9 @@ SITE_NAME = config("SITE_NAME", default="Revel")
 # when it's local or empty with DEBUG off); the default only suits local development.
 BASE_URL = config("BASE_URL", default="http://localhost:8000")
 FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:5173")
+# Origin of an organization's active custom domain (white-label, #1153); ``{hostname}`` is the
+# domain. Dev/E2E override it, e.g. ``http://{hostname}:5173``.
+CUSTOM_DOMAIN_URL_TEMPLATE = config("CUSTOM_DOMAIN_URL_TEMPLATE", default="https://{hostname}")
 
 
 MIDDLEWARE = [
@@ -321,6 +325,8 @@ CORS_ALLOW_HEADERS = [
     # Custom headers for token-based access
     "x-event-token",
     "x-org-token",
+    # Guest seat-hold session for cross-site (tenant host) browsers that can't use the cookie
+    "x-guest-hold",
 ]
 
 # Expose headers that clients can read from responses
@@ -378,6 +384,10 @@ if DEPLOYMENT_ENVIRONMENT == "production":
     SECURE_REDIRECT_EXEMPT = [
         r"^metrics/?$",  # Allow Prometheus to scrape metrics via HTTP
         r"^api/healthcheck/?$",  # Allow health checks via HTTP
+        # Caddy's on-demand TLS ask is a plain-HTTP call over the internal network (Caddy cannot add
+        # X-Forwarded-Proto to it), and anything but a 200 denies the certificate: a redirect would
+        # block every tenant (#1178).
+        r"^api/tls/ask/?$",
     ]
     SESSION_COOKIE_SECURE = True  # Only send session cookies over HTTPS
     CSRF_COOKIE_SECURE = True  # Only send CSRF cookies over HTTPS

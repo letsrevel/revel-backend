@@ -12,6 +12,13 @@ from events.tasks.attendees import (
     send_guest_rsvp_confirmation,
     send_guest_ticket_confirmation,
 )
+from events.tasks.custom_domains import (
+    delete_organization_cloudflare_hostnames,
+    notify_custom_domain_problem,
+    notify_turnstile_sync_problem,
+    reconcile_turnstile_hostnames,
+    sync_custom_domains_task,
+)
 from events.tasks.exports import generate_attendee_export_task, generate_questionnaire_export_task
 from events.tasks.invoicing import (
     calculate_referral_payouts,
@@ -94,6 +101,11 @@ __all__ = [
     "resync_org_subscription_fees",
     "revalidate_single_vat_id_task",
     "revalidate_vat_ids_task",
+    "delete_organization_cloudflare_hostnames",
+    "notify_custom_domain_problem",
+    "notify_turnstile_sync_problem",
+    "reconcile_turnstile_hostnames",
+    "sync_custom_domains_task",
     "send_event_refund_summary_task",
     "send_guest_rsvp_confirmation",
     "send_guest_ticket_confirmation",

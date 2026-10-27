@@ -46,3 +46,8 @@ RESERVED_SLUG_TOKENS_HARDCODED: frozenset[str] = frozenset(
         "test",
     }
 )
+
+# Whole slugs (not tokens) an organization must never get, because they collide with a literal
+# ``/organizations/<segment>`` route: ``GET /organizations/by-domain/{hostname}`` would shadow the
+# sub-routes of an organization with this exact slug. "by" and "domain" stay usable on their own.
+RESERVED_SLUGS_EXACT: frozenset[str] = frozenset({"by-domain"})

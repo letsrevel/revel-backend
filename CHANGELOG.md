@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.0] - 2026-10-27
+
+### Added
+- Stripe Connect onboarding can send the owner back to the new admin welcome page: `POST /api/organization-admin/{slug}/stripe/connect` accepts an optional `return_to` (`settings` by default, or `welcome`). Only these two values are accepted, so the field can't be used as an open redirect.
+
+### Changed
+- The unused `OrganizationFollow.notify_announcements` database column is dropped; the per-organization announcement mute on notification preferences has been the source of truth since it moved there. The API's `notify_announcements` field is unchanged. The migration deletes the column's data and can't be reversed.
+
+## [2.25.2] - 2026-10-26
+
+### Added
+- `enable_free_tier_cancellation <event_id> [--dry-run]` management command that lets ticket holders self-cancel the free tickets of an event, by enabling `allow_user_cancellation` on its free tiers (applies to tickets already issued)
+
+## [2.25.1] - 2026-10-25
+
+### Fixed
+- Guest RSVP and guest ticket confirmation emails are now sent in the language the guest used on the site, instead of always in English. The language is stored when the guest record is first created and is never overwritten by later anonymous requests
+- Dates inside notifications (event start and end, waitlist offer expiry and time remaining) now follow the recipient's language and local conventions, still in the event's timezone, e.g. „Montag, 26. Oktober 2026, 13:20 CET" instead of "Monday, October 26, 2026 at 1:20 PM CET". Already-stored notifications are re-rendered correctly too
+- Apple Wallet passes (tickets, series passes, membership cards) are now generated in the holder's language, with translated labels and localised dates; English passes are unchanged. Cached passes are regenerated for holders whose language isn't the default
+- The refund sentence in "event cancelled" notifications is now translated into the recipient's language
+
+## [2.25.0] - 2026-10-24
+
+### Added
+- Customer support email in site settings (`SiteSettings.support_email`, edited under "Public Links" in the Django admin), exposed on `GET /version` as `support_email` (`null` when blank) so the frontend can show one configurable support address. Migration: `common` 0018
+- `capped_by_event` on the event-admin ticket-tier listing, true when the event's capacity rather than the tier's own stock is what limits `total_available`
+
+### Changed
+- A ticket tier's `total_available` now reports the smaller of the tier's remaining stock and the event's remaining capacity, on both the public and the event-admin tier listings, so a 40-ticket tier on an event capped at 30 shows 30. An unlimited tier on a capped event reports the event's remaining spots instead of `null`
+
+### Fixed
+- Changing a membership questionnaire to another type while it is an organization's default membership questionnaire or assigned to a membership tier is now rejected with a 400 that names the reference to remove; previously it went through and every later save of that organization or tier failed
+
+## [2.24.0] - 2026-10-24
+
+### Added
+- **Custom domains for organizations (white-label)**: an organization can serve its Revel pages on its own domain (e.g. `events.example.org`), provisioned through Cloudflare for SaaS. The feature is off unless an operator configures it and a platform admin enables it per organization.
+  - `custom_domain_enabled` per-organization switch (superuser-only, in the Django admin) that also acts as a kill switch: turning it off stops the domain from resolving at once and signs out the sessions issued on it; turning it back on does not revive them
+  - Owner-only org-admin endpoints `GET/POST/DELETE /organization-admin/{slug}/custom-domain` and `POST …/custom-domain/refresh` ("Check now") return the DNS records to add, the live status (pending, active, failed) and problems found
+  - Ownership must be proven with a per-hostname `_cf-custom-hostname` TXT record before a domain becomes active, so a leftover CNAME of a removed domain cannot be claimed by another organization
+  - DNS pre-flight hints for the usual mistakes (missing or wrong CNAME, A records instead of a CNAME, records at a doubled name, CAA records blocking the certificate authority, root domains), plus the detected DNS host as `dns_provider` with a link to its help page and, for Cloudflare, straight to the domain's DNS records page
+  - Organization owners are emailed when their domain goes live or fails; platform staff are alerted when an active domain develops a problem
+  - Public `GET /organizations/by-domain/{hostname}` (used by the frontend to serve a custom domain) and `GET /organizations/{id}/custom-domain`; `custom_domain` is exposed on organization payloads
+  - `GET /api/tls/ask?domain=` answers a reverse proxy's on-demand TLS check (200 only for an active custom domain), for self-hosted Caddy setups
+  - A 15-minute sweep syncs domains with Cloudflare, fails pending domains that have not proven ownership within 7 days, releases failed domains after 7 more days so their hostname can be claimed again, and keeps the Turnstile widget's hostname list in step with the active domains
+  - New optional settings: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_ACCOUNT_ID`, `CUSTOM_DOMAIN_CNAME_TARGET`, `CUSTOM_DOMAIN_URL_TEMPLATE`, `CUSTOM_DOMAIN_LIMIT` (default 9), `TURNSTILE_WIDGET_HOSTNAME_LIMIT` (default 10) and `PLATFORM_APEX_DOMAINS` (only for platforms under a multi-part public suffix such as `co.uk`)
+  - Migrations: `events` 0133 (custom domains) and 0135 (registers the 15-minute sync task), `notifications` 0035 (owner alerts). Setup, DNS and reverse-proxy instructions are in `docs/guides/white-label/operators.md` and `docs/self-hosting/`
+- Optional `organization` filter on the "my" endpoints (dashboard events and calendar, tickets, RSVPs, invitations, series passes, memberships, subscriptions, applications, followed organizations and series), so a custom-domain site can show only its own organization
+- Guest seat holds work across sites: the hold token is also returned in the response body and accepted in an `X-Guest-Hold` header, for frontends on a different domain than the API
+- Wallet passes (Apple and Google) and ticket, series-pass and membership PDFs use the organization's brand colors
+
+### Changed
+- Links in attendee emails (tickets, payments, invitations, event updates and reminders, waitlist offers, announcements, membership mail) point at the organization's custom domain once it is active; account-security and unsubscribe links always stay on the platform and only carry a hint to return to the custom domain afterwards
+- Attendee transactional email from an organization with an active custom domain is sent as "Organization via Revel"
+- Payment success and cancel return URLs stay on the platform address; the frontend forwards the buyer back to the custom domain
+
+### Fixed
+- Potluck notification buttons ("View Potluck List", "Claim Item") linked to an empty URL; they now open the event, on the organization's custom domain when it has one
+- Quarantining an infected upload no longer overwrites other changes made to the same record while the file was being scanned
+
+## [2.23.0] - 2026-10-24
+
+### Added
+- **Organization branding**: organizations can set a primary and an optional accent brand color, from which Revel derives a readable light and dark `brand_theme`
+  - `PUT /organization-admin/{slug}/branding` sets or clears both colors (full replace, requires the `edit_organization` permission); invalid hex values or unknown keys return 422
+  - `GET /organization-admin/{slug}/brand-theme-preview?primary=&accent=` returns the derived theme for unsaved colors, for live previews
+  - `branding` and `brand_theme` are exposed on organization responses, including the organization nested in event details; `brand_theme` is `null` until a primary color is set
+  - The derived theme keeps each color's hue and adjusts its lightness until the primary reaches 4.5:1 and the accent 3:1 contrast against the page background, cards and the public-page wash, with a black or white foreground
+- Organization-related emails show the organization's logo in the footer signature when it has one.
+
+### Security
+- Brotli, used for WOFF2 font handling when rendering PDFs, is upgraded to 1.2.1 to patch a critical decoder flaw that could allow remote code execution; the rebuilt runtime image also picks up Debian's patched system Brotli library. The `filelock` and `virtualenv` development tools are upgraded for newly published vulnerabilities.
+
+## [2.22.2] - 2026-10-21
+
+### Security
+- Outbound HTTPS no longer trusts the eMudhra root whose intermediate CA keys were compromised in October 2026. `certifi` is bumped to 2026.10.19, and Stripe calls now verify against certifi rather than stripe-python's own bundle, which still contained the root.
+- Pillow, which processes uploaded images, thumbnails and wallet pass images, is upgraded to 13.0.0 to patch newly published vulnerabilities; the bundled `uv` tool moves to 0.13.4 for the same reason.
+
+## [2.22.1] - 2026-10-16
+
+> **Deploy note:** this release removes the temporary `staff_alert` rollout shim from 2.22.0. Before deploying, confirm `SELECT count(*) FROM notifications_notification WHERE context ? 'staff_alert';` returns 0.
+
+### Fixed
+- Mail-client "Unsubscribe" buttons now reach Revel instead of the email provider. Every email carries Revel's own `List-Unsubscribe` header. Before this, the provider added its own header, and one click blocked the address from all email, mandatory receipts included.
+  - Optional notifications get a one-click unsubscribe that turns off only that notification type
+  - Receipts, account and legal emails link to the notification preferences page and switch nothing off
+- One-click unsubscribe links from mandatory notifications no longer store an opt-out that could never take effect
+- The "let's revel" wordmark in emails now uses a typographic apostrophe instead of an opening quote
+
 ## [2.22.0] - 2026-10-13
 
 > **Deploy note:** notifications migrations `0032`–`0034` re-type existing staff-alert rows and copy staff members' current `ticket_*` / `series_pass_*` preferences onto the new staff types, so nobody's opt-outs change. Once the rollout has fully drained, run `SELECT count(*) FROM notifications_notification WHERE context ? 'staff_alert';` (expect 0) before removing the temporary rollout shim.

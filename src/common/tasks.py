@@ -93,6 +93,21 @@ def _execute_email_callback(callback_data: dict[str, t.Any], success: bool, erro
         )
 
 
+def preferences_list_unsubscribe_header() -> dict[str, str]:
+    """``List-Unsubscribe`` header pointing at the notification preferences page (#1137).
+
+    Brevo injects its own one-click header into any email lacking one, and a client
+    "Unsubscribe" click then globally blocks the address. There is deliberately no
+    ``List-Unsubscribe-Post``: clients open the page in a browser rather than POSTing
+    silently, so nothing is switched off by the click.
+
+    Returns:
+        A ``List-Unsubscribe`` header only.
+    """
+    url = f"{SiteSettings.get_solo().frontend_base_url.rstrip('/')}/account/notifications"
+    return {"List-Unsubscribe": f"<{url}>"}
+
+
 @shared_task(name="common.tasks.send_email")
 def send_email(
     *,
@@ -130,7 +145,9 @@ def send_email(
         attachment_filename: Display filename for the attachment (defaults to
             the storage path basename).
         attachment_mime_type: MIME type for the attachment.
-        headers: Extra message headers (e.g. List-Unsubscribe, X-Mailin-custom).
+        headers: Extra message headers (e.g. List-Unsubscribe, X-Mailin-custom). When no
+            ``List-Unsubscribe`` is given, a preferences-page one is added so Brevo doesn't
+            inject its own globally-blocking header (#1137).
     """
     from django.core.files.storage import default_storage
 
@@ -143,6 +160,8 @@ def send_email(
         recipients = [to_safe_email_address(email, site_settings=site_settings) for email in recipients]
         safe_bcc = [to_safe_email_address(email, site_settings=site_settings) for email in (bcc or [])]
         sender = from_email or settings.DEFAULT_FROM_EMAIL
+        if not any(key.lower() == "list-unsubscribe" for key in headers or {}):
+            headers = {**(headers or {}), **preferences_list_unsubscribe_header()}
         headers = with_message_id(headers, sender)
 
         # Build the To/BCC headers:
@@ -288,8 +307,10 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
         QuarantinedFile.objects.bulk_create(quarantined, ignore_conflicts=True)
         if instance._meta.get_field(field).null:
             # Nullable field: blank the reference so the live file is dropped.
+            # Only that column: ``instance`` was loaded before the scan, so a full save would write every other
+            # field back as it was then, undoing writes made meanwhile (e.g. ``Organization.custom_domain``, #1199).
             setattr(instance, field, None)
-            instance.save()
+            instance.save(update_fields=[field])
         else:
             # Non-nullable field: full_clean() would reject a blank value and roll back the
             # quarantine, so remove the file and the row outright instead.

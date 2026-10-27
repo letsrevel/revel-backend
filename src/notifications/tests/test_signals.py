@@ -252,6 +252,45 @@ class TestPaymentRefundNotificationAmount:
         assert any("20.00" in c["refund_amount"] for c in contexts), contexts
         assert all("40.00" not in c["refund_amount"] for c in contexts), contexts
 
+    def test_holder_refund_notification_carries_organization_id(
+        self,
+        public_event: t.Any,
+        member_user: RevelUser,
+    ) -> None:
+        """The holder's TICKET_REFUNDED context names the org so event_url follows its domain (#1153)."""
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Test Tier",
+            price=Decimal("40.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        ticket = Ticket.objects.create(
+            guest_name=member_user.get_display_name(),
+            event=public_event,
+            user=member_user,
+            tier=tier,
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+        payment = Payment.objects.create(
+            ticket=ticket,
+            user=member_user,
+            amount=Decimal("40.00"),
+            platform_fee=Decimal("0.00"),
+            currency="EUR",
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_session_id=f"cs_test_{ticket.id}",
+        )
+        with patch("notifications.signals.payment.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                payment.status = Payment.PaymentStatus.REFUNDED
+                payment.save()
+        holder_calls = [
+            c for c in send_mock.call_args_list if c.kwargs["notification_type"] == NotificationType.TICKET_REFUNDED
+        ]
+        assert holder_calls
+        assert holder_calls[0].kwargs["context"]["organization_id"] == str(public_event.organization_id)
+
 
 def _make_active_held_pass(organization: Organization, user: RevelUser, slug: str) -> HeldSeriesPass:
     """A minimal ACTIVE HeldSeriesPass to set as Ticket.held_pass in guard tests.
@@ -770,6 +809,44 @@ class TestEventCancelledNotificationReason:
         notifications = Notification.objects.filter(user=user, notification_type=NotificationType.EVENT_CANCELLED)
         assert notifications.count() == 1, "context failed schema validation and was swallowed"
         assert notifications.get().context["refund_available"] is True
+
+    @pytest.mark.parametrize("requires_ticket", [True, False])
+    def test_refund_sentence_rendered_in_recipient_language(
+        self,
+        public_event: t.Any,
+        user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+        requires_ticket: bool,
+    ) -> None:
+        """#1218: the producer ships only ``refund_available``; templates translate the sentence."""
+        from django.template.loader import render_to_string
+        from django.utils import translation
+
+        from notifications.signals import event as event_signals
+
+        public_event.requires_ticket = requires_ticket
+        user.language = "de"
+
+        with (
+            patch.object(
+                event_signals, "get_eligible_users_for_event_notification", return_value=self._build_eligible(user)
+            ),
+            patch.object(event_signals, "get_event_location_for_user", return_value=("Somewhere", None)),
+            patch("notifications.signals.event.notification_requested.send") as send_mock,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            event_signals._handle_event_cancelled(type(public_event), public_event)
+
+        context = send_mock.call_args_list[0].kwargs["context"]
+        assert "refund_info" not in context
+        assert context["refund_available"] is requires_ticket
+
+        german = "Rückerstattungen werden gemäß der Rückerstattungsrichtlinie des Veranstalters bearbeitet."
+        for template in ("email/event_cancelled.txt", "in_app/event_cancelled.md", "telegram/event_cancelled.md"):
+            with translation.override("de"):
+                body = render_to_string(f"notifications/{template}", {"context": context, "user": user})
+            assert (german in body) is requires_ticket, template
+            assert "Refunds will be processed" not in body
 
 
 @pytest.mark.django_db(transaction=True)

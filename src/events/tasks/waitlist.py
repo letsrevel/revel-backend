@@ -8,7 +8,7 @@ from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
 
-from common.models import SiteSettings
+from events.utils.frontend_urls import frontend_base_url_for
 
 logger = structlog.get_logger(__name__)
 
@@ -98,7 +98,6 @@ def send_waitlist_offer_notification_task(offer_id: str) -> dict[str, t.Any]:
         logger.info("send_waitlist_offer_notification_expired", offer_id=offer_id)
         return {"status": "skipped", "offer_id": offer_id}
 
-    site_settings = SiteSettings.get_solo()
     event_tz = get_event_timezone(offer.event)
     expires_local = offer.expires_at.astimezone(event_tz)
     start_local = offer.event.start.astimezone(event_tz) if offer.event.start else None
@@ -108,7 +107,7 @@ def send_waitlist_offer_notification_task(offer_id: str) -> dict[str, t.Any]:
         "event_name": offer.event.name,
         "event_start": start_local.isoformat() if start_local else "",
         "event_start_formatted": format_event_datetime(offer.event.start, offer.event),
-        "event_url": f"{site_settings.frontend_base_url}/events/{offer.event.slug}",
+        "event_url": f"{frontend_base_url_for(offer.event.organization)}/events/{offer.event.slug}",
         "organization_id": str(offer.event.organization_id),
         "organization_name": offer.event.organization.name,
         "offer_id": str(offer.id),

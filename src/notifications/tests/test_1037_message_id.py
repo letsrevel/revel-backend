@@ -79,7 +79,8 @@ def test_send_email_keeps_caller_message_id() -> None:
     send_email(to="a@example.com", subject="s", body="b", headers={"message-id": "<fixed@example.org>"})
 
     msg = mail.outbox[-1]
-    assert msg.extra_headers == {"message-id": "<fixed@example.org>"}
+    assert msg.extra_headers["message-id"] == "<fixed@example.org>"
+    assert "Message-ID" not in msg.extra_headers
     assert msg.message()["Message-ID"] == "<fixed@example.org>"
 
 

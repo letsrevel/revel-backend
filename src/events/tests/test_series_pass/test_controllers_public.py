@@ -617,3 +617,57 @@ class TestFileDownloads:
         response = other_user_client.get(url)
 
         assert response.status_code == 404
+
+
+class TestDownloadsPreloadRelations:
+    """The download endpoints hand the service a held pass with its series and organization loaded.
+
+    ``compute_content_hash`` and the pass generators read them (brand colors), so a lazy load
+    here would cost one query per access.
+    """
+
+    @staticmethod
+    def _checking_relations(result: t.Any) -> t.Callable[[HeldSeriesPass], t.Any]:
+        """Mock side effect asserting the relations are loaded at call time (the PDF view refreshes the row after)."""
+
+        def check(held_pass: HeldSeriesPass) -> t.Any:
+            with CaptureQueriesContext(connection) as ctx:
+                assert held_pass.series_pass.event_series.organization.name
+            assert len(ctx) == 0
+            return result
+
+        return check
+
+    def test_pdf_download(self, revel_user_client: Client, held_pass: HeldSeriesPass) -> None:
+        url = reverse("api:series_pass_pdf_download", kwargs={"held_pass_id": held_pass.id})
+        with patch(
+            "events.service.series_pass_file_service.get_or_generate_pass_pdf",
+            side_effect=self._checking_relations(b"%PDF-mock"),
+        ) as mock_generate:
+            assert revel_user_client.get(url).status_code == 200
+        mock_generate.assert_called_once()
+
+    def test_pkpass_download(self, revel_user_client: Client, held_pass: HeldSeriesPass, settings: t.Any) -> None:
+        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.example.test"
+        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
+        settings.APPLE_WALLET_CERT_PATH = "/path/cert.pem"
+        settings.APPLE_WALLET_KEY_PATH = "/path/key.pem"
+        settings.APPLE_WALLET_WWDR_CERT_PATH = "/path/wwdr.pem"
+        url = reverse("api:series_pass_apple_wallet_pass", kwargs={"held_pass_id": held_pass.id})
+        with patch(
+            "events.service.series_pass_file_service.get_or_generate_pass_pkpass",
+            side_effect=self._checking_relations(b"PK-mock"),
+        ) as mock_generate:
+            assert revel_user_client.get(url).status_code == 200
+        mock_generate.assert_called_once()
+
+    def test_google_wallet_link(
+        self, revel_user_client: Client, held_pass: HeldSeriesPass, google_wallet_settings: None
+    ) -> None:
+        url = reverse("api:series_pass_google_wallet_pass", kwargs={"held_pass_id": held_pass.id})
+        with patch(
+            "events.controllers.series_pass.google_wallet_service.series_pass_save_url",
+            side_effect=self._checking_relations("https://pay.google.com/gp/v/save/x"),
+        ) as mock_save_url:
+            assert revel_user_client.get(url).status_code == 302
+        mock_save_url.assert_called_once()

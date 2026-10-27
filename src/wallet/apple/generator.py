@@ -8,6 +8,7 @@ a ZIP archive containing:
 - Images: icon, logo, etc.
 """
 
+import contextlib
 import io
 import json
 import typing as t
@@ -18,12 +19,16 @@ from zoneinfo import ZoneInfo
 
 import structlog
 from django.conf import settings
+from django.utils import translation
+from django.utils.translation import gettext as _
 
+from accounts.models import RevelUser
 from events.compliance import TicketComplianceField
 from events.compliance.enforcement import ticket_fields
 from events.models import HeldSeriesPass, OrganizationMember, Ticket
 from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import (
+    REVEL_THEME,
     PassColors,
     format_date_compact,
     format_date_full,
@@ -58,9 +63,17 @@ PASS_EXPIRATION_GRACE_PERIOD = timedelta(hours=12)
 # PDF footer's "Powered by revel." lockup. Product URL, not the instance URL:
 # attribution points at the project even on self-hosted deployments. Also used
 # by the Google rail (linksModuleData) so both rails stay in sync.
-POWERED_BY_LABEL = "Powered by"
 POWERED_BY_VALUE = "Revel — https://letsrevel.io"
 POWERED_BY_URL = "https://letsrevel.io"
+
+
+def _holder_language(holder: "RevelUser") -> contextlib.AbstractContextManager[None]:
+    """Activate the pass holder's language for the duration of a pass build.
+
+    Passes are cached per ticket (``ticket_file_service.get_or_generate_pkpass``), so the
+    language must depend only on the holder, never on the caller's request language.
+    """
+    return translation.override(holder.language or settings.LANGUAGE_CODE)
 
 
 @dataclass
@@ -139,8 +152,10 @@ class ApplePassGenerator:
             ApplePassGeneratorError: If pass generation fails.
         """
         try:
-            pass_data = self._build_pass_data(ticket)
-            files = self._generate_files(self._build_pass_json(pass_data), pass_data.colors, pass_data.logo_image)
+            with _holder_language(ticket.user):
+                pass_data = self._build_pass_data(ticket)
+                pass_json = self._build_pass_json(pass_data)
+            files = self._generate_files(pass_json, pass_data.colors, pass_data.logo_image)
 
             # Create manifest and sign
             manifest = self.signer.create_manifest(files)
@@ -177,8 +192,10 @@ class ApplePassGenerator:
             ApplePassGeneratorError: If pass generation fails.
         """
         try:
-            pass_data = self._build_series_pass_data(held_pass)
-            files = self._generate_files(self._build_pass_json(pass_data), pass_data.colors, pass_data.logo_image)
+            with _holder_language(held_pass.user):
+                pass_data = self._build_series_pass_data(held_pass)
+                pass_json = self._build_pass_json(pass_data)
+            files = self._generate_files(pass_json, pass_data.colors, pass_data.logo_image)
 
             manifest = self.signer.create_manifest(files)
             files["manifest.json"] = manifest
@@ -204,8 +221,10 @@ class ApplePassGenerator:
     def generate_membership_pass(self, member: OrganizationMember) -> bytes:
         """Generate a .pkpass membership card for an organization member."""
         try:
-            data = self._build_membership_pass_data(member)
-            files = self._generate_files(self._build_membership_pass_json(data), data.colors, data.logo_image)
+            with _holder_language(member.user):
+                data = self._build_membership_pass_data(member)
+                pass_json = self._build_membership_pass_json(data)
+            files = self._generate_files(pass_json, data.colors, data.logo_image)
             manifest = self.signer.create_manifest(files)
             files["manifest.json"] = manifest
             files["signature"] = self.signer.sign_manifest(manifest)
@@ -228,7 +247,7 @@ class ApplePassGenerator:
             member_name=member.user.get_display_name(),
             member_since=member.created_at,
             tier_name=member.tier.name if member.tier else None,
-            colors=get_theme_colors(),
+            colors=get_theme_colors(org),
             logo_image=logo_image,
             org_tz=get_organization_timezone(org),
             barcode_message=member.qr_payload,
@@ -242,11 +261,11 @@ class ApplePassGenerator:
         """
         secondary_fields: list[dict[str, t.Any]] = []
         if data.tier_name:
-            secondary_fields.append({"key": "tier", "label": "TIER", "value": data.tier_name})
+            secondary_fields.append({"key": "tier", "label": _("TIER"), "value": data.tier_name})
         secondary_fields.append(
             {
                 "key": "member_since",
-                "label": "MEMBER SINCE",
+                "label": _("MEMBER SINCE"),
                 "value": format_date_year(data.member_since, tz=data.org_tz),
             }
         )
@@ -274,9 +293,9 @@ class ApplePassGenerator:
                 ],
                 "secondaryFields": secondary_fields,
                 "backFields": [
-                    {"key": "member_id", "label": "Member ID", "value": data.serial_number},
-                    {"key": "org", "label": "Organization", "value": data.organization_name},
-                    {"key": "powered_by", "label": POWERED_BY_LABEL, "value": POWERED_BY_VALUE},
+                    {"key": "member_id", "label": _("Member ID"), "value": data.serial_number},
+                    {"key": "org", "label": _("Organization"), "value": data.organization_name},
+                    {"key": "powered_by", "label": _("Powered by"), "value": POWERED_BY_VALUE},
                 ],
             },
         }
@@ -313,9 +332,9 @@ class ApplePassGenerator:
             event_end=window.end,
             event_tz=window.tz,
             address=window.address,
-            ticket_tier="Series Pass",
+            ticket_tier=_("Series Pass"),
             ticket_price=format_price(held_pass.price_paid, series_pass.currency),
-            colors=get_theme_colors(),
+            colors=get_theme_colors(org),
             logo_image=logo_image,
             barcode_message=held_pass.qr_payload,
             relevant_date=window.start,
@@ -351,7 +370,7 @@ class ApplePassGenerator:
             address=location.address,
             ticket_tier=ticket.tier.name,
             ticket_price=format_price(price, currency),
-            colors=get_theme_colors(),
+            colors=get_theme_colors(org),
             logo_image=logo_image,
             barcode_message=str(ticket.id),
             relevant_date=event.start,
@@ -379,9 +398,13 @@ class ApplePassGenerator:
         for filename, size in LOGO_SIZES.items():
             files[filename] = resize_image(logo_image, size)
 
-        # Vertical brand-gradient background (iOS blurs it behind the pass)
+        # iOS blurs this behind the pass: the vertical brand gradient for Revel's own
+        # theme, a solid fill of the organization's color when it is branded (the
+        # gradient would drown the brand color set as backgroundColor).
         for filename, size in BACKGROUND_SIZES.items():
-            files[filename] = generate_gradient_background(size)
+            files[filename] = (
+                generate_gradient_background(size) if colors == REVEL_THEME else generate_colored_icon(size, icon_color)
+            )
 
         return files
 
@@ -415,7 +438,7 @@ class ApplePassGenerator:
             secondary_fields.append(
                 {
                     "key": "venue",
-                    "label": "VENUE",
+                    "label": _("VENUE"),
                     "value": data.venue_name,
                 }
             )
@@ -423,7 +446,7 @@ class ApplePassGenerator:
             secondary_fields.append(
                 {
                     "key": "address",
-                    "label": "ADDRESS",
+                    "label": _("ADDRESS"),
                     "value": data.address,
                 }
             )
@@ -432,7 +455,7 @@ class ApplePassGenerator:
             secondary_fields.append(
                 {
                     "key": "sector",
-                    "label": "SECTION",
+                    "label": _("SECTION"),
                     "value": data.sector_name,
                 }
             )
@@ -441,7 +464,7 @@ class ApplePassGenerator:
             secondary_fields.append(
                 {
                     "key": "seat",
-                    "label": "SEAT",
+                    "label": _("SEAT"),
                     "value": data.seat_label,
                     "textAlignment": "PKTextAlignmentRight",
                 }
@@ -450,10 +473,10 @@ class ApplePassGenerator:
         # Build auxiliary fields: ticket tier, price, then guest name (if present)
         # Guest name is last so it can use more horizontal space for long names
         auxiliary_fields: list[dict[str, t.Any]] = [
-            {"key": "tier", "label": "TICKET", "value": data.ticket_tier},
+            {"key": "tier", "label": _("TICKET"), "value": data.ticket_tier},
             {
                 "key": "price",
-                "label": "PRICE",
+                "label": _("PRICE"),
                 "value": data.ticket_price,
             },
         ]
@@ -463,7 +486,7 @@ class ApplePassGenerator:
             auxiliary_fields.append(
                 {
                     "key": "guest",
-                    "label": "GUEST",
+                    "label": _("GUEST"),
                     "value": data.guest_name,
                     "textAlignment": "PKTextAlignmentRight",
                 }
@@ -515,21 +538,23 @@ class ApplePassGenerator:
     def _build_back_fields(self, data: PassData) -> list[dict[str, str]]:
         """Build the back fields for the pass."""
         fields: list[dict[str, str]] = [
-            {"key": "ticket_id", "label": "Ticket ID", "value": data.serial_number},
+            {"key": "ticket_id", "label": _("Ticket ID"), "value": data.serial_number},
         ]
 
         # Add guest name
         if data.guest_name:
-            fields.append({"key": "guest_name", "label": "Guest", "value": data.guest_name})
+            fields.append({"key": "guest_name", "label": _("Guest"), "value": data.guest_name})
 
         fields.append(
             {
                 "key": "event_details",
-                "label": "Event Details",
+                "label": _("Event Details"),
                 "value": (
                     f"{data.event_name}\n\n"
-                    f"Start: {format_date_full(data.event_start, tz=data.event_tz)}\n"
-                    f"End: {format_date_full(data.event_end, tz=data.event_tz)}"
+                    + _("Start: {start}\nEnd: {end}").format(
+                        start=format_date_full(data.event_start, tz=data.event_tz),
+                        end=format_date_full(data.event_end, tz=data.event_tz),
+                    )
                 ),
             }
         )
@@ -539,7 +564,7 @@ class ApplePassGenerator:
             fields.append(
                 {
                     "key": "venue_name",
-                    "label": "Venue",
+                    "label": _("Venue"),
                     "value": data.venue_name,
                 }
             )
@@ -548,7 +573,7 @@ class ApplePassGenerator:
             fields.append(
                 {
                     "key": "full_address",
-                    "label": "Address",
+                    "label": _("Address"),
                     "value": data.address,
                 }
             )
@@ -557,13 +582,13 @@ class ApplePassGenerator:
         if data.sector_name or data.seat_label:
             seating_parts = []
             if data.sector_name:
-                seating_parts.append(f"Section: {data.sector_name}")
+                seating_parts.append(_("Section: {}").format(data.sector_name))
             if data.seat_label:
-                seating_parts.append(f"Seat: {data.seat_label}")
+                seating_parts.append(_("Seat: {}").format(data.seat_label))
             fields.append(
                 {
                     "key": "seating",
-                    "label": "Seating",
+                    "label": _("Seating"),
                     "value": "\n".join(seating_parts),
                 }
             )
@@ -573,7 +598,7 @@ class ApplePassGenerator:
             for item in data.compliance_fields
         )
 
-        fields.append({"key": "powered_by", "label": POWERED_BY_LABEL, "value": POWERED_BY_VALUE})
+        fields.append({"key": "powered_by", "label": _("Powered by"), "value": POWERED_BY_VALUE})
 
         return fields
 

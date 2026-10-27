@@ -117,6 +117,11 @@ class SiteSettings(SingletonModel):
         default="",
         help_text="Public link to book a product demo (e.g. a Cal.com/Calendly page). Leave blank to hide.",
     )
+    support_email = models.EmailField(
+        blank=True,
+        default="",
+        help_text="Public customer support address shown by the frontend. Leave blank to hide.",
+    )
 
     # Referral program
     referral_applications_enabled = models.BooleanField(

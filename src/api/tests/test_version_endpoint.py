@@ -134,6 +134,26 @@ class TestVersionEndpointDemoBookingUrl:
         assert data["demo_booking_url"] == "https://cal.example.com/revel/demo"
 
 
+class TestVersionEndpointSupportEmail:
+    """Tests for the public customer-support address exposed in /version."""
+
+    def test_support_email_is_null_by_default(self, client: Client) -> None:
+        """Test that support_email is null when the singleton has no address configured."""
+        data = client.get(VERSION_URL).json()
+
+        assert data["support_email"] is None
+
+    def test_support_email_returned_when_set(self, client: Client) -> None:
+        """Test that the configured support address is echoed back."""
+        site = SiteSettings.get_solo()
+        site.support_email = "support@example.com"
+        site.save()
+
+        data = client.get(VERSION_URL).json()
+
+        assert data["support_email"] == "support@example.com"
+
+
 class TestVersionEndpointWithBanner:
     """Tests for /version when a maintenance banner is configured."""
 

@@ -6622,3 +6622,286 @@ msgid ""
 msgstr ""
 "La generazione del pass per il Wallet non è temporaneamente disponibile. Per "
 "favore riprova più tardi."
+
+msgid "Platform gate: allows requesting, activating, resolving and advertising a custom domain for this organization."
+msgstr "Gate della piattaforma: permette di richiedere, attivare, risolvere e pubblicizzare un dominio personalizzato per questa organizzazione."
+
+msgid "Hostname of the active custom domain. Maintained by the domain service; do not edit."
+msgstr "Hostname del dominio personalizzato attivo. Gestito dal servizio dei domini; non modificarlo."
+
+msgid "Removed"
+msgstr "Rimosso"
+
+msgid "DNS records the organization must create to verify ownership."
+msgstr "I record DNS che l'organizzazione deve creare per verificare la proprietà."
+
+msgid "Problems Cloudflare reported at the last status sync (hostname verification, certificate)."
+msgstr "Problemi segnalati da Cloudflare all'ultima sincronizzazione dello stato (verifica dell'hostname, certificato)."
+
+msgid "This hostname is already in use."
+msgstr "Questo hostname è già in uso."
+
+msgid ""
+"The platform has reached its limit of custom domains. Please contact "
+"support."
+msgstr ""
+"La piattaforma ha raggiunto il limite di domini personalizzati. Contatta il "
+"supporto."
+
+msgid "This organization already has a pending or active domain."
+msgstr "Questa organizzazione ha già un dominio in attesa o attivo."
+
+msgid "This organization has no custom domain."
+msgstr "Questa organizzazione non ha un dominio personalizzato."
+
+msgid "We could not reach the domain provisioning service. Please try again later."
+msgstr "Non siamo riusciti a raggiungere il servizio di provisioning dei domini. Riprova più tardi."
+
+msgid "Custom domains are not enabled for this organization."
+msgstr "I domini personalizzati non sono abilitati per questa organizzazione."
+
+msgid "A removed domain cannot be changed."
+msgstr "Un dominio rimosso non può essere modificato."
+
+msgid "Enter a hostname."
+msgstr "Inserisci un hostname."
+
+msgid "Wildcard hostnames are not allowed."
+msgstr "Gli hostname con caratteri jolly non sono consentiti."
+
+msgid "Enter the hostname without a port."
+msgstr "Inserisci l'hostname senza porta."
+
+msgid "IP addresses are not allowed; use a domain name."
+msgstr "Gli indirizzi IP non sono consentiti: usa un nome di dominio."
+
+#, python-brace-format
+msgid "Hostname is too long (maximum is {max} characters)."
+msgstr "L'hostname è troppo lungo (massimo {max} caratteri)."
+
+msgid "Enter a fully qualified domain name, for example events.example.com."
+msgstr "Inserisci un nome di dominio completo, ad esempio eventi.example.com."
+
+#, python-brace-format
+msgid "Each part of the hostname must be at most {max} characters."
+msgstr "Ogni parte dell'hostname può avere al massimo {max} caratteri."
+
+msgid "Hostname contains invalid characters."
+msgstr "L'hostname contiene caratteri non validi."
+
+msgid "Hostname must end in a valid top-level domain."
+msgstr "L'hostname deve terminare con un dominio di primo livello valido."
+
+msgid "This hostname is reserved for local development."
+msgstr "Questo hostname è riservato allo sviluppo locale."
+
+msgid "This hostname belongs to the platform and cannot be used."
+msgstr "Questo hostname appartiene alla piattaforma e non può essere usato."
+
+msgid "Custom Domains"
+msgstr "Domini personalizzati"
+
+msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
+msgstr "Inserisci un colore come valore esadecimale a 6 cifre, ad esempio #8C3CDD."
+
+msgid "Presentation settings chosen by the organization, such as brand colors."
+msgstr "Impostazioni di presentazione scelte dall'organizzazione, come i colori del brand."
+
+msgid "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, and unknown settings are not allowed."
+msgstr "Branding non valido. I colori devono essere valori esadecimali a 6 cifre, ad esempio #8C3CDD, e le impostazioni sconosciute non sono consentite."
+
+#, python-format
+msgid "%(hostname)s is now live for %(org)s"
+msgstr "%(hostname)s è ora attivo per %(org)s"
+
+#, python-format
+msgid "%(hostname)s stopped working for %(org)s"
+msgstr "%(hostname)s ha smesso di funzionare per %(org)s"
+
+#, python-format
+msgid "%(hostname)s could not be activated for %(org)s"
+msgstr "Non è stato possibile attivare %(hostname)s per %(org)s"
+
+msgid ""
+"Your custom domain is verified and serves your organization. Visitors who "
+"open it see your events with your branding."
+msgstr ""
+"Il tuo dominio personalizzato è verificato e serve la tua organizzazione. "
+"Chi lo apre vede i tuoi eventi con il tuo marchio."
+
+msgid "Open your site"
+msgstr "Apri il tuo sito"
+
+msgid "Before you announce it:"
+msgstr "Prima di annunciarlo:"
+
+msgid "Open the link in a private window and check that it loads."
+msgstr "Apri il link in una finestra privata e controlla che si carichi."
+
+msgid ""
+"Sign up for a test account on it. Sign-up should work on your own domain."
+msgstr ""
+"Registrati con un account di prova. La registrazione dovrebbe funzionare "
+"sul tuo dominio."
+
+msgid "Share the new link with your audience."
+msgstr "Condividi il nuovo link con il tuo pubblico."
+
+msgid "Manage your custom domain"
+msgstr "Gestisci il tuo dominio personalizzato"
+
+msgid ""
+"Revel no longer serves your organization on this domain, and everyone who "
+"was signed in on it was signed out. Your organization is still available "
+"at its Revel address."
+msgstr ""
+"Revel non serve più la tua organizzazione su questo dominio e chiunque vi "
+"fosse connesso è stato disconnesso. La tua organizzazione resta "
+"disponibile al suo indirizzo Revel."
+
+msgid ""
+"Revel could not verify this domain, so it does not serve your "
+"organization. Your organization is still available at its Revel address."
+msgstr ""
+"Revel non è riuscito a verificare questo dominio, quindi non serve la tua "
+"organizzazione. La tua organizzazione resta disponibile al suo indirizzo "
+"Revel."
+
+msgid "What Revel found:"
+msgstr "Cosa ha trovato Revel:"
+
+msgid ""
+"No details were reported. If this keeps happening, contact Revel support."
+msgstr ""
+"Non sono stati segnalati dettagli. Se continua a succedere, contatta il "
+"supporto di Revel."
+
+msgid ""
+"Fix the cause, then request the domain again from your custom domain "
+"settings."
+msgstr ""
+"Risolvi la causa, poi richiedi di nuovo il dominio dalle impostazioni del "
+"tuo dominio personalizzato."
+
+msgid "Open custom domain settings"
+msgstr "Apri le impostazioni del dominio personalizzato"
+
+#: events/service/event_questionnaire_service.py
+msgid "This questionnaire is the organization's default membership questionnaire. Unset it before changing its type."
+msgstr "Questo questionario è il questionario di iscrizione predefinito dell'organizzazione. Rimuovilo come predefinito prima di cambiarne il tipo."
+
+#: events/service/event_questionnaire_service.py
+msgid "This questionnaire is used by one or more membership tiers. Remove it from those tiers before changing its type."
+msgstr "Questo questionario è utilizzato da uno o più livelli di iscrizione. Rimuovilo da quei livelli prima di cambiarne il tipo."
+
+#: events/utils/__init__.py
+msgctxt "datetime format"
+msgid "l, F j, Y \\a\\t g:i A T"
+msgstr "l j F Y, H:i T"
+
+msgctxt "short datetime format"
+msgid "M j, Y \\a\\t g:i A"
+msgstr "j M Y, H:i"
+
+#: wallet/apple/generator.py
+msgid "VENUE"
+msgstr "LUOGO"
+
+#: wallet/apple/generator.py
+msgid "ADDRESS"
+msgstr "INDIRIZZO"
+
+#: wallet/apple/generator.py
+msgid "SECTION"
+msgstr "SETTORE"
+
+#: wallet/apple/generator.py
+msgid "SEAT"
+msgstr "POSTO"
+
+#: wallet/apple/generator.py
+msgid "TICKET"
+msgstr "BIGLIETTO"
+
+#: wallet/apple/generator.py
+msgid "PRICE"
+msgstr "PREZZO"
+
+#: wallet/apple/generator.py
+msgid "GUEST"
+msgstr "OSPITE"
+
+#: wallet/apple/generator.py
+msgid "TIER"
+msgstr "LIVELLO"
+
+#: wallet/apple/generator.py
+msgid "MEMBER SINCE"
+msgstr "SOCIO DAL"
+
+#: wallet/apple/generator.py
+msgid "Ticket ID"
+msgstr "ID biglietto"
+
+#: wallet/apple/generator.py
+msgid "Guest"
+msgstr "Ospite"
+
+#: wallet/apple/generator.py
+msgid "Venue"
+msgstr "Luogo"
+
+#: wallet/apple/generator.py
+msgid "Address"
+msgstr "Indirizzo"
+
+#: wallet/apple/generator.py
+msgid "Seating"
+msgstr "Posti a sedere"
+
+#: wallet/apple/generator.py
+msgid "Member ID"
+msgstr "ID socio"
+
+#: wallet/apple/generator.py
+msgid "Organization"
+msgstr "Organizzazione"
+
+#: wallet/apple/generator.py
+msgid "Powered by"
+msgstr "Offerto da"
+
+#: wallet/apple/generator.py
+msgid "Start: {start}\nEnd: {end}"
+msgstr "Inizio: {start}\nFine: {end}"
+
+#: wallet/apple/generator.py
+msgid "Section: {}"
+msgstr "Settore: {}"
+
+#: wallet/apple/generator.py
+msgid "Seat: {}"
+msgstr "Posto: {}"
+
+#: wallet/apple/generator.py
+msgid "Series Pass"
+msgstr "Pass stagionale"
+
+#: wallet/apple/generator.py
+msgid "Refunds will be processed according to the organizer's refund policy."
+msgstr "I rimborsi saranno elaborati in conformità alla politica di rimborso dell'organizzatore."
+
+#: wallet/apple/formatting.py
+msgctxt "wallet compact datetime format"
+msgid "M j, H:i"
+msgstr "j M, H:i"
+
+#: wallet/apple/formatting.py
+msgctxt "wallet date format"
+msgid "M j, Y"
+msgstr "j M Y"
+
+#: wallet/apple/formatting.py
+msgctxt "wallet full datetime format"
+msgid "M d, Y h:i A"
+msgstr "j M Y, H:i"

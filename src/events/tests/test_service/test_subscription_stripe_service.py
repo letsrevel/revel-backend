@@ -1,5 +1,6 @@
 """Tests for the Stripe-backed membership subscription service (Phase 2)."""
 
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
@@ -263,6 +264,32 @@ class TestArchiveStripePrice:
 
 
 class TestStartOnlineSubscription:
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
+    @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
+    def test_return_urls_stay_on_platform_with_active_custom_domain(
+        self,
+        mock_customer: mock.Mock,
+        mock_session: mock.Mock,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        settings: t.Any,
+    ) -> None:
+        """An org's custom domain never reaches Stripe: return URLs stay on the platform (#1153, #848)."""
+        Organization.objects.filter(pk=stripe_org.pk).update(
+            custom_domain="events.example.com", custom_domain_enabled=True
+        )
+        online_plan = MembershipSubscriptionPlan.objects.get(pk=online_plan.pk)
+        mock_customer.return_value = mock.MagicMock(id="cus_abc")
+        mock_session.return_value = mock.MagicMock(id="cs_xyz", url="https://checkout.stripe.com/c/pay/cs_xyz")
+
+        subscription_stripe_checkout.start_online_subscription(online_plan, subscriber)
+
+        base = settings.FRONTEND_BASE_URL
+        kwargs = mock_session.call_args.kwargs
+        assert kwargs["success_url"] == f"{base}/org/{stripe_org.id}/membership?membership_success=true"
+        assert kwargs["cancel_url"] == f"{base}/org/{stripe_org.id}/membership?membership_cancelled=true"
+
     @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
     @mock.patch("events.service.subscription.stripe.checkout.stripe.Customer.create")
     def test_happy_path_returns_checkout_url(

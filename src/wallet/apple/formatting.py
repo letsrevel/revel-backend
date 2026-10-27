@@ -5,12 +5,21 @@ formatting operations for wallet pass content.
 """
 
 import colorsys
+import typing as t
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
+from django.utils.translation import pgettext
+
+from events.utils.brand_theme import hex_to_rgb
+from events.utils.pass_branding import get_pass_brand_colors
+
+if t.TYPE_CHECKING:
+    from events.models import Organization
 
 
 @dataclass(frozen=True)
@@ -73,13 +82,26 @@ REVEL_THEME = PassColors(
 )
 
 
-def get_theme_colors() -> PassColors:
-    """Get the Revel theme colors for passes.
+def get_theme_colors(organization: "Organization | None" = None) -> PassColors:
+    """Get the colors for a pass.
+
+    Args:
+        organization: The issuing organization. When it has a brand color, its pass
+            colors (see :mod:`events.utils.pass_branding`) replace the Revel theme.
 
     Returns:
-        PassColors with the Revel brand theme.
+        PassColors with the organization's brand colors, else the Revel brand theme.
     """
-    return REVEL_THEME
+    brand = get_pass_brand_colors(organization) if organization else None
+    if brand is None:
+        return REVEL_THEME
+    # Labels share the foreground: the solid brand color is arbitrary, and black/white is the
+    # only label color guaranteed to stay legible on it.
+    return PassColors(
+        background=_rgb_string(hex_to_rgb(brand.background)),
+        foreground=_rgb_string(hex_to_rgb(brand.foreground)),
+        label=_rgb_string(hex_to_rgb(brand.foreground)),
+    )
 
 
 def get_gradient_rgb() -> tuple[tuple[int, int, int], tuple[int, int, int]]:
@@ -91,13 +113,20 @@ def get_gradient_rgb() -> tuple[tuple[int, int, int], tuple[int, int, int]]:
     return _HEARTY_PURPLE_RGB, _LIGHT_CRIMSON_RGB
 
 
-def get_theme_hex_background() -> str:
-    """Get the Hearty Purple background as hex, for the Google Wallet rail.
+def get_theme_hex_background(organization: "Organization | None" = None) -> str:
+    """Get the pass background as hex, for the Google Wallet rail.
+
+    Args:
+        organization: The issuing organization. When it has a brand color, that color
+            is used instead of Hearty Purple.
 
     Returns:
-        Uppercase #RRGGBB string for the same RGB token as
-        ``REVEL_THEME.background``.
+        Uppercase #RRGGBB string: the organization's primary color, else the same RGB
+        token as ``REVEL_THEME.background``.
     """
+    brand = get_pass_brand_colors(organization) if organization else None
+    if brand is not None:
+        return brand.background
     return "#{:02X}{:02X}{:02X}".format(*_HEARTY_PURPLE_RGB)
 
 
@@ -139,11 +168,12 @@ def format_date_compact(dt: datetime, tz: ZoneInfo | None = None) -> str:
         tz: Optional timezone to convert to before formatting.
 
     Returns:
-        Formatted string like "Mar 1, 19:00".
+        Formatted string like "Mar 1, 19:00" (English; other languages follow their locale).
     """
     if tz:
         dt = dt.astimezone(tz)
-    return dt.strftime("%b %-d, %H:%M")
+    # English: "Mar 1, 19:00"
+    return date_format(dt, pgettext("wallet compact datetime format", "M j, H:i"))
 
 
 def format_date_year(dt: datetime, tz: ZoneInfo | None = None) -> str:
@@ -162,7 +192,8 @@ def format_date_year(dt: datetime, tz: ZoneInfo | None = None) -> str:
     """
     if tz:
         dt = dt.astimezone(tz)
-    return dt.strftime("%b %-d, %Y")
+    # English: "Mar 1, 2025"
+    return date_format(dt, pgettext("wallet date format", "M j, Y"))
 
 
 def format_date_full(dt: datetime, tz: ZoneInfo | None = None) -> str:
@@ -177,7 +208,8 @@ def format_date_full(dt: datetime, tz: ZoneInfo | None = None) -> str:
     """
     if tz:
         dt = dt.astimezone(tz)
-    return dt.strftime("%b %d, %Y %I:%M %p")
+    # English: "Jan 03, 2025 07:00 PM"
+    return date_format(dt, pgettext("wallet full datetime format", "M d, Y h:i A"))
 
 
 def format_price(price: Decimal | int | float, currency: str) -> str:

@@ -1,5 +1,7 @@
 """Controller for managing user follows (organizations and event series)."""
 
+from uuid import UUID
+
 from django.db.models import QuerySet
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -22,13 +24,14 @@ class FollowingController(UserAwareController):
         response=PaginatedResponseSchema[schema.OrganizationFollowSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_followed_organizations(self) -> QuerySet[OrganizationFollow]:
+    def list_followed_organizations(self, organization: UUID | None = None) -> QuerySet[OrganizationFollow]:
         """List all organizations you're following.
 
         Returns a paginated list of followed organizations with notification preferences.
-        Only active follows are returned (not archived/unfollowed).
+        Only active follows are returned (not archived/unfollowed). Pass ``organization``
+        to list only the follow of one organization.
         """
-        return follow_service.get_user_followed_organizations(self.user())
+        return follow_service.get_user_followed_organizations(self.user(), organization=organization)
 
     @route.get(
         "/event-series",
@@ -36,10 +39,11 @@ class FollowingController(UserAwareController):
         response=PaginatedResponseSchema[schema.EventSeriesFollowSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_followed_event_series(self) -> QuerySet[EventSeriesFollow]:
+    def list_followed_event_series(self, organization: UUID | None = None) -> QuerySet[EventSeriesFollow]:
         """List all event series you're following.
 
         Returns a paginated list of followed event series with notification preferences.
-        Only active follows are returned (not archived/unfollowed).
+        Only active follows are returned (not archived/unfollowed). Pass ``organization``
+        to list only the series of one organization.
         """
-        return follow_service.get_user_followed_event_series(self.user())
+        return follow_service.get_user_followed_event_series(self.user(), organization=organization)

@@ -8,8 +8,8 @@ from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
-from common.models import SiteSettings
 from events.models import Event
+from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_eligible_users_for_event_notification
 from notifications.service.notification_helpers import (
@@ -33,18 +33,15 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
     """Handle EVENT_CANCELLED notification."""
 
     def send_cancellation_notifications() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(instance.organization)
         eligible_users = get_eligible_users_for_event_notification(instance, NotificationType.EVENT_CANCELLED)
 
         # Format event details in event's timezone
         event_start_formatted = format_event_datetime(instance.start, instance)
 
-        # Prepare refund info if tickets are required. ``refund_available`` is a
-        # required key on EventCancelledContext, so it must always be present.
+        # ``refund_available`` is a required key on EventCancelledContext, so it must always be
+        # present. The refund sentence itself is rendered (and translated) by the templates.
         refund_available = instance.requires_ticket
-        refund_info = (
-            "Refunds will be processed according to the organizer's refund policy." if refund_available else None
-        )
 
         for user in eligible_users:
             # Check address visibility per user
@@ -53,6 +50,7 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
             context: dict[str, t.Any] = {
                 "event_id": str(instance.id),
                 "event_name": instance.name,
+                "organization_id": str(instance.organization_id),
                 "event_start": instance.start.isoformat() if instance.start else "",
                 "event_start_formatted": event_start_formatted,
                 "event_location": event_location,
@@ -61,8 +59,6 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
             }
 
             # Add optional fields
-            if refund_info:
-                context["refund_info"] = refund_info
             if address_url:
                 context["address_url"] = address_url
 
@@ -100,7 +96,7 @@ def _handle_event_updated(
     from django.utils.translation import gettext as _
 
     def send_update_notifications() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(instance.organization)
         eligible_users = get_eligible_users_for_event_notification(instance, NotificationType.EVENT_UPDATED)
 
         event_start_formatted = format_event_datetime(instance.start, instance)
@@ -136,6 +132,7 @@ def _handle_event_updated(
             context = {
                 "event_id": str(instance.id),
                 "event_name": instance.name,
+                "organization_id": str(instance.organization_id),
                 "event_start_formatted": event_start_formatted,
                 "event_location": event_location,
                 "event_url": f"{frontend_base_url}/events/{instance.id}",

@@ -16,7 +16,7 @@ from common.schema import ErrorDetail
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import CanPurchaseTicket
-from events.service import discount_code_service, ticket_service
+from events.service import discount_code_service, ticket_service, waitlist_service
 from events.service.batch_ticket_service import BatchTicketService, CartGroup
 from events.service.event_manager import EventManager, EventUserEligibility
 
@@ -77,6 +77,8 @@ class EventPublicTicketsController(EventPublicBaseController):
             eligible_ids = {
                 tier.id for tier in visible_tiers if ticket_service.anonymous_can_purchase(tier, event, event_token)
             }
+        # Computed once and read by TicketTierSchema.resolve_total_available via the shared event.
+        event._remaining_capacity = waitlist_service.event_remaining_capacity(event)  # type: ignore[attr-defined]
         for tier in visible_tiers:
             tier._can_purchase = tier.id in eligible_ids  # type: ignore[attr-defined]
             # Share the one event instance, so the per-event invoicing flag (#1107) loads the org's

@@ -1,18 +1,25 @@
 """Celery tasks for attendee visibility flags and guest confirmation emails."""
 
 import hashlib
+import typing as t
+from uuid import UUID
 
+import jwt
 import structlog
 from celery import shared_task
+from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
+from django.utils import translation
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.tasks import send_email
-from events.models import AttendeeVisibilityFlag, Event, EventRSVP, Ticket
+from events.models import AttendeeVisibilityFlag, Event, EventRSVP, Organization, Ticket
+from events.utils.frontend_urls import frontend_base_url_for
+from notifications.service.org_sender import SENDER_ORG_FIELDS, is_white_label_tenant, org_from_address, org_reply_to
 
 logger = structlog.get_logger(__name__)
 
@@ -118,32 +125,93 @@ def build_attendee_visibility_flags(event_id: str) -> None:
         )
 
 
+def _token_event_id(token: str) -> UUID | None:
+    """The event id carried by a guest confirmation token, or None if it can't be read."""
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
+        )
+        return UUID(str(payload["event_id"]))
+    except jwt.PyJWTError, KeyError, ValueError:
+        return None
+
+
+def _confirmation_org(organization_id: str | None, token: str) -> Organization | None:
+    """The event's organization, loaded once for both the link origin and the sender.
+
+    Producers keep calling the tasks with their pre-white-label arguments (so a rolling deploy,
+    web before workers, never hands an old worker an argument it doesn't know), hence the
+    organization is normally derived here from the confirmation token's event. An explicit
+    ``organization_id`` (older callers, tests) wins.
+    """
+    orgs = Organization.objects.only(*SENDER_ORG_FIELDS)
+    if organization_id:
+        return orgs.filter(pk=organization_id).first()
+    if (event_id := _token_event_id(token)) is None:
+        return None
+    return orgs.filter(events__id=event_id).first()
+
+
+def _guest_language(email: str) -> str:
+    """The guest user's stored language (set at RSVP/checkout), else the platform default.
+
+    The tasks keep their signatures (rolling-deploy safety), so the language is read from the
+    guest row looked up by email instead of being passed in.
+    """
+    language = RevelUser.objects.filter(email__iexact=email).values_list("language", flat=True).first()
+    return language or str(settings.LANGUAGE_CODE)
+
+
+def _tenant_sender(org: Organization | None, kind: str) -> dict[str, t.Any]:
+    """``send_email`` sender kwargs for a white-label tenant org; empty (platform sender) otherwise (#1155).
+
+    Carries the same ``Feedback-ID`` and org correlation the notification emails get. There is no
+    delivery row for a guest mail, so ``X-Mailin-custom`` names only the organization.
+    """
+    if org is None or not is_white_label_tenant(org):
+        return {}
+    return {
+        "from_email": org_from_address(org),
+        "reply_to": org_reply_to(org),
+        "headers": {"Feedback-ID": f"{org.slug}:{kind}:revel", "X-Mailin-custom": f"org:{org.id}"},
+    }
+
+
 @shared_task(name="events.tasks.send_guest_rsvp_confirmation")
-def send_guest_rsvp_confirmation(email: str, token: str, event_name: str) -> None:
+def send_guest_rsvp_confirmation(email: str, token: str, event_name: str, organization_id: str | None = None) -> None:
     """Send RSVP confirmation email to guest user.
 
     Args:
         email: Guest user's email
         token: JWT confirmation token
         event_name: Name of the event
+        organization_id: Optional override for the event's organization. Normally omitted: the
+            organization is derived from the token's event, and the confirmation link and sender
+            follow its custom domain when it has an active one (the platform otherwise)
     """
     logger.info("guest_rsvp_confirmation_sending", email=email, event_name=event_name)
-    subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
-    confirmation_link = site_settings.frontend_base_url + f"/events/confirm-action?token={token}"
+    org = _confirmation_org(organization_id, token)
+    confirmation_link = frontend_base_url_for(org) + f"/events/confirm-action?token={token}"
     ctx = {
         "confirmation_link": confirmation_link,
         "event_name": event_name,
         "frontend_base_url": site_settings.frontend_base_url,
     }
-    body = render_to_string("events/emails/guest_rsvp_confirmation_body.txt", ctx)
-    html_body = render_to_string("events/emails/guest_rsvp_confirmation_body.html", ctx)
-    send_email(to=email, subject=subject, body=body, html_body=html_body)
+    with translation.override(_guest_language(email)):
+        subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
+        body = render_to_string("events/emails/guest_rsvp_confirmation_body.txt", ctx)
+        html_body = render_to_string("events/emails/guest_rsvp_confirmation_body.html", ctx)
+    send_email(
+        to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org, "guest_rsvp_confirmation")
+    )
     logger.info("guest_rsvp_confirmation_sent", email=email)
 
 
 @shared_task(name="events.tasks.send_guest_ticket_confirmation")
-def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier_name: str) -> None:
+def send_guest_ticket_confirmation(
+    email: str, token: str, event_name: str, tier_name: str, organization_id: str | None = None
+) -> None:
     """Send ticket purchase confirmation email to guest user.
 
     Only sent for non-online-payment tickets (free/offline/at-the-door).
@@ -153,18 +221,25 @@ def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier
         token: JWT confirmation token
         event_name: Name of the event
         tier_name: Name of the ticket tier
+        organization_id: Optional override for the event's organization. Normally omitted: the
+            organization is derived from the token's event, and the confirmation link and sender
+            follow its custom domain when it has an active one (the platform otherwise)
     """
     logger.info("guest_ticket_confirmation_sending", email=email, event_name=event_name, tier_name=tier_name)
-    subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
     site_settings = SiteSettings.get_solo()
-    confirmation_link = site_settings.frontend_base_url + f"/events/confirm-action?token={token}"
+    org = _confirmation_org(organization_id, token)
+    confirmation_link = frontend_base_url_for(org) + f"/events/confirm-action?token={token}"
     ctx = {
         "confirmation_link": confirmation_link,
         "event_name": event_name,
         "tier_name": tier_name,
         "frontend_base_url": site_settings.frontend_base_url,
     }
-    body = render_to_string("events/emails/guest_ticket_confirmation_body.txt", ctx)
-    html_body = render_to_string("events/emails/guest_ticket_confirmation_body.html", ctx)
-    send_email(to=email, subject=subject, body=body, html_body=html_body)
+    with translation.override(_guest_language(email)):
+        subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
+        body = render_to_string("events/emails/guest_ticket_confirmation_body.txt", ctx)
+        html_body = render_to_string("events/emails/guest_ticket_confirmation_body.html", ctx)
+    send_email(
+        to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org, "guest_ticket_confirmation")
+    )
     logger.info("guest_ticket_confirmation_sent", email=email)

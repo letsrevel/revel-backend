@@ -89,6 +89,10 @@ which users can't opt out of. See
 honours the user's digest setting (digest users get the in-app notification now and the email in
 the next digest sweep).
 
+The three `staff_ticket_*` alert types and the two `org_custom_domain_*` owner types
+([White-Label](white-label.md)) are also in `TRANSACTIONAL_TYPES`, so they skip the digest, but they
+are not in `MANDATORY_TYPES`: the recipient can opt out of them.
+
 ### Waitlist & Availability
 
 | Type | Description |
@@ -132,6 +136,8 @@ the next digest sweep).
 | Type | Description |
 |---|---|
 | `org_setup_nudge` | Capped reminder to the owner of a stalled organization (forgotten draft, private profile, no events, check-in, gone quiet). Opt-out-able. See [Org setup nudges](email-sending.md#org-setup-nudges) |
+| `org_custom_domain_active` | The organization's white-label custom domain went live (PENDING to ACTIVE). To the owner only; opt-out-able and transactional (skips the digest). See [White-Label](white-label.md) |
+| `org_custom_domain_failed` | The custom domain failed (PENDING or ACTIVE to FAILED), with Cloudflare's messages and DNS hints. To the owner only; opt-out-able and transactional. The settings link always points to the platform |
 
 ### Announcements
 

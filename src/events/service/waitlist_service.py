@@ -146,15 +146,20 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
     )
 
 
-def _count_attendees_and_pending(event: Event) -> tuple[int, int]:
+def _count_attendees_and_pending(event: Event, *, count_tickets: bool | None = None) -> tuple[int, int]:
     """Return (attendee_count, capacity-reserving pending offer count) for an event.
 
     Mirrors the counting logic used by ``process_waitlist_for_event`` and
     ``_assert_capacity``: cutoff-batch offers do NOT count toward reserved
     capacity, and cancelled tickets / non-YES RSVPs are excluded.
+
+    Args:
+        event: The event to count for.
+        count_tickets: Count tickets (True) or YES RSVPs (False). Defaults to
+            ``event.requires_ticket``.
     """
     now = timezone.now()
-    if event.requires_ticket:
+    if event.requires_ticket if count_tickets is None else count_tickets:
         attendee_count = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).count()
     else:
         attendee_count = EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).count()
@@ -165,6 +170,20 @@ def _count_attendees_and_pending(event: Event) -> tuple[int, int]:
         is_cutoff_batch=False,
     ).count()
     return attendee_count, pending
+
+
+def event_remaining_capacity(event: Event) -> int | None:
+    """Spots left under the event-wide cap, or ``None`` when the event is uncapped.
+
+    Counts non-cancelled tickets plus capacity-reserving pending waitlist offers,
+    matching ``BatchTicketService.assert_event_capacity``, which counts tickets
+    even on events with ``requires_ticket=False``. Skips all queries for uncapped
+    events.
+    """
+    if event.effective_capacity == 0:
+        return None
+    attendee_count, pending = _count_attendees_and_pending(event, count_tickets=True)
+    return max(0, event.effective_capacity - attendee_count - pending)
 
 
 @transaction.atomic

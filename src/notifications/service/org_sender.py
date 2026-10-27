@@ -4,11 +4,22 @@ from email.utils import formataddr
 
 from django.conf import settings
 
+from common.models import SiteSettings
 from common.utils import is_reserved_mailbox, org_email_domain
 from events.models import Organization
 from notifications.models import Notification
 
-_ORG_FIELDS = ("id", "name", "slug", "contact_email", "contact_email_verified")
+# custom_domain / custom_domain_enabled drive the white-label tenant gate (#1155); they ride on the
+# same query so resolving the sender stays a single lookup.
+SENDER_ORG_FIELDS = (
+    "id",
+    "name",
+    "slug",
+    "contact_email",
+    "contact_email_verified",
+    "custom_domain",
+    "custom_domain_enabled",
+)
 
 
 def resolve_sender_org(notification: Notification) -> Organization | None:
@@ -23,12 +34,27 @@ def resolve_sender_org(notification: Notification) -> Organization | None:
         The organization, or None if the context names none or it no longer exists.
     """
     context = notification.context or {}
-    orgs = Organization.objects.only(*_ORG_FIELDS)
+    orgs = Organization.objects.only(*SENDER_ORG_FIELDS)
     if org_id := context.get("organization_id"):
         return orgs.filter(pk=org_id).first()
     if event_id := context.get("event_id"):
         return orgs.filter(events__id=event_id).first()
     return None
+
+
+def is_white_label_tenant(org: Organization) -> bool:
+    """Whether ``org`` is a white-label tenant: an active custom domain AND the platform gate on.
+
+    Same condition as ``events.utils.frontend_urls.frontend_base_url_for``. Reads columns the
+    caller already holds, so it never queries.
+
+    Args:
+        org: The organization, loaded with ``SENDER_ORG_FIELDS`` or more.
+
+    Returns:
+        True if attendee transactional mail should go out with the org sender.
+    """
+    return bool(org.custom_domain and org.custom_domain_enabled)
 
 
 def org_from_address(org: Organization) -> str:
@@ -73,3 +99,22 @@ def build_list_unsubscribe_headers(token: str) -> dict[str, str]:
     """
     url = f"{settings.BASE_URL.rstrip('/')}/api/notification-preferences/one-click?token={token}"
     return {"List-Unsubscribe": f"<{url}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
+
+
+def build_preferences_list_unsubscribe_header(token: str) -> dict[str, str]:
+    """``List-Unsubscribe`` header for mail the recipient cannot opt out of.
+
+    Brevo injects its own one-click header into any email that lacks one, and a client
+    "Unsubscribe" click would then globally block even mandatory mail. This header points
+    at the frontend preferences page instead. There is deliberately no
+    ``List-Unsubscribe-Post``: without it clients open the URL in a browser rather than
+    POSTing silently, so nothing is switched off by the click.
+
+    Args:
+        token: Typed unsubscribe token the frontend ``/unsubscribe`` page consumes.
+
+    Returns:
+        A ``List-Unsubscribe`` header only.
+    """
+    url = f"{SiteSettings.get_solo().frontend_base_url.rstrip('/')}/unsubscribe?token={token}"
+    return {"List-Unsubscribe": f"<{url}>"}

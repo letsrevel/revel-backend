@@ -70,6 +70,7 @@ from events.service.vat_service import (
 from events.utils.currency import to_stripe_amount
 
 if t.TYPE_CHECKING:
+    from events.schema.organization import StripeReturnTo
     from events.schema.ticket import BuyerBillingInfoSchema
     from events.service.attendee_vat_service import AttendeeVATResult, BuyerVATContext
     from events.service.vat_service import PlatformFeeVATBreakdown as PlatformFeeVATResult
@@ -84,11 +85,16 @@ def create_connect_account(organization: Organization, stripe_account_email: Ema
     return _create_connect_account(organization, stripe_account_email, account_type="standard")
 
 
-def create_account_link(account_id: str, organization: Organization) -> str:
-    """Create a one-time onboarding link for an organization's Stripe Connect account."""
+def create_account_link(account_id: str, organization: Organization, return_to: "StripeReturnTo") -> str:
+    """Create a one-time onboarding link for an organization's Stripe Connect account.
+
+    ``return_to`` picks the admin page Stripe redirects back to; it is an allowlisted enum
+    whose value is the path segment, so the destination is always one of our own pages.
+    """
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    refresh_url = f"{frontend_base_url}/org/{organization.slug}/admin/settings?stripe_refresh=true"
-    return_url = f"{frontend_base_url}/org/{organization.slug}/admin/settings?stripe_success=true"
+    admin_page = f"{frontend_base_url}/org/{organization.slug}/admin/{return_to.value}"
+    refresh_url = f"{admin_page}?stripe_refresh=true"
+    return_url = f"{admin_page}?stripe_success=true"
     return _create_account_link(account_id, refresh_url, return_url)
 
 
@@ -396,6 +402,11 @@ def _create_stripe_session(
     """
     ticket_ids = ",".join(str(_t.id) for _t in tickets)
 
+    # Stripe return URLs stay on the platform origin by design (#1153): the frontend's canonical 301
+    # (query string preserved) takes the buyer on to the org's custom domain. The URL must stay
+    # uniform (#848: Stripe gets nothing organizer-authored) and byte-identical across retries,
+    # because session creation reuses ``idempotency_key=reservation_id`` and mutable org state
+    # (domain sync, kill switch) would otherwise cause Stripe idempotency conflicts.
     frontend_base_url = site.frontend_base_url
     session_data = dict(  # noqa: C408
         customer_email=user.email,
@@ -733,6 +744,11 @@ def _create_series_pass_stripe_session(
     series = series_pass.event_series
     ticket_ids = ",".join(str(ticket.id) for ticket in tickets)
 
+    # Stripe return URLs stay on the platform origin by design (#1153): the frontend's canonical 301
+    # (query string preserved) takes the buyer on to the org's custom domain. The URL must stay
+    # uniform (#848: Stripe gets nothing organizer-authored) and byte-identical across retries,
+    # because session creation reuses ``idempotency_key=reservation_id`` and mutable org state
+    # (domain sync, kill switch) would otherwise cause Stripe idempotency conflicts.
     frontend_base_url = site.frontend_base_url
     series_url = f"{frontend_base_url}/events/{org.id}/series/{series.id}"
     session_data = dict(  # noqa: C408

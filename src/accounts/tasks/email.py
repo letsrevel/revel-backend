@@ -136,9 +136,21 @@ def send_account_email(
         context: Extra template context required by some message types — e.g.
             ``{"masked_new_email": ...}`` for the change notice, or
             ``{"old_email": ..., "new_email": ...}`` for the change-completed emails.
-            An optional ``"return_url"`` key (a relative path, used only by the verification
-            email) is appended to the action link as a fully percent-encoded ``returnUrl``
-            query param; message types without a link ignore it.
+            Two optional keys steer the action link of link-bearing messages; message types
+            without a link ignore both:
+
+            - ``"return_url"`` (a relative path, used only by the verification email) is appended
+              as a fully percent-encoded ``returnUrl`` query param.
+            - ``"return_host"`` (white-label, #1156) is the hostname of the tenant (custom) domain
+              the request came from, appended as a percent-encoded ``return_host`` query param so
+              the platform page can send the user back after the action. SECURITY: the link itself
+              is *always* built on the platform base URL, never on this host; the hint carries no
+              credential.
+
+            Rolling deploy, both directions: a message queued before #1156 has no ``return_host``
+            key and renders a plain link. A hinted message delivered to a worker that predates
+            #1156 is accepted (unknown context keys are ignored, and the task has no ``return_host``
+            kwarg to break on), so the email is sent without the hint.
 
     Raises:
         ValueError: If a link-bearing email type is dispatched without a token, or a message
@@ -161,6 +173,8 @@ def send_account_email(
         if email_type == AccountEmail.VERIFICATION and (return_url := caller_context.get("return_url")) is not None:
             # safe="" so "&", "=", "?" and "/" are encoded and can't inject extra query params.
             action_link += "&returnUrl=" + quote(return_url, safe="")
+        if return_host := caller_context.get("return_host"):
+            action_link += ("&" if "?" in action_link else "?") + "return_host=" + quote(return_host, safe="")
         body_context["action_link"] = action_link
 
     subject = str(render_to_string(f"accounts/emails/{config.template_base}_subject.txt")).strip()

@@ -9,7 +9,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch, Q, Value
 from django.utils.translation import gettext_lazy as _
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
@@ -17,6 +17,7 @@ from pydantic import ValidationError as PydanticValidationError
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
+from events.utils.branding import OrganizationBranding
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
 from .mixins import (
@@ -433,6 +434,38 @@ class Organization(
         help_text=_("When True, every membership application requires manual staff approval."),
     )
 
+    # White-label custom domain (#1148). ``custom_domain_enabled`` is the platform-admin gate (Django admin
+    # only, never in an API edit schema). ``custom_domain`` is a denormalized copy of the ACTIVE
+    # ``OrganizationDomain`` hostname so schemas read a column instead of querying; only
+    # ``events.service.custom_domain_service`` writes it.
+    # ``db_default`` (here and on ``branding``): a pod still on the previous release inserts organizations
+    # without these columns during a rolling deploy, which would otherwise hit NOT NULL.
+    custom_domain_enabled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=_(
+            "Platform gate: allows requesting, activating, resolving and advertising a custom domain "
+            "for this organization."
+        ),
+    )
+    custom_domain = models.CharField(
+        max_length=253,
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+        help_text=_("Hostname of the active custom domain. Maintained by the domain service; do not edit."),
+    )
+
+    # Org-owned presentation choices (#1149), validated by ``OrganizationBranding`` in clean().
+    # Files, custom_domain and platform-admin flags are never stored here.
+    branding = models.JSONField(
+        default=dict,
+        db_default=Value({}, output_field=models.JSONField()),
+        blank=True,
+        help_text=_("Presentation settings chosen by the organization, such as brand colors."),
+    )
+
     objects = OrganizationManager()
 
     class Meta:
@@ -451,8 +484,22 @@ class Organization(
         Additionally validates that ``default_membership_questionnaire`` (when set)
         belongs to this organization and is of type ``MEMBERSHIP``. ``limit_choices_to``
         is admin-only and not enforced on direct ORM ``save()``, so this check matters.
+
+        Also validates ``branding`` against :class:`~events.utils.branding.OrganizationBranding`
+        and stores its normalized form (uppercase hex colors, defaults filled in).
         """
         super().clean()
+        try:
+            self.branding = OrganizationBranding.model_validate(self.branding or {}).model_dump(mode="json")
+        except PydanticValidationError:
+            raise DjangoValidationError(
+                {
+                    "branding": _(
+                        "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, "
+                        "and unknown settings are not allowed."
+                    )
+                }
+            ) from None
         if self.contact_method != self.ContactMethod.NONE and not (self.contact_email and self.contact_email_verified):
             raise DjangoValidationError(
                 {

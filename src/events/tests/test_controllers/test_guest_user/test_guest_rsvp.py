@@ -51,6 +51,9 @@ class TestGuestRSVP:
         # Check email was sent
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args[0]
+        # Exactly the pre-white-label shape (rolling deploy: an old worker rejects extra args)
+        assert len(call_args) == 3
+        assert mock_send_email.call_args[1] == {}
         assert call_args[0] == "newguest@example.com"  # email
         assert call_args[2] == guest_event.name  # event_name
         # Token is the second argument

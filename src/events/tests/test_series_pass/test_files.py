@@ -143,6 +143,17 @@ def held_pass(fs_series_pass: SeriesPass, owner: RevelUser, tier_links: list[Ser
 class TestComputeContentHash:
     """Tests for series_pass_file_service.compute_content_hash."""
 
+    def test_changes_with_non_default_holder_language(self, held_pass: HeldSeriesPass) -> None:
+        """The pass is rendered in the holder's language (#1217); default-language hashes are unchanged."""
+        assert held_pass.user.language == "en"
+        hash_en = series_pass_file_service.compute_content_hash(held_pass)
+
+        held_pass.user.language = "de"
+        assert series_pass_file_service.compute_content_hash(held_pass) != hash_en
+
+        held_pass.user.language = "en"
+        assert series_pass_file_service.compute_content_hash(held_pass) == hash_en
+
     def test_returns_deterministic_hex_string(self, held_pass: HeldSeriesPass) -> None:
         """Hash should be deterministic for the same held pass state."""
         hash1 = series_pass_file_service.compute_content_hash(held_pass)
@@ -160,6 +171,18 @@ class TestComputeContentHash:
 
         hash_after = series_pass_file_service.compute_content_hash(held_pass)
         assert hash_before != hash_after
+
+    def test_changes_when_organization_branding_changes(self, held_pass: HeldSeriesPass) -> None:
+        """Brand colors (#1157) are part of the pass look: a branding change invalidates the cache."""
+        before = series_pass_file_service.compute_content_hash(held_pass)
+
+        organization = held_pass.series_pass.event_series.organization
+        Organization.objects.filter(pk=organization.pk).update(branding={"primary_color": "#1E88E5"})
+        held_pass = HeldSeriesPass.objects.select_related("series_pass__event_series__organization").get(
+            pk=held_pass.pk
+        )
+
+        assert series_pass_file_service.compute_content_hash(held_pass) != before
 
     def test_changes_when_series_pass_updated_at_changes(
         self, held_pass: HeldSeriesPass, fs_series_pass: SeriesPass

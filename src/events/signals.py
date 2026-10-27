@@ -3,9 +3,11 @@
 import typing as t
 
 import structlog
+from corsheaders.signals import check_request_enabled
 from django.db import transaction
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
+from django.http import HttpRequest
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -29,17 +31,20 @@ from events.models import (
     TicketTier,
 )
 from events.models.organization import MembershipTier
-from events.service import permission_snapshot, ticket_number_service
+from events.service import permission_snapshot, ticket_number_service, turnstile_hostname_service
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import unclaim_user_potluck_items
+from events.service.tenant_service import invalidate_tenant_cache, tenant_host_from_origin
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import (
     build_attendee_visibility_flags,
+    delete_organization_cloudflare_hostnames,
     notify_admin_new_organization_discord,
     notify_admin_new_organization_pushover,
 )
 from events.utils import format_event_datetime, get_invitation_message
+from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
@@ -234,7 +239,7 @@ def handle_membership_granted(
         return
 
     def send_membership_notification() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(instance.organization)
 
         notification_requested.send(
             sender=sender,
@@ -332,7 +337,7 @@ def handle_membership_tier_changed(
         return
 
     def send_card_updated_notification() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(instance.organization)
         notification_requested.send(
             sender=sender,
             user=instance.user,
@@ -358,7 +363,7 @@ def handle_membership_promoted(
         return
 
     def send_promotion_notification() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(instance.organization)
 
         notification_requested.send(
             sender=sender,
@@ -479,7 +484,7 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
         return
 
     def send_follower_notifications() -> None:
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_base_url = frontend_base_url_for(organization)
         event_series = instance.event_series
         event_location = _get_event_location_string(instance)
 
@@ -702,6 +707,46 @@ def _invalidate_reserved_slug_token_cache_on_delete(
     **kwargs: t.Any,
 ) -> None:
     invalidate_reserved_tokens_cache()
+
+
+@receiver(check_request_enabled)
+def allow_cors_for_tenant_origin(sender: None, request: HttpRequest, **kwargs: t.Any) -> bool:
+    """Allow cross-origin requests from an organization's active custom domain (white-label, #1152).
+
+    django-cors-headers calls this when the static ``CORS_ALLOWED_ORIGINS`` do not match; a truthy
+    result enables CORS for the request, with the usual credentials and allowed-header settings.
+    The Origin host (port ignored) must be an active tenant domain, over ``https`` (``http`` only
+    when ``DEBUG``). No CORS when the organization's ``custom_domain_enabled`` kill switch is off.
+    """
+    return tenant_host_from_origin(request.headers.get("origin")) is not None
+
+
+@receiver(pre_delete, sender=Organization)
+def capture_cloudflare_hostnames_before_organization_delete(
+    sender: type[Organization], instance: Organization, **kwargs: t.Any
+) -> None:
+    """Remember the organization's Cloudflare hostname ids: the cascade removes the domain rows after this."""
+    instance._cloudflare_hostname_ids = list(  # type: ignore[attr-defined]
+        instance.domains.filter(cloudflare_hostname_id__isnull=False).values_list("cloudflare_hostname_id", flat=True)
+    )
+
+
+@receiver(post_delete, sender=Organization)
+def invalidate_tenant_cache_on_organization_delete(
+    sender: type[Organization], instance: Organization, **kwargs: t.Any
+) -> None:
+    """Drop the tenant-resolution entry of a deleted organization's custom domain (white-label, #1152).
+
+    Deleting the organization cascades its domains without going through the domain service, so the
+    cached hostname would otherwise keep resolving to a vanished organization until its TTL ran out.
+    """
+    if hostname := instance.custom_domain:
+        transaction.on_commit(lambda: invalidate_tenant_cache(hostname))
+        turnstile_hostname_service.schedule_reconcile()  # its ACTIVE hostname leaves the Turnstile widget
+    # The cascade also orphans the Cloudflare hostnames (certificates, claimed hostname): remove them
+    # once the deletion commits. A task, so the request never waits on (or fails because of) Cloudflare.
+    if hostname_ids := getattr(instance, "_cloudflare_hostname_ids", None):
+        transaction.on_commit(lambda: delete_organization_cloudflare_hostnames.delay(hostname_ids))
 
 
 @receiver(post_delete, sender=EventWaitList)

@@ -17,6 +17,8 @@ from events.service.organization_service.lifecycle import (
     MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE,
     REVENUE_CADENCE_OWNER_ONLY_MESSAGE,
     create_organization,
+    preview_brand_theme,
+    update_branding,
     update_organization,
 )
 from events.service.organization_service.membership import (
@@ -75,6 +77,8 @@ __all__ = [
     "remove_member",
     "remove_staff",
     "reorder_membership_tiers",
+    "preview_brand_theme",
+    "update_branding",
     "update_contact_email",
     "update_member",
     "update_membership_tier",

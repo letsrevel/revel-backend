@@ -450,7 +450,6 @@ def test_generate_user_data_export_includes_follow_data(user: RevelUser) -> None
         user=user,
         organization=other_org,
         notify_new_events=True,
-        notify_announcements=False,
         is_public=True,
     )
 
@@ -477,5 +476,4 @@ def test_generate_user_data_export_includes_follow_data(user: RevelUser) -> None
             follow_data = data["organization_follows"][0]
             assert follow_data["organization"] == str(other_org.id)
             assert follow_data["notify_new_events"] is True
-            assert follow_data["notify_announcements"] is False
             assert follow_data["is_public"] is True

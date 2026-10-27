@@ -56,6 +56,7 @@ each dependency does, whether you can omit it, and the lever you use to do so:
 | OIDC login (Google, Keycloak, …) | Yes (opt-in) | Login buttons hidden; password auth only | `OIDC_PROVIDERS=google` + per-provider vars |
 | OAuth / OIDC provider (third-party apps, MCP hosts, "Sign in with") | Yes (opt-in) | Every `/o/*`, `/.well-known/*` and `/api/oauth/*` route is `404` | `OIDC_SIGNING_KEY_PATH` + `OAUTH_ISSUER` |
 | Eventbrite listing sync | Yes (opt-in) | Integrations panel hides the provider | `INTEGRATIONS_EVENTBRITE_CLIENT_ID` + `_CLIENT_SECRET` |
+| Custom domains (white-label) | Yes (opt-in) | Organizations can still set brand colors; no domain can be requested or activated | `custom_domain_enabled` per org; `CLOUDFLARE_*` optional (manual activation without) |
 | Apple Wallet | Yes | `/wallet/apple` → 503; PDF tickets fine | leave certs unset |
 | Google Wallet | Yes | `/wallet/google` → 503; PDF tickets fine | leave issuer ID / key unset |
 | Email / SMTP | Required* | Needed for verification | real SMTP or `EMAIL_DRY_RUN=True` |

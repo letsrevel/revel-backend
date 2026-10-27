@@ -207,6 +207,12 @@ class TicketFilterSchema(FilterSchema):
         return Q()
 
 
+class DashboardTicketFilterSchema(TicketFilterSchema):
+    """Attendee dashboard ticket filters, with the optional white-label organization scope (#1154)."""
+
+    organization: t.Annotated[UUID | None, FilterLookup(q="event__organization_id")] = None
+
+
 class AdminTicketFilterSchema(TicketFilterSchema):
     """Ticket filters for the event admin list, which annotates organizer-only fields."""
 
@@ -214,26 +220,34 @@ class AdminTicketFilterSchema(TicketFilterSchema):
     invoice_skipped: bool | None = None
 
 
+class DashboardRSVPFilterSchema(RSVPFilterSchema):
+    """Attendee dashboard RSVP filters, with the optional white-label organization scope (#1154)."""
+
+    organization: t.Annotated[UUID | None, FilterLookup(q="event__organization_id")] = None
+
+
 class DashboardOrganizationsFiltersSchema(Schema):
     owner: bool = True
     staff: bool = True
     member: bool = True
+    organization: UUID | None = None
 
     def get_organizations_queryset(self, user_id: UUID) -> models.QuerySet[Organization]:
         """This is the high-performance query builder for the organization dashboard.
 
         It gathers IDs from different sources using UNION to avoid expensive JOINs.
         """
+        scope = Q(id=self.organization) if self.organization is not None else Q()
         org_id_querysets = []
 
         if self.owner:
-            owner_orgs = Organization.objects.filter(owner_id=user_id).values("id")
+            owner_orgs = Organization.objects.filter(scope, owner_id=user_id).values("id")
             org_id_querysets.append(owner_orgs)
         if self.staff:
-            staff_orgs = Organization.objects.filter(staff_members__id=user_id).values("id")
+            staff_orgs = Organization.objects.filter(scope, staff_members__id=user_id).values("id")
             org_id_querysets.append(staff_orgs)
         if self.member:
-            member_orgs = Organization.objects.filter(members__id=user_id).values("id")
+            member_orgs = Organization.objects.filter(scope, members__id=user_id).values("id")
             org_id_querysets.append(member_orgs)
 
         if not org_id_querysets:
@@ -257,6 +271,7 @@ class DashboardEventsFiltersSchema(Schema):
     got_invitation: bool = True
     bookmarked: bool = True
     requires_ticket: bool | None = None
+    organization: UUID | None = None
 
     def get_events_queryset(self, user_id: UUID) -> models.QuerySet[Event]:
         """This is the high-performance query builder for the dashboard.
@@ -282,8 +297,9 @@ class DashboardEventsFiltersSchema(Schema):
             (self.got_invitation, Q(invitations__user_id=user_id)),
             (self.bookmarked, Q(bookmarks__user_id=user_id)),
         ]
+        scope = Q(organization_id=self.organization) if self.organization is not None else Q()
         event_id_querysets = [
-            Event.objects.exclude_templates().filter(condition).values("id")
+            Event.objects.exclude_templates().filter(scope, condition).values("id")
             for enabled, condition in relationship_filters
             if enabled
         ]
@@ -302,6 +318,7 @@ class DashboardEventSeriesFiltersSchema(Schema):
     owner: bool = True
     staff: bool = True
     member: bool = True
+    organization: UUID | None = None
 
     def get_event_series_queryset(self, user_id: UUID) -> models.QuerySet["EventSeries"]:
         """High-performance query builder for event series dashboard using UNION strategy.
@@ -311,16 +328,17 @@ class DashboardEventSeriesFiltersSchema(Schema):
         """
         from events.models import EventSeries
 
+        scope = Q(organization_id=self.organization) if self.organization is not None else Q()
         series_id_querysets = []
 
         if self.owner:
-            owner_series = EventSeries.objects.filter(organization__owner_id=user_id).values("id")
+            owner_series = EventSeries.objects.filter(scope, organization__owner_id=user_id).values("id")
             series_id_querysets.append(owner_series)
         if self.staff:
-            staff_series = EventSeries.objects.filter(organization__staff_members__id=user_id).values("id")
+            staff_series = EventSeries.objects.filter(scope, organization__staff_members__id=user_id).values("id")
             series_id_querysets.append(staff_series)
         if self.member:
-            member_series = EventSeries.objects.filter(organization__members__id=user_id).values("id")
+            member_series = EventSeries.objects.filter(scope, organization__members__id=user_id).values("id")
             series_id_querysets.append(member_series)
 
         if not series_id_querysets:
@@ -349,6 +367,12 @@ class InvitationRequestFilterSchema(FilterSchema):
     """Filter schema for event invitation requests."""
 
     status: EventInvitationRequest.InvitationRequestStatus | None = None
+
+
+class DashboardInvitationRequestFilterSchema(InvitationRequestFilterSchema):
+    """Attendee dashboard invitation-request filters, with the optional white-label organization scope (#1154)."""
+
+    organization: t.Annotated[UUID | None, FilterLookup(q="event__organization_id")] = None
 
 
 class SubmissionFilterSchema(FilterSchema):

@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
+from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -15,6 +16,8 @@ from events.service.organization_service.contact import (
     create_and_send_contact_email_verification,
     validate_contact_method,
 )
+from events.utils.brand_theme import BrandTheme, derive_brand_theme
+from events.utils.branding import OrganizationBranding
 from events.utils.reserved_slug_tokens import find_reserved_token
 
 # Canned message for the revenue-report-cadence owner-only guard. Co-located with
@@ -170,3 +173,45 @@ def update_organization(
         raise ValidationError({"revenue_report_cadence": "A billing email is required to enable scheduled reports."})
 
     return update_db_instance(organization, payload)
+
+
+def update_branding(organization: Organization, branding: OrganizationBranding) -> Organization:
+    """Replace an organization's branding with ``branding``.
+
+    Replace semantics: keys the caller leaves unset fall back to their defaults, so ``{}``
+    clears the branding. ``save()`` runs ``full_clean()``, which re-validates and normalizes
+    the blob.
+
+    Args:
+        organization: The organization to update.
+        branding: The full, already validated branding object.
+
+    Returns:
+        The updated organization.
+    """
+    organization.branding = branding.model_dump(mode="json")
+    organization.save(update_fields=["branding", "updated_at"])
+    return organization
+
+
+def preview_brand_theme(primary: str | None, accent: str | None) -> BrandTheme | None:
+    """Derive the per-mode theme for candidate colors without persisting anything.
+
+    Colors go through the same validation as ``Organization.branding``; empty strings count
+    as unset.
+
+    Args:
+        primary: Candidate ``#RRGGBB`` primary color.
+        accent: Candidate ``#RRGGBB`` accent color.
+
+    Returns:
+        The derived theme, or ``None`` when no primary color is given.
+
+    Raises:
+        HttpError: 400 with the translated message if a color is not a valid hex value.
+    """
+    try:
+        branding = OrganizationBranding(primary_color=primary or None, accent_color=accent or None)
+    except PydanticValidationError as exc:
+        raise HttpError(400, exc.errors()[0]["msg"]) from None
+    return derive_brand_theme(branding.primary_color, branding.accent_color)

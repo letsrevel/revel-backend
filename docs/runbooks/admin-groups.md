@@ -86,6 +86,8 @@ The underlying impersonation view is also gated by
   validation flow, not a manual flip
 - `platform_fee_percent`, `platform_fee_fixed` — superusers only renegotiate
 - `contact_email_verified` — must come from the verification flow
+- `custom_domain_enabled` — platform switch for white-label custom domains;
+  sales reps must not change platform configuration
 
 Stripe Connect lives on `RevelUser` (the org owner's account) and the relevant
 fields are already in `RevelUserAdmin.readonly_fields` for everyone.

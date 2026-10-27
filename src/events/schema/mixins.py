@@ -8,6 +8,8 @@ from pydantic import AnyUrl, Field, HttpUrl, field_validator
 
 from common.schema import StrippedString
 from events import models
+from events.utils.brand_theme import BrandTheme, derive_brand_theme
+from events.utils.branding import OrganizationBranding, parse_branding
 from geo.models import City
 from geo.schema import CitySchema
 
@@ -55,6 +57,28 @@ class LogoCoverArtThumbnailMixin(Schema):
         return get_image_field_url(obj, "cover_art_social")
 
 
+class OrganizationBrandingMixin(Schema):
+    """The organization's branding as stored plus the derived per-mode theme (#1149).
+
+    ``brand_theme`` is ``None`` when the organization has no primary color. An invalid
+    stored blob reads as empty branding rather than failing the request.
+    """
+
+    branding: OrganizationBranding
+    brand_theme: BrandTheme | None = None
+
+    @staticmethod
+    def resolve_branding(obj: t.Any) -> OrganizationBranding:
+        """Parse the stored blob tolerantly (invalid data yields empty branding)."""
+        return parse_branding(obj.branding)
+
+    @staticmethod
+    def resolve_brand_theme(obj: t.Any) -> BrandTheme | None:
+        """Derive light/dark palettes meeting WCAG contrast from the stored colors."""
+        branding = parse_branding(obj.branding)
+        return derive_brand_theme(branding.primary_color, branding.accent_color)
+
+
 class CityBaseMixin(Schema):
     city_id: int | None = None
 
@@ -95,6 +119,22 @@ class CityEditMixin(CityBaseMixin):
         if not match:
             raise ValueError("Could not extract src URL from iframe")
         return match.group(1)
+
+
+class CustomDomainMixin(Schema):
+    """Advertise the organization's active custom domain only while the platform kill switch is on.
+
+    ``custom_domain_enabled`` is the platform-admin gate: when it is off, the hostname is withheld even
+    though the denormalized column still holds it, so flipping the gate back on restores it. Both are
+    plain columns, so this costs no queries.
+    """
+
+    custom_domain: str | None = None
+
+    @staticmethod
+    def resolve_custom_domain(obj: t.Any) -> str | None:
+        """Return the active hostname only when custom domains are enabled for the organization."""
+        return obj.custom_domain if obj.custom_domain_enabled else None
 
 
 class CityRetrieveMixin(Schema):

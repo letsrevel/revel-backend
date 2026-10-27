@@ -67,6 +67,9 @@ class NotificationType(TextChoices):
     ORG_ANNOUNCEMENT = "org_announcement"
     ORG_CONTACT_MESSAGE_RECEIVED = "org_contact_message_received"  # Notify org admins of contact form submissions
     ORG_SETUP_NUDGE = "org_setup_nudge"  # Revel nudges a stalled org's owner (private profile, forgotten draft, ...)
+    # White-label custom domain went live / failed: told to the organization owner (#1148)
+    ORG_CUSTOM_DOMAIN_ACTIVE = "org_custom_domain_active"
+    ORG_CUSTOM_DOMAIN_FAILED = "org_custom_domain_failed"
     # Daily digest of invoices/credit notes a country policy made Revel skip (#1073, staff only)
     FISCAL_DOCUMENT_SKIPPED = "fiscal_document_skipped"
 
@@ -114,6 +117,7 @@ class NotificationType(TextChoices):
 # Transactional notification types are time-/money-sensitive (a ticket sale, a payment,
 # a cancellation or a refund): they bypass the digest cadence (#506). This includes the staff
 # ticket alerts, which are NOT mandatory (see MANDATORY_TYPES) but still shouldn't wait for a digest.
+# The custom-domain owner mails are the same: opt-out-able, but the owner is waiting on them (#1148).
 TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
     {
         NotificationType.PAYMENT_CONFIRMATION,
@@ -123,6 +127,8 @@ TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
         NotificationType.STAFF_TICKET_CREATED,
         NotificationType.STAFF_TICKET_CANCELLED,
         NotificationType.STAFF_TICKET_REFUNDED,
+        NotificationType.ORG_CUSTOM_DOMAIN_ACTIVE,
+        NotificationType.ORG_CUSTOM_DOMAIN_FAILED,
         # Subscription money/lifecycle events must not wait for a digest sweep:
         # a failed renewal or expiry needs immediate action, a revival checkout
         # link is time-boxed, and renewal/cancellation confirmations are
@@ -171,6 +177,44 @@ ORG_SENDER_TYPES: frozenset[str] = frozenset(
         NotificationType.EVENT_UPDATED,
         NotificationType.EVENT_CANCELLED,
         NotificationType.EVENT_REMINDER,
+    }
+)
+
+# Attendee-facing transactional mail that ALSO goes out as the org sender, but only for white-label
+# tenants (active custom domain + ``custom_domain_enabled``, #1155). Everyone else keeps the platform
+# sender. Unlike ORG_SENDER_TYPES, unsubscribe headers and footer links stay on the platform.
+# Only types whose recipient is the attendee, holder or subscriber belong here. Staff-facing types
+# (STAFF_*, RSVP_* which go only to org staff/owners, MEMBERSHIP_REQUEST_CREATED, ...) are deliberately
+# absent, as is Revel's own billing mail.
+TENANT_ORG_SENDER_TYPES: frozenset[str] = frozenset(
+    {
+        NotificationType.TICKET_CREATED,
+        NotificationType.TICKET_UPDATED,
+        NotificationType.TICKET_CANCELLED,
+        NotificationType.TICKET_REFUNDED,
+        NotificationType.TICKET_CHECKED_IN,
+        NotificationType.PAYMENT_CONFIRMATION,
+        NotificationType.QUESTIONNAIRE_EVALUATION_RESULT,
+        NotificationType.MEMBERSHIP_GRANTED,
+        NotificationType.MEMBERSHIP_PROMOTED,
+        NotificationType.MEMBERSHIP_REMOVED,
+        NotificationType.MEMBERSHIP_CARD_UPDATED,
+        NotificationType.MEMBERSHIP_REQUEST_APPROVED,
+        NotificationType.MEMBERSHIP_REQUEST_REJECTED,
+        NotificationType.WAITLIST_SPOT_AVAILABLE,
+        # Series pass mail to the holder (STAFF_SERIES_PASS_* are org-facing and stay on the platform sender).
+        NotificationType.SERIES_PASS_PURCHASED,
+        NotificationType.SERIES_PASS_EXTENDED,
+        NotificationType.SERIES_PASS_CANCELLED,
+        # Membership subscription mail to the subscriber. Revel bills the member on the org's behalf,
+        # so none of these is platform billing of the organization.
+        NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
+        NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
+        NotificationType.SUBSCRIPTION_EXPIRED,
+        NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
+        NotificationType.SUBSCRIPTION_RENEWAL_REMINDER,
+        NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+        NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
     }
 )
 
