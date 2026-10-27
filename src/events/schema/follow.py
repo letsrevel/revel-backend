@@ -39,8 +39,7 @@ class OrganizationFollowSchema(Schema):
     def resolve_notify_announcements(obj: OrganizationFollow) -> bool:
         """Effective opt-in: the per-org mute on notification preferences is the truth (#1031).
 
-        The legacy ``notify_announcements`` column is not read. Requires the
-        ``announcements_muted`` annotation from ``follow_service`` (fails loudly without it).
+        Requires the ``announcements_muted`` annotation from ``follow_service`` (fails loudly without it).
         """
         return not getattr(obj, "announcements_muted")
 

@@ -297,7 +297,6 @@ class TestOrganizationFollowEndpoints:
                 organization=organization,
                 is_archived=False,
                 notify_new_events=True,
-                notify_announcements=True,
             )
             payload = {"notify_new_events": False}
 

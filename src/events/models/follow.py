@@ -73,10 +73,6 @@ class OrganizationFollow(TimeStampedModel):
         default=True,
         help_text="Receive notifications when the organization creates new events",
     )
-    notify_announcements = models.BooleanField(
-        default=True,
-        help_text="Receive notifications when the organization makes announcements",
-    )
 
     # Visibility flag (reserved for future use - defaults to private)
     is_public = models.BooleanField(

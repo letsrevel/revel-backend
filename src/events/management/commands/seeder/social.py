@@ -122,6 +122,7 @@ class SocialSeeder(BaseSeeder):
         self.log("Creating organization follows...")
 
         follows_to_create: list[OrganizationFollow] = []
+        announcement_opt_outs: list[OrganizationFollow] = []
         user_org_pairs: set[tuple[str, str]] = set()
 
         for org in self.state.organizations:
@@ -136,25 +137,25 @@ class SocialSeeder(BaseSeeder):
 
             for user in followers:
                 user_org_pairs.add((str(user.id), str(org.id)))
+                opts_out_of_announcements = not self.random_bool(0.6)
 
-                follows_to_create.append(
-                    OrganizationFollow(
-                        user=user,
-                        organization=org,
-                        notify_new_events=self.random_bool(0.7),
-                        notify_announcements=self.random_bool(0.6),
-                        is_public=self.random_bool(0.5),
-                        is_archived=self.random_bool(0.1),
-                    )
+                follow = OrganizationFollow(
+                    user=user,
+                    organization=org,
+                    notify_new_events=self.random_bool(0.7),
+                    is_public=self.random_bool(0.5),
+                    is_archived=self.random_bool(0.1),
                 )
+                follows_to_create.append(follow)
+                if opts_out_of_announcements and not follow.is_archived:
+                    announcement_opt_outs.append(follow)
 
         self.batch_create(OrganizationFollow, follows_to_create, desc="Creating org follows")
-        self._mute_announcement_opt_outs(follows_to_create)
+        self._mute_announcement_opt_outs(announcement_opt_outs)
         self.log(f"  Created {len(follows_to_create)} organization follows")
 
-    def _mute_announcement_opt_outs(self, follows: list[OrganizationFollow]) -> None:
-        """Seed the per-org mute for follows opting out of announcements (#1031 facade)."""
-        opted_out = [f for f in follows if not f.notify_announcements and not f.is_archived]
+    def _mute_announcement_opt_outs(self, opted_out: list[OrganizationFollow]) -> None:
+        """Seed the per-org mute for active follows opting out of announcements (#1031)."""
         if not opted_out:
             return
         prefs_by_user = dict(
