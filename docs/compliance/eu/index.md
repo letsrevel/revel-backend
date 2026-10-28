@@ -71,7 +71,7 @@ See [Billing & VAT](../../architecture/billing-and-vat.md) for the details.
 | [Estonia](ee.md) | Not yet researched | None (default policy) | |
 | [Finland](fi.md) | No country-specific restrictions identified | None | |
 | [France](fr.md) | No blocking restrictions (ticket content requirements covered) | None | [#1061](https://github.com/letsrevel/revel-backend/issues/1061) |
-| [Germany](de.md) | No country-specific restrictions identified | None | |
+| [Germany](de.md) | No restriction yet; E-Rechnung for domestic B2B invoices above 250 EUR due from 2027-01-01, not yet handled | None | [#1232](https://github.com/letsrevel/revel-backend/issues/1232) |
 | [Greece](gr.md) | Restricted | Attendee invoicing blocked for organizers established in Greece and for physical events held there (myDATA); organizer notice to issue documents from their own software | [#1063](https://github.com/letsrevel/revel-backend/issues/1063) |
 | [Hungary](hu.md) | Restricted | Attendee invoicing blocked for organizers established in Hungary and for physical events held there (NAV Online Számla); organizer notice on receipts, invoices and NAV reporting | [#1065](https://github.com/letsrevel/revel-backend/issues/1065) |
 | [Ireland](ie.md) | No country-specific restrictions identified | None | |
