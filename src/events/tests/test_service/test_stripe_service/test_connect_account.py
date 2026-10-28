@@ -1,5 +1,6 @@
 """Tests for Stripe Connect account management functions."""
 
+import typing as t
 from unittest.mock import Mock, patch
 
 import pytest
@@ -233,3 +234,84 @@ class TestSyncAccountStatusInaccessibleAccount:
         # Act & Assert
         with pytest.raises(stripe.error.APIError):
             sync_account_status(connected_organization)
+
+
+class TestVerifyAccountStructuredAddress:
+    """``stripe_verify_account`` pre-fills the structured billing address from Stripe."""
+
+    _ADDRESS = {
+        "line1": "Hauptstrasse 1",
+        "line2": "Top 2",
+        "postal_code": "1010",
+        "city": "Wien",
+        "state": "W",
+        "country": "at",
+    }
+
+    @staticmethod
+    def _account(**extra: t.Any) -> stripe.Account:
+        return stripe.Account.construct_from(
+            {"id": "acct_1", "charges_enabled": True, "details_submitted": True, **extra}, "k"
+        )
+
+    @patch("stripe.Account.retrieve")
+    def test_verify_fills_structured_address_from_company(
+        self, mock_retrieve: Mock, organization: Organization
+    ) -> None:
+        """``company.address`` fills the six structured fields; country is uppercased."""
+        mock_retrieve.return_value = self._account(company={"address": self._ADDRESS})
+        organization.stripe_account_id = "acct_1"
+
+        result = stripe_service.stripe_verify_account(organization)
+
+        result.refresh_from_db()
+        assert result.billing_address_line1 == "Hauptstrasse 1"
+        assert result.billing_address_line2 == "Top 2"
+        assert result.billing_postal_code == "1010"
+        assert result.billing_city == "Wien"
+        assert result.billing_subdivision == "W"
+        assert result.billing_country_code == "AT"
+        assert "Hauptstrasse 1" in result.billing_address  # legacy text fill unchanged
+
+    @patch("stripe.Account.retrieve")
+    def test_verify_uses_individual_address_when_no_company(
+        self, mock_retrieve: Mock, organization: Organization
+    ) -> None:
+        """``individual.address`` is the fallback when ``company`` has none."""
+        mock_retrieve.return_value = self._account(company=None, individual={"address": self._ADDRESS})
+        organization.stripe_account_id = "acct_1"
+
+        result = stripe_service.stripe_verify_account(organization)
+
+        result.refresh_from_db()
+        assert result.billing_city == "Wien"
+        assert result.billing_country_code == "AT"
+
+    @patch("stripe.Account.retrieve")
+    def test_verify_without_address_leaves_fields_empty(self, mock_retrieve: Mock, organization: Organization) -> None:
+        """No address at all leaves every structured field blank."""
+        mock_retrieve.return_value = self._account()
+        organization.stripe_account_id = "acct_1"
+
+        result = stripe_service.stripe_verify_account(organization)
+
+        result.refresh_from_db()
+        assert result.billing_postal_address().is_empty
+
+    @patch("stripe.Account.retrieve")
+    def test_verify_never_overwrites_existing_structured_address(
+        self, mock_retrieve: Mock, organization: Organization
+    ) -> None:
+        """An organizer-entered structured address wins over Stripe."""
+        mock_retrieve.return_value = self._account(company={"address": self._ADDRESS})
+        organization.stripe_account_id = "acct_1"
+        organization.billing_address_line1 = "Mine 5"
+        organization.billing_city = "Graz"
+        organization.save()
+
+        result = stripe_service.stripe_verify_account(organization)
+
+        result.refresh_from_db()
+        assert result.billing_address_line1 == "Mine 5"
+        assert result.billing_city == "Graz"
+        assert result.billing_postal_code == ""

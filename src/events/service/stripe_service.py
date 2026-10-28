@@ -15,6 +15,7 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.postal_address import PostalAddress
 from common.service.exchange_rate_service import convert as convert_currency
 from common.service.stripe_config import configure_stripe
 from common.service.stripe_connect_service import (
@@ -108,6 +109,46 @@ def create_account_link(
     return _create_account_link(account_id, refresh_url, return_url)
 
 
+def postal_address_from_stripe(account: t.Mapping[str, t.Any]) -> PostalAddress:
+    """Extract a structured address from a Stripe account: ``company`` first, then ``individual``.
+
+    Missing or ``None`` objects and keys count as empty; the country is uppercased.
+    """
+    for key in ("company", "individual"):
+        address = (account.get(key) or {}).get("address") or {}
+        if any(address.get(k) for k in ("line1", "postal_code", "city", "country")):
+            return PostalAddress(
+                line1=address.get("line1") or "",
+                line2=address.get("line2") or "",
+                postal_code=address.get("postal_code") or "",
+                city=address.get("city") or "",
+                subdivision=address.get("state") or "",
+                country_code=(address.get("country") or "").upper(),
+            )
+    return PostalAddress()
+
+
+def apply_postal_address(org: Organization, address: PostalAddress) -> list[str]:
+    """Set the structured ``billing_*`` fields from ``address`` when the org has no line 1 yet.
+
+    Returns:
+        The changed field names (for ``update_fields``); empty when nothing was applied.
+    """
+    if org.billing_address_line1 or address.is_empty:
+        return []
+    values = {
+        "billing_address_line1": address.line1,
+        "billing_address_line2": address.line2,
+        "billing_postal_code": address.postal_code,
+        "billing_city": address.city,
+        "billing_subdivision": address.subdivision,
+        "billing_country_code": address.country_code,
+    }
+    for field, value in values.items():
+        setattr(org, field, value)
+    return list(values)
+
+
 def stripe_verify_account(organization: Organization) -> Organization:
     """Verify a Stripe Connect account.
 
@@ -136,6 +177,8 @@ def stripe_verify_account(organization: Organization) -> Organization:
         if full_address:
             organization.billing_address = full_address
             update_fields.append("billing_address")
+
+    update_fields += apply_postal_address(organization, postal_address_from_stripe(account))
 
     if not organization.vat_country_code and account.get("country"):
         organization.vat_country_code = account["country"]
