@@ -659,15 +659,27 @@ class OrganizationTokenUpdateSchema(OrganizationTokenBaseSchema):
 class StripeReturnTo(enum.StrEnum):
     """Admin page Stripe sends the owner back to after Connect onboarding.
 
-    An allowlist on purpose: each value is a fixed path segment under
-    ``/org/{slug}/admin/``, never a caller-supplied URL, so it can't become an open redirect.
+    An allowlist on purpose: each value maps to a fixed page under ``/org/{slug}/admin/``
+    (``event`` to that event's editor, by an id checked against the organization), never a
+    caller-supplied URL, so it can't become an open redirect.
     """
 
     SETTINGS = "settings"
     WELCOME = "welcome"
+    EVENT = "event"
 
 
 class StripeConnectSchema(EmailSchema):
     """Request body for starting Stripe Connect onboarding."""
 
     return_to: StripeReturnTo = StripeReturnTo.SETTINGS
+    event_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_event_id(self) -> "StripeConnectSchema":
+        """Require ``event_id`` exactly when returning to an event's editor."""
+        if self.return_to == StripeReturnTo.EVENT and self.event_id is None:
+            raise ValueError("event_id is required when return_to is 'event'")
+        if self.return_to != StripeReturnTo.EVENT and self.event_id is not None:
+            raise ValueError("event_id is only allowed when return_to is 'event'")
+        return self

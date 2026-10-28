@@ -6,7 +6,7 @@ import pytest
 import stripe
 
 from common.service.stripe_connect_service import sync_account_status
-from events.models import Organization
+from events.models import Event, Organization
 from events.schema import StripeReturnTo
 from events.service import stripe_service
 
@@ -89,6 +89,30 @@ class TestCreateAccountLink:
             type="account_onboarding",
         )
         assert result == "https://stripe.com/onboard/test"
+
+    @patch("stripe.AccountLink.create")
+    def test_event_return_points_at_the_event_ticketing_tab(
+        self, mock_stripe_create: Mock, organization: Organization, event: Event
+    ) -> None:
+        """``return_to=event`` sends the owner back to that event's editor, ticketing tab."""
+        from django.conf import settings
+
+        mock_stripe_create.return_value = Mock(url="https://stripe.com/onboard/test")
+
+        stripe_service.create_account_link("acct_test123", organization, StripeReturnTo.EVENT, event)
+
+        editor = f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/events/{event.id}/edit?tab=ticketing"
+        mock_stripe_create.assert_called_once_with(
+            account="acct_test123",
+            refresh_url=f"{editor}&stripe_refresh=true",
+            return_url=f"{editor}&stripe_success=true",
+            type="account_onboarding",
+        )
+
+    def test_event_return_without_event_is_an_error(self, organization: Organization) -> None:
+        """The controller always resolves the event first; calling without one is a programming error."""
+        with pytest.raises(ValueError):
+            stripe_service.create_account_link("acct_test123", organization, StripeReturnTo.EVENT)
 
     @patch("stripe.AccountLink.create")
     def test_handles_stripe_api_error(self, mock_stripe_create: Mock, organization: Organization) -> None:

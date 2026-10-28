@@ -85,16 +85,26 @@ def create_connect_account(organization: Organization, stripe_account_email: Ema
     return _create_connect_account(organization, stripe_account_email, account_type="standard")
 
 
-def create_account_link(account_id: str, organization: Organization, return_to: "StripeReturnTo") -> str:
+def create_account_link(
+    account_id: str, organization: Organization, return_to: "StripeReturnTo", event: Event | None = None
+) -> str:
     """Create a one-time onboarding link for an organization's Stripe Connect account.
 
-    ``return_to`` picks the admin page Stripe redirects back to; it is an allowlisted enum
-    whose value is the path segment, so the destination is always one of our own pages.
+    ``return_to`` picks the admin page Stripe redirects back to; it is an allowlisted enum,
+    so the destination is always one of our own pages. ``event`` is the organization's event
+    whose editor ``return_to=event`` points at; the caller looks it up scoped to the organization.
     """
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    admin_page = f"{frontend_base_url}/org/{organization.slug}/admin/{return_to.value}"
-    refresh_url = f"{admin_page}?stripe_refresh=true"
-    return_url = f"{admin_page}?stripe_success=true"
+    from events.schema.organization import StripeReturnTo
+
+    admin_base = f"{SiteSettings.get_solo().frontend_base_url}/org/{organization.slug}/admin"
+    if return_to == StripeReturnTo.EVENT:
+        if event is None:
+            raise ValueError("return_to=event needs the event")
+        page = f"{admin_base}/events/{event.id}/edit?tab=ticketing&"
+    else:
+        page = f"{admin_base}/{return_to.value}?"
+    refresh_url = f"{page}stripe_refresh=true"
+    return_url = f"{page}stripe_success=true"
     return _create_account_link(account_id, refresh_url, return_url)
 
 
