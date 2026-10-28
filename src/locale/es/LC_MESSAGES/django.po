@@ -87,6 +87,7 @@ msgstr "correo enviado."
 msgid "enrolled immediately (account exists)."
 msgstr "inscrito de inmediato (la cuenta ya existe)."
 
+#, python-brace-format
 msgid "existing code {} kept; the typed code was ignored."
 msgstr "se mantuvo el código existente {}; el código introducido se ignoró."
 
@@ -259,6 +260,7 @@ msgstr "La contraseña debe contener al menos una letra minúscula."
 msgid "Password must contain at least one digit."
 msgstr "La contraseña debe contener al menos un dígito."
 
+#, python-brace-format
 msgid ""
 "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)"
 "[]=."
@@ -266,7 +268,7 @@ msgstr ""
 "La contraseña debe contener al menos un carácter especial (!@#$%^&*(),.?\":"
 "{}|<>)[]=."
 
-#, python-format
+#, python-format, python-brace-format
 msgid ""
 "Your password must be at least %(min_length)d characters long, contain at "
 "least one uppercase letter, one lowercase letter, one digit, and one special "
@@ -364,12 +366,14 @@ msgstr "Ya tienes una solicitud pendiente."
 msgid "This application has already been decided."
 msgstr "Ya se ha decidido sobre esta solicitud."
 
+#, python-brace-format
 msgid "{} already has an active referral code."
 msgstr "{} ya tiene un código de referido activo."
 
 msgid "This email is permanently blocked from the referral program."
 msgstr "Este correo está bloqueado permanentemente del programa de referidos."
 
+#, python-brace-format
 msgid "This email already has an approved invite awaiting signup (code {})."
 msgstr ""
 "Este correo electrónico ya tiene una invitación aprobada pendiente de "
@@ -1152,8 +1156,8 @@ msgstr ""
 #, python-brace-format
 msgid ""
 "Invoices to customers with a {country} VAT ID must be sent as e-invoices "
-"through {system}. Revel won't create those. Issue this one from your "
-"e-invoicing software; invoices to everyone else work as usual."
+"through {system}. Revel won't create those. Issue this one from your e-"
+"invoicing software; invoices to everyone else work as usual."
 msgstr ""
 "Las facturas a clientes con un NIF-IVA de {country} deben enviarse como "
 "facturas electrónicas a través de {system}. Revel no las crea. Emítela desde "
@@ -1163,8 +1167,8 @@ msgstr ""
 #, python-brace-format
 msgid ""
 "Invoices to business customers of organizers in {country} must be issued "
-"through {system}. Revel won't create those. Issue this one from your "
-"e-invoicing software; invoices to consumers work as usual."
+"through {system}. Revel won't create those. Issue this one from your e-"
+"invoicing software; invoices to consumers work as usual."
 msgstr ""
 "Las facturas a clientes empresariales de organizadores en {country} deben "
 "emitirse a través de {system}. Revel no las crea. Emítela desde tu software "
@@ -1279,19 +1283,19 @@ msgid ""
 "documents, issue them from your own software, a certified e-invoicing "
 "provider or AADE's free tools (timologio, myDATAapp). Invoices to Greek "
 "businesses must be e-invoices issued through a provider or AADE's tools: "
-"since 2 March 2026 if your 2023 gross revenue was over €1 million, otherwise"
-" from 2 November 2026 (with a phase-in until 31 January 2027 if you file the"
-" declaration in time)."
+"since 2 March 2026 if your 2023 gross revenue was over €1 million, otherwise "
+"from 2 November 2026 (with a phase-in until 31 January 2027 if you file the "
+"declaration in time)."
 msgstr ""
 "Revel no puede emitir facturas a asistentes donde se aplican las normas "
 "griegas: los recibos y las facturas deben transmitirse a myDATA de la AADE. "
 "Si debes emitir documentos griegos, emítelos desde tu propio software, un "
 "proveedor certificado de facturación electrónica o las herramientas "
-"gratuitas de la AADE (timologio, myDATAapp). Las facturas a empresas griegas"
-" deben ser facturas electrónicas emitidas a través de un proveedor o de las "
+"gratuitas de la AADE (timologio, myDATAapp). Las facturas a empresas griegas "
+"deben ser facturas electrónicas emitidas a través de un proveedor o de las "
 "herramientas de la AADE: desde el 2 de marzo de 2026 si tus ingresos brutos "
-"de 2023 superaron 1 millón de euros y, si no, a partir del 2 de noviembre de"
-" 2026 (con un periodo transitorio hasta el 31 de enero de 2027 si presentas "
+"de 2023 superaron 1 millón de euros y, si no, a partir del 2 de noviembre de "
+"2026 (con un periodo transitorio hasta el 31 de enero de 2027 si presentas "
 "la declaración a tiempo)."
 
 msgid ""
@@ -1316,9 +1320,9 @@ msgid ""
 "issued by an online or e-cash register must also be reported to NAV."
 msgstr ""
 "Revel no puede emitir facturas a asistentes donde se aplican las normas "
-"húngaras: las facturas de un software de facturación deben comunicarse a NAV"
-" Online Számla en tiempo real. Si te afecta, emite desde tu propio sistema "
-"un recibo (nyugta) o una factura por cada venta pagada. Desde el 1 de "
+"húngaras: las facturas de un software de facturación deben comunicarse a NAV "
+"Online Számla en tiempo real. Si te afecta, emite desde tu propio sistema un "
+"recibo (nyugta) o una factura por cada venta pagada. Desde el 1 de "
 "septiembre de 2026, los datos de los recibos no emitidos por una caja "
 "registradora en línea o electrónica también deben comunicarse a la NAV."
 
@@ -1344,8 +1348,8 @@ msgid ""
 msgstr ""
 "Las entradas vendidas a consumidores para discotecas, salas de baile, "
 "parques de atracciones y temáticos, y espectáculos de circo deben "
-"registrarse en tu propia caja registradora fiscal (kasa fiskalna), aunque se"
-" paguen online. Para otros eventos, la exención por pagos online solo se "
+"registrarse en tu propia caja registradora fiscal (kasa fiskalna), aunque se "
+"paguen online. Para otros eventos, la exención por pagos online solo se "
 "aplica si tus registros vinculan cada pago con su venta."
 
 msgid "certified invoicing software"
@@ -1355,8 +1359,8 @@ msgid ""
 "Revel can't issue attendee invoices where Slovenian rules apply: invoices "
 "paid by card or online must be verified with FURS in real time. FURS treats "
 "card payments, and online payments paid out to you in batches (as Stripe "
-"usually does), as cash payments. If you must issue invoices, issue a "
-"FURS-verified invoice for every paid sale from your own software, even with "
+"usually does), as cash payments. If you must issue invoices, issue a FURS-"
+"verified invoice for every paid sale from your own software, even with "
 "attendee invoicing turned off."
 msgstr ""
 "Revel no puede emitir facturas a asistentes donde se aplican las normas "
@@ -1497,6 +1501,9 @@ msgstr ""
 msgid "Organization creation is disabled on this instance."
 msgstr "La creación de organizaciones está deshabilitada en esta instancia."
 
+msgid "Organization not found."
+msgstr "Organización no encontrada."
+
 msgid "Message sent."
 msgstr "Mensaje enviado."
 
@@ -1566,6 +1573,7 @@ msgstr "La venta de entradas está pausada."
 msgid "You're outside of the sale window."
 msgstr "Estás fuera de la ventana de venta."
 
+#, python-brace-format
 msgid "The ticket can be purchased by {}"
 msgstr "La entrada puede ser comprada por {}"
 
@@ -1590,6 +1598,12 @@ msgstr "Ya eres miembro de esta organización."
 
 msgid "You have a pending membership request for this organization."
 msgstr "Tienes una solicitud de membresía pendiente para esta organización."
+
+msgid ""
+"We could not reach the domain provisioning service. Please try again later."
+msgstr ""
+"No pudimos conectar con el servicio de aprovisionamiento de dominios. "
+"Inténtalo de nuevo más tarde."
 
 msgid "Invalid Stripe signature"
 msgstr "Firma de Stripe no válida"
@@ -1760,6 +1774,32 @@ msgstr ""
 "staff."
 
 msgid ""
+"Platform gate: allows requesting, activating, resolving and advertising a "
+"custom domain for this organization."
+msgstr ""
+"Control de la plataforma: permite solicitar, activar, resolver y anunciar un "
+"dominio personalizado para esta organización."
+
+msgid ""
+"Hostname of the active custom domain. Maintained by the domain service; do "
+"not edit."
+msgstr ""
+"Nombre de host del dominio personalizado activo. Lo gestiona el servicio de "
+"dominios; no lo edites."
+
+msgid "Presentation settings chosen by the organization, such as brand colors."
+msgstr ""
+"Ajustes de presentación elegidos por la organización, como los colores de "
+"marca."
+
+msgid ""
+"Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, "
+"and unknown settings are not allowed."
+msgstr ""
+"Branding no válido. Los colores deben ser valores hexadecimales de 6 "
+"dígitos, por ejemplo #8C3CDD, y no se permiten ajustes desconocidos."
+
+msgid ""
 "A verified contact email is required to enable a contact method other than "
 "NONE."
 msgstr ""
@@ -1810,6 +1850,29 @@ msgstr "Plan de destino para la vía de pago. NULL = adhesión gratuita."
 
 msgid "Submission that satisfied the questionnaire gate, if applicable."
 msgstr "Envío que ha superado el requisito del cuestionario, si procede."
+
+msgid "Failed"
+msgstr "Fallido"
+
+msgid "Removed"
+msgstr "Eliminado"
+
+msgid "DNS records the organization must create to verify ownership."
+msgstr ""
+"Los registros DNS que la organización debe crear para verificar la propiedad."
+
+msgid ""
+"Problems Cloudflare reported at the last status sync (hostname verification, "
+"certificate)."
+msgstr ""
+"Problemas que Cloudflare notificó en la última sincronización de estado "
+"(verificación del nombre de host, certificado)."
+
+msgid "This hostname is already in use."
+msgstr "Este nombre de host ya está en uso."
+
+msgid "This organization already has a pending or active domain."
+msgstr "Esta organización ya tiene un dominio pendiente o activo."
 
 msgid "Token must be a single non-empty slug segment."
 msgstr "El token debe ser un único segmento de slug no vacío."
@@ -1941,9 +2004,6 @@ msgstr ""
 
 msgid "Succeeded"
 msgstr "Completado"
-
-msgid "Failed"
-msgstr "Fallido"
 
 msgid "Refunded"
 msgstr "Reembolsado"
@@ -2132,8 +2192,8 @@ msgstr "El NIF-IVA debe validarse mediante VIES"
 msgid "Billing name (legal entity name) is required"
 msgstr "El nombre de facturación (razón social) es obligatorio"
 
-msgid "Billing address is required"
-msgstr "La dirección de facturación es obligatoria"
+msgid "Billing address (street, postal code, city and country) is required"
+msgstr "La dirección de facturación (calle, código postal, ciudad y país) es obligatoria"
 
 msgid "Provide either seat_ids or price_category_id, not both."
 msgstr "Proporciona seat_ids o price_category_id, no ambos."
@@ -2305,6 +2365,22 @@ msgstr ""
 "El precio pagado es obligatorio para las entradas de precio libre sin un "
 "pago registrado."
 
+msgid "Custom domains are not enabled for this organization."
+msgstr ""
+"Los dominios personalizados no están habilitados para esta organización."
+
+msgid "A removed domain cannot be changed."
+msgstr "Un dominio eliminado no se puede modificar."
+
+msgid ""
+"The platform has reached its limit of custom domains. Please contact support."
+msgstr ""
+"La plataforma ha alcanzado su límite de dominios personalizados. Ponte en "
+"contacto con el soporte."
+
+msgid "This organization has no custom domain."
+msgstr "Esta organización no tiene un dominio personalizado."
+
 msgid ""
 "One or more referenced objects are invalid or do not belong to this "
 "organization."
@@ -2475,6 +2551,20 @@ msgstr "No se puede filtrar por event_id y event_series_id a la vez."
 msgid "Feedback questionnaires cannot require evaluation."
 msgstr "Los cuestionarios de feedback no pueden requerir evaluación."
 
+msgid ""
+"This questionnaire is the organization's default membership questionnaire. "
+"Unset it before changing its type."
+msgstr ""
+"Este cuestionario es el cuestionario de membresía predeterminado de la "
+"organización. Quítalo como predeterminado antes de cambiar su tipo."
+
+msgid ""
+"This questionnaire is used by one or more membership tiers. Remove it from "
+"those tiers before changing its type."
+msgstr ""
+"Este cuestionario lo usan uno o más niveles de membresía. Quítalo de esos "
+"niveles antes de cambiar su tipo."
+
 msgid "LLM evaluation is not available."
 msgstr "La evaluación con LLM no está disponible."
 
@@ -2643,9 +2733,6 @@ msgstr "Este ya es el correo electrónico de contacto de esta organización."
 
 msgid "Contact form is not enabled for this organization."
 msgstr "El formulario de contacto no está activado para esta organización."
-
-msgid "Organization not found."
-msgstr "Organización no encontrada."
 
 msgid "This verification link is for a different email address."
 msgstr ""
@@ -3224,6 +3311,7 @@ msgstr ""
 "eliminar: {tiers}. Quítala primero de los precios por categoría de esos "
 "tipos de entrada."
 
+#, python-brace-format
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La posición del asiento '{}' está fuera de la forma del sector."
 
@@ -3234,6 +3322,7 @@ msgstr ""
 "El tipo de sector solo se puede cambiar mientras el sector no tenga "
 "asientos. Elimina primero sus asientos."
 
+#, python-brace-format
 msgid "Seat with label '{}' not found in this sector."
 msgstr ""
 "No se ha encontrado ningún asiento con la etiqueta '{}' en este sector."
@@ -3241,6 +3330,7 @@ msgstr ""
 msgid "Seat position is outside the sector shape."
 msgstr "La posición del asiento está fuera de la forma del sector."
 
+#, python-brace-format
 msgid ""
 "Seat '{}' is referenced by tickets or an active hold and cannot be deleted. "
 "Decommission it instead (set inactive)."
@@ -3248,9 +3338,11 @@ msgstr ""
 "El asiento '{}' está referenciado por entradas o por una reserva activa y no "
 "se puede eliminar. Desactívalo en su lugar (márcalo como inactivo)."
 
+#, python-brace-format
 msgid "Seats not found in this sector: {}"
 msgstr "Asientos no encontrados en este sector: {}"
 
+#, python-brace-format
 msgid ""
 "Seats referenced by tickets or active holds cannot be deleted: {}. "
 "Decommission them instead (set inactive)."
@@ -3357,6 +3449,52 @@ msgstr ""
 
 msgid "This is an automated billing document."
 msgstr "Este es un documento de facturación automático."
+
+msgctxt "datetime format"
+msgid "l, F j, Y \\a\\t g:i A T"
+msgstr "l, j \\d\\e F \\d\\e Y, H:i T"
+
+msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
+msgstr ""
+"Introduce un color como valor hexadecimal de 6 dígitos, por ejemplo #8C3CDD."
+
+msgid "Enter a hostname."
+msgstr "Introduce un nombre de host."
+
+msgid "Wildcard hostnames are not allowed."
+msgstr "No se permiten nombres de host con comodines."
+
+msgid "Enter the hostname without a port."
+msgstr "Introduce el nombre de host sin puerto."
+
+msgid "IP addresses are not allowed; use a domain name."
+msgstr "No se permiten direcciones IP; usa un nombre de dominio."
+
+#, python-brace-format
+msgid "Hostname is too long (maximum is {max} characters)."
+msgstr "El nombre de host es demasiado largo (máximo {max} caracteres)."
+
+msgid "Enter a fully qualified domain name, for example events.example.com."
+msgstr ""
+"Introduce un nombre de dominio completo, por ejemplo eventos.example.com."
+
+#, python-brace-format
+msgid "Each part of the hostname must be at most {max} characters."
+msgstr ""
+"Cada parte del nombre de host puede tener como máximo {max} caracteres."
+
+msgid "Hostname contains invalid characters."
+msgstr "El nombre de host contiene caracteres no válidos."
+
+msgid "Hostname must end in a valid top-level domain."
+msgstr ""
+"El nombre de host debe terminar en un dominio de nivel superior válido."
+
+msgid "This hostname is reserved for local development."
+msgstr "Este nombre de host está reservado para el desarrollo local."
+
+msgid "This hostname belongs to the platform and cannot be used."
+msgstr "Este nombre de host pertenece a la plataforma y no se puede usar."
 
 msgid "Price cannot be null."
 msgstr "El precio no puede ser nulo."
@@ -3819,6 +3957,18 @@ msgid "A note about %(org)s"
 msgstr "Una nota sobre %(org)s"
 
 #, python-format
+msgid "%(hostname)s is now live for %(org)s"
+msgstr "%(hostname)s ya está activo para %(org)s"
+
+#, python-format
+msgid "%(hostname)s stopped working for %(org)s"
+msgstr "%(hostname)s dejó de funcionar para %(org)s"
+
+#, python-format
+msgid "%(hostname)s could not be activated for %(org)s"
+msgstr "No se pudo activar %(hostname)s para %(org)s"
+
+#, python-format
 msgid "%(org)s: %(count)d document to issue yourself"
 msgid_plural "%(org)s: %(count)d documents to issue yourself"
 msgstr[0] "%(org)s: %(count)d documento que debes emitir tú"
@@ -4240,6 +4390,10 @@ msgstr "Detalles del evento"
 msgid "Refund Information"
 msgstr "Información sobre el reembolso"
 
+msgid "Refunds will be processed according to the organizer's refund policy."
+msgstr ""
+"Los reembolsos se procesarán según la política de reembolsos del organizador."
+
 msgid "View Alternative Event"
 msgstr "Ver evento alternativo"
 
@@ -4639,6 +4793,69 @@ msgstr "%(sender)s ha enviado un mensaje a %(org)s."
 
 msgid "View this message:"
 msgstr "Ver este mensaje:"
+
+msgid ""
+"Your custom domain is verified and serves your organization. Visitors who "
+"open it see your events with your branding."
+msgstr ""
+"Tu dominio personalizado está verificado y sirve tu organización. Quien lo "
+"abra verá tus eventos con tu marca."
+
+msgid "Open your site"
+msgstr "Abrir tu sitio"
+
+msgid "Before you announce it:"
+msgstr "Antes de anunciarlo:"
+
+msgid "Open the link in a private window and check that it loads."
+msgstr "Abre el enlace en una ventana privada y comprueba que carga."
+
+msgid ""
+"Sign up for a test account on it. Sign-up should work on your own domain."
+msgstr ""
+"Regístrate con una cuenta de prueba. El registro debería funcionar en tu "
+"propio dominio."
+
+msgid "Share the new link with your audience."
+msgstr "Comparte el nuevo enlace con tu público."
+
+msgid "Manage your custom domain"
+msgstr "Gestionar tu dominio personalizado"
+
+msgid ""
+"Revel no longer serves your organization on this domain, and everyone who "
+"was signed in on it was signed out. Your organization is still available at "
+"its Revel address."
+msgstr ""
+"Revel ya no sirve tu organización en este dominio, y todas las personas que "
+"habían iniciado sesión en él se desconectaron. Tu organización sigue "
+"disponible en su dirección de Revel."
+
+msgid ""
+"Revel could not verify this domain, so it does not serve your organization. "
+"Your organization is still available at its Revel address."
+msgstr ""
+"Revel no pudo verificar este dominio, así que no sirve tu organización. Tu "
+"organización sigue disponible en su dirección de Revel."
+
+msgid "What Revel found:"
+msgstr "Lo que encontró Revel:"
+
+msgid ""
+"No details were reported. If this keeps happening, contact Revel support."
+msgstr ""
+"No se notificó ningún detalle. Si sigue pasando, contacta con el soporte de "
+"Revel."
+
+msgid ""
+"Fix the cause, then request the domain again from your custom domain "
+"settings."
+msgstr ""
+"Corrige la causa y vuelve a solicitar el dominio desde los ajustes de tu "
+"dominio personalizado."
+
+msgid "Open custom domain settings"
+msgstr "Abrir los ajustes del dominio personalizado"
 
 #, python-format
 msgid ""
@@ -5360,9 +5577,8 @@ msgid ""
 "The series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
 "strong> held by <strong>%(holder)s</strong> has been cancelled."
 msgstr ""
-"El pase de serie <strong>%(pass_name)s</strong> de "
-"<strong>%(holder)s</strong> para <strong>%(series)s</strong> ha sido "
-"cancelado."
+"El pase de serie <strong>%(pass_name)s</strong> de <strong>%(holder)s</"
+"strong> para <strong>%(series)s</strong> ha sido cancelado."
 
 msgid "Holder:"
 msgstr "Titular:"
@@ -5487,8 +5703,8 @@ msgid ""
 "The ticket of <strong>%(holder)s</strong> for <strong>%(event)s</strong> has "
 "been refunded."
 msgstr ""
-"La entrada de <strong>%(holder)s</strong> para <strong>%(event)s</strong> "
-"ha sido reembolsada."
+"La entrada de <strong>%(holder)s</strong> para <strong>%(event)s</strong> ha "
+"sido reembolsada."
 
 #, python-format
 msgid "The ticket of %(holder)s for %(event)s has been refunded."
@@ -5994,6 +6210,10 @@ msgstr "Tu resumen de notificaciones"
 msgid "View all notifications:"
 msgstr "Ver todas las notificaciones:"
 
+msgctxt "short datetime format"
+msgid "M j, Y \\a\\t g:i A"
+msgstr "j M Y, H:i"
+
 msgid ""
 "The OAuth provider has no signing key configured, so no application can be "
 "saved: RS256 requires OIDC_SIGNING_KEY_PATH to point at an RSA private key "
@@ -6020,20 +6240,25 @@ msgstr "Las apps registradas dinámicamente no tienen propietario."
 msgid "An owner is required."
 msgstr "Se requiere un propietario."
 
+#, python-brace-format
 msgid "Only the authorization-code grant is supported: {}"
 msgstr "Solo se admite el flujo de código de autorización: {}"
 
+#, python-brace-format
 msgid "Redirect URIs must not contain a fragment: {}"
 msgstr "Las URI de redirección no pueden contener un fragmento: {}"
 
+#, python-brace-format
 msgid "Plain http is only allowed for loopback addresses of public clients: {}"
 msgstr ""
 "El http sin cifrar solo se permite en direcciones de loopback de clientes "
 "públicos: {}"
 
+#, python-brace-format
 msgid "Unsupported redirect URI scheme: {}"
 msgstr "Esquema de URI de redirección no admitido: {}"
 
+#, python-brace-format
 msgid "Unknown scopes: {}"
 msgstr "Scopes desconocidos: {}"
 
@@ -6099,6 +6324,7 @@ msgstr "Este campo no puede ser nulo."
 msgid "A public client has no client secret to rotate."
 msgstr "Un cliente público no tiene ningún client secret que renovar."
 
+#, python-brace-format
 msgid "Not a valid resource indicator: {}"
 msgstr "Indicador de recurso no válido: {}"
 
@@ -6160,9 +6386,11 @@ msgid "Only the organization owner can perform this action."
 msgstr ""
 "Solo el/la propietario/a de la organización puede realizar esta acción."
 
+#, python-brace-format
 msgid "Unknown event {} or it does not belong to this organization."
 msgstr "Evento {} desconocido o no pertenece a esta organización."
 
+#, python-brace-format
 msgid "Unknown or cross-organization membership_tier ids: {}"
 msgstr "IDs de membership_tier desconocidos o de otra organización: {}"
 
@@ -6185,18 +6413,23 @@ msgstr ""
 "No se puede reabrir: indica un closes_at futuro o establece "
 "clear_closes_at=True."
 
+#, python-brace-format
 msgid "Unknown multiple-choice question id: {}"
 msgstr "ID de pregunta de opción múltiple desconocido: {}"
 
+#, python-brace-format
 msgid "Unknown multiple-choice option id: {}"
 msgstr "ID de opción de respuesta múltiple desconocido: {}"
 
+#, python-brace-format
 msgid "Unknown free-text question id: {}"
 msgstr "ID de pregunta de texto libre desconocido: {}"
 
+#, python-brace-format
 msgid "Unknown file-upload question id: {}"
 msgstr "ID de pregunta de subida de archivo desconocido: {}"
 
+#, python-brace-format
 msgid "Unknown or other-user file_upload ids: {}"
 msgstr "IDs de file_upload desconocidos o pertenecientes a otra persona: {}"
 
@@ -6207,9 +6440,11 @@ msgstr ""
 msgid "You are missing mandatory answers."
 msgstr "Faltan respuestas obligatorias."
 
+#, python-brace-format
 msgid "File exceeds maximum upload size of {}MB."
 msgstr "El archivo supera el tamaño máximo de subida de {} MB."
 
+#, python-brace-format
 msgid ""
 "File type '{}' is not allowed. Allowed types: documents, images, audio, "
 "video, and archives."
@@ -6232,6 +6467,7 @@ msgstr "La pregunta no pertenece a este cuestionario."
 msgid "Some files do not exist or do not belong to you."
 msgstr "Algunos archivos no existen o no te pertenecen."
 
+#, python-brace-format
 msgid "Too many files. Maximum allowed: {}."
 msgstr "Demasiados archivos. Máximo permitido: {}."
 
@@ -6303,6 +6539,9 @@ msgstr "Niveles de membresía"
 
 msgid "Membership Requests"
 msgstr "Solicitudes de membresía"
+
+msgid "Custom Domains"
+msgstr "Dominios personalizados"
 
 msgid "Organization Tokens"
 msgstr "Tokens de organización"
@@ -6583,6 +6822,88 @@ msgstr "No hay ninguna cuenta de Telegram vinculada a tu cuenta."
 msgid "Django site admin"
 msgstr "Administración del sitio Django"
 
+msgctxt "wallet compact datetime format"
+msgid "M j, H:i"
+msgstr "j M, H:i"
+
+msgctxt "wallet date format"
+msgid "M j, Y"
+msgstr "j M Y"
+
+msgctxt "wallet full datetime format"
+msgid "M d, Y h:i A"
+msgstr "j M Y, H:i"
+
+msgid "TIER"
+msgstr "NIVEL"
+
+msgid "MEMBER SINCE"
+msgstr "SOCIO DESDE"
+
+msgid "Member ID"
+msgstr "ID de socio"
+
+msgid "Organization"
+msgstr "Organización"
+
+msgid "Powered by"
+msgstr "Con tecnología de"
+
+msgid "Series Pass"
+msgstr "Pase de serie"
+
+msgid "VENUE"
+msgstr "LUGAR"
+
+msgid "ADDRESS"
+msgstr "DIRECCIÓN"
+
+msgid "SECTION"
+msgstr "SECTOR"
+
+msgid "SEAT"
+msgstr "ASIENTO"
+
+msgid "TICKET"
+msgstr "ENTRADA"
+
+msgid "PRICE"
+msgstr "PRECIO"
+
+msgid "GUEST"
+msgstr "INVITADO"
+
+msgid "Ticket ID"
+msgstr "ID de entrada"
+
+msgid "Guest"
+msgstr "Invitado"
+
+#, python-brace-format
+msgid ""
+"Start: {start}\n"
+"End: {end}"
+msgstr ""
+"Inicio: {start}\n"
+"Fin: {end}"
+
+msgid "Venue"
+msgstr "Lugar"
+
+msgid "Address"
+msgstr "Dirección"
+
+#, python-brace-format
+msgid "Section: {}"
+msgstr "Sector: {}"
+
+#, python-brace-format
+msgid "Seat: {}"
+msgstr "Asiento: {}"
+
+msgid "Seating"
+msgstr "Asientos"
+
 msgid "Invalid link"
 msgstr "Enlace no válido"
 
@@ -6594,285 +6915,3 @@ msgid ""
 msgstr ""
 "La generación del pase para Wallet no está disponible temporalmente. "
 "Inténtalo de nuevo más tarde."
-
-msgid "Platform gate: allows requesting, activating, resolving and advertising a custom domain for this organization."
-msgstr "Control de la plataforma: permite solicitar, activar, resolver y anunciar un dominio personalizado para esta organización."
-
-msgid "Hostname of the active custom domain. Maintained by the domain service; do not edit."
-msgstr "Nombre de host del dominio personalizado activo. Lo gestiona el servicio de dominios; no lo edites."
-
-msgid "Removed"
-msgstr "Eliminado"
-
-msgid "DNS records the organization must create to verify ownership."
-msgstr "Los registros DNS que la organización debe crear para verificar la propiedad."
-
-msgid "Problems Cloudflare reported at the last status sync (hostname verification, certificate)."
-msgstr "Problemas que Cloudflare notificó en la última sincronización de estado (verificación del nombre de host, certificado)."
-
-msgid "This hostname is already in use."
-msgstr "Este nombre de host ya está en uso."
-
-msgid ""
-"The platform has reached its limit of custom domains. Please contact "
-"support."
-msgstr ""
-"La plataforma ha alcanzado su límite de dominios personalizados. Ponte en "
-"contacto con el soporte."
-
-msgid "This organization already has a pending or active domain."
-msgstr "Esta organización ya tiene un dominio pendiente o activo."
-
-msgid "This organization has no custom domain."
-msgstr "Esta organización no tiene un dominio personalizado."
-
-msgid "We could not reach the domain provisioning service. Please try again later."
-msgstr "No pudimos conectar con el servicio de aprovisionamiento de dominios. Inténtalo de nuevo más tarde."
-
-msgid "Custom domains are not enabled for this organization."
-msgstr "Los dominios personalizados no están habilitados para esta organización."
-
-msgid "A removed domain cannot be changed."
-msgstr "Un dominio eliminado no se puede modificar."
-
-msgid "Enter a hostname."
-msgstr "Introduce un nombre de host."
-
-msgid "Wildcard hostnames are not allowed."
-msgstr "No se permiten nombres de host con comodines."
-
-msgid "Enter the hostname without a port."
-msgstr "Introduce el nombre de host sin puerto."
-
-msgid "IP addresses are not allowed; use a domain name."
-msgstr "No se permiten direcciones IP; usa un nombre de dominio."
-
-#, python-brace-format
-msgid "Hostname is too long (maximum is {max} characters)."
-msgstr "El nombre de host es demasiado largo (máximo {max} caracteres)."
-
-msgid "Enter a fully qualified domain name, for example events.example.com."
-msgstr "Introduce un nombre de dominio completo, por ejemplo eventos.example.com."
-
-#, python-brace-format
-msgid "Each part of the hostname must be at most {max} characters."
-msgstr "Cada parte del nombre de host puede tener como máximo {max} caracteres."
-
-msgid "Hostname contains invalid characters."
-msgstr "El nombre de host contiene caracteres no válidos."
-
-msgid "Hostname must end in a valid top-level domain."
-msgstr "El nombre de host debe terminar en un dominio de nivel superior válido."
-
-msgid "This hostname is reserved for local development."
-msgstr "Este nombre de host está reservado para el desarrollo local."
-
-msgid "This hostname belongs to the platform and cannot be used."
-msgstr "Este nombre de host pertenece a la plataforma y no se puede usar."
-
-msgid "Custom Domains"
-msgstr "Dominios personalizados"
-
-msgid "Enter a color as a 6-digit hex value, for example #8C3CDD."
-msgstr "Introduce un color como valor hexadecimal de 6 dígitos, por ejemplo #8C3CDD."
-
-msgid "Presentation settings chosen by the organization, such as brand colors."
-msgstr "Ajustes de presentación elegidos por la organización, como los colores de marca."
-
-msgid "Invalid branding. Colors must be 6-digit hex values, for example #8C3CDD, and unknown settings are not allowed."
-msgstr "Branding no válido. Los colores deben ser valores hexadecimales de 6 dígitos, por ejemplo #8C3CDD, y no se permiten ajustes desconocidos."
-
-#, python-format
-msgid "%(hostname)s is now live for %(org)s"
-msgstr "%(hostname)s ya está activo para %(org)s"
-
-#, python-format
-msgid "%(hostname)s stopped working for %(org)s"
-msgstr "%(hostname)s dejó de funcionar para %(org)s"
-
-#, python-format
-msgid "%(hostname)s could not be activated for %(org)s"
-msgstr "No se pudo activar %(hostname)s para %(org)s"
-
-msgid ""
-"Your custom domain is verified and serves your organization. Visitors who "
-"open it see your events with your branding."
-msgstr ""
-"Tu dominio personalizado está verificado y sirve tu organización. Quien lo "
-"abra verá tus eventos con tu marca."
-
-msgid "Open your site"
-msgstr "Abrir tu sitio"
-
-msgid "Before you announce it:"
-msgstr "Antes de anunciarlo:"
-
-msgid "Open the link in a private window and check that it loads."
-msgstr "Abre el enlace en una ventana privada y comprueba que carga."
-
-msgid ""
-"Sign up for a test account on it. Sign-up should work on your own domain."
-msgstr ""
-"Regístrate con una cuenta de prueba. El registro debería funcionar en tu "
-"propio dominio."
-
-msgid "Share the new link with your audience."
-msgstr "Comparte el nuevo enlace con tu público."
-
-msgid "Manage your custom domain"
-msgstr "Gestionar tu dominio personalizado"
-
-msgid ""
-"Revel no longer serves your organization on this domain, and everyone who "
-"was signed in on it was signed out. Your organization is still available "
-"at its Revel address."
-msgstr ""
-"Revel ya no sirve tu organización en este dominio, y todas las personas "
-"que habían iniciado sesión en él se desconectaron. Tu organización sigue "
-"disponible en su dirección de Revel."
-
-msgid ""
-"Revel could not verify this domain, so it does not serve your "
-"organization. Your organization is still available at its Revel address."
-msgstr ""
-"Revel no pudo verificar este dominio, así que no sirve tu organización. Tu "
-"organización sigue disponible en su dirección de Revel."
-
-msgid "What Revel found:"
-msgstr "Lo que encontró Revel:"
-
-msgid ""
-"No details were reported. If this keeps happening, contact Revel support."
-msgstr ""
-"No se notificó ningún detalle. Si sigue pasando, contacta con el soporte "
-"de Revel."
-
-msgid ""
-"Fix the cause, then request the domain again from your custom domain "
-"settings."
-msgstr ""
-"Corrige la causa y vuelve a solicitar el dominio desde los ajustes de tu "
-"dominio personalizado."
-
-msgid "Open custom domain settings"
-msgstr "Abrir los ajustes del dominio personalizado"
-
-#: events/service/event_questionnaire_service.py
-msgid "This questionnaire is the organization's default membership questionnaire. Unset it before changing its type."
-msgstr "Este cuestionario es el cuestionario de membresía predeterminado de la organización. Quítalo como predeterminado antes de cambiar su tipo."
-
-#: events/service/event_questionnaire_service.py
-msgid "This questionnaire is used by one or more membership tiers. Remove it from those tiers before changing its type."
-msgstr "Este cuestionario lo usan uno o más niveles de membresía. Quítalo de esos niveles antes de cambiar su tipo."
-
-#: events/utils/__init__.py
-msgctxt "datetime format"
-msgid "l, F j, Y \\a\\t g:i A T"
-msgstr "l, j \\d\\e F \\d\\e Y, H:i T"
-
-msgctxt "short datetime format"
-msgid "M j, Y \\a\\t g:i A"
-msgstr "j M Y, H:i"
-
-#: wallet/apple/generator.py
-msgid "VENUE"
-msgstr "LUGAR"
-
-#: wallet/apple/generator.py
-msgid "ADDRESS"
-msgstr "DIRECCIÓN"
-
-#: wallet/apple/generator.py
-msgid "SECTION"
-msgstr "SECTOR"
-
-#: wallet/apple/generator.py
-msgid "SEAT"
-msgstr "ASIENTO"
-
-#: wallet/apple/generator.py
-msgid "TICKET"
-msgstr "ENTRADA"
-
-#: wallet/apple/generator.py
-msgid "PRICE"
-msgstr "PRECIO"
-
-#: wallet/apple/generator.py
-msgid "GUEST"
-msgstr "INVITADO"
-
-#: wallet/apple/generator.py
-msgid "TIER"
-msgstr "NIVEL"
-
-#: wallet/apple/generator.py
-msgid "MEMBER SINCE"
-msgstr "SOCIO DESDE"
-
-#: wallet/apple/generator.py
-msgid "Ticket ID"
-msgstr "ID de entrada"
-
-#: wallet/apple/generator.py
-msgid "Guest"
-msgstr "Invitado"
-
-#: wallet/apple/generator.py
-msgid "Venue"
-msgstr "Lugar"
-
-#: wallet/apple/generator.py
-msgid "Address"
-msgstr "Dirección"
-
-#: wallet/apple/generator.py
-msgid "Seating"
-msgstr "Asientos"
-
-#: wallet/apple/generator.py
-msgid "Member ID"
-msgstr "ID de socio"
-
-#: wallet/apple/generator.py
-msgid "Organization"
-msgstr "Organización"
-
-#: wallet/apple/generator.py
-msgid "Powered by"
-msgstr "Con tecnología de"
-
-#: wallet/apple/generator.py
-msgid "Start: {start}\nEnd: {end}"
-msgstr "Inicio: {start}\nFin: {end}"
-
-#: wallet/apple/generator.py
-msgid "Section: {}"
-msgstr "Sector: {}"
-
-#: wallet/apple/generator.py
-msgid "Seat: {}"
-msgstr "Asiento: {}"
-
-#: wallet/apple/generator.py
-msgid "Series Pass"
-msgstr "Pase de serie"
-
-#: wallet/apple/generator.py
-msgid "Refunds will be processed according to the organizer's refund policy."
-msgstr "Los reembolsos se procesarán según la política de reembolsos del organizador."
-
-#: wallet/apple/formatting.py
-msgctxt "wallet compact datetime format"
-msgid "M j, H:i"
-msgstr "j M, H:i"
-
-#: wallet/apple/formatting.py
-msgctxt "wallet date format"
-msgid "M j, Y"
-msgstr "j M Y"
-
-#: wallet/apple/formatting.py
-msgctxt "wallet full datetime format"
-msgid "M d, Y h:i A"
-msgstr "j M Y, H:i"

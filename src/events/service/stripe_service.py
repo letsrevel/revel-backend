@@ -15,7 +15,6 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
-from common.postal_address import PostalAddress
 from common.service.exchange_rate_service import convert as convert_currency
 from common.service.stripe_config import configure_stripe
 from common.service.stripe_connect_service import (
@@ -60,6 +59,11 @@ from events.service.pending_checkout import (
     resume_pending_checkout as resume_pending_checkout,
 )
 from events.service.seating.pricing import TicketPrice
+from events.service.stripe_address_service import (
+    STRUCTURED_ADDRESS_FIELDS,
+    apply_postal_address,
+    postal_address_from_stripe,
+)
 from events.service.stripe_incidents import record_session_total_mismatch
 from events.service.vat_service import (
     calculate_platform_fee_vat,
@@ -107,46 +111,6 @@ def create_account_link(
     refresh_url = f"{page}stripe_refresh=true"
     return_url = f"{page}stripe_success=true"
     return _create_account_link(account_id, refresh_url, return_url)
-
-
-def postal_address_from_stripe(account: t.Mapping[str, t.Any]) -> PostalAddress:
-    """Extract a structured address from a Stripe account: ``company`` first, then ``individual``.
-
-    Missing or ``None`` objects and keys count as empty; the country is uppercased.
-    """
-    for key in ("company", "individual"):
-        address = (account.get(key) or {}).get("address") or {}
-        if any(address.get(k) for k in ("line1", "postal_code", "city", "country")):
-            return PostalAddress(
-                line1=address.get("line1") or "",
-                line2=address.get("line2") or "",
-                postal_code=address.get("postal_code") or "",
-                city=address.get("city") or "",
-                subdivision=address.get("state") or "",
-                country_code=(address.get("country") or "").upper(),
-            )
-    return PostalAddress()
-
-
-def apply_postal_address(org: Organization, address: PostalAddress) -> list[str]:
-    """Set the structured ``billing_*`` fields from ``address`` when the org has no line 1 yet.
-
-    Returns:
-        The changed field names (for ``update_fields``); empty when nothing was applied.
-    """
-    if org.billing_address_line1 or address.is_empty:
-        return []
-    values = {
-        "billing_address_line1": address.line1,
-        "billing_address_line2": address.line2,
-        "billing_postal_code": address.postal_code,
-        "billing_city": address.city,
-        "billing_subdivision": address.subdivision,
-        "billing_country_code": address.country_code,
-    }
-    for field, value in values.items():
-        setattr(org, field, value)
-    return list(values)
 
 
 def stripe_verify_account(organization: Organization) -> Organization:
@@ -220,26 +184,16 @@ def _build_billing_snapshot(
     )
 
 
-_STRUCTURED_ADDRESS_FIELDS: tuple[str, ...] = (
-    "billing_address_line1",
-    "billing_address_line2",
-    "billing_postal_code",
-    "billing_city",
-    "billing_subdivision",
-    "billing_country_code",
-)
-
-
 def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSchema") -> None:
     """Save buyer billing info to the user's billing profile."""
     from accounts.models import UserBillingProfile
 
     profile, _ = UserBillingProfile.objects.get_or_create(user=user)
-    fields_to_update = ["billing_name", "billing_address", "billing_email", *_STRUCTURED_ADDRESS_FIELDS]
+    fields_to_update = ["billing_name", "billing_address", "billing_email", *STRUCTURED_ADDRESS_FIELDS]
     profile.billing_name = billing_info.billing_name
     profile.billing_address = billing_info.billing_address
     profile.billing_email = billing_info.billing_email
-    for field in _STRUCTURED_ADDRESS_FIELDS:
+    for field in STRUCTURED_ADDRESS_FIELDS:
         setattr(profile, field, getattr(billing_info, field))
     if billing_info.vat_id:
         profile.vat_id = billing_info.vat_id

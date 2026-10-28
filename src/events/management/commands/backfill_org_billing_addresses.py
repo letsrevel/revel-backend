@@ -12,7 +12,7 @@ from django.core.management.base import BaseCommand, CommandParser
 
 from common.service.stripe_config import configure_stripe
 from events.models import Organization
-from events.service.stripe_service import apply_postal_address, postal_address_from_stripe
+from events.service.stripe_address_service import apply_postal_address, postal_address_from_stripe
 
 logger = structlog.get_logger(__name__)
 
