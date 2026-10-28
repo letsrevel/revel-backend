@@ -4,6 +4,7 @@ Models are grouped into focused modules by domain and re-exported here so that
 existing ``from common.models import X`` import paths keep working unchanged.
 """
 
+from common.models.address import BillingPostalAddressMixin
 from common.models.base import (
     STRIPE_CONNECTED_Q,
     EmailDeliverableMixin,
@@ -19,6 +20,7 @@ from common.models.tags import Tag, TagAssignment, TaggableMixin, TagManager
 
 __all__ = [
     "STRIPE_CONNECTED_Q",
+    "BillingPostalAddressMixin",
     "EmailDeliverableMixin",
     "EmailLog",
     "ExchangeRate",
