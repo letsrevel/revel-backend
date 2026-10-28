@@ -24,9 +24,9 @@ reporting and declaration duties are left to later layers.
 ## What Revel does
 
 - **Attendee invoicing can be enabled.** HYBRID and AUTO are not refused for French organizations.
-- **Domestic B2B invoices are skipped.** For organizers established in France, invoice generation,
-  issuing an existing draft (including drafts created before the gate) and credit notes are skipped
-  only when the **buyer's VAT ID starts with `FR`** and VIES confirmed it as valid at checkout or
+- **Domestic B2B invoices are skipped.** For organizers established in France, invoice generation
+  and credit notes are skipped, and issuing an existing draft (including drafts created before the
+  gate) is refused with the same reason, only when the **buyer's VAT ID starts with `FR`** and VIES confirmed it as valid at checkout or
   could not be reached. A VAT ID that VIES rejected makes the buyer a consumer, who gets Revel's
   invoice as usual. The organizer must issue that invoice through its own Plateforme Agréée.
 - **The gate binds every French organizer now**, SMEs included, although SMEs only have to issue
@@ -36,7 +36,7 @@ reporting and declaration duties are left to later layers.
 - **Consumers and cross-border business buyers** still receive Revel's PDF invoice. B2C e-reporting
   is the organizer's (through its PA); Revel does not produce an e-reporting export.
 - **Skipped documents are recorded** ([#1091](https://github.com/letsrevel/revel-backend/issues/1091)).
-  The owner sees them under *Documents to issue yourself*
+  A refused draft is not: it stays a draft in the invoice list. The owner sees skipped documents under *Documents to issue yourself*
   (`GET /organization-admin/{slug}/skipped-fiscal-documents`) and marks each one done with the number
   from its own system (`POST …/{id}/resolve`). The ticket list flags those sales (`invoice_skipped`),
   and the revenue report has a *Documents to issue yourself* sheet.
