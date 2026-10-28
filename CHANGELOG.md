@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.0] - 2026-10-28
+
+### Added
+- Stripe Connect onboarding can send the owner back to the event they were editing: `return_to` on `POST /api/organization-admin/{slug}/stripe/connect` accepts `event` with an `event_id`, returning to that event's editor on the ticketing tab. The event must belong to the organization (another org's event or an unknown id is a 404), and `event_id` is rejected with any other `return_to`.
+
 ## [2.26.0] - 2026-10-27
 
 ### Added
