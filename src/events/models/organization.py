@@ -16,7 +16,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import RevelUser
 from common.fields import MarkdownField
-from common.models import StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
+from common.models import BillingPostalAddressMixin, StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
 from events.utils.branding import OrganizationBranding
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
@@ -250,6 +250,7 @@ class Organization(
     LogoCoverValidationMixin,
     SocialMediaMixin,
     StripeConnectMixin,
+    BillingPostalAddressMixin,
 ):
     class InvoicingMode(models.TextChoices):
         """Attendee invoicing mode."""

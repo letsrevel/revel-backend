@@ -147,6 +147,12 @@ class OrganizationBillingInfoSchema(Schema):
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str
+    billing_address_line1: str
+    billing_address_line2: str
+    billing_postal_code: str
+    billing_city: str
+    billing_subdivision: str
+    billing_country_code: str
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
     compliance: OrganizationComplianceSchema
@@ -332,6 +338,12 @@ class OrganizationAdminDetailSchema(
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str
+    billing_address_line1: str
+    billing_address_line2: str
+    billing_postal_code: str
+    billing_city: str
+    billing_subdivision: str
+    billing_country_code: str
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
     revenue_report_cadence: OrganizationModel.RevenueReportCadence

@@ -309,6 +309,56 @@ class TestUpdateBillingProfile:
         assert response.status_code == 404
 
 
+class TestUpdateBillingProfileStructuredAddress:
+    URL_NAME = "api:update_billing_profile"
+
+    def test_sets_structured_address(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
+        """PUT stores the structured address and upper-cases the country."""
+        response = auth_client.put(
+            reverse(self.URL_NAME),
+            data=orjson.dumps(
+                {
+                    "billing_address_line1": "Musterstraße 42",
+                    "billing_postal_code": "1010",
+                    "billing_city": "Wien",
+                    "billing_country_code": "at",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["billing_country_code"] == "AT"
+        assert auth_client.get(reverse("api:get_billing_profile")).json()["billing_city"] == "Wien"
+        billing_profile.refresh_from_db()
+        assert billing_profile.billing_postal_address().is_complete
+
+    def test_rejects_invalid_country(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
+        """An unknown ISO country code is a 422."""
+        response = auth_client.put(
+            reverse(self.URL_NAME),
+            data=orjson.dumps({"billing_country_code": "XX"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
+
+    def test_omitting_address_fields_clears_them(
+        self, auth_client: Client, billing_profile: UserBillingProfile
+    ) -> None:
+        """PUT replaces billing info, so omitted address fields reset to empty (like billing_address)."""
+        billing_profile.billing_city = "Wien"
+        billing_profile.save()
+
+        response = auth_client.put(
+            reverse(self.URL_NAME), data=orjson.dumps({"billing_name": "X"}), content_type="application/json"
+        )
+
+        assert response.status_code == 200
+        billing_profile.refresh_from_db()
+        assert billing_profile.billing_city == ""
+
+
 # ===========================================================================
 # PUT /me/billing/vat-id
 # ===========================================================================

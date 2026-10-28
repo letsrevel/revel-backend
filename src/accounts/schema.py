@@ -477,6 +477,12 @@ class UserBillingProfileSchema(ModelSchema):
             "vat_id_validated",
             "vat_id_validated_at",
             "billing_address",
+            "billing_address_line1",
+            "billing_address_line2",
+            "billing_postal_code",
+            "billing_city",
+            "billing_subdivision",
+            "billing_country_code",
             "billing_email",
             "self_billing_agreed",
         ]
