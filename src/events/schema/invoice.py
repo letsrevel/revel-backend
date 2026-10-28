@@ -6,8 +6,9 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime, ConfigDict, StringConstraints
+from pydantic import AwareDatetime, ConfigDict, StringConstraints, field_validator
 
+from common.schema import validate_country_code
 from events.models.attendee_invoice import AttendeeInvoiceStatus
 from events.models.invoice import PlatformFeeInvoice
 from events.models.organization import Organization
@@ -130,10 +131,22 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     seller_vat_id: str
     seller_vat_country: str
     seller_address: str
+    seller_address_line1: str
+    seller_address_line2: str
+    seller_postal_code: str
+    seller_city: str
+    seller_subdivision: str
+    seller_country_code: str
     seller_email: str
     buyer_vat_id: str
     buyer_vat_country: str
     buyer_address: str
+    buyer_address_line1: str
+    buyer_address_line2: str
+    buyer_postal_code: str
+    buyer_city: str
+    buyer_subdivision: str
+    buyer_country_code: str
     # Drafts only (#1091): the country policy's reason this draft can no longer be issued, else "".
     issue_blocked_reason: str = ""
 
@@ -172,11 +185,23 @@ class UpdateAttendeeInvoiceSchema(Schema):
     buyer_vat_id: str | None = None
     buyer_vat_country: str | None = None
     buyer_address: str | None = None
+    buyer_address_line1: str | None = None
+    buyer_address_line2: str | None = None
+    buyer_postal_code: str | None = None
+    buyer_city: str | None = None
+    buyer_subdivision: str | None = None
+    buyer_country_code: str | None = None
     buyer_email: str | None = None
     currency: str | None = None
     reverse_charge: bool | None = None
     discount_code_text: str | None = None
     line_items: list[InvoiceLineItemSchema] | None = None
+
+    @field_validator("buyer_country_code")
+    @classmethod
+    def validate_buyer_country_code(cls, v: str | None) -> str | None:
+        """Uppercase the buyer country and require a valid ISO 3166-1 alpha-2 code (or empty)."""
+        return validate_country_code(v.strip().upper()) if v is not None else None
 
 
 class AttendeeInvoiceCreditNoteSchema(Schema):

@@ -22,7 +22,7 @@
     <div class="supplier-info">
       <div class="supplier-name">{{ invoice.seller_name }}</div>
       <div class="supplier-details">
-        {{ invoice.seller_address }}<br>
+        {% for line in invoice.seller_address_lines %}{{ line }}<br>{% endfor %}
         {% if invoice.seller_vat_id %}VAT: {{ invoice.seller_vat_id }}{% endif %}
       </div>
     </div>
@@ -43,7 +43,7 @@
     <div class="bill-to-label">Issued To</div>
     <div class="bill-to-name">{{ invoice.buyer_name }}</div>
     <div class="bill-to-details">
-      {% if invoice.buyer_address %}{{ invoice.buyer_address }}<br>{% endif %}
+      {% for line in invoice.buyer_address_lines %}{{ line }}<br>{% endfor %}
       {% if invoice.buyer_vat_id %}VAT: {{ invoice.buyer_vat_id }}{% endif %}
     </div>
   </div>

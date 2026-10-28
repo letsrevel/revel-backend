@@ -14,6 +14,7 @@ from django.db import models
 
 from common.fields import ProtectedFileField
 from common.models import EmailDeliverableMixin, TimeStampedModel
+from common.postal_address import PostalAddress
 
 
 class VatIdStatus(enum.StrEnum):
@@ -267,6 +268,12 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     seller_vat_id = models.CharField(max_length=20, blank=True, default="")
     seller_vat_country = models.CharField(max_length=2, blank=True, default="")
     seller_address = models.TextField(blank=True, default="")
+    seller_address_line1 = models.CharField(max_length=255, blank=True, default="")
+    seller_address_line2 = models.CharField(max_length=255, blank=True, default="")
+    seller_postal_code = models.CharField(max_length=20, blank=True, default="")
+    seller_city = models.CharField(max_length=100, blank=True, default="")
+    seller_subdivision = models.CharField(max_length=100, blank=True, default="")
+    seller_country_code = models.CharField(max_length=2, blank=True, default="")
     seller_email = models.EmailField(blank=True, default="")
 
     # Buyer snapshot (editable in DRAFT)
@@ -274,6 +281,12 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     buyer_vat_id = models.CharField(max_length=20, blank=True, default="")
     buyer_vat_country = models.CharField(max_length=2, blank=True, default="")
     buyer_address = models.TextField(blank=True, default="")
+    buyer_address_line1 = models.CharField(max_length=255, blank=True, default="")
+    buyer_address_line2 = models.CharField(max_length=255, blank=True, default="")
+    buyer_postal_code = models.CharField(max_length=20, blank=True, default="")
+    buyer_city = models.CharField(max_length=100, blank=True, default="")
+    buyer_subdivision = models.CharField(max_length=100, blank=True, default="")
+    buyer_country_code = models.CharField(max_length=2, blank=True, default="")
     buyer_email = models.EmailField(blank=True, default="")
 
     issued_at = models.DateTimeField(null=True, blank=True)
@@ -291,6 +304,42 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
             models.Index(fields=["organization", "created_at"]),
             models.Index(fields=["user", "created_at"]),
         ]
+
+    def _postal_address(self, side: t.Literal["seller", "buyer"]) -> PostalAddress:
+        return PostalAddress(
+            line1=getattr(self, f"{side}_address_line1"),
+            line2=getattr(self, f"{side}_address_line2"),
+            postal_code=getattr(self, f"{side}_postal_code"),
+            city=getattr(self, f"{side}_city"),
+            subdivision=getattr(self, f"{side}_subdivision"),
+            country_code=getattr(self, f"{side}_country_code"),
+        )
+
+    @staticmethod
+    def _lines(address: PostalAddress, legacy: str) -> list[str]:
+        if not address.is_empty:
+            return address.display_lines()
+        return [line.strip() for line in legacy.splitlines() if line.strip()]
+
+    @property
+    def seller_postal_address(self) -> PostalAddress:
+        """The seller's structured address as snapshotted on the invoice."""
+        return self._postal_address("seller")
+
+    @property
+    def buyer_postal_address(self) -> PostalAddress:
+        """The buyer's structured address as snapshotted on the invoice."""
+        return self._postal_address("buyer")
+
+    @property
+    def seller_address_lines(self) -> list[str]:
+        """Printable seller address lines; the legacy text address for pre-structured invoices."""
+        return self._lines(self.seller_postal_address, self.seller_address)
+
+    @property
+    def buyer_address_lines(self) -> list[str]:
+        """Printable buyer address lines; the legacy text address for pre-structured invoices."""
+        return self._lines(self.buyer_postal_address, self.buyer_address)
 
     @property
     def vat_breakdown(self) -> list[InvoiceVatBucketDict]:

@@ -17,6 +17,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
+from common.postal_address import PostalAddress
 from common.service.invoice_utils import get_next_sequential_number, render_pdf
 from common.utils import apex_email_domain, is_reserved_mailbox
 from events.compliance import BuyerContext, Decision
@@ -33,6 +34,7 @@ from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
+from events.utils.billing_address import snapshot_buyer_postal_address
 from notifications.service.org_sender import org_reply_to
 
 if t.TYPE_CHECKING:
@@ -306,12 +308,14 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             seller_vat_id=org.vat_id,
             seller_vat_country=org.vat_country_code.upper() if event.is_virtual else event.effective_vat_country,
             seller_address=org.billing_address,
+            **{f"seller_{k}": v for k, v in _address_columns(org.billing_postal_address()).items()},
             seller_email=org.billing_email or org.contact_email or "",
             # Buyer snapshot
             buyer_name=billing_snapshot.get("billing_name", ""),
             buyer_vat_id=billing_snapshot.get("vat_id", ""),
             buyer_vat_country=billing_snapshot.get("vat_country_code", ""),
             buyer_address=billing_snapshot.get("billing_address", ""),
+            **{f"buyer_{k}": v for k, v in _address_columns(snapshot_buyer_postal_address(billing_snapshot)).items()},
             buyer_email=billing_snapshot.get("billing_email", ""),
             issued_at=timezone.now() if initial_status == AttendeeInvoice.InvoiceStatus.ISSUED else None,
         )
@@ -888,6 +892,18 @@ def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
         credit_note.mark_email_sent()
     else:
         credit_note.mark_email_undeliverable(AttendeeInvoiceCreditNote.DeliveryFailureReason.NO_RECIPIENT)
+
+
+def _address_columns(address: PostalAddress) -> dict[str, str]:
+    """Map a postal address to the invoice's ``<side>_*`` column suffixes."""
+    return {
+        "address_line1": address.line1,
+        "address_line2": address.line2,
+        "postal_code": address.postal_code,
+        "city": address.city,
+        "subdivision": address.subdivision,
+        "country_code": address.country_code,
+    }
 
 
 def _invoice_from_address(billing_name: str, org_slug: str) -> str:
