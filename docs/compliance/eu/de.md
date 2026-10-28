@@ -41,7 +41,7 @@ Not covered:
 - **§14 Abs. 1 and 2 UStG**: definition of the E-Rechnung (EN 16931, or an agreed format convertible
   into it); duty for supplies between businesses established in Germany; supplies exempt under §4
   Nr. 8 to 29 excluded. Ordinary supplies to consumers need no E-Rechnung. The invoice duty toward
-  consumers is limited to land-related work (§14 Abs. 2 Nr. 1), which is not relevant to ticketing.
+  consumers is limited to land-related work (§14 Abs. 2 UStG), which is not relevant to ticketing.
   [§14 UStG](https://www.gesetze-im-internet.de/ustg_1980/__14.html)
 - **§27 Abs. 38 UStG**: transition. Issuing from 1 January 2027 for prior-year turnover above
   800,000 EUR, from 1 January 2028 for everyone else; until then PDFs with the recipient's consent.
