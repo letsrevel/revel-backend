@@ -168,7 +168,23 @@ def _build_billing_snapshot(
         billing_address=billing_info.billing_address,
         billing_email=billing_info.billing_email,
         reverse_charge=reverse_charge,
+        billing_address_line1=billing_info.billing_address_line1,
+        billing_address_line2=billing_info.billing_address_line2,
+        billing_postal_code=billing_info.billing_postal_code,
+        billing_city=billing_info.billing_city,
+        billing_subdivision=billing_info.billing_subdivision,
+        billing_country_code=billing_info.billing_country_code,
     )
+
+
+_STRUCTURED_ADDRESS_FIELDS: tuple[str, ...] = (
+    "billing_address_line1",
+    "billing_address_line2",
+    "billing_postal_code",
+    "billing_city",
+    "billing_subdivision",
+    "billing_country_code",
+)
 
 
 def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSchema") -> None:
@@ -176,10 +192,12 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     from accounts.models import UserBillingProfile
 
     profile, _ = UserBillingProfile.objects.get_or_create(user=user)
-    fields_to_update = ["billing_name", "billing_address", "billing_email"]
+    fields_to_update = ["billing_name", "billing_address", "billing_email", *_STRUCTURED_ADDRESS_FIELDS]
     profile.billing_name = billing_info.billing_name
     profile.billing_address = billing_info.billing_address
     profile.billing_email = billing_info.billing_email
+    for field in _STRUCTURED_ADDRESS_FIELDS:
+        setattr(profile, field, getattr(billing_info, field))
     if billing_info.vat_id:
         profile.vat_id = billing_info.vat_id
         profile.vat_country_code = billing_info.vat_country_code

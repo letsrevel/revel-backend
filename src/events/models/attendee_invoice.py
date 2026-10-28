@@ -46,6 +46,13 @@ class BuyerBillingSnapshot(t.TypedDict):
     billing_address: str
     billing_email: str
     reverse_charge: bool
+    # Structured buyer address; absent on snapshots written before it existed.
+    billing_address_line1: t.NotRequired[str]
+    billing_address_line2: t.NotRequired[str]
+    billing_postal_code: t.NotRequired[str]
+    billing_city: t.NotRequired[str]
+    billing_subdivision: t.NotRequired[str]
+    billing_country_code: t.NotRequired[str]
 
 
 class InvoiceLineItemDict(t.TypedDict):
