@@ -88,7 +88,7 @@ class TestValidateInvoicingPrerequisites:
     def test_fails_when_billing_address_missing(self, organization: Organization) -> None:
         """Missing billing address should fail."""
         org = _make_org_invoicing_ready(organization)
-        org.billing_address = ""
+        org.billing_address_line1 = ""
         org.save()
         with pytest.raises(HttpError) as exc_info:
             validate_invoicing_prerequisites(org)

@@ -43,6 +43,10 @@ def _make_org_invoicing_ready(org: Organization) -> Organization:
     org.vat_rate = Decimal("22.00")
     org.billing_name = "ACME SRL"
     org.billing_address = "Via Roma 1, 00100 Roma"
+    org.billing_address_line1 = "Via Roma 1"
+    org.billing_postal_code = "00100"
+    org.billing_city = "Roma"
+    org.billing_country_code = "IT"
     org.billing_email = "billing@acme.it"
     org.contact_email = "info@acme.it"
     org.save()

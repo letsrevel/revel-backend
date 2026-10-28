@@ -46,6 +46,23 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
+_ADDRESS_FIELD_TO_ORG_FIELD = {
+    "line1": "billing_address_line1",
+    "postal_code": "billing_postal_code",
+    "city": "billing_city",
+    "country_code": "billing_country_code",
+}
+
+
+def einvoice_missing_fields(org: Organization) -> list[str]:
+    """Return the organization fields still missing for compliant e-invoicing.
+
+    Returns:
+        Organization field names (e.g. ``"billing_city"``), in a stable order.
+    """
+    return [_ADDRESS_FIELD_TO_ORG_FIELD[name] for name in org.billing_postal_address().missing_fields()]
+
+
 def validate_invoicing_prerequisites(org: Organization) -> None:
     """Validate that an organization meets all requirements for attendee invoicing.
 
@@ -63,8 +80,8 @@ def validate_invoicing_prerequisites(org: Organization) -> None:
     if not org.billing_name:
         missing.append(str(_("Billing name (legal entity name) is required")))
 
-    if not org.billing_address:
-        missing.append(str(_("Billing address is required")))
+    if not org.billing_postal_address().is_complete:
+        missing.append(str(_("Billing address (street, postal code, city and country) is required")))
 
     if missing:
         raise HttpError(422, "; ".join(missing))

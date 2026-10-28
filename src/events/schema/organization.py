@@ -35,6 +35,7 @@ from events.models import (
     PermissionsSchema,
 )
 from events.models.organization import Organization as OrganizationModel
+from events.service.attendee_invoice_service import einvoice_missing_fields
 from questionnaires.models import QuestionnaireEvaluation
 
 from .attribution import AttributionPayloadMixin
@@ -156,11 +157,23 @@ class OrganizationBillingInfoSchema(Schema):
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
     compliance: OrganizationComplianceSchema
+    einvoice_ready: bool
+    einvoice_missing_fields: list[str]
 
     @staticmethod
     def resolve_compliance(obj: Organization) -> OrganizationComplianceSchema:
         """Country-compliance capabilities for the organization."""
         return _compliance(obj)
+
+    @staticmethod
+    def resolve_einvoice_ready(obj: Organization) -> bool:
+        """Whether the seller data is complete enough for compliant e-invoicing."""
+        return not einvoice_missing_fields(obj)
+
+    @staticmethod
+    def resolve_einvoice_missing_fields(obj: Organization) -> list[str]:
+        """Organization fields still missing for compliant e-invoicing."""
+        return einvoice_missing_fields(obj)
 
 
 class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
