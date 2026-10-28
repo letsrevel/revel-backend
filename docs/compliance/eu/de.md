@@ -6,17 +6,22 @@ Issue: [#1232](https://github.com/letsrevel/revel-backend/issues/1232)
 
 ## Status
 
-**No restriction yet. The E-Rechnung duty for domestic B2B invoices starts on 1 January 2027 and is
-not handled yet.**
+**No restriction yet. The transition for issuing domestic B2B E-Rechnungen ends on 1 January 2027 for
+larger issuers, and Revel does not handle it yet.**
 
-From 1 January 2027, an invoice for a supply between two businesses established in Germany must be an
+Since 1 January 2025, an invoice for a supply between two businesses established in Germany must be an
 *E-Rechnung*: a structured invoice conforming to EN 16931, such as XRechnung or ZUGFeRD from the EN 16931
-profile up. That date applies to issuers whose prior-year turnover is above 800,000 EUR; everyone else
-follows on 1 January 2028. Until then, a PDF remains a valid invoice with the recipient's consent.
-Receiving E-Rechnungen has been mandatory since 1 January 2025.
+profile up. Receiving E-Rechnungen has been mandatory since then. For **issuing**, a transition applies:
+a PDF remains a valid invoice with the recipient's consent until 31 December 2026 for issuers whose
+prior-year turnover is above 800,000 EUR, and until 31 December 2027 for everyone else.
 
-Not covered: invoices up to 250 EUR gross (*Kleinbetragsrechnungen*), supplies exempt under §4 Nr. 8
-to 29 UStG, and invoices to consumers.
+Not covered:
+
+- invoices up to 250 EUR gross (*Kleinbetragsrechnungen*);
+- supplies exempt under §4 Nr. 8 to 29 UStG;
+- invoices for supplies of small businesses under §19 UStG (*Kleinunternehmer*), which may always be
+  issued as a *sonstige Rechnung*. This is a permanent exception, separate from the transition;
+- ordinary invoices to consumers, which are outside the E-Rechnung obligation.
 
 ## What Revel does
 
@@ -35,11 +40,15 @@ to 29 UStG, and invoices to consumers.
 
 - **§14 Abs. 1 and 2 UStG**: definition of the E-Rechnung (EN 16931, or an agreed format convertible
   into it); duty for supplies between businesses established in Germany; supplies exempt under §4
-  Nr. 8 to 29 excluded; no invoice duty toward consumers.
+  Nr. 8 to 29 excluded. Ordinary supplies to consumers need no E-Rechnung. The invoice duty toward
+  consumers is limited to land-related work (§14 Abs. 2 Nr. 1), which is not relevant to ticketing.
   [§14 UStG](https://www.gesetze-im-internet.de/ustg_1980/__14.html)
 - **§27 Abs. 38 UStG**: transition. Issuing from 1 January 2027 for prior-year turnover above
   800,000 EUR, from 1 January 2028 for everyone else; until then PDFs with the recipient's consent.
   [§27 UStG](https://www.gesetze-im-internet.de/ustg_1980/__27.html)
+- **§34a UStDV**: invoices for supplies exempt under §19 Abs. 1 UStG (*Kleinunternehmer*) may always be
+  issued as a *sonstige Rechnung*, notwithstanding §14 Abs. 2 S. 2 UStG.
+  [§34a UStDV](https://www.gesetze-im-internet.de/ustdv_1980/__34a.html)
 - **§33 UStDV**: invoices up to 250 EUR gross (whole invoice total) may stay non-structured.
   [§33 UStDV](https://www.gesetze-im-internet.de/ustdv_1980/__33.html)
 - **BMF letter of 15 October 2025** (via secondary sources): XRechnung and ZUGFeRD 2.0.1 or later
@@ -53,7 +62,12 @@ to 29 UStG, and invoices to consumers.
 
 ## Open questions
 
-- The primary text of the BMF letter was not retrieved; its content comes from secondary sources.
+- The primary text of the BMF letter was not retrieved (the BMF site returned errors on 28 October
+  2026); its content comes from secondary sources.
+- KassenSichV and Revel's at-the-door and offline payments recorded by staff: the AEAO test is about
+  recording systems with a cash function, which can include comparable on-site payments. Pure online
+  sales are out of scope. Whether staff-recorded door payments bring an organizer's setup into scope
+  has not been assessed.
 - **§4 Nr. 20 UStG** exempts some cultural events (theatres, concerts and similar by public bodies or
   certified equivalents), whose invoices need no E-Rechnung. Whether to model it or leave it to the
   organizer.
