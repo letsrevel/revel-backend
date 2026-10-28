@@ -18,18 +18,21 @@ STRUCTURED_ADDRESS_FIELDS: tuple[str, ...] = (
 def postal_address_from_stripe(account: t.Mapping[str, t.Any]) -> PostalAddress:
     """Extract a structured address from a Stripe account: ``company`` first, then ``individual``.
 
-    Missing or ``None`` objects and keys count as empty; the country is uppercased.
+    Missing or ``None`` objects and keys count as empty; values are stripped and the country uppercased.
     """
     for key in ("company", "individual"):
         address = (account.get(key) or {}).get("address") or {}
-        if any(address.get(k) for k in ("line1", "postal_code", "city", "country")):
+        clean = {
+            k: (address.get(k) or "").strip() for k in ("line1", "line2", "postal_code", "city", "state", "country")
+        }
+        if any(clean[k] for k in ("line1", "postal_code", "city", "country")):
             return PostalAddress(
-                line1=address.get("line1") or "",
-                line2=address.get("line2") or "",
-                postal_code=address.get("postal_code") or "",
-                city=address.get("city") or "",
-                subdivision=address.get("state") or "",
-                country_code=(address.get("country") or "").upper(),
+                line1=clean["line1"],
+                line2=clean["line2"],
+                postal_code=clean["postal_code"],
+                city=clean["city"],
+                subdivision=clean["state"],
+                country_code=clean["country"].upper(),
             )
     return PostalAddress()
 

@@ -317,9 +317,11 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
 
     @staticmethod
     def _lines(address: PostalAddress, legacy: str) -> list[str]:
-        if not address.is_empty:
+        legacy_lines = [line.strip() for line in legacy.splitlines() if line.strip()]
+        # A country-only address (e.g. VAT-country fallback) must not shadow the full legacy text.
+        if address.line1 or (not address.is_empty and not legacy_lines):
             return address.display_lines()
-        return [line.strip() for line in legacy.splitlines() if line.strip()]
+        return legacy_lines
 
     @property
     def seller_postal_address(self) -> PostalAddress:

@@ -1,10 +1,12 @@
 """The backfill command pre-fills structured org billing addresses from Stripe."""
 
+import typing as t
 from io import StringIO
 from unittest.mock import Mock, patch
 
 import pytest
 import stripe
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 
 from events.models import Organization
@@ -112,3 +114,37 @@ def test_backfill_output_has_no_pii(mock_retrieve: Mock, stripe_org: Organizatio
     assert "filled" in output
     for secret in ("Secretstrasse", "Wien", stripe_org.name, "acct_backfill"):
         assert secret not in output
+
+
+@patch("stripe.Account.retrieve")
+def test_backfill_normalizes_greek_vat_prefix(mock_retrieve: Mock, stripe_org: Organization) -> None:
+    mock_retrieve.return_value = {}
+    stripe_org.vat_country_code = "EL"
+    stripe_org.save(update_fields=["vat_country_code", "updated_at"])
+
+    _run()
+
+    stripe_org.refresh_from_db()
+    assert stripe_org.billing_country_code == "GR"
+
+
+@patch("stripe.Account.retrieve")
+def test_backfill_validation_error_is_reported_and_continues(mock_retrieve: Mock, stripe_org: Organization) -> None:
+    mock_retrieve.return_value = _ACCOUNT
+    other = Organization.objects.create(
+        name="Other Org", slug="other-org", owner=stripe_org.owner, stripe_account_id="acct_backfill_2"
+    )
+    real_save = Organization.save
+
+    def flaky_save(self: Organization, *args: t.Any, **kwargs: t.Any) -> None:
+        if self.pk == stripe_org.pk:
+            raise ValidationError("bad")
+        real_save(self, *args, **kwargs)
+
+    with patch.object(Organization, "save", flaky_save):
+        output = _run()
+
+    assert f"{stripe_org.id} error" in output
+    assert f"{other.id} filled" in output
+    other.refresh_from_db()
+    assert other.billing_address_line1 == "Secretstrasse 9"

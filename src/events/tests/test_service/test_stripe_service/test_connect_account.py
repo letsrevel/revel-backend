@@ -273,6 +273,34 @@ class TestVerifyAccountStructuredAddress:
         assert result.billing_country_code == "AT"
         assert "Hauptstrasse 1" in result.billing_address  # legacy text fill unchanged
 
+    def test_postal_address_from_stripe_strips_whitespace(self) -> None:
+        """Padded Stripe values come back stripped, country uppercased."""
+        from events.service.stripe_address_service import postal_address_from_stripe
+
+        address = postal_address_from_stripe(
+            {
+                "company": {
+                    "address": {
+                        "line1": " Hauptstrasse 1 ",
+                        "line2": "  ",
+                        "postal_code": " 1010",
+                        "city": "Wien ",
+                        "state": " W ",
+                        "country": " at ",
+                    }
+                }
+            }
+        )
+
+        assert (address.line1, address.line2, address.postal_code, address.city, address.subdivision) == (
+            "Hauptstrasse 1",
+            "",
+            "1010",
+            "Wien",
+            "W",
+        )
+        assert address.country_code == "AT"
+
     @patch("stripe.Account.retrieve")
     def test_verify_uses_individual_address_when_no_company(
         self, mock_retrieve: Mock, organization: Organization

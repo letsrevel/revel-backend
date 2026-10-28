@@ -550,6 +550,44 @@ class TestStructuredAddressSnapshot:
         assert "AT-1010 Wien" in html
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_legacy_org_address_with_only_country_keeps_legacy_text(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A country-only structured seller address must not shadow the legacy text address."""
+        org = self._hybrid_org(organization)
+        org.billing_address = "Musterstraße 42\nAT-1010 Wien"
+        org.billing_address_line1 = ""
+        org.billing_postal_code = ""
+        org.billing_city = ""
+        org.billing_country_code = "AT"
+        org.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_legacy_country",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_legacy_country")
+        assert invoice is not None
+        assert invoice.seller_address_lines == ["Musterstraße 42", "AT-1010 Wien"]
+
+    def test_buyer_legacy_text_with_only_country_keeps_legacy_text(self) -> None:
+        """Old-FE B2B checkout: legacy buyer text plus only the VAT-fallback country renders the text."""
+        invoice = AttendeeInvoice(buyer_address="Kundenweg 7\n\n1010 Wien", buyer_country_code="AT")
+        assert invoice.buyer_address_lines == ["Kundenweg 7", "1010 Wien"]
+
+    def test_country_only_without_legacy_text_renders_country(self) -> None:
+        """With no legacy text, a country-only address still prints its country."""
+        invoice = AttendeeInvoice(buyer_address="", buyer_country_code="AT")
+        assert invoice.buyer_address_lines == ["AT"]
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_seller_country_is_establishment_not_place_of_supply(
         self,
         mock_pdf: t.Any,

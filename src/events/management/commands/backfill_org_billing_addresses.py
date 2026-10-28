@@ -8,9 +8,11 @@ from collections import Counter
 
 import stripe
 import structlog
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandParser
 
 from common.service.stripe_config import configure_stripe
+from events.compliance.registry import normalize_country_code
 from events.models import Organization
 from events.service.stripe_address_service import apply_postal_address, postal_address_from_stripe
 
@@ -52,9 +54,13 @@ class Command(BaseCommand):
         if not fields:
             if not (org.vat_country_code and not org.billing_country_code):
                 return "skipped"
-            org.billing_country_code = org.vat_country_code
+            org.billing_country_code = normalize_country_code(org.vat_country_code)
             fields = ["billing_country_code"]
             outcome = "country_only"
         if not dry_run:
-            org.save(update_fields=[*fields, "updated_at"])
+            try:
+                org.save(update_fields=[*fields, "updated_at"])
+            except ValidationError:
+                logger.warning("backfill_org_billing_address_validation_error", org_id=str(org.id))
+                return "error"
         return outcome
