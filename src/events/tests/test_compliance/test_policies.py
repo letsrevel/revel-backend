@@ -18,8 +18,8 @@ EST = frozenset({Nexus.ESTABLISHMENT})
 VENUE = frozenset({Nexus.VENUE})
 
 INVOICING_BLOCKED = ["HR", "PT", "SI", "GR", "RO", "HU"]
-B2B_BLOCKED = ["BE", "PL"]
-UNRESTRICTED = ["AT", "DE", "FR", "IT", "NL", "US", ""]
+B2B_BLOCKED = ["BE", "FR", "PL"]
+UNRESTRICTED = ["AT", "DE", "IT", "NL", "US", ""]
 
 
 @pytest.mark.parametrize("code", INVOICING_BLOCKED)
@@ -40,11 +40,11 @@ def test_fiscalized_invoicing_reaches_venues_only_where_the_law_does(code: str, 
     assert get_policy_for_country(code).attendee_invoicing(BuyerContext(), VENUE).allowed is not binds_venue
 
 
-@pytest.mark.parametrize(("code", "foreign_business_blocked"), [("BE", False), ("PL", True)])
+@pytest.mark.parametrize(("code", "foreign_business_blocked"), [("BE", False), ("FR", False), ("PL", True)])
 def test_e_invoicing_countries_block_business_buyers_of_established_sellers(
     code: str, foreign_business_blocked: bool
 ) -> None:
-    """BE (Peppol) covers domestic business buyers only; PL (KSeF) covers every business buyer."""
+    """BE (Peppol) and FR (Plateforme Agréée) cover domestic business buyers only; PL (KSeF) covers every one."""
     policy = get_policy_for_country(code)
     assert policy.attendee_invoicing_capability() == AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
     domestic = BuyerContext(vat_country=code)
@@ -100,7 +100,7 @@ class TestItalyOnlinePayment:
 
 
 def test_only_italy_restricts_a_payment_channel() -> None:
-    for code in [*INVOICING_BLOCKED, *B2B_BLOCKED, "ES", "FR", "AT", ""]:
+    for code in [*INVOICING_BLOCKED, *B2B_BLOCKED, "ES", "AT", ""]:
         policy = get_policy_for_country(code)
         assert policy.online_payment_capability() == PaymentChannelCapability.ALLOWED, code
         assert policy.offline_payment_capability() == PaymentChannelCapability.ALLOWED, code
@@ -123,6 +123,12 @@ class TestStrictestReachingCountryWins:
         assert attendee_invoicing_for_sale({"BE": EST}, _buyer("")).allowed
         assert attendee_invoicing_for_sale({"AT": EST, "BE": VENUE}, _buyer("BE0123456789")).allowed
         assert not attendee_invoicing_for_sale({"BE": EST}, _buyer("BE0123456789")).allowed
+
+    def test_french_b2b_block_names_the_plateforme_agreee(self) -> None:
+        decision = attendee_invoicing_for_sale({"FR": EST}, _buyer("FR12345678901"))
+        assert not decision.allowed
+        assert "a Plateforme Agréée" in decision.reason
+        assert attendee_invoicing_for_sale({"FR": EST}, _buyer("BE0123456789")).allowed
 
     def test_greek_vat_prefix_is_normalized(self) -> None:
         assert not attendee_invoicing_for_sale({"GR": EST}, _buyer("EL123456789")).allowed

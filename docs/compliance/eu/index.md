@@ -70,7 +70,7 @@ See [Billing & VAT](../../architecture/billing-and-vat.md) for the details.
 | [Denmark](dk.md) | No country-specific restrictions identified | None; organizer notice on digital sales registration (e.g. discos) | |
 | [Estonia](ee.md) | Not yet researched | None (default policy) | |
 | [Finland](fi.md) | No country-specific restrictions identified | None | |
-| [France](fr.md) | No blocking restrictions (ticket content requirements covered) | None | [#1061](https://github.com/letsrevel/revel-backend/issues/1061) |
+| [France](fr.md) | Restricted | Invoices to buyers with a FR VAT ID blocked, for organizers established in France (Plateforme Agréée); ticket content requirements covered | [#1061](https://github.com/letsrevel/revel-backend/issues/1061), [#1233](https://github.com/letsrevel/revel-backend/issues/1233) |
 | [Germany](de.md) | No country-specific restrictions identified | None | |
 | [Greece](gr.md) | Restricted | Attendee invoicing blocked for organizers established in Greece and for physical events held there (myDATA); organizer notice to issue documents from their own software | [#1063](https://github.com/letsrevel/revel-backend/issues/1063) |
 | [Hungary](hu.md) | Restricted | Attendee invoicing blocked for organizers established in Hungary and for physical events held there (NAV Online Számla); organizer notice on receipts, invoices and NAV reporting | [#1065](https://github.com/letsrevel/revel-backend/issues/1065) |
