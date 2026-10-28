@@ -1,5 +1,6 @@
 import typing as t
 
+from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import File, Query
 from ninja.errors import HttpError
@@ -203,19 +204,28 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
 
         **Parameters:**
         - `email`: The email address to associate with the Stripe Connect account (passed in request body)
-        - `return_to`: Admin page Stripe sends the owner back to: `settings` (default) or `welcome`
+        - `return_to`: Admin page Stripe sends the owner back to: `settings` (default), `welcome`,
+          or `event` (that event's editor, ticketing tab)
+        - `event_id`: Required with `return_to=event`, not allowed otherwise; must be this organization's event
 
         **Returns:**
         - 200: Onboarding URL for Stripe Connect
+        - 404: `event_id` is not an event of this organization
 
         **Permissions:**
         - Requires organization owner permission
         """
         organization = self.get_one(slug)
+        # Scoped to this organization, before any Stripe call: a foreign or unknown event is the same 404.
+        event = (
+            get_object_or_404(models.Event, pk=payload.event_id, organization=organization)
+            if payload.event_id
+            else None
+        )
         account_id = organization.stripe_account_id or stripe_service.create_connect_account(
             organization, payload.email
         )
-        onboarding_url = stripe_service.create_account_link(account_id, organization, payload.return_to)
+        onboarding_url = stripe_service.create_account_link(account_id, organization, payload.return_to, event)
         return schema.StripeOnboardingLinkSchema(onboarding_url=onboarding_url)
 
     @route.post(

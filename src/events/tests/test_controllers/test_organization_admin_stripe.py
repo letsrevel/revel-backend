@@ -9,7 +9,7 @@ from django.urls import reverse
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from events.models import Organization, OrganizationStaff
+from events.models import Event, Organization, OrganizationStaff
 from events.schema import StripeReturnTo
 
 pytestmark = pytest.mark.django_db
@@ -58,7 +58,7 @@ class TestOrganizationAdminStripe:
         assert response_data["onboarding_url"] == "https://stripe.com/connect/acct_new123"
 
         mock_create_account.assert_called_once_with(organization, "test@example.com")
-        mock_create_link.assert_called_once_with("acct_new123", organization, StripeReturnTo.SETTINGS)
+        mock_create_link.assert_called_once_with("acct_new123", organization, StripeReturnTo.SETTINGS, None)
 
     @patch("events.service.stripe_service.create_account_link")
     def test_stripe_connect_uses_existing_account(
@@ -82,7 +82,7 @@ class TestOrganizationAdminStripe:
         response_data = response.json()
         assert response_data["onboarding_url"] == "https://stripe.com/connect/acct_existing123"
 
-        mock_create_link.assert_called_once_with("acct_existing123", organization, StripeReturnTo.SETTINGS)
+        mock_create_link.assert_called_once_with("acct_existing123", organization, StripeReturnTo.SETTINGS, None)
 
     @patch("events.service.stripe_service.create_account_link")
     def test_stripe_connect_passes_welcome_return_to(
@@ -102,7 +102,7 @@ class TestOrganizationAdminStripe:
         )
 
         assert response.status_code == 200, response.content
-        mock_create_link.assert_called_once_with("acct_existing123", organization, StripeReturnTo.WELCOME)
+        mock_create_link.assert_called_once_with("acct_existing123", organization, StripeReturnTo.WELCOME, None)
 
     @pytest.mark.parametrize("return_to", ["dashboard", "https://evil.example.com", "/admin/settings"])
     @patch("events.service.stripe_service.create_account_link")
@@ -120,6 +120,94 @@ class TestOrganizationAdminStripe:
         )
 
         assert response.status_code == 422, response.content
+        mock_create_link.assert_not_called()
+
+    @patch("events.service.stripe_service.create_account_link")
+    def test_stripe_connect_returns_to_own_event(
+        self,
+        mock_create_link: Mock,
+        authenticated_client: Client,
+        organization: Organization,
+        event: Event,
+    ) -> None:
+        """``return_to: event`` with this organization's event reaches the service with that event."""
+        organization.stripe_account_id = "acct_existing123"
+        organization.save()
+        mock_create_link.return_value = "https://stripe.com/connect/acct_existing123"
+
+        url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
+        response = authenticated_client.post(
+            url,
+            data={"email": "test@example.com", "return_to": "event", "event_id": str(event.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200, response.content
+        mock_create_link.assert_called_once_with("acct_existing123", organization, StripeReturnTo.EVENT, event)
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"return_to": "event"},
+            {"return_to": "settings", "event_id": "00000000-0000-0000-0000-000000000001"},
+            {"event_id": "00000000-0000-0000-0000-000000000001"},
+        ],
+        ids=["event-without-id", "id-with-settings", "id-with-default"],
+    )
+    @patch("events.service.stripe_service.create_connect_account")
+    @patch("events.service.stripe_service.create_account_link")
+    def test_stripe_connect_event_id_must_match_return_to(
+        self,
+        mock_create_link: Mock,
+        mock_create_account: Mock,
+        body: dict[str, str],
+        authenticated_client: Client,
+        organization: Organization,
+    ) -> None:
+        """``event_id`` is required with ``return_to: event`` and rejected with any other value."""
+        url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
+        response = authenticated_client.post(
+            url, data={"email": "test@example.com", **body}, content_type="application/json"
+        )
+
+        assert response.status_code == 422, response.content
+        mock_create_account.assert_not_called()
+        mock_create_link.assert_not_called()
+
+    @pytest.mark.parametrize("which", ["foreign", "unknown"])
+    @patch("events.service.stripe_service.create_connect_account")
+    @patch("events.service.stripe_service.create_account_link")
+    def test_stripe_connect_rejects_event_outside_organization(
+        self,
+        mock_create_link: Mock,
+        mock_create_account: Mock,
+        which: str,
+        authenticated_client: Client,
+        organization: Organization,
+        event: Event,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """Another org's event and a nonexistent id both 404 alike, before any Stripe call."""
+        if which == "foreign":
+            other_owner = django_user_model.objects.create_user(
+                username="other_owner", email="other@example.com", password="pass", email_verified=True
+            )
+            event.organization = Organization.objects.create(name="Other Org", slug="other-org", owner=other_owner)
+            event.event_series = None  # the fixture's series belongs to ``organization``
+            event.save()
+            event_id = str(event.id)
+        else:
+            event_id = "00000000-0000-0000-0000-000000000001"
+
+        url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
+        response = authenticated_client.post(
+            url,
+            data={"email": "test@example.com", "return_to": "event", "event_id": event_id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404, response.content
+        mock_create_account.assert_not_called()
         mock_create_link.assert_not_called()
 
     def test_stripe_connect_requires_owner_permission(
