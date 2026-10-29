@@ -11,6 +11,9 @@ if t.TYPE_CHECKING:
     from events.models import Organization, TicketTier
 
 
+EXEMPT_FALLBACK_TEXT = "Exempt from VAT"
+
+
 class VatCategory(enum.StrEnum):
     """EN 16931 VAT category codes (UNCL5305) used on invoice lines."""
 
@@ -68,7 +71,7 @@ def build_vat_exemptions(
         exemptions[VatCategory.REVERSE_CHARGE] = {"text": "Reverse charge", "code": "VATEX-EU-AE"}
     if VatCategory.EXEMPT in category_set:
         reasons = list(dict.fromkeys(r.strip() for r in exempt_reasons if r.strip()))
-        exemptions[VatCategory.EXEMPT] = {"text": "; ".join(reasons) or "Exempt from VAT", "code": ""}
+        exemptions[VatCategory.EXEMPT] = {"text": "; ".join(reasons) or EXEMPT_FALLBACK_TEXT, "code": ""}
     return exemptions
 
 

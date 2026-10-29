@@ -24,7 +24,13 @@ from events.models.attendee_invoice import (
     SubmittedLineItem,
 )
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
-from events.utils.vat_category import VatCategory, VatExemptionDict, build_vat_exemptions, derive_vat_category
+from events.utils.vat_category import (
+    EXEMPT_FALLBACK_TEXT,
+    VatCategory,
+    VatExemptionDict,
+    build_vat_exemptions,
+    derive_vat_category,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -112,7 +118,7 @@ def _recompute_vat_exemptions(
     generic fallback is not, so it is re-resolved from the organization's default instead.
     """
     stored = invoice.vat_exemptions.get("E", {}).get("text", "")
-    if stored and stored != "Exempt from VAT":
+    if stored and stored != EXEMPT_FALLBACK_TEXT:
         reasons = [stored]
     else:
         reasons = [invoice.organization.vat_exemption_reason] if invoice.organization else []
@@ -252,13 +258,16 @@ def update_draft_invoice(
     if nulled:
         raise HttpError(422, str(_("Fields cannot be null: {fields}")).format(fields=", ".join(sorted(nulled))))
 
-    if "line_items" in update_data:
+    if "line_items" in update_data or "reverse_charge" in update_data:
         reverse_charge = bool(update_data.get("reverse_charge", invoice.reverse_charge))
-        update_data["line_items"] = _normalize_line_items(update_data["line_items"], reverse_charge)
+        # A reverse_charge-only edit re-derives the categories of the stored lines.
+        submitted = update_data.get("line_items", invoice.line_items)
+        update_data["line_items"] = _normalize_line_items(submitted, reverse_charge)
         update_data["vat_exemptions"] = _recompute_vat_exemptions(invoice, update_data["line_items"])
-        # Recomputed only on an edit that touches the lines: doing it
-        # unconditionally would zero the totals of any row with empty line_items.
-        update_data.update(_derive_totals(update_data["line_items"]))
+        if submitted is not invoice.line_items:
+            # Recomputed only on an edit that touches the lines: doing it
+            # unconditionally would zero the totals of any row with empty line_items.
+            update_data.update(_derive_totals(update_data["line_items"]))
 
     # Coerce None -> "" for blankable string columns (FE sends null for cleared fields).
     for field in _BLANKABLE_STRING_FIELDS:

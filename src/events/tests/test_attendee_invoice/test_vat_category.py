@@ -206,3 +206,81 @@ class TestDraftEdits:
         updated = update_draft_invoice(inv, {"reverse_charge": True, "line_items": [inv.line_items[0]]})
         assert updated.line_items[0]["vat_category"] == "AE"
         assert "AE" in updated.vat_exemptions
+
+
+@patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+@patch(MOCK_SEND_EMAIL)
+class TestCreditNoteExtras:
+    def test_skipped_invoice_credit_note_reads_reverse_charge_from_snapshot(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        from events.models import Refund
+        from events.models.skipped_fiscal_document import SkippedFiscalDocument
+
+        org = _auto_org(organization)
+        org.vat_country_code = "BE"
+        org.vat_id = "BE123456789"
+        org.save()
+        payment = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_skip",
+            buyer_billing_snapshot={
+                **_default_billing_snapshot(reverse_charge=True),
+                "vat_id": "BE0123456789",
+                "vat_country_code": "BE",
+                "vat_id_status": "valid",
+            },
+        )
+        generate_attendee_invoice("cs_skip")
+        assert SkippedFiscalDocument.objects.filter(kind=SkippedFiscalDocument.Kind.INVOICE).exists()
+        row = Refund.objects.create(
+            payment=payment,
+            amount=Decimal("40.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+        assert generate_attendee_credit_note("cs_skip", [payment.id], refund_ids=[row.id]) is None
+        doc = SkippedFiscalDocument.objects.get(kind=SkippedFiscalDocument.Kind.CREDIT_NOTE)
+        assert [li["vat_category"] for li in doc.line_items] == ["AE"]
+
+    def test_credit_note_pdf_prints_exempt_reason(
+        self, _mail: t.Any, _pdf: t.Any, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        _auto_org(organization)
+        payment = _exempt_payment(member_user, event, _exempt_tier(event), "cs_cnpdf")
+        generate_attendee_invoice("cs_cnpdf")
+        cn = generate_attendee_credit_note("cs_cnpdf", [payment.id])
+        assert cn is not None
+        html = render_to_string("invoices/attendee_credit_note.html", {"credit_note": cn, "invoice": cn.invoice})
+        assert html.count(REASON) == 1
+
+
+class TestReverseChargeOnlyPatch:
+    def test_reverse_charge_toggle_rederives_stored_lines(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        organization.vat_exemption_reason = "Art. 132"
+        organization.save()
+        inv = _create_draft(organization, event, member_user)
+        inv.line_items = [
+            {**inv.line_items[0], "vat_category": "S"},
+            {**inv.line_items[0], "vat_rate": "0.00", "vat_amount": "0.00", "vat_category": "E"},
+        ]
+        inv.save()
+        on = update_draft_invoice(inv, {"reverse_charge": True})
+        on.refresh_from_db()
+        assert [li["vat_category"] for li in on.line_items] == ["AE", "AE"]
+        assert on.vat_exemptions == {"AE": {"text": "Reverse charge", "code": "VATEX-EU-AE"}}
+        off = update_draft_invoice(on, {"reverse_charge": False})
+        off.refresh_from_db()
+        assert [li["vat_category"] for li in off.line_items] == ["S", "E"]
+        assert off.vat_exemptions == {"E": {"text": "Art. 132", "code": ""}}

@@ -721,10 +721,13 @@ def _record_skipped_credit_note(
         covered_payment_ids = {p.id for doc in prior if not doc.refunds.all() for p in doc.payments.all()}
         build: AttendeeInvoiceCreditNote | _CreditNoteBuild | None = None
         # A skipped invoice has no reverse_charge column; the checkout snapshot on its payments is the source.
-        reverse_charge = isinstance(source, AttendeeInvoice) and source.reverse_charge
-        if not isinstance(source, AttendeeInvoice):
+        if isinstance(source, AttendeeInvoice):
+            reverse_charge = source.reverse_charge
+        else:
             sale_payments = [r.payment for r in refund_rows] or list(refunded_payments)
-            reverse_charge = any((p.buyer_billing_snapshot or {}).get("reverse_charge") for p in sale_payments[:1])
+            reverse_charge = bool(
+                sale_payments and (sale_payments[0].buyer_billing_snapshot or {}).get("reverse_charge")
+            )
         if refund_rows:
             covered_refund_ids = {r.id for doc in prior for r in doc.refunds.all()}
             rows = [
