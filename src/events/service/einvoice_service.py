@@ -48,22 +48,25 @@ def _vat_per_group(lines: list[InvoiceLineItemDict]) -> VatGroups:
     return groups
 
 
-def agreement_mismatch(document: Document, invoice: Invoice, ours: VatGroups) -> str | None:
+def agreement_mismatch(document: Document, invoice: Invoice) -> str | None:
     """Return the first business term the overridden ``invoice`` still gets wrong against our figures.
 
     Runs after :func:`apply_our_vat`, which already made BT-117, BT-112 and BT-115 follow our VAT, so
-    only what the override cannot fix is left: BT-109 must equal our net, BT-110 the sum of our line
-    VAT, and BT-115 must be 0 (paid in full). The XML and the PDF come from one snapshot, so any
+    only what the override cannot fix is left: BT-109 must equal our printed net, BT-110 (by now the sum
+    of our line VAT) our printed VAT header, and BT-115 must be 0 (paid in full). The XML and the PDF come from one snapshot, so any
     difference is a bug on one side and the XML is refused.
 
     Returns:
         ``"BT-109"``, ``"BT-110"`` or ``"BT-115"``, or ``None`` when all agree.
     """
-    net = document.total_net if isinstance(document, AttendeeInvoice) else document.amount_net
+    if isinstance(document, AttendeeInvoice):
+        net, vat = document.total_net, document.total_vat
+    else:
+        net, vat = document.amount_net, document.amount_vat
     totals = invoice.totals
     if totals.total_without_vat != net:
         return "BT-109"
-    if totals.total_vat != sum(ours.values(), Decimal("0.00")):
+    if totals.total_vat != vat:
         return "BT-110"
     if totals.amount_due != 0:
         return "BT-115"
@@ -124,7 +127,7 @@ def _xml_for(document: Document, reason_fn: Callable[[], str | None], draft_fn: 
         raise _Skipped("disabled")
     ours = _vat_per_group(document.line_items)
     invoice = apply_our_vat(calc.complete(draft_fn(), **mapping.complete_kwargs_for(document)), ours)
-    if (term := agreement_mismatch(document, invoice, ours)) is not None:
+    if (term := agreement_mismatch(document, invoice)) is not None:
         raise _Skipped(f"agreement:{term}")
     # Runs the profile pre-flight and calc.check; a fatal finding raises PreflightError.
     return to_xml(invoice, profile=PROFILE)

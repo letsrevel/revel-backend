@@ -143,6 +143,16 @@ class TestPlainFallback:
         assert entry["kind"] == "invoice"
         assert set(entry) == {"event", "log_level", "document_id", "kind", "reason"}
 
+    def test_vat_header_drift_falls_back(self, invoice: AttendeeInvoice) -> None:
+        """A printed VAT header that drifted from the lines (raw update) refuses the XML: PDF and XML must agree."""
+        AttendeeInvoice.objects.filter(pk=invoice.pk).update(total_vat=invoice.total_vat + Decimal("0.01"))
+        invoice.refresh_from_db()
+        render = _SpyRender()
+        with capture_logs() as logs:
+            assert facturx_pdf_for(invoice, render) == PLAIN
+        assert render.calls == [False]
+        assert logs[0]["reason"] == "agreement:BT-110"
+
     def test_vat_two_cents_off_falls_back(self, invoice: AttendeeInvoice) -> None:
         """BR-CO-17 forgives a cent of rounding, not two: that is a bug on one side."""
         invoice.line_items[0]["vat_amount"] = str(Decimal(invoice.line_items[0]["vat_amount"]) + Decimal("0.02"))
