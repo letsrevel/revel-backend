@@ -26,6 +26,7 @@ _METHOD_NAMES = {
     "giropay": "giropay",
     "sofort": "Sofort",
     "paypal": "PayPal",
+    "link": "Link",
 }
 
 

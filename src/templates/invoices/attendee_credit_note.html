@@ -118,10 +118,13 @@
         Depending on your country of residence,<br>
         VAT may instead be due there.
       </div>
-      {% elif invoice.exempt_reason_text %}
+      {% endif %}
+      {% if invoice.exempt_reason_text and not invoice.reverse_charge %}
+      {% if not is_export and not is_virtual_interim %}
       <div class="footer-label" style="margin-top: 12px;">Tax Notice</div>
+      {% endif %}
       <div class="notes-text">
-        VAT exempt: {{ invoice.exempt_reason_text }}
+        {% if invoice.exempt_reason_is_fallback %}Exempt from VAT{% else %}VAT exempt: {{ invoice.exempt_reason_text }}{% endif %}
       </div>
       {% endif %}
     </div>

@@ -15,6 +15,7 @@ from django.db import models
 from common.fields import ProtectedFileField
 from common.models import EmailDeliverableMixin, TimeStampedModel
 from common.postal_address import PostalAddress
+from events.utils.vat_category import EXEMPT_FALLBACK_TEXT
 
 
 class VatIdStatus(enum.StrEnum):
@@ -368,6 +369,11 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     def exempt_reason_text(self) -> str:
         """The VAT exemption reason printed for exempt (category E) lines, or ``""`` when none."""
         return str((self.vat_exemptions or {}).get("E", {}).get("text", ""))
+
+    @property
+    def exempt_reason_is_fallback(self) -> bool:
+        """Whether the exempt text is the generic fallback rather than a stated reason."""
+        return self.exempt_reason_text == EXEMPT_FALLBACK_TEXT
 
     @property
     def has_mixed_vat_rates(self) -> bool:

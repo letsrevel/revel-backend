@@ -77,3 +77,7 @@ def test_fetch_omits_blank_account_and_unexpanded_charge_falls_back(organization
     with patch(RETRIEVE, return_value=pi) as retrieve:
         assert fetch_payment_means(organization, "pi_1") == FALLBACK
     retrieve.assert_called_once_with("pi_1", expand=["latest_charge"])
+
+
+def test_stripe_link_label() -> None:
+    assert payment_means_from_charge(_charge("link")).label == "Paid online via Stripe (Link)"
