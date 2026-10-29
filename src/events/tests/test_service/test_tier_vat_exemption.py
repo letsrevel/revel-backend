@@ -8,7 +8,7 @@ from ninja.errors import HttpError
 from events.models import Event, Organization, TicketTier
 from events.schema import TicketTierCreateSchema, TicketTierUpdateSchema
 from events.service import ticket_service
-from events.utils.vat_category import effective_vat_exemption_reason
+from events.utils.vat_category import effective_vat_exemption_reason, is_paid_online
 
 pytestmark = pytest.mark.django_db
 
@@ -21,12 +21,22 @@ def invoicing_org(event: Event) -> Organization:
     org = event.organization
     org.invoicing_mode = Organization.InvoicingMode.AUTO
     org.vat_rate = Decimal("20")
+    org.stripe_account_id = "acct_test_123"
+    org.stripe_charges_enabled = True
+    org.stripe_details_submitted = True
+    org.platform_fee_percent = Decimal("0")
+    org.platform_fee_fixed = Decimal("0")
     org.save()
     return org
 
 
 def _create(event: Event, **kwargs: object) -> TicketTier:
-    return ticket_service.create_ticket_tier(event, TicketTierCreateSchema(name="Zero", **kwargs))  # type: ignore[arg-type]
+    """Create a paid online tier unless told otherwise (only those are invoiced)."""
+    fields: dict[str, object] = {"payment_method": TicketTier.PaymentMethod.ONLINE, "price": Decimal("10")}
+    return ticket_service.create_ticket_tier(
+        event,
+        TicketTierCreateSchema(name="Zero", **{**fields, **kwargs}),  # type: ignore[arg-type]
+    )
 
 
 def test_zero_rate_tier_requires_reason_when_invoicing(event: Event, invoicing_org: Organization) -> None:
@@ -93,7 +103,13 @@ def _legacy_zero_tier(event: Event, org: Organization) -> TicketTier:
     """A 0% tier without a reason, as created before the rule existed (bypasses the service)."""
     org.invoicing_mode = Organization.InvoicingMode.AUTO
     org.save()
-    return TicketTier.objects.create(event=event, name="Legacy", price=0, vat_rate=Decimal("0"))
+    return TicketTier.objects.create(
+        event=event,
+        name="Legacy",
+        price=10,
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        vat_rate=Decimal("0"),
+    )
 
 
 def test_unrelated_update_of_legacy_zero_tier_succeeds(event: Event, invoicing_org: Organization) -> None:
@@ -111,3 +127,62 @@ def test_vat_touching_update_of_legacy_zero_tier_still_422(
     with pytest.raises(HttpError) as exc_info:
         ticket_service.update_ticket_tier(tier, TicketTierUpdateSchema(**{field: value}))  # type: ignore[arg-type]
     assert exc_info.value.status_code == 422
+
+
+def test_free_zero_rate_tier_needs_no_reason(event: Event, invoicing_org: Organization) -> None:
+    invoicing_org.vat_rate = Decimal("0")
+    invoicing_org.save()
+    free = _create(event, payment_method=TicketTier.PaymentMethod.FREE, price=Decimal("0"))
+    assert free.pk is not None
+
+
+def test_offline_paid_zero_rate_tier_needs_no_reason(event: Event, invoicing_org: Organization) -> None:
+    invoicing_org.vat_rate = Decimal("0")
+    invoicing_org.save()
+    offline = _create(event, payment_method=TicketTier.PaymentMethod.OFFLINE)
+    assert offline.pk is not None
+
+
+def test_online_pwyc_zero_rate_tier_requires_reason(event: Event, invoicing_org: Organization) -> None:
+    with pytest.raises(HttpError) as exc_info:
+        _create(event, vat_rate=Decimal("0"), price_type=TicketTier.PriceType.PWYC)
+    assert exc_info.value.status_code == 422
+
+
+def test_switching_zero_rate_tier_to_online_requires_reason(event: Event, invoicing_org: Organization) -> None:
+    tier = _create(event, vat_rate=Decimal("0"), payment_method=TicketTier.PaymentMethod.OFFLINE)
+    with pytest.raises(HttpError) as exc_info:
+        ticket_service.update_ticket_tier(
+            tier,
+            TicketTierUpdateSchema(payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("10")),  # type: ignore[call-arg]
+        )
+    assert exc_info.value.status_code == 422
+    assert MESSAGE in str(exc_info.value)
+
+
+def test_price_change_of_legacy_online_zero_rate_tier_without_reason_is_422(
+    event: Event, invoicing_org: Organization
+) -> None:
+    tier = _create(
+        event, vat_rate=Decimal("0"), payment_method=TicketTier.PaymentMethod.ONLINE, vat_exemption_reason="x"
+    )
+    tier.vat_exemption_reason = ""
+    tier.save()
+    with pytest.raises(HttpError):
+        ticket_service.update_ticket_tier(tier, TicketTierUpdateSchema(price=Decimal("20")))  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"payment_method": "online", "price": "10"}, True),
+        ({"payment_method": "online", "price": "0"}, False),
+        ({"payment_method": "offline", "price": "10"}, False),
+        ({"payment_method": "free", "price": "0"}, False),
+        ({"payment_method": "online", "price": "0", "price_type": "pwyc", "pwyc_min": "1", "pwyc_max": None}, True),
+        ({"payment_method": "online", "price": "0", "price_type": "pwyc", "pwyc_min": "0", "pwyc_max": "5"}, True),
+        ({"payment_method": "online", "price": "0", "price_type": "pwyc", "pwyc_min": "0", "pwyc_max": None}, False),
+    ],
+)
+def test_is_paid_online(fields: dict[str, str | None], expected: bool) -> None:
+    assert is_paid_online(TicketTier(**fields)) is expected

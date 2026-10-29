@@ -7,7 +7,7 @@ from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from events.models import Organization
+from events.models import Event, Organization, TicketTier
 from events.service.attendee_invoice_service import einvoice_missing_fields, set_invoicing_mode
 from events.tests.test_attendee_invoice._helpers import _make_org_invoicing_ready
 
@@ -136,12 +136,39 @@ def test_einvoice_missing_fields_lists_address_before_other_prerequisites(organi
     assert einvoice_missing_fields(org) == [*ALL_MISSING, "billing_name", "vat_id"]
 
 
-def test_einvoice_missing_lists_exemption_reason_for_zero_rate_org(organization: Organization) -> None:
+def _online_tier(event: Event, **kwargs: object) -> TicketTier:
+    defaults: dict[str, object] = {"payment_method": TicketTier.PaymentMethod.ONLINE, "price": 10, "name": "T"}
+    return TicketTier.objects.create(event=event, **{**defaults, **kwargs})
+
+
+def test_einvoice_missing_lists_exemption_reason_for_zero_rate_online_tier(
+    organization: Organization, event: Event
+) -> None:
     org = _make_org_invoicing_ready(organization)
     org.vat_rate = 0
     org.save()
+    assert einvoice_missing_fields(org) == []  # no paid online tier: nothing is invoiced
+
+    _online_tier(event)
     assert einvoice_missing_fields(org) == ["vat_exemption_reason"]
 
     org.vat_exemption_reason = "Art. 132 VAT Directive"
     org.save()
+    assert einvoice_missing_fields(org) == []
+
+
+def test_einvoice_missing_ignores_free_and_offline_zero_rate_tiers(organization: Organization, event: Event) -> None:
+    org = _make_org_invoicing_ready(organization)
+    org.vat_rate = 0
+    org.save()
+    _online_tier(event, price=0, name="Free")
+    _online_tier(event, payment_method=TicketTier.PaymentMethod.OFFLINE, name="Offline")
+    assert einvoice_missing_fields(org) == []
+
+
+def test_einvoice_missing_not_flagged_when_every_tier_overrides_rate(organization: Organization, event: Event) -> None:
+    org = _make_org_invoicing_ready(organization)
+    org.vat_rate = 0
+    org.save()
+    _online_tier(event, vat_rate=20)
     assert einvoice_missing_fields(org) == []

@@ -32,9 +32,10 @@ from events.models.attendee_invoice import (
 from events.models.organization import Organization
 from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
-from events.models.ticket import Payment
+from events.models.ticket import Payment, TicketTier
 from events.service import skipped_fiscal_document_service
 from events.service.payment_means_service import fetch_payment_means
+from events.service.vat_service import get_effective_vat_rate
 from events.utils.billing_address import snapshot_buyer_postal_address
 from events.utils.supply_date import supply_dates_for
 from events.utils.vat_category import (
@@ -42,6 +43,7 @@ from events.utils.vat_category import (
     build_vat_exemptions,
     derive_vat_category,
     effective_vat_exemption_reason,
+    is_paid_online,
 )
 from notifications.service.org_sender import org_reply_to
 
@@ -73,9 +75,22 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
         missing.append("billing_name")
     if not org.vat_id_validated:
         missing.append("vat_id")
-    if org.vat_rate == 0 and not org.vat_exemption_reason.strip():
+    if _has_zero_rate_tier_without_reason(org):
         missing.append("vat_exemption_reason")
     return missing
+
+
+def _has_zero_rate_tier_without_reason(org: Organization) -> bool:
+    """Whether an online paid tier of the org is 0% rated with no exemption reason (it would invoice as E)."""
+    tiers = TicketTier.objects.filter(event__organization=org, payment_method=TicketTier.PaymentMethod.ONLINE).only(
+        "payment_method", "price", "price_type", "pwyc_min", "pwyc_max", "vat_rate", "vat_exemption_reason"
+    )
+    return any(
+        is_paid_online(tier)
+        and get_effective_vat_rate(tier.vat_rate, org.vat_rate) == 0
+        and not effective_vat_exemption_reason(tier, org)
+        for tier in tiers
+    )
 
 
 def validate_invoicing_prerequisites(org: Organization, *, require_structured_address: bool = True) -> None:
@@ -442,6 +457,10 @@ def issue_blocked_reason(invoice: AttendeeInvoice) -> str:
 def _is_export(invoice: AttendeeInvoice) -> bool:
     """Check if the invoice was issued as a non-EU export (historical rendering only).
 
+    Only rows that predate VAT categories qualify: a row carrying ``vat_category`` was classified
+    (S/AE/E) at generation, so a 0% exempt sale to a non-EU buyer prints its exemption reason
+    instead of export wording.
+
     Admission is never zero-rated as an export (#868), so no new invoice is
     created with this treatment. The ``total_vat == 0`` gate keeps the export
     wording on historical zero-rated documents (which must re-render as issued)
@@ -453,6 +472,7 @@ def _is_export(invoice: AttendeeInvoice) -> bool:
         and buyer_country not in EU_MEMBER_STATES
         and not invoice.reverse_charge
         and invoice.total_vat == 0
+        and not any("vat_category" in item for item in invoice.line_items)
     )
 
 

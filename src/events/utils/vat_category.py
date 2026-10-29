@@ -82,3 +82,26 @@ def effective_vat_exemption_reason(tier: "TicketTier", org: "Organization") -> s
         The stripped reason, or ``""`` when neither is set.
     """
     return tier.vat_exemption_reason.strip() or org.vat_exemption_reason.strip()
+
+
+# Tier fields whose change can bring a tier under the "0% rate needs an exemption reason" rule.
+ZERO_RATE_RULE_FIELDS = frozenset(
+    {"vat_rate", "vat_exemption_reason", "payment_method", "price", "price_type", "pwyc_min", "pwyc_max"}
+)
+
+
+def is_paid_online(tier: "TicketTier") -> bool:
+    """Whether a tier sells for money online, i.e. whether it can ever produce an attendee invoice.
+
+    Free and offline tiers never reach Stripe, so they never get an invoice. Values may still be
+    strings on an unsaved tier built from a JSON payload, hence the ``Decimal(str(...))`` coercion.
+
+    Returns:
+        ``True`` for an ONLINE tier with a positive fixed price, or a pay-what-you-can tier with
+        a positive minimum or maximum.
+    """
+    if tier.payment_method != "online":  # TicketTier.PaymentMethod.ONLINE; models are not imported here
+        return False
+    if tier.price_type == "pwyc":
+        return any(Decimal(str(v)) > 0 for v in (tier.pwyc_min, tier.pwyc_max) if v is not None)
+    return Decimal(str(tier.price)) > 0
