@@ -51,10 +51,19 @@ logger = structlog.get_logger(__name__)
 def einvoice_missing_fields(org: Organization) -> list[str]:
     """Return the organization fields still missing for compliant e-invoicing.
 
+    Covers the structured address, then the legal name and a VIES-validated VAT ID.
+
     Returns:
         Organization field names (e.g. ``"billing_city"``), in a stable order.
     """
-    return [f"billing_{PostalAddress.FIELD_SUFFIXES[name]}" for name in org.billing_postal_address().missing_fields()]
+    missing = [
+        f"billing_{PostalAddress.FIELD_SUFFIXES[name]}" for name in org.billing_postal_address().missing_fields()
+    ]
+    if not org.billing_name:
+        missing.append("billing_name")
+    if not org.vat_id_validated:
+        missing.append("vat_id")
+    return missing
 
 
 def validate_invoicing_prerequisites(org: Organization, *, require_structured_address: bool = True) -> None:

@@ -109,3 +109,28 @@ def test_switching_between_active_modes_still_checks_other_prerequisites(organiz
         set_invoicing_mode(org, Organization.InvoicingMode.HYBRID)
     assert "Billing name" in str(exc_info.value)
     assert "Billing address" not in str(exc_info.value)
+
+
+def test_einvoice_ready_false_without_billing_name_and_validated_vat(
+    organization: Organization, organization_owner_client: Client
+) -> None:
+    """A complete address is not enough: billing name and a VIES-validated VAT ID are also required."""
+    org = _make_org_invoicing_ready(organization)
+    org.billing_name = ""
+    org.vat_id_validated = False
+    org.save()
+
+    expected = ["billing_name", "vat_id"]
+    assert einvoice_missing_fields(org) == expected
+    data = organization_owner_client.get(reverse("api:get_billing_info", kwargs={"slug": org.slug})).json()
+    assert data["einvoice_ready"] is False
+    assert data["einvoice_missing_fields"] == expected
+
+
+def test_einvoice_missing_fields_lists_address_before_other_prerequisites(organization: Organization) -> None:
+    org = _make_org_invoicing_ready(organization)
+    _clear_structured_address(org)
+    org.billing_name = ""
+    org.vat_id_validated = False
+    org.save()
+    assert einvoice_missing_fields(org) == [*ALL_MISSING, "billing_name", "vat_id"]
