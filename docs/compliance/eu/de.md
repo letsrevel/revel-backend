@@ -43,15 +43,18 @@ Not covered:
   prevails over the visual PDF. The document is eligible when all of the following hold:
   - it is issued (drafts carry a watermark and never get XML) with EN 16931 totals
     ([#1234](https://github.com/letsrevel/revel-backend/issues/1234));
-  - the seller snapshot has a VAT ID (BT-31) and a country (BT-40), and the buyer a country (BT-55);
+  - the seller snapshot has a name (BT-27), a VAT ID (BT-31) and a country (BT-40), and the buyer a
+    name (BT-44) and a country (BT-55);
   - every line has a VAT category, and a reverse-charge line (AE) comes with a buyer VAT ID (BR-AE-02);
   - an out-of-scope line (O, not subject to VAT) is invoice-wide: it may not sit next to a line of
     another category (BR-O-11..14). Standard and exempt lines (S + E, with rounding) mix freely;
   - a credit note additionally has EN 16931 totals of its own.
   The XML is written only when euinvoice's totals agree with the printed ones (a one-cent VAT
   difference per rate group, which telescoped partial credit notes can produce, is resolved in favour
-  of the printed figure; BR-CO-17 tolerates it) and its pre-flight passes; otherwise, and for every legacy, draft or otherwise ineligible document, the plain PDF of
-  before is issued. Issuing and sending are never blocked by e-invoicing. A global switch
+  of the printed figure; BR-CO-17 tolerates it) and its pre-flight passes; otherwise, and for every
+  legacy, draft or otherwise ineligible document, the plain PDF of before is issued. If only the
+  embedding fails, the PDF/A-3 already rendered is issued without XML (a valid PDF, no second render).
+  Issuing and sending are never blocked by e-invoicing. A global switch
   (`SiteSettings.einvoice_facturx_enabled`) turns the embedding off. Already-issued documents are not
   backfilled; they gain XML only when re-rendered. Conformance is checked in CI against the official
   CEN EN 16931 rules through euinvoice.
