@@ -24,8 +24,8 @@ OneToOneFiftyString = t.Annotated[str, StringConstraints(min_length=1, max_lengt
 # Has min_length=2 — use for create schemas where the field is required.
 # For update schemas (BillingInfoSchemaMixin), the field allows empty string to clear the value,
 # so the mixin uses its own annotation without min_length.
-VatExemptionReason = t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
 VATCountryCode = t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=2, max_length=2)]
+VatExemptionReason = t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
 
 
 def viewer_from_context(context: t.Any) -> "RevelUser | AnonymousUser":

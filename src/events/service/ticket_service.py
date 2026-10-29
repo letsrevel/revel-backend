@@ -639,7 +639,9 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     # Resuming sales counts as a create for the country gate (as for Stripe prerequisites,
     # #945): a paused tier on a blocked channel may be edited, but not put back on sale.
     compliance.assert_tier_allowed(tier, was_allowed=was_allowed or resuming)
-    _assert_zero_rate_has_exemption_reason(tier, tier.event.organization)
+    # Only when the payload touches the VAT setup: a legacy 0% tier without a reason stays editable otherwise.
+    if payload_dict.keys() & {"vat_rate", "vat_exemption_reason"}:
+        _assert_zero_rate_has_exemption_reason(tier, tier.event.organization)
 
     if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel

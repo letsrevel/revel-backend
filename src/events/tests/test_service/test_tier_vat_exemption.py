@@ -87,3 +87,27 @@ def test_effective_reason_prefers_tier(event: Event, invoicing_org: Organization
     assert effective_vat_exemption_reason(tier, invoicing_org) == "org reason"
     invoicing_org.vat_exemption_reason = ""
     assert effective_vat_exemption_reason(tier, invoicing_org) == ""
+
+
+def _legacy_zero_tier(event: Event, org: Organization) -> TicketTier:
+    """A 0% tier without a reason, as created before the rule existed (bypasses the service)."""
+    org.invoicing_mode = Organization.InvoicingMode.AUTO
+    org.save()
+    return TicketTier.objects.create(event=event, name="Legacy", price=0, vat_rate=Decimal("0"))
+
+
+def test_unrelated_update_of_legacy_zero_tier_succeeds(event: Event, invoicing_org: Organization) -> None:
+    tier = _legacy_zero_tier(event, invoicing_org)
+    updated = ticket_service.update_ticket_tier(tier, TicketTierUpdateSchema(name="Renamed"))  # type: ignore[call-arg]
+    assert updated.name == "Renamed"
+
+
+@pytest.mark.parametrize("field", ["vat_exemption_reason", "vat_rate"])
+def test_vat_touching_update_of_legacy_zero_tier_still_422(
+    event: Event, invoicing_org: Organization, field: str
+) -> None:
+    tier = _legacy_zero_tier(event, invoicing_org)
+    value = "" if field == "vat_exemption_reason" else Decimal("0")
+    with pytest.raises(HttpError) as exc_info:
+        ticket_service.update_ticket_tier(tier, TicketTierUpdateSchema(**{field: value}))  # type: ignore[arg-type]
+    assert exc_info.value.status_code == 422
