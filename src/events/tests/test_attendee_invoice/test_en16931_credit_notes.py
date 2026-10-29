@@ -1,4 +1,4 @@
-"""Attendee credit notes carry EN 16931 totals and their own BT-114 rounding (#1234)."""
+"""Attendee credit notes follow their invoice's totals method and close its EN 16931 gap (#1234)."""
 
 import typing as t
 from decimal import Decimal
@@ -8,7 +8,7 @@ import pytest
 
 from accounts.models import RevelUser
 from events.models import Event, Organization, Payment, Refund, SkippedFiscalDocument, TicketTier
-from events.models.attendee_invoice import AttendeeInvoiceCreditNote
+from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote
 from events.service.attendee_invoice_service import generate_attendee_credit_note, generate_attendee_invoice
 from events.tests.test_attendee_invoice._helpers import (
     MOCK_RENDER_PDF,
@@ -45,17 +45,18 @@ def _sale(
     rate: str = "13.00",
     guest: str = "Guest",
     snapshot: dict[str, t.Any] | None = None,
+    net: str | None = None,
 ) -> Payment:
     amount = Decimal(gross)
-    net = (amount * 100 / (100 + Decimal(rate))).quantize(Decimal("0.01"))
+    net_amount = Decimal(net) if net else (amount * 100 / (100 + Decimal(rate))).quantize(Decimal("0.01"))
     return _create_payment(
         user=user,
         event=event,
         tier=tier,
         session_id=session_id,
         amount=amount,
-        net_amount=net,
-        vat_amount=amount - net,
+        net_amount=net_amount,
+        vat_amount=amount - net_amount,
         vat_rate=Decimal(rate),
         buyer_billing_snapshot=snapshot or _default_billing_snapshot(),
         guest_name=guest,
@@ -74,9 +75,24 @@ def _refund(payment: Payment, amount: str) -> Refund:
 
 def _invariant(cn: AttendeeInvoiceCreditNote) -> None:
     assert cn.amount_net + cn.amount_vat + cn.rounding_amount == cn.amount_gross
+    assert sum(Decimal(li["net_amount"]) for li in cn.line_items) == cn.amount_net
+    assert sum(Decimal(li["vat_amount"]) for li in cn.line_items) == cn.amount_vat
 
 
-class TestCreditNoteTotals:
+def _assert_credit_notes_sum_to_invoice(invoice: AttendeeInvoice, notes: list[AttendeeInvoiceCreditNote]) -> None:
+    """Review fix 3: credited per ticket, the credit notes add back up to the invoice, column by column."""
+    for cn in notes:
+        _invariant(cn)
+        assert cn.totals_method == "en16931"
+    assert sum(cn.amount_gross for cn in notes) == invoice.total_gross
+    assert sum(cn.amount_net for cn in notes) == invoice.total_net
+    assert sum(cn.amount_vat for cn in notes) == invoice.total_vat
+    assert sum(cn.rounding_amount for cn in notes) == invoice.rounding_amount
+    invoice.refresh_from_db()
+    assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED
+
+
+class TestEn16931CreditNotes:
     def test_full_refund_credit_note_mirrors_invoice_totals(
         self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
     ) -> None:
@@ -96,7 +112,7 @@ class TestCreditNoteTotals:
         assert cn.line_items[0]["vat_amount"] == "2.87"
         _invariant(cn)
 
-    def test_partial_refund_credit_note_invariant(
+    def test_non_closing_partial_refund_uses_en16931_on_its_own_lines(
         self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
     ) -> None:
         """Review focus 4: a partial refund row on a 3-ticket invoice is its own balanced document."""
@@ -106,31 +122,104 @@ class TestCreditNoteTotals:
         row = _refund(payments[1], "5.00")  # 5.00 at 13% is unreachable: 4.42 + 0.57 + 0.01
         cn = generate_attendee_credit_note("cs_cn_en_2", [payments[1].id], refund_ids=[row.id])
         assert cn is not None
-        assert cn.amount_gross == Decimal("5.00")
-        assert cn.rounding_amount == Decimal("0.01")
+        assert (cn.amount_gross, cn.amount_net, cn.amount_vat, cn.rounding_amount) == (
+            Decimal("5.00"),
+            Decimal("4.42"),
+            Decimal("0.57"),
+            Decimal("0.01"),
+        )
         assert cn.totals_method == "en16931"
         _invariant(cn)
-        assert sum(Decimal(li["net_amount"]) for li in cn.line_items) == cn.amount_net
         invoice.refresh_from_db()
-        assert invoice.status == invoice.InvoiceStatus.ISSUED
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED
 
-    def test_credit_note_for_legacy_invoice_is_en16931(
+    def test_three_tickets_refunded_one_at_a_time_sum_to_the_invoice(
         self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
     ) -> None:
-        """A credit note is a new document: it uses the EN 16931 method even when the invoice is legacy."""
-        invoice = _create_issued(auto_org, event, member_user)
-        assert invoice.totals_method == "legacy"
-        payment = _sale(member_user, event, event_ticket_tier, invoice.stripe_session_id, "100.00", "22.00")
-        cn = generate_attendee_credit_note(invoice.stripe_session_id, [payment.id])
-        assert cn is not None
-        assert cn.totals_method == "en16931"
-        assert (cn.amount_net, cn.amount_vat, cn.rounding_amount) == (
-            Decimal("81.97"),
-            Decimal("18.03"),
+        """Two notes carry 22.04 / 2.87 / -0.01 each; the closing one carries 22.03 / 2.85 / +0.02."""
+        payments = [_sale(member_user, event, event_ticket_tier, "cs_cn_en_3", guest=f"G{i}") for i in range(3)]
+        invoice = generate_attendee_invoice("cs_cn_en_3")
+        assert invoice is not None
+        assert (invoice.total_net, invoice.total_vat, invoice.rounding_amount) == (
+            Decimal("66.11"),
+            Decimal("8.59"),
             Decimal("0.00"),
         )
-        _invariant(cn)
+        notes = [generate_attendee_credit_note("cs_cn_en_3", [p.id]) for p in payments]
+        assert all(notes)
+        closing = notes[-1]
+        assert closing is not None
+        assert (closing.amount_net, closing.amount_vat, closing.rounding_amount) == (
+            Decimal("22.03"),
+            Decimal("2.85"),
+            Decimal("0.02"),
+        )
+        _assert_credit_notes_sum_to_invoice(invoice, [cn for cn in notes if cn is not None])
 
+    def test_fifty_tickets_refunded_per_ticket_sum_to_the_invoice(
+        self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        payments = [_sale(member_user, event, event_ticket_tier, "cs_cn_en_50", guest=f"G{i}") for i in range(50)]
+        invoice = generate_attendee_invoice("cs_cn_en_50")
+        assert invoice is not None
+        notes = [generate_attendee_credit_note("cs_cn_en_50", [p.id]) for p in payments]
+        _assert_credit_notes_sum_to_invoice(invoice, [cn for cn in notes if cn is not None])
+
+    def test_ten_tickets_refunded_by_refund_rows_sum_to_the_invoice(
+        self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        payments = [
+            _sale(member_user, event, event_ticket_tier, "cs_cn_en_10", "10.00", "22.00", guest=f"G{i}")
+            for i in range(10)
+        ]
+        invoice = generate_attendee_invoice("cs_cn_en_10")
+        assert invoice is not None
+        notes = [
+            generate_attendee_credit_note("cs_cn_en_10", [p.id], refund_ids=[_refund(p, "10.00").id]) for p in payments
+        ]
+        _assert_credit_notes_sum_to_invoice(invoice, [cn for cn in notes if cn is not None])
+
+
+class TestLegacyInvoiceCreditNotes:
+    """Review fix 2: a credit note on a legacy invoice keeps main's arithmetic and is stamped legacy."""
+
+    def test_full_refund_of_legacy_invoice_mirrors_its_stored_figures(
+        self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        invoice = _create_issued(auto_org, event, member_user)
+        assert invoice.totals_method == "legacy"
+        payment = _sale(member_user, event, event_ticket_tier, invoice.stripe_session_id, "24.90", "13.00", net="22.04")
+        assert payment.vat_amount == Decimal("2.86")
+        cn = generate_attendee_credit_note(invoice.stripe_session_id, [payment.id])
+        assert cn is not None
+        assert (cn.amount_gross, cn.amount_net, cn.amount_vat, cn.rounding_amount) == (
+            Decimal("24.90"),
+            Decimal("22.04"),
+            Decimal("2.86"),
+            Decimal("0.00"),
+        )
+        assert cn.totals_method == "legacy"
+        assert (cn.line_items[0]["net_amount"], cn.line_items[0]["vat_amount"]) == ("22.04", "2.86")
+
+    def test_partial_refund_of_legacy_invoice_pro_rates_the_checkout_vat(
+        self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        invoice = _create_issued(auto_org, event, member_user)
+        payment = _sale(member_user, event, event_ticket_tier, invoice.stripe_session_id, "40.00", "22.00", net="33.33")
+        row = _refund(payment, "10.00")
+        cn = generate_attendee_credit_note(invoice.stripe_session_id, [payment.id], refund_ids=[row.id])
+        assert cn is not None
+        # main: VAT = 10.00 * 6.67 / 40.00 = 1.6675 -> 1.67, net = 10.00 - 1.67
+        assert (cn.amount_gross, cn.amount_net, cn.amount_vat, cn.rounding_amount) == (
+            Decimal("10.00"),
+            Decimal("8.33"),
+            Decimal("1.67"),
+            Decimal("0.00"),
+        )
+        assert cn.totals_method == "legacy"
+
+
+class TestSkippedPath:
     def test_skipped_credit_note_path_unchanged(
         self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
     ) -> None:

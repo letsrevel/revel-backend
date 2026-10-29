@@ -36,6 +36,7 @@ from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
 from events.service.attendee_vat_service import invoice_out_of_scope, out_of_scope_for
+from events.service.credit_note_totals import credit_note_totals
 from events.service.en16931_totals_service import compute_en16931_totals
 from events.service.payment_means_service import fetch_payment_means
 from events.service.zero_rate_guard_service import (
@@ -628,8 +629,8 @@ def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
 class _CreditNoteBuild(t.NamedTuple):
     """The lines and coverage of a credit note still to be created (or recorded as skipped).
 
-    Carries no totals: a Revel credit note derives its own EN 16931 totals from these lines
-    at creation (#1234), while a skipped record sums them as they are.
+    Carries no totals: a Revel credit note derives them from these lines at creation by its
+    invoice's method (``credit_note_totals``, #1234), while a skipped record sums them as they are.
     """
 
     line_items: list[InvoiceLineItemDict]
@@ -889,16 +890,16 @@ def generate_attendee_credit_note(
             AttendeeInvoiceCreditNote, cn_prefix, year, "credit_note_number"
         )
 
-        # A new document gets EN 16931 totals of its own (#1234), whatever the invoice's method.
-        totals = compute_en16931_totals(build.line_items, invoice.reverse_charge)
+        # Figured by the invoice's method (#1234); the prior notes were read under this lock.
+        totals = credit_note_totals(invoice, build.line_items, existing_cns)
         credit_note = AttendeeInvoiceCreditNote.objects.create(
             invoice=invoice,
             credit_note_number=credit_note_number,
-            amount_gross=totals.total_gross,
-            amount_net=totals.total_net,
-            amount_vat=totals.total_vat,
+            amount_gross=totals.amount_gross,
+            amount_net=totals.amount_net,
+            amount_vat=totals.amount_vat,
             rounding_amount=totals.rounding_amount,
-            totals_method=TotalsMethod.EN16931,
+            totals_method=totals.totals_method,
             line_items=totals.lines,
             issued_at=timezone.now(),
         )
