@@ -48,8 +48,9 @@ Not covered:
   - an out-of-scope line (O, not subject to VAT) is invoice-wide: it may not sit next to a line of
     another category (BR-O-11..14). Standard and exempt lines (S + E, with rounding) mix freely;
   - a credit note additionally has EN 16931 totals of its own.
-  The XML is written only when euinvoice's totals agree with the printed ones and its pre-flight
-  passes; otherwise, and for every legacy, draft or otherwise ineligible document, the plain PDF of
+  The XML is written only when euinvoice's totals agree with the printed ones (a one-cent VAT
+  difference per rate group, which telescoped partial credit notes can produce, is resolved in favour
+  of the printed figure; BR-CO-17 tolerates it) and its pre-flight passes; otherwise, and for every legacy, draft or otherwise ineligible document, the plain PDF of
   before is issued. Issuing and sending are never blocked by e-invoicing. A global switch
   (`SiteSettings.einvoice_facturx_enabled`) turns the embedding off. Already-issued documents are not
   backfilled; they gain XML only when re-rendered. Conformance is checked in CI against the official

@@ -129,18 +129,44 @@ class TestPlainFallback:
         _generate_and_save_pdf(invoice)
         _is_plain(_saved(invoice))
 
-    def test_agreement_mismatch_falls_back(self, invoice: AttendeeInvoice) -> None:
-        """A stored line VAT a cent off euinvoice's BT-117 refuses the XML; the log carries ids only."""
-        invoice.line_items[0]["vat_amount"] = str(Decimal(invoice.line_items[0]["vat_amount"]) + Decimal("0.01"))
+    def test_net_mismatch_falls_back(self, invoice: AttendeeInvoice) -> None:
+        """A stored header net that differs from euinvoice's BT-109 refuses the XML; the log carries ids only."""
+        invoice.total_net += Decimal("0.01")
         invoice.save()
         render = _SpyRender()
         with capture_logs() as logs:
             assert facturx_pdf_for(invoice, render) == PLAIN
         assert render.calls == [False]
         (entry,) = logs
-        assert entry["reason"] == "agreement:BT-117"
+        assert entry["reason"] == "agreement:BT-109"
         assert entry["kind"] == "invoice"
         assert set(entry) == {"event", "log_level", "document_id", "kind", "reason"}
+
+    def test_vat_two_cents_off_falls_back(self, invoice: AttendeeInvoice) -> None:
+        """BR-CO-17 forgives a cent of rounding, not two: that is a bug on one side."""
+        invoice.line_items[0]["vat_amount"] = str(Decimal(invoice.line_items[0]["vat_amount"]) + Decimal("0.02"))
+        invoice.save()
+        render = _SpyRender()
+        with capture_logs() as logs:
+            assert facturx_pdf_for(invoice, render) == PLAIN
+        assert render.calls == [False]
+        assert logs[0]["reason"] == "agreement:BT-117"
+
+    def test_telescoped_credit_note_vat_one_cent_off_is_written(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """The 2nd partial note's telescoped VAT is 0.90 where round(6.87 x 13 %) is 0.89: our figures win."""
+        invoice = make_invoice(organization, event, member_user, lines=[line("7.77", "13.00"), line("7.77", "13.00")])
+        make_credit_note(invoice, [line("7.77", "13.00")])
+        note = make_credit_note(invoice, [line("7.77", "13.00")])
+        assert note.amount_vat == Decimal("0.90")
+        _generate_credit_note_pdf(note)
+        parsed = parse(_saved(note))
+        (group,) = parsed.vat_breakdown
+        assert group.tax_amount == note.amount_vat == parsed.totals.total_vat
+        assert parsed.totals.total_without_vat == note.amount_net
+        assert parsed.totals.total_with_vat == note.amount_net + note.amount_vat
+        assert parsed.totals.amount_due == 0
 
     def test_preflight_error_falls_back(self, invoice: AttendeeInvoice) -> None:
         """Review focus 2: euinvoice refusing the XML still leaves a saved plain PDF."""

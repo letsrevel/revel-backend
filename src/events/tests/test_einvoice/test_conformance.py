@@ -52,6 +52,13 @@ def _partial_credit_note(org: Organization, event: Event, user: RevelUser) -> At
     return make_credit_note(invoice, [line("24.90", "13.00", description="Refund — Event — Tier — Guest")])
 
 
+def _telescoped_credit_note(org: Organization, event: Event, user: RevelUser) -> AttendeeInvoiceCreditNote:
+    """The 2nd partial note's BT-117 (0.90) is a cent off round(BT-116 x rate) (0.89): BR-CO-17 tolerates it."""
+    invoice = make_invoice(org, event, user, lines=[line("7.77", "13.00"), line("7.77", "13.00")])
+    make_credit_note(invoice, [line("7.77", "13.00")])
+    return make_credit_note(invoice, [line("7.77", "13.00")])
+
+
 FIXTURES: dict[str, Build] = {
     "single_rate": lambda org, event, user: make_invoice(org, event, user, lines=[line("24.90", "13.00")]),
     "mixed_s_e_with_rounding": _mixed_with_rounding,
@@ -72,6 +79,7 @@ FIXTURES: dict[str, Build] = {
     ),
     "full_credit_note": _full_credit_note,
     "partial_credit_note": _partial_credit_note,
+    "telescoped_credit_note": _telescoped_credit_note,
 }
 
 
