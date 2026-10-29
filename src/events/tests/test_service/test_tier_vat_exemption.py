@@ -259,3 +259,32 @@ def test_is_paid_online_with_category_prices() -> None:
     assert is_paid_online(TicketTier(**base, category_prices={cid: "0.00"})) is False
     assert is_paid_online(TicketTier(**base, category_prices={})) is False
     assert is_paid_online(TicketTier(**base, category_prices=None)) is False
+
+
+def _paused_legacy_zero_tier(event: Event, org: Organization) -> TicketTier:
+    tier = _legacy_zero_tier(event, org)
+    tier.sales_paused = True
+    tier.save()
+    return tier
+
+
+def test_resuming_paused_zero_rate_tier_without_reason_is_422(event: Event, invoicing_org: Organization) -> None:
+    tier = _paused_legacy_zero_tier(event, invoicing_org)
+    with pytest.raises(HttpError) as exc_info:
+        ticket_service.update_ticket_tier(tier, TicketTierUpdateSchema(sales_paused=False))  # type: ignore[call-arg]
+    assert exc_info.value.status_code == 422
+    assert MESSAGE in exc_info.value.message
+
+
+def test_resuming_paused_zero_rate_tier_with_reason_succeeds(event: Event, invoicing_org: Organization) -> None:
+    tier = _paused_legacy_zero_tier(event, invoicing_org)
+    tier.vat_exemption_reason = "Art. 10 UStG"
+    tier.save()
+    updated = ticket_service.update_ticket_tier(tier, TicketTierUpdateSchema(sales_paused=False))  # type: ignore[call-arg]
+    assert updated.sales_paused is False
+
+
+def test_pausing_zero_rate_tier_without_reason_succeeds(event: Event, invoicing_org: Organization) -> None:
+    tier = _legacy_zero_tier(event, invoicing_org)
+    updated = ticket_service.update_ticket_tier(tier, TicketTierUpdateSchema(sales_paused=True))  # type: ignore[call-arg]
+    assert updated.sales_paused is True

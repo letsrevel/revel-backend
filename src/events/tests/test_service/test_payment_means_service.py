@@ -70,6 +70,16 @@ def test_fetch_passes_connected_account(organization: Organization) -> None:
     retrieve.assert_called_once_with("pi_1", expand=["latest_charge"], stripe_account="acct_123")
 
 
+def test_fetch_omits_account_when_it_is_the_platform_account(organization: Organization, settings: t.Any) -> None:
+    settings.STRIPE_ACCOUNT = "acct_platform"
+    organization.stripe_account_id = "acct_platform"
+    pi = MagicMock()
+    pi.get.return_value = _charge("card", card={"last4": "4242"})
+    with patch(RETRIEVE, return_value=pi) as retrieve:
+        fetch_payment_means(organization, "pi_1")
+    retrieve.assert_called_once_with("pi_1", expand=["latest_charge"])
+
+
 def test_fetch_omits_blank_account_and_unexpanded_charge_falls_back(organization: Organization) -> None:
     organization.stripe_account_id = ""
     pi = MagicMock()

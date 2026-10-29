@@ -22,6 +22,9 @@ class VatCategory(enum.StrEnum):
     STANDARD = "S"
     REVERSE_CHARGE = "AE"
     EXEMPT = "E"
+    OUT_OF_SCOPE = "O"
+    # Historical rendering only: kept for old rows and the spec, never produced for new invoices
+    # (admission is never zero-rated as an export, #868; out-of-EU-scope sales are ``OUT_OF_SCOPE``).
     EXPORT = "G"
 
 
@@ -32,21 +35,24 @@ class VatExemptionDict(t.TypedDict):
     code: str
 
 
-def derive_vat_category(rate: Decimal, reverse_charge: bool) -> VatCategory:
+def derive_vat_category(rate: Decimal, reverse_charge: bool, out_of_scope: bool = False) -> VatCategory:
     """Derive the EN 16931 VAT category of an invoice line.
 
     Args:
         rate: The VAT rate in percent (0 means no VAT is charged).
         reverse_charge: Whether the supply is subject to reverse charge.
+        out_of_scope: Whether the supply's place of supply is outside the EU (no EU VAT is due).
 
     Returns:
         ``REVERSE_CHARGE`` when ``reverse_charge`` is set, ``STANDARD`` for a positive
-        rate, otherwise ``EXEMPT``.
+        rate, ``OUT_OF_SCOPE`` for a 0% out-of-scope supply, otherwise ``EXEMPT``.
     """
     if reverse_charge:
         return VatCategory.REVERSE_CHARGE
     if rate > 0:
         return VatCategory.STANDARD
+    if out_of_scope:
+        return VatCategory.OUT_OF_SCOPE
     return VatCategory.EXEMPT
 
 
@@ -63,7 +69,8 @@ def build_vat_exemptions(
             Blank entries are ignored and duplicates are dropped (first occurrence wins).
 
     Returns:
-        A dict with an ``AE`` entry when any line is reverse-charged and an ``E`` entry
+        A dict with an ``AE`` entry when any line is reverse-charged, an ``O`` entry when any line is
+        out of scope, and an ``E`` entry
         when any line is exempt. The ``E`` text joins the distinct reasons with ``"; "``,
         or falls back to ``"Exempt from VAT"`` when none are given.
     """
@@ -71,6 +78,11 @@ def build_vat_exemptions(
     exemptions: dict[str, VatExemptionDict] = {}
     if VatCategory.REVERSE_CHARGE in category_set:
         exemptions[VatCategory.REVERSE_CHARGE] = {"text": "Reverse charge", "code": "VATEX-EU-AE"}
+    if VatCategory.OUT_OF_SCOPE in category_set:
+        exemptions[VatCategory.OUT_OF_SCOPE] = {
+            "text": "Not subject to EU VAT (place of supply outside the EU)",
+            "code": "VATEX-EU-O",
+        }
     if VatCategory.EXEMPT in category_set:
         reasons = list(dict.fromkeys(r.strip() for r in exempt_reasons if r.strip()))
         exemptions[VatCategory.EXEMPT] = {"text": "; ".join(reasons) or EXEMPT_FALLBACK_TEXT, "code": ""}

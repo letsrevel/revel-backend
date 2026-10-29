@@ -8,6 +8,7 @@ import typing as t
 
 import stripe
 import structlog
+from django.conf import settings
 
 from common.service.stripe_config import configure_stripe
 from events.models.organization import Organization
@@ -59,7 +60,7 @@ def fetch_payment_means(org: Organization, payment_intent_id: str) -> PaymentMea
         return _FALLBACK
     configure_stripe()
     kwargs: dict[str, t.Any] = {"expand": ["latest_charge"]}
-    if org.stripe_account_id:
+    if org.stripe_account_id and org.stripe_account_id != settings.STRIPE_ACCOUNT:
         kwargs["stripe_account"] = org.stripe_account_id
     try:
         pi = stripe.PaymentIntent.retrieve(payment_intent_id, **kwargs)

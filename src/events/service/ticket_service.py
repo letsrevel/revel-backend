@@ -34,8 +34,8 @@ from events.models import (
 )
 from events.models.mixins import VisibilityMixin
 from events.models.ticket import CancellationSource
+from events.service.attendee_vat_service import get_effective_vat_rate
 from events.service.seating.pricing import price_paid_is_admin_entered, recorded_or_resolved_price
-from events.service.vat_service import get_effective_vat_rate
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.vat_category import ZERO_RATE_RULE_FIELDS, effective_vat_exemption_reason, is_paid_online
 
@@ -487,8 +487,9 @@ def _assert_zero_rate_has_exemption_reason(tier: TicketTier, org: Organization) 
     if org.invoicing_mode == Organization.InvoicingMode.NONE or not is_paid_online(tier):
         return
     # The payload is dumped with ``mode="json"``, so the unsaved tier's ``vat_rate`` may still be a str.
-    tier_rate = None if tier.vat_rate is None else Decimal(tier.vat_rate)
-    if get_effective_vat_rate(tier_rate, org.vat_rate) == 0 and not effective_vat_exemption_reason(tier, org):
+    if tier.vat_rate is not None:
+        tier.vat_rate = Decimal(tier.vat_rate)
+    if get_effective_vat_rate(tier, org) == 0 and not effective_vat_exemption_reason(tier, org):
         raise HttpError(422, str(_("A VAT exemption reason is required for a ticket tier with a 0% VAT rate.")))
 
 
@@ -641,8 +642,9 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     # Resuming sales counts as a create for the country gate (as for Stripe prerequisites,
     # #945): a paused tier on a blocked channel may be edited, but not put back on sale.
     compliance.assert_tier_allowed(tier, was_allowed=was_allowed or resuming)
-    # Only when the payload touches the VAT setup: a legacy 0% tier without a reason stays editable otherwise.
-    if payload_dict.keys() & ZERO_RATE_RULE_FIELDS:
+    # Only when the payload touches the VAT setup, or puts the tier back on sale: a legacy 0% tier
+    # without a reason stays editable otherwise.
+    if payload_dict.keys() & ZERO_RATE_RULE_FIELDS or resuming:
         _assert_zero_rate_has_exemption_reason(tier, tier.event.organization)
 
     if payload_dict:

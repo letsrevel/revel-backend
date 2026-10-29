@@ -23,7 +23,7 @@ from events.models.attendee_invoice import (
     InvoiceLineItemDict,
     SubmittedLineItem,
 )
-from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
+from events.service.attendee_invoice_service import _generate_and_save_pdf, _out_of_scope, invoice_compliance_decision
 from events.utils.vat_category import (
     EXEMPT_FALLBACK_TEXT,
     VatCategory,
@@ -87,7 +87,9 @@ _BLANKABLE_STRING_FIELDS = frozenset(
 )
 
 
-def _normalize_line_items(line_items: list[SubmittedLineItem], reverse_charge: bool) -> list[InvoiceLineItemDict]:
+def _normalize_line_items(
+    line_items: list[SubmittedLineItem], reverse_charge: bool, out_of_scope: bool = False
+) -> list[InvoiceLineItemDict]:
     """Coerce submitted line items to the stored shape: every key present, every amount a string.
 
     ``vat_category`` is derived from each line's rate and ``reverse_charge``, never taken from the client.
@@ -103,7 +105,9 @@ def _normalize_line_items(line_items: list[SubmittedLineItem], reverse_charge: b
             net_amount=str(item.get("net_amount", "0.00")),
             vat_amount=str(item.get("vat_amount", "0.00")),
             vat_rate=str(item.get("vat_rate", "0.00")),
-            vat_category=str(derive_vat_category(Decimal(str(item.get("vat_rate", "0.00"))), reverse_charge)),
+            vat_category=str(
+                derive_vat_category(Decimal(str(item.get("vat_rate", "0.00"))), reverse_charge, out_of_scope)
+            ),
         )
         for item in line_items
     ]
@@ -201,7 +205,8 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
     """
     reverse_charge = bool(update_data.get("reverse_charge", invoice.reverse_charge))
     submitted = update_data.get("line_items", invoice.line_items)
-    line_items = _normalize_line_items(submitted, reverse_charge)
+    out_of_scope = _out_of_scope(invoice.event, invoice.seller_vat_country, invoice.buyer_vat_country)
+    line_items = _normalize_line_items(submitted, reverse_charge, out_of_scope)
     if reverse_charge and any(Decimal(i["vat_rate"]) or Decimal(i["vat_amount"]) for i in line_items):
         raise HttpError(422, str(_("A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0.")))
     derived: dict[str, t.Any] = {
