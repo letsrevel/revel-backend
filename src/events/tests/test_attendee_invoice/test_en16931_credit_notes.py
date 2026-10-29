@@ -155,23 +155,23 @@ class TestEn16931CreditNotes:
         ]
         _assert_credit_notes_sum_to_invoice(invoice, [cn for cn in notes if cn is not None])
 
-    @pytest.mark.parametrize("reduced_rate_first", [False, True])
+    @pytest.mark.parametrize("standard_rate_first", [False, True])
     def test_two_rate_cart_sums_to_the_invoice_in_either_refund_order(
         self,
         auto_org: Organization,
         event: Event,
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
-        reduced_rate_first: bool,
+        standard_rate_first: bool,
     ) -> None:
         """Fix A: each (category, rate) group closes on its own, whatever order the tickets are refunded in."""
-        session = f"cs_cn_en_mix_{int(reduced_rate_first)}"
+        session = f"cs_cn_en_mix_{int(standard_rate_first)}"
         payments = [_sale(member_user, event, event_ticket_tier, session, guest=f"G{i}") for i in range(3)]
         payments.append(_sale(member_user, event, event_ticket_tier, session, "10.00", "22.00", guest="G22"))
         invoice = generate_attendee_invoice(session)
         assert invoice is not None
         assert invoice.has_mixed_vat_rates
-        order = payments[::-1] if reduced_rate_first else payments
+        order = payments[::-1] if standard_rate_first else payments
         notes = [generate_attendee_credit_note(session, [p.id]) for p in order]
         _assert_credit_notes_sum_to_invoice(invoice, [cn for cn in notes if cn is not None])
 

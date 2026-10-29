@@ -94,7 +94,8 @@ def _telescoping(
         net, vat = cumulative_net - before.net, cumulative_vat - before.vat
         # ponytail: a note's VAT is a difference of cumulative figures, not round(net x rate), so
         # its own BR-CO-17 can be a cent off (within the CEN +/-1 tolerance) in exchange for the
-        # notes footing to the invoice, group by group, in any refund order.
+        # notes footing to the invoice, group by group, in any refund order. Across groups the
+        # header rounding can sum several groups' cents (seen up to 0.03 on one note).
         rounding = gross - net - vat
         for i, (line_net, line_vat) in zip(indexes, spread_group_lines(net, rounding, grosses), strict=True):
             out_lines[i]["net_amount"] = str(line_net)
