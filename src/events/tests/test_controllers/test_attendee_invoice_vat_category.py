@@ -37,4 +37,4 @@ def test_legacy_line_is_null_and_new_line_is_s(
 
 def test_openapi_lists_the_vat_categories() -> None:
     schema = InvoiceLineItemSchema.model_json_schema()
-    assert schema["$defs"]["VatCategory"]["enum"] == ["S", "AE", "E", "G"]
+    assert schema["$defs"]["VatCategory"]["enum"] == ["S", "AE", "E", "O", "G"]
