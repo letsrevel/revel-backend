@@ -188,6 +188,33 @@ def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
         )
 
 
+def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.Any]) -> dict[str, t.Any]:
+    """Derive the line-dependent columns of an edit from the post-PATCH state of the locked row.
+
+    Reads the lines and flag from `invoice`, which must be the row re-read under `select_for_update`,
+    never the caller's possibly-stale instance: a reverse_charge-only PATCH would otherwise write
+    back stale lines over a concurrent line edit.
+
+    Raises:
+        HttpError 422: If the resulting invoice is reverse-charge but a line still carries VAT
+            (EN 16931 BR-AE-05/08).
+    """
+    reverse_charge = bool(update_data.get("reverse_charge", invoice.reverse_charge))
+    submitted = update_data.get("line_items", invoice.line_items)
+    line_items = _normalize_line_items(submitted, reverse_charge)
+    if reverse_charge and any(Decimal(i["vat_rate"]) or Decimal(i["vat_amount"]) for i in line_items):
+        raise HttpError(422, str(_("A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0.")))
+    derived: dict[str, t.Any] = {
+        "line_items": line_items,
+        "vat_exemptions": _recompute_vat_exemptions(invoice, line_items),
+    }
+    if "line_items" in update_data:
+        # Recomputed only on an edit that touches the lines: doing it unconditionally would
+        # zero the totals of any row with empty line_items.
+        derived.update(_derive_totals(line_items))
+    return derived
+
+
 def _apply_draft_update(invoice: AttendeeInvoice, update_data: dict[str, t.Any]) -> AttendeeInvoice:
     """Write an already-validated payload onto the invoice, under a row lock.
 
@@ -206,6 +233,9 @@ def _apply_draft_update(invoice: AttendeeInvoice, update_data: dict[str, t.Any])
         invoice = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
         if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
             raise HttpError(409, str(_("Only draft invoices can be edited.")))
+
+        if "line_items" in update_data or "reverse_charge" in update_data:
+            update_data.update(_derive_line_item_fields(invoice, update_data))
 
         for field, value in update_data.items():
             setattr(invoice, field, value)
@@ -257,17 +287,6 @@ def update_draft_invoice(
     nulled = {field for field, value in update_data.items() if value is None} - _BLANKABLE_STRING_FIELDS
     if nulled:
         raise HttpError(422, str(_("Fields cannot be null: {fields}")).format(fields=", ".join(sorted(nulled))))
-
-    if "line_items" in update_data or "reverse_charge" in update_data:
-        reverse_charge = bool(update_data.get("reverse_charge", invoice.reverse_charge))
-        # A reverse_charge-only edit re-derives the categories of the stored lines.
-        submitted = update_data.get("line_items", invoice.line_items)
-        update_data["line_items"] = _normalize_line_items(submitted, reverse_charge)
-        update_data["vat_exemptions"] = _recompute_vat_exemptions(invoice, update_data["line_items"])
-        if submitted is not invoice.line_items:
-            # Recomputed only on an edit that touches the lines: doing it
-            # unconditionally would zero the totals of any row with empty line_items.
-            update_data.update(_derive_totals(update_data["line_items"]))
 
     # Coerce None -> "" for blankable string columns (FE sends null for cleared fields).
     for field in _BLANKABLE_STRING_FIELDS:

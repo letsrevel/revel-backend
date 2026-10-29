@@ -203,7 +203,8 @@ class TestDraftEdits:
         self, organization: Organization, event: Event, member_user: RevelUser
     ) -> None:
         inv = _create_draft(organization, event, member_user)
-        updated = update_draft_invoice(inv, {"reverse_charge": True, "line_items": [inv.line_items[0]]})
+        line = {**inv.line_items[0], "vat_rate": "0.00", "vat_amount": "0.00"}
+        updated = update_draft_invoice(inv, {"reverse_charge": True, "line_items": [line]})
         assert updated.line_items[0]["vat_category"] == "AE"
         assert "AE" in updated.vat_exemptions
 
@@ -272,7 +273,7 @@ class TestReverseChargeOnlyPatch:
         organization.save()
         inv = _create_draft(organization, event, member_user)
         inv.line_items = [
-            {**inv.line_items[0], "vat_category": "S"},
+            {**inv.line_items[0], "vat_rate": "0.00", "vat_amount": "0.00", "vat_category": "E"},
             {**inv.line_items[0], "vat_rate": "0.00", "vat_amount": "0.00", "vat_category": "E"},
         ]
         inv.save()
@@ -282,5 +283,60 @@ class TestReverseChargeOnlyPatch:
         assert on.vat_exemptions == {"AE": {"text": "Reverse charge", "code": "VATEX-EU-AE"}}
         off = update_draft_invoice(on, {"reverse_charge": False})
         off.refresh_from_db()
-        assert [li["vat_category"] for li in off.line_items] == ["S", "E"]
+        assert [li["vat_category"] for li in off.line_items] == ["E", "E"]
         assert off.vat_exemptions == {"E": {"text": "Art. 132", "code": ""}}
+
+
+class TestReverseChargePatchLockedState:
+    """The post-PATCH state is derived and validated on the locked row, not the caller's instance."""
+
+    def test_reverse_charge_only_patch_keeps_concurrently_written_lines(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        from events.models.attendee_invoice import AttendeeInvoice
+
+        inv = _create_draft(organization, event, member_user)
+        stale = AttendeeInvoice.objects.get(pk=inv.pk)
+        zero_line = {**inv.line_items[0], "vat_rate": "0.00", "vat_amount": "0.00", "description": "Concurrent"}
+        AttendeeInvoice.objects.filter(pk=inv.pk).update(line_items=[zero_line])
+
+        updated = update_draft_invoice(stale, {"reverse_charge": True})
+
+        updated.refresh_from_db()
+        assert [li["description"] for li in updated.line_items] == ["Concurrent"]
+        assert updated.line_items[0]["vat_category"] == "AE"
+
+    def test_reverse_charge_only_patch_on_vat_lines_is_422(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        from ninja.errors import HttpError
+
+        inv = _create_draft(organization, event, member_user)
+        with pytest.raises(HttpError) as exc_info:
+            update_draft_invoice(inv, {"reverse_charge": True})
+        assert exc_info.value.status_code == 422
+        assert "can't charge VAT" in str(exc_info.value.message)
+        inv.refresh_from_db()
+        assert inv.reverse_charge is False
+
+    def test_reverse_charge_with_zero_vat_lines_succeeds(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        inv = _create_draft(organization, event, member_user)
+        line = {"description": "T", "unit_price_gross": Decimal("5"), "net_amount": Decimal("5")}
+        updated = update_draft_invoice(inv, {"reverse_charge": True, "line_items": [line]})
+        assert updated.reverse_charge is True
+        assert updated.line_items[0]["vat_category"] == "AE"
+
+    def test_line_edit_adding_vat_on_a_reverse_charge_draft_is_422(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        from ninja.errors import HttpError
+
+        inv = _create_draft(organization, event, member_user)
+        inv.reverse_charge = True
+        inv.line_items = [{**inv.line_items[0], "vat_rate": "0.00", "vat_amount": "0.00"}]
+        inv.save()
+        with pytest.raises(HttpError) as exc_info:
+            update_draft_invoice(inv, {"line_items": [{"description": "T", "vat_rate": Decimal("10")}]})
+        assert exc_info.value.status_code == 422
