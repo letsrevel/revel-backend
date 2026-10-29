@@ -17,6 +17,7 @@ from events.models.skipped_fiscal_document import (
     SkippedFiscalDocumentKind,
     SkippedFiscalDocumentReason,
 )
+from events.utils.vat_category import VatCategory
 
 
 class PlatformFeeInvoiceSchema(Schema):
@@ -86,7 +87,7 @@ class InvoiceLineItemSchema(Schema):
     vat_amount: Decimal
     vat_rate: Decimal
     # Derived server-side (EN 16931); ignored when submitted in an edit.
-    vat_category: str = ""
+    vat_category: VatCategory | None = None
 
 
 class VatExemptionSchema(Schema):
@@ -137,7 +138,7 @@ class AttendeeInvoiceSchema(Schema):
 class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     """Extended schema with full seller/buyer info for org admin views."""
 
-    vat_exemptions: dict[str, VatExemptionSchema]
+    vat_exemptions: dict[VatCategory, VatExemptionSchema]
     supply_date: datetime.date | None = None
     supply_period_end: datetime.date | None = None
     payment_means_code: str
