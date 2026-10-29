@@ -75,3 +75,37 @@ def test_einvoice_ready_true_when_complete(organization: Organization, organizat
     data = response.json()
     assert data["einvoice_ready"] is True
     assert data["einvoice_missing_fields"] == []
+
+
+@pytest.mark.parametrize(
+    "current,target",
+    [
+        (Organization.InvoicingMode.AUTO, Organization.InvoicingMode.HYBRID),
+        (Organization.InvoicingMode.HYBRID, Organization.InvoicingMode.AUTO),
+    ],
+)
+def test_switching_between_active_modes_does_not_need_structured_address(
+    organization: Organization, current: Organization.InvoicingMode, target: Organization.InvoicingMode
+) -> None:
+    """An org already invoicing with a legacy-only address can switch AUTO <-> HYBRID."""
+    org = _make_org_invoicing_ready(organization)
+    _clear_structured_address(org)
+    org.invoicing_mode = current
+    org.save()
+
+    set_invoicing_mode(org, target)
+
+    org.refresh_from_db()
+    assert org.invoicing_mode == target
+
+
+def test_switching_between_active_modes_still_checks_other_prerequisites(organization: Organization) -> None:
+    org = _make_org_invoicing_ready(organization)
+    _clear_structured_address(org)
+    org.invoicing_mode = Organization.InvoicingMode.AUTO
+    org.billing_name = ""
+    org.save()
+    with pytest.raises(HttpError) as exc_info:
+        set_invoicing_mode(org, Organization.InvoicingMode.HYBRID)
+    assert "Billing name" in str(exc_info.value)
+    assert "Billing address" not in str(exc_info.value)

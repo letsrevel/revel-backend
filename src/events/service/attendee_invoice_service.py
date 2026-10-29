@@ -57,8 +57,13 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
     return [f"billing_{PostalAddress.FIELD_SUFFIXES[name]}" for name in org.billing_postal_address().missing_fields()]
 
 
-def validate_invoicing_prerequisites(org: Organization) -> None:
+def validate_invoicing_prerequisites(org: Organization, *, require_structured_address: bool = True) -> None:
     """Validate that an organization meets all requirements for attendee invoicing.
+
+    Args:
+        org: The organization.
+        require_structured_address: Whether the structured billing address is required. Only turning
+            invoicing on needs it; an org that already invoices may keep a legacy text address.
 
     Raises:
         HttpError 422: If any prerequisite is not met.
@@ -74,7 +79,7 @@ def validate_invoicing_prerequisites(org: Organization) -> None:
     if not org.billing_name:
         missing.append(str(_("Billing name (legal entity name) is required")))
 
-    if not org.billing_postal_address().is_complete:
+    if require_structured_address and not org.billing_postal_address().is_complete:
         missing.append(str(_("Billing address (street, postal code, city and country) is required")))
 
     if missing:
@@ -93,7 +98,9 @@ def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> O
     """
     if mode != Organization.InvoicingMode.NONE:
         compliance.assert_attendee_invoicing_allowed(org)
-        validate_invoicing_prerequisites(org)
+        validate_invoicing_prerequisites(
+            org, require_structured_address=org.invoicing_mode == Organization.InvoicingMode.NONE
+        )
 
     org.invoicing_mode = mode
     org.save(update_fields=["invoicing_mode", "updated_at"])
