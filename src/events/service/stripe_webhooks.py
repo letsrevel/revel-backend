@@ -29,6 +29,7 @@ from events.models import (
     TicketTier,
 )
 from events.service.stripe_incidents import record_paid_session_without_payments, record_session_total_mismatch
+from events.service.stripe_webhook_disputes import DisputeHandlersMixin
 from events.service.stripe_webhook_refunds import TicketRefundHandlersMixin
 from events.service.stripe_webhook_subscriptions import SubscriptionWebhookHandlersMixin
 from events.service.waitlist_service import enqueue_waitlist_processing
@@ -116,7 +117,7 @@ def handle_event(event: stripe.Event) -> None:
     record.save(update_fields=["outcome", "updated_at"])
 
 
-class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersMixin):
+class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersMixin, DisputeHandlersMixin):
     """Handles the business logic for different types of Stripe webhook events."""
 
     def __init__(self, event: stripe.Event):
@@ -130,6 +131,10 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             "account.updated": self.handle_account_updated,
             "charge.refunded": self.handle_charge_refunded,
             "payment_intent.canceled": self.handle_payment_intent_canceled,
+            # Card disputes: one idempotent upsert for the whole lifecycle (#1245).
+            "charge.dispute.created": self.handle_charge_dispute,
+            "charge.dispute.updated": self.handle_charge_dispute,
+            "charge.dispute.closed": self.handle_charge_dispute,
             # Membership subscriptions (Phases 2-4). Diff-based and idempotent:
             # the dedup gate skips true redeliveries, these also tolerate the
             # nightly reconciliation feeding them retrieved payloads.

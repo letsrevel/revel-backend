@@ -3,6 +3,7 @@ from .attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote, Attend
 from .blacklist import Blacklist, WhitelistRequest
 from .bookmark import EventBookmark
 from .discount_code import DiscountCode
+from .dispute import Dispute
 from .event import (
     AttendeeVisibilityFlag,
     Event,
@@ -150,6 +151,7 @@ __all__ = [
     "Announcement",
     # Discount codes
     "DiscountCode",
+    "Dispute",
     # Invoices
     "AttendeeInvoice",
     "AttendeeInvoiceStatus",

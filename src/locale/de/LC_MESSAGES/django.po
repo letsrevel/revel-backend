@@ -6968,3 +6968,126 @@ msgstr "j. M Y"
 msgctxt "wallet full datetime format"
 msgid "M d, Y h:i A"
 msgstr "j. M Y, H:i"
+
+#, python-format
+msgid ""
+"A payment dispute of <strong>%(amount)s %(currency)s</strong> has been "
+"closed: <strong>%(status)s</strong>."
+msgstr ""
+"Eine Zahlungsstreitigkeit über <strong>%(amount)s %(currency)s</strong> "
+"wurde abgeschlossen: <strong>%(status)s</strong>."
+
+#, python-format
+msgid ""
+"A payment dispute of <strong>%(amount)s %(currency)s</strong> has been "
+"opened."
+msgstr ""
+"Eine Zahlungsstreitigkeit über <strong>%(amount)s %(currency)s</strong> "
+"wurde eröffnet."
+
+msgid "Dispute Information"
+msgstr "Informationen zur Streitigkeit"
+
+msgid "Open the dispute in Stripe"
+msgstr "Streitigkeit in Stripe öffnen"
+
+#, python-format
+msgid ""
+"A payment dispute of %(amount)s %(currency)s has been closed: %(status)s."
+msgstr ""
+"Eine Zahlungsstreitigkeit über %(amount)s %(currency)s wurde abgeschlossen:"
+" %(status)s."
+
+#, python-format
+msgid "A payment dispute of %(amount)s %(currency)s has been opened."
+msgstr "Eine Zahlungsstreitigkeit über %(amount)s %(currency)s wurde eröffnet."
+
+msgid "Dispute Information:"
+msgstr "Informationen zur Streitigkeit:"
+
+#, python-format
+msgid "Payment dispute closed: %(status)s"
+msgstr "Zahlungsstreitigkeit abgeschlossen: %(status)s"
+
+#, python-format
+msgid "Payment dispute opened: %(amount)s %(currency)s"
+msgstr "Zahlungsstreitigkeit eröffnet: %(amount)s %(currency)s"
+
+msgid "Evidence due by:"
+msgstr "Nachweise fällig bis:"
+
+msgid ""
+"Disputes are answered in your Stripe Dashboard. Submit your evidence before"
+" the deadline above."
+msgstr ""
+"Streitigkeiten werden in deinem Stripe-Dashboard beantwortet. Reiche deine "
+"Nachweise vor der oben genannten Frist ein."
+
+msgid "Disputes"
+msgstr "Streitigkeiten"
+
+msgid "Bank cannot process"
+msgstr "Bank kann nicht verarbeiten"
+
+msgid "Check returned"
+msgstr "Scheck zurückgegeben"
+
+msgid "Credit not processed"
+msgstr "Gutschrift nicht verarbeitet"
+
+msgid "Customer initiated"
+msgstr "Vom Kunden veranlasst"
+
+msgid "Debit not authorized"
+msgstr "Lastschrift nicht autorisiert"
+
+msgid "Duplicate"
+msgstr "Duplikat"
+
+msgid "Fraudulent"
+msgstr "Betrügerisch"
+
+msgid "General"
+msgstr "Allgemein"
+
+msgid "Incorrect account details"
+msgstr "Falsche Kontodaten"
+
+msgid "Insufficient funds"
+msgstr "Unzureichende Deckung"
+
+msgid "Lost"
+msgstr "Verloren"
+
+msgid "Needs response"
+msgstr "Antwort erforderlich"
+
+msgid "Prevented"
+msgstr "Verhindert"
+
+msgid "Product not received"
+msgstr "Produkt nicht erhalten"
+
+msgid "Product unacceptable"
+msgstr "Produkt nicht akzeptabel"
+
+msgid "Subscription canceled"
+msgstr "Abonnement gekündigt"
+
+msgid "Under review"
+msgstr "In Prüfung"
+
+msgid "Unrecognized"
+msgstr "Nicht erkannt"
+
+msgid "Warning: closed"
+msgstr "Warnung: geschlossen"
+
+msgid "Warning: needs response"
+msgstr "Warnung: Antwort erforderlich"
+
+msgid "Warning: under review"
+msgstr "Warnung: in Prüfung"
+
+msgid "Won"
+msgstr "Gewonnen"

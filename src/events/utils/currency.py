@@ -40,6 +40,19 @@ def _is_zero_decimal(currency: str) -> bool:
     return currency.upper() in _ZERO_DECIMAL_CURRENCIES
 
 
+def format_major_amount(amount: Decimal, currency: str) -> str:
+    """Format a major-unit amount with the currency's own number of decimals.
+
+    Args:
+        amount: Amount in major currency units.
+        currency: ISO 4217 currency code (case-insensitive).
+
+    Returns:
+        ``"50.00"`` for 2-decimal currencies, ``"3000"`` for zero-decimal ones.
+    """
+    return f"{amount:.0f}" if _is_zero_decimal(currency) else f"{amount:.2f}"
+
+
 def to_stripe_amount(amount: Decimal, currency: str) -> int:
     """Convert a major-unit amount to Stripe's smallest-unit integer representation.
 

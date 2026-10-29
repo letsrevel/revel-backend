@@ -11,6 +11,7 @@ from events.admin.attendee_invoice import AttendeeInvoiceAdmin, AttendeeInvoiceC
 from events.admin.blacklist import BlacklistAdmin, WhitelistRequestAdmin
 from events.admin.bookmark import EventBookmarkAdmin
 from events.admin.discount_code import DiscountCodeAdmin
+from events.admin.dispute import DisputeAdmin
 from events.admin.event import (
     EventAdmin,
     EventInvitationAdmin,
@@ -126,6 +127,7 @@ __all__ = [
     "WhitelistRequestAdmin",
     # Discount
     "DiscountCodeAdmin",
+    "DisputeAdmin",
     # Reserved slugs
     "ReservedSlugTokenAdmin",
     # Series passes
