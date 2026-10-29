@@ -29,6 +29,8 @@ from events.service.attendee_invoice_service import (
 )
 from events.tests.test_attendee_invoice._helpers import (
     MOCK_RENDER_PDF,
+    MOCK_SEND_EMAIL,
+    _create_draft,
     _create_payment,
     _default_billing_snapshot,
     _make_org_invoicing_ready,
@@ -277,6 +279,34 @@ class TestGenerateAttendeeInvoice:
         inv2 = generate_attendee_invoice("cs_idemp")
         assert inv1 is not None and inv2 is not None
         assert inv1.id == inv2.id
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_retry_for_an_existing_invoice_does_not_call_stripe(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """The idempotent early return happens before the Stripe payment-means lookup."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_idemp_stripe",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        first = generate_attendee_invoice("cs_idemp_stripe")
+
+        with patch("events.service.attendee_invoice_service.fetch_payment_means") as mock_fetch:
+            again = generate_attendee_invoice("cs_idemp_stripe")
+
+        assert first is not None and again is not None and first.id == again.id
+        mock_fetch.assert_not_called()
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_line_items_built_correctly(
@@ -614,3 +644,69 @@ class TestStructuredAddressSnapshot:
         assert invoice is not None
         assert invoice.seller_country_code == "AT"
         assert invoice.seller_vat_country == "DE"
+
+
+@patch("events.service.attendee_invoice_service.fetch_payment_means")
+@patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+@patch(MOCK_SEND_EMAIL)
+def test_invoice_snapshots_payment_means(
+    _mail: t.Any,
+    _pdf: t.Any,
+    fetch: t.Any,
+    organization: Organization,
+    event: Event,
+    event_ticket_tier: TicketTier,
+    member_user: RevelUser,
+) -> None:
+    from events.models.ticket import Payment
+    from events.service.payment_means_service import PaymentMeans
+
+    org = _make_org_invoicing_ready(organization)
+    org.invoicing_mode = Organization.InvoicingMode.AUTO
+    org.save()
+    payment = _create_payment(
+        user=member_user,
+        event=event,
+        tier=event_ticket_tier,
+        session_id="cs_pm",
+        buyer_billing_snapshot=_default_billing_snapshot(),
+    )
+    Payment.objects.filter(pk=payment.pk).update(stripe_payment_intent_id="pi_pm")
+    fetch.return_value = PaymentMeans("48", "Paid by card", "4242")
+    invoice = generate_attendee_invoice("cs_pm")
+    assert invoice is not None
+    fetch.assert_called_once_with(org, "pi_pm")
+    assert (invoice.payment_means_code, invoice.payment_method_label, invoice.card_last4) == (
+        "48",
+        "Paid by card",
+        "4242",
+    )
+
+
+def test_pdf_prints_card_last4(organization: Organization, event: Event, member_user: RevelUser) -> None:
+    inv = _create_draft(organization, event, member_user)
+    inv.payment_means_code, inv.payment_method_label, inv.card_last4 = "48", "Paid by card", "4242"
+    html = render_to_string("invoices/attendee_invoice.html", {"invoice": inv})
+    assert "Paid by card ending 4242" in html
+    inv.payment_means_code, inv.payment_method_label, inv.card_last4 = "ZZZ", "Paid online via Stripe (iDEAL)", ""
+    html = render_to_string("invoices/attendee_invoice.html", {"invoice": inv})
+    assert "Paid online via Stripe (iDEAL)" in html
+    assert "ending" not in html
+
+
+def test_pdf_card_without_last4_omits_ending(organization: Organization, event: Event, member_user: RevelUser) -> None:
+    inv = _create_draft(organization, event, member_user)
+    inv.payment_means_code, inv.payment_method_label, inv.card_last4 = "48", "Paid by card", ""
+    html = render_to_string("invoices/attendee_invoice.html", {"invoice": inv})
+    assert "Paid by card" in html
+    assert "ending" not in html
+
+
+def test_legacy_invoice_without_payment_means_renders(
+    organization: Organization, event: Event, member_user: RevelUser
+) -> None:
+    inv = _create_draft(organization, event, member_user)
+    assert inv.payment_means_code == ""
+    html = render_to_string("invoices/attendee_invoice.html", {"invoice": inv})
+    assert "Paid by card" not in html
+    assert "Paid online" not in html

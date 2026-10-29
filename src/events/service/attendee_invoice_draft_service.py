@@ -24,6 +24,14 @@ from events.models.attendee_invoice import (
     SubmittedLineItem,
 )
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
+from events.service.attendee_vat_service import out_of_scope_for
+from events.utils.vat_category import (
+    EXEMPT_FALLBACK_TEXT,
+    VatCategory,
+    VatExemptionDict,
+    build_vat_exemptions,
+    derive_vat_category,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -80,8 +88,12 @@ _BLANKABLE_STRING_FIELDS = frozenset(
 )
 
 
-def _normalize_line_items(line_items: list[SubmittedLineItem]) -> list[InvoiceLineItemDict]:
+def _normalize_line_items(
+    line_items: list[SubmittedLineItem], reverse_charge: bool, out_of_scope: bool = False
+) -> list[InvoiceLineItemDict]:
     """Coerce submitted line items to the stored shape: every key present, every amount a string.
+
+    ``vat_category`` is derived from each line's rate and ``reverse_charge``, never taken from the client.
 
     The schema parses amounts as ``Decimal``; the JSON column stores strings, and
     both :func:`_derive_totals` and ``vat_breakdown`` read them back that way.
@@ -94,9 +106,28 @@ def _normalize_line_items(line_items: list[SubmittedLineItem]) -> list[InvoiceLi
             net_amount=str(item.get("net_amount", "0.00")),
             vat_amount=str(item.get("vat_amount", "0.00")),
             vat_rate=str(item.get("vat_rate", "0.00")),
+            vat_category=str(
+                derive_vat_category(Decimal(str(item.get("vat_rate", "0.00"))), reverse_charge, out_of_scope)
+            ),
         )
         for item in line_items
     ]
+
+
+def _recompute_vat_exemptions(
+    invoice: AttendeeInvoice, line_items: list[InvoiceLineItemDict]
+) -> dict[str, VatExemptionDict]:
+    """Rebuild the exemption map for edited lines.
+
+    An exempt text already stored on the draft (a tier's reason, possibly joined) is kept; the
+    generic fallback is not, so it is re-resolved from the organization's default instead.
+    """
+    stored = invoice.vat_exemptions.get("E", {}).get("text", "")
+    if stored and stored != EXEMPT_FALLBACK_TEXT:
+        reasons = [stored]
+    else:
+        reasons = [invoice.organization.vat_exemption_reason] if invoice.organization else []
+    return build_vat_exemptions((VatCategory(item["vat_category"]) for item in line_items), reasons)
 
 
 def _derive_totals(line_items: list[InvoiceLineItemDict]) -> DerivedTotals:
@@ -162,6 +193,35 @@ def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
         )
 
 
+def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.Any]) -> dict[str, t.Any]:
+    """Derive the line-dependent columns of an edit from the post-PATCH state of the locked row.
+
+    Reads the lines and flag from `invoice`, which must be the row re-read under `select_for_update`,
+    never the caller's possibly-stale instance: a reverse_charge- or buyer-country-only PATCH would otherwise write
+    back stale lines over a concurrent line edit.
+
+    Raises:
+        HttpError 422: If the resulting invoice is reverse-charge but a line still carries VAT
+            (EN 16931 BR-AE-05/08).
+    """
+    reverse_charge = bool(update_data.get("reverse_charge", invoice.reverse_charge))
+    submitted = update_data.get("line_items", invoice.line_items)
+    buyer_country = update_data.get("buyer_vat_country", invoice.buyer_vat_country)
+    out_of_scope = out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)
+    line_items = _normalize_line_items(submitted, reverse_charge, out_of_scope)
+    if reverse_charge and any(Decimal(i["vat_rate"]) or Decimal(i["vat_amount"]) for i in line_items):
+        raise HttpError(422, str(_("A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0.")))
+    derived: dict[str, t.Any] = {
+        "line_items": line_items,
+        "vat_exemptions": _recompute_vat_exemptions(invoice, line_items),
+    }
+    if "line_items" in update_data:
+        # Recomputed only on an edit that touches the lines: doing it unconditionally would
+        # zero the totals of any row with empty line_items.
+        derived.update(_derive_totals(line_items))
+    return derived
+
+
 def _apply_draft_update(invoice: AttendeeInvoice, update_data: dict[str, t.Any]) -> AttendeeInvoice:
     """Write an already-validated payload onto the invoice, under a row lock.
 
@@ -180,6 +240,9 @@ def _apply_draft_update(invoice: AttendeeInvoice, update_data: dict[str, t.Any])
         invoice = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
         if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
             raise HttpError(409, str(_("Only draft invoices can be edited.")))
+
+        if {"line_items", "reverse_charge", "buyer_vat_country"} & update_data.keys():
+            update_data.update(_derive_line_item_fields(invoice, update_data))
 
         for field, value in update_data.items():
             setattr(invoice, field, value)
@@ -231,12 +294,6 @@ def update_draft_invoice(
     nulled = {field for field, value in update_data.items() if value is None} - _BLANKABLE_STRING_FIELDS
     if nulled:
         raise HttpError(422, str(_("Fields cannot be null: {fields}")).format(fields=", ".join(sorted(nulled))))
-
-    if "line_items" in update_data:
-        update_data["line_items"] = _normalize_line_items(update_data["line_items"])
-        # Recomputed only on an edit that touches the lines: doing it
-        # unconditionally would zero the totals of any row with empty line_items.
-        update_data.update(_derive_totals(update_data["line_items"]))
 
     # Coerce None -> "" for blankable string columns (FE sends null for cleared fields).
     for field in _BLANKABLE_STRING_FIELDS:

@@ -410,3 +410,20 @@ def payment_factory() -> t.Callable[..., Payment]:
         return Payment.objects.create(**defaults)
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def _stub_fetch_payment_means(request: pytest.FixtureRequest) -> t.Iterator[None]:
+    """Never reach Stripe through invoice generation; opt out with ``@pytest.mark.real_payment_means``."""
+    if request.node.get_closest_marker("real_payment_means"):
+        yield
+        return
+    from unittest.mock import patch
+
+    from events.service.payment_means_service import PaymentMeans
+
+    with patch(
+        "events.service.attendee_invoice_service.fetch_payment_means",
+        return_value=PaymentMeans("ZZZ", "Paid online via Stripe", ""),
+    ):
+        yield

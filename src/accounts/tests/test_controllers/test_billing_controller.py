@@ -312,6 +312,20 @@ class TestUpdateBillingProfile:
 class TestUpdateBillingProfileStructuredAddress:
     URL_NAME = "api:update_billing_profile"
 
+    def test_greek_billing_country_is_stored_as_gr(
+        self, auth_client: Client, billing_profile: UserBillingProfile
+    ) -> None:
+        """PUT accepts the VAT prefix ``el`` and stores ISO ``GR`` for the address."""
+        response = auth_client.put(
+            reverse(self.URL_NAME),
+            data=orjson.dumps({"billing_country_code": "el"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        billing_profile.refresh_from_db()
+        assert billing_profile.billing_country_code == "GR"
+
     def test_sets_structured_address(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
         """PUT stores the structured address and upper-cases the country."""
         response = auth_client.put(

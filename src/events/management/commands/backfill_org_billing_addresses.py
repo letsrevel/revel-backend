@@ -11,8 +11,8 @@ import structlog
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandParser
 
+from common.country import normalize_country_code
 from common.service.stripe_config import configure_stripe
-from events.compliance.registry import normalize_country_code
 from events.models import Organization
 from events.service.stripe_address_service import apply_postal_address, postal_address_from_stripe
 

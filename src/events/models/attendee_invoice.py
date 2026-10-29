@@ -15,6 +15,7 @@ from django.db import models
 from common.fields import ProtectedFileField
 from common.models import EmailDeliverableMixin, TimeStampedModel
 from common.postal_address import PostalAddress
+from events.utils.vat_category import EXEMPT_FALLBACK_TEXT, VatCategory
 
 
 class VatIdStatus(enum.StrEnum):
@@ -65,6 +66,8 @@ class InvoiceLineItemDict(t.TypedDict):
     net_amount: str
     vat_amount: str
     vat_rate: str
+    # EN 16931 category (VatCategory value); absent on lines stored before it existed.
+    vat_category: t.NotRequired[str]
 
 
 class SubmittedLineItem(t.TypedDict, total=False):
@@ -80,6 +83,7 @@ class SubmittedLineItem(t.TypedDict, total=False):
     net_amount: Decimal
     vat_amount: Decimal
     vat_rate: Decimal
+    vat_category: t.NotRequired[str]
 
 
 class DerivedTotals(t.TypedDict):
@@ -262,6 +266,16 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     # unit_price_gross is the amount actually charged, post-discount (net + vat);
     # discount_amount is informational only.
     line_items = models.JSONField(default=list, blank=True)
+    # EN 16931 exemption texts keyed by VAT category ({"E": {"text", "code"}, ...}), derived from the
+    # lines at generation and on DRAFT line edits. Empty on invoices issued before it existed.
+    vat_exemptions = models.JSONField(default=dict, blank=True)
+    # BT-72 / BG-14: event start date (and end date for multi-day events) in the event's timezone.
+    supply_date = models.DateField(null=True, blank=True)
+    supply_period_end = models.DateField(null=True, blank=True)
+    # BT-81 / BT-82 / BG-18 snapshot from the Stripe charge at generation. Blank on legacy invoices.
+    payment_means_code = models.CharField(max_length=3, blank=True, default="")
+    payment_method_label = models.CharField(max_length=100, blank=True, default="")
+    card_last4 = models.CharField(max_length=4, blank=True, default="")
 
     # Seller snapshot (org at time of purchase — NOT editable)
     seller_name = models.CharField(max_length=255)
@@ -352,6 +366,21 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         return vat_breakdown_of(self.line_items)
 
     @property
+    def exempt_reason_text(self) -> str:
+        """The VAT exemption reason printed for exempt (category E) lines, or ``""`` when none."""
+        return str((self.vat_exemptions or {}).get("E", {}).get("text", ""))
+
+    @property
+    def out_of_scope_text(self) -> str:
+        """The notice printed for out-of-scope (category O) lines, or ``""`` when none."""
+        return str((self.vat_exemptions or {}).get("O", {}).get("text", ""))
+
+    @property
+    def exempt_reason_is_fallback(self) -> bool:
+        """Whether the exempt text is the generic fallback rather than a stated reason."""
+        return self.exempt_reason_text == EXEMPT_FALLBACK_TEXT
+
+    @property
     def has_mixed_vat_rates(self) -> bool:
         """Whether the line items carry more than one VAT rate (a mixed-rate cart, #846).
 
@@ -398,6 +427,16 @@ class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def has_exempt_lines(self) -> bool:
+        """Whether any credited line is VAT-exempt (category E), i.e. the exempt notice applies."""
+        return any(item.get("vat_category") == VatCategory.EXEMPT for item in self.line_items)
+
+    @property
+    def has_out_of_scope_lines(self) -> bool:
+        """Whether any credited line is out of EU VAT scope (category O), i.e. the O notice applies."""
+        return any(item.get("vat_category") == VatCategory.OUT_OF_SCOPE for item in self.line_items)
 
     def __str__(self) -> str:
         return f"{self.credit_note_number} (for {self.invoice.invoice_number})"

@@ -12,6 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 
+from common.country import normalize_country_code
 from events.compliance.base import (
     ESTABLISHMENT_ONLY,
     AttendeeInvoicingCapability,
@@ -27,7 +28,6 @@ from events.compliance.base import (
 from events.compliance.registry import (
     get_policy,
     get_policy_for_country,
-    normalize_country_code,
     resolve_org_jurisdiction,
 )
 from events.exceptions import CountryComplianceError

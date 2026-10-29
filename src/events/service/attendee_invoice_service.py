@@ -34,7 +34,20 @@ from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
+from events.service.attendee_vat_service import invoice_out_of_scope, out_of_scope_for
+from events.service.payment_means_service import fetch_payment_means
+from events.service.zero_rate_guard_service import (
+    raise_if_zero_rate_tiers_missing_reason,
+    zero_rate_tiers_missing_reason,
+)
 from events.utils.billing_address import snapshot_buyer_postal_address
+from events.utils.supply_date import supply_dates_for
+from events.utils.vat_category import (
+    VatCategory,
+    build_vat_exemptions,
+    derive_vat_category,
+    effective_vat_exemption_reason,
+)
 from notifications.service.org_sender import org_reply_to
 
 if t.TYPE_CHECKING:
@@ -55,7 +68,8 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
 
     Returns:
         Organization field names (e.g. ``"billing_city"``), in a stable order; ``"vat_id"``
-        stands for "VAT ID not VIES-validated".
+        stands for "VAT ID not VIES-validated" and ``"vat_exemption_reason"`` for a 0% default
+        rate without an exemption reason.
     """
     missing = [
         f"billing_{PostalAddress.FIELD_SUFFIXES[name]}" for name in org.billing_postal_address().missing_fields()
@@ -64,16 +78,23 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
         missing.append("billing_name")
     if not org.vat_id_validated:
         missing.append("vat_id")
+    if zero_rate_tiers_missing_reason(org):
+        missing.append("vat_exemption_reason")
     return missing
 
 
-def validate_invoicing_prerequisites(org: Organization, *, require_structured_address: bool = True) -> None:
+def validate_invoicing_prerequisites(
+    org: Organization, *, require_structured_address: bool = True, require_zero_rate_reasons: bool = True
+) -> None:
     """Validate that an organization meets all requirements for attendee invoicing.
 
     Args:
         org: The organization.
         require_structured_address: Whether the structured billing address is required. Only turning
             invoicing on needs it; an org that already invoices may keep a legacy text address.
+        require_zero_rate_reasons: Whether a paid online 0% tier without an exemption reason is refused.
+            Like the address, only turning invoicing on needs it; later edits are guarded where tiers
+            and the org default change.
 
     Raises:
         HttpError 422: If any prerequisite is not met.
@@ -95,6 +116,9 @@ def validate_invoicing_prerequisites(org: Organization, *, require_structured_ad
     if missing:
         raise HttpError(422, "; ".join(missing))
 
+    if require_zero_rate_reasons:
+        raise_if_zero_rate_tiers_missing_reason(org)
+
 
 def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> Organization:
     """Set the invoicing mode for an organization.
@@ -108,8 +132,9 @@ def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> O
     """
     if mode != Organization.InvoicingMode.NONE:
         compliance.assert_attendee_invoicing_allowed(org)
+        turning_on = org.invoicing_mode == Organization.InvoicingMode.NONE
         validate_invoicing_prerequisites(
-            org, require_structured_address=org.invoicing_mode == Organization.InvoicingMode.NONE
+            org, require_structured_address=turning_on, require_zero_rate_reasons=turning_on
         )
 
     org.invoicing_mode = mode
@@ -122,8 +147,10 @@ def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> O
 # ---------------------------------------------------------------------------
 
 
-def _build_line_items(payments: list[Payment]) -> list[InvoiceLineItemDict]:
-    """Build line item dicts from Payment records."""
+def _build_line_items(
+    payments: list[Payment], reverse_charge: bool = False, out_of_scope: bool = False
+) -> list[InvoiceLineItemDict]:
+    """Build line item dicts from Payment records, each tagged with its EN 16931 VAT category."""
     items: list[InvoiceLineItemDict] = []
     for payment in payments:
         ticket = payment.ticket
@@ -140,9 +167,23 @@ def _build_line_items(payments: list[Payment]) -> list[InvoiceLineItemDict]:
                 net_amount=str(payment.net_amount or payment.amount),
                 vat_amount=str(payment.vat_amount or Decimal("0.00")),
                 vat_rate=str(payment.vat_rate or Decimal("0.00")),
+                vat_category=str(
+                    derive_vat_category(payment.vat_rate or Decimal("0.00"), reverse_charge, out_of_scope)
+                ),
             )
         )
     return items
+
+
+def _exempt_reasons(payments: list[Payment], line_items: list[InvoiceLineItemDict], org: Organization) -> list[str]:
+    """Collect the exemption reason of each exempt (E) line, in line order (tier's, else the org's)."""
+    return [
+        effective_vat_exemption_reason(payment.ticket.tier, org)
+        if payment.ticket.tier
+        else org.vat_exemption_reason.strip()
+        for payment, item in zip(payments, line_items, strict=True)
+        if item.get("vat_category") == VatCategory.EXEMPT
+    ]
 
 
 def _refund_vat_portion(row: Refund) -> Decimal:
@@ -153,7 +194,9 @@ def _refund_vat_portion(row: Refund) -> Decimal:
     return (row.amount * payment.vat_amount / payment.amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _build_refund_line_items(refund_rows: list[Refund]) -> list[InvoiceLineItemDict]:
+def _build_refund_line_items(
+    refund_rows: list[Refund], reverse_charge: bool = False, out_of_scope: bool = False
+) -> list[InvoiceLineItemDict]:
     """Build line item dicts from Refund rows (amount-aware, pro-rata VAT)."""
     items: list[InvoiceLineItemDict] = []
     for row in refund_rows:
@@ -172,6 +215,9 @@ def _build_refund_line_items(refund_rows: list[Refund]) -> list[InvoiceLineItemD
                 net_amount=str(row.amount - vat_amount),
                 vat_amount=str(vat_amount),
                 vat_rate=str(payment.vat_rate or Decimal("0.00")),
+                vat_category=str(
+                    derive_vat_category(payment.vat_rate or Decimal("0.00"), reverse_charge, out_of_scope)
+                ),
             )
         )
     return items
@@ -247,14 +293,19 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         return None
 
     event = first_payment.ticket.event
+    # Reverse charge: use the authoritative decision from checkout, not re-inferred
+    reverse_charge = bool(billing_snapshot.get("reverse_charge", False))
     # The buyer (VAT-ID prefix + checkout VIES outcome) decides the BE/PL domestic-B2B case.
     buyer = BuyerContext.from_billing_snapshot(billing_snapshot)
+    out_of_scope = out_of_scope_for(event, org.vat_country_code, billing_snapshot.get("vat_country_code", ""))
     decision = compliance.attendee_invoicing_for_sale(compliance.sale_nexus(org, [event]), buyer)
     if not decision.allowed:
         # Defense in depth for orgs that enabled invoicing before the gate, moved
         # country, or sell into a restricted country (EU layer 1, #1057-#1067).
         # Recorded so the organizer knows to issue it from its own system (#1091).
-        skipped_fiscal_document_service.record_skipped_invoice(payments, _build_line_items(payments), decision)
+        skipped_fiscal_document_service.record_skipped_invoice(
+            payments, _build_line_items(payments, reverse_charge, out_of_scope), decision
+        )
         logger.warning("attendee_invoice_skipped_country_compliance", org_slug=org.slug, session_id=stripe_session_id)
         return None
 
@@ -265,7 +316,12 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         else AttendeeInvoice.InvoiceStatus.DRAFT
     )
 
-    line_items = _build_line_items(payments)
+    line_items = _build_line_items(payments, reverse_charge, out_of_scope)
+    vat_exemptions = build_vat_exemptions(
+        (VatCategory(item["vat_category"]) for item in line_items), _exempt_reasons(payments, line_items, org)
+    )
+
+    supply_date, supply_period_end = supply_dates_for(event)
 
     # Aggregate totals from payments
     total_gross = sum(p.amount for p in payments)
@@ -277,12 +333,12 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     # (``AttendeeInvoice.has_mixed_vat_rates``) rather than claim this one.
     vat_rate = first_payment.vat_rate or Decimal("0.00")
 
-    # Reverse charge: use the authoritative decision from checkout, not re-inferred
-    reverse_charge = bool(billing_snapshot.get("reverse_charge", False))
-
     # Discount info
     discount_codes = {p.ticket.discount_code.code for p in payments if p.ticket.discount_code}
     discount_amount_total = sum(p.ticket.discount_amount or Decimal("0.00") for p in payments)
+
+    # Stripe lookup stays outside the transaction so no API call runs while the numbering lock is held.
+    payment_means = fetch_payment_means(org, first_payment.stripe_payment_intent_id or "")
 
     with transaction.atomic():
         # Idempotency: check inside transaction to prevent race conditions
@@ -310,6 +366,12 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             discount_code_text=", ".join(sorted(discount_codes)),
             discount_amount_total=discount_amount_total,
             line_items=line_items,
+            vat_exemptions=vat_exemptions,
+            supply_date=supply_date,
+            supply_period_end=supply_period_end,
+            payment_means_code=payment_means.code,
+            payment_method_label=payment_means.label,
+            card_last4=payment_means.card_last4,
             # Seller snapshot. Physical admission is taxed where the event takes
             # place, so the event's VAT country drives the invoice country; a
             # virtual event is supplied from the org's establishment (#869).
@@ -401,12 +463,11 @@ def issue_blocked_reason(invoice: AttendeeInvoice) -> str:
 
 
 def _is_export(invoice: AttendeeInvoice) -> bool:
-    """Check if the invoice was issued as a non-EU export (historical rendering only).
+    """Whether the invoice prints the "Export of services" notice.
 
-    Admission is never zero-rated as an export (#868), so no new invoice is
-    created with this treatment. The ``total_vat == 0`` gate keeps the export
-    wording on historical zero-rated documents (which must re-render as issued)
-    while new non-EU invoices — which now carry full VAT — render normally.
+    Only for historical zero-rated rows that predate VAT categories (they must re-render as
+    issued; admission is no longer zero-rated, #868). Classified rows print their stored
+    exemption text instead (``out_of_scope_text`` for O).
     """
     buyer_country = invoice.buyer_vat_country.upper() if invoice.buyer_vat_country else ""
     return bool(
@@ -414,6 +475,7 @@ def _is_export(invoice: AttendeeInvoice) -> bool:
         and buyer_country not in EU_MEMBER_STATES
         and not invoice.reverse_charge
         and invoice.total_vat == 0
+        and not any("vat_category" in item for item in invoice.line_items)
     )
 
 
@@ -572,7 +634,10 @@ class _CreditNoteBuild(t.NamedTuple):
 
 
 def _build_from_payments(
-    refunded_payments: list[Payment], existing_cns: list[AttendeeInvoiceCreditNote]
+    refunded_payments: list[Payment],
+    existing_cns: list[AttendeeInvoiceCreditNote],
+    reverse_charge: bool = False,
+    out_of_scope: bool = False,
 ) -> AttendeeInvoiceCreditNote | _CreditNoteBuild | None:
     """Legacy payment-keyed path: full payment amounts, exact-set idempotency on payment ids."""
     already_credited_ids: set["UUID"] = set()
@@ -596,14 +661,17 @@ def _build_from_payments(
         amount_gross=sum((p.amount for p in refunded_payments), Decimal("0.00")),
         amount_net=sum((p.net_amount or p.amount for p in refunded_payments), Decimal("0.00")),
         amount_vat=sum((p.vat_amount or Decimal("0.00") for p in refunded_payments), Decimal("0.00")),
-        line_items=_build_line_items(refunded_payments),
+        line_items=_build_line_items(refunded_payments, reverse_charge, out_of_scope),
         payments=refunded_payments,
         refund_rows=None,
     )
 
 
 def _build_from_refund_rows(
-    refund_rows: list[Refund], existing_cns: list[AttendeeInvoiceCreditNote]
+    refund_rows: list[Refund],
+    existing_cns: list[AttendeeInvoiceCreditNote],
+    reverse_charge: bool = False,
+    out_of_scope: bool = False,
 ) -> AttendeeInvoiceCreditNote | _CreditNoteBuild | None:
     """Amount-aware, refund-row-keyed path: pro-rata VAT, exact-set idempotency on refund ids.
 
@@ -641,7 +709,7 @@ def _build_from_refund_rows(
         amount_gross=amount_gross,
         amount_net=amount_gross - amount_vat,
         amount_vat=amount_vat,
-        line_items=_build_refund_line_items(refund_rows),
+        line_items=_build_refund_line_items(refund_rows, reverse_charge, out_of_scope),
         payments={r.payment for r in refund_rows},
         refund_rows=refund_rows,
     )
@@ -693,16 +761,30 @@ def _record_skipped_credit_note(
         # A record without refund rows (legacy path) covers its payments in full.
         covered_payment_ids = {p.id for doc in prior if not doc.refunds.all() for p in doc.payments.all()}
         build: AttendeeInvoiceCreditNote | _CreditNoteBuild | None = None
+        # A skipped invoice has no reverse_charge column; the checkout snapshot on its payments is the source.
+        if isinstance(source, AttendeeInvoice):
+            reverse_charge = source.reverse_charge
+            out_of_scope = invoice_out_of_scope(source)
+        else:
+            sale_payments = [r.payment for r in refund_rows] or list(refunded_payments)
+            snapshot = (sale_payments[0].buyer_billing_snapshot or {}) if sale_payments else {}
+            reverse_charge = bool(snapshot.get("reverse_charge"))
+            sale_event = sale_payments[0].ticket.event if sale_payments else None
+            out_of_scope = out_of_scope_for(
+                sale_event,
+                sale_event.organization.vat_country_code if sale_event else "",
+                snapshot.get("vat_country_code", ""),
+            )
         if refund_rows:
             covered_refund_ids = {r.id for doc in prior for r in doc.refunds.all()}
             rows = [
                 r for r in refund_rows if r.id not in covered_refund_ids and r.payment_id not in covered_payment_ids
             ]
-            build = _build_from_refund_rows(rows, existing_cns) if rows else None
+            build = _build_from_refund_rows(rows, existing_cns, reverse_charge, out_of_scope) if rows else None
         else:
             covered_payment_ids |= {p.id for doc in prior for p in doc.payments.all()}
             payments = [p for p in refunded_payments if p.id not in covered_payment_ids]
-            build = _build_from_payments(payments, existing_cns) if payments else None
+            build = _build_from_payments(payments, existing_cns, reverse_charge, out_of_scope) if payments else None
         if isinstance(build, _CreditNoteBuild):
             skipped_fiscal_document_service.record_skipped_credit_note(
                 source=source,
@@ -792,10 +874,11 @@ def generate_attendee_credit_note(
             AttendeeInvoiceCreditNote.objects.filter(invoice=invoice).prefetch_related("payments", "refunds")
         )
 
+        out_of_scope = invoice_out_of_scope(invoice)
         build = (
-            _build_from_refund_rows(refund_rows, existing_cns)
+            _build_from_refund_rows(refund_rows, existing_cns, invoice.reverse_charge, out_of_scope)
             if refund_ids
-            else _build_from_payments(refunded_payments, existing_cns)
+            else _build_from_payments(refunded_payments, existing_cns, invoice.reverse_charge, out_of_scope)
         )
         if build is None:
             return None

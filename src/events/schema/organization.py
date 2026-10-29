@@ -6,7 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import UUID4, AwareDatetime, EmailStr, Field, StringConstraints, model_validator
+from pydantic import UUID4, AwareDatetime, EmailStr, Field, StringConstraints, computed_field, model_validator
 
 from accounts.schema import BaseEmailJWTPayloadSchema, MemberUserSchema, MinimalRevelUserSchema
 from common.models import SiteSettings
@@ -15,6 +15,7 @@ from common.schema import (
     EmailSchema,
     OneToOneFiftyString,
     StrippedString,
+    VatExemptionReason,
     VATIdUpdateBaseSchema,
 )
 from common.service.vat_utils import TWO_PLACES, b2b_vat_context
@@ -145,6 +146,7 @@ class OrganizationBillingInfoSchema(Schema):
     vat_id: str
     vat_country_code: str
     vat_rate: Decimal
+    vat_exemption_reason: str
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str
@@ -157,7 +159,6 @@ class OrganizationBillingInfoSchema(Schema):
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
     compliance: OrganizationComplianceSchema
-    einvoice_ready: bool
     einvoice_missing_fields: list[str]
 
     @staticmethod
@@ -165,10 +166,14 @@ class OrganizationBillingInfoSchema(Schema):
         """Country-compliance capabilities for the organization."""
         return _compliance(obj)
 
-    @staticmethod
-    def resolve_einvoice_ready(obj: Organization) -> bool:
-        """Whether the seller data is complete enough for compliant e-invoicing."""
-        return not einvoice_missing_fields(obj)
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def einvoice_ready(self) -> bool:
+        """Whether the seller data is complete enough for compliant e-invoicing.
+
+        Derived from `einvoice_missing_fields`, so the (query-backed) check runs once per response.
+        """
+        return not self.einvoice_missing_fields
 
     @staticmethod
     def resolve_einvoice_missing_fields(obj: Organization) -> list[str]:
@@ -184,6 +189,7 @@ class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
     """
 
     vat_rate: Decimal | None = Field(None, ge=0, le=100)
+    vat_exemption_reason: VatExemptionReason = ""
 
 
 class VATIdUpdateSchema(VATIdUpdateBaseSchema):
@@ -348,6 +354,7 @@ class OrganizationAdminDetailSchema(
     vat_id: str
     vat_country_code: str
     vat_rate: Decimal
+    vat_exemption_reason: str
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str

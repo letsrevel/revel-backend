@@ -107,3 +107,10 @@ def test_save_to_profile_updates_only_the_structured_fields_sent(django_user_mod
     profile = UserBillingProfile.objects.get(user=user)
     assert profile.billing_city == "Graz"
     assert profile.billing_address_line1 == "Mariahilfer Str. 1"
+
+
+def test_greek_billing_country_is_stored_as_iso_gr() -> None:
+    """EN 16931 wants ISO ``GR`` for the address, so the VAT prefix ``el`` is accepted and normalized."""
+    snapshot = _snapshot(_info(billing_country_code="el"))
+
+    assert snapshot["billing_country_code"] == "GR"

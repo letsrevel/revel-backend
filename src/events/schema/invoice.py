@@ -17,6 +17,7 @@ from events.models.skipped_fiscal_document import (
     SkippedFiscalDocumentKind,
     SkippedFiscalDocumentReason,
 )
+from events.utils.vat_category import VatCategory
 
 
 class PlatformFeeInvoiceSchema(Schema):
@@ -76,8 +77,12 @@ class InvoicingModeUpdateSchema(Schema):
     mode: Organization.InvoicingMode
 
 
-class InvoiceLineItemSchema(Schema):
-    """Schema for a single line item in an attendee invoice."""
+class InvoiceLineItemInputSchema(Schema):
+    """A line item as submitted in a DRAFT edit.
+
+    ``vat_category`` is derived server-side (EN 16931), so it is not part of the input: a
+    submitted value is ignored (the schema's default ``extra`` handling drops it).
+    """
 
     description: str
     unit_price_gross: Decimal
@@ -85,6 +90,19 @@ class InvoiceLineItemSchema(Schema):
     net_amount: Decimal
     vat_amount: Decimal
     vat_rate: Decimal
+
+
+class InvoiceLineItemSchema(InvoiceLineItemInputSchema):
+    """Schema for a single line item in an attendee invoice response."""
+
+    vat_category: VatCategory | None = None
+
+
+class VatExemptionSchema(Schema):
+    """Exemption text and code printed for a VAT category (EN 16931 BT-120/BT-121)."""
+
+    text: str
+    code: str
 
 
 class InvoiceVatBucketSchema(Schema):
@@ -128,6 +146,12 @@ class AttendeeInvoiceSchema(Schema):
 class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     """Extended schema with full seller/buyer info for org admin views."""
 
+    vat_exemptions: dict[VatCategory, VatExemptionSchema]
+    supply_date: datetime.date | None = None
+    supply_period_end: datetime.date | None = None
+    payment_means_code: str
+    payment_method_label: str
+    card_last4: str
     seller_vat_id: str
     seller_vat_country: str
     seller_address: str
@@ -195,7 +219,7 @@ class UpdateAttendeeInvoiceSchema(Schema):
     currency: str | None = None
     reverse_charge: bool | None = None
     discount_code_text: str | None = None
-    line_items: list[InvoiceLineItemSchema] | None = None
+    line_items: list[InvoiceLineItemInputSchema] | None = None
 
     @field_validator("buyer_country_code")
     @classmethod

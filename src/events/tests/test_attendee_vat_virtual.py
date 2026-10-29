@@ -189,3 +189,39 @@ class TestPhysicalDefault:
             buyer_vat_id_valid=True,
         )
         assert explicit == omitted == FULL_VAT
+
+
+@pytest.mark.parametrize(
+    ("is_virtual", "seller", "buyer", "vat_id_valid", "expected_rate", "expected_rc"),
+    [
+        # Expected pairs hard-coded from the pre-#1234 implementation on main (checkout must not change).
+        (False, "AT", "US", False, "22.00", False),
+        (False, "AT", "", False, "22.00", False),
+        (False, "AT", "DE", True, "22.00", False),
+        (True, "AT", "AT", True, "22.00", False),
+        (True, "AT", "AT", False, "22.00", False),
+        (True, "AT", "DE", True, "0.00", True),
+        (True, "AT", "DE", False, "22.00", False),
+        (True, "GR", "EL", True, "22.00", False),
+        (True, "AT", "EL", True, "0.00", True),
+        (True, "AT", "US", False, "0.00", False),
+        (True, "AT", "us", True, "0.00", False),
+        (True, "AT", "", False, "0.00", False),
+        (True, "AT", "", True, "0.00", False),
+        (True, "", "", False, "22.00", False),
+        (True, "", "US", False, "0.00", False),
+    ],
+)
+def test_pricing_outcomes_match_pre_1234_behaviour(
+    is_virtual: bool, seller: str, buyer: str, vat_id_valid: bool, expected_rate: str, expected_rc: bool
+) -> None:
+    """Pins (vat_rate, reverse_charge) for every buyer class against the pre-PR code, incl. an empty buyer."""
+    result = determine_attendee_vat(
+        gross_price=GROSS,
+        seller_vat_rate=RATE,
+        seller_country=seller,
+        buyer_country=buyer,
+        buyer_vat_id_valid=vat_id_valid,
+        is_virtual=is_virtual,
+    )
+    assert (result.vat_rate, result.reverse_charge) == (Decimal(expected_rate), expected_rc)

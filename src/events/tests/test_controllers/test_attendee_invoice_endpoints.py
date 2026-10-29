@@ -562,6 +562,28 @@ class TestUpdateAttendeeInvoiceEndpoint:
         assert Decimal(data["vat_rate"]) == Decimal("10.00")
         assert [Decimal(b["gross_amount"]) for b in data["vat_breakdown"]] == [Decimal("22.00")]
 
+    @pytest.mark.parametrize("submitted", ["Z", ""])
+    def test_submitted_vat_category_is_ignored_and_server_derived(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+        submitted: str,
+    ) -> None:
+        invoice = _create_draft_invoice(organization, event, member_user, suffix=f"cat_{submitted or 'empty'}")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        line = {**invoice.line_items[0], "vat_category": submitted}
+        response = organization_owner_client.patch(
+            url, data=orjson.dumps({"line_items": [line]}), content_type="application/json"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["line_items"][0]["vat_category"] == "S"
+
     def test_explicit_null_line_items_is_422(
         self,
         organization_owner_client: Client,

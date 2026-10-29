@@ -34,8 +34,10 @@ from events.models import (
 )
 from events.models.mixins import VisibilityMixin
 from events.models.ticket import CancellationSource
+from events.service.attendee_vat_service import get_effective_vat_rate
 from events.service.seating.pricing import price_paid_is_admin_entered, recorded_or_resolved_price
 from events.service.waitlist_service import enqueue_waitlist_processing
+from events.utils.vat_category import ZERO_RATE_RULE_FIELDS, effective_vat_exemption_reason, is_paid_online
 
 if t.TYPE_CHECKING:
     from common.models import FileExport
@@ -473,6 +475,24 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
     return Ticket.objects.full().get(pk=ticket.pk)
 
 
+def _assert_zero_rate_has_exemption_reason(tier: TicketTier, org: Organization) -> None:
+    """Require a VAT exemption reason for a paid online 0% tier of an invoicing organization.
+
+    Free and offline tiers are never invoiced, so they are exempt.
+
+    Raises:
+        HttpError 422: If the org invoices attendees, the tier is paid online, its effective VAT rate
+            is 0 and neither the tier nor the org has an exemption reason.
+    """
+    if org.invoicing_mode == Organization.InvoicingMode.NONE or not is_paid_online(tier):
+        return
+    # The payload is dumped with ``mode="json"``, so the unsaved tier's ``vat_rate`` may still be a str.
+    if tier.vat_rate is not None:
+        tier.vat_rate = Decimal(tier.vat_rate)
+    if get_effective_vat_rate(tier, org) == 0 and not effective_vat_exemption_reason(tier, org):
+        raise HttpError(422, str(_("A VAT exemption reason is required for a ticket tier with a 0% VAT rate.")))
+
+
 @transaction.atomic
 def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> TicketTier:
     """Create a ticket tier from a typed payload, validating online prerequisites and M2M restrictions.
@@ -505,7 +525,9 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
     _drop_null_category_prices(payload_dict)
     # Before the write: a handled exception does not roll back under ATOMIC_REQUESTS.
-    compliance.assert_tier_allowed(TicketTier(event=event, **payload_dict))
+    new_tier = TicketTier(event=event, **payload_dict)
+    compliance.assert_tier_allowed(new_tier)
+    _assert_zero_rate_has_exemption_reason(new_tier, event.organization)
 
     # Append new tiers at the bottom of the list unless the caller pinned an explicit
     # position. Model ordering is ["event", "display_order", "name"], so a new tier left
@@ -620,6 +642,10 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     # Resuming sales counts as a create for the country gate (as for Stripe prerequisites,
     # #945): a paused tier on a blocked channel may be edited, but not put back on sale.
     compliance.assert_tier_allowed(tier, was_allowed=was_allowed or resuming)
+    # Only when the payload touches the VAT setup, or puts the tier back on sale: a legacy 0% tier
+    # without a reason stays editable otherwise.
+    if payload_dict.keys() & ZERO_RATE_RULE_FIELDS or resuming:
+        _assert_zero_rate_has_exemption_reason(tier, tier.event.organization)
 
     if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel

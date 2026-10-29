@@ -3162,6 +3162,18 @@ msgstr "O preço pago não é permitido para tipos de bilhete de preço fixo."
 msgid "Price paid is required for Pay What You Can tiers."
 msgstr "O preço pago é obrigatório para tipos de bilhete de preço livre."
 
+msgid ""
+"A VAT exemption reason is required for a ticket tier with a 0% VAT rate."
+msgstr "É necessário um motivo de isenção de IVA para um tipo de bilhete com taxa de IVA de 0 %."
+
+msgid "A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0."
+msgstr "Uma fatura com autoliquidação não pode cobrar IVA. Define o IVA de cada linha como 0."
+
+msgid ""
+"Some paid ticket tiers have a 0% VAT rate and no exemption reason. "
+"Add a reason to those tiers or set a default reason for the organization."
+msgstr "Alguns escalões de bilhetes pagos têm uma taxa de IVA de 0 % e nenhum motivo de isenção. Adiciona um motivo a esses escalões ou define um motivo predefinido para a organização."
+
 msgid "Tier IDs must match all tiers for this event exactly."
 msgstr ""
 "Os IDs dos tipos de bilhete têm de corresponder exatamente a todos os tipos "
