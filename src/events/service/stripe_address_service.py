@@ -3,6 +3,7 @@
 import typing as t
 
 import structlog
+from django.db import models
 
 from common.postal_address import PostalAddress
 from events.models import Organization
@@ -51,7 +52,7 @@ def apply_postal_address(org: Organization, address: PostalAddress) -> list[str]
         return []
     values = address.to_fields("billing_")
     for field, value in values.items():
-        max_length = Organization._meta.get_field(field).max_length
+        max_length = t.cast("models.Field[t.Any, t.Any]", Organization._meta.get_field(field)).max_length
         if max_length is not None and len(value) > max_length:
             logger.warning("stripe_address_value_too_long", org_id=str(org.id))
             return []
