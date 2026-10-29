@@ -59,6 +59,10 @@ def _snapshot_reason(invoice: AttendeeInvoice) -> str | None:
     """Why the invoice's seller/buyer snapshot cannot carry EN 16931 XML, status aside."""
     if invoice.totals_method != TotalsMethod.EN16931:
         return "legacy_totals"
+    if not invoice.seller_name.strip():
+        return "missing_seller_name"  # BT-27
+    if not invoice.buyer_name.strip():
+        return "missing_buyer_name"  # BT-44
     if not invoice.seller_vat_id:
         return "missing_seller_vat_id"
     if not invoice.seller_country_code:
@@ -266,7 +270,15 @@ def credit_note_draft_for(credit_note: AttendeeInvoiceCreditNote) -> InvoiceDraf
     )
 
 
-def complete_kwargs_for(document: Document) -> dict[str, t.Any]:
+class CompleteKwargs(t.TypedDict):
+    """The keyword arguments :func:`euinvoice.calc.complete` takes besides the draft, as we pass them."""
+
+    paid_amount: Decimal
+    rounding_amount: Decimal | None
+    exemption_reasons: dict[str, ExemptionReason]
+
+
+def complete_kwargs_for(document: Document) -> CompleteKwargs:
     """The inputs of :func:`euinvoice.calc.complete` that cannot be derived from the draft.
 
     BT-113 is the gross the buyer paid (or was refunded), BT-114 the document's own rounding amount,

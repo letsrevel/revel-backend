@@ -16,6 +16,7 @@ from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event, Organization
 from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote, TotalsMethod
+from events.service import einvoice_service
 from events.service.attendee_invoice_service import (
     _generate_and_save_pdf,
     _generate_credit_note_pdf,
@@ -178,19 +179,83 @@ class TestPlainFallback:
         assert logs[0]["rule_ids"] == ["BR-X"]
         assert "boom" not in str(logs)
 
-    def test_embed_error_falls_back(self, invoice: AttendeeInvoice) -> None:
+    def test_embed_error_returns_the_rendered_pdf_a3(self, invoice: AttendeeInvoice) -> None:
+        """A failed embed returns the PDF/A-3b already rendered (a valid plain PDF) instead of rendering twice."""
         with (
-            patch("events.service.einvoice_service.facturx.embed", side_effect=RuntimeError("boom")),
+            patch("events.service.einvoice_service.facturx.embed", side_effect=PdfError("boom")),
             capture_logs() as logs,
         ):
             render = _SpyRender(a3_pdf=b"%PDF-a3")
-            assert facturx_pdf_for(invoice, render) == PLAIN
-        assert render.calls == [True, False]
+            assert facturx_pdf_for(invoice, render) == b"%PDF-a3"
+        assert render.calls == [True]
         (entry,) = logs
         assert entry["event"] == "einvoice_skipped"
-        assert entry["reason"] == "error:RuntimeError"
+        assert entry["reason"] == "error:PdfError"
         assert entry["log_level"] == "warning"
         assert "boom" not in str(logs)
+
+    def test_xml_error_renders_the_plain_pdf(self, invoice: AttendeeInvoice) -> None:
+        with patch("events.service.einvoice_service.to_xml", side_effect=_PREFLIGHT):
+            render = _SpyRender(a3_pdf=b"%PDF-a3")
+            assert facturx_pdf_for(invoice, render) == PLAIN
+        assert render.calls == [False]
+
+    def test_pdf_stack_error_is_a_warning(self, invoice: AttendeeInvoice) -> None:
+        class WeasyError(Exception):
+            __module__ = "weasyprint.errors"
+
+        def boom(pdf_a3: bool) -> bytes:
+            if pdf_a3:
+                raise WeasyError("secret")
+            return PLAIN
+
+        with capture_logs() as logs:
+            assert facturx_pdf_for(invoice, boom) == PLAIN
+        assert logs[0]["log_level"] == "warning"
+        assert logs[0]["reason"] == "error:WeasyError"
+
+    def test_unexpected_exception_is_logged_as_a_bug(self, invoice: AttendeeInvoice) -> None:
+        """Anything that is neither euinvoice nor the PDF stack is a bug of ours: error level, no message."""
+        with (
+            patch("events.service.einvoice_mapping.invoice_draft_for", side_effect=KeyError("secret-value")),
+            capture_logs() as logs,
+        ):
+            assert facturx_pdf_for(invoice, _SpyRender()) == PLAIN
+        (entry,) = logs
+        assert entry["log_level"] == "error"
+        assert entry["reason"] == "bug:KeyError"
+        assert "secret-value" not in str(logs)
+        assert "exc_info" not in entry
+
+    def test_blank_names_stay_plain_without_error_logs(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        for field, reason in (("seller_name", "missing_seller_name"), ("buyer_name", "missing_buyer_name")):
+            doc = make_invoice(organization, event, member_user, lines=[line("24.90", "13.00")], **{field: "  "})
+            with capture_logs() as logs:
+                assert facturx_pdf_for(doc, _SpyRender()) == PLAIN
+            assert logs[0]["log_level"] == "info"
+            assert logs[0]["reason"] == reason
+
+    def test_group_missing_from_euinvoice_breakdown_falls_back(self, invoice: AttendeeInvoice) -> None:
+        """A (category, rate) group we hold that euinvoice's BG-23 lacks is a mismatch, not a silent drop."""
+        real = einvoice_service._vat_per_group
+        extra: dict[tuple[str, Decimal | None], Decimal] = {("S", Decimal("7.00")): Decimal("1.00")}
+        with (
+            patch.object(einvoice_service, "_vat_per_group", lambda lines: {**real(lines), **extra}),
+            capture_logs() as logs,
+        ):
+            assert facturx_pdf_for(invoice, _SpyRender()) == PLAIN
+        assert logs[0]["reason"] == "agreement:BT-117"
+
+    def test_ineligible_document_does_not_query_site_settings(
+        self, organization: Organization, event: Event, member_user: RevelUser, django_assert_num_queries: t.Any
+    ) -> None:
+        draft = make_invoice(
+            organization, event, member_user, lines=[line("24.90", "13.00")], status=AttendeeInvoice.InvoiceStatus.DRAFT
+        )
+        with django_assert_num_queries(0):
+            assert facturx_pdf_for(draft, _SpyRender()) == PLAIN
 
     def test_out_of_scope_mixed_stays_plain(
         self, organization: Organization, event: Event, member_user: RevelUser

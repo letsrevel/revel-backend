@@ -13,18 +13,22 @@ from decimal import Decimal
 
 import structlog
 from euinvoice import calc, facturx, profiles, to_xml
-from euinvoice.errors import PreflightError
-from euinvoice.model import Invoice
+from euinvoice.errors import EuInvoiceError, PreflightError
+from euinvoice.model import Invoice, InvoiceDraft
 
 from common.models import SiteSettings
-from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote, InvoiceLineItemDict
+from events.models.attendee_invoice import AttendeeInvoice, InvoiceLineItemDict
 from events.service import einvoice_mapping as mapping
 
 logger = structlog.get_logger(__name__)
 
 PROFILE: t.Final = profiles.FACTURX_EN16931
 
-Document = AttendeeInvoice | AttendeeInvoiceCreditNote
+Document = mapping.Document
+VatGroups = dict[tuple[str, Decimal | None], Decimal]
+
+# Exceptions from the PDF stack (render and embed) that are routine failures, not bugs of ours.
+_PDF_STACK: t.Final = frozenset({"weasyprint", "pypdf", "pydyf"})
 
 
 class _Skipped(Exception):
@@ -35,40 +39,32 @@ class _Skipped(Exception):
         self.reason = reason
 
 
-def _vat_per_group(lines: list[InvoiceLineItemDict]) -> dict[tuple[str, Decimal | None], Decimal]:
+def _vat_per_group(lines: list[InvoiceLineItemDict]) -> VatGroups:
     """Σ our stored line ``vat_amount`` per ``(category, rate)``, keyed as euinvoice keys BG-23."""
-    groups: dict[tuple[str, Decimal | None], Decimal] = {}
+    groups: VatGroups = {}
     for item in lines:
         key = (item["vat_category"], mapping.line_rate(item))
         groups[key] = groups.get(key, Decimal("0.00")) + Decimal(item["vat_amount"])
     return groups
 
 
-def agreement_mismatch(document: Document, invoice: Invoice) -> str | None:
-    """Return the first business term where euinvoice's arithmetic differs from our stored totals.
+def agreement_mismatch(document: Document, invoice: Invoice, ours: VatGroups) -> str | None:
+    """Return the first business term the overridden ``invoice`` still gets wrong against our figures.
 
-    Runs after :func:`apply_our_vat`, so BT-117 and the terms derived from it already carry our figures;
-    BT-109 must equal our net and BT-115 must be 0 (paid in full). The XML and the PDF come from one
-    snapshot, so any difference is a bug on one side and the XML is refused.
+    Runs after :func:`apply_our_vat`, which already made BT-117, BT-112 and BT-115 follow our VAT, so
+    only what the override cannot fix is left: BT-109 must equal our net, BT-110 the sum of our line
+    VAT, and BT-115 must be 0 (paid in full). The XML and the PDF come from one snapshot, so any
+    difference is a bug on one side and the XML is refused.
 
     Returns:
-        ``"BT-117"``, ``"BT-109"``, ``"BT-110"``, ``"BT-112"`` or ``"BT-115"``, or ``None`` when all agree.
+        ``"BT-109"``, ``"BT-110"`` or ``"BT-115"``, or ``None`` when all agree.
     """
-    if isinstance(document, AttendeeInvoice):
-        net, vat = document.total_net, document.total_vat
-    else:
-        net, vat = document.amount_net, document.amount_vat
-    ours = _vat_per_group(document.line_items)
-    for group in invoice.vat_breakdown:
-        if group.tax_amount != ours.get((group.category_code, group.rate)):
-            return "BT-117"
+    net = document.total_net if isinstance(document, AttendeeInvoice) else document.amount_net
     totals = invoice.totals
     if totals.total_without_vat != net:
         return "BT-109"
-    if totals.total_vat != vat:
+    if totals.total_vat != sum(ours.values(), Decimal("0.00")):
         return "BT-110"
-    if totals.total_with_vat != net + vat:
-        return "BT-112"
     if totals.amount_due != 0:
         return "BT-115"
     return None
@@ -77,7 +73,7 @@ def agreement_mismatch(document: Document, invoice: Invoice) -> str | None:
 _VAT_TOLERANCE: t.Final = Decimal("0.02")
 
 
-def apply_our_vat(document: Document, invoice: Invoice) -> Invoice:
+def apply_our_vat(invoice: Invoice, ours: VatGroups) -> Invoice:
     """Return ``invoice`` with BG-23 BT-117 set to our Σ line VAT, BT-110, BT-112 and BT-115 following.
 
     Telescoped credit-note VAT (a difference of cumulative figures) can differ from euinvoice's
@@ -86,13 +82,15 @@ def apply_our_vat(document: Document, invoice: Invoice) -> Invoice:
     documents this override.
 
     Raises:
-        _Skipped: A group differs from ours by 0.02 or more (or is unknown to us): a real bug, not rounding.
+        _Skipped: The groups differ from ours in either direction, or one is off by 0.02 or more:
+            a real bug, not rounding.
     """
-    ours = _vat_per_group(document.line_items)
+    if {(g.category_code, g.rate) for g in invoice.vat_breakdown} != ours.keys():
+        raise _Skipped("agreement:BT-117")
     groups = []
     for group in invoice.vat_breakdown:
-        mine = ours.get((group.category_code, group.rate))
-        if mine is None or abs(group.tax_amount - mine) >= _VAT_TOLERANCE:
+        mine = ours[(group.category_code, group.rate)]
+        if abs(group.tax_amount - mine) >= _VAT_TOLERANCE:
             raise _Skipped("agreement:BT-117")
         groups.append(group.model_copy(update={"tax_amount": mine}))
     totals = invoice.totals
@@ -105,23 +103,28 @@ def apply_our_vat(document: Document, invoice: Invoice) -> Invoice:
     return Invoice.model_validate({**dict(invoice), "vat_breakdown": tuple(groups), "totals": new_totals})
 
 
-def _xml_for(document: Document) -> bytes:
+def _route(document: Document) -> tuple[str, Callable[[], str | None], Callable[[], InvoiceDraft]]:
+    """``(kind, ineligibility reason, draft)`` for an invoice or a credit note."""
+    if isinstance(document, AttendeeInvoice):
+        invoice = document
+        return "invoice", lambda: mapping.ineligibility_reason(invoice), lambda: mapping.invoice_draft_for(invoice)
+    note = document
+    return (
+        "credit_note",
+        lambda: mapping.credit_note_ineligibility_reason(note),
+        lambda: mapping.credit_note_draft_for(note),
+    )
+
+
+def _xml_for(document: Document, reason_fn: Callable[[], str | None], draft_fn: Callable[[], InvoiceDraft]) -> bytes:
     """The document's EN 16931 CII XML, or :class:`_Skipped` with the reason it gets none."""
+    if (reason := reason_fn()) is not None:  # pure and in memory: checked before the SiteSettings query
+        raise _Skipped(reason)
     if not SiteSettings.get_solo().einvoice_facturx_enabled:
         raise _Skipped("disabled")
-    if isinstance(document, AttendeeInvoice):
-        reason = mapping.ineligibility_reason(document)
-    else:
-        reason = mapping.credit_note_ineligibility_reason(document)
-    if reason is not None:
-        raise _Skipped(reason)
-    draft = (
-        mapping.invoice_draft_for(document)
-        if isinstance(document, AttendeeInvoice)
-        else mapping.credit_note_draft_for(document)
-    )
-    invoice = apply_our_vat(document, calc.complete(draft, **mapping.complete_kwargs_for(document)))
-    if (term := agreement_mismatch(document, invoice)) is not None:
+    ours = _vat_per_group(document.line_items)
+    invoice = apply_our_vat(calc.complete(draft_fn(), **mapping.complete_kwargs_for(document)), ours)
+    if (term := agreement_mismatch(document, invoice, ours)) is not None:
         raise _Skipped(f"agreement:{term}")
     # Runs the profile pre-flight and calc.check; a fatal finding raises PreflightError.
     return to_xml(invoice, profile=PROFILE)
@@ -136,23 +139,26 @@ def facturx_pdf_for(document: Document, render: Callable[[bool], bytes]) -> byte
 
     Returns:
         ``facturx.embed(render(True), xml)`` when the kill switch is on, the document is eligible, our
-        totals and euinvoice's agree and the pre-flight passes; otherwise ``render(False)``.
+        totals and euinvoice's agree and the pre-flight passes; otherwise ``render(False)``. If only
+        the embedding fails, the PDF/A-3b already rendered is returned (it is a valid plain PDF).
     """
-    kind = "invoice" if isinstance(document, AttendeeInvoice) else "credit_note"
+    kind, reason_fn, draft_fn = _route(document)
+    a3: bytes | None = None
     try:
-        xml = _xml_for(document)
-        return facturx.embed(render(True), xml, profile=PROFILE)
+        xml = _xml_for(document, reason_fn, draft_fn)
+        a3 = render(True)
+        return facturx.embed(a3, xml, profile=PROFILE)
     except _Skipped as skipped:
         # Routine: drafts, legacy rows and incomplete snapshots are plain by design.
         logger.info("einvoice_skipped", document_id=str(document.pk), kind=kind, reason=skipped.reason)
     except Exception as exc:  # noqa: BLE001
         # The one place a broad catch is right: "never block issuing or sending" is the anti-goal of
-        # #1235. euinvoice raises PreflightError, ModelError, PdfError and, on hostile input, whatever
-        # pypdf raises; the PDF/A-3 render itself can fail too. Each one means the plain PDF, logged
-        # with ids only so the bug can be chased without exposing the document.
-        # Rule ids (never ``str(exc)``, which can echo document values) are what lets a PreflightError be chased.
-        extra = {"rule_ids": [f.rule_id for f in exc.findings]} if isinstance(exc, PreflightError) else {}
-        logger.warning(
-            "einvoice_skipped", document_id=str(document.pk), kind=kind, reason=f"error:{type(exc).__name__}", **extra
-        )
-    return render(False)
+        # #1235. Everything means a plain PDF. Never ``str(exc)`` or a traceback: messages can echo
+        # document values, so ids, the exception type and PreflightError rule ids are all we log.
+        name = type(exc).__name__
+        if isinstance(exc, EuInvoiceError) or type(exc).__module__.partition(".")[0] in _PDF_STACK:
+            extra = {"rule_ids": [f.rule_id for f in exc.findings]} if isinstance(exc, PreflightError) else {}
+            logger.warning("einvoice_skipped", document_id=str(document.pk), kind=kind, reason=f"error:{name}", **extra)
+        else:  # not euinvoice, not the PDF stack: a bug in our mapping
+            logger.error("einvoice_skipped", document_id=str(document.pk), kind=kind, reason=f"bug:{name}")
+    return a3 if a3 is not None else render(False)
