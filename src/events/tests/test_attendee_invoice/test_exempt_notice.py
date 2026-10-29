@@ -143,3 +143,23 @@ def test_fallback_exempt_text_is_not_prefixed(template: str) -> None:
 def test_stated_reason_is_not_fallback() -> None:
     assert _doc(vat_exemptions={"E": {"text": REASON, "code": ""}}).exempt_reason_is_fallback is False
     assert _doc().exempt_reason_is_fallback is False
+
+
+def test_credit_note_for_the_standard_line_of_a_mixed_invoice_has_no_exempt_notice() -> None:
+    invoice = _doc(
+        line_items=[_line("S", "20.00"), _line("E", "0.00")],
+        vat_exemptions={"E": {"text": REASON, "code": ""}},
+    )
+    s_only = AttendeeInvoiceCreditNote(
+        line_items=[_line("S", "20.00")], amount_net=Decimal("10"), amount_vat=Decimal("0"), amount_gross=Decimal("10")
+    )
+    e_only = AttendeeInvoiceCreditNote(
+        line_items=[_line("E", "0.00")], amount_net=Decimal("10"), amount_vat=Decimal("0"), amount_gross=Decimal("10")
+    )
+    assert s_only.has_exempt_lines is False
+    assert e_only.has_exempt_lines is True
+
+    s_html = render_to_string(CREDIT_NOTE, {"invoice": invoice, "credit_note": s_only})
+    e_html = render_to_string(CREDIT_NOTE, {"invoice": invoice, "credit_note": e_only})
+    assert REASON not in s_html
+    assert f"VAT exempt: {REASON}" in e_html

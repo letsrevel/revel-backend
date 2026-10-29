@@ -15,7 +15,7 @@ from django.db import models
 from common.fields import ProtectedFileField
 from common.models import EmailDeliverableMixin, TimeStampedModel
 from common.postal_address import PostalAddress
-from events.utils.vat_category import EXEMPT_FALLBACK_TEXT
+from events.utils.vat_category import EXEMPT_FALLBACK_TEXT, VatCategory
 
 
 class VatIdStatus(enum.StrEnum):
@@ -422,6 +422,11 @@ class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def has_exempt_lines(self) -> bool:
+        """Whether any credited line is VAT-exempt (category E), i.e. the exempt notice applies."""
+        return any(item.get("vat_category") == VatCategory.EXEMPT for item in self.line_items)
 
     def __str__(self) -> str:
         return f"{self.credit_note_number} (for {self.invoice.invoice_number})"
