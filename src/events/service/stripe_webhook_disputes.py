@@ -47,7 +47,8 @@ class DisputeHandlersMixin:
         ``stripe_dispute_id`` and locked while updated, and a final status
         (won/lost/prevented) is never overwritten by a stale event.
 
-        Staff get an "opened" alert when a dispute is created, when an inquiry
+        Staff get an "opened" alert when the dispute row is first recorded (whichever
+        event type arrives first), when an inquiry
         escalates into a dispute awaiting a response, and when the organization
         only becomes known after the dispute was first recorded; and a "closed"
         alert when it closes. Other updates are silent.
@@ -105,7 +106,7 @@ class DisputeHandlersMixin:
         # created/updated can both carry an open dispute; closed carries the outcome.
         if event.type == "charge.dispute.closed":
             send_payment_disputed(dispute=dispute, outcome="closed")
-        elif not dispute.is_closed and (event.type == "charge.dispute.created" or escalated or org_resolved_late):
+        elif not dispute.is_closed and (created or escalated or org_resolved_late):
             send_payment_disputed(dispute=dispute, outcome="opened")
 
         logger.info("stripe_dispute_recorded", dispute_id=dispute_id, status=dispute.status, created=created)

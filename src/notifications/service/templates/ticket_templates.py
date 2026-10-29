@@ -9,7 +9,7 @@ import structlog
 from django.conf import settings
 from django.utils.translation import gettext as _
 
-from events.models import Event, Ticket
+from events.models import Dispute, Event, Ticket
 from notifications.enums import NotificationType
 from notifications.models import Notification
 from notifications.service.templates.base import NotificationTemplate
@@ -461,12 +461,25 @@ class StaffTicketRefundedTemplate(NotificationTemplate):
 
 
 class StaffPaymentDisputedTemplate(NotificationTemplate):
-    """Template for STAFF_PAYMENT_DISPUTED notification (to org staff/owners)."""
+    """Template for STAFF_PAYMENT_DISPUTED notification (to org staff/owners).
+
+    The context carries raw Stripe status/reason codes; the labels are resolved here, at render
+    time, so each recipient gets them in their own language (the channels activate it first).
+    """
+
+    def _get_template_context(self, notification: Notification) -> dict[str, t.Any]:
+        """Add the recipient-language status and reason labels to the template context."""
+        template_context = super()._get_template_context(notification)
+        context = template_context["context"]
+        context["status_label"] = Dispute.label_for_status(str(context.get("status", "")))
+        context["reason_label"] = Dispute.label_for_reason(str(context.get("reason", "")))
+        return template_context
 
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
         if notification.context.get("outcome") == "closed":
-            return _("Payment dispute closed: %(status)s") % {"status": notification.context.get("status_label", "")}
+            status = Dispute.label_for_status(str(notification.context.get("status", "")))
+            return _("Payment dispute closed: %(status)s") % {"status": status}
         return _("Payment dispute opened: %(amount)s %(currency)s") % {
             "amount": notification.context.get("amount", ""),
             "currency": notification.context.get("currency", ""),

@@ -196,7 +196,7 @@ class TestNotifications:
             assert opened["user"] == stripe_org.owner
             assert opened["context"]["outcome"] == "opened"
             assert opened["context"]["amount"] == "50.00"
-            assert opened["context"]["reason"] == "Fraudulent"
+            assert opened["context"]["reason"] == "fraudulent"
             assert "2027" in opened["context"]["evidence_due_by"]
             assert opened["context"]["dashboard_url"] == (
                 f"https://dashboard.stripe.com/{Payment.stripe_mode()}/disputes/dp_test1"
@@ -318,15 +318,16 @@ class TestLifecycleAndRobustness:
 
         dispute = Dispute.objects.get()
         assert dispute.status == "brand_new_status"
-        assert dispute.status_label == "brand_new_status"
-        assert send_mock.call_args.kwargs["context"]["status_label"] == "brand_new_status"
+        assert Dispute.label_for_status(dispute.status) == "brand_new_status"
+        assert send_mock.call_args.kwargs["context"]["status"] == "brand_new_status"
 
     def test_unknown_reason_falls_back_to_readable_code(self, stripe_org: Organization) -> None:
         obj = _dispute_object()
         obj["reason"] = "some_new_reason"
         with patch(NOTIFY) as send_mock:
             _handle("charge.dispute.created", obj, account="acct_dispute1")
-        assert send_mock.call_args.kwargs["context"]["reason"] == "some new reason"
+        assert send_mock.call_args.kwargs["context"]["reason"] == "some_new_reason"
+        assert Dispute.label_for_reason("some_new_reason") == "some new reason"
 
     def test_late_organization_resolution_sends_one_opened_alert(
         self, event: Event, organization: Organization, organization_owner_user: RevelUser
@@ -361,3 +362,19 @@ class TestLifecycleAndRobustness:
         context = send_mock.call_args.kwargs["context"]
         assert context["amount"] == "3000"
         assert context["currency"] == "JPY"
+
+
+class TestOpenedAlertFollowsRowCreation:
+    def test_first_arriving_updated_event_alerts(self, stripe_org: Organization) -> None:
+        with patch(NOTIFY) as send_mock:
+            _handle("charge.dispute.updated", _dispute_object(), account="acct_dispute1")
+
+        assert _sent_types(send_mock) == [NotificationType.STAFF_PAYMENT_DISPUTED]
+        assert send_mock.call_args.kwargs["context"]["outcome"] == "opened"
+
+    def test_out_of_order_created_for_existing_row_does_not_duplicate(self, stripe_org: Organization) -> None:
+        with patch(NOTIFY) as send_mock:
+            _handle("charge.dispute.updated", _dispute_object(), account="acct_dispute1", event_id="evt_a")
+            _handle("charge.dispute.created", _dispute_object(), account="acct_dispute1", event_id="evt_b")
+
+        assert send_mock.call_count == 1

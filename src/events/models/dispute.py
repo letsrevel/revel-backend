@@ -82,21 +82,21 @@ class Dispute(TimeStampedModel):
     def __str__(self) -> str:
         return f"Dispute {self.stripe_dispute_id} ({self.status}) of {self.amount} {self.currency}"
 
-    @property
-    def status_label(self) -> str:
-        """Translated status label, falling back to the raw value for statuses Revel does not know."""
+    @classmethod
+    def label_for_status(cls, status: str) -> str:
+        """Translated label for a status code, falling back to the raw value for unknown statuses."""
         try:
-            return str(self.DisputeStatus(self.status).label)
+            return str(cls.DisputeStatus(status).label)
         except ValueError:
-            return self.status
+            return status
 
-    @property
-    def reason_label(self) -> str:
-        """Translated reason label, falling back to the raw code with underscores replaced."""
+    @classmethod
+    def label_for_reason(cls, reason: str) -> str:
+        """Translated label for a reason code, falling back to the code with underscores replaced."""
         try:
-            return str(self.DisputeReason(self.reason).label)
+            return str(cls.DisputeReason(reason).label)
         except ValueError:
-            return self.reason.replace("_", " ")
+            return reason.replace("_", " ")
 
     @property
     def is_closed(self) -> bool:

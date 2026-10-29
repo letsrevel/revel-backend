@@ -10,7 +10,7 @@
 
 <div class="card">
     <h3 style="margin-top: 0;">⚠️ {% trans "Dispute Information" %}</h3>
-    <div class="info-row"><span class="label">{% trans "Reason:" %}</span> {{ context.reason }}</div>
+    <div class="info-row"><span class="label">{% trans "Reason:" %}</span> {{ context.reason_label }}</div>
     <div class="info-row"><span class="label">{% trans "Status:" %}</span> {{ context.status_label }}</div>
     {% if context.event_name %}<div class="info-row"><span class="label">{% trans "Event:" %}</span> {{ context.event_name }}</div>{% endif %}
     {% if context.evidence_due_by and context.outcome != "closed" %}<div class="info-row"><span class="label">{% trans "Evidence due by:" %}</span> <strong>{{ context.evidence_due_by }}</strong></div>{% endif %}

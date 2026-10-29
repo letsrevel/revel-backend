@@ -1,10 +1,12 @@
 """Tests for ticket notification templates and attachment generation."""
 
 import base64
+import typing as t
 import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.utils import translation
 
 from accounts.models import RevelUser
 from events.models import Event, Ticket
@@ -560,11 +562,51 @@ class TestTicketCreatedTemplate:
         closed = _create_notification_for_test(
             user=ticket_holder,
             notification_type=NotificationType.STAFF_PAYMENT_DISPUTED,
-            context={"outcome": "closed", "status_label": "Lost"},
+            context={"outcome": "closed", "status": "lost"},
         )
 
         assert "50.00 EUR" in template.get_in_app_title(opened)
         assert "Lost" in template.get_email_subject(closed)
+
+    def test_staff_payment_disputed_labels_follow_each_recipients_language(
+        self, django_user_model: t.Type[RevelUser]
+    ) -> None:
+        """Status and reason labels are resolved per recipient, in every channel (compiled catalogs needed)."""
+        template = get_template(NotificationType.STAFF_PAYMENT_DISPUTED)
+        context: dict[str, object] = {
+            "outcome": "closed",
+            "status": "lost",
+            "reason": "fraudulent",
+            "amount": "50.00",
+            "currency": "EUR",
+        }
+        expected = {"de": ("Verloren", "Betrügerisch"), "it": ("Persa", "Fraudolento")}
+        rendered: dict[str, list[str]] = {}
+        for language in expected:
+            user = django_user_model.objects.create_user(
+                username=f"staff-{language}@example.com",
+                email=f"staff-{language}@example.com",
+                password="pw",
+                language=language,
+            )
+            notification = _create_notification_for_test(
+                user=user, notification_type=NotificationType.STAFF_PAYMENT_DISPUTED, context=context
+            )
+            with translation.override(language):
+                rendered[language] = [
+                    template.get_in_app_title(notification),
+                    template.get_in_app_body(notification),
+                    template.get_email_text_body(notification),
+                    template.get_telegram_body(notification),
+                ]
+
+        for language, (status, reason) in expected.items():
+            assert status in rendered[language][0]
+            for body in rendered[language][1:]:
+                assert status in body
+                assert reason in body
+            other_status, other_reason = expected["it" if language == "de" else "de"]
+            assert not any(other_status in text or other_reason in text for text in rendered[language])
 
     @patch("notifications.service.templates.ticket_templates._build_ticket_attachments")
     def test_get_email_attachments_calls_build_function(

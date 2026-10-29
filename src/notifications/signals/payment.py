@@ -284,10 +284,9 @@ def send_payment_disputed(*, dispute: Dispute, outcome: str) -> None:
         "dispute_id": dispute.stripe_dispute_id,
         "outcome": outcome,
         "status": dispute.status,
-        "status_label": dispute.status_label,
         "amount": format_major_amount(dispute.amount, dispute.currency),
         "currency": dispute.currency,
-        "reason": dispute.reason_label,
+        "reason": dispute.reason,
         "evidence_due_by": format_organization_datetime(dispute.evidence_due_by, organization),
         "dashboard_url": f"https://dashboard.stripe.com/{Payment.stripe_mode()}/disputes/{dispute.stripe_dispute_id}",
     }

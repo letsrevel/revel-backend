@@ -127,7 +127,8 @@ class StaffTicketRefundedContext(TicketRefundedContext):
 class StaffPaymentDisputedContext(BaseNotificationContext):
     """Context for STAFF_PAYMENT_DISPUTED notification (to org staff/owners).
 
-    ``outcome`` is ``opened`` or ``closed``. Deliberately carries no buyer
+    ``status`` and ``reason`` are raw Stripe codes; the template resolves their translated
+    labels per recipient. ``outcome`` is ``opened`` or ``closed``. Deliberately carries no buyer
     identity: amount, event and the dispute reason are enough to act on in the
     Stripe Dashboard.
     """
@@ -137,7 +138,6 @@ class StaffPaymentDisputedContext(BaseNotificationContext):
     dispute_id: str
     outcome: str
     status: str
-    status_label: str
     amount: str
     currency: str
     reason: str
