@@ -5,15 +5,6 @@ import typing as t
 from common.postal_address import PostalAddress
 from events.models import Organization
 
-STRUCTURED_ADDRESS_FIELDS: tuple[str, ...] = (
-    "billing_address_line1",
-    "billing_address_line2",
-    "billing_postal_code",
-    "billing_city",
-    "billing_subdivision",
-    "billing_country_code",
-)
-
 
 def postal_address_from_stripe(account: t.Mapping[str, t.Any]) -> PostalAddress:
     """Extract a structured address from a Stripe account: ``company`` first, then ``individual``.
@@ -45,14 +36,7 @@ def apply_postal_address(org: Organization, address: PostalAddress) -> list[str]
     """
     if org.billing_address_line1 or address.is_empty:
         return []
-    values = {
-        "billing_address_line1": address.line1,
-        "billing_address_line2": address.line2,
-        "billing_postal_code": address.postal_code,
-        "billing_city": address.city,
-        "billing_subdivision": address.subdivision,
-        "billing_country_code": address.country_code,
-    }
+    values = address.to_fields("billing_")
     for field, value in values.items():
         setattr(org, field, value)
     return list(values)

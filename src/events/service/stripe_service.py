@@ -15,6 +15,7 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.postal_address import PostalAddress
 from common.service.exchange_rate_service import convert as convert_currency
 from common.service.stripe_config import configure_stripe
 from common.service.stripe_connect_service import (
@@ -60,7 +61,6 @@ from events.service.pending_checkout import (
 )
 from events.service.seating.pricing import TicketPrice
 from events.service.stripe_address_service import (
-    STRUCTURED_ADDRESS_FIELDS,
     apply_postal_address,
     postal_address_from_stripe,
 )
@@ -189,12 +189,13 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     from accounts.models import UserBillingProfile
 
     profile, _ = UserBillingProfile.objects.get_or_create(user=user)
-    fields_to_update = ["billing_name", "billing_address", "billing_email", *STRUCTURED_ADDRESS_FIELDS]
+    structured = PostalAddress.from_fields(billing_info, "billing_").to_fields("billing_")
+    fields_to_update = ["billing_name", "billing_address", "billing_email", *structured]
     profile.billing_name = billing_info.billing_name
     profile.billing_address = billing_info.billing_address
     profile.billing_email = billing_info.billing_email
-    for field in STRUCTURED_ADDRESS_FIELDS:
-        setattr(profile, field, getattr(billing_info, field))
+    for field, value in structured.items():
+        setattr(profile, field, value)
     if billing_info.vat_id:
         profile.vat_id = billing_info.vat_id
         profile.vat_country_code = billing_info.vat_country_code

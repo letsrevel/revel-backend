@@ -24,11 +24,4 @@ class BillingPostalAddressMixin(models.Model):
 
     def billing_postal_address(self) -> PostalAddress:
         """Return the billing address as a :class:`~common.postal_address.PostalAddress`."""
-        return PostalAddress(
-            line1=self.billing_address_line1,
-            line2=self.billing_address_line2,
-            postal_code=self.billing_postal_code,
-            city=self.billing_city,
-            subdivision=self.billing_subdivision,
-            country_code=self.billing_country_code,
-        )
+        return PostalAddress.from_fields(self, "billing_")

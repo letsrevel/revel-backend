@@ -306,14 +306,7 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         ]
 
     def _postal_address(self, side: t.Literal["seller", "buyer"]) -> PostalAddress:
-        return PostalAddress(
-            line1=getattr(self, f"{side}_address_line1"),
-            line2=getattr(self, f"{side}_address_line2"),
-            postal_code=getattr(self, f"{side}_postal_code"),
-            city=getattr(self, f"{side}_city"),
-            subdivision=getattr(self, f"{side}_subdivision"),
-            country_code=getattr(self, f"{side}_country_code"),
-        )
+        return PostalAddress.from_fields(self, f"{side}_")
 
     @staticmethod
     def _lines(address: PostalAddress, legacy: str) -> list[str]:

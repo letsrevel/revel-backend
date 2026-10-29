@@ -21,6 +21,25 @@ class PostalAddress:
     subdivision: str = ""
     country_code: str = ""
 
+    # Field name -> column-name suffix; a model prefix (``billing_``, ``seller_``, ``buyer_``) is prepended.
+    FIELD_SUFFIXES: t.ClassVar[dict[str, str]] = {
+        "line1": "address_line1",
+        "line2": "address_line2",
+        "postal_code": "postal_code",
+        "city": "city",
+        "subdivision": "subdivision",
+        "country_code": "country_code",
+    }
+
+    def to_fields(self, prefix: str) -> dict[str, str]:
+        """Map the address to ``{prefix + suffix: value}`` model/schema attribute names."""
+        return {f"{prefix}{suffix}": getattr(self, name) for name, suffix in self.FIELD_SUFFIXES.items()}
+
+    @classmethod
+    def from_fields(cls, obj: object, prefix: str) -> "PostalAddress":
+        """Read an address from ``obj``'s ``prefix + suffix`` attributes."""
+        return cls(**{name: getattr(obj, f"{prefix}{suffix}") for name, suffix in cls.FIELD_SUFFIXES.items()})
+
     def missing_fields(self) -> list[str]:
         """Return the required fields that are blank, in declaration order.
 
