@@ -2,6 +2,7 @@
 
 import datetime
 import typing as t
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +11,7 @@ from django.template.loader import render_to_string
 
 from accounts.models import RevelUser
 from events.models import Event, Organization, TicketTier
+from events.models.attendee_invoice import AttendeeInvoiceCreditNote
 from events.service.attendee_invoice_service import generate_attendee_invoice
 from events.tests.test_attendee_invoice._helpers import (
     MOCK_RENDER_PDF,
@@ -78,6 +80,23 @@ class TestSupplyDatesFor:
         )
         assert supply_dates_for(event) == (datetime.date(2026, 12, 31), datetime.date(2027, 1, 1))
 
+    def test_open_ended_event_never_claims_a_period(self, event: Event) -> None:
+        Event.objects.filter(pk=event.pk).update(
+            start=datetime.datetime(2026, 11, 20, 20, 0, tzinfo=UTC),
+            end=datetime.datetime(2026, 11, 21, 20, 0, tzinfo=UTC),
+            is_open_ended=True,
+        )
+        event.refresh_from_db()
+        assert supply_dates_for(event) == (datetime.date(2026, 11, 20), None)
+
+    def test_event_crossing_midnight_keeps_period(self, event: Event) -> None:
+        _set_times(
+            event,
+            datetime.datetime(2026, 11, 20, 20, 0, tzinfo=UTC),
+            datetime.datetime(2026, 11, 21, 2, 0, tzinfo=UTC),
+        )
+        assert supply_dates_for(event) == (datetime.date(2026, 11, 20), datetime.date(2026, 11, 21))
+
 
 @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
 @patch(MOCK_SEND_EMAIL)
@@ -132,3 +151,19 @@ def test_legacy_invoice_without_supply_date_renders(
     assert inv.supply_date is None
     html = render_to_string("invoices/attendee_invoice.html", {"invoice": inv})
     assert "of supply" not in html
+
+
+def test_credit_note_prints_invoice_period(organization: Organization, event: Event, member_user: RevelUser) -> None:
+    inv = _create_draft(organization, event, member_user)
+    inv.supply_date = datetime.date(2026, 11, 20)
+    inv.supply_period_end = datetime.date(2026, 11, 22)
+    credit_note = AttendeeInvoiceCreditNote(
+        invoice=inv,
+        credit_note_number="CN-1",
+        amount_gross=Decimal("1.00"),
+        amount_net=Decimal("1.00"),
+        amount_vat=Decimal("0.00"),
+    )
+    html = render_to_string("invoices/attendee_credit_note.html", {"credit_note": credit_note, "invoice": inv})
+    assert "Period of supply" in html
+    assert "2026-11-20 – 2026-11-22" in html

@@ -12,7 +12,8 @@ if t.TYPE_CHECKING:
 def supply_dates_for(event: "Event") -> tuple[datetime.date, datetime.date | None]:
     """Return the supply date and, for multi-day events, the period end.
 
-    Dates are taken in the event's timezone (city timezone, else UTC).
+    Dates are taken in the event's timezone (city timezone, else UTC). Open-ended events
+    have a synthetic start + 24h ``end``, so they never claim a period.
 
     Args:
         event: The event the admission is supplied for.
@@ -22,5 +23,7 @@ def supply_dates_for(event: "Event") -> tuple[datetime.date, datetime.date | Non
     """
     tz = get_event_timezone(event)
     start = event.start.astimezone(tz).date()
-    end = event.end.astimezone(tz).date() if event.end else start
+    if event.is_open_ended:
+        return start, None
+    end = event.end.astimezone(tz).date()
     return start, (end if end != start else None)
