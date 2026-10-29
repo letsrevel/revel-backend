@@ -10,6 +10,8 @@ from structlog.testing import capture_logs
 from events.models import Organization
 from events.service.payment_means_service import PaymentMeans, fetch_payment_means, payment_means_from_charge
 
+pytestmark = pytest.mark.real_payment_means
+
 FALLBACK = PaymentMeans("ZZZ", "Paid online via Stripe", "")
 RETRIEVE = "events.service.payment_means_service.stripe.PaymentIntent.retrieve"
 
@@ -22,6 +24,10 @@ def test_card_charge_is_48_with_last4() -> None:
     assert payment_means_from_charge(_charge("card", card={"last4": "4242"})) == PaymentMeans(
         "48", "Paid by card", "4242"
     )
+
+
+def test_card_without_last4_is_48_without_digits() -> None:
+    assert payment_means_from_charge(_charge("card", card={})) == PaymentMeans("48", "Paid by card", "")
 
 
 def test_sepa_is_zzz_with_label() -> None:

@@ -666,6 +666,14 @@ def test_pdf_prints_card_last4(organization: Organization, event: Event, member_
     assert "ending" not in html
 
 
+def test_pdf_card_without_last4_omits_ending(organization: Organization, event: Event, member_user: RevelUser) -> None:
+    inv = _create_draft(organization, event, member_user)
+    inv.payment_means_code, inv.payment_method_label, inv.card_last4 = "48", "Paid by card", ""
+    html = render_to_string("invoices/attendee_invoice.html", {"invoice": inv})
+    assert "Paid by card" in html
+    assert "ending" not in html
+
+
 def test_legacy_invoice_without_payment_means_renders(
     organization: Organization, event: Event, member_user: RevelUser
 ) -> None:
