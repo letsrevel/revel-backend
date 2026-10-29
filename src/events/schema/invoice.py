@@ -138,6 +138,8 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     """Extended schema with full seller/buyer info for org admin views."""
 
     vat_exemptions: dict[str, VatExemptionSchema]
+    supply_date: datetime.date | None = None
+    supply_period_end: datetime.date | None = None
     seller_vat_id: str
     seller_vat_country: str
     seller_address: str

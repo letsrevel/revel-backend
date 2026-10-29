@@ -47,6 +47,7 @@
       <div class="invoice-meta">
         <strong>Number</strong> {{ invoice.invoice_number }}<br>
         <strong>Date</strong> {% if invoice.issued_at %}{{ invoice.issued_at|date:"Y-m-d" }}{% else %}—{% endif %}<br>
+        {% if invoice.supply_date %}<strong>{% if invoice.supply_period_end %}Period{% else %}Date{% endif %} of supply</strong> {{ invoice.supply_date|date:"Y-m-d" }}{% if invoice.supply_period_end %} – {{ invoice.supply_period_end|date:"Y-m-d" }}{% endif %}<br>{% endif %}
         <strong>Currency</strong> {{ invoice.currency }}
       </div>
     </div>

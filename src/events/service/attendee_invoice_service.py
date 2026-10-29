@@ -35,6 +35,7 @@ from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
 from events.utils.billing_address import snapshot_buyer_postal_address
+from events.utils.supply_date import supply_dates_for
 from events.utils.vat_category import (
     VatCategory,
     build_vat_exemptions,
@@ -296,6 +297,8 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         (VatCategory(item["vat_category"]) for item in line_items), _exempt_reasons(payments, line_items, org)
     )
 
+    supply_date, supply_period_end = supply_dates_for(event)
+
     # Aggregate totals from payments
     total_gross = sum(p.amount for p in payments)
     total_net = sum(p.net_amount or p.amount for p in payments)
@@ -337,6 +340,8 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             discount_amount_total=discount_amount_total,
             line_items=line_items,
             vat_exemptions=vat_exemptions,
+            supply_date=supply_date,
+            supply_period_end=supply_period_end,
             # Seller snapshot. Physical admission is taxed where the event takes
             # place, so the event's VAT country drives the invoice country; a
             # virtual event is supplied from the org's establishment (#869).

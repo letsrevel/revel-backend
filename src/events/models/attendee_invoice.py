@@ -268,6 +268,9 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     # EN 16931 exemption texts keyed by VAT category ({"E": {"text", "code"}, ...}), derived from the
     # lines at generation and on DRAFT line edits. Empty on invoices issued before it existed.
     vat_exemptions = models.JSONField(default=dict, blank=True)
+    # BT-72 / BG-14: event start date (and end date for multi-day events) in the event's timezone.
+    supply_date = models.DateField(null=True, blank=True)
+    supply_period_end = models.DateField(null=True, blank=True)
 
     # Seller snapshot (org at time of purchase — NOT editable)
     seller_name = models.CharField(max_length=255)
