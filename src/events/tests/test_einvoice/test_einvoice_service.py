@@ -231,7 +231,8 @@ class TestPlainFallback:
         self, organization: Organization, event: Event, member_user: RevelUser
     ) -> None:
         for field, reason in (("seller_name", "missing_seller_name"), ("buyer_name", "missing_buyer_name")):
-            doc = make_invoice(organization, event, member_user, lines=[line("24.90", "13.00")], **{field: "  "})
+            overrides: dict[str, t.Any] = {field: "  "}
+            doc = make_invoice(organization, event, member_user, lines=[line("24.90", "13.00")], **overrides)
             with capture_logs() as logs:
                 assert facturx_pdf_for(doc, _SpyRender()) == PLAIN
             assert logs[0]["log_level"] == "info"
