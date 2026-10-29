@@ -265,3 +265,15 @@ def test_guest_upgrade_enrolls_an_approved_referral_invite(guest_user: RevelUser
 
     assert result == guest_user and result.guest is False
     assert ReferralCode.objects.get(user=guest_user).code == "oidccode"
+
+
+def test_guest_upgrade_clears_guest_notification_defaults(guest_user: RevelUser) -> None:
+    """OIDC guest upgrade removes the guest-default notification overrides (#1248)."""
+    from notifications.enums import NotificationType
+
+    assert str(NotificationType.ORG_ANNOUNCEMENT) in guest_user.notification_preferences.notification_type_settings
+
+    oidc._resolve_user(GOOGLE, claims(email=guest_user.email))
+
+    guest_user.notification_preferences.refresh_from_db()
+    assert guest_user.notification_preferences.notification_type_settings == {}

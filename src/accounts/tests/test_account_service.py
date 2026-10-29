@@ -596,3 +596,19 @@ def test_reset_password_enrolls_a_converted_guest_with_an_approved_invite(
     assert ReferralCode.objects.get(user=guest_user).code == "guestcode"
     application.refresh_from_db()
     assert application.user == guest_user
+
+
+def test_reset_password_conversion_clears_guest_notification_defaults(guest_user: RevelUser) -> None:
+    """Converting a guest via password reset removes the guest-default notification overrides (#1248)."""
+    from notifications.enums import NotificationType
+
+    assert str(NotificationType.ORG_ANNOUNCEMENT) in guest_user.notification_preferences.notification_type_settings
+    reset_payload = schema.PasswordResetJWTPayloadSchema(
+        user_id=guest_user.id, email=guest_user.email, exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME
+    )
+    reset_token = create_token(reset_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+
+    account_service.reset_password(reset_token, "a-Strong-password-123!")
+
+    guest_user.notification_preferences.refresh_from_db()
+    assert guest_user.notification_preferences.notification_type_settings == {}
