@@ -549,6 +549,23 @@ class TestTicketCreatedTemplate:
                 assert "John Doe" in title
                 assert "Ticket Event" in title
 
+    def test_staff_payment_disputed_titles(self, ticket_holder: RevelUser) -> None:
+        """The dispute template distinguishes an opened dispute (amount) from a closed one (outcome)."""
+        template = get_template(NotificationType.STAFF_PAYMENT_DISPUTED)
+        opened = _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.STAFF_PAYMENT_DISPUTED,
+            context={"outcome": "opened", "amount": "50.00", "currency": "EUR"},
+        )
+        closed = _create_notification_for_test(
+            user=ticket_holder,
+            notification_type=NotificationType.STAFF_PAYMENT_DISPUTED,
+            context={"outcome": "closed", "status_label": "Lost"},
+        )
+
+        assert "50.00 EUR" in template.get_in_app_title(opened)
+        assert "Lost" in template.get_email_subject(closed)
+
     @patch("notifications.service.templates.ticket_templates._build_ticket_attachments")
     def test_get_email_attachments_calls_build_function(
         self,
