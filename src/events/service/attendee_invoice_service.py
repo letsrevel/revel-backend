@@ -4,7 +4,7 @@ Handles the full lifecycle of attendee invoices issued on behalf of organizers.
 """
 
 import typing as t
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from email.utils import formataddr, parseaddr
 
 import structlog
@@ -35,6 +35,11 @@ from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
+from events.service.attendee_invoice_lines import (
+    _build_line_items,
+    _build_refund_line_items,
+    _exempt_reasons,
+)
 from events.service.attendee_vat_service import invoice_out_of_scope, out_of_scope_for
 from events.service.credit_note_totals import credit_note_totals
 from events.service.en16931_totals_service import compute_en16931_totals
@@ -48,8 +53,6 @@ from events.utils.supply_date import supply_dates_for
 from events.utils.vat_category import (
     VatCategory,
     build_vat_exemptions,
-    derive_vat_category,
-    effective_vat_exemption_reason,
 )
 from notifications.service.org_sender import org_reply_to
 
@@ -148,82 +151,6 @@ def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> O
 # ---------------------------------------------------------------------------
 # Phase 4: Invoice generation
 # ---------------------------------------------------------------------------
-
-
-def _build_line_items(
-    payments: list[Payment], reverse_charge: bool = False, out_of_scope: bool = False
-) -> list[InvoiceLineItemDict]:
-    """Build line item dicts from Payment records, each tagged with its EN 16931 VAT category."""
-    items: list[InvoiceLineItemDict] = []
-    for payment in payments:
-        ticket = payment.ticket
-        event_name = ticket.event.name if ticket.event else "Unknown Event"
-        tier_name = ticket.tier.name if ticket.tier else "Unknown Tier"
-        # A blank holder name is legal since #845 — skip the segment rather than
-        # leave a trailing separator on the invoice line.
-        description = " — ".join(part for part in (event_name, tier_name, ticket.guest_name.strip()) if part)
-        items.append(
-            InvoiceLineItemDict(
-                description=description,
-                unit_price_gross=str(payment.amount),
-                discount_amount=str(ticket.discount_amount or Decimal("0.00")),
-                net_amount=str(payment.net_amount or payment.amount),
-                vat_amount=str(payment.vat_amount or Decimal("0.00")),
-                vat_rate=str(payment.vat_rate or Decimal("0.00")),
-                vat_category=str(
-                    derive_vat_category(payment.vat_rate or Decimal("0.00"), reverse_charge, out_of_scope)
-                ),
-            )
-        )
-    return items
-
-
-def _exempt_reasons(payments: list[Payment], line_items: list[InvoiceLineItemDict], org: Organization) -> list[str]:
-    """Collect the exemption reason of each exempt (E) line, in line order (tier's, else the org's)."""
-    return [
-        effective_vat_exemption_reason(payment.ticket.tier, org)
-        if payment.ticket.tier
-        else org.vat_exemption_reason.strip()
-        for payment, item in zip(payments, line_items, strict=True)
-        if item.get("vat_category") == VatCategory.EXEMPT
-    ]
-
-
-def _refund_vat_portion(row: Refund) -> Decimal:
-    """Pro-rate a refund row's VAT using its payment's VAT ratio, half-up to cents."""
-    payment = row.payment
-    if not payment.vat_amount or not payment.amount:
-        return Decimal("0.00")
-    return (row.amount * payment.vat_amount / payment.amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _build_refund_line_items(
-    refund_rows: list[Refund], reverse_charge: bool = False, out_of_scope: bool = False
-) -> list[InvoiceLineItemDict]:
-    """Build line item dicts from Refund rows (amount-aware, pro-rata VAT)."""
-    items: list[InvoiceLineItemDict] = []
-    for row in refund_rows:
-        payment = row.payment
-        ticket = payment.ticket
-        event_name = ticket.event.name if ticket.event else "Unknown Event"
-        tier_name = ticket.tier.name if ticket.tier else "Unknown Tier"
-        description = " — ".join(part for part in (event_name, tier_name, ticket.guest_name.strip()) if part)
-        label = "Partial refund" if row.amount < payment.amount else "Refund"
-        vat_amount = _refund_vat_portion(row)
-        items.append(
-            InvoiceLineItemDict(
-                description=f"{label} — {description}",
-                unit_price_gross=str(row.amount),
-                discount_amount=str(Decimal("0.00")),
-                net_amount=str(row.amount - vat_amount),
-                vat_amount=str(vat_amount),
-                vat_rate=str(payment.vat_rate or Decimal("0.00")),
-                vat_category=str(
-                    derive_vat_category(payment.vat_rate or Decimal("0.00"), reverse_charge, out_of_scope)
-                ),
-            )
-        )
-    return items
 
 
 def _sanitize_org_slug(org: Organization, max_len: int) -> str:
