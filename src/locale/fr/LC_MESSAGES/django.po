@@ -3244,6 +3244,14 @@ msgid ""
 "A VAT exemption reason is required for a ticket tier with a 0% VAT rate."
 msgstr "Un motif d'exonération de TVA est requis pour une catégorie de billets avec un taux de TVA de 0 %."
 
+msgid "A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0."
+msgstr "Une facture en autoliquidation ne peut pas facturer de TVA. Mettez la TVA de chaque ligne à 0."
+
+msgid ""
+"Some paid ticket tiers have a 0% VAT rate and no exemption reason. "
+"Add a reason to those tiers or set a default reason for the organization."
+msgstr "Certaines catégories de billets payantes ont un taux de TVA de 0 % et aucun motif d'exonération. Ajoutez un motif à ces catégories ou définissez un motif par défaut pour l'organisation."
+
 msgid "Tier IDs must match all tiers for this event exactly."
 msgstr ""
 "Les identifiants de catégories doivent correspondre exactement à toutes les "

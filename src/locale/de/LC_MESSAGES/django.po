@@ -3253,6 +3253,14 @@ msgid ""
 "A VAT exemption reason is required for a ticket tier with a 0% VAT rate."
 msgstr "Für eine Ticketkategorie mit 0 % MwSt.-Satz ist ein Grund für die Steuerbefreiung erforderlich."
 
+msgid "A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0."
+msgstr "Eine Rechnung mit Reverse-Charge-Verfahren darf keine MwSt. ausweisen. Setze die MwSt. jeder Position auf 0."
+
+msgid ""
+"Some paid ticket tiers have a 0% VAT rate and no exemption reason. "
+"Add a reason to those tiers or set a default reason for the organization."
+msgstr "Einige kostenpflichtige Ticketkategorien haben einen MwSt.-Satz von 0 % und keinen Befreiungsgrund. Füge diesen Kategorien einen Grund hinzu oder lege einen Standardgrund für die Organisation fest."
+
 msgid "Tier IDs must match all tiers for this event exactly."
 msgstr ""
 "Die Stufen-IDs müssen genau mit allen Stufen für dieses Event übereinstimmen."
