@@ -106,7 +106,7 @@ class BuyerContext:
             snapshot: A ``BuyerBillingSnapshot`` (or any mapping with ``vat_id`` and,
                 optionally, ``vat_id_status``); ``None`` for no billing info.
         """
-        from events.compliance.registry import normalize_country_code
+        from common.country import normalize_country_code
         from events.models.attendee_invoice import VatIdStatus
 
         snapshot = snapshot or {}

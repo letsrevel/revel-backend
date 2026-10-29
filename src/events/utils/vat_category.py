@@ -88,7 +88,16 @@ def effective_vat_exemption_reason(tier: "TicketTier", org: "Organization") -> s
 
 # Tier fields whose change can bring a tier under the "0% rate needs an exemption reason" rule.
 ZERO_RATE_RULE_FIELDS = frozenset(
-    {"vat_rate", "vat_exemption_reason", "payment_method", "price", "price_type", "pwyc_min", "pwyc_max", "category_prices"}
+    {
+        "vat_rate",
+        "vat_exemption_reason",
+        "payment_method",
+        "price",
+        "price_type",
+        "pwyc_min",
+        "pwyc_max",
+        "category_prices",
+    }
 )
 
 

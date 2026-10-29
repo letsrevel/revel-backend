@@ -255,7 +255,7 @@ def test_category_prices_update_triggers_the_recheck(
 def test_is_paid_online_with_category_prices() -> None:
     base: dict[str, object] = {"payment_method": "online", "price": "0"}
     cid = "6f1c1d0a-0000-4000-8000-000000000001"
-    assert is_paid_online(TicketTier(**base, category_prices={cid: "25.00"})) is True  # type: ignore[arg-type]
-    assert is_paid_online(TicketTier(**base, category_prices={cid: "0.00"})) is False  # type: ignore[arg-type]
-    assert is_paid_online(TicketTier(**base, category_prices={})) is False  # type: ignore[arg-type]
-    assert is_paid_online(TicketTier(**base, category_prices=None)) is False  # type: ignore[arg-type]
+    assert is_paid_online(TicketTier(**base, category_prices={cid: "25.00"})) is True
+    assert is_paid_online(TicketTier(**base, category_prices={cid: "0.00"})) is False
+    assert is_paid_online(TicketTier(**base, category_prices={})) is False
+    assert is_paid_online(TicketTier(**base, category_prices=None)) is False

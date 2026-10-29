@@ -5,6 +5,7 @@ import typing as t
 
 from django.core.exceptions import ImproperlyConfigured
 
+from common.country import normalize_country_code
 from events.compliance.base import CountryCompliancePolicy, DefaultEUPolicy
 
 if t.TYPE_CHECKING:
@@ -17,15 +18,6 @@ _REGISTRY: dict[str, type[CountryCompliancePolicy]] = {}
 _SUBDIVISIONS: dict[tuple[str, str], str] = {}
 
 _CODE_RE: t.Final = re.compile(r"[A-Z]{2}(-[A-Z0-9]{1,3})?")
-
-# VAT/VIES prefixes that differ from the ISO 3166-1 code.
-_VAT_PREFIX_TO_ISO: t.Final[dict[str, str]] = {"EL": "GR"}
-
-
-def normalize_country_code(code: str | None) -> str:
-    """Upper-case a country code and map VAT-only prefixes (``EL``) to ISO 3166-1."""
-    upper = (code or "").strip().upper()
-    return _VAT_PREFIX_TO_ISO.get(upper, upper)
 
 
 def register(code: str, admin_names: t.Iterable[str] = ()) -> t.Callable[[_P], _P]:

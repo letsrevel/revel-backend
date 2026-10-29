@@ -10,6 +10,7 @@ from pydantic import EmailStr, Field, StringConstraints, field_validator
 # --- Stripe Schemas ---
 # StripeOnboardingLinkSchema and StripeAccountStatusSchema live in common.schema
 # (shared with accounts/referral). Re-exported here for backwards compatibility.
+from common.country import normalize_country_code
 from common.schema import StripeAccountStatusSchema as StripeAccountStatusSchema  # noqa: F401, E402
 from common.schema import StripeOnboardingLinkSchema as StripeOnboardingLinkSchema  # noqa: F401, E402
 from common.schema import StrippedString, validate_country_code
@@ -62,11 +63,17 @@ class BuyerBillingInfoSchema(Schema):
     billing_country_code: t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, max_length=2)] = ""
     save_to_profile: bool = False
 
-    @field_validator("vat_country_code", "billing_country_code")
+    @field_validator("vat_country_code")
     @classmethod
     def validate_vat_country_code(cls, v: str) -> str:
-        """Validate ISO 3166-1 alpha-2 country code or allow empty."""
+        """Validate ISO 3166-1 alpha-2 country code or allow empty (``EL`` stays: it is the VAT prefix)."""
         return validate_country_code(v) or ""
+
+    @field_validator("billing_country_code")
+    @classmethod
+    def validate_billing_country_code(cls, v: str) -> str:
+        """Validate the billing country and map the VAT-only ``EL`` to ISO ``GR`` (EN 16931)."""
+        return validate_country_code(normalize_country_code(v)) or ""
 
     @field_validator("billing_email")
     @classmethod

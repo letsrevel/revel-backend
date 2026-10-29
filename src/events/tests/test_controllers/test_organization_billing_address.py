@@ -121,3 +121,17 @@ def test_patch_billing_info_rejects_overlong_vat_exemption_reason(
     )
 
     assert response.status_code == 422
+
+
+def test_patch_greek_billing_country_is_stored_as_gr(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """``el`` (the VAT prefix) is accepted and normalized to ISO ``GR`` on the billing address."""
+    url = reverse("api:update_billing_info", kwargs={"slug": organization.slug})
+    payload = {"billing_country_code": "el"}
+
+    response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    organization.refresh_from_db()
+    assert organization.billing_country_code == "GR"

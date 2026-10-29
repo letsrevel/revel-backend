@@ -8,6 +8,7 @@ from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, EmailStr, StringConstraints, field_validator, model_validator
 
 from common.constants import is_valid_country_code
+from common.country import normalize_country_code
 
 from .models import SiteSettings, Tag
 from .signing import get_file_url
@@ -74,8 +75,8 @@ class StructuredBillingAddressMixin(Schema):
     @field_validator("billing_country_code")
     @classmethod
     def validate_billing_country_code(cls, v: str) -> str:
-        """Validate billing_country_code is a valid ISO 3166-1 alpha-2 code or empty."""
-        return validate_country_code(v) or ""
+        """Validate billing_country_code (ISO 3166-1 alpha-2 or empty); the VAT prefix ``EL`` becomes ``GR``."""
+        return validate_country_code(normalize_country_code(v)) or ""
 
 
 class BillingInfoSchemaMixin(StructuredBillingAddressMixin):
@@ -92,10 +93,10 @@ class BillingInfoSchemaMixin(StructuredBillingAddressMixin):
     billing_address: str = ""
     billing_email: str = ""
 
-    @field_validator("vat_country_code", "billing_country_code")
+    @field_validator("vat_country_code")
     @classmethod
     def validate_vat_country_code(cls, v: str) -> str:
-        """Validate vat/billing country code is a valid ISO 3166-1 alpha-2 code or empty."""
+        """Validate vat country code is a valid ISO 3166-1 alpha-2 code or empty (``EL`` stays: VAT prefix)."""
         return validate_country_code(v) or ""
 
     @field_validator("billing_email")
