@@ -15,6 +15,7 @@ from common.schema import (
     EmailSchema,
     OneToOneFiftyString,
     StrippedString,
+    VatExemptionReason,
     VATIdUpdateBaseSchema,
 )
 from common.service.vat_utils import TWO_PLACES, b2b_vat_context
@@ -145,6 +146,7 @@ class OrganizationBillingInfoSchema(Schema):
     vat_id: str
     vat_country_code: str
     vat_rate: Decimal
+    vat_exemption_reason: str
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str
@@ -184,6 +186,7 @@ class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
     """
 
     vat_rate: Decimal | None = Field(None, ge=0, le=100)
+    vat_exemption_reason: VatExemptionReason = ""
 
 
 class VATIdUpdateSchema(VATIdUpdateBaseSchema):
@@ -348,6 +351,7 @@ class OrganizationAdminDetailSchema(
     vat_id: str
     vat_country_code: str
     vat_rate: Decimal
+    vat_exemption_reason: str
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str

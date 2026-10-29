@@ -7,6 +7,9 @@ import enum
 import typing as t
 from decimal import Decimal
 
+if t.TYPE_CHECKING:
+    from events.models import Organization, TicketTier
+
 
 class VatCategory(enum.StrEnum):
     """EN 16931 VAT category codes (UNCL5305) used on invoice lines."""
@@ -67,3 +70,12 @@ def build_vat_exemptions(
         reasons = list(dict.fromkeys(r.strip() for r in exempt_reasons if r.strip()))
         exemptions[VatCategory.EXEMPT] = {"text": "; ".join(reasons) or "Exempt from VAT", "code": ""}
     return exemptions
+
+
+def effective_vat_exemption_reason(tier: "TicketTier", org: "Organization") -> str:
+    """Return the exemption reason that applies to a tier: its own, else the organization's default.
+
+    Returns:
+        The stripped reason, or ``""`` when neither is set.
+    """
+    return tier.vat_exemption_reason.strip() or org.vat_exemption_reason.strip()

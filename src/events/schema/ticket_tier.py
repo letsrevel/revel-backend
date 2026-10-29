@@ -9,7 +9,7 @@ from django.db.models import Q
 from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, Field, model_validator
 
-from common.schema import OneToOneFiftyString, StrippedString, viewer_from_context
+from common.schema import OneToOneFiftyString, StrippedString, VatExemptionReason, viewer_from_context
 from events import models
 from events.compliance.enforcement import attendee_invoicing_active
 from events.models import TicketTier
@@ -315,6 +315,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     pwyc_min: Decimal = Field(default=Decimal("1"), ge=1)
     pwyc_max: Decimal | None = Field(None, ge=1)
     vat_rate: Decimal | None = Field(None, ge=0, le=100, description="VAT rate override. Null = use org default.")
+    vat_exemption_reason: VatExemptionReason = ""
 
     currency: Currencies = Field(default="EUR", max_length=3)
     sales_start_at: AwareDatetime | None = None
@@ -390,6 +391,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     pwyc_min: Decimal | None = Field(None, ge=1)
     pwyc_max: Decimal | None = Field(None, ge=1)
     vat_rate: Decimal | None = Field(None, ge=0, le=100, description="VAT rate override. Null = use org default.")
+    vat_exemption_reason: VatExemptionReason = ""
     currency: Currencies | None = None
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
@@ -478,6 +480,7 @@ class TicketTierDetailSchema(ModelSchema):
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
     vat_rate: Decimal | None = None
+    vat_exemption_reason: str = ""
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
     category_prices: CategoryPriceMap = Field(default_factory=dict)
@@ -516,6 +519,7 @@ class TicketTierDetailSchema(ModelSchema):
             "max_tickets_per_user",
             "display_order",
             "vat_rate",
+            "vat_exemption_reason",
             "allow_user_cancellation",
             "cancellation_deadline_hours",
         ]

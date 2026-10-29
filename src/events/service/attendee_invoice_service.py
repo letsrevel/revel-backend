@@ -55,7 +55,8 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
 
     Returns:
         Organization field names (e.g. ``"billing_city"``), in a stable order; ``"vat_id"``
-        stands for "VAT ID not VIES-validated".
+        stands for "VAT ID not VIES-validated" and ``"vat_exemption_reason"`` for a 0% default
+        rate without an exemption reason.
     """
     missing = [
         f"billing_{PostalAddress.FIELD_SUFFIXES[name]}" for name in org.billing_postal_address().missing_fields()
@@ -64,6 +65,8 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
         missing.append("billing_name")
     if not org.vat_id_validated:
         missing.append("vat_id")
+    if org.vat_rate == 0 and not org.vat_exemption_reason.strip():
+        missing.append("vat_exemption_reason")
     return missing
 
 

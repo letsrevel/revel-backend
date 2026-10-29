@@ -328,6 +328,7 @@ class Organization(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Default VAT rate for ticket sales (e.g., 22.00 for 22%).",
     )
+    vat_exemption_reason = models.CharField(max_length=255, blank=True, default="")
     vat_id_validated = models.BooleanField(
         default=False,
         help_text="Whether the VAT ID has been validated via VIES.",

@@ -134,3 +134,14 @@ def test_einvoice_missing_fields_lists_address_before_other_prerequisites(organi
     org.vat_id_validated = False
     org.save()
     assert einvoice_missing_fields(org) == [*ALL_MISSING, "billing_name", "vat_id"]
+
+
+def test_einvoice_missing_lists_exemption_reason_for_zero_rate_org(organization: Organization) -> None:
+    org = _make_org_invoicing_ready(organization)
+    org.vat_rate = 0
+    org.save()
+    assert einvoice_missing_fields(org) == ["vat_exemption_reason"]
+
+    org.vat_exemption_reason = "Art. 132 VAT Directive"
+    org.save()
+    assert einvoice_missing_fields(org) == []
