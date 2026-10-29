@@ -3240,6 +3240,10 @@ msgstr "Le prix payé n'est pas autorisé pour les catégories à prix fixe."
 msgid "Price paid is required for Pay What You Can tiers."
 msgstr "Le prix payé est requis pour les catégories à prix libre."
 
+msgid ""
+"A VAT exemption reason is required for a ticket tier with a 0% VAT rate."
+msgstr "Un motif d'exonération de TVA est requis pour une catégorie de billets avec un taux de TVA de 0 %."
+
 msgid "Tier IDs must match all tiers for this event exactly."
 msgstr ""
 "Les identifiants de catégories doivent correspondre exactement à toutes les "

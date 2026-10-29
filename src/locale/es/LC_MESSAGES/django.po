@@ -3194,6 +3194,10 @@ msgid "Price paid is required for Pay What You Can tiers."
 msgstr ""
 "El precio pagado es obligatorio en los tipos de entrada de precio libre."
 
+msgid ""
+"A VAT exemption reason is required for a ticket tier with a 0% VAT rate."
+msgstr "Se requiere un motivo de exención del IVA para un tipo de entrada con un tipo de IVA del 0 %."
+
 msgid "Tier IDs must match all tiers for this event exactly."
 msgstr ""
 "Los IDs de tipo de entrada deben coincidir exactamente con todos los tipos "

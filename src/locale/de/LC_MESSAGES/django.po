@@ -3249,6 +3249,10 @@ msgid "Price paid is required for Pay What You Can tiers."
 msgstr ""
 "Der bezahlte Preis ist für \"Zahl-was-du-kannst\"-Kategorien erforderlich."
 
+msgid ""
+"A VAT exemption reason is required for a ticket tier with a 0% VAT rate."
+msgstr "Für eine Ticketkategorie mit 0 % MwSt.-Satz ist ein Grund für die Steuerbefreiung erforderlich."
+
 msgid "Tier IDs must match all tiers for this event exactly."
 msgstr ""
 "Die Stufen-IDs müssen genau mit allen Stufen für dieses Event übereinstimmen."

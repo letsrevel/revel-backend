@@ -3162,6 +3162,10 @@ msgstr "O preço pago não é permitido para tipos de bilhete de preço fixo."
 msgid "Price paid is required for Pay What You Can tiers."
 msgstr "O preço pago é obrigatório para tipos de bilhete de preço livre."
 
+msgid ""
+"A VAT exemption reason is required for a ticket tier with a 0% VAT rate."
+msgstr "É necessário um motivo de isenção de IVA para um tipo de bilhete com taxa de IVA de 0 %."
+
 msgid "Tier IDs must match all tiers for this event exactly."
 msgstr ""
 "Os IDs dos tipos de bilhete têm de corresponder exatamente a todos os tipos "
