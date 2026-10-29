@@ -16,6 +16,7 @@ from common.schema import (
     EmailSchema,
     ProfilePictureSchemaMixin,
     StrippedString,
+    StructuredBillingAddressMixin,
     VATCountryCode,
     VATIdUpdateBaseSchema,
     validate_country_code,
@@ -488,7 +489,7 @@ class UserBillingProfileSchema(ModelSchema):
         ]
 
 
-class UserBillingProfileCreateSchema(Schema):
+class UserBillingProfileCreateSchema(StructuredBillingAddressMixin):
     """Schema for creating a user billing profile."""
 
     billing_name: StrippedString = Field(..., min_length=1, max_length=255, description="Legal name for invoicing")

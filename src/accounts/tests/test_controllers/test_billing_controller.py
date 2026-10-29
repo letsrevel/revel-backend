@@ -583,3 +583,35 @@ class TestDeleteBillingProfile:
         response = client.delete(url)
 
         assert response.status_code == 401
+
+
+class TestCreateBillingProfileStructuredAddress:
+    def test_create_stores_structured_address(self, auth_client: Client, user: RevelUser) -> None:
+        """POST accepts and stores the structured address (country upper-cased)."""
+        response = auth_client.post(
+            reverse("api:create_billing_profile"),
+            data=orjson.dumps(
+                {
+                    "billing_name": "John Doe",
+                    "billing_address_line1": "Musterstraße 42",
+                    "billing_postal_code": "1010",
+                    "billing_city": "Wien",
+                    "billing_country_code": "at",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+        profile = UserBillingProfile.objects.get(user=user)
+        assert profile.billing_postal_address().is_complete
+        assert profile.billing_country_code == "AT"
+        assert profile.billing_city == "Wien"
+
+    def test_create_rejects_overlong_postal_code(self, auth_client: Client) -> None:
+        response = auth_client.post(
+            reverse("api:create_billing_profile"),
+            data=orjson.dumps({"billing_name": "John Doe", "billing_postal_code": "x" * 30}),
+            content_type="application/json",
+        )
+        assert response.status_code == 422
