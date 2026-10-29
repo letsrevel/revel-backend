@@ -25,12 +25,13 @@ def _dispute_object(
     status: str = "needs_response",
     payment_intent: str | None = "pi_dispute1",
     amount: int = 5000,
+    currency: str = "eur",
 ) -> dict[str, t.Any]:
     return {
         "id": dispute_id,
         "object": "dispute",
         "amount": amount,
-        "currency": "eur",
+        "currency": currency,
         "charge": "ch_dispute1",
         "payment_intent": payment_intent,
         "reason": "fraudulent",
@@ -195,9 +196,11 @@ class TestNotifications:
             assert opened["user"] == stripe_org.owner
             assert opened["context"]["outcome"] == "opened"
             assert opened["context"]["amount"] == "50.00"
-            assert opened["context"]["reason"] == "fraudulent"
-            assert opened["context"]["evidence_due_by"] == "2027-01-15 08:00 UTC"
-            assert "dp_test1" in opened["context"]["dashboard_url"]
+            assert opened["context"]["reason"] == "Fraudulent"
+            assert "2027" in opened["context"]["evidence_due_by"]
+            assert opened["context"]["dashboard_url"] == (
+                f"https://dashboard.stripe.com/{Payment.stripe_mode()}/disputes/dp_test1"
+            )
             assert "email" not in " ".join(str(v) for v in opened["context"].values()).lower()
 
             send_mock.reset_mock()
@@ -245,3 +248,116 @@ def test_provisioning_subscribes_dispute_events() -> None:
     expected = {"charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"}
     assert expected <= set(PLATFORM_EVENTS)
     assert expected <= set(CONNECT_EVENTS)
+
+
+class TestLifecycleAndRobustness:
+    def test_inquiry_escalating_to_dispute_notifies_again(self, stripe_org: Organization) -> None:
+        with patch(NOTIFY) as send_mock:
+            _handle(
+                "charge.dispute.created",
+                _dispute_object(status="warning_needs_response"),
+                account="acct_dispute1",
+                event_id="evt_a",
+            )
+            send_mock.reset_mock()
+            _handle(
+                "charge.dispute.updated",
+                _dispute_object(status="warning_under_review"),
+                account="acct_dispute1",
+                event_id="evt_b",
+            )
+            assert not send_mock.called  # still an inquiry
+            _handle(
+                "charge.dispute.updated",
+                _dispute_object(status="needs_response"),
+                account="acct_dispute1",
+                event_id="evt_c",
+            )
+
+        assert _sent_types(send_mock) == [NotificationType.STAFF_PAYMENT_DISPUTED]
+        assert send_mock.call_args.kwargs["context"]["outcome"] == "opened"
+        assert send_mock.call_args.kwargs["context"]["evidence_due_by"]
+        assert Dispute.objects.get().status == Dispute.DisputeStatus.NEEDS_RESPONSE
+
+    def test_closed_inquiry_can_still_escalate(self, stripe_org: Organization) -> None:
+        with patch(NOTIFY) as send_mock:
+            _handle(
+                "charge.dispute.closed",
+                _dispute_object(status="warning_closed"),
+                account="acct_dispute1",
+                event_id="evt_a",
+            )
+            assert Dispute.objects.get().closed_at is not None
+            send_mock.reset_mock()
+            _handle(
+                "charge.dispute.updated",
+                _dispute_object(status="needs_response"),
+                account="acct_dispute1",
+                event_id="evt_b",
+            )
+
+        dispute = Dispute.objects.get()
+        assert dispute.status == Dispute.DisputeStatus.NEEDS_RESPONSE
+        assert dispute.closed_at is None
+        assert send_mock.call_args.kwargs["context"]["outcome"] == "opened"
+
+    def test_final_status_is_not_reopened(self, stripe_org: Organization) -> None:
+        with patch(NOTIFY):
+            _handle("charge.dispute.closed", _dispute_object(status="lost"), account="acct_dispute1", event_id="evt_a")
+            _handle(
+                "charge.dispute.updated",
+                _dispute_object(status="needs_response"),
+                account="acct_dispute1",
+                event_id="evt_b",
+            )
+        assert Dispute.objects.get().status == Dispute.DisputeStatus.LOST
+
+    def test_unknown_status_is_stored_without_crashing(self, stripe_org: Organization) -> None:
+        with patch(NOTIFY) as send_mock:
+            _handle("charge.dispute.created", _dispute_object(status="brand_new_status"), account="acct_dispute1")
+
+        dispute = Dispute.objects.get()
+        assert dispute.status == "brand_new_status"
+        assert dispute.status_label == "brand_new_status"
+        assert send_mock.call_args.kwargs["context"]["status_label"] == "brand_new_status"
+
+    def test_unknown_reason_falls_back_to_readable_code(self, stripe_org: Organization) -> None:
+        obj = _dispute_object()
+        obj["reason"] = "some_new_reason"
+        with patch(NOTIFY) as send_mock:
+            _handle("charge.dispute.created", obj, account="acct_dispute1")
+        assert send_mock.call_args.kwargs["context"]["reason"] == "some new reason"
+
+    def test_late_organization_resolution_sends_one_opened_alert(
+        self, event: Event, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        with patch(NOTIFY) as send_mock:
+            _handle("charge.dispute.created", _dispute_object(), account=None, event_id="evt_a")
+            assert not send_mock.called
+            _payment(event, organization_owner_user)
+            _handle("charge.dispute.updated", _dispute_object(), account=None, event_id="evt_b")
+            assert _sent_types(send_mock) == [NotificationType.STAFF_PAYMENT_DISPUTED]
+            assert send_mock.call_args.kwargs["context"]["outcome"] == "opened"
+            _handle("charge.dispute.updated", _dispute_object(), account=None, event_id="evt_c")
+            assert send_mock.call_count == 1
+
+    def test_late_organization_is_backfilled_on_stale_event(
+        self, event: Event, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        with patch(NOTIFY):
+            _handle("charge.dispute.closed", _dispute_object(status="won"), account=None, event_id="evt_a")
+            assert Dispute.objects.get().organization is None
+            _payment(event, organization_owner_user)
+            _handle("charge.dispute.created", _dispute_object(), account=None, event_id="evt_b")
+        dispute = Dispute.objects.get()
+        assert dispute.status == Dispute.DisputeStatus.WON
+        assert dispute.organization == organization
+
+    def test_zero_decimal_currency_amount(self, stripe_org: Organization) -> None:
+        with patch(NOTIFY) as send_mock:
+            _handle("charge.dispute.created", _dispute_object(amount=3000, currency="jpy"), account="acct_dispute1")
+
+        assert Dispute.objects.get().amount == Decimal("3000")
+        context = send_mock.call_args.kwargs["context"]
+        assert context["amount"] == "3000"
+        assert context["currency"] == "JPY"

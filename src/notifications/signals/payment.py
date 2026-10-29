@@ -11,8 +11,14 @@ from django.dispatch import receiver
 
 from common.models import SiteSettings
 from events.models import Dispute, Event, Payment, Ticket
+from events.utils import format_organization_datetime
+from events.utils.currency import format_major_amount
 from events.utils.frontend_urls import frontend_base_url_for
-from notifications.context_schemas import EventRefundSummaryContext, RefundUnmatchedCandidate
+from notifications.context_schemas import (
+    EventRefundSummaryContext,
+    RefundUnmatchedCandidate,
+    StaffPaymentDisputedContext,
+)
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
 from notifications.signals import notification_requested
@@ -272,19 +278,18 @@ def send_payment_disputed(*, dispute: Dispute, outcome: str) -> None:
         return
 
     first_payment = dispute.linked_payments().select_related("ticket__event").first()
-    due_by = dispute.evidence_due_by
-    context: dict[str, t.Any] = {
+    context: StaffPaymentDisputedContext = {
         "organization_id": str(organization.id),
         "organization_name": organization.name,
         "dispute_id": dispute.stripe_dispute_id,
         "outcome": outcome,
         "status": dispute.status,
-        "status_label": str(Dispute.DisputeStatus(dispute.status).label),
-        "amount": f"{dispute.amount:.2f}",
+        "status_label": dispute.status_label,
+        "amount": format_major_amount(dispute.amount, dispute.currency),
         "currency": dispute.currency,
-        "reason": dispute.reason.replace("_", " "),
-        "evidence_due_by": due_by.strftime("%Y-%m-%d %H:%M UTC") if due_by else "",
-        "dashboard_url": f"https://dashboard.stripe.com/disputes/{dispute.stripe_dispute_id}",
+        "reason": dispute.reason_label,
+        "evidence_due_by": format_organization_datetime(dispute.evidence_due_by, organization),
+        "dashboard_url": f"https://dashboard.stripe.com/{Payment.stripe_mode()}/disputes/{dispute.stripe_dispute_id}",
     }
     if first_payment is not None:
         context["event_id"] = str(first_payment.ticket.event_id)
