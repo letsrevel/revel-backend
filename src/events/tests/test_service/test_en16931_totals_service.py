@@ -7,7 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import pytest
 
 from events.models.attendee_invoice import InvoiceLineItemDict
-from events.service.en16931_totals_service import compute_en16931_totals, group_net_vat
+from events.service.en16931_totals_service import compute_en16931_totals, group_net_vat, sum_line_amounts
 from events.utils.vat_category import derive_vat_category
 
 CENT = Decimal("0.01")
@@ -156,3 +156,12 @@ class TestComputeEn16931Totals:
                 ]
                 non_footing = [delta for delta in off_by if delta != 0]
                 assert non_footing == ([-group.rounding] if group.rounding != 0 else [])
+
+
+def test_sum_line_amounts_returns_the_three_stored_sums() -> None:
+    """The legacy triple every pre-EN 16931 site sums: gross, net, VAT, straight from the stored strings."""
+    lines = [_line("24.90", "13.00"), _line("10.00", "0.00")]
+    lines[0]["net_amount"], lines[0]["vat_amount"] = "22.04", "2.86"
+    lines[1]["net_amount"] = "10.00"
+    assert sum_line_amounts(lines) == (Decimal("34.90"), Decimal("32.04"), Decimal("2.86"))
+    assert sum_line_amounts([]) == (Decimal("0.00"), Decimal("0.00"), Decimal("0.00"))

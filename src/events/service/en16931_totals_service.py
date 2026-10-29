@@ -46,6 +46,16 @@ class En16931Totals(t.NamedTuple):
     rounding_amount: Decimal
 
 
+def sum_line_amounts(lines: t.Iterable[InvoiceLineItemDict]) -> tuple[Decimal, Decimal, Decimal]:
+    """``(gross, net, vat)`` summed straight from the stored strings: the legacy, pre-EN 16931 triple."""
+    gross = net = vat = ZERO
+    for line in lines:
+        gross += Decimal(line["unit_price_gross"])
+        net += Decimal(line["net_amount"])
+        vat += Decimal(line["vat_amount"])
+    return gross, net, vat
+
+
 def _vat_of(net: Decimal, rate: Decimal) -> Decimal:
     return (net * rate / 100).quantize(CENT, rounding=ROUND_HALF_UP)
 

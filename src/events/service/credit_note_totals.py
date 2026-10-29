@@ -20,7 +20,14 @@ import typing as t
 from decimal import Decimal
 
 from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote, InvoiceLineItemDict, TotalsMethod
-from events.service.en16931_totals_service import ZERO, GroupKey, group_lines, group_net_vat, spread_group_lines
+from events.service.en16931_totals_service import (
+    ZERO,
+    GroupKey,
+    group_lines,
+    group_net_vat,
+    spread_group_lines,
+    sum_line_amounts,
+)
 
 
 class CreditNoteTotals(t.NamedTuple):
@@ -44,11 +51,12 @@ _NOTHING = _GroupSum(ZERO, ZERO, ZERO)
 
 
 def _legacy(lines: list[InvoiceLineItemDict]) -> CreditNoteTotals:
+    gross, net, vat = sum_line_amounts(lines)
     return CreditNoteTotals(
         lines=lines,
-        amount_gross=sum((Decimal(line["unit_price_gross"]) for line in lines), ZERO),
-        amount_net=sum((Decimal(line["net_amount"]) for line in lines), ZERO),
-        amount_vat=sum((Decimal(line["vat_amount"]) for line in lines), ZERO),
+        amount_gross=gross,
+        amount_net=net,
+        amount_vat=vat,
         rounding_amount=ZERO,
         totals_method=TotalsMethod.LEGACY,
     )
@@ -57,11 +65,7 @@ def _legacy(lines: list[InvoiceLineItemDict]) -> CreditNoteTotals:
 def _group_sums(lines: list[InvoiceLineItemDict], reverse_charge: bool) -> dict[GroupKey, _GroupSum]:
     """Stored ``(gross, net, vat)`` per group of ``lines``."""
     return {
-        key: _GroupSum(
-            sum((Decimal(lines[i]["unit_price_gross"]) for i in indexes), ZERO),
-            sum((Decimal(lines[i]["net_amount"]) for i in indexes), ZERO),
-            sum((Decimal(lines[i]["vat_amount"]) for i in indexes), ZERO),
-        )
+        key: _GroupSum(*sum_line_amounts(lines[i] for i in indexes))
         for key, indexes in group_lines(lines, reverse_charge).items()
     }
 
