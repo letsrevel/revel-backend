@@ -140,6 +140,9 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     vat_exemptions: dict[str, VatExemptionSchema]
     supply_date: datetime.date | None = None
     supply_period_end: datetime.date | None = None
+    payment_means_code: str
+    payment_method_label: str
+    card_last4: str
     seller_vat_id: str
     seller_vat_country: str
     seller_address: str

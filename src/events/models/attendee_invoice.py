@@ -271,6 +271,10 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     # BT-72 / BG-14: event start date (and end date for multi-day events) in the event's timezone.
     supply_date = models.DateField(null=True, blank=True)
     supply_period_end = models.DateField(null=True, blank=True)
+    # BT-81 / BT-82 / BG-18 snapshot from the Stripe charge at generation. Blank on legacy invoices.
+    payment_means_code = models.CharField(max_length=3, blank=True, default="")
+    payment_method_label = models.CharField(max_length=100, blank=True, default="")
+    card_last4 = models.CharField(max_length=4, blank=True, default="")
 
     # Seller snapshot (org at time of purchase — NOT editable)
     seller_name = models.CharField(max_length=255)

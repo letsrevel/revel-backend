@@ -34,6 +34,7 @@ from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
+from events.service.payment_means_service import fetch_payment_means
 from events.utils.billing_address import snapshot_buyer_postal_address
 from events.utils.supply_date import supply_dates_for
 from events.utils.vat_category import (
@@ -313,6 +314,9 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     discount_codes = {p.ticket.discount_code.code for p in payments if p.ticket.discount_code}
     discount_amount_total = sum(p.ticket.discount_amount or Decimal("0.00") for p in payments)
 
+    # Stripe lookup stays outside the transaction so no API call runs while the numbering lock is held.
+    payment_means = fetch_payment_means(org, first_payment.stripe_payment_intent_id or "")
+
     with transaction.atomic():
         # Idempotency: check inside transaction to prevent race conditions
         existing = AttendeeInvoice.objects.filter(stripe_session_id=stripe_session_id).first()
@@ -342,6 +346,9 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             vat_exemptions=vat_exemptions,
             supply_date=supply_date,
             supply_period_end=supply_period_end,
+            payment_means_code=payment_means.code,
+            payment_method_label=payment_means.label,
+            card_last4=payment_means.card_last4,
             # Seller snapshot. Physical admission is taxed where the event takes
             # place, so the event's VAT country drives the invoice country; a
             # virtual event is supplied from the org's establishment (#869).

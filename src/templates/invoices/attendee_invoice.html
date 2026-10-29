@@ -129,6 +129,15 @@
         <small style="color: #888;">Includes discount of {{ invoice.discount_amount_total|format_currency:invoice.currency }}</small>
       </div>
       {% endif %}
+      {% if invoice.payment_means_code == "48" and invoice.card_last4 %}
+      <div class="totals-row" style="justify-content: flex-end;">
+        <small style="color: #888;">Paid by card ending {{ invoice.card_last4 }}</small>
+      </div>
+      {% elif invoice.payment_method_label %}
+      <div class="totals-row" style="justify-content: flex-end;">
+        <small style="color: #888;">{{ invoice.payment_method_label }}</small>
+      </div>
+      {% endif %}
     </div>
   </div>
 
